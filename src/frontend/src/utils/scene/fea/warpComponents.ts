@@ -47,6 +47,28 @@ export function translationOffsets(field: FeaManifestField): [number, number, nu
     return [n >= 1 ? 0 : -1, n >= 2 ? 1 : -1, n >= 3 ? 2 : -1];
 }
 
+/** Accepted spellings per rotation axis, lowercased. Order is x, y, z.
+ *  Sesam RX..RZ, Code_Aster DRX..DRZ, Abaqus UR1..UR3. */
+const ROTATION_ALIASES: readonly (readonly string[])[] = [
+    ["rx", "drx", "ur1", "r1", "rotx", "thx"],
+    ["ry", "dry", "ur2", "r2", "roty", "thy"],
+    ["rz", "drz", "ur3", "r3", "rotz", "thz"],
+];
+
+/**
+ * Offsets of (rx, ry, rz) within one point's record, or null when the field
+ * does not name all three.
+ *
+ * By name only. There is no positional reading to fall back on: a three-
+ * component field has no rotations, and guessing slots 3..5 of an unnamed
+ * record would twist a model by whatever happens to sit there.
+ */
+export function rotationOffsets(field: FeaManifestField): [number, number, number] | null {
+    const names = field.components.map((c) => c.toLowerCase());
+    const byName = ROTATION_ALIASES.map((aliases) => names.findIndex((n) => aliases.includes(n)));
+    return byName.every((i) => i >= 0) ? (byName as [number, number, number]) : null;
+}
+
 /** One axis of one point, with a missing axis reading as zero. */
 export function warpValue(values: Float32Array, base: number, offset: number): number {
     if (offset < 0) return 0;

@@ -57,6 +57,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+#: Beam solids in a docs bundle are written as a mesh (GLB + warp map), not the compact format:
+#: the compact one is expanded by a wasm module that the paradoc embed does not ship, so a docs
+#: viewer could not draw beams as solids from it.
+_DOCS_BEAM_SOLID_FORMAT = "mesh"
+
 
 # ---------------------------------------------------------------------------
 # Descriptor
@@ -290,6 +295,7 @@ def assets_for_docs(
             modes=modes,
             poster_backend=poster_backend,
             normalize_modes=normalize_modes,
+            beam_solid_format=_DOCS_BEAM_SOLID_FORMAT,
         )
     elif hasattr(src, "read_mesh_geometry"):
         # FEAStreamReader (Protocol).
@@ -300,6 +306,7 @@ def assets_for_docs(
             modes=modes,
             poster_backend=poster_backend,
             normalize_modes=normalize_modes,
+            beam_solid_format=_DOCS_BEAM_SOLID_FORMAT,
         )
     elif hasattr(src, "results"):
         # FEAResult — keep the reference so we can pull fem_format +
@@ -312,6 +319,7 @@ def assets_for_docs(
             modes=modes,
             poster_backend=poster_backend,
             normalize_modes=normalize_modes,
+            beam_solid_format=_DOCS_BEAM_SOLID_FORMAT,
         )
     else:
         raise TypeError(
@@ -566,6 +574,7 @@ def snapshot_fea_bundle(
         modes=None,
         include_element_fields=False,
         normalize_modes=normalize_modes,
+        beam_solid_format=_DOCS_BEAM_SOLID_FORMAT,
     )
     manifest = json.loads(bake.manifest_path.read_text(encoding="utf-8"))
     return {

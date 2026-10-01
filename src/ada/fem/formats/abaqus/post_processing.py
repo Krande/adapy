@@ -56,6 +56,9 @@ class FEAResultV2:
     software: Union[str, FEATypes]
     results_db_path: Optional[pathlib.Path] = None
     results_file_path: Optional[pathlib.Path] = None
+    #: The solved model's beam sections (``ada.fem.results.line_sections``), grafted onto the mesh
+    #: when it is materialised -- the dump itself has none.
+    line_sections: Optional[object] = None
 
     @property
     def software_version(self) -> str:
@@ -101,7 +104,11 @@ class FEAResultV2:
         `FEAResult`, and the dump carries everything that needs: the instance's points and
         connectivity, and per-frame nodal U / UR as float32 blobs.
         """
-        return read_abaodb_sqlite(self.results_db_path, name=self.name, results_file_path=self.results_file_path)
+        from ada.fem.results.line_sections import graft_line_sections
+
+        result = read_abaodb_sqlite(self.results_db_path, name=self.name, results_file_path=self.results_file_path)
+        graft_line_sections(result.mesh, self.line_sections)
+        return result
 
 
 def _eigen_data_from_dat(results_file_path: Optional[pathlib.Path]) -> Optional[EigenDataSummary]:
@@ -124,7 +131,8 @@ _NODAL_FIELD_GROUPS = {"U": ("U1", "U2", "U3"), "UR": ("UR1", "UR2", "UR3")}
 def read_abaodb_sqlite(db_path: pathlib.Path, name: str = None, results_file_path: pathlib.Path = None) -> FEAResult:
     """Read an abaodb SQLite file into an :class:`FEAResult`.
 
-    Only the nodal U / UR fields are read (that's what abaodb writes for the runs adapy makes).
+    Only the nodal U / UR fields are read (that's what abaodb writes for the runs adapy makes); where
+    both are there, UR is read as U's rotational components, so U is ``U1..U3, UR1..UR3``.
     Result steps are numbered by frame, skipping each step's base-state frame 0, so a modal step's
     step numbers are its mode numbers, as with the other solvers' readers.
     """
@@ -209,17 +217,25 @@ def read_abaodb_sqlite(db_path: pathlib.Path, name: str = None, results_file_pat
         if is_modal:
             result_step = frame_id
         mode = eig.get(frame_id, {}) if is_modal else {}
+        groups = {}
         for field_name, components in _NODAL_FIELD_GROUPS.items():
             cols = [blobs.get((step_id, frame_value, c)) for c in components]
-            if any(c is None for c in cols):
-                continue
-            values = np.column_stack([node_ids] + [np.frombuffer(c, dtype="<f4").astype(float) for c in cols])
+            if all(c is not None for c in cols):
+                groups[field_name] = (list(components), [np.frombuffer(c, dtype="<f4").astype(float) for c in cols])
+        # U and UR are one displacement: UR travels as U's rotational components, the way the other
+        # solvers' displacements carry theirs (Sesam's RX..RZ, Code_Aster's DRX..DRZ). Kept apart,
+        # UR was a field of unknown type that the bake dropped with every non-displacement field, so
+        # an Abaqus beam model had no rotations to draw a torsion mode with.
+        if "U" in groups and "UR" in groups:
+            groups["U"] = (groups["U"][0] + groups["UR"][0], groups["U"][1] + groups["UR"][1])
+            del groups["UR"]
+        for field_name, (components, columns) in groups.items():
             fields.append(
                 NodalFieldData(
                     field_name,
                     result_step,
-                    list(components),
-                    values,
+                    components,
+                    np.column_stack([node_ids] + columns),
                     eigen_freq=mode.get("EIGFREQ"),
                     eigen_value=mode.get("EIGVAL"),
                     field_type=NodalFieldType.DISP if field_name == "U" else NodalFieldType.UNKNOWN,

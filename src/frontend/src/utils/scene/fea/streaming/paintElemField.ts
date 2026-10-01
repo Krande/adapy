@@ -133,6 +133,7 @@ export async function paintElemField(args: {
                 active.beamSolidWarp,
                 warpInfo?.field,
                 warpInfo?.stepValues,
+                active.basePositions,
             );
         }
     }

@@ -248,7 +248,7 @@ def _invoke_solver(
         if isinstance(res_path, pathlib.Path) and not res_path.exists():
             logger.info(f"Result file {res_path} not found.")
             return None
-        return ada.from_fem_res(res_path, fem_format=fem_format)
+        return _with_line_sections(ada.from_fem_res(res_path, fem_format=fem_format), a)
 
     try:
         res = a.to_fem(
@@ -269,6 +269,29 @@ def _invoke_solver(
     if "PYTEST_CURRENT_TEST" in os.environ:
         return None
 
+    return _with_line_sections(res, a)
+
+
+def _with_line_sections(res, a: ada.Assembly):
+    """Carry the model's beam sections onto the result, so its bundle can draw beams as solids.
+
+    An Abaqus or Code_Aster result is points and connectivity only; the sections are in the model
+    that was solved. A result read lazily (Abaqus' SQLite dump) takes them when it is materialised.
+    """
+    from itertools import chain
+
+    from ada.fem.results.line_sections import graft_line_sections, line_section_tables
+
+    if res is None:
+        return res
+    parts = a.get_all_parts_in_assembly(include_self=True)
+    tables = line_section_tables(chain.from_iterable(p.fem.elements.lines for p in parts))
+    if tables is None:
+        return res
+    if hasattr(res, "to_fea_result"):
+        res.line_sections = tables
+    elif getattr(res, "mesh", None) is not None:
+        graft_line_sections(res.mesh, tables)
     return res
 
 

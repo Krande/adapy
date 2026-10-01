@@ -24,6 +24,9 @@ import {selectedSegments} from "./lineSegmentIds";
 // on a slider drag — and it is recomputed only when the influence changes.
 
 const RESULT_LINE_SEGMENTS = "__fea_result_line_segments__";
+/** The coloured beam lines' object name, for a caller that swaps them for another
+ *  rendering of the same elements (the embed's beam solids). */
+export const RESULT_LINE_SEGMENTS_NAME = RESULT_LINE_SEGMENTS;
 const RESULT_LINE_HIGHLIGHT = "__fea_result_line_highlight__";
 
 /** The selection colour, matched to selectedMaterial. */

@@ -505,6 +505,14 @@ class FeaModesCompare(BaseFigureSource):
         "_assets",
         description="Path (relative to the doc root) searched recursively for `<case>/fea.manifest.json`.",
     )
+    beam_solids: bool = Field(
+        False,
+        description=(
+            "Open the interactive viewers with beam elements drawn as their solid cross-section "
+            "instead of as lines -- which also shows twist, so a torsion mode is visible. Applies "
+            "to bundles that carry beam solids; the viewer's toggle still switches back."
+        ),
+    )
 
 
 register_spec("fea_modes_compare", FeaModesCompare)
@@ -520,20 +528,87 @@ _GRID_DIV_OPEN = '::: {class="grid grid-cols-1 sm:grid-cols-2 gap-4"}'
 _GRID_DIV_CLOSE = ":::"
 
 
-def _snapshot_modes(case_key: str) -> dict[int, dict]:
-    """A case's per-mode data, from the JSON snapshot every build writes for every solver (the live ones
-    are gitignored, the licensed ones committed): mode number -> the mode's fields. Empty when none."""
+def _snapshot(case_key: str) -> dict:
+    """A case's JSON snapshot, which every build writes for every solver (the live ones are
+    gitignored, the licensed ones committed). Empty when there is none or it cannot be read."""
     for cache_dir in (_CACHE_DIR, _PLATE_CACHE_DIR):
         path = cache_dir / f"{case_key}.json"
         if not path.is_file():
             continue
         try:
-            modes = json.loads(path.read_text(encoding="utf-8")).get("eigen_mode_data") or {}
+            return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             _eig_logger.warning("fea_modes_compare: unreadable snapshot %s: %s", path, exc)
             return {}
-        return {int(m["no"]): m for m in modes.values() if isinstance(m, dict) and m.get("no") is not None}
     return {}
+
+
+def _snapshot_modes(case_key: str) -> dict[int, dict]:
+    """A case's per-mode data from its snapshot: mode number -> the mode's fields. Empty when none."""
+    modes = _snapshot(case_key).get("eigen_mode_data") or {}
+    return {int(m["no"]): m for m in modes.values() if isinstance(m, dict) and m.get("no") is not None}
+
+
+def _peak_displacements(case_dir: pathlib.Path) -> dict:
+    """The largest translation per global axis, ``{"ux": m, "uy": m, "uz": m}``, from the case's
+    bundle manifest -- the displacement field's per-component ranges, so nothing is re-read from the
+    result. The axes are found by component name (Sesam's displacement leads with a reduction,
+    ``ALL``, not an axis). An axis the field does not carry is left out."""
+    from ada.fem.results.artefacts.mode_normalization import AXIS_ALIASES
+
+    try:
+        manifest = json.loads((case_dir / "fea.manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    field = next((f for f in manifest.get("fields", []) if f.get("category") == "displacement"), None)
+    if field is None:
+        return {}
+    ranges = field.get("scalar_range") or {}
+    by_lower = {c.lower(): c for c in field.get("components", [])}
+    out = {}
+    for axis, aliases in zip(("ux", "uy", "uz"), AXIS_ALIASES):
+        comp = next((by_lower[a] for a in aliases if a in by_lower), None)
+        r = ranges.get(comp) if comp else None
+        if r:
+            out[axis] = max(abs(float(r[0])), abs(float(r[1])))
+    return out
+
+
+def _closed_form_deflection(case_prefix: str, config: str) -> float | None:
+    """The plain plate strip's closed-form mid-span deflection [m]; None for every other case (the
+    stiffened strip has none -- its stiffener is what the solvers are there to answer)."""
+    if not case_prefix.startswith("plate_static") or "stFalse" not in config:
+        return None
+    from ada.api.fem_tasks import plate_closed_form_deflection
+
+    return plate_closed_form_deflection()
+
+
+def _closed_form_frequency(case_prefix: str, config: str, mode_idx: int) -> float | None:
+    """The plain plate strip's closed-form frequency of mode ``mode_idx`` (0-based) [Hz]; None for
+    every other case. Mode-for-mode, as the plate eigen summary table compares them."""
+    if not case_prefix.startswith("plate_EIG") or "stFalse" not in config:
+        return None
+    from ada.api.fem_tasks import plate_closed_form_frequencies
+
+    return plate_closed_form_frequencies(mode_idx + 1)[mode_idx]
+
+
+def _deviation_pct(value, reference) -> float | None:
+    if value is None or not reference:
+        return None
+    return (value - reference) / reference * 100.0
+
+
+def _reference(values: list, given: float | None) -> tuple[float | None, str]:
+    """What a deviation column compares against: ``given`` (a closed form) when there is one, else
+    the mean of the solvers' values -- which only says something with at least two of them."""
+    if given is not None:
+        return given, "closed form"
+    present = [v for v in values if v is not None]
+    if len(present) >= 2:
+        return sum(present) / len(present), "mean"
+    return None, ""
 
 
 def _fmt(value, spec: str) -> str:
@@ -547,13 +622,16 @@ def _fmt(value, spec: str) -> str:
     return text
 
 
-def mode_data_table(rows: list[tuple[str, dict | None]]) -> str:
+def mode_data_table(rows: list[tuple[str, dict | None]], closed_form_hz: float | None = None) -> str:
     """The table under one mode's figures: a row per solver shown, with what its reader reported.
 
     ``rows`` is ``(solver label, mode fields | None)``. The participation factor is scaled to unit
     generalised mass, ``sign(Γ)·√Meff`` -- each solver normalises its eigenvectors its own way, so the raw
     factors do not compare (see the modal participation section). A quantity no solver reported is left
     out; a value one solver did not report shows as "–". Empty when no row has data.
+
+    ``Δf`` is each solver's frequency against ``closed_form_hz`` when the case has one, else against
+    the mean of the solvers shown.
     """
     from types import SimpleNamespace
 
@@ -568,19 +646,59 @@ def mode_data_table(rows: list[tuple[str, dict | None]]) -> str:
         keys = ("px", "py", "pz", "efx", "efy", "efz")
         return lambda m: pf_of(SimpleNamespace(**{k: m.get(k) for k in keys}), direction)
 
+    data = [(label, m) for label, m in rows if m]
+    if not data:
+        return ""
+    ref, ref_label = _reference([m.get("f_hz") for _, m in data], closed_form_hz)
     columns = [
         ("f [Hz]", field("f_hz"), ".3f"),
+        *([(f"Δf vs {ref_label} [%]", lambda m: _deviation_pct(m.get("f_hz"), ref), "+.2f")] if ref else []),
         ("λ [rad²/s²]", field("eigenvalue"), ".6g"),
         *[(f"Meff {d} [kg]", field(f"ef{d.lower()}"), ".2f") for d in "XYZ"],
         *[(f"Γ {d}", participation(d), ".3f") for d in "XYZ"],
     ]
-    data = [(label, m) for label, m in rows if m]
-    if not data:
-        return ""
     kept = [c for c in columns if any(c[1](m) is not None for _, m in data)]
+    if not kept:
+        return ""
     header = "| Solver | " + " | ".join(name for name, *_ in kept) + " |"
     rule = "|:--|" + "--:|" * len(kept)
     body = ["| " + label + " | " + " | ".join(_fmt(get(m), spec) for _, get, spec in kept) + " |" for label, m in data]
+    if ref_label == "closed form":
+        body.append(f"| Closed form | {_fmt(ref, '.3f')} |" + " |" * (len(kept) - 1))
+    return "\n".join([header, rule, *body])
+
+
+def static_data_table(rows: list[tuple[str, dict | None]], closed_form_m: float | None = None) -> str:
+    """The table under a static case's figures: a row per solver with its deflection.
+
+    ``rows`` is ``(solver label, {"mid": .., "ux": .., "uy": .., "uz": ..} | None)``, metres: the
+    mid-span deflection the summary tables compare, and the largest translation per axis over the
+    whole model. Shown in millimetres. ``Δ`` is the mid-span deflection against ``closed_form_m``
+    when the case has one, else against the mean of the solvers shown. Empty when no row has data.
+    """
+    data = [(label, d) for label, d in rows if d]
+    if not data:
+        return ""
+    ref, ref_label = _reference([d.get("mid") for _, d in data], closed_form_m)
+
+    def mm(key):
+        return lambda d: None if d.get(key) is None else d[key] * 1e3
+
+    columns = [
+        ("Mid-span u_z [mm]", mm("mid"), ".4f"),
+        *([(f"Δ vs {ref_label} [%]", lambda d: _deviation_pct(d.get("mid"), ref), "+.2f")] if ref else []),
+        ("Peak u_z [mm]", mm("uz"), ".4f"),
+        ("Peak u_x [mm]", mm("ux"), ".4f"),
+        ("Peak u_y [mm]", mm("uy"), ".4f"),
+    ]
+    kept = [c for c in columns if any(c[1](d) is not None for _, d in data)]
+    if not kept:
+        return ""
+    header = "| Solver | " + " | ".join(name for name, *_ in kept) + " |"
+    rule = "|:--|" + "--:|" * len(kept)
+    body = ["| " + label + " | " + " | ".join(_fmt(get(d), spec) for _, get, spec in kept) + " |" for label, d in data]
+    if ref_label == "closed form":
+        body.append(f"| Closed form | {_fmt(ref * 1e3, '.4f')} |" + " |" * (len(kept) - 1))
     return "\n".join([header, rule, *body])
 
 
@@ -661,10 +779,26 @@ class FeaModesCompareFilter(FigureSourceFilter):
 
         entries: list = []
         for config in sorted(groups):
-            entries.extend(self._render_config(config, groups[config], analysis=spec.analysis))
+            entries.extend(
+                self._render_config(
+                    config,
+                    groups[config],
+                    analysis=spec.analysis,
+                    beam_solids=spec.beam_solids,
+                    case_prefix=spec.case_prefix,
+                )
+            )
         return entries
 
-    def _render_config(self, config: str, by_solver: dict[str, pathlib.Path], *, analysis: str) -> list:
+    def _render_config(
+        self,
+        config: str,
+        by_solver: dict[str, pathlib.Path],
+        *,
+        analysis: str,
+        beam_solids: bool = False,
+        case_prefix: str = "",
+    ) -> list:
         entries: list = [MarkdownChunk(text=f"\n### {_config_label(config)}\n")]
 
         loaded: dict[str, FeaDocAssets] = {}
@@ -700,22 +834,39 @@ class FeaModesCompareFilter(FigureSourceFilter):
                 poster = assets.poster_paths.get(mode_idx)
                 if poster is None:
                     continue
-                entries.append(self._render_one(solver, assets, glb_sha[solver], mode_idx, poster, analysis=analysis))
+                entries.append(
+                    self._render_one(
+                        solver, assets, glb_sha[solver], mode_idx, poster, analysis=analysis, beam_solids=beam_solids
+                    )
+                )
             entries.append(MarkdownChunk(text=_GRID_DIV_CLOSE))
+            shown = [s for s, a in loaded.items() if a.poster_paths.get(mode_idx) is not None]
             if analysis == "eigen":
+                rows = [(_SOLVER_LABEL[s], modes_by_solver[s].get(mode_idx + 1)) for s in shown]
+                table = mode_data_table(rows, closed_form_hz=_closed_form_frequency(case_prefix, config, mode_idx))
+            else:
                 rows = [
-                    (_SOLVER_LABEL[s], modes_by_solver[s].get(mode_idx + 1))
-                    for s, a in loaded.items()
-                    if a.poster_paths.get(mode_idx) is not None
+                    (
+                        _SOLVER_LABEL[s],
+                        {"mid": _snapshot(loaded[s].key).get("mid_span_u3"), **_peak_displacements(by_solver[s])},
+                    )
+                    for s in shown
                 ]
-                table = mode_data_table(rows)
-                if table:
-                    entries.append(MarkdownChunk(text=f"\n{table}\n"))
+                table = static_data_table(rows, closed_form_m=_closed_form_deflection(case_prefix, config))
+            if table:
+                entries.append(MarkdownChunk(text=f"\n{table}\n"))
         return entries
 
     @staticmethod
     def _render_one(
-        solver: str, assets: FeaDocAssets, glb_sha: str, mode_idx: int, poster: pathlib.Path, *, analysis: str
+        solver: str,
+        assets: FeaDocAssets,
+        glb_sha: str,
+        mode_idx: int,
+        poster: pathlib.Path,
+        *,
+        analysis: str,
+        beam_solids: bool = False,
     ):
         caption = _SOLVER_LABEL[solver]
         freqs = assets.frequencies or []
@@ -738,5 +889,7 @@ class FeaModesCompareFilter(FigureSourceFilter):
                 "fea_bundle_key": assets.key,
                 "fea_mode_index": mode_idx,
                 "image_path": str(poster),
+                # The viewer's starting state for beam elements, from the document block.
+                "fea_beam_solids": beam_solids,
             },
         )

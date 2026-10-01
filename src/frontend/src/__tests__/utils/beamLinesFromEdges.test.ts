@@ -55,7 +55,8 @@ test("the lines follow the morph influence the driver writes", () => {
     const renderer = {getSize: (v: THREE.Vector2) => v.set(100, 100)} as unknown as THREE.WebGLRenderer;
     const at = (influence: number) => {
         points.morphTargetInfluences![0] = influence;
-        line.onBeforeRender(renderer, new THREE.Scene(), new THREE.Camera(), line.geometry, line.material, null as any);
+        // The fat line's hook takes just the renderer (resultLineSegments assigns a one-argument one).
+        (line.onBeforeRender as unknown as (r: THREE.WebGLRenderer) => void)(renderer);
         const arr = (line.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute).data.array;
         return arr[10]; // segment 1-2, end node 2, Y
     };

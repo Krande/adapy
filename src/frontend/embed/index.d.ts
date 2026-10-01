@@ -48,6 +48,9 @@ export interface MountFeaArtefactViewerOptions {
     showControls?: boolean
     /** 0-based mode index to render (default 0). */
     modeIndex?: number
+    /** Start with beam elements drawn as solids (default false: lines).
+     *  Only matters for a bundle with beam solids; the controls still toggle. */
+    beamSolids?: boolean
     onReady?: () => void
     onError?: (err: Error) => void
 }

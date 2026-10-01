@@ -236,13 +236,24 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
     }
 
     // ── docked: inline in the menu column (default), horizontally resizable ──
+    // Bounded by its container as well as by the window: in a small embedded
+    // viewer (a 3D figure in a document) the window is wide but the viewer is
+    // not, and a panel sized to the window ran off the figure's edge. The
+    // embed sets ``--ada-sim-max-h`` to what fits under its toolbar; the
+    // standalone app leaves it unset and keeps 70vh.
     return (
         <div
             className={CHROME + " relative rounded-md flex flex-col overflow-hidden"}
-            style={{width: dockedWidth, minWidth: DOCKED_MIN, maxWidth: "calc(100vw - 32px)"}}
+            style={{
+                width: dockedWidth,
+                minWidth: `min(${DOCKED_MIN}px, 100%)`,
+                maxWidth: "min(calc(100vw - 32px), 100%)",
+            }}
         >
             {header}
-            <div className="min-h-0 overflow-auto p-2 max-h-[70vh]">{children}</div>
+            <div className="min-h-0 overflow-auto p-2" style={{maxHeight: "var(--ada-sim-max-h, 70vh)"}}>
+                {children}
+            </div>
             {/* Right-edge handle — drag to resize the panel horizontally. */}
             <div
                 className="absolute top-0 right-0 h-full w-1.5 cursor-ew-resize touch-none hover:bg-blue-400/40"

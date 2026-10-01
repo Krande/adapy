@@ -45,6 +45,7 @@ import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {abaqus} from "./colormaps";
 import {FEA_EDGE_LINES_NAME} from "./beamLinesFromEdges";
+import {translationOffsets, warpValue} from "./warpComponents";
 
 /** Base vertex colour when no mode is active — light neutral grey
  *  so the un-deformed mesh has a CAD-ish look. Per-mode colour morph
@@ -160,6 +161,25 @@ export async function assembleAnimatedFeaGlb(
     manifest: FeaManifest,
     modeIndex: number = 0,
 ): Promise<Uint8Array> {
+    return (await assembleAnimatedFeaGlbWithInfo(fetcher, manifest, modeIndex)).bytes;
+}
+
+/** The assembled GLB, plus what a caller needs to deform something else with
+ *  the same mode: the undeformed node positions, the displacement field and
+ *  this mode's step values (as baked -- normalized, before WARP_SCALE). The
+ *  paradoc embed hangs the beam solids off it. */
+export interface AssembledFeaGlb {
+    bytes: Uint8Array;
+    nodePositions: Float32Array;
+    field: FeaManifestField;
+    stepValues: Float32Array;
+}
+
+export async function assembleAnimatedFeaGlbWithInfo(
+    fetcher: FeaFetcher,
+    manifest: FeaManifest,
+    modeIndex: number = 0,
+): Promise<AssembledFeaGlb> {
     // 1. Base mesh -------------------------------------------------------
     const meshBuf = await fetcher(manifest.mesh.url);
     const loader = new GLTFLoader();
@@ -246,13 +266,19 @@ export async function assembleAnimatedFeaGlb(
     const modeStep = parsed.steps[stepIndexInField];
 
     const basePositions = positionAttr.array as Float32Array;
+    const nodePositions = new Float32Array(basePositions);
     const displacement = new Float32Array(basePositions.length);
     const mag = new Float32Array(n_points);
     let maxMag = 0;
+    // The translation slots by name: a Sesam displacement record is
+    // [ALL, X, Y, Z, RX, RY, RZ], and reading slots 0..2 animated every Sesam
+    // mode by (ALL, X, Y). See translationOffsets.
+    const axes = translationOffsets(field);
     for (let v = 0; v < n_points; v++) {
-        const dx = modeStep[v * n_components + 0] * WARP_SCALE;
-        const dy = n_components >= 2 ? modeStep[v * n_components + 1] * WARP_SCALE : 0;
-        const dz = n_components >= 3 ? modeStep[v * n_components + 2] * WARP_SCALE : 0;
+        const base = v * n_components;
+        const dx = warpValue(modeStep, base, axes[0]) * WARP_SCALE;
+        const dy = warpValue(modeStep, base, axes[1]) * WARP_SCALE;
+        const dz = warpValue(modeStep, base, axes[2]) * WARP_SCALE;
         displacement[v * 3 + 0] = dx;
         displacement[v * 3 + 1] = dy;
         displacement[v * 3 + 2] = dz;
@@ -438,5 +464,5 @@ export async function assembleAnimatedFeaGlb(
     if (!(result instanceof ArrayBuffer)) {
         throw new Error("fea bundle: GLTFExporter returned JSON, expected binary");
     }
-    return new Uint8Array(result);
+    return {bytes: new Uint8Array(result), nodePositions, field, stepValues: modeStep};
 }

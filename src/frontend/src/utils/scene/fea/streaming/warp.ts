@@ -16,7 +16,7 @@ import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchFieldStep} from "@/services/feaFieldBlob";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {expandSourceTriples, sourceVertexIndices} from "../elementLocalGeometry";
-import {translationOffsets, warpValue} from "../warpComponents";
+import {rotationOffsets, translationOffsets, warpValue} from "../warpComponents";
 
 /** Pick the displacement field from the manifest. Frontend reads
  *  ``category`` set by the bake to find it without re-string-matching
@@ -79,55 +79,89 @@ export async function resolveWarpSource(
     return {field: dispField, stepValues};
 }
 
-/** Install the beam-solid mesh's morph delta from a nodal
- *  displacement field. Per vertex:
+/** The beam-solid morph delta, per vertex of the solid (in the warp sidecar's
+ *  vertex numbering).
  *
- *    delta_v = lerp(disp[node0], disp[node1], t) × (only first 3 components)
+ *    delta_v = lerp(u[node0], u[node1], t) + lerp(θ[node0], θ[node1], t) × r_v
+ *    r_v     = v_base − lerp(P[node0], P[node1], t)
+ *
+ *  The first term moves the section with its beam axis. The second turns it
+ *  about that axis: without it a torsion mode -- whose axis does not translate
+ *  at all -- left the solid standing still. It needs the field to name its
+ *  rotations (see rotationOffsets) and the undeformed node positions
+ *  `nodePositions`; with either missing the delta is translation only, as it
+ *  always was.
+ *
+ *  Small-rotation kinematics: the delta is linear in the mode amplitude, so it
+ *  stays one relative morph target driven by the same influence as the main
+ *  mesh. Zero everywhere when there is no warp source. */
+export function beamSolidDisplacement(
+    warp: ParsedBeamSolidsWarp,
+    basePositions: Float32Array,
+    warpField: FeaManifestField | undefined,
+    warpStepValues: Float32Array | undefined,
+    nodePositions?: Float32Array,
+): Float32Array {
+    const nVerts = warp.n_verts;
+    const displacement = new Float32Array(nVerts * 3);
+    // No warp source means no deformation, which is what the user gets when they
+    // pick a reaction field or turn warp off.
+    if (!warpField || !warpStepValues) return displacement;
+
+    const nc = warpField.components.length;
+    // WHICH slots hold the translation. A Sesam displacement field is
+    // ["ALL","X","Y","Z","RX","RY","RZ"] -- reading slots 0..2 warps every
+    // vertex by (ALL, X, Y), and since `ALL` is a non-negative aggregate the
+    // beams visibly fly off. See translationOffsets.
+    const axes = translationOffsets(warpField);
+    const rot = nodePositions ? rotationOffsets(warpField) : null;
+    const n0 = warp.node0;
+    const n1 = warp.node1;
+    const ts = warp.t;
+    for (let v = 0; v < nVerts; v++) {
+        const t = ts[v];
+        const omt = 1 - t;
+        const a = n0[v] * nc;
+        const b = n1[v] * nc;
+        const out = v * 3;
+        displacement[out + 0] = omt * warpValue(warpStepValues, a, axes[0]) + t * warpValue(warpStepValues, b, axes[0]);
+        displacement[out + 1] = omt * warpValue(warpStepValues, a, axes[1]) + t * warpValue(warpStepValues, b, axes[1]);
+        displacement[out + 2] = omt * warpValue(warpStepValues, a, axes[2]) + t * warpValue(warpStepValues, b, axes[2]);
+        if (!rot || !nodePositions) continue;
+
+        const tx = omt * warpValue(warpStepValues, a, rot[0]) + t * warpValue(warpStepValues, b, rot[0]);
+        const ty = omt * warpValue(warpStepValues, a, rot[1]) + t * warpValue(warpStepValues, b, rot[1]);
+        const tz = omt * warpValue(warpStepValues, a, rot[2]) + t * warpValue(warpStepValues, b, rot[2]);
+        const p0 = n0[v] * 3;
+        const p1 = n1[v] * 3;
+        const rx = basePositions[out + 0] - (omt * nodePositions[p0 + 0] + t * nodePositions[p1 + 0]);
+        const ry = basePositions[out + 1] - (omt * nodePositions[p0 + 1] + t * nodePositions[p1 + 1]);
+        const rz = basePositions[out + 2] - (omt * nodePositions[p0 + 2] + t * nodePositions[p1 + 2]);
+        displacement[out + 0] += ty * rz - tz * ry;
+        displacement[out + 1] += tz * rx - tx * rz;
+        displacement[out + 2] += tx * ry - ty * rx;
+    }
+    return displacement;
+}
+
+/** Install the beam-solid mesh's morph delta from a nodal displacement
+ *  field (see beamSolidDisplacement; `nodePositions`, the main mesh's
+ *  undeformed node positions, turns on the rotation term).
  *
  *  Linked to the main mesh's ``morphTargetInfluences`` so the slider
  *  drives both meshes in lockstep. No-op when the active session
  *  has no beam-solid mesh or no AFBV mapping. */
 export function installBeamSolidWarp(
-    main: THREE.Mesh,
+    main: THREE.Object3D & {morphTargetInfluences?: number[]; morphTargetDictionary?: {[key: string]: number}},
     beamSolid: THREE.Mesh,
     basePositions: Float32Array,
     warp: ParsedBeamSolidsWarp,
     warpField: FeaManifestField | undefined,
     warpStepValues: Float32Array | undefined,
+    nodePositions?: Float32Array,
 ): void {
     const nVerts = warp.n_verts;
-    const displacement = new Float32Array(nVerts * 3);
-
-    if (warpField && warpStepValues) {
-        const nc = warpField.components.length;
-        // WHICH slots hold the translation. A Sesam displacement field is
-        // ["ALL","X","Y","Z","RX","RY","RZ"] -- reading slots 0..2 warps every
-        // vertex by (ALL, X, Y), and since `ALL` is a non-negative aggregate the
-        // beams visibly fly off. See translationOffsets.
-        const axes = translationOffsets(warpField);
-        const n0 = warp.node0;
-        const n1 = warp.node1;
-        const ts = warp.t;
-        for (let v = 0; v < nVerts; v++) {
-            const t = ts[v];
-            const a = n0[v] * nc;
-            const b = n1[v] * nc;
-            const out = v * 3;
-            const ax = warpValue(warpStepValues, a, axes[0]);
-            const ay = warpValue(warpStepValues, a, axes[1]);
-            const az = warpValue(warpStepValues, a, axes[2]);
-            const bx = warpValue(warpStepValues, b, axes[0]);
-            const by = warpValue(warpStepValues, b, axes[1]);
-            const bz = warpValue(warpStepValues, b, axes[2]);
-            const omt = 1 - t;
-            displacement[out + 0] = omt * ax + t * bx;
-            displacement[out + 1] = omt * ay + t * by;
-            displacement[out + 2] = omt * az + t * bz;
-        }
-    }
-    // Else: leave displacement at zero — no warp source means no
-    // deformation, which is what the user gets when they pick a
-    // reaction field or turn warp off.
+    const displacement = beamSolidDisplacement(warp, basePositions, warpField, warpStepValues, nodePositions);
 
     const geom = beamSolid.geometry;
 

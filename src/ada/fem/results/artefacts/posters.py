@@ -85,6 +85,7 @@ def bake_with_posters(
     include_element_fields: bool = True,
     include_beam_solids: bool = True,
     normalize_modes: bool | float = False,
+    beam_solid_format: str = "compact",
 ) -> BakeWithPostersResult:
     """Bake the artefact bundle AND render per-mode static PNG posters.
 
@@ -116,6 +117,10 @@ def bake_with_posters(
     different solvers are comparable (the posters draw the baked
     displacement at scale 1).
 
+    ``beam_solid_format`` is passed to :func:`bake_artefacts` too: ``"mesh"`` writes the beam
+    solids as a GLB plus a warp map, which a viewer can load without the compact format's wasm
+    expander (the paradoc embed has none).
+
     Per-mode render failures are logged but don't abort the bake —
     the bundle is still valid even if a few posters are missing, and
     surfacing them as warnings keeps a single bad mode from blowing
@@ -143,6 +148,7 @@ def bake_with_posters(
         include_element_fields=include_element_fields,
         include_beam_solids=include_beam_solids,
         normalize_modes=normalize_modes,
+        beam_solid_format=beam_solid_format,
     )
 
     if modes is None:
@@ -217,6 +223,7 @@ def bake_with_posters_from_source(
     legacy_glb_url_template: str | None = None,
     include_beam_solids: bool = True,
     normalize_modes: bool | float = False,
+    beam_solid_format: str = "compact",
 ) -> BakeWithPostersResult:
     """End-to-end bake + per-mode posters from a result file path.
 
@@ -239,4 +246,5 @@ def bake_with_posters_from_source(
             legacy_glb_url_template=legacy_glb_url_template,
             include_beam_solids=include_beam_solids,
             normalize_modes=normalize_modes,
+            beam_solid_format=beam_solid_format,
         )

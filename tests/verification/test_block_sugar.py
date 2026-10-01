@@ -77,7 +77,7 @@ def _make_case(case_dir: pathlib.Path, *, modes: list[int]) -> None:
             (case_dir / f"fea.mesh.mode_{n}.png").write_bytes(_PNG_BYTES)
 
 
-def _render(tmp_path, case_prefix: str, analysis: str = "eigen") -> list:
+def _render(tmp_path, case_prefix: str, analysis: str = "eigen", **spec_kwargs) -> list:
     from filters import FeaModesCompare, FeaModesCompareFilter
 
     spec = FeaModesCompare(
@@ -85,6 +85,7 @@ def _render(tmp_path, case_prefix: str, analysis: str = "eigen") -> list:
         figure_title="x",
         case_prefix=case_prefix,
         analysis=analysis,
+        **spec_kwargs,
     )
     return FeaModesCompareFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="fea_modes_compare_1")
 
@@ -197,9 +198,10 @@ def test_each_mode_gets_a_table_of_its_data_below_the_figures(tmp_path):
     assert len(tables) == 2  # one per mode
 
     mode1 = tables[0].strip().splitlines()
-    assert mode1[0] == "| Solver | f [Hz] | λ [rad²/s²] | Meff Y [kg] | Γ Y |"  # unreported quantities left out
-    assert mode1[2] == "| Calculix | 12.764 | 6431.71 | 119.90 | -10.950 |"  # sign(Γ)·√Meff
-    assert mode1[3] == "| Code_Aster | 13.146 | – | 119.92 | 10.951 |"
+    # Unreported quantities left out; with no closed form, Δf is against the solvers' mean (12.955 Hz).
+    assert mode1[0] == "| Solver | f [Hz] | Δf vs mean [%] | λ [rad²/s²] | Meff Y [kg] | Γ Y |"
+    assert mode1[2] == "| Calculix | 12.764 | -1.47 | 6431.71 | 119.90 | -10.950 |"  # sign(Γ)·√Meff
+    assert mode1[3] == "| Code_Aster | 13.146 | +1.47 | – | 119.92 | 10.951 |"
     # Calculix reported nothing for mode 2: only Code_Aster's row
     assert [r.split("|")[1].strip() for r in tables[1].strip().splitlines()[2:]] == ["Code_Aster"]
 
@@ -218,10 +220,78 @@ def test_the_table_follows_the_grid_and_needs_a_snapshot(tmp_path):
 
 
 def test_static_analysis_has_no_mode_table(tmp_path):
+    """A static case gets the deflection table, never a mode table -- and none at all with nothing to
+    put in it (no mid-span deflection in the snapshot, no displacement ranges in the bundle)."""
     key = "plate_static_ca_shell_o1_stTrue_h0p0625"
     _make_case(tmp_path / "_assets" / "plate" / key, modes=[1])
     _write_snapshot(tmp_path, key, {1: {"f_hz": 1.0}})
     assert not any("| Solver |" in t for t in _texts(_render(tmp_path, "plate_static", analysis="static")))
+
+
+def test_a_mode_with_a_closed_form_is_compared_against_it():
+    from filters import mode_data_table
+
+    table = mode_data_table([("Abaqus", {"f_hz": 10.2}), ("Sesam", {"f_hz": 9.9})], closed_form_hz=10.0)
+    lines = table.splitlines()
+    assert lines[0].startswith("| Solver | f [Hz] | Δf vs closed form [%] |")
+    assert lines[2] == "| Abaqus | 10.200 | +2.00 |"
+    assert lines[-1].startswith("| Closed form | 10.000 |")
+
+
+def test_a_lone_solver_has_nothing_to_deviate_from():
+    from filters import mode_data_table
+
+    assert "Δf" not in mode_data_table([("Abaqus", {"f_hz": 10.2})])
+
+
+def test_static_cases_get_a_deflection_table_with_peaks_per_axis(tmp_path):
+    """Under a static case's figures: mid-span deflection from the snapshot, peak translation per axis
+    from the bundle manifest (by component NAME -- Sesam's record leads with ``ALL``), in mm, and the
+    plain strip compared against its closed form."""
+    from ada.api.fem_tasks import plate_closed_form_deflection
+
+    cases = {
+        "plate_static_aba_shell_o1_stFalse_h0p0625": (["U1", "U2", "U3"], [1e-5, 2e-5, 7.4e-4]),
+        "plate_static_ses_shell_o1_stFalse_h0p0625": (["ALL", "X", "Y", "Z"], [9.9, 1e-5, 2e-5, 7.5e-4]),
+    }
+    for key, (components, peaks) in cases.items():
+        case_dir = tmp_path / "_assets" / "plate" / key
+        _make_case(case_dir, modes=[1])
+        field = {
+            "category": "displacement",
+            "components": components,
+            "scalar_range": {c: [-p, p] for c, p in zip(components, peaks)},
+        }
+        (case_dir / "fea.manifest.json").write_text(json.dumps({"fields": [field]}))
+        _write_snapshot(tmp_path, key, {})
+        snap = json.loads((tmp_path / ".cache" / f"{key}.json").read_text())
+        snap["mid_span_u3"] = peaks[-1]
+        (tmp_path / ".cache" / f"{key}.json").write_text(json.dumps(snap))
+
+    texts = _texts(_render(tmp_path, "plate_static", analysis="static"))
+    (table,) = [t.strip() for t in texts if t.strip().startswith("| Solver |")]
+    lines = table.splitlines()
+    assert lines[0] == (
+        "| Solver | Mid-span u_z [mm] | Δ vs closed form [%] | Peak u_z [mm] | Peak u_x [mm] | Peak u_y [mm] |"
+    )
+    assert lines[2].startswith("| Abaqus | 0.7400 |")
+    assert lines[3].endswith("| 0.7500 | 0.0100 | 0.0200 |")  # Sesam: ALL is not an axis
+    assert lines[-1] == f"| Closed form | {plate_closed_form_deflection() * 1e3:.4f} | | | | |"
+
+
+def test_the_block_says_whether_the_viewers_start_with_beams_as_solids(tmp_path):
+    """``beam_solids: true`` in the markdown block reaches every figure's 3D metadata, which paradoc
+    hands the viewer as its starting state; without it the viewers start with lines."""
+    from paradoc.figure_sources.filters.base import RenderResult
+
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ca_line_o1_hqFalse_riFalse", modes=[1, 2])
+
+    def flags(**kwargs):
+        out = _render(tmp_path, "cantilever_EIG", **kwargs)
+        return {e.metadata["fea_beam_solids"] for e in out if isinstance(e, RenderResult)}
+
+    assert flags(beam_solids=True) == {True}
+    assert flags() == {False}
 
 
 def test_a_value_too_small_for_the_column_prints_in_scientific_notation():
