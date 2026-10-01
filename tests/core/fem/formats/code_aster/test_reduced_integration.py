@@ -53,6 +53,19 @@ def test_reduced_integration_linear_tetrahedra_are_refused(tmp_path):
         _write_comm(tmp_path, geom_repr="solid", elem_order=1, use_hex_quad=False, reduced_integration=True)
 
 
+@pytest.mark.parametrize("use_hex_quad", [True, False])
+def test_verification_matrix_runs_sesam_solids(use_hex_quad):
+    """LHEX/IHEX/TETR/ITET all solve in Sestra (TETR once written in its mirrored node order)."""
+    for elem_order in (1, 2):
+        assert not is_eig_skip(
+            fem_format="sesam",
+            geom_repr="solid",
+            elem_order=elem_order,
+            use_hex_quad=use_hex_quad,
+            reduced_integration=False,
+        )
+
+
 @pytest.mark.parametrize(
     "geom_repr, skipped",
     [("solid", False), ("shell", True), ("line", True)],

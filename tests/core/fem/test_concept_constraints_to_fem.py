@@ -66,6 +66,34 @@ def test_point_constraint_on_beam_end_face_acts_through_a_coupled_reference_node
     assert all(abs(n.x) < 1e-4 for n in section)
 
 
+@pytest.mark.parametrize("bm_repr, dofs", [(GeomRepr.SHELL, [1, 2, 3, 4, 5, 6]), (GeomRepr.SOLID, [1, 2, 3])])
+def test_direct_section_support_restrains_the_section_nodes_themselves(bm_repr, dofs):
+    """``section_support="direct"``: no reference node and no coupling for the solver to support. Solid-only nodes
+    have no rotations, so they get the translations alone."""
+    bm = _beam()
+    p = ada.Part("P1") / bm
+    bm.concept_fem.fix_end("n1", section_support="direct")
+    fem = bm.to_fem_obj(0.1, bm_repr)
+
+    assert len(fem.constraints) == 0
+    (bc,) = fem.bcs
+    assert bc.dofs == dofs
+    section = bc.fem_set.members
+    assert len(section) > 1
+    assert all(abs(n.x) < 1e-4 for n in section)
+    assert p is not None
+
+
+def test_coupled_section_support_is_the_default():
+    bm = _beam()
+    assert bm.concept_fem.fix_end("n1").section_support == "coupled"
+
+
+def test_an_unknown_section_support_is_refused():
+    with pytest.raises(ValueError, match="section support"):
+        _beam().concept_fem.fix_end("n1", section_support="glued")
+
+
 def test_beam_end_convenience_api():
     bm = _beam()
     fixed = bm.concept_fem.fix_end("n1")

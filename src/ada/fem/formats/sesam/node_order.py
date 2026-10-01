@@ -33,6 +33,13 @@ SESAM_ORDER = NodeOrder(
         # ITET (31), figure 5-31: corners at 1, 3, 5 and the apex at 10;
         # mid-sides 2, 4, 6 round the base, then 7, 8, 9 up to the apex.
         SolidShapes.TETRA10: (0, 4, 1, 5, 2, 6, 7, 8, 9, 3),
+        # TETR (33), figure 5-34: the MIRROR of native -- its face table lists side 4 as
+        # 1-2-3 and side 1 as 3-2-4, i.e. 1-2-3 runs clockwise seen from node 4. Written
+        # in native order Sestra stops with "TETB30 ... THE NODES ARE WRONGLY NUMBERED";
+        # swapped, the cantilever's modes match Abaqus C3D4. ITET above keeps native
+        # handedness, and so does TPRI (32): mirrored, Sestra rejects it with "TPJA30,
+        # Jacobian determinant is less or equal to zero".
+        SolidShapes.TETRA: (0, 2, 1, 3),
         # IPRI (30), figure 5-29: corners 1, 3, 5 / 10, 12, 14 with the base and
         # top mid-sides interleaved, and the three verticals at 7, 8, 9.
         SolidShapes.WEDGE15: (0, 6, 1, 7, 2, 8, 12, 13, 14, 3, 9, 4, 10, 5, 11),

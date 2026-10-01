@@ -82,10 +82,11 @@ def mesh_cantilever(
     props: dict = dict(use_hex=use_hex_quad) if geom_repr == GeomRepr.SOLID else dict(use_quads=use_hex_quad)
     props["options"] = GmshOptions(Mesh_ElementOrder=elem_order)
 
+    # Clamped at n1, on every node of the end section ("direct": no reference node or coupling for each
+    # solver to support). The conversion gives solid-only nodes dofs 1-3 -- they have no rotations, and the
+    # Sesam writer rightly refuses to constrain a dof that doesn't exist.
+    bm.concept_fem.fix_end("n1", name="Fixed", section_support="direct")
     p.fem = bm.to_fem_obj(mesh_size, geom_repr, **props)
-
-    fix_set = p.fem.add_set(ada.fem.FemSet("bc_nodes", bm.bbox().sides.back(return_fem_nodes=True, fem=p.fem)))
-    a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
     for part in a.get_all_parts_in_assembly():
         if part.fem.is_empty():
@@ -115,7 +116,8 @@ def is_eig_skip(
         if use_hex_quad is False and geom_repr in (GeomRepr.SHELL, GeomRepr.SOLID):
             return True
         # Code_Aster sub-integrates solids only (3D_SI); its plate/shell and beam modelisations have no
-        # reduced variant. Sestra's flat shell (FQUS) takes no integration record (GELINT) at all.
+        # reduced variant. Sestra's flat shell (FQUS) takes no integration record (GELINT) at all; its
+        # solids do, but the Sesam writer does not emit GELINT yet.
         if fem_format == FEA.CODE_ASTER and geom_repr != GeomRepr.SOLID:
             return True
         if fem_format == FEA.SESAM:
@@ -123,8 +125,6 @@ def is_eig_skip(
     if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE:
         return True
     if fem_format == FEA.CODE_ASTER and geom_repr == GeomRepr.LINE and elem_order == 2:
-        return True
-    if fem_format == FEA.SESAM and geom_repr == GeomRepr.SOLID:
         return True
     # Abaqus S3 and S3R are identical; skip S3 (shell + order 1 + no RI + no HQ).
     if (

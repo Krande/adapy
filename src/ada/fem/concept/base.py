@@ -9,6 +9,7 @@ from ada.fem.concept.constraints import (
     ConstraintConceptBeamEnd,
     ConstraintConceptDofType,
     ConstraintConcepts,
+    SectionSupport,
 )
 from ada.fem.concept.loads import LoadConcepts
 
@@ -55,16 +56,35 @@ class BeamConceptFEM:
         return self.beam.parent
 
     def add_end_constraint(
-        self, end: BeamEnd, dof_constraints: list[ConstraintConceptDofType], name: str = None
+        self,
+        end: BeamEnd,
+        dof_constraints: list[ConstraintConceptDofType],
+        name: str = None,
+        section_support: SectionSupport = "coupled",
     ) -> ConstraintConceptBeamEnd:
-        """Add a support at the beam end. Dofs not given in dof_constraints are fixed."""
+        """Add a support at the beam end. Dofs not given in dof_constraints are fixed.
+
+        ``section_support`` chooses how a shell/solid mesh's end section is supported: through a reference node
+        coupled to the section (``"coupled"``, the default) or on the section nodes themselves (``"direct"``). See
+        :data:`ada.fem.concept.constraints.SectionSupport`.
+        """
         name = f"{self.beam.name}_{end}" if name is None else name
-        return self.constraints.add_beam_end_constraint(ConstraintConceptBeamEnd(name, self.beam, end, dof_constraints))
+        return self.constraints.add_beam_end_constraint(
+            ConstraintConceptBeamEnd(name, self.beam, end, dof_constraints, section_support=section_support)
+        )
 
-    def fix_end(self, end: BeamEnd, name: str = None) -> ConstraintConceptBeamEnd:
+    def fix_end(
+        self, end: BeamEnd, name: str = None, section_support: SectionSupport = "coupled"
+    ) -> ConstraintConceptBeamEnd:
         """All 6 dofs at the beam end are fixed"""
-        return self.add_end_constraint(end, ConstraintConceptDofType.encastre(), name)
+        return self.add_end_constraint(end, ConstraintConceptDofType.encastre(), name, section_support)
 
-    def pin_end(self, end: BeamEnd, name: str = None) -> ConstraintConceptBeamEnd:
-        """The 3 translational dofs at the beam end are fixed, and the 3 rotational dofs are free"""
-        return self.add_end_constraint(end, ConstraintConceptDofType.pinned(), name)
+    def pin_end(
+        self, end: BeamEnd, name: str = None, section_support: SectionSupport = "coupled"
+    ) -> ConstraintConceptBeamEnd:
+        """The 3 translational dofs at the beam end are fixed, and the 3 rotational dofs are free.
+
+        Use the default ``"coupled"`` support on a shell/solid mesh: held in translation on every section node
+        (``"direct"``), the end cannot rotate and is clamped.
+        """
+        return self.add_end_constraint(end, ConstraintConceptDofType.pinned(), name, section_support)
