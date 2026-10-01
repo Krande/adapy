@@ -2,6 +2,15 @@
 
 
 
+## v0.97.0 (2026-10-01)
+
+### Feature
+
+* feat: support ifcopenshell 0.9 alongside 0.8 (#423)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`915c834`](https://github.com/Krande/adapy/commit/915c834d498e4e49c78dfb101d7f08e636421764))
+
+
 ## v0.96.0 (2026-09-30)
 
 ### Feature
