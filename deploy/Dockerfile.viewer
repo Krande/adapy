@@ -164,7 +164,7 @@ RUN set -eu; \
 # what's solved locally. Replaces a hand-curated ``pip install`` list
 # that drifted from the rest of the project's dep management and
 # couldn't share a lockfile.
-FROM ghcr.io/prefix-dev/pixi:0.68.0 AS env-builder
+FROM ghcr.io/prefix-dev/pixi:0.81.0 AS env-builder
 WORKDIR /work
 COPY pixi.toml pixi.lock pyproject.toml ./
 RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
