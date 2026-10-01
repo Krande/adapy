@@ -311,6 +311,22 @@ class FEAResultStreamAdapter:
         """
         return analysis_kind_from_result_cases(self._result_cases)
 
+    def _result_analysis_kind(self, results: list) -> str | None:
+        """``"eigen"`` / ``"static"`` from the result itself, when it says.
+
+        A mode's field carries its eigen frequency; a result with no eigen data at all is not a
+        modal one. Without this the step-value heuristic decided, and it reads ONE positive step
+        as a mode: an Abaqus static step ends at time 1.0 and a Sesam load case is number 1, so
+        their static deflections were baked as eigenmodes -- normalized to a tenth of the model
+        (2.3x too large on the verification plate strip) and swept through +/- as an oscillation.
+        ``None`` when neither holds, which leaves the heuristic to decide as before.
+        """
+        if any(getattr(r, "eigen_freq", None) is not None for r in results):
+            return "eigen"
+        if getattr(self._result, "eigen_mode_data", None) is None:
+            return "static"
+        return None
+
     def field_specs(self) -> list[FieldSpec]:
         if self._field_specs is not None:
             return self._field_specs
@@ -355,7 +371,7 @@ class FEAResultStreamAdapter:
                     step_values=step_values,
                     category=_classify_field(name, first),
                     presentation=getattr(first, "presentation", None),
-                    analysis_kind=self._named_case_analysis_kind(),
+                    analysis_kind=self._named_case_analysis_kind() or self._result_analysis_kind(sorted_results),
                 )
             )
 

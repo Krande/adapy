@@ -42,3 +42,48 @@ def test_a_falsy_combination_flag_is_not_a_combination():
 def test_tolerates_entries_that_are_not_dicts():
     # The reader owns this list; a malformed entry must not take the bake down.
     assert analysis_kind_from_result_cases([None, 7, "case", {"combination": True}]) == "static"
+
+
+def _one_step_result(eigen_freq=None, eigen_mode_data=None):
+    import numpy as np
+
+    from ada.fem.formats.general import FEATypes
+    from ada.fem.results.common import FEAResult, FemNodes, Mesh
+    from ada.fem.results.field_data import NodalFieldData, NodalFieldType
+
+    nodes = FemNodes(coords=np.array([[0.0, 0, 0], [1.0, 0, 0]]), identifiers=np.array([1, 2]))
+    disp = NodalFieldData(
+        "U",
+        1,  # an Abaqus static step's end time / a Sesam load case number: one positive step value
+        ["U1", "U2", "U3"],
+        np.array([[1, 0, 0, 0], [2, 0, 0, -1e-3]]),
+        eigen_freq=eigen_freq,
+        field_type=NodalFieldType.DISP,
+    )
+    return FEAResult("r", FEATypes.ABAQUS, results=[disp], mesh=Mesh([], nodes), eigen_mode_data=eigen_mode_data)
+
+
+def test_a_single_step_static_result_is_static():
+    # The heuristic read one positive step as a mode, and the static deflection was baked as an
+    # eigenmode: normalized to a tenth of the model and swept through +/-. The result says it has
+    # no modes, which settles it.
+    from ada.fem.results.artefacts.stream_adapter import FEAResultStreamAdapter
+
+    (spec,) = FEAResultStreamAdapter(_one_step_result()).field_specs()
+    assert spec.analysis_kind == "static"
+
+
+def test_a_field_with_an_eigen_frequency_is_a_mode():
+    from ada.fem.results.artefacts.stream_adapter import FEAResultStreamAdapter
+
+    (spec,) = FEAResultStreamAdapter(_one_step_result(eigen_freq=12.8)).field_specs()
+    assert spec.analysis_kind == "eigen"
+
+
+def test_eigen_data_without_tagged_fields_leaves_the_heuristic_alone():
+    from ada.fem.results.artefacts.stream_adapter import FEAResultStreamAdapter
+    from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
+
+    result = _one_step_result(eigen_mode_data=EigenDataSummary([EigenMode(1, f_hz=12.8)]))
+    (spec,) = FEAResultStreamAdapter(result).field_specs()
+    assert spec.analysis_kind is None

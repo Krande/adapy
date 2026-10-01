@@ -564,13 +564,20 @@ def _peak_displacements(case_dir: pathlib.Path) -> dict:
     if field is None:
         return {}
     ranges = field.get("scalar_range") or {}
+    # A bundle baked with mode normalization holds ``raw * factor``. Undone for a single step (the
+    # ranges span all steps, so with several there is no one factor to undo); a peak that cannot be
+    # brought back to the solver's value is not shown.
+    factors = (field.get("mode_normalization") or {}).get("factors") or []
+    if len(factors) > 1:
+        return {}
+    scale = 1.0 / float(factors[0]) if factors and float(factors[0]) else 1.0
     by_lower = {c.lower(): c for c in field.get("components", [])}
     out = {}
     for axis, aliases in zip(("ux", "uy", "uz"), AXIS_ALIASES):
         comp = next((by_lower[a] for a in aliases if a in by_lower), None)
         r = ranges.get(comp) if comp else None
         if r:
-            out[axis] = max(abs(float(r[0])), abs(float(r[1])))
+            out[axis] = max(abs(float(r[0])), abs(float(r[1]))) * scale
     return out
 
 
