@@ -14,6 +14,18 @@ import {
     modelUrl,
     uploadModel,
 } from "@/services/externalModels";
+import {
+    applyLoadingView,
+    beginBulkLoad,
+    captureLoadingView,
+    clearLoadingView,
+    endBulkLoad,
+    readLoadingView,
+    writeLoadingView,
+} from "@/utils/scene/loadingView";
+
+/** The project a binding loads: what its loading view is saved under. */
+const projectKey = (b: {provider: string; collection: string}) => `external:${b.provider}/${b.collection}`;
 
 // The menu-bar list of externally-stored models for the current scope.
 //
@@ -230,17 +242,25 @@ const ExternalModelsPanel: React.FC = () => {
             setError(null);
             const failed: string[] = [];
 
-            // ONE AT A TIME, deliberately. Firing 200 fetches at once would
-            // saturate the network and the GPU upload path, and the failure mode
-            // is a viewer that appears hung. Sequential also means the scene
-            // fills progressively, which is what makes waiting bearable.
-            for (let i = 0; i < todo.length; i++) {
-                if (cancelBulk.current) break;
-                const m = todo[i];
-                setBulk({done: i, total: todo.length, name: m.name});
-                // Collected rather than thrown: one unreachable model must not
-                // abandon the other two hundred.
-                if (!(await onLoad(m))) failed.push(m.name);
+            // The camera goes to this project's loading view (or frames the first model) and
+            // stays put: no fit per model, which was the scene jumping once per model.
+            const session = beginBulkLoad(scope, projectKey(binding));
+            try {
+                // ONE AT A TIME, deliberately. Firing 200 fetches at once would
+                // saturate the network and the GPU upload path, and the failure mode
+                // is a viewer that appears hung. Sequential also means the scene
+                // fills progressively, which is what makes waiting bearable.
+                for (let i = 0; i < todo.length; i++) {
+                    if (cancelBulk.current) break;
+                    const m = todo[i];
+                    setBulk({done: i, total: todo.length, name: m.name});
+                    // Collected rather than thrown: one unreachable model must not
+                    // abandon the other two hundred.
+                    if (!(await onLoad(m))) failed.push(m.name);
+                }
+            } finally {
+                endBulkLoad(session);
+                setViewSaved(!!readLoadingView(scope, projectKey(binding)));
             }
 
             setBulk(null);
@@ -251,8 +271,15 @@ const ExternalModelsPanel: React.FC = () => {
                 );
             }
         },
-        [binding, bulk, loaded, onLoad],
+        [binding, bulk, loaded, onLoad, scope],
     );
+
+    // This project's loading view (`@/utils/scene/loadingView`): whether one is saved, and the
+    // controls to go to it, replace it with the current view, or forget it.
+    const [viewSaved, setViewSaved] = useState(false);
+    useEffect(() => {
+        setViewSaved(!!binding && !!readLoadingView(scope, projectKey(binding)));
+    }, [binding, scope]);
 
     const onUnload = useCallback(
         (m: ExternalModel) => {
@@ -308,6 +335,54 @@ const ExternalModelsPanel: React.FC = () => {
                         </>
                     )}
                 </div>
+                {binding && (
+                    // The project's loading view: where "Load all" puts the camera before the first
+                    // model arrives. Saved automatically after the first full load; yours to replace.
+                    <div className="flex items-center gap-2 pt-1 text-[11px] text-gray-400">
+                        <span className="flex-1 truncate" title="Where the camera starts when this project's models are loaded">
+                            Loading view{viewSaved ? "" : ": set after the first Load all"}
+                        </span>
+                        {viewSaved && (
+                            <button
+                                type="button"
+                                className="hover:text-white"
+                                title="Move the camera to this project's loading view"
+                                onClick={() => {
+                                    const v = readLoadingView(scope, projectKey(binding));
+                                    if (v) applyLoadingView(v);
+                                }}
+                            >
+                                go to
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            className="hover:text-white"
+                            title="Make the current camera this project's loading view"
+                            onClick={() => {
+                                const v = captureLoadingView();
+                                if (!v) return;
+                                writeLoadingView(scope, projectKey(binding), v);
+                                setViewSaved(true);
+                            }}
+                        >
+                            use current
+                        </button>
+                        {viewSaved && (
+                            <button
+                                type="button"
+                                className="hover:text-white"
+                                title="Forget it: the next Load all frames the first model and saves a new one"
+                                onClick={() => {
+                                    clearLoadingView(scope, projectKey(binding));
+                                    setViewSaved(false);
+                                }}
+                            >
+                                reset
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {bulk && (

@@ -127,21 +127,21 @@ export async function cacheAndBuildTree(
         };
         tree_store.setTreeData(container);
 
-        const max_id = await get_max_child_id(container);
-        tree_store.setMaxId(max_id + 1);
+        // Only the NEW model's ids can raise the maximum -- they were numbered from it -- so only
+        // its subtree is walked. Walking the whole container (every model loaded so far, an await
+        // per node) made each load of a bulk load slower than the one before.
+        tree_store.setMaxId(Math.max(useTreeViewStore.getState().max_id, maxNodeId(treeData)) + 1);
     }
 }
 
-// Recursive function to get the maximum child id
-async function get_max_child_id(
-    node: TreeNodeData,
-    max_id: number = 0
-): Promise<number> {
-    if (node.children.length === 0) {
-        return Math.max(Number(node.id), max_id);
+/** The largest leaf id under `root`, iteratively: a deep tree must not cost a stack frame (or a
+ *  promise) per node. */
+function maxNodeId(root: TreeNodeData): number {
+    let max = 0;
+    const stack: TreeNodeData[] = [root];
+    for (let node = stack.pop(); node; node = stack.pop()) {
+        if (node.children.length === 0) max = Math.max(max, Number(node.id));
+        else for (const child of node.children) stack.push(child);
     }
-    for (const child of node.children) {
-        max_id = await get_max_child_id(child, max_id);
-    }
-    return max_id;
+    return max;
 }

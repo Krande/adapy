@@ -42,6 +42,7 @@ import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphan
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
 import { actionTargets } from "@/assets/treeKeys";
+import { beginBulkLoad, endBulkLoad } from "@/utils/scene/loadingView";
 import type { ResolutionMode, WireNodeAttributes } from "@/assets/types";
 import PositionedMenu, { type KebabMenuItem } from "@/components/common/PositionedMenu";
 import type { TreeNodeData } from "@/components/tree_view/CustomNode";
@@ -344,7 +345,8 @@ interface AssetLoadControl {
     root: TreeNodeData | null;
     busy: boolean;
     error: string | null;
-    load: () => void;
+    /** Resolves when the model is in the scene, or the attempt failed (its error is then in the store). */
+    load: () => Promise<void>;
     unload: () => void;
     reveal: () => void;
 }
@@ -401,7 +403,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
             // the moment its item is clicked, and the load must outlive it.
             load: () => {
                 useAssetBrowserStore.getState().beginLoad(key);
-                void (async () => {
+                return (async () => {
                     try {
                         // The claim's own provider in the path: the server then reads THAT provider's
                         // manifest for the subject, not whichever provider published it last.
@@ -482,6 +484,23 @@ function loadGroups(controls: readonly AssetLoadControl[]): LoadGroup[] {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** Load a selection's models as ONE bulk load of the collection: the camera goes to its loading
+ *  view (or frames the first model) and stays there, and the models load one at a time -- several
+ *  parsed at once was the main thread held for all of them together. A single model is an
+ *  ordinary load, fitted as before. */
+async function loadSelection(scope: string, collection: string, controls: readonly AssetLoadControl[]): Promise<void> {
+    if (controls.length < 2) {
+        await controls[0]?.load();
+        return;
+    }
+    const session = beginBulkLoad(scope, `assets:${collection}`);
+    try {
+        for (const c of controls) await c.load();
+    } finally {
+        endBulkLoad(session);
+    }
+}
+
 const LoadControls: React.FC<{ view: AssetView; ids: readonly string[]; scope: string }> = ({ view, ids, scope }) => {
     const controls = useAssetLoads(view, ids, scope);
     if (!controls.length) {
@@ -492,7 +511,7 @@ const LoadControls: React.FC<{ view: AssetView; ids: readonly string[]; scope: s
             </button>
         );
     }
-    if (ids.length > 1) return <BulkLoads groups={loadGroups(controls)} />;
+    if (ids.length > 1) return <BulkLoads groups={loadGroups(controls)} scope={scope} collection={view.collection} />;
     // One provider: the plain button. Several: one per provider, each naming it -- which
     // geometry lands in the scene is the user's choice, and the two can be compared side by side.
     const named = controls.length > 1;
@@ -507,7 +526,7 @@ const LoadControls: React.FC<{ view: AssetView; ids: readonly string[]; scope: s
 
 /** A selection's loads, one set of controls per provider: load what is not in the scene yet, unload
  *  what is. Each model still loads on its own -- this only starts them together. */
-const BulkLoads: React.FC<{ groups: readonly LoadGroup[] }> = ({ groups }) => {
+const BulkLoads: React.FC<{ groups: readonly LoadGroup[]; scope: string; collection: string }> = ({ groups, scope, collection }) => {
     const named = groups.length > 1;
     return (
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -518,7 +537,7 @@ const BulkLoads: React.FC<{ groups: readonly LoadGroup[] }> = ({ groups }) => {
                         disabled={!g.toLoad.length}
                         className={`${BTN_PRIMARY} shrink-0`}
                         title={`Load ${plural(g.toLoad.length, "model")} from ${g.provider}`}
-                        onClick={() => g.toLoad.forEach((c) => c.load())}
+                        onClick={() => void loadSelection(scope, collection, g.toLoad)}
                     >
                         {g.toLoad.length ? `Load ${g.toLoad.length}` : "All loaded"}
                         {named ? ` · ${g.provider}` : ""}
@@ -891,7 +910,7 @@ const AssetRowMenu: React.FC<{
                 label: g.toLoad.length ? `Load ${plural(g.toLoad.length, "model")} into scene${from}` : `All loaded${from}`,
                 disabled: !g.toLoad.length,
                 title: g.busy ? `${g.busy} still loading` : undefined,
-                onClick: () => g.toLoad.forEach((c) => c.load()),
+                onClick: () => void loadSelection(scope, view.collection, g.toLoad),
             });
             if (g.loaded.length) {
                 items.push({

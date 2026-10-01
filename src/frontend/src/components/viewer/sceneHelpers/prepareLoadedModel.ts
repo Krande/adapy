@@ -28,7 +28,10 @@ function frameYield(): Promise<void> {
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
-    hash: string
+    hash: string;
+    /** Yield between meshes whatever the perf option says -- what a bulk load asks for, where one
+     *  model's preparation blocking the frame is felt once per model. */
+    timeSlice?: boolean;
 }
 
 async function get_ada_ext_simulation_data(mesh: THREE.Mesh): Promise<SimulationDataExtensionMetadata | null> {
@@ -77,7 +80,7 @@ async function get_ada_ext_design_data(mesh: THREE.Mesh): Promise<DesignDataExte
     return null;
 }
 
-export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelParams): Promise<void> {
+export async function prepareLoadedModel({gltf_scene, hash, timeSlice: forceSlice}: PrepareLoadedModelParams): Promise<void> {
     const optionsStore = useOptionsStore.getState()
 
     // we'll collect all edge geometries here
@@ -123,7 +126,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
     // ~budget-ms batches and yield to the browser between them so the main
     // thread never blocks in one long stall — the viewer stays interactive
     // and meshes stream into the scene. Off → the original tight loop.
-    const timeSlice = usePerfStore.getState().timeSlicedLoad;
+    const timeSlice = forceSlice || usePerfStore.getState().timeSlicedLoad;
     const SLICE_BUDGET_MS = 12;
     let batchStart = performance.now();
 
@@ -228,8 +231,17 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         const isFeaStreaming = !!original.userData?.feaStreaming;
         if (optionsStore.showEdges && drawRanges.size && is_design && !isFeaStreaming) {
             const overlayRenderer = getViewerRuntime().renderer.current;
-            if (overlayRenderer)
-                parent.add(customMesh.getEdgeOverlay(overlayRenderer));
+            // Built in a worker and attached when it is ready: the mesh is on screen meanwhile,
+            // where building it here held the main thread for seconds on a large merged mesh.
+            // Attached only if edges are still wanted and the mesh is still where it was put.
+            if (overlayRenderer) {
+                void customMesh.getEdgeOverlayAsync(overlayRenderer).then((edges) => {
+                    if (!edges || edges.parent || customMesh.parent !== parent) return;
+                    if (!useOptionsStore.getState().showEdges) return;
+                    parent.add(edges);
+                    requestRender();
+                });
+            }
         }
 
         parent.add(customMesh);
