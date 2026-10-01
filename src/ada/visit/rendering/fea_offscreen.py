@@ -144,6 +144,95 @@ def _parse_afbl(buf: bytes):
     return header, arr
 
 
+def _parse_afbv(buf: bytes):
+    """Parse an AFBV beam-solid warp sidecar into ``(node0, node1, t)`` per solid vertex, or None
+    on a malformed one. Layout: 16-byte header (magic, version, n_verts, pad), then n_verts
+    interleaved records of (uint32 node0, uint32 node1, float32 t)."""
+    import numpy as np
+
+    from ada.fem.results.artefacts.formats import (
+        BEAM_WARP_HEADER_BYTES,
+        BEAM_WARP_MAGIC,
+        BEAM_WARP_VERSION,
+    )
+
+    if buf[:4] != BEAM_WARP_MAGIC:
+        return None
+    version, n_verts = struct.unpack("<II", buf[4:12])
+    if version != BEAM_WARP_VERSION or len(buf) < BEAM_WARP_HEADER_BYTES + n_verts * 12:
+        return None
+    raw = np.frombuffer(buf, dtype=np.uint32, count=n_verts * 3, offset=BEAM_WARP_HEADER_BYTES)
+    node0 = raw[0::3].astype(np.int64)
+    node1 = raw[1::3].astype(np.int64)
+    t = raw[2::3].copy().view(np.float32).astype(np.float64)
+    return node0, node1, t
+
+
+def beam_solid_displacement(base, node0, node1, t, values, components, node_positions):
+    """Per solid vertex: ``lerp(u) + lerp(θ) × r`` with ``r = v_base − lerp(P)`` -- the same warp
+    the viewer runs (``beamSolidDisplacement`` in ``streaming/warp.ts``), so the poster and the
+    interactive view deform the same way. Translation and rotation columns are found by component
+    name; without named rotations it is the translation alone."""
+    import numpy as np
+
+    from ada.fem.results.artefacts.mode_normalization import (
+        rotation_columns,
+        translation_columns,
+    )
+
+    w = np.asarray(t, dtype=np.float64)[:, None]
+    values = np.asarray(values, dtype=np.float64)
+    tcols = translation_columns(components)
+    delta = (1 - w) * values[node0][:, tcols] + w * values[node1][:, tcols]
+    rcols = rotation_columns(components)
+    if rcols is not None:
+        theta = (1 - w) * values[node0][:, rcols] + w * values[node1][:, rcols]
+        nodes = np.asarray(node_positions, dtype=np.float64)
+        r = np.asarray(base, dtype=np.float64) - ((1 - w) * nodes[node0] + w * nodes[node1])
+        delta = delta + np.cross(theta, r)
+    return delta
+
+
+def _beam_solids_geometry(case_dir: Path, manifest: dict, values, components, node_positions, apply_colormap: bool):
+    """The bundle's beam solids, deformed by this mode and coloured by their own displacement --
+    as the viewer draws them. None when the bundle has no mesh-format beam solids (the compact
+    one needs the wasm expander), or they do not fit their warp map."""
+    import logging
+
+    import numpy as np
+    import trimesh
+
+    mesh_info = manifest.get("mesh") or {}
+    glb_url, warp_url = mesh_info.get("beam_solids_url"), mesh_info.get("beam_solids_warp_url")
+    if not glb_url or not warp_url:
+        return None
+    warp = _parse_afbv((case_dir / warp_url).read_bytes())
+    # process=False: trimesh's default vertex merge would renumber the vertices the warp map indexes.
+    solids = trimesh.load(str(case_dir / glb_url), force="scene", process=False).dump(concatenate=True)
+    if warp is None or len(solids.vertices) != len(warp[0]):
+        logging.getLogger(__name__).warning(
+            "fea_offscreen: beam solids in %s do not fit their warp map; drawing beams as lines", case_dir
+        )
+        return None
+    node0, node1, t = warp
+    base = np.asarray(solids.vertices, dtype=np.float64)
+    delta = beam_solid_displacement(base, node0, node1, t, values, components, node_positions)
+    # One vertex per face corner: flat shading, as the viewer draws the solids. Shared vertices
+    # average their normals across a section's cap and its sides, which shaded every element joint
+    # as a dark band.
+    faces = np.asarray(solids.faces)
+    corners = faces.reshape(-1)
+    flat = trimesh.Trimesh(
+        vertices=(base + delta)[corners],
+        faces=np.arange(corners.size).reshape(-1, 3),
+        process=False,
+    )
+    if apply_colormap:
+        rgba = _abaqus_rgba(np.linalg.norm(delta, axis=1))[corners]
+        flat.visual = trimesh.visual.color.ColorVisuals(mesh=flat, vertex_colors=rgba)
+    return flat
+
+
 def _abaqus_rgba(magnitudes):
     """Per-vertex RGBA uint8 from displacement magnitudes, using the
     same blue→cyan→green→yellow→red palette the embed uses in
@@ -188,12 +277,18 @@ def render_fea_mode_from_bundle(
     backend: Literal["pygfx", "chromium"] = "pygfx",
     preset: Optional[dict] = None,
     size: tuple[int, int] = (640, 480),
+    beam_solids: bool = False,
 ) -> "PILImage":
     """Render a single deformed mode shape from a pre-baked FEA
     artefact bundle (the layout `bake_artefacts` writes).
 
     `case_dir` must contain `fea.mesh.glb`, `fea.manifest.json`, and
     the AFBL displacement blobs the manifest references.
+
+    `beam_solids` draws beam elements as their solid cross-section,
+    deformed with the mode's rotations as well as its translations (so
+    a torsion mode twists) -- the viewer's "Beams as solid". Needs the
+    bundle's mesh-format beam solids; without them beams stay lines.
 
     All heavy imports (numpy, trimesh, pygfx, playwright) are lazy
     inside the function — pygltflib intentionally is NOT used, so
@@ -282,11 +377,24 @@ def render_fea_mode_from_bundle(
     # showed no stiffener. Drawn as coloured members over the surface, and taken
     # out of the grey wireframe below so no edge is drawn twice -- the same split
     # the frontend makes.
+    # Beams as solids: the members are drawn by their solid instead of as lines.
+    solids = None
+    if beam_solids:
+        solids = _beam_solids_geometry(
+            case_dir, manifest, steps[step_idx], field_components, base_positions, apply_colormap
+        )
+        if solids is not None:
+            scene.add_geometry(solids, geom_name="beam_solids")
+            # A beam model's mesh is its node points; under the solids they only show through
+            # as a dotted line along the web.
+            if isinstance(mesh, trimesh.PointCloud):
+                scene.delete_geometry(geom_key)
+
     line_pairs = None
     line_edges_bin = case_dir / "fea.mesh.line_edges.bin"
     if line_edges_bin.is_file():
         line_pairs = _parse_afeg(line_edges_bin.read_bytes())
-        if line_pairs is not None and line_pairs.size > 0:
+        if line_pairs is not None and line_pairs.size > 0 and solids is None:
             from trimesh.path.entities import Line
             from trimesh.path.path import Path3D
 
@@ -360,6 +468,7 @@ def render_fea_mode(
     backend: Literal["pygfx", "chromium"] = "pygfx",
     preset: Optional[dict] = None,
     size: tuple[int, int] = (640, 480),
+    beam_solids: bool = False,
 ) -> "PILImage":
     """Render a single deformed mode shape from a live :class:`FEAResult`.
 
@@ -386,7 +495,8 @@ def render_fea_mode(
     with tempfile.TemporaryDirectory(prefix="fea_render_bundle_") as tmp:
         case_dir = Path(tmp)
         reader = FEAResultStreamAdapter(res)
-        bake_artefacts(reader, case_dir, src=res.name or "fea")
+        # Mesh-format beam solids: the only kind the renderer can draw.
+        bake_artefacts(reader, case_dir, src=res.name or "fea", beam_solid_format="mesh")
         return render_fea_mode_from_bundle(
             case_dir,
             mode_index=mode_index,
@@ -394,4 +504,5 @@ def render_fea_mode(
             backend=backend,
             preset=preset,
             size=size,
+            beam_solids=beam_solids,
         )

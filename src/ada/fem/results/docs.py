@@ -62,6 +62,10 @@ logger = logging.getLogger(__name__)
 #: viewer could not draw beams as solids from it.
 _DOCS_BEAM_SOLID_FORMAT = "mesh"
 
+#: Docs posters draw beam elements as solids (twisting with the mode), matching the interactive
+#: viewers, which a document's `beam_solids: true` starts that way.
+_DOCS_BEAM_SOLID_POSTERS = True
+
 
 # ---------------------------------------------------------------------------
 # Descriptor
@@ -296,6 +300,7 @@ def assets_for_docs(
             poster_backend=poster_backend,
             normalize_modes=normalize_modes,
             beam_solid_format=_DOCS_BEAM_SOLID_FORMAT,
+            beam_solid_posters=_DOCS_BEAM_SOLID_POSTERS,
         )
     elif hasattr(src, "read_mesh_geometry"):
         # FEAStreamReader (Protocol).
@@ -307,6 +312,7 @@ def assets_for_docs(
             poster_backend=poster_backend,
             normalize_modes=normalize_modes,
             beam_solid_format=_DOCS_BEAM_SOLID_FORMAT,
+            beam_solid_posters=_DOCS_BEAM_SOLID_POSTERS,
         )
     elif hasattr(src, "results"):
         # FEAResult — keep the reference so we can pull fem_format +
@@ -320,6 +326,7 @@ def assets_for_docs(
             poster_backend=poster_backend,
             normalize_modes=normalize_modes,
             beam_solid_format=_DOCS_BEAM_SOLID_FORMAT,
+            beam_solid_posters=_DOCS_BEAM_SOLID_POSTERS,
         )
     else:
         raise TypeError(
@@ -624,7 +631,12 @@ def render_missing_posters(assets: FeaDocAssets, *, poster_backend: str = "pygfx
         else:
             dest = assets.mesh_glb_path.with_name(f"fea.mesh.mode_{mode_idx + 1}.png")
         try:
-            render_fea_mode_from_bundle(assets.bundle_dir, mode_index=mode_idx, backend=poster_backend).save(str(dest))
+            render_fea_mode_from_bundle(
+                assets.bundle_dir,
+                mode_index=mode_idx,
+                backend=poster_backend,
+                beam_solids=_DOCS_BEAM_SOLID_POSTERS,
+            ).save(str(dest))
         except Exception as exc:  # noqa: BLE001 — a missing poster degrades one figure, not the doc
             logger.warning(f"{assets.key}: mode {mode_idx + 1} poster failed: {exc}")
             continue
