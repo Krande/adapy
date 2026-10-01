@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
+import SceneTreeRow from './SceneTreeRow';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
@@ -114,6 +115,8 @@ const TreeViewComponent: React.FC = () => {
                     disableEdit={true}
                     openByDefault={false}
                     disableMultiSelection={false}
+                    // Ctrl-click adds or removes a row, as Cmd-click does (see SceneTreeRow).
+                    renderRow={SceneTreeRow}
                     searchTerm={searchTerm}
                     searchMatch={
                         (node, term) => {
