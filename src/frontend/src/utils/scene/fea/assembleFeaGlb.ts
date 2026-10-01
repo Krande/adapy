@@ -44,6 +44,7 @@ import {parseMeshElements} from "@/services/feaMeshElements";
 import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {abaqus} from "./colormaps";
+import {FEA_EDGE_LINES_NAME} from "./beamLinesFromEdges";
 
 /** Base vertex colour when no mode is active — light neutral grey
  *  so the un-deformed mesh has a CAD-ish look. Per-mode colour morph
@@ -400,7 +401,7 @@ export async function assembleAnimatedFeaGlb(
                 });
                 (lineMat as any).morphTargets = true;
                 const segments = new THREE.LineSegments(lineGeom, lineMat);
-                segments.name = "fea-element-edges";
+                segments.name = FEA_EDGE_LINES_NAME;
                 // Sharing the array reference means writes through
                 // mesh.morphTargetInfluences (driver / slider) update
                 // the edge geometry's morph too — no separate driver

@@ -53,6 +53,7 @@ import {
     tickFeaAnimation,
 } from "../src/utils/scene/fea/feaAnimationDriver"
 import { findMorphPrimitive } from "../src/utils/scene/fea/morphPrimitive"
+import { installBeamLinesFromEdges } from "../src/utils/scene/fea/beamLinesFromEdges"
 
 import { EmbedUI } from "./EmbedUI"
 import {
@@ -675,6 +676,12 @@ function activateFeaSession(
     // already set by assembleFeaGlb survive the export/import.
     feaMesh.morphTargetInfluences = [1.0]
     const enableMorph = (mat: THREE.Material) => {
+        // A ShaderMaterial -- the sphere impostor a beam model's node
+        // points get -- manages its own USE_COLOR define and morph chunks.
+        // Setting vertexColors on it makes three.js define USE_COLOR a
+        // second time, the vertex shader fails to compile and the points
+        // vanish ("'USE_COLOR' : macro redefined").
+        if ((mat as any).isShaderMaterial) return
         let dirty = false
         if ("morphTargets" in mat && (mat as any).morphTargets !== true) {
             ;(mat as any).morphTargets = true
@@ -714,6 +721,14 @@ function activateFeaSession(
             }
         }
     })
+
+    // A beam model is node points only, and its elements were drawn by
+    // nothing but the one-pixel edge hairline. Draw them as fat,
+    // result-coloured lines that follow the morph, as the standalone
+    // viewer does.
+    if ((feaMesh as any).isPoints) {
+        installBeamLinesFromEdges(feaMesh)
+    }
 
     // Field range follows the active field's analysis_kind. Match the
     // global modeIndex to the (field, step) the bake actually

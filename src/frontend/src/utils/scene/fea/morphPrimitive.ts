@@ -11,9 +11,10 @@ export type MorphPrimitive = THREE.Object3D & {
  * The first primitive under `root` whose geometry carries a position
  * morph -- the mode displacement `assembleFeaGlb` installs. A model with
  * faces carries it on a Mesh (CustomBatchedMesh is one too); a beam model
- * has none, and `assembleFeaGlb` hangs it on a LineSegments (or Points)
- * primitive instead, so those count as well. Looking for a Mesh only left
- * every beam case undeformed and without the simulation controls.
+ * has none -- its bundle mesh is node points -- so `assembleFeaGlb` hangs it
+ * on that Points (or a LineSegments) primitive instead, and those count as
+ * well. Looking for a Mesh only left every beam case undeformed and without
+ * the simulation controls.
  *
  * `traverse` visits a parent before its children, so the wireframe-edge
  * LineSegments that shares the primitive's morph is never picked over it.

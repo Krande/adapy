@@ -7,8 +7,15 @@ import {findMorphPrimitive} from "@/utils/scene/fea/morphPrimitive";
 
 // The paradoc embed starts a mode's animation session on the primitive that
 // carries the mode-shape morph. A beam model has no faces -- its morph sits on
-// a LineSegments -- and a Mesh-only lookup left every beam case undeformed and
-// without the simulation controls.
+// the node Points (or a LineSegments) -- and a Mesh-only lookup left every beam
+// case undeformed and without the simulation controls.
+
+test("a beam model's node Points carries the morph", () => {
+    const scene = new THREE.Scene();
+    const nodes = morphed(new THREE.Points(geometry(), new THREE.PointsMaterial()));
+    scene.add(nodes);
+    assert.equal(findMorphPrimitive(scene), nodes);
+});
 
 function morphed<T extends THREE.Object3D & {geometry: THREE.BufferGeometry}>(obj: T): T {
     const n = obj.geometry.getAttribute("position").count;
@@ -22,7 +29,7 @@ function geometry(): THREE.BufferGeometry {
     return g;
 }
 
-test("a beam model's LineSegments carries the morph", () => {
+test("a line-only model's LineSegments carries the morph", () => {
     const scene = new THREE.Scene();
     const beam = morphed(new THREE.LineSegments(geometry(), new THREE.LineBasicMaterial()));
     scene.add(beam);
