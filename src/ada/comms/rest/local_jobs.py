@@ -451,7 +451,7 @@ def start_asset_publish(
     records cannot be trusted.
     """
     from ada.assets.manifest import Actor
-    from ada.assets.publish import apply_publish_plan
+    from ada.assets.publish import apply_publish_plan, stored_encoding
     from ada.assets.publishers import asset_publisher
 
     publisher = asset_publisher(provider_id)  # LookupError if this process cannot publish it
@@ -496,12 +496,24 @@ def start_asset_publish(
                 dry_run=dry_run,
                 replace_existing=replace_existing,
                 occupied=occupied,
-                write=lambda key, data: sync_storage.put_bytes(key, data),
+                # A spine arrives gzip-compressed (gzip at rest): stored as-is, and labelled.
+                write=lambda key, data: sync_storage.put_bytes(
+                    key, data, content_encoding=stored_encoding(data), pre_compressed=stored_encoding(data) is not None
+                ),
+                provider=provider_id,
             )
             payload = outcome.to_dict()
             job.stage = "upload"
             job.progress = 0.95
             sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+            # Clear what the publish consumed, as the queued path does (see `consumed_staging`).
+            from ada.comms.rest.formats.asset_publish import consumed_staging
+
+            for key in consumed_staging(staged, dry_run=dry_run):
+                try:
+                    asyncio.run_coroutine_threadsafe(storage.delete(scope, key), loop).result()
+                except Exception:  # noqa: BLE001 — a key left staged is listed as such, not lost
+                    logger.warning("local asset publish %s could not clear staged %s", job.job_id, key)
             job.result = payload
             job.status = STATUS_DONE
             job.stage = "done"
@@ -856,4 +868,96 @@ def start_clash_detail(
             logger.debug("local clash_detail traceback:\n%s", traceback.format_exc())
 
     threading.Thread(target=_run, name=f"local-clash-detail-{spec_name}", daemon=True).start()
+    return job
+
+
+def start_export_selection(
+    *,
+    source_key: "str | None",
+    options: dict[str, Any],
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Write a selection as STEP/IFC in a thread -- the queue-less twin of the worker's
+    ``export_selection`` / ``export_selection_asset`` kinds (``formats/export_selection.py``).
+
+    ``source_key`` names a file this process reads; ``None`` means ``options`` names a published
+    node, whose provider reads its own format here -- and says so by name when it is not
+    installed. Either way the same leaf functions the worker calls do the work, so the file a
+    single-node viewer hands out is the one a cluster would.
+    """
+    from ada.comms.rest.selection_export import (
+        SELECTION_EXPORT_FORMATS,
+        SelectionExportError,
+        export_asset_selection,
+        export_source_selection,
+    )
+    from ada.comms.rest.worker import _SyncStorageFacade
+    from ada.core.file_system import new_temp_path
+
+    fmt = str(options.get("format") or "")
+    if fmt not in SELECTION_EXPORT_FORMATS:
+        raise LookupError(f"unsupported export format {fmt!r} (expected one of {sorted(SELECTION_EXPORT_FORMATS)})")
+
+    sync_storage = _SyncStorageFacade(storage, scope, asyncio.get_running_loop())
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id="export_selection",
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _run() -> None:
+        out_path = new_temp_path(suffix=SELECTION_EXPORT_FORMATS[fmt])
+        src = new_temp_path(suffix=pathlib.PurePosixPath(source_key).suffix or None) if source_key else None
+        try:
+            job.stage, job.progress = "export", 0.3
+            element = options.get("element") or None
+            path = options.get("path") or ()
+            if source_key is not None:
+                sync_storage.fetch_to_path(source_key, src)
+                export_source_selection(src, fmt, out_path, element=element, path=path)
+            else:
+                export_asset_selection(
+                    collection=str(options.get("collection") or ""),
+                    subject=str(options.get("subject") or ""),
+                    storage=sync_storage,
+                    fmt=fmt,
+                    out_path=out_path,
+                    revision=options.get("revision") or None,
+                    node=options.get("node") or None,
+                    element=element,
+                    path=path,
+                )
+            if job.status != STATUS_RUNNING:
+                return
+            job.stage, job.progress = "upload", 0.9
+            # Identity, not gzip: the blob GET must hand the browser a file it can save as is.
+            sync_storage.put_bytes(derived_key, out_path.read_bytes())
+            job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
+        except Exception as exc:  # noqa: BLE001 — the export's failure is data, not ours
+            if job.status != STATUS_RUNNING:
+                return
+            if job.cancel_event.is_set():
+                job.status, job.stage = STATUS_CANCELLED, "cancelled"
+                return
+            job.status = STATUS_ERROR
+            job.stage = "error"
+            if isinstance(exc, SelectionExportError):
+                # The selection's own problem, worded for the user who made it.
+                job.error = str(exc)
+                return
+            logger.exception("local export_selection %s failed", job.job_id)
+            job.error = f"{type(exc).__name__}: {exc}"
+            logger.debug("local export_selection traceback:\n%s", traceback.format_exc())
+        finally:
+            out_path.unlink(missing_ok=True)
+            if src is not None:
+                src.unlink(missing_ok=True)
+
+    threading.Thread(target=_run, name="local-export-selection", daemon=True).start()
     return job

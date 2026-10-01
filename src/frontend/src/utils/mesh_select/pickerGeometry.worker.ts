@@ -14,6 +14,8 @@
 
 import * as Comlink from "comlink";
 
+import { fillTriColors } from "./pickerColors";
+
 export interface PickerBuildInput {
     flat: boolean;
     // Triangle indices into ``posArr``. Uint16 or Uint32, whichever the
@@ -26,10 +28,11 @@ export interface PickerBuildInput {
     // Distinct vertices in ``posArr`` — only needed for the flat
     // builder, ignored by the non-indexed path.
     nOrigVerts: number;
-    // Per-triangle 8-bit pickColor (r, g, b) — built on main from the
-    // global id counter so id allocation stays sequential across all
-    // registered meshes.
-    triColor: Uint8Array;
+    // The pick ids as runs of triangles, `(startTri, triCount, id)` triples applied in order (a
+    // face's id overwrites its solid's). Ids are allocated on main from the global counter so they
+    // stay sequential across all registered meshes; the per-TRIANGLE fill is done here
+    // (`fillTriColors`), where its tens of millions of writes on a large model do not block.
+    colorRuns: Uint32Array;
     // Source morph position attribute arrays, one per morph target.
     // Empty array if the mesh has no morphs.
     morphArrs: Float32Array[];
@@ -69,9 +72,9 @@ function duplicateMorph(
     return dup;
 }
 
-function buildNonIndexed(input: PickerBuildInput): PickerBuildOutput {
+function buildNonIndexed(input: PickerBuildInput, triColor: Uint8Array): PickerBuildOutput {
     const {
-        indices, posArr, itemSize, nTris, triColor,
+        indices, posArr, itemSize, nTris,
         morphArrs, morphItemSize, morphTargetsRelative,
     } = input;
 
@@ -133,9 +136,9 @@ function buildNonIndexed(input: PickerBuildInput): PickerBuildOutput {
     };
 }
 
-function buildFlat(input: PickerBuildInput): PickerBuildOutput {
+function buildFlat(input: PickerBuildInput, triColor: Uint8Array): PickerBuildOutput {
     const {
-        indices, posArr, itemSize, nTris, nOrigVerts, triColor,
+        indices, posArr, itemSize, nTris, nOrigVerts,
         morphArrs, morphItemSize, morphTargetsRelative,
     } = input;
 
@@ -202,7 +205,8 @@ function buildFlat(input: PickerBuildInput): PickerBuildOutput {
 
 const api = {
     build(input: PickerBuildInput): PickerBuildOutput {
-        const out = input.flat ? buildFlat(input) : buildNonIndexed(input);
+        const triColor = fillTriColors(input.nTris, input.colorRuns);
+        const out = input.flat ? buildFlat(input, triColor) : buildNonIndexed(input, triColor);
         // ``.buffer`` on a typed array is typed ``ArrayBufferLike`` in
         // current TS lib.dom (covers both ArrayBuffer and SharedArrayBuffer);
         // Comlink.transfer wants plain ``ArrayBuffer``. We only ever

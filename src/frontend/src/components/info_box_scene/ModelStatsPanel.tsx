@@ -1,5 +1,6 @@
 import React from "react";
 
+import { useSceneModelNames } from "@/hooks/useSceneModelNames";
 import { useStatsStore } from "@/state/statsStore";
 import {
   DISCIPLINE_META,
@@ -446,6 +447,8 @@ const ModelStatsPanel = () => {
   // take-off came embedded in the GLB and there is no backend to ask, so the
   // split-button is hidden rather than shown doing nothing.
   const canExport = useStatsStore((s) => s.canExport);
+  // The model as the Scene tree names it, with its provider -- not the tail of its source key.
+  const modelName = useSceneModelNames();
 
   React.useEffect(() => {
     if (!open) return;
@@ -474,7 +477,7 @@ const ModelStatsPanel = () => {
           <div>
             <div className="text-sm font-semibold leading-tight">Model Statistics</div>
             <div className="text-[11px] text-gray-400">
-              {(stats.source_name || "model")} · {fmt0(stats.objects)} objects
+              {stats.source_name ? modelName(stats.source_name, { withProvider: true }) : "model"} · {fmt0(stats.objects)} objects
             </div>
           </div>
           <span className="flex-1" />

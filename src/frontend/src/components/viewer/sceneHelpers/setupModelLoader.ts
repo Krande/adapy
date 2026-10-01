@@ -5,6 +5,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {useAnimationStore} from "@/state/animationStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {zoomToAll} from "./setupCameraControlsHandlers";
+import {bulkLoadActive, noteBulkModel} from "@/utils/scene/loadingView";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {requestRender} from "@/state/perfStore";
 import {FilePurpose} from "@/flatbuffers/base/file-purpose";
@@ -43,6 +44,9 @@ export interface SetupModelLoaderOptions {
     translate?: boolean;
     prepareHook?: SetupModelPrepareHook;
     sourceName?: string;
+    /** What the caller calls this model (a site's label, a model's name): its root row's name in
+     *  the Scene tree. Absent: the model's own root name, else the source name. */
+    displayName?: string;
     /** Auth headers for loading directly from the authed REST streaming GET (REST-mode view). */
     requestHeaders?: Record<string, string>;
     /** Optional admin load-metrics recorder (REST view path). No-op when absent. */
@@ -68,6 +72,7 @@ export async function setupModelLoaderAsync(
         translate = true,
         prepareHook,
         sourceName,
+        displayName,
         requestHeaders,
         metrics,
         autoFitOverride,
@@ -189,7 +194,9 @@ export async function setupModelLoaderAsync(
         await prepareHook(gltf_scene);
     }
 
-    await prepareLoadedModel({gltf_scene: gltf_scene, hash: model_hash});
+    // In a bulk load, one model's preparation blocking the frame is felt once per model: slice it.
+    const bulk = bulkLoadActive();
+    await prepareLoadedModel({gltf_scene: gltf_scene, hash: model_hash, timeSlice: bulk});
     // once userData is on the scene:
     const rawUD = (gltf_scene.userData ?? {}) as Record<
         string,
@@ -197,7 +204,7 @@ export async function setupModelLoaderAsync(
     >;
 
     // delegate all the caching to our helper (sourceName -> the tree root label)
-    await cacheAndBuildTree(model_hash, rawUD, sourceName);
+    await cacheAndBuildTree(model_hash, rawUD, sourceName, displayName);
 
     // Union of per-geometry boundingBoxes (set cheaply in prepareLoadedModel via
     // fastComputeBounds) — avoids setFromObject's per-vertex iteration on large
@@ -240,7 +247,8 @@ export async function setupModelLoaderAsync(
     // rendered. The clip plane + slider operate in world space; the FEA path
     // likewise stores a world box. Sphere radius is translation-invariant, so the
     // adaptive-clipping fit below is unaffected.
-    modelStore.setBoundingBox(localBox.clone().translate(gltf_scene.position));
+    const worldBox = localBox.clone().translate(gltf_scene.position);
+    modelStore.setBoundingBox(worldBox);
 
     // THIS is the object that carries the source -> scene transform: the up-axis rotation applied
     // by uprightSceneBox and the recentring offset applied just above. The object registered as
@@ -300,7 +308,13 @@ export async function setupModelLoaderAsync(
     // Auto fit-to-all after the model is in the scene (scene-config toggle, default on) —
     // frames a freshly loaded model, and each geom cycled through in gallery mode, without a
     // manual Shift+A. Deferred a frame so the just-added meshes' world bounds are current.
-    if (autoFitOverride ?? optionsStore.autoFit) {
+    //
+    // NOT IN A BULK LOAD: fitting after every model is the camera jumping once per model. The
+    // session places the camera once -- the project's loading view, or the first model -- and
+    // keeps the clipping range covering everything loaded (`@/utils/scene/loadingView`).
+    if (bulk) {
+        noteBulkModel(worldBox);
+    } else if (autoFitOverride ?? optionsStore.autoFit) {
         const cam = getViewerRuntime().camera.current;
         const ctl = getViewerRuntime().controls.current;
         const scn = getViewerRuntime().scene.current;

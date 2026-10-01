@@ -1,9 +1,10 @@
 // CustomBatchedMesh.ts
 import * as THREE from 'three';
 import {selectedMaterial} from '../default_materials';
-import {buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
+import {buildEdgeGeometryAsync, buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {clipWithModel} from "@/utils/scene/section_clipping";
+import {coalescedGroups} from "./groupRuns";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -40,6 +41,8 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private edgeMesh?: THREE.LineSegments;
     private rangeIdToIndex?: Map<string, number>;
     private edgeMaterial?: THREE.ShaderMaterial;
+    /** Bumped whenever the overlay is dropped, so an async build that started before it is discarded. */
+    private edgeGeneration = 0;
     public edgesEligible = false; // true once a design edge overlay was built (persists across rebuilds)
 
     // Cached materials to avoid per-click allocations for non-vertex-colored meshes
@@ -200,44 +203,23 @@ export class CustomBatchedMesh extends THREE.Mesh {
             return;
         }
 
+        // One group per run of neighbouring ranges that share a material -- selected and hidden runs
+        // included, not only the default one (`groupRuns.coalescedGroups`). Gaps between ranges draw
+        // with the default material.
         const segs = this.getSortedSegments();
-        const n = segs.ids.length;
-
-        // Walk segments, merging default-material runs (including any
-        // gaps between segments) into a single addGroup at flush time.
-        // Only selected/hidden ranges produce their own groups.
-        let cur = 0;
-        let runStart: number | null = null;
-        const flushRun = (end: number) => {
-            if (runStart !== null && end > runStart) {
-                this.geometry.addGroup(runStart, end - runStart, 0);
-            }
-            runStart = null;
-        };
-
-        for (let i = 0; i < n; i++) {
-            const id = segs.ids[i];
-            const s = segs.starts[i];
-            const c = segs.counts[i];
-            if (s > cur && runStart === null) {
-                runStart = cur;
-            }
-            const mi: 0 | 1 | 2 = this.hiddenRanges.has(id)
-                ? 2
-                : this.selectedRanges.has(id)
-                    ? (this._usesVertexColorsFlag ? 0 : 1)
-                    : 0;
-            if (mi === 0) {
-                if (runStart === null) runStart = s;
-            } else {
-                flushRun(s);
-                this.geometry.addGroup(s, c, mi);
-            }
-            cur = s + c;
-        }
-        // Trailing default region or open run extends to idxCount.
-        if (cur < idxCount && runStart === null) runStart = cur;
-        flushRun(idxCount);
+        const groups = coalescedGroups(
+            segs.starts,
+            segs.counts,
+            (i) => {
+                const id = segs.ids[i];
+                if (this.hiddenRanges.has(id)) return 2;
+                if (this.selectedRanges.has(id)) return this._usesVertexColorsFlag ? 0 : 1;
+                return 0;
+            },
+            idxCount,
+            0,
+        );
+        for (const g of groups) this.geometry.addGroup(g.start, g.count, g.materialIndex);
     }
 
     /** call this when you have a renderer and want the overlay in the scene */
@@ -245,37 +227,74 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.edgesEligible = true; // this mesh takes a design edge overlay (FEA meshes never call this)
         if (!this.edgeMesh) {
             // first‐time initialization
-            const {geometry, rangeIdToIndex} =
-                buildEdgeGeometryWithRangeIds(this.originalGeometry, this.drawRanges);
-            this.rangeIdToIndex = rangeIdToIndex;
-            // The overlay is added as a SIBLING of this mesh (prepareLoadedModel adds both to the
-            // same parent; refreshEdgeOverlays re-adds to `old.parent ?? mesh.parent`), so bake
-            // only this mesh's LOCAL matrix — the scene graph contributes the ancestors when it
-            // renders. Baking matrixWorld double-counted every ancestor transform. That hid at
-            // load, where setupModelLoader centers the model by moving gltf_scene AFTER the meshes
-            // are prepared: the ancestors were still at the origin, so world == local. A LIVE
-            // rebuild (the Scene→Mesh panel's "Triangles" toggle -> refreshEdgeOverlays) bakes a
-            // world matrix that already contains the centering, and the graph applies it again —
-            // drawing the edges offset from their mesh by exactly the centering translation.
-            this.updateMatrix();
-            const localMat = this.matrix;
-
-            this.edgeMaterial = makeEdgeShaderMaterial(renderer, rangeIdToIndex.size);
-            this.edgeMesh = new THREE.LineSegments(geometry, this.edgeMaterial);
-            this.edgeMesh.layers.set(1);
-            // A live rebuild (refreshEdgeOverlays) lands after the section planes were
-            // applied; seed it so a toggle does not un-clip the edges until a plane moves.
-            clipWithModel(this.edgeMesh);
-            // now *after* you’ve extracted the lines, bake the transform:
-            this.edgeMesh.applyMatrix4(localMat);
+            this.assembleEdgeOverlay(renderer, buildEdgeGeometryWithRangeIds(this.originalGeometry, this.drawRanges));
         }
-        return this.edgeMesh;
+        return this.edgeMesh!;
+    }
+
+    /** `getEdgeOverlay`, with the geometry built in a worker -- what a model LOAD uses, so the mesh
+     *  can be on screen while its edges are still being worked out. Null when the overlay was
+     *  dropped (`invalidateEdgeOverlay`, `dispose`) while it was being built: that answer is for
+     *  options or a mesh that no longer stand. */
+    public async getEdgeOverlayAsync(renderer: THREE.WebGLRenderer): Promise<THREE.LineSegments | null> {
+        this.edgesEligible = true;
+        if (this.edgeMesh) return this.edgeMesh;
+        const generation = ++this.edgeGeneration;
+        const built = await buildEdgeGeometryAsync(this.originalGeometry, this.drawRanges);
+        if (generation !== this.edgeGeneration) {
+            built.geometry.dispose();
+            return null;
+        }
+        // A synchronous build may have landed meanwhile (an options toggle): keep that one.
+        if (this.edgeMesh) {
+            built.geometry.dispose();
+            return this.edgeMesh;
+        }
+        this.assembleEdgeOverlay(renderer, built);
+        return this.edgeMesh!;
+    }
+
+    private assembleEdgeOverlay(
+        renderer: THREE.WebGLRenderer,
+        {geometry, rangeIdToIndex}: {geometry: THREE.BufferGeometry; rangeIdToIndex: Map<string, number>},
+    ): void {
+        this.rangeIdToIndex = rangeIdToIndex;
+        // The overlay is added as a SIBLING of this mesh (prepareLoadedModel adds both to the
+        // same parent; refreshEdgeOverlays re-adds to `old.parent ?? mesh.parent`), so bake
+        // only this mesh's LOCAL matrix — the scene graph contributes the ancestors when it
+        // renders. Baking matrixWorld double-counted every ancestor transform. That hid at
+        // load, where setupModelLoader centers the model by moving gltf_scene AFTER the meshes
+        // are prepared: the ancestors were still at the origin, so world == local. A LIVE
+        // rebuild (the Scene→Mesh panel's "Triangles" toggle -> refreshEdgeOverlays) bakes a
+        // world matrix that already contains the centering, and the graph applies it again —
+        // drawing the edges offset from their mesh by exactly the centering translation.
+        this.updateMatrix();
+        const localMat = this.matrix;
+
+        this.edgeMaterial = makeEdgeShaderMaterial(renderer, rangeIdToIndex.size);
+        // Ranges hidden before the overlay existed -- it arrives late on a load -- stay hidden.
+        if (this.hiddenRanges.size) {
+            const data = (this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture).image.data as Uint8Array;
+            for (const id of this.hiddenRanges) {
+                const idx = rangeIdToIndex.get(id);
+                if (idx !== undefined) data[idx] = 0;
+            }
+            (this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture).needsUpdate = true;
+        }
+        this.edgeMesh = new THREE.LineSegments(geometry, this.edgeMaterial);
+        this.edgeMesh.layers.set(1);
+        // A live rebuild (refreshEdgeOverlays) lands after the section planes were
+        // applied; seed it so a toggle does not un-clip the edges until a plane moves.
+        clipWithModel(this.edgeMesh);
+        // now *after* you’ve extracted the lines, bake the transform:
+        this.edgeMesh.applyMatrix4(localMat);
     }
 
     /** Drop the cached edge overlay so the next getEdgeOverlay() rebuilds it from the CURRENT options
      *  (e.g. after hideTessellationEdges toggled feature-only vs full-triangulation edges). Returns the
      *  old LineSegments so the caller can remove it from the scene before re-adding the rebuilt one. */
     public invalidateEdgeOverlay(): THREE.LineSegments | undefined {
+        this.edgeGeneration++; // an async build in flight is for the options being replaced
         const old = this.edgeMesh;
         (this.edgeMesh?.geometry as THREE.BufferGeometry | undefined)?.dispose();
         this.edgeMaterial?.dispose();
@@ -428,6 +447,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
      * NOT — so this must run when a model is cleared/replaced or the geometry/texture memory
      * never falls. Idempotent; only disposes per-instance clones, never shared singletons. */
     dispose(): void {
+        this.edgeGeneration++; // an overlay still being built must not attach to a disposed mesh
         this._disposeSelectionOverlay();
         this.clearFaceHighlight();
         if (this.edgeMesh) {
@@ -649,16 +669,18 @@ export class CustomBatchedMesh extends THREE.Mesh {
             .map(([id, [s, c]]) => ({ id, s, c }))
             .sort((a, b) => a.s - b.s);
 
-        let cur = 0;
+        // Selected (and not hidden) ranges show; gaps and everything else are invisible. Neighbouring
+        // ranges of one material share a group, so a large selection is a few draws, not one per part.
         const selectedSet = new Set(rangeIds);
-        for (const { id, s, c } of segs) {
-            if (s > cur) overlayGeom.addGroup(cur, s - cur, 1); // gap = invisible
-            let mi: 0 | 1 = 1; // default invisible
-            if (!this.hiddenRanges.has(id) && selectedSet.has(id)) mi = 0; // show selected
-            overlayGeom.addGroup(s, c, mi);
-            cur = s + c;
+        for (const g of coalescedGroups(
+            segs.map((x) => x.s),
+            segs.map((x) => x.c),
+            (i) => (!this.hiddenRanges.has(segs[i].id) && selectedSet.has(segs[i].id) ? 0 : 1),
+            idxCount,
+            1,
+        )) {
+            overlayGeom.addGroup(g.start, g.count, g.materialIndex);
         }
-        if (cur < idxCount) overlayGeom.addGroup(cur, idxCount - cur, 1);
 
         // Ensure CPU updater is not used for this path
         this._overlaySourceIndices = undefined;

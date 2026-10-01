@@ -92,8 +92,19 @@ class PublishedAssetProvider:
 
     # -- delivery ---------------------------------------------------------------------------
 
-    def delivery(self, scope: Any, collection: str, node: str, *, revision: str | None = None) -> DeliveryClaim | None:
-        manifest = self.manifest(collection, node, revision=revision)
+    def delivery(
+        self,
+        scope: Any,
+        collection: str,
+        node: str,
+        *,
+        revision: str | None = None,
+        subject: str | None = None,
+        provider: str | None = None,
+    ) -> DeliveryClaim | None:
+        """``subject`` is the covering subject (defaults to ``node``); ``provider`` selects that
+        provider's publish of it (see :meth:`manifest`)."""
+        manifest = self.manifest(collection, subject or node, revision=revision, provider=provider)
         if manifest is None or manifest.delivery == "none":
             return None
         if manifest.delivery == "build":
@@ -108,7 +119,7 @@ class PublishedAssetProvider:
         mesh_artefact = next((a for a in manifest.artefacts if a.role == "mesh"), None)
         if mesh_artefact is None:
             return None
-        key = mesh_artefact.key or asset_key(collection, node, manifest.revision, mesh_artefact.file)
+        key = mesh_artefact.key or asset_key(collection, manifest.subject, manifest.revision, mesh_artefact.file)
         return MeshDelivery(url=key, revision=manifest.revision)
 
     # -- attributes ---------------------------------------------------------------------------
@@ -121,6 +132,7 @@ class PublishedAssetProvider:
         *,
         subject: str | None = None,
         revision: str | None = None,
+        provider: str | None = None,
     ) -> NodeAttributes | None:
         """One node's own facts, from the published ``attributes.json``.
 
@@ -133,7 +145,7 @@ class PublishedAssetProvider:
         all. A caller asking what a node is gets "nothing recorded" for all three, because that is
         what each of them means to it.
         """
-        manifest = self.manifest(collection, subject or node, revision=revision)
+        manifest = self.manifest(collection, subject or node, revision=revision, provider=provider)
         if manifest is None:
             return None
         entry = next((a for a in manifest.artefacts if a.role == ATTRIBUTES_ROLE), None)
@@ -151,16 +163,45 @@ class PublishedAssetProvider:
         except AttributesError as exc:
             raise ValueError(f"{key}: {exc}") from exc
 
-    def manifest(self, collection: str, subject: str, *, revision: str | None = None) -> AssetManifest | None:
+    def manifest(
+        self,
+        collection: str,
+        subject: str,
+        *,
+        revision: str | None = None,
+        provider: str | None = None,
+    ) -> AssetManifest | None:
         """Read ``asset.json``. Resolves to the newest revision that HAS one.
 
         Manifests are written last, so a newer revision without one is a half-written publish and
         must not shadow the last good revision.
+
+        ``provider`` SELECTS: one subject can carry publishes from several providers (the key
+        grammar has no provider segment), so a named provider resolves to the newest complete
+        revision whose manifest names it. ``None`` or ``"published"`` is provider-agnostic. An
+        explicit ``revision`` another provider wrote answers ``None`` -- that provider published
+        nothing there.
         """
+        wanted = None if provider in (None, "", "published") else provider
+        if wanted is not None:
+            if revision is not None:
+                manifest = self._read_manifest(collection, subject, revision)
+                return manifest if manifest is not None and manifest.provider == wanted else None
+            for candidate in self._complete_revisions(collection, subject):
+                try:
+                    manifest = self._read_manifest(collection, subject, candidate)
+                except ValueError:
+                    continue  # unreadable says nothing about who wrote it; older ones still count
+                if manifest is not None and manifest.provider == wanted:
+                    return manifest
+            return None
         if revision is None:
             revision = self._latest_revision(collection, subject)
             if revision is None:
                 return None
+        return self._read_manifest(collection, subject, revision)
+
+    def _read_manifest(self, collection: str, subject: str, revision: str) -> AssetManifest | None:
         key = asset_key(collection, subject, revision, MANIFEST_FILENAME)
         try:
             raw = self._reader.get_bytes(key)
@@ -175,12 +216,23 @@ class PublishedAssetProvider:
             )
         return manifest
 
-    def _latest_revision(self, collection: str, subject: str) -> str | None:
+    def _latest_revision(self, collection: str, subject: str, *, provider: str | None = None) -> str | None:
+        if provider not in (None, "", "published"):
+            manifest = self.manifest(collection, subject, provider=provider)
+            return manifest.revision if manifest is not None else None
         entry = self.index(collection).subject(collection, subject)
         if entry is None:
             return None
         complete = entry.latest_complete
         return complete.revision if complete is not None else None
+
+    def _complete_revisions(self, collection: str, subject: str) -> list[str]:
+        """Every revision of ``subject`` that HAS a manifest, newest first."""
+        prefix = f"{ASSET_PREFIX}/{collection}/{subject}/"
+        entry = fold_listing(self._reader.list_prefix(prefix)).subject(collection, subject)
+        if entry is None:
+            return []
+        return [r.revision for r in entry.revisions if r.has_manifest]
 
 
 class _KeyView:

@@ -18,6 +18,7 @@ the spine so the browser can render an actionable row without a per-node round t
 
 from __future__ import annotations
 
+import gzip
 import json
 from dataclasses import dataclass
 from typing import Any, Iterator, Mapping, Sequence
@@ -77,6 +78,12 @@ class HierarchySlice:
     root: str | None = None  # None = the collection index (depth 1 below the declared roots)
     depth: int = 1
     schema: str = HIERARCHY_SCHEMA
+    #: The provider's suggestions for DRAWING the collection -- ``flatten_kinds`` (kinds whose
+    #: rows are skipped, their children taking their place) and ``root_kinds`` (the kinds shown at
+    #: the top level). Published on a collection index, read by the browser as defaults a scope may
+    #: override. Additive at hierarchy@1: a reader that does not know it ignores it, so it carries
+    #: no schema bump. Core never branches on the kinds named; they are the provider's vocabulary.
+    view: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         missing = [c for c in BASE_COLS if c not in self.cols]
@@ -130,6 +137,8 @@ class HierarchySlice:
             "cols": list(self.cols),
             "rows": [list(r) for r in self.rows],
         }
+        if self.view:
+            doc["view"] = dict(self.view)
         return json.dumps(doc, separators=(",", ":")).encode("utf-8")
 
 
@@ -142,12 +151,16 @@ def build_hierarchy(
     root: str | None = None,
     depth: int = 1,
     extra_cols: Sequence[str] = (),
+    view: Mapping[str, Any] | None = None,
 ) -> HierarchySlice:
     """Compose a slice from name-keyed node dicts. Validates the delivery vocabulary, which is
     core's, unlike ``kind`` and ``label`` which are the provider's to choose.
 
     A ``provider`` key on any node adds the ``provider`` column automatically -- that is how a
     mixed collection declares per-branch origin without the caller having to ask for the column.
+
+    ``view`` is the provider's drawing suggestion (see :attr:`HierarchySlice.view`); only its two
+    known keys are kept, each a list of kinds.
     """
     if any(n.get("provider") for n in nodes) and "provider" not in extra_cols:
         extra_cols = tuple(extra_cols) + ("provider",)
@@ -181,10 +194,34 @@ def build_hierarchy(
         rows=tuple(rows),
         root=root,
         depth=depth,
+        view=_clean_view(view),
     )
 
 
+def _clean_view(raw: Any) -> dict | None:
+    """The two known ``view`` keys, each a list of non-empty strings; None when neither is there.
+    Lenient on read for the reason the browser is: a malformed suggestion must not cost the tree."""
+    if not isinstance(raw, Mapping):
+        return None
+    out: dict[str, list[str]] = {}
+    for key in ("flatten_kinds", "root_kinds"):
+        value = raw.get(key)
+        if isinstance(value, (list, tuple)):
+            kinds = [str(k).strip() for k in value if isinstance(k, str) and k.strip()]
+            if kinds:
+                out[key] = kinds
+    return out or None
+
+
 def parse_hierarchy(doc: bytes | str) -> HierarchySlice:
+    """Read a hierarchy document. Gzip-compressed bytes are accepted transparently: core stores
+    published spines gzip AT REST, and a reader handed the stored bytes as they are (an in-memory
+    store, a provider reading its own publish) must not need to know that."""
+    if isinstance(doc, (bytes, bytearray, memoryview)) and bytes(doc[:2]) == b"\x1f\x8b":
+        try:
+            doc = gzip.decompress(bytes(doc))
+        except (OSError, EOFError) as exc:
+            raise HierarchyError(f"hierarchy is gzip-framed but does not decompress: {exc}") from exc
     try:
         raw = json.loads(doc)
     except (ValueError, TypeError) as exc:
@@ -213,4 +250,5 @@ def parse_hierarchy(doc: bytes | str) -> HierarchySlice:
         rows=rows,
         root=raw.get("root"),
         depth=int(raw.get("depth", 1)),
+        view=_clean_view(raw.get("view")),
     )

@@ -19,12 +19,14 @@ blob route; exposing it as an asset would make a derived thing look restorable.
 from __future__ import annotations
 
 import asyncio
+import gzip
+import json
 import os
 import uuid
 from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from ada.assets.attributes import (
     ATTRIBUTES_ROLE,
@@ -34,6 +36,7 @@ from ada.assets.attributes import (
     parse_attributes,
 )
 from ada.assets.build import (
+    DERIVED_ASSET_PREFIX,
     BuildError,
     build_fingerprint,
     derived_asset_key,
@@ -68,6 +71,27 @@ from .deps import RestContext, rest_context, scope_from_path
 router = APIRouter()
 
 PUBLISHED_PROVIDER_ID = "published"
+
+
+#: Bodies above this are gzipped for a client that accepts it. A hierarchy slice is row after row of
+#: near-identical JSON and compresses about tenfold; a small one is not worth the round of work.
+_GZIP_MIN_BYTES = 32 * 1024
+
+
+def _json_response(request: Request, body: object) -> Response:
+    """``body`` as JSON, gzipped when it is large and the client says it accepts gzip.
+
+    Per route rather than an app-wide middleware: the blob route forwards objects that are ALREADY
+    gzip-at-rest with their own ``Content-Encoding``, and streams GLBs -- neither may be wrapped again.
+    """
+    data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+    if len(data) < _GZIP_MIN_BYTES or "gzip" not in request.headers.get("accept-encoding", "").lower():
+        return Response(content=data, media_type="application/json")
+    return Response(
+        content=gzip.compress(data, compresslevel=5),
+        media_type="application/json",
+        headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+    )
 
 
 async def _list_asset_keys(ctx: RestContext, scope: Scope, prefix: str) -> list[str]:
@@ -133,17 +157,29 @@ async def api_asset_index(
 async def api_asset_tree(
     provider: str,
     collection: str,
+    request: Request,
     root: str | None = None,
     depth: int = 1,
     revision: str | None = None,
+    parent: str | None = None,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
-) -> JSONResponse:
+) -> Response:
     """A hierarchy slice. Published or live -- the browser cannot tell which, by design.
 
     ``provider`` in the path selects how the slice is OBTAINED, not who produced each node. A
     published collection may be mixed: its rows can carry a per-node ``provider`` column naming a
     different producer per branch, and the delivery claim for each node names the same.
+
+    ``parent`` (published path only) narrows the answer to ONE LEVEL of the stored spine: the rows
+    whose parent is ``parent`` -- that node's direct children -- plus a trailing ``children``
+    column counting each returned row's own children in the spine, so the browser knows which
+    rows can expand without holding the level below. ``parent`` equal to the subject answers the
+    subject's first level (the spine's own top row, stored with no parent, is not repeated). A
+    node the spine does not hold answers with NO rows and a 200, same as a leaf: the browser asks
+    per expanded row, and "nothing under it in this spine" is the answer either way -- a 404 stays
+    reserved for a spine that is not there. Why it exists: one site's spine can be tens of MB, and
+    shipping it whole to expand one row froze the browser parsing it.
     """
     if not _is_published(provider):
         slice_ = await _live_hierarchy(provider, scope_obj, collection, root, depth)
@@ -160,16 +196,120 @@ async def api_asset_tree(
         key = asset_key(collection, subject, revision, HIERARCHY_FILENAME)
     except AssetKeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    try:
-        raw = await ctx.storage.get_bytes(scope_obj, key)
-    except (FileNotFoundError, KeyError) as exc:
-        raise HTTPException(status_code=404, detail=f"no {HIERARCHY_FILENAME} at {key}") from exc
-    try:
-        return JSONResponse(_slice_to_dict(parse_hierarchy(raw)))
-    except HierarchyError as exc:
-        # A stored blob core cannot read is a 502, not a 404: the object IS there, and calling it
-        # missing would send the caller looking for the wrong problem.
-        raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+    spine = await _spine_cached(ctx, scope_obj, key, subject)
+    if parent is None:
+        return _json_response(request, _slice_to_dict(spine.slice_))
+    return _json_response(request, spine.children_slice(parent))
+
+
+# -- spines -----------------------------------------------------------------------------------
+#
+# The tree route answers one LEVEL at a time out of a spine that can be a whole site (hundreds of
+# thousands of rows, tens of MB of JSON), so the spine is read and parsed once and the level is
+# what crosses the wire. Same trade as the attributes cache below, and for the same reason it
+# needs no invalidation: a spine is immutable at its key -- the revision is IN the key -- and a
+# republish is a new revision at a new key.
+#
+# Bounded two ways. At most `_SPINE_CACHE_ENTRIES` spines are held, and their RAW (decoded) bytes
+# together stay under `_SPINE_CACHE_MAX_BYTES`, evicted least-recently-used; a spine larger than
+# the whole budget is served without being retained. Unlike the attributes budget this one is
+# sized to HOLD very large documents -- the 48 MB site spine is the case the cache exists for --
+# so the default fits a few of them. Parsed rows are larger than their JSON, so this bounds how
+# many big spines are resident rather than resident memory itself.
+_SPINE_CACHE_ENTRIES = int(os.environ.get("ADA_ASSET_SPINE_CACHE_ENTRIES", "16"))
+_SPINE_CACHE_MAX_BYTES = int(os.environ.get("ADA_ASSET_SPINE_CACHE_MAX_BYTES", str(192 * 1024 * 1024)))
+
+
+class _Spine:
+    """One parsed spine plus its children index (parent id -> row indices), so answering a level
+    is O(children) rather than a scan of every row."""
+
+    __slots__ = ("slice_", "children", "raw_bytes")
+
+    def __init__(self, slice_, subject: str, raw_bytes: int) -> None:
+        self.slice_ = slice_
+        self.raw_bytes = raw_bytes
+        id_at = slice_.column("id")
+        parent_at = slice_.column("parent")
+        children: dict[str, list[int]] = {}
+        for i, row in enumerate(slice_.rows):
+            up = row[parent_at]
+            if up is None:
+                # A spine names its own top with no parent. Any OTHER parentless row is a top of
+                # this document -- a collection index's roots -- and sits under the subject.
+                if str(row[id_at]) == subject:
+                    continue
+                up = subject
+            children.setdefault(str(up), []).append(i)
+        self.children = children
+
+    def children_slice(self, parent: str) -> dict:
+        slice_ = self.slice_
+        id_at = slice_.column("id")
+        rows = [slice_.rows[i] for i in self.children.get(parent, ())]
+        body = _slice_to_dict(slice_, rows=rows)
+        body["cols"].append("children")
+        for out, row in zip(body["rows"], rows):
+            out.append(len(self.children.get(str(row[id_at]), ())))
+        body["parent"] = parent
+        body["depth"] = 1
+        return body
+
+
+_SPINE_CACHE: "OrderedDict[tuple[str, str], _Spine]" = OrderedDict()
+_SPINE_CACHE_BYTES = 0
+#: A cold spine is read once however many rows ask for it at the same time.
+_SPINE_INFLIGHT: "dict[tuple[str, str], asyncio.Future]" = {}
+
+
+def _spine_retain(cache_key: tuple[str, str], spine: _Spine) -> None:
+    global _SPINE_CACHE_BYTES
+    if spine.raw_bytes > _SPINE_CACHE_MAX_BYTES or cache_key in _SPINE_CACHE:
+        return
+    _SPINE_CACHE[cache_key] = spine
+    _SPINE_CACHE_BYTES += spine.raw_bytes
+    while _SPINE_CACHE and (len(_SPINE_CACHE) > _SPINE_CACHE_ENTRIES or _SPINE_CACHE_BYTES > _SPINE_CACHE_MAX_BYTES):
+        _, evicted = _SPINE_CACHE.popitem(last=False)
+        _SPINE_CACHE_BYTES -= evicted.raw_bytes
+
+
+async def _spine_cached(ctx: RestContext, scope_obj: Scope, key: str, subject: str) -> _Spine:
+    """The parsed spine at ``key``: from the cache, or read once (404 missing, 502 unreadable)."""
+    cache_key = (scope_obj.prefix(), key)
+    hit = _SPINE_CACHE.get(cache_key)
+    if hit is not None:
+        _SPINE_CACHE.move_to_end(cache_key)
+        return hit
+
+    async def _load() -> _Spine:
+        try:
+            raw = await ctx.storage.get_bytes(scope_obj, key)
+        except (FileNotFoundError, KeyError) as exc:
+            raise HTTPException(status_code=404, detail=f"no {HIERARCHY_FILENAME} at {key}") from exc
+        try:
+            # Off the event loop: a whole-site spine takes seconds to parse.
+            spine = await asyncio.to_thread(lambda: _Spine(parse_hierarchy(raw), subject, len(raw)))
+        except HierarchyError as exc:
+            # A stored blob core cannot read is a 502, not a 404: the object IS there, and calling
+            # it missing would send the caller looking for the wrong problem.
+            raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+        _spine_retain(cache_key, spine)
+        return spine
+
+    pending = _SPINE_INFLIGHT.get(cache_key)
+    if pending is None:
+        pending = asyncio.ensure_future(_load())
+        _SPINE_INFLIGHT[cache_key] = pending
+        pending.add_done_callback(lambda _f: _SPINE_INFLIGHT.pop(cache_key, None))
+    # Shielded: one caller going away must not cancel the read the others are waiting on.
+    return await asyncio.shield(pending)
+
+
+def clear_asset_spine_cache() -> None:
+    """Test hook. The cache is keyed by an immutable revision, so nothing in production needs it."""
+    global _SPINE_CACHE_BYTES
+    _SPINE_CACHE.clear()
+    _SPINE_CACHE_BYTES = 0
 
 
 # -- attributes -------------------------------------------------------------------------------
@@ -260,7 +400,9 @@ async def api_asset_attributes(
         # the capability is optional -- so it reads as "nothing recorded" like any other absence.
         raise HTTPException(status_code=404, detail=f"provider {provider!r} records no attributes")
 
-    manifest, resolved_revision = await _manifest_for_node(ctx, scope_obj, collection, subject or node, revision)
+    manifest, resolved_revision = await _manifest_for_node(
+        ctx, scope_obj, collection, subject or node, revision, provider
+    )
     entry = next((a for a in manifest.artefacts if a.role == ATTRIBUTES_ROLE), None)
     if entry is None:
         raise HTTPException(
@@ -289,6 +431,7 @@ async def api_asset_delivery(
     provider: str,
     collection: str,
     node: str,
+    subject: str | None = None,
     revision: str | None = None,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
@@ -296,6 +439,11 @@ async def api_asset_delivery(
     """The delivery claim for one node, or 404 when it has none.
 
     A ``mesh`` URL is minted per request and never cached -- it may be presigned and expire.
+
+    ``subject`` names the subject whose publish COVERS the node, as the build and attributes
+    routes take it; it defaults to the node itself. For a store-backed read, a ``provider`` other
+    than ``published`` selects that provider's newest complete revision of the subject (see
+    ``_manifest_for_node``); ``published`` takes the newest of any provider.
     """
     if not _is_published(provider):
         claim = await asyncio.to_thread(
@@ -305,7 +453,7 @@ async def api_asset_delivery(
             raise HTTPException(status_code=404, detail=f"node {node!r} has no delivery claim")
         return JSONResponse(_claim_to_dict(claim))
 
-    manifest, revision = await _manifest_for_node(ctx, scope_obj, collection, node, revision)
+    manifest, revision = await _manifest_for_node(ctx, scope_obj, collection, subject or node, revision, provider)
 
     if manifest.delivery == "none":
         raise HTTPException(status_code=404, detail=f"node {node!r} has no delivery claim")
@@ -331,11 +479,11 @@ async def api_asset_delivery(
         raise HTTPException(
             status_code=502,
             detail=(
-                f"{asset_key(collection, node, manifest.revision, MANIFEST_FILENAME)}: "
+                f"{asset_key(collection, manifest.subject, manifest.revision, MANIFEST_FILENAME)}: "
                 f"delivery='mesh' but no artefact with role 'mesh'"
             ),
         )
-    mesh_key = mesh.key or asset_key(collection, node, manifest.revision, mesh.file)
+    mesh_key = mesh.key or asset_key(collection, manifest.subject, manifest.revision, mesh.file)
     return JSONResponse(
         {
             "kind": "mesh",
@@ -390,7 +538,11 @@ async def api_asset_build(
 
     ctx.jobs.require("asset_build")
 
-    manifest, revision = await _manifest_for_node(ctx, scope_obj, collection, subject, revision)
+    # WHICH PROVIDER'S PUBLISH. One subject can carry publishes from several providers, so a
+    # store-backed provider id SELECTS the newest complete revision that provider wrote (an
+    # explicit revision it did not write is a 409). ``published`` takes the newest of any.
+    selecting = asked_provider if _is_published(asked_provider) else None
+    manifest, revision = await _manifest_for_node(ctx, scope_obj, collection, subject, revision, selecting)
     if manifest.delivery != "build":
         raise HTTPException(
             status_code=409,
@@ -400,11 +552,10 @@ async def api_asset_build(
                 f"cannot be built"
             ),
         )
-    # The caller names the provider it believes produced this node. Core does not need it --
-    # the manifest is authoritative, and in a MIXED collection (Decision 18) the producing
-    # provider is per node -- but a disagreement is worth refusing rather than quietly building
-    # against the other one: the caller is acting on a view that has moved.
-    if asked_provider not in (PUBLISHED_PROVIDER_ID, manifest.provider):
+    # A LIVE-registered provider is not a store selector, but a build still reads the store: a
+    # manifest another provider wrote is worth refusing rather than quietly building against --
+    # the caller is acting on a view that has moved.
+    if selecting is None and asked_provider != manifest.provider:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -611,6 +762,342 @@ async def api_asset_staging(
     return JSONResponse({"staged": [staged[k] for k in sorted(staged)]})
 
 
+def _classify_asset_file(key: str) -> dict | None:
+    """What an asset-area key IS: a published file, a staged one, or a cached build.
+
+    Three areas, three different answers to "may this one file go":
+      published  ``assets/<collection>/<subject>/<revision>/<file>`` -- NOT on its own: a revision's
+                 manifest names its files, and one missing is a publish that lists and badges like
+                 a working one and fails at load. It goes with its revision (the unpublish route).
+      staged     ``assets/_staging/<id>/<file>`` -- yes: nothing references staging.
+      derived    ``_derived/assets/<provider>/<collection>/<subject>/<revision>/<node>/<fp>/<file>``
+                 -- yes: a cached build, made again on the next load that asks for it.
+    """
+    if key.startswith(f"{ASSET_PREFIX}/{STAGING_SEGMENT}/"):
+        staging_id, _, filename = key[len(f"{ASSET_PREFIX}/{STAGING_SEGMENT}/") :].partition("/")
+        if staging_id and filename:
+            return {"area": "staged", "staging_id": staging_id, "file": filename}
+        return None
+    if key.startswith(f"{ASSET_PREFIX}/"):
+        parts = key[len(ASSET_PREFIX) + 1 :].split("/", 3)
+        if len(parts) == 4 and all(parts):
+            collection, subject, revision, filename = parts
+            return {
+                "area": "published",
+                "collection": collection,
+                "subject": subject,
+                "revision": revision,
+                "file": filename,
+            }
+        return None
+    if key.startswith(f"{DERIVED_ASSET_PREFIX}/_publish/"):
+        # A publish job's outcome summary: what a request reads back once the job is done.
+        provider, _, rest = key[len(f"{DERIVED_ASSET_PREFIX}/_publish/") :].partition("/")
+        job, _, filename = rest.partition("/")
+        if provider and job and filename:
+            return {"area": "derived", "kind": "publish-summary", "provider": provider, "job": job, "file": filename}
+        return None
+    if key.startswith(f"{DERIVED_ASSET_PREFIX}/"):
+        parts = key[len(DERIVED_ASSET_PREFIX) + 1 :].split("/", 6)
+        if len(parts) == 7 and all(parts):
+            provider, collection, subject, revision, node, fingerprint, filename = parts
+            return {
+                "area": "derived",
+                "kind": "build",
+                "provider": provider,
+                "collection": collection,
+                "subject": subject,
+                "revision": revision,
+                "node": None if node == "all" else node,
+                "fingerprint": fingerprint,
+                "file": filename,
+            }
+    return None
+
+
+@router.get("/scopes/{scope}/assets/files")
+async def api_asset_files(
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Every file in this scope's asset areas -- published, staged and cached builds -- with size
+    and time, each classified (see :func:`_classify_asset_file`). What a "manage files" view lists;
+    a key that fits no area's grammar is reported under ``unrecognised`` rather than dropped."""
+    files: list[dict] = []
+    unrecognised: list[dict] = []
+    for prefix in (f"{ASSET_PREFIX}/", f"{DERIVED_ASSET_PREFIX}/"):
+        for entry in await ctx.storage.list_prefix(scope_obj, prefix):
+            row = {
+                "key": entry.key,
+                "size": getattr(entry, "size", 0) or 0,
+                "last_modified": getattr(entry, "last_modified", None),
+            }
+            kind = _classify_asset_file(entry.key)
+            if kind is None:
+                unrecognised.append(row)
+            else:
+                files.append({**row, **kind})
+    totals: dict[str, dict] = {}
+    for f in files:
+        t = totals.setdefault(f["area"], {"files": 0, "size": 0})
+        t["files"] += 1
+        t["size"] += f["size"]
+    return JSONResponse({"files": files, "unrecognised": unrecognised, "totals": totals})
+
+
+@router.delete("/scopes/{scope}/assets/files")
+async def api_asset_file_delete(
+    key: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Delete ONE staged file or cached-build file. A published file is refused with 409 naming the
+    revision it belongs to: it goes only with that revision, through the unpublish route, which
+    also refuses while another manifest still names it."""
+    kind = _classify_asset_file(key)
+    if kind is None:
+        raise HTTPException(status_code=400, detail=f"{key!r} is not in an asset area")
+    if kind["area"] == "published":
+        return JSONResponse(
+            {
+                "ok": False,
+                "reason": (
+                    f"{key} belongs to the published revision {kind['collection']}/{kind['subject']}@"
+                    f"{kind['revision']}; a published file goes with its revision -- unpublish that"
+                ),
+                **kind,
+            },
+            status_code=409,
+        )
+    if not await ctx.storage.exists(scope_obj, key):
+        raise HTTPException(status_code=404, detail=f"no file {key!r} in this scope")
+    await ctx.storage.delete(scope_obj, key)
+    await ctx.audit(request, user, scope_obj, "asset_file_delete", key=key, status="done")
+    return JSONResponse({"ok": True, "deleted": [key], **kind})
+
+
+# --- sources: one publish, and everything derived from it -----------------------------------------
+#
+# What a person manages is not files but SOURCES: one provider publishing into one collection at one
+# revision -- an exported model file, a provider's project tree. Everything else is derived from one of
+# them: the per-subject hierarchies, attributes and manifests the publish wrote, the builds made
+# from it, the publish job's own summary. A source is listed as one entry and deleted as one, and
+# what was derived from it goes with it -- a derived file whose source is gone is only a way to
+# show something that is no longer there.
+
+
+async def _publish_sources(ctx: RestContext, scope_obj: Scope) -> tuple[dict, list]:
+    """``{(collection, revision, provider): group}`` over every published revision, and the derived
+    files no remaining source claims (``orphans``).
+
+    A group is ``{subjects, published: [FileEntry], derived: [FileEntry], manifests: {subject: m}}``.
+    The provider is read off each subject-revision's manifest; a revision folder with no manifest
+    (a publish that died partway) is grouped under provider ``"?"``.
+    """
+    groups: dict[tuple[str, str, str], dict] = {}
+    by_revision: dict[tuple[str, str, str], list] = {}
+    for entry in await ctx.storage.list_prefix(scope_obj, f"{ASSET_PREFIX}/"):
+        kind = _classify_asset_file(entry.key)
+        if kind and kind["area"] == "published":
+            by_revision.setdefault((kind["collection"], kind["subject"], kind["revision"]), []).append(entry)
+
+    async def _manifest(coll: str, subject: str, rev: str):
+        try:
+            return parse_manifest(
+                await ctx.storage.get_bytes(scope_obj, asset_key(coll, subject, rev, MANIFEST_FILENAME))
+            )
+        except Exception:  # noqa: BLE001 - absent or unreadable: grouped as unknown, not dropped
+            return None
+
+    keys = list(by_revision)
+    manifests = await asyncio.gather(*(_manifest(*k) for k in keys))
+    for (coll, subject, rev), manifest in zip(keys, manifests):
+        provider = manifest.provider if manifest is not None else "?"
+        g = groups.setdefault(
+            (coll, rev, provider), {"subjects": set(), "published": [], "derived": [], "manifests": {}}
+        )
+        g["subjects"].add(subject)
+        g["published"].extend(by_revision[(coll, subject, rev)])
+        if manifest is not None:
+            g["manifests"][subject] = manifest
+
+    orphans: list = []
+    summaries: list = []
+    for entry in await ctx.storage.list_prefix(scope_obj, f"{DERIVED_ASSET_PREFIX}/"):
+        kind = _classify_asset_file(entry.key)
+        if not kind:
+            orphans.append(entry)
+        elif kind.get("kind") == "publish-summary":
+            summaries.append((entry, kind))
+        else:
+            g = groups.get((kind["collection"], kind["revision"], kind["provider"]))
+            if g is not None and kind["subject"] in g["subjects"]:
+                g["derived"].append(entry)
+            else:
+                orphans.append(entry)
+
+    # A publish job's summary says which collection and revision it wrote; read it to link it.
+    async def _summary(entry):
+        try:
+            raw = await ctx.storage.get_bytes(scope_obj, entry.key)
+            # Derived JSON is gzip-at-rest.
+            doc = json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
+            return doc if isinstance(doc, dict) else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    docs = await asyncio.gather(*(_summary(e) for e, _ in summaries))
+    for (entry, kind), doc in zip(summaries, docs):
+        g = groups.get(
+            (str((doc or {}).get("collection") or ""), str((doc or {}).get("revision") or ""), kind["provider"])
+        )
+        (g["derived"] if g is not None else orphans).append(entry)
+    return groups, orphans
+
+
+def _source_label(collection: str, provider: str, group: dict) -> str:
+    """What the entry is called: the source file(s) the publish stored, else what it is -- a
+    project tree when it wrote the collection's own index (``tree-<provider>``)."""
+    stored = sorted(
+        {
+            (a.key or a.file or "").rsplit("/", 1)[-1]
+            for m in group["manifests"].values()
+            for a in m.artefacts
+            if a.role in ("source", "tree-source") and (a.key or a.file)
+        }
+    )
+    if stored:
+        return ", ".join(stored)
+    if collection in group["subjects"]:
+        return f"tree-{provider}"
+    return f"{provider}-publish"
+
+
+def _source_row(collection: str, revision: str, provider: str, group: dict) -> dict:
+    published = group["published"]
+    derived = group["derived"]
+    return {
+        "collection": collection,
+        "revision": revision,
+        "provider": provider,
+        "label": _source_label(collection, provider, group),
+        "subjects": len(group["subjects"]),
+        "size": sum(getattr(e, "size", 0) or 0 for e in published),
+        "derived_files": len(published) + len(derived),
+        "derived_size": sum(getattr(e, "size", 0) or 0 for e in published + derived),
+        "last_modified": max((getattr(e, "last_modified", None) or "" for e in published), default="") or None,
+    }
+
+
+@router.get("/scopes/{scope}/assets/sources")
+async def api_asset_sources(
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Every source in this scope (one per publish), with how much is derived from it, plus the
+    derived files whose source is gone (``orphans``) -- which should not exist, and are listed so
+    they can be removed."""
+    groups, orphans = await _publish_sources(ctx, scope_obj)
+    sources = [_source_row(c, r, p, g) for (c, r, p), g in groups.items()]
+    sources.sort(key=lambda s: (s["collection"], s["revision"]), reverse=True)
+    return JSONResponse(
+        {
+            "sources": sources,
+            "orphans": [{"key": e.key, "size": getattr(e, "size", 0) or 0} for e in orphans],
+        }
+    )
+
+
+@router.get("/scopes/{scope}/assets/sources/{collection}/{revision}")
+async def api_asset_source_files(
+    collection: str,
+    revision: str,
+    provider: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """One source's files: what it published and what was derived from it."""
+    groups, _ = await _publish_sources(ctx, scope_obj)
+    group = groups.get((collection, revision, provider))
+    if group is None:
+        raise HTTPException(status_code=404, detail=f"no source {provider} {collection}@{revision} in this scope")
+
+    def rows(entries: list) -> list[dict]:
+        return [{"key": e.key, "size": getattr(e, "size", 0) or 0} for e in sorted(entries, key=lambda e: e.key)]
+
+    return JSONResponse(
+        {
+            **_source_row(collection, revision, provider, group),
+            "published": rows(group["published"]),
+            "derived": rows(group["derived"]),
+        }
+    )
+
+
+@router.delete("/scopes/{scope}/assets/sources/{collection}/{revision}")
+async def api_asset_source_delete(
+    collection: str,
+    revision: str,
+    provider: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Delete one source and EVERYTHING derived from it: every subject it published at this revision
+    (manifests first, so a part-done delete reads as unpublished rather than broken), then its
+    cached builds and job summaries.
+
+    Refused (409, naming them) while a manifest of ANOTHER source still references one of its files:
+    deleting it would leave that one listing and badging like a working asset that fails at load.
+    """
+    groups, _ = await _publish_sources(ctx, scope_obj)
+    group = groups.get((collection, revision, provider))
+    if group is None:
+        raise HTTPException(status_code=404, detail=f"no source {provider} {collection}@{revision} in this scope")
+    targets = {e.key for e in group["published"]}
+
+    holders: set[str] = set()
+    for (c, r, p), other in groups.items():
+        if (c, r, p) == (collection, revision, provider):
+            continue
+        for subject, manifest in other["manifests"].items():
+            if any((a.key or "") in targets for a in manifest.artefacts):
+                holders.add(f"{p} {c}/{subject}@{r}")
+    if holders:
+        return JSONResponse(
+            {
+                "ok": False,
+                "reason": f"{len(holders)} other publish(es) still reference files of this source "
+                f"(e.g. {sorted(holders)[0]}); delete those first",
+                "held_by": sorted(holders),
+            },
+            status_code=409,
+        )
+
+    manifests_first = sorted(k for k in targets if k.endswith("/" + MANIFEST_FILENAME))
+    ordered = manifests_first + sorted(targets - set(manifests_first)) + sorted(e.key for e in group["derived"])
+    deleted: list[str] = []
+    errors: dict[str, str] = {}
+    for key in ordered:
+        try:
+            await ctx.storage.delete(scope_obj, key)
+            deleted.append(key)
+        except Exception as exc:  # noqa: BLE001 - one key's failure is not the others'
+            errors[key] = str(exc)
+    await ctx.audit(
+        request,
+        user,
+        scope_obj,
+        "asset_source_delete",
+        key=f"{ASSET_PREFIX}/{collection}/*/{revision}/ ({provider})",
+        status="error" if errors else "done",
+    )
+    return JSONResponse({"ok": not errors, "deleted": deleted, "errors": errors})
+
+
 @router.delete("/scopes/{scope}/assets/{collection}/{subject}/{revision}")
 async def api_asset_unpublish(
     collection: str,
@@ -723,25 +1210,90 @@ async def _fold_manifest_summaries(ctx: RestContext, scope: Scope, collection: s
     )
 
 
-async def _manifest_for_node(ctx: RestContext, scope: Scope, collection: str, node: str, revision: str | None):
-    """The manifest that speaks for ``node``, and the revision it was read at.
+def _selecting_provider(provider: str | None) -> str | None:
+    """The provider a store-backed read must SELECT by, or ``None`` for "any provider".
 
-    One reader for the delivery claim and the build request, so the two cannot disagree about
-    which revision a node resolves to -- a build keyed on one revision while the claim shown came
-    from another is exactly the inconsistency the single-resolution discipline exists to stop.
+    ``published`` is the provider-agnostic sentinel: newest complete revision, whoever wrote it.
+    Any other id names whose publish the caller wants, because one subject can carry publishes
+    from several providers (the key grammar has no provider segment).
     """
-    revision = revision or await _latest_complete_revision(ctx, scope, collection, node)
-    if revision is None:
-        raise HTTPException(status_code=404, detail=f"no published revision for node {node!r}")
-    key = asset_key(collection, node, revision, MANIFEST_FILENAME)
+    if not provider or provider == PUBLISHED_PROVIDER_ID:
+        return None
+    return provider
+
+
+async def _read_manifest(ctx: RestContext, scope: Scope, collection: str, subject: str, revision: str):
+    key = asset_key(collection, subject, revision, MANIFEST_FILENAME)
     try:
         raw = await ctx.storage.get_bytes(scope, key)
     except (FileNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=f"no {MANIFEST_FILENAME} at {key}") from exc
     try:
-        return parse_manifest(raw), revision
+        return parse_manifest(raw)
     except ManifestError as exc:
         raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+
+
+async def _manifest_for_node(
+    ctx: RestContext,
+    scope: Scope,
+    collection: str,
+    node: str,
+    revision: str | None,
+    provider: str | None = None,
+):
+    """The manifest that speaks for ``node``, and the revision it was read at.
+
+    One reader for the delivery claim, the build request and the attributes, so they cannot
+    disagree about which revision a node resolves to -- a build keyed on one revision while the
+    claim shown came from another is exactly the inconsistency the single-resolution discipline
+    exists to stop.
+
+    ``provider`` (anything but ``published``) SELECTS: the newest complete revision whose manifest
+    names that provider. An explicit ``revision`` written by another provider is a 409 -- the
+    caller is acting on a view that has moved -- and a subject that provider never published is a
+    404 naming it.
+    """
+    wanted = _selecting_provider(provider)
+    if wanted is None:
+        revision = revision or await _latest_complete_revision(ctx, scope, collection, node)
+        if revision is None:
+            raise HTTPException(status_code=404, detail=f"no published revision for node {node!r}")
+        return await _read_manifest(ctx, scope, collection, node, revision), revision
+
+    if revision:
+        manifest = await _read_manifest(ctx, scope, collection, node, revision)
+        if manifest.provider != wanted:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"subject {node!r} at {revision} was produced by provider {manifest.provider!r}, " f"not {wanted!r}"
+                ),
+            )
+        return manifest, revision
+
+    for candidate in await _complete_revisions(ctx, scope, collection, node):
+        try:
+            manifest = await _read_manifest(ctx, scope, collection, node, candidate)
+        except HTTPException:
+            # A manifest core cannot read says nothing about who wrote it; an older revision of
+            # the wanted provider is still a valid answer.
+            continue
+        if manifest.provider == wanted:
+            return manifest, candidate
+    raise HTTPException(
+        status_code=404,
+        detail=f"no published revision of subject {node!r} in {collection!r} by provider {wanted!r}",
+    )
+
+
+async def _complete_revisions(ctx: RestContext, scope: Scope, collection: str, subject: str) -> list[str]:
+    """Every revision of ``subject`` that HAS a manifest, newest first."""
+    keys = await _list_asset_keys(ctx, scope, f"{ASSET_PREFIX}/{collection}/{subject}/")
+    entry = fold_listing(keys).subject(collection, subject)
+    if entry is None:
+        return []
+    return [r.revision for r in entry.revisions if r.has_manifest]
 
 
 async def _latest_complete_revision(ctx: RestContext, scope: Scope, collection: str, subject: str) -> str | None:
@@ -767,7 +1319,8 @@ async def _live_hierarchy(provider: str, scope: Scope, collection: str, root: st
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def _slice_to_dict(slice_) -> dict:
+def _slice_to_dict(slice_, rows=None) -> dict:
+    """``rows`` narrows the body to a subset of the slice's rows (one level of a cached spine)."""
     return {
         "schema": slice_.schema,
         "provider": slice_.provider,
@@ -776,7 +1329,9 @@ def _slice_to_dict(slice_) -> dict:
         "produced_at": slice_.produced_at,
         "depth": slice_.depth,
         "cols": list(slice_.cols),
-        "rows": [list(r) for r in slice_.rows],
+        "rows": [list(r) for r in (slice_.rows if rows is None else rows)],
+        # The provider's drawing suggestion rides through untouched (additive at hierarchy@1).
+        **({"view": dict(slice_.view)} if getattr(slice_, "view", None) else {}),
     }
 
 

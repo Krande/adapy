@@ -16,7 +16,7 @@ from ada.config import logger
 
 from .. import db as db_module
 from ..config import load_settings
-from ..plugin_registry import discover_local_plugins
+from ..plugin_registry import discover_local_plugins, locally_requested_capabilities
 from ..queue import JOB_STATUS_ERROR, JobQueue
 from ..storage import Storage
 from . import state
@@ -32,6 +32,7 @@ from .pools import (
     MAX_DELIVERIES,
     _advance_pool_cursor,
     _bool_env,
+    _capabilities_to_add,
     _per_fetch_timeout,
     _pool_capabilities,
     _worker_id,
@@ -341,6 +342,39 @@ async def _run() -> None:
     # the others from starving.
     per_fetch_timeout = _per_fetch_timeout(len(subs))
 
+    # Capabilities a plugin asked for after boot (`ada.plugins.request_worker_capabilities`),
+    # already looked at -- whether they were subscribed, withheld or disabled -- so each is decided
+    # once rather than re-evaluated and re-logged on every poll round.
+    considered: set[str] = set()
+
+    async def _serve_requested() -> None:
+        """Subscribe to any capability a plugin requested since the last round.
+
+        Between fetches, on this loop, so `subs` is only ever changed where it is read. Advertised
+        in the same breath -- a pool served and not advertised routes nothing to it, the
+        opposite failure of the one this exists for.
+        """
+        nonlocal per_fetch_timeout
+        fresh = [c for c in locally_requested_capabilities() if c not in considered]
+        if not fresh:
+            return
+        considered.update(fresh)
+        to_add = _capabilities_to_add(fresh, [cap for cap, _ in subs])
+        kept = reg.add_capabilities(to_add)
+        added: list[str] = []
+        for cap in _pool_capabilities(kept) if kept else []:
+            if any(cap == existing for existing, _ in subs):
+                continue
+            try:
+                subs.append((cap, await queue.pull_subscribe(cap)))
+                added.append(cap)
+            except Exception:
+                logger.exception("worker: could not subscribe to requested pool %s", cap)
+        if added:
+            per_fetch_timeout = _per_fetch_timeout(len(subs))
+            logger.info("worker: now also serving capability pools %s (requested by a plugin)", added)
+            await _publish_registration()
+
     # Warm the heavy CAD imports in this (parent) process before the per-job fork
     # loop below, so forked children inherit them copy-on-write instead of paying
     # a cold re-import per conversion. Base pool only — capability pools
@@ -388,6 +422,7 @@ async def _run() -> None:
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
+            await _serve_requested()
             if not subs:
                 # Qualification withheld everything. Stay up and keep
                 # heartbeating rather than exiting: the registry row is the only

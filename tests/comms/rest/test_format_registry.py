@@ -41,12 +41,15 @@ CHAIN_KINDS = [
     # Synthetic: the model comes from a provider that reads its own source format, so there
     # is no file to stream and no extension to dispatch on.
     ("clash_check_asset", True),
+    # Synthetic for the same reason: a published node's selection is read by its provider.
+    ("export_selection_asset", True),
     ("utility", False),
     ("fea_artefacts", False),
     ("fea_meta", False),
     ("parity", False),
     ("clash_check", False),
     ("clash_detail", False),
+    ("export_selection", False),
 ]
 
 

@@ -67,6 +67,7 @@ TransportFeature = Literal[
     "clash_detail",
     "component_build",
     "conversion",
+    "export_selection",
     "job_status_report",
     "plugin_jobs",
     "procedural_build",
@@ -92,6 +93,7 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "asset_publish": "asset publishing disabled (no NATS configured)",
     "clash_check": "clash check disabled (no NATS configured)",
     "clash_detail": "clash detail disabled (no NATS configured)",
+    "export_selection": "selection export disabled (no NATS configured)",
     "plugin_jobs": "plugin jobs disabled (no NATS configured)",
     "procedural_build": "procedural build disabled (no NATS configured)",
     "procedural_export": "procedural export disabled (no NATS configured)",
@@ -108,8 +110,10 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: reason ``asset_build`` did: identifying and typing joints (and detailing a
 #: BUILT-IN spec) wants no kernel this process does not already have, so a 503
 #: there would make Decision 10's Clashes tab a cluster-only feature.
+#: ``export_selection`` for the same reason: writing a selected part of a model this process can
+#: already read needs nothing a cluster adds, and "Download as" is a button on every selection.
 LOCAL_FEATURES: frozenset[str] = frozenset(
-    {"asset_build", "asset_publish", "clash_check", "clash_detail", "plugin_jobs"}
+    {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs"}
 )
 
 
@@ -383,6 +387,8 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_clash_check(req)
         if req.feature == "clash_detail":
             return self._submit_clash_detail(req)
+        if req.feature == "export_selection":
+            return self._submit_export_selection(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -520,6 +526,31 @@ class LocalJobTransport(_BaseTransport):
             raise HTTPException(status_code=500, detail=f"clash_detail is missing {exc} in conversion_options") from exc
         except LookupError as exc:
             raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_export_selection(self, req: JobRequest) -> SubmittedJob:
+        """The selection export's local engine. Both ways of naming the model run here -- a file
+        this process reads, or a published node whose provider is installed here -- told apart
+        by what the route put in the options, as ``_submit_clash_check`` does."""
+        opts = dict(req.conversion_options or {})
+        try:
+            job = local_jobs.start_export_selection(
+                source_key=None if opts.get("collection") else str(opts.get("source_key") or req.source_key),
+                options=opts,
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return SubmittedJob(
             job_id=job.job_id,
             derived_key=job.derived_key,

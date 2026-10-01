@@ -1,4 +1,5 @@
-// The Assets tab's fetch side: index -> collection indexes -> spines on expand.
+// The Assets tab's fetch side: index -> collection indexes -> one spine LEVEL
+// per expanded row.
 //
 // React-free and injected with its API so it can be driven under `node --test`
 // against canned documents. Every writer below goes through the store's
@@ -13,7 +14,8 @@
 import { collectionIndexRevisions, compareRevisions, defaultCollection, indexFromWire, subjectsOf } from "@/assets/assetIndex";
 import type { SourceNodesAnswer } from "@/assets/changes";
 import { parseHierarchySlice } from "@/assets/projection";
-import type { SpineSource } from "@/assets/spines";
+import { levelKey, type LevelRequest } from "@/assets/spines";
+import type { TreeViewHints } from "@/assets/treeView";
 import type { AssetNode, WireAssetIndex, WireHierarchySlice } from "@/assets/types";
 
 import type { AssetBrowserState } from "./assetBrowserStore";
@@ -24,7 +26,7 @@ export interface AssetsApiLike {
     scope: string,
     provider: string,
     collection: string,
-    opts: { root?: string | null; revision: string },
+    opts: { root?: string | null; revision: string; parent?: string | null },
   ): Promise<WireHierarchySlice>;
 }
 
@@ -51,6 +53,7 @@ function message(e: unknown): string {
 
 export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, sourceNodesApi?: SourceNodesApiLike) {
   const indexSlices = new Map<string, readonly AssetNode[]>(); // `${collection}@${revision}`
+  const indexHints = new Map<string, TreeViewHints | null>(); // same key: that index's `view`
   let generation = 0; // bumped on scope/collection change; stale responses are dropped
 
   const alive = (gen: number, scope: string, collection: string | null) => {
@@ -63,10 +66,10 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
    *  as a hierarchy-fetch failure -- the spine or index fetch it rides along
    *  with has ALREADY SUCCEEDED by the time this runs, and the change feed is
    *  supplementary. Refs already in `evidenceAsked` are dropped before the
-   *  request, the dedup `loadSpine`'s own re-fetch guard already relies on
+   *  request, the dedup `loadLevel`'s own re-fetch guard already relies on
    *  for hierarchy slices, applied here to the refs granularity instead of
-   *  the spine-root granularity. On failure nothing is marked asked, so the
-   *  NEXT spine load or root sync retries rather than black-holing a
+   *  the level granularity. On failure nothing is marked asked, so the
+   *  NEXT level load or root sync retries rather than black-holing a
    *  transient error into a permanent "no-feed". */
   async function loadEvidence(scope: string, source: string, refs: readonly string[]): Promise<void> {
     if (!sourceNodesApi || !refs.length) return;
@@ -170,6 +173,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
         if (!indexSlices.has(key)) {
           const slice = parseHierarchySlice(await api.getAssetTree(scope, PROVIDER, collection, { revision }));
           indexSlices.set(key, slice.nodes);
+          indexHints.set(key, slice.view ?? null);
         }
         return revision;
       }),
@@ -188,42 +192,64 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
       });
     }
     cur.setMergedIndexRevisions(wanted);
+    // The provider's drawing suggestion rides on its collection index; the
+    // newest merged one speaks for the collection, as it does for its rows.
+    const newest = [...wanted].sort(compareRevisions).pop();
+    cur.setViewHints(newest ? indexHints.get(`${collection}@${newest}`) ?? null : null);
     await loadRootEvidence(scope, collection);
   }
 
-  /** Fetch and merge one subtree spine. Idempotent per (root, revision). */
-  async function loadSpine(scope: string, source: SpineSource): Promise<void> {
+  /** Fetch and merge ONE LEVEL of a spine: the direct children of `req.node`
+   *  out of `req.subject`'s spine at `req.revision` (the tree route's
+   *  `parent=`). Idempotent per (subject, revision, node).
+   *
+   *  Never the whole spine: one can be a whole site -- tens of MB, seconds to
+   *  parse -- and expanding a row needs its children, a few KB. The rows land
+   *  under the origin (subject @ revision) the whole spine would have given
+   *  them, so freshness, drift and orphans read them the same way. */
+  async function loadLevel(scope: string, req: LevelRequest): Promise<void> {
     const gen = generation;
     const s = store.getState();
     const collection = s.collection;
     if (!collection) return;
-    if (s.spineLoading.has(source.root) || s.spineLoaded.get(source.root) === source.revision) return;
-    s.beginSpine(source.root);
+    const key = levelKey(req);
+    if (s.levelLoading.has(key) || s.levelLoaded.has(key)) return;
+    s.beginLevel(key);
     try {
       const wire = await api.getAssetTree(scope, PROVIDER, collection, {
-        root: source.root,
-        revision: source.revision,
+        root: req.subject,
+        revision: req.revision,
+        parent: req.node,
       });
       if (!alive(gen, scope, collection)) return;
       const slice = parseHierarchySlice(wire);
       const cur = store.getState();
-      cur.mergeSlice(slice.nodes, { subject: source.subject, revision: source.revision, root: source.root });
-      cur.endSpine(source.root, source.revision);
-      // Per-node evidence, lazily: exactly this spine's own refs (its root
-      // plus whatever it just brought in), never the whole tree. `wire.provider`
-      // is who produced this slice -- and so who would know whether it moved.
-      await loadEvidence(scope, wire.provider, [source.root, ...slice.nodes.map((n) => n.id)]);
+      // A level below a subject's own top belongs where its parent row still
+      // is. If that row has since been re-drawn from another revision (the
+      // subject's new first level retired it), this answer is about a tree no
+      // longer on screen -- merging it would retire the new revision's rows in
+      // turn. Recorded as asked, and dropped.
+      const at = cur.forest.origins.get(req.node);
+      const stale = req.node !== req.subject && (!at || at.subject !== req.subject || at.revision !== req.revision);
+      if (!stale) cur.mergeLevelSlice(slice.nodes, { subject: req.subject, revision: req.revision, parent: req.node });
+      cur.endLevel(key);
+      if (stale) return;
+      // Per-node evidence, lazily: exactly the refs this level brought in (and
+      // the row that asked), never the whole tree. `wire.provider` is who
+      // produced this slice -- and so who would know whether it moved.
+      await loadEvidence(scope, wire.provider, [req.node, ...slice.nodes.map((n) => n.id)]);
     } catch (e) {
-      if (alive(gen, scope, collection)) store.getState().failSpine(source.root, message(e));
+      if (alive(gen, scope, collection)) store.getState().failLevel(key, message(e));
     }
   }
 
-  /** Fetch every listed spine -- what "place the pending subjects" does. A few
-   *  at a time: each can be megabytes, and the point is to finish, not to race. */
-  async function loadSpines(scope: string, sources: readonly SpineSource[], concurrency = 3): Promise<void> {
-    const queue = [...sources];
+  /** Fetch every listed level -- what "place the pending subjects" does, one
+   *  first level per unopened spine. A few at a time: the point is to finish,
+   *  not to race. */
+  async function loadLevels(scope: string, reqs: readonly LevelRequest[], concurrency = 3): Promise<void> {
+    const queue = [...reqs];
     const worker = async () => {
-      for (let next = queue.shift(); next; next = queue.shift()) await loadSpine(scope, next);
+      for (let next = queue.shift(); next; next = queue.shift()) await loadLevel(scope, next);
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
   }
@@ -235,12 +261,31 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     await openCollection(scope, collection);
   }
 
-  /** Refresh: rebuild the collection's forest from nothing. */
+  /** Refresh: re-read which collections exist, then rebuild the open one's forest from nothing.
+   *  The list too, because a refresh is what follows a publish -- and a publish can be the first
+   *  of a new collection, which would otherwise stay out of the picker until a scope switch. */
   async function refresh(scope: string): Promise<void> {
     const s = store.getState();
     if (!s.collection) return loadCollections(scope);
+    const gen = ++generation;
+    let names: string[];
+    try {
+      names = [...indexFromWire(await api.getAssetIndex(scope)).collections.keys()].sort();
+    } catch (e) {
+      if (alive(gen, scope, s.collection)) store.getState().setIndexError(message(e));
+      return;
+    }
+    if (!alive(gen, scope, s.collection)) return;
+    // The open collection is gone (its last source deleted): pick as a first load would.
+    if (!names.includes(s.collection)) return loadCollections(scope);
+    s.setCollections(names);
     generation++;
-    for (const k of [...indexSlices.keys()]) if (k.startsWith(`${s.collection}@`)) indexSlices.delete(k);
+    for (const k of [...indexSlices.keys()]) {
+      if (k.startsWith(`${s.collection}@`)) {
+        indexSlices.delete(k);
+        indexHints.delete(k);
+      }
+    }
     s.resetForest();
     await openCollection(scope, s.collection);
   }
@@ -249,8 +294,8 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     loadCollections,
     openCollection,
     syncCollectionIndexes,
-    loadSpine,
-    loadSpines,
+    loadLevel,
+    loadLevels,
     chooseCollection,
     refresh,
     loadEvidence,

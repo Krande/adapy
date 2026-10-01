@@ -14,6 +14,7 @@ import ConversionSettingsTab from "./ConversionSettingsTab";
 import IssueTargetTab from "./IssueTargetTab";
 import ExternalModelsTab from "./ExternalModelsTab";
 import ProjectsTab from "./ProjectsTab";
+import ProvidersTab from "./ProvidersTab";
 import StorageTab from "./adminStorage/StorageTab";
 import UsersTab from "./users/UsersTab";
 import WorkersTab from "./WorkersTab";
@@ -175,6 +176,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "external_models"} onClick={() => setTab("external_models")}>
                         External Models
                     </TabButton>
+                    <TabButton active={tab === "providers"} onClick={() => setTab("providers")}>
+                        Providers
+                    </TabButton>
                     <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
                         Storage
                     </TabButton>
@@ -219,6 +223,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "users" && <UsersTab onOpenAudit={openAuditForUser}/>}
                 {tab === "external_models" && <ExternalModelsTab/>}
+                {tab === "providers" && <ProvidersTab/>}
                 {tab === "storage" && <StorageTab/>}
                 {tab === "workers" && <WorkersTab/>}
                 {tab === "conversion" && <ConversionSettingsTab/>}

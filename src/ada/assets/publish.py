@@ -20,6 +20,7 @@ the provider's own artefacts, which travel as opaque bytes.
 
 from __future__ import annotations
 
+import gzip
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -30,6 +31,7 @@ from ada.assets.keys import (
     parse_asset_key,
 )
 from ada.assets.manifest import (
+    HIERARCHY_FILENAME,
     MANIFEST_FILENAME,
     Actor,
     AssetManifest,
@@ -43,10 +45,39 @@ __all__ = [
     "PublishError",
     "PublishPlan",
     "PublishOutcome",
+    "GZIP_AT_REST_FILENAMES",
     "apply_publish_plan",
+    "stored_encoding",
     "staged_prefix",
     "stamp_publish",
 ]
+
+#: Published files core stores gzip-compressed AT REST. A hierarchy spine is row after row of
+#: near-identical JSON -- a whole-site one runs to tens of MB and compresses about tenfold -- and
+#: it is only ever read through core (``parse_hierarchy`` and the storage read paths gunzip on the
+#: magic bytes), so compressing it costs no reader anything.
+#:
+#: The manifest's ``sha256``/``size`` for such a file keep describing the UNCOMPRESSED document the
+#: publisher built: the encoding is a property of how the object is STORED (a ``Content-Encoding``,
+#: exactly as for gzip-at-rest derived JSON), not of the artefact, and every read path hands back
+#: the decoded bytes. Nothing in core re-hashes stored bytes against the manifest.
+GZIP_AT_REST_FILENAMES = frozenset({HIERARCHY_FILENAME})
+
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
+def stored_encoding(data: bytes) -> str | None:
+    """The ``content_encoding`` a writer should attach to a planned write's (already final) bytes:
+    ``"gzip"`` when :func:`apply_publish_plan` compressed them, else None. A writer passes the
+    bytes through untouched (``pre_compressed``) -- this only names the encoding."""
+    return "gzip" if data[:2] == _GZIP_MAGIC else None
+
+
+def _encode_at_rest(planned: "PlannedWrite") -> "PlannedWrite":
+    if planned.key.rsplit("/", 1)[-1] not in GZIP_AT_REST_FILENAMES or planned.data[:2] == _GZIP_MAGIC:
+        return planned
+    # mtime=0: the same document compresses to the same bytes, so a re-publish is byte-stable.
+    return PlannedWrite(key=planned.key, data=gzip.compress(planned.data, compresslevel=6, mtime=0))
 
 
 class PublishError(ValueError):
@@ -174,12 +205,20 @@ def apply_publish_plan(
     replace_existing: bool,
     occupied: "Iterable[str] | None" = None,
     write: "Any" = None,
+    provider: str | None = None,
 ) -> PublishOutcome:
     """Validate a plan, stamp its manifests, and (unless ``dry_run``) write it in order.
 
     ``occupied`` is the set of keys already present under the subject-revisions this plan touches;
-    ``write(key, data)`` is how a key is stored. Both are injected so this stays a pure decision
+    ``write(key, data)`` is how a key is stored -- ``data`` is final, already gzip-compressed for a
+    file in :data:`GZIP_AT_REST_FILENAMES` (:func:`stored_encoding` names it for a writer that can
+    attach a ``Content-Encoding``). Both are injected so this stays a pure decision
     function with one side effect the caller supplies -- it is driven in tests against a dict.
+
+    ``provider`` is the id the publish was REQUESTED under. When given, every planned manifest
+    must name it: a subject can carry publishes from several providers, and readers select by the
+    manifest's ``provider``, so a publisher writing manifests in another provider's name would
+    land its revisions under that provider's selection.
     """
     if not plan.writes:
         raise PublishError("a publish plan with no writes is not a publish")
@@ -199,12 +238,20 @@ def apply_publish_plan(
     stamped: list[PlannedWrite] = []
     for planned in plan.writes:
         if not _is_manifest(planned.key):
-            stamped.append(planned)  # opaque to core -- a provider artefact, passed through
+            # Opaque to core -- a provider artefact, passed through; only its STORED encoding may
+            # change (see GZIP_AT_REST_FILENAMES), never the document it decodes to.
+            stamped.append(_encode_at_rest(planned))
             continue
         try:
             manifest = parse_manifest(planned.data)
         except ManifestError as exc:
             raise PublishError(f"{planned.key}: {exc}") from exc
+        if provider is not None and manifest.provider != provider:
+            raise PublishError(
+                f"{planned.key}: manifest names provider {manifest.provider!r}, but this publish was "
+                f"requested as provider {provider!r}. A provider may only publish manifests in its "
+                f"own name -- readers select a subject's revisions by it."
+            )
         stamped.append(
             PlannedWrite(
                 key=planned.key,

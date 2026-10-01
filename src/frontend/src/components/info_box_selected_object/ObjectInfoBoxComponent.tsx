@@ -14,6 +14,7 @@ import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigati
 import ObjectMetadataPanel from './ObjectMetadataPanel';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
+import DownloadSelectionButton from './DownloadSelectionButton';
 
 // 1500 ms is the smallest hold that still feels intentional vs a
 // reflexive tap-and-release; long enough that "Copied" lingers on
@@ -307,6 +308,10 @@ const ObjectInfoBox = () => {
                             Show in data
                         </button>
                     )}
+                    {/* The selection (and everything under it) as a STEP/IFC file. Not for
+                        procedural cells: a cell is not a tree row, and its own model has its
+                        own export in the cellbuilder. */}
+                    {!cellCtx && <DownloadSelectionButton/>}
                     {/* Camera button — mobile-only (desktop has keyboard
                         shortcuts). "Go to object" frames the current selection;
                         "Fit all" (scene-wide) lives next to Unhide all above. */}

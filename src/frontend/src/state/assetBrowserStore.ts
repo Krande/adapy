@@ -11,13 +11,35 @@ import { create } from "zustand";
 
 import type { SourceNodeRow, SourceNodesAnswer } from "@/assets/changes";
 import type { LoadedAsset } from "@/assets/delivery";
-import { EMPTY_FOREST, mergeSpine, type Forest, type SpineMerge } from "@/assets/merge";
+import { EMPTY_FOREST, mergeLevel, mergeSpine, type Forest, type LevelMerge, type SpineMerge } from "@/assets/merge";
+import type { TreeViewDoc, TreeViewHints } from "@/assets/treeView";
 import type { AssetIndex, AssetNode, ResolutionMode } from "@/assets/types";
 
 export type AssetBrowserTab = "files" | "assets";
 
+/** How a tree row is drawn: `outline` (a glyph and the kind as a code) or
+ *  `tiles` (a coloured tile per kind). A per-viewer preference, nothing more. */
+export type AssetTreeStyle = "outline" | "tiles";
+
+const TREE_STYLE_KEY = "ada.assets.treeStyle";
+
+function readTreeStyle(): AssetTreeStyle {
+  try {
+    return globalThis.localStorage?.getItem(TREE_STYLE_KEY) === "tiles" ? "tiles" : "outline";
+  } catch {
+    return "outline"; // storage blocked (a private window, a sandbox): the default
+  }
+}
+
+function writeTreeStyle(style: AssetTreeStyle): void {
+  try {
+    globalThis.localStorage?.setItem(TREE_STYLE_KEY, style);
+  } catch {
+    // Remembered for this page only; nothing depends on it surviving.
+  }
+}
+
 const EMPTY_SET: ReadonlySet<string> = Object.freeze(new Set<string>());
-const EMPTY_LOADED: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_ERRORS: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_LOADED_ASSETS: readonly LoadedAsset[] = Object.freeze([]);
 const EMPTY_SOURCE_ANSWERS: ReadonlyMap<string, SourceNodesAnswer | null> = Object.freeze(new Map());
@@ -44,12 +66,14 @@ export interface AssetBrowserState {
   forestVersion: number;
   /** Collection-index revisions merged into the forest, ascending. */
   mergedIndexRevisions: readonly string[];
-  /** SPINE ROOT -> the revision it was fetched at. Keyed by the spine, not the
-   *  row that asked, so a second branch under one spine does not re-fetch it;
-   *  and by revision, because a resolution change re-points the spine. */
-  spineLoaded: ReadonlyMap<string, string>;
-  spineLoading: ReadonlySet<string>;
-  spineErrors: ReadonlyMap<string, string>;
+  /** LEVELS fetched, by `levelKey` (subject, revision, node): a spine is opened
+   *  one level at a time -- expanding a row fetches that row's direct children
+   *  from the spine that holds them, never the whole spine (one can be a whole
+   *  site). By revision too, because a resolution change re-points a subject
+   *  at another document. */
+  levelLoaded: ReadonlySet<string>;
+  levelLoading: ReadonlySet<string>;
+  levelErrors: ReadonlyMap<string, string>;
 
   /** PROVIDER id -> the change feed's last answer for that provider, or
    *  `null` for that provider's own no-feed (§Decision 4's four states,
@@ -75,7 +99,24 @@ export interface AssetBrowserState {
   /** The focused row. One field on purpose: the tree is virtualised over ~41k
    *  rows, so selection is never per-row state. */
   selected: string | null;
+  /** Every selected row, `selected` among them: one, or a shift/ctrl-built range. Held as a set
+   *  of ids rather than per-row state for the same reason. */
+  selection: ReadonlySet<string>;
+  /** Where a shift-range starts: the last row chosen by a plain or ctrl click. */
+  anchor: string | null;
   searchTerm: string;
+
+  /** How the provider suggests drawing this collection, off its newest merged
+   *  collection index (`@/assets/treeView`). Null = no suggestion. */
+  viewHints: TreeViewHints | null;
+  /** What this scope saved for this collection; overrides `viewHints` field by
+   *  field. Null = nothing saved (or not read yet). */
+  viewDoc: TreeViewDoc | null;
+  /** Draw out-of-scope branches anyway, marked. A browsing preference, so it
+   *  survives a collection switch like the mode does. */
+  showHidden: boolean;
+  /** Row style, remembered per viewer. */
+  treeStyle: AssetTreeStyle;
 
   /** Scene content loaded through the Assets tab (Phase 3), mirrored against
    *  the scene's live loaded-source set (`reconcileLoaded`) so a model
@@ -102,10 +143,13 @@ export interface AssetBrowserState {
    *  publishes -- the reason the modes exist -- unusable. */
   setMode: (mode: ResolutionMode) => void;
   mergeSlice: (nodes: readonly AssetNode[], merge: SpineMerge) => void;
+  /** One level of a spine (`mergeLevel`): unions with the levels already held
+   *  from the same subject @ revision. */
+  mergeLevelSlice: (nodes: readonly AssetNode[], merge: LevelMerge) => void;
   setMergedIndexRevisions: (revisions: readonly string[]) => void;
-  beginSpine: (root: string) => void;
-  endSpine: (root: string, revision: string) => void;
-  failSpine: (root: string, error: string) => void;
+  beginLevel: (key: string) => void;
+  endLevel: (key: string) => void;
+  failLevel: (key: string, error: string) => void;
   /** Fold one provider's answer to a batch of refs into the running picture.
    *  `askedRefs` is recorded in `evidenceAsked` REGARDLESS of whether `answer`
    *  is a real answer or `null` -- asking and being told no-feed is still
@@ -120,8 +164,17 @@ export interface AssetBrowserState {
   mergeSourceAnswer: (source: string, answer: SourceNodesAnswer | null, askedRefs: readonly string[]) => void;
   toggleExpanded: (id: string) => void;
   setExpanded: (id: string, on: boolean) => void;
+  /** Select `id` alone, and make it the anchor. */
   select: (id: string | null) => void;
+  /** Select exactly `ids`, focused on `focus`; the anchor stays where it was. */
+  selectRange: (ids: readonly string[], focus: string) => void;
+  /** Add `id` to the selection or take it out (ctrl/cmd-click); it becomes the anchor. */
+  toggleSelected: (id: string) => void;
   setSearchTerm: (term: string) => void;
+  setViewHints: (hints: TreeViewHints | null) => void;
+  setViewDoc: (doc: TreeViewDoc | null) => void;
+  setShowHidden: (on: boolean) => void;
+  setTreeStyle: (style: AssetTreeStyle) => void;
   /** A load just started for `id` -- clears any previous error for it too, so
    *  retrying a failed row does not show a stale message beside the spinner. */
   beginLoad: (id: string) => void;
@@ -135,7 +188,8 @@ export interface AssetBrowserState {
    *  what keeps this mirror honest against an unload that happened anywhere
    *  else. Driven from `useModelState.loadedSourceNames`, never guessed. */
   reconcileLoaded: (liveSourceNames: ReadonlySet<string>) => void;
-  /** Drop everything drawn from the current collection, keep the choice of it.
+  /** Drop everything drawn from the current collection, keep the choice of it -- and what is open
+   *  and selected in it.
    *  What Refresh does: a union cannot express deletion, so rebuilding from
    *  nothing is the one way to see a tree with nothing stale in it. */
   resetForest: () => void;
@@ -147,9 +201,9 @@ export interface AssetBrowserState {
 const FOREST_RESET = {
   forest: EMPTY_FOREST,
   mergedIndexRevisions: [] as readonly string[],
-  spineLoaded: EMPTY_LOADED,
-  spineLoading: EMPTY_SET,
-  spineErrors: EMPTY_ERRORS,
+  levelLoaded: EMPTY_SET,
+  levelLoading: EMPTY_SET,
+  levelErrors: EMPTY_ERRORS,
   // The change feed is asked about refs from THIS forest; a different
   // collection or a rebuilt forest has different refs to ask about, so
   // nothing here would still mean anything -- reset with the rest.
@@ -158,6 +212,12 @@ const FOREST_RESET = {
   evidenceAsked: EMPTY_SET,
   expanded: EMPTY_SET,
   selected: null,
+  selection: EMPTY_SET,
+  anchor: null,
+  // Re-read with the index it rides on. The saved view (`viewDoc`) is NOT here:
+  // it belongs to the choice of collection, and Refresh rebuilds the forest
+  // without re-reading it.
+  viewHints: null,
 };
 
 export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
@@ -172,15 +232,21 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   forest: EMPTY_FOREST,
   forestVersion: 0,
   mergedIndexRevisions: [],
-  spineLoaded: EMPTY_LOADED,
-  spineLoading: EMPTY_SET,
-  spineErrors: EMPTY_ERRORS,
+  levelLoaded: EMPTY_SET,
+  levelLoading: EMPTY_SET,
+  levelErrors: EMPTY_ERRORS,
   sourceAnswer: EMPTY_SOURCE_ANSWERS,
   changedRows: EMPTY_CHANGED_ROWS,
   evidenceAsked: EMPTY_SET,
   expanded: EMPTY_SET,
   selected: null,
+  selection: EMPTY_SET,
+  anchor: null,
   searchTerm: "",
+  viewHints: null,
+  viewDoc: null,
+  showHidden: false,
+  treeStyle: readTreeStyle(),
   loaded: EMPTY_LOADED_ASSETS,
   loadBusy: EMPTY_SET,
   loadErrors: EMPTY_ERRORS,
@@ -192,7 +258,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
     set((s) =>
       s.collection === collection
         ? s
-        : { collection, index: null, indexError: null, ...FOREST_RESET, forestVersion: s.forestVersion + 1 },
+        : { collection, index: null, indexError: null, ...FOREST_RESET, viewDoc: null, forestVersion: s.forestVersion + 1 },
     ),
   setIndex: (index) => set({ index, indexError: null }),
   setIndexLoading: (indexLoading) => set({ indexLoading }),
@@ -204,31 +270,36 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       const forest = mergeSpine(s.forest, nodes, merge);
       return forest === s.forest ? s : { forest, forestVersion: s.forestVersion + 1 };
     }),
+  mergeLevelSlice: (nodes, merge) =>
+    set((s) => {
+      const forest = mergeLevel(s.forest, nodes, merge);
+      return forest === s.forest ? s : { forest, forestVersion: s.forestVersion + 1 };
+    }),
   setMergedIndexRevisions: (mergedIndexRevisions) => set({ mergedIndexRevisions }),
 
-  beginSpine: (root) =>
+  beginLevel: (key) =>
     set((s) => {
-      const loading = new Set(s.spineLoading);
-      loading.add(root);
-      const errors = new Map(s.spineErrors);
-      errors.delete(root);
-      return { spineLoading: loading, spineErrors: errors };
+      const loading = new Set(s.levelLoading);
+      loading.add(key);
+      const errors = new Map(s.levelErrors);
+      errors.delete(key);
+      return { levelLoading: loading, levelErrors: errors };
     }),
-  endSpine: (root, revision) =>
+  endLevel: (key) =>
     set((s) => {
-      const loading = new Set(s.spineLoading);
-      loading.delete(root);
-      const loaded = new Map(s.spineLoaded);
-      loaded.set(root, revision);
-      return { spineLoading: loading, spineLoaded: loaded };
+      const loading = new Set(s.levelLoading);
+      loading.delete(key);
+      const loaded = new Set(s.levelLoaded);
+      loaded.add(key);
+      return { levelLoading: loading, levelLoaded: loaded };
     }),
-  failSpine: (root, error) =>
+  failLevel: (key, error) =>
     set((s) => {
-      const loading = new Set(s.spineLoading);
-      loading.delete(root);
-      const errors = new Map(s.spineErrors);
-      errors.set(root, error);
-      return { spineLoading: loading, spineErrors: errors };
+      const loading = new Set(s.levelLoading);
+      loading.delete(key);
+      const errors = new Map(s.levelErrors);
+      errors.set(key, error);
+      return { levelLoading: loading, levelErrors: errors };
     }),
 
   mergeSourceAnswer: (source, answer, askedRefs) =>
@@ -265,8 +336,24 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       else next.delete(id);
       return { expanded: next };
     }),
-  select: (selected) => set({ selected }),
+  select: (selected) => set({ selected, selection: selected === null ? EMPTY_SET : new Set([selected]), anchor: selected }),
+  selectRange: (ids, focus) => set({ selected: focus, selection: new Set(ids) }),
+  toggleSelected: (id) =>
+    set((s) => {
+      const selection = new Set(s.selection);
+      if (!selection.delete(id)) selection.add(id);
+      // Focus stays on the clicked row even when it was just deselected, as in a file manager;
+      // the detail then shows the row the click was about.
+      return { selection, selected: id, anchor: id };
+    }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
+  setViewHints: (viewHints) => set({ viewHints }),
+  setViewDoc: (viewDoc) => set({ viewDoc }),
+  setShowHidden: (showHidden) => set({ showHidden }),
+  setTreeStyle: (treeStyle) => {
+    writeTreeStyle(treeStyle);
+    set({ treeStyle });
+  },
 
   beginLoad: (id) =>
     set((s) => {
@@ -305,7 +392,19 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       return next.length === s.loaded.length ? s : { loaded: next };
     }),
 
-  resetForest: () => set((s) => ({ ...FOREST_RESET, forestVersion: s.forestVersion + 1 })),
+  // Where the user IS survives: what is open and what is selected name the same ids in the rebuilt
+  // forest, and a refresh after a request (one per batch, for a selection) that collapsed the tree
+  // and dropped the selection each time would undo the browsing it was meant to update. The open
+  // rows re-fetch their levels, as any open row without its level does.
+  resetForest: () =>
+    set((s) => ({
+      ...FOREST_RESET,
+      expanded: s.expanded,
+      selected: s.selected,
+      selection: s.selection,
+      anchor: s.anchor,
+      forestVersion: s.forestVersion + 1,
+    })),
   resetForScope: (scope) =>
     set((s) => ({
       scope,
@@ -315,6 +414,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       indexLoading: false,
       indexError: null,
       ...FOREST_RESET,
+      viewDoc: null,
       forestVersion: s.forestVersion + 1,
       searchTerm: "",
       // `loaded` is left alone: it mirrors the scene, which a scope switch's

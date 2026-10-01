@@ -1,6 +1,10 @@
 // utils/mesh_select/EdgeShader.ts
+import * as Comlink from 'comlink';
 import * as THREE from 'three';
 import { useOptionsStore } from '@/state/optionsStore';
+
+import type { EdgeBuildApi } from './edgeBuild.worker';
+import { computeEdgeArrays } from './edgeCore';
 
 // Above this many indices in one mesh, force the feature-edge threshold (30°)
 // even when the user hasn't enabled "hide tessellation edges": at 1° a curved
@@ -9,144 +13,98 @@ import { useOptionsStore } from '@/state/optionsStore';
 // build and crawls at render time.
 const FORCE_FEATURE_EDGES_INDEX_COUNT = 5_000_000;
 
-/**
- * Build one big LineSegments geometry where each vertex gets a 'rangeId' attribute.
- *
- * Single typed-array pass with the same semantics as per-range
- * ``THREE.EdgesGeometry`` (boundary edges + edges whose dihedral angle exceeds
- * the threshold). The previous implementation built a THREE sub-geometry per
- * draw range — ``Array.from`` boxing every index into JS numbers, a full
- * ``EdgesGeometry`` per range, and a final ``mergeGeometries`` over tens of
- * thousands of geometries — which on big merged CAD meshes cost minutes of CPU
- * and GBs of transient allocations.
- */
-export function buildEdgeGeometryWithRangeIds(
-  baseGeo: THREE.BufferGeometry,
-  drawRanges: Map<string,[number,number]>
-): { geometry: THREE.BufferGeometry; rangeIdToIndex: Map<string,number> } {
-  const rangeIdToIndex = new Map<string,number>();
-  const posAttr = baseGeo.attributes.position as THREE.BufferAttribute;
-  const pos = posAttr.array as Float32Array;
-  const index = baseGeo.index!.array as Uint16Array | Uint32Array;
-
+/** The threshold the overlay is built with: 30° (feature edges) when tessellation edges are
+ *  hidden or the mesh is too large for anything finer, else 1°. Read on the main thread -- the
+ *  worker has no store. */
+function edgeThresholdDot(indexCount: number): number {
   const hideTess = useOptionsStore.getState().hideTessellationEdges;
-  const forceFeature = index.length > FORCE_FEATURE_EDGES_INDEX_COUNT;
+  const forceFeature = indexCount > FORCE_FEATURE_EDGES_INDEX_COUNT;
   if (forceFeature && !hideTess) {
     console.info(
-      `buildEdgeGeometryWithRangeIds: ${index.length} indices > ` +
+      `buildEdgeGeometryWithRangeIds: ${indexCount} indices > ` +
       `${FORCE_FEATURE_EDGES_INDEX_COUNT} — forcing 30° feature-edge threshold`,
     );
   }
   const thresholdAngle = hideTess || forceFeature ? 30 : 1;
   // EdgesGeometry's test: emit when dot(n1, n2) <= cos(threshold).
-  const thresholdDot = Math.cos(THREE.MathUtils.DEG2RAD * thresholdAngle);
+  return Math.cos(THREE.MathUtils.DEG2RAD * thresholdAngle);
+}
 
-  // Output accumulators: one position chunk per range (chunks are exact-sized,
-  // concatenated once at the end — no growable-array churn).
-  const posChunks: Float32Array[] = [];
-  const chunkRangeIdx: number[] = [];
-  let totalVerts = 0;
-
-  // Reusable per-range scratch. The tessellated GLB is a triangle soup (every
-  // triangle owns unique sequential indices), so edge sharing must be detected
-  // by POSITION, exactly like THREE.EdgesGeometry's hash. Vertices are first
-  // welded per range via a quantised spatial hash (1e-4 model units, matching
-  // EdgesGeometry's 4-digit precision); edge keys then pack the welded (lo, hi)
-  // pair into one float-safe integer: lo * 2^26 + hi stays exact below 2^52 for
-  // meshes up to 67M vertices. The edge map stores the first face's index (+1,
-  // so 0 means "consumed"); boundary edges remain and are flushed at the end.
-  const weldMap = new Map<number, number>();
-  const edgeMap = new Map<number, number>();
-  const KEY_SHIFT = 1 << 26;
-  const INV_TOL = 1e4;
-
-  const weld = (v: number): number => {
-    const o = v * 3;
-    // Spatial hash; sums stay well below 2^53 for coordinates within ~1e5 units.
-    const h =
-      Math.round(pos[o] * INV_TOL) * 73856093 +
-      Math.round(pos[o + 1] * INV_TOL) * 19349663 +
-      Math.round(pos[o + 2] * INV_TOL) * 83492791;
-    const found = weldMap.get(h);
-    if (found !== undefined) return found;
-    weldMap.set(h, v);
-    return v;
-  };
-
-  drawRanges.forEach(([start, count], rangeId) => {
-    const rangeIdx = rangeIdToIndex.size;
-    rangeIdToIndex.set(rangeId, rangeIdx);
-    const triCount = (count / 3) | 0;
-    if (triCount === 0) return;
-
-    // Pass 1: per-face normals for the dihedral test.
-    const normals = new Float32Array(triCount * 3);
-    for (let t = 0; t < triCount; t++) {
-      const o = start + t * 3;
-      const a = index[o] * 3, b = index[o + 1] * 3, c = index[o + 2] * 3;
-      const abx = pos[b] - pos[a], aby = pos[b + 1] - pos[a + 1], abz = pos[b + 2] - pos[a + 2];
-      const acx = pos[c] - pos[a], acy = pos[c + 1] - pos[a + 1], acz = pos[c + 2] - pos[a + 2];
-      let nx = aby * acz - abz * acy, ny = abz * acx - abx * acz, nz = abx * acy - aby * acx;
-      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      if (len > 1e-20) { nx /= len; ny /= len; nz /= len; }
-      const no = t * 3;
-      normals[no] = nx; normals[no + 1] = ny; normals[no + 2] = nz;
-    }
-
-    // Pass 2: dedupe shared edges; decide each pair as soon as its second face
-    // arrives. Collect emitted segment endpoints as vertex-index pairs.
-    weldMap.clear();
-    edgeMap.clear();
-    const emitted: number[] = [];
-    for (let t = 0; t < triCount; t++) {
-      const o = start + t * 3;
-      for (let e = 0; e < 3; e++) {
-        const v0 = weld(index[o + e]);
-        const v1 = weld(index[o + ((e + 1) % 3)]);
-        if (v0 === v1) continue; // degenerate edge after welding
-        const lo = v0 < v1 ? v0 : v1;
-        const hi = v0 < v1 ? v1 : v0;
-        const key = lo * KEY_SHIFT + hi;
-        const prev = edgeMap.get(key);
-        if (prev === undefined) {
-          edgeMap.set(key, t + 1);
-        } else if (prev > 0) {
-          const p = (prev - 1) * 3, q = t * 3;
-          const dot = normals[p] * normals[q] + normals[p + 1] * normals[q + 1] + normals[p + 2] * normals[q + 2];
-          if (dot <= thresholdDot) emitted.push(lo, hi);
-          edgeMap.set(key, 0); // consumed (3+-manifold repeats are ignored, as in EdgesGeometry)
-        }
-      }
-    }
-    // Boundary edges: seen exactly once.
-    edgeMap.forEach((v, key) => {
-      if (v > 0) emitted.push((key / KEY_SHIFT) | 0, key % KEY_SHIFT);
-    });
-
-    if (emitted.length === 0) return;
-    const chunk = new Float32Array(emitted.length * 3);
-    for (let i = 0; i < emitted.length; i++) {
-      const v = emitted[i] * 3, w = i * 3;
-      chunk[w] = pos[v]; chunk[w + 1] = pos[v + 1]; chunk[w + 2] = pos[v + 2];
-    }
-    posChunks.push(chunk);
-    chunkRangeIdx.push(rangeIdx);
-    totalVerts += emitted.length;
+/** Draw ranges in iteration order, with the id -> position map the edge shader indexes by. */
+function rangeList(drawRanges: Map<string, [number, number]>) {
+  const rangeIdToIndex = new Map<string, number>();
+  const ranges: [number, number][] = [];
+  drawRanges.forEach((range, rangeId) => {
+    rangeIdToIndex.set(rangeId, ranges.length);
+    ranges.push([range[0], range[1]]);
   });
+  return { ranges, rangeIdToIndex };
+}
 
-  const outPos = new Float32Array(totalVerts * 3);
-  const outRange = new Float32Array(totalVerts);
-  let off = 0;
-  for (let i = 0; i < posChunks.length; i++) {
-    outPos.set(posChunks[i], off * 3);
-    outRange.fill(chunkRangeIdx[i], off, off + posChunks[i].length / 3);
-    off += posChunks[i].length / 3;
-  }
-
+function edgeGeometry(positions: Float32Array, rangeIdx: Float32Array): THREE.BufferGeometry {
   const merged = new THREE.BufferGeometry();
-  merged.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
-  merged.setAttribute('rangeId', new THREE.BufferAttribute(outRange, 1));
-  return { geometry: merged, rangeIdToIndex };
+  merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  merged.setAttribute('rangeId', new THREE.BufferAttribute(rangeIdx, 1));
+  return merged;
+}
+
+/**
+ * Build one big LineSegments geometry where each vertex gets a 'rangeId' attribute.
+ *
+ * Single typed-array pass (`computeEdgeArrays`) with the same semantics as per-range
+ * ``THREE.EdgesGeometry``. The previous implementation built a THREE sub-geometry per
+ * draw range — ``Array.from`` boxing every index into JS numbers, a full
+ * ``EdgesGeometry`` per range, and a final ``mergeGeometries`` over tens of
+ * thousands of geometries — which on big merged CAD meshes cost minutes of CPU
+ * and GBs of transient allocations. On the main thread: what a live rebuild uses; a load
+ * uses `buildEdgeGeometryAsync`.
+ */
+export function buildEdgeGeometryWithRangeIds(
+  baseGeo: THREE.BufferGeometry,
+  drawRanges: Map<string,[number,number]>
+): { geometry: THREE.BufferGeometry; rangeIdToIndex: Map<string,number> } {
+  const pos = (baseGeo.attributes.position as THREE.BufferAttribute).array as Float32Array;
+  const index = baseGeo.index!.array as Uint16Array | Uint32Array;
+  const { ranges, rangeIdToIndex } = rangeList(drawRanges);
+  const out = computeEdgeArrays(pos, index, ranges, edgeThresholdDot(index.length));
+  return { geometry: edgeGeometry(out.positions, out.rangeIdx), rangeIdToIndex };
+}
+
+// A small pool: two meshes' edges build side by side, and a burst of loads queues rather than
+// spawning a worker per mesh. Created on first use, so a viewer that never shows edges pays nothing.
+const EDGE_WORKERS = Math.max(1, Math.min(2, (globalThis.navigator?.hardwareConcurrency ?? 2) - 1));
+let edgePool: Promise<Comlink.Remote<EdgeBuildApi>[]> | null = null;
+let nextEdgeWorker = 0;
+
+async function edgeWorker(): Promise<Comlink.Remote<EdgeBuildApi>> {
+  // Imported on first use, not at module load: `?worker&inline` is Vite's (inlined into the bundle,
+  // like the model cache worker), and a static import would make this module unloadable anywhere
+  // else -- the unit tests import it for the synchronous builder.
+  edgePool ??= import('./edgeBuild.worker.ts?worker&inline').then(({ default: EdgeBuildWorker }) =>
+    Array.from({ length: EDGE_WORKERS }, () => Comlink.wrap<EdgeBuildApi>(new EdgeBuildWorker())),
+  );
+  const pool = await edgePool;
+  return pool[nextEdgeWorker++ % pool.length];
+}
+
+/** `buildEdgeGeometryWithRangeIds`, computed in a worker: the same result, without the main thread
+ *  stalling for the seconds a large merged mesh takes. The mesh's own arrays stay where they are
+ *  -- the worker gets copies, since the mesh is drawn from the originals meanwhile. */
+export async function buildEdgeGeometryAsync(
+  baseGeo: THREE.BufferGeometry,
+  drawRanges: Map<string,[number,number]>
+): Promise<{ geometry: THREE.BufferGeometry; rangeIdToIndex: Map<string,number> }> {
+  const pos = ((baseGeo.attributes.position as THREE.BufferAttribute).array as Float32Array).slice();
+  const index = (baseGeo.index!.array as Uint16Array | Uint32Array).slice();
+  const { ranges, rangeIdToIndex } = rangeList(drawRanges);
+  const thresholdDot = edgeThresholdDot(index.length);
+  const out = await (await edgeWorker()).build(
+    Comlink.transfer(pos, [pos.buffer]),
+    Comlink.transfer(index, [index.buffer]),
+    ranges,
+    thresholdDot,
+  );
+  return { geometry: edgeGeometry(out.positions, out.rangeIdx), rangeIdToIndex };
 }
 
 /**

@@ -42,7 +42,15 @@ import {
   type Resolution,
   type ResolutionSummary,
 } from "./resolve";
-import { spineCoverage, spineRootedAt, type SpineLookup, type SpineSource } from "./spines";
+import {
+  firstLevel,
+  levelKey,
+  levelOwner,
+  spineCoverage,
+  spineRootedAt,
+  type LevelRequest,
+  type SpineLookup,
+} from "./spines";
 import type { AssetIndex, AssetNode, AssetRevision, ResolutionMode } from "./types";
 
 /** A subject whose resolved revision carries a delivery claim. Propagates: a
@@ -52,7 +60,12 @@ export const ROLE_CONTENT = "content";
  *  Does NOT propagate: a hierarchy rooted above a row contains that row by
  *  definition, so a ghost for it would sit on every descendant and say nothing. */
 export const ROLE_TREE = "tree";
-const PROPAGATING: ReadonlySet<string> = Object.freeze(new Set([ROLE_CONTENT]));
+/** The coverage role for ONE provider's content. `ROLE_CONTENT` stays the any-provider role every
+ *  existing fact (dimmed, gap, the badge) is about; these sit beside it so a node covered by one
+ *  provider's publish at a site and another's at a zone below still knows about both. */
+export function contentRole(provider: string): string {
+  return `${ROLE_CONTENT}:${provider}`;
+}
 
 /** A revision carries content when its manifest makes a delivery claim.
  *
@@ -75,11 +88,11 @@ export interface AssetViewInput {
   /** A hierarchy already built from `forest.nodes`, so a mode switch does not
    *  re-index the forest. MUST be built from the same forest. */
   readonly hierarchy?: Hierarchy<AssetNode>;
-  /** Spine root -> revision merged. Decides which branches are UNEXPLORED: a
-   *  branch whose published subtree has not been fetched yet cannot be called
-   *  "nothing to deliver here" -- that would be a guess about rows nobody has
-   *  read. Omitted, every branch counts as explored. */
-  readonly spineLoaded?: ReadonlyMap<string, string>;
+  /** The LEVELS loaded (`levelKey`: subject, revision, node). Decides which
+   *  branches are UNEXPLORED: a branch whose level below has not been fetched
+   *  yet cannot be called "nothing to deliver here" -- that would be a guess
+   *  about rows nobody has read. Omitted, every branch counts as explored. */
+  readonly levelLoaded?: ReadonlySet<string>;
   /** PROVIDER id -> the change feed's last answer for that provider, or
    *  `null` for that provider's own no-feed. Per provider, not one flat
    *  answer, because a mixed collection can straddle providers with
@@ -109,6 +122,9 @@ export interface AssetView {
   readonly coverage: CoverageResult;
   /** node id -> the nearest published spine at or above it (lazy, memoised). */
   readonly spines: SpineLookup;
+  /** node id -> the level that holds its children: which spine, at which
+   *  revision (`levelOwner`). What expanding the row fetches. */
+  readonly levelOf: (id: string) => LevelRequest | null;
   /** Published subjects no loaded spine contains, with the cause and last
    *  known place. Listed under the collection root, never dropped. */
   readonly orphans: readonly OrphanEntry[];
@@ -116,13 +132,16 @@ export interface AssetView {
   readonly spineRevision: string | null;
   readonly freshness: ReadonlyMap<string, NodeFreshness>;
   readonly staleCount: number;
-  /** Rows with an unfetched published subtree at or below them. Never
-   *  `dimmed`: absence of payload there is not yet known. */
+  /** Rows with an unfetched level at or below them: a subject whose spine is
+   *  not opened at the resolved revision, a row whose spine counted children
+   *  that are not held yet, and every ancestor of either. Never `dimmed`:
+   *  absence of payload there is not yet known. */
   readonly unexplored: ReadonlySet<string>;
-  /** Published spines on screen that are not merged at the revision the
-   *  resolution names -- what "place everything" would fetch. */
-  readonly unmergedSpines: readonly SpineSource[];
-  /** Published subjects with no row YET, while spines that might contain them
+  /** The FIRST LEVEL of each published spine on screen that is not opened at
+   *  the revision the resolution names -- what "place everything" fetches.
+   *  One level each, never a whole spine. */
+  readonly unmergedSpines: readonly LevelRequest[];
+  /** Published subjects with no row YET, while levels that might contain them
    *  are still unfetched. Not orphans: calling a subject "removed" or "ahead"
    *  because its branch was never opened would be a guess stated as a fact. */
   readonly pending: readonly string[];
@@ -131,6 +150,11 @@ export interface AssetView {
   /** Distinct producing providers among the loaded rows. More than one is a
    *  MIXED collection -- first class, and worth a legend. */
   readonly providers: readonly string[];
+  /** Providers with CONTENT somewhere in this resolution, sorted -- read off the
+   *  manifests, not the rows: a node's row names whichever provider's spine
+   *  merged last, while several may carry geometry for it. Each has its own
+   *  coverage role (`contentRole`), so its claims propagate independently. */
+  readonly contentProviders: readonly string[];
   /** subject -> why its resolved manifest could not be read. */
   readonly manifestErrors: ReadonlyMap<string, string>;
   readonly malformedKeys: readonly string[];
@@ -164,38 +188,45 @@ export function buildAssetView(input: AssetViewInput): AssetView {
   const rootedRoles = new Map<string, Set<string>>();
   const publishedSubjects: string[] = [];
   const manifestErrors = new Map<string, string>();
+  const contentProviders = new Set<string>();
   for (const [subject, resolved] of resolution.subjects) {
     if (resolved.revision.manifestError) manifestErrors.set(subject, resolved.revision.manifestError);
     if (isCollectionSubject(subject)) continue;
     publishedSubjects.push(subject);
     const roles = new Set<string>();
     if (resolved.content) roles.add(ROLE_CONTENT);
+    for (const p of resolved.byProvider.keys()) {
+      roles.add(contentRole(p));
+      contentProviders.add(p);
+    }
     if (resolved.revision.files.has(HIERARCHY_FILENAME)) roles.add(ROLE_TREE);
     if (roles.size) rootedRoles.set(subject, roles);
   }
+  const sortedContentProviders = [...contentProviders].sort();
 
   const coverage = projectCoverage(hierarchy, {
     rootedRoles,
     publishedSubjects,
-    propagating: PROPAGATING,
+    propagating: new Set([ROLE_CONTENT, ...sortedContentProviders.map(contentRole)]),
     // Payload = a leaf: the thing a publish would end up delivering. Only
     // zero-vs-nonzero decides `dimmed`; the count feeds collapsed-branch labels.
     payloadOf: (node) => (node.data.leaf ? 1 : 0),
   });
 
   const spines = spineCoverage(hierarchy, (id) => spineRootedAt(resolution, id));
-  // Walked from the UNMERGED spine roots rather than folded over every row: on
-  // a settled tree there are none, and the cost of this pass should scale with
-  // what is still to fetch, not with the 41k rows already in.
+  const levelOf = (id: string) => levelOwner(resolution, forest.origins, id);
   const unexplored = new Set<string>();
-  const unmergedSpines: SpineSource[] = [];
-  if (input.spineLoaded) {
-    const loaded = input.spineLoaded;
-    for (const [subject, resolved] of resolution.subjects) {
+  const unmergedSpines: LevelRequest[] = [];
+  // A spine opened only PARTWAY: some row in it counted children that are not
+  // held yet. Anything still unplaced may be down there.
+  let partial = false;
+  if (input.levelLoaded) {
+    const loaded = input.levelLoaded;
+    for (const subject of resolution.subjects.keys()) {
       if (!hierarchy.byId.has(subject)) continue;
-      const source = spineRootedAt(resolution, subject);
-      if (!source || loaded.get(source.root) === resolved.revision.revision) continue;
-      unmergedSpines.push(source);
+      const req = firstLevel(resolution, subject);
+      if (!req || loaded.has(levelKey(req))) continue;
+      unmergedSpines.push(req);
       // The root, every non-leaf row the forest already holds under it, and
       // every ancestor above it: none of them can yet say "nothing below".
       const stack = [subject];
@@ -207,6 +238,18 @@ export function buildAssetView(input: AssetViewInput): AssetView {
       }
       for (const a of ancestorsOf(hierarchy, subject)) unexplored.add(a);
     }
+    // One pass over the rows HELD -- which, fetched a level at a time, is what
+    // the user opened, not a whole site. Only rows off a one-level slice carry
+    // a count, so a tree drawn from whole spines finds nothing here.
+    for (const node of forest.nodes.values()) {
+      if (node.leaf || !(node.children && node.children > 0) || unexplored.has(node.id)) continue;
+      if (hierarchy.childrenOf(node.id).length) continue;
+      const req = levelOf(node.id);
+      if (req && loaded.has(levelKey(req))) continue; // asked, and the spine held none after all
+      partial = true;
+      unexplored.add(node.id);
+      for (const a of ancestorsOf(hierarchy, node.id)) unexplored.add(a);
+    }
   }
 
   const merged = input.indexRevisions ?? [];
@@ -215,9 +258,11 @@ export function buildAssetView(input: AssetViewInput): AssetView {
   const labelOf = (n: AssetNode) => n.label || n.id;
   const orphans: OrphanEntry[] = [];
   // An absent subject is an orphan only once nothing still unfetched could hold
-  // it. Until then it is PENDING: the honest statement is "not placed yet".
-  const pending: string[] = unmergedSpines.length ? [...coverage.orphanSubjects] : [];
-  if (spineRevision && !unmergedSpines.length) {
+  // it -- no spine unopened, and no opened one with a level still closed. Until
+  // then it is PENDING: the honest statement is "not placed yet".
+  const stillOpening = unmergedSpines.length > 0 || partial;
+  const pending: string[] = stillOpening ? [...coverage.orphanSubjects] : [];
+  if (spineRevision && !stillOpening) {
     for (const id of coverage.orphanSubjects) {
       const revision = resolution.subjects.get(id)?.revision.revision;
       if (!revision) continue;
@@ -294,6 +339,7 @@ export function buildAssetView(input: AssetViewInput): AssetView {
     summary: describeResolution(resolution, isCollectionSubject),
     coverage,
     spines,
+    levelOf,
     unexplored,
     unmergedSpines,
     pending,
@@ -303,6 +349,7 @@ export function buildAssetView(input: AssetViewInput): AssetView {
     staleCount: staleCount(freshness),
     drift,
     providers: [...providers].sort(),
+    contentProviders: sortedContentProviders,
     manifestErrors,
     malformedKeys: index.malformed,
     changes,

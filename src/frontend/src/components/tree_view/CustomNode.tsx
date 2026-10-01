@@ -10,6 +10,13 @@ export interface TreeNodeData {
     model_key?: string | null;
     node_name?: string | null;
     rangeId?: string | null;
+    /** On a model's ROOT row only: the source name it was loaded under -- the handle an unload
+     *  carries, so the row goes with the model even if the model-key lookup finds nothing. */
+    source_name?: string | null;
+    /** On a ROOT row: what the model calls its top, and the unique id it was loaded under -- the two
+     *  names the Scene tree can show for it (`@/utils/tree_view/rootLabels`). */
+    top_name?: string;
+    source_label?: string;
 }
 
 export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, node, dragHandle}) => {

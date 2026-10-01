@@ -59,6 +59,21 @@ def locally_registered_specs() -> list[dict]:
         return []
 
 
+def locally_requested_capabilities() -> list[str]:
+    """Capabilities a plugin in this process asked the worker to start serving after boot
+    (``ada.plugins.request_worker_capabilities``); ``[]`` when the registry is unavailable or
+    predates the request, so an older ``ada.plugins`` reads as "nothing asked"."""
+    registry = local_plugin_registry()
+    fn = getattr(registry, "requested_worker_capabilities", None) if registry is not None else None
+    if fn is None:
+        return []
+    try:
+        return list(fn())
+    except Exception:
+        logger.exception("failed to read requested worker capabilities (non-fatal)")
+        return []
+
+
 def locally_registered_spec(plugin_id: str) -> dict | None:
     """The spec this process registered for ``plugin_id``, or ``None`` — both
     for "not registered" and for "no registry here", which read the same to a

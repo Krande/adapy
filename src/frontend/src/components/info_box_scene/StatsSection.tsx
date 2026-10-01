@@ -1,6 +1,7 @@
 import React from "react";
 import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
+import {useSceneModelNames} from "@/hooks/useSceneModelNames";
 
 
 // The per-model aggregate a GLB carries BAKED IN, shown beneath the take-off (one "Take-off"
@@ -89,6 +90,9 @@ function statsFromExtension(ext: any): ModelStats[] {
 const StatsSection = () => {
     const {adaExtension: adaExtensionRef} = useViewerRefs();
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
+    // Each model as the Scene tree names it, with its provider: models from two providers sit
+    // together here, and their ids say neither what nor whose they are.
+    const modelName = useSceneModelNames();
 
     const sources: SourceStats[] = [];
     for (const name of loadedSourceNames) {
@@ -133,7 +137,7 @@ const StatsSection = () => {
                             className="text-[10px] uppercase tracking-wide opacity-60 truncate"
                             title={s.source}
                         >
-                            {s.source.split("/").pop() ?? s.source}
+                            {modelName(s.source, {withProvider: true})}
                         </div>
                     )}
                     {s.models.map((m) => (

@@ -75,6 +75,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     validate_cron,
     worker_advertised_exts,
 )
+from .routes.export_selection import router as export_selection_router
 from .routes.fea import router as fea_router
 from .routes.plugin_jobs import enqueue_plugin_job
 from .routes.plugin_jobs import router as plugin_jobs_router
@@ -1430,6 +1431,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Decision 10 / Phase 6). Every path is ``/scopes/{scope}/clash-check...`` or
     # ``/scopes/{scope}/clash-detail``, neither colliding with any fixed/parameterised sibling.
     api.include_router(clash_check_router)
+
+    # A selection as a STEP/IFC download (routes/export_selection.py). One fixed path,
+    # ``/scopes/{scope}/export-selection``, with no parameterised sibling to collide with.
+    api.include_router(export_selection_router)
 
     # ── Equipment-type & system-template catalogs (per-scope) ────────
     #

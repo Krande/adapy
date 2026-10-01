@@ -8,6 +8,22 @@ import {MeshoptDecoder} from "meshoptimizer";
 import {useConversionStore} from "@/state/conversionStore";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 
+// Decode EXT_meshopt_compression in workers. Without this the decoder's async entry point -- the
+// one GLTFLoader calls -- still decodes on the main thread, a stall per buffer view on a large
+// compressed model. Turned on once, on first load; the decoder spawns them from an inline blob,
+// as our own inline workers are.
+let meshoptWorkersOn = false;
+function enableMeshoptWorkers(): void {
+  if (meshoptWorkersOn) return;
+  meshoptWorkersOn = true;
+  try {
+    const cores = globalThis.navigator?.hardwareConcurrency ?? 2;
+    MeshoptDecoder.useWorkers(Math.max(1, Math.min(4, cores - 1)));
+  } catch {
+    // No Worker here (a test runner): the decoder simply stays on this thread.
+  }
+}
+
 // All model loads share one row in the unified in-progress toast so the user gets
 // download (then processing) feedback instead of a seemingly-stuck viewer on large
 // models. Keyed constant => one row; the model name is shown as the row label.
@@ -33,6 +49,7 @@ export function loadGLTF(
   // always registered — the backend "glb_compression" toggle decides
   // whether a given GLB uses it. KHR_mesh_quantization (the upload/VRAM
   // win) needs no decoder — three.js core dequantizes on read.
+  enableMeshoptWorkers();
   loader.setMeshoptDecoder(MeshoptDecoder);
   if (requestHeaders && Object.keys(requestHeaders).length > 0) {
     loader.setRequestHeader(requestHeaders);

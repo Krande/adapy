@@ -97,7 +97,11 @@ class AttributesDocument:
         return self.nodes.get(node_id)
 
     def to_json(self) -> bytes:
-        return json.dumps(_document_to_dict(self), indent=2, sort_keys=False).encode("utf-8")
+        # Compact, like the hierarchy slice beside it. One document covers every node under a
+        # subject -- hundreds of thousands in a whole-project export -- and indentation both
+        # roughly doubled its size and pushed `json` off its C encoder onto the pure-Python one,
+        # which was the largest single cost of publishing such an export. Readers parse it.
+        return json.dumps(_document_to_dict(self), separators=(",", ":"), sort_keys=False).encode("utf-8")
 
 
 def _node_to_dict(n: NodeAttributes) -> dict:

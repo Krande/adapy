@@ -98,3 +98,28 @@ export function mergeSpine(forest: Forest, incoming: readonly AssetNode[], merge
   }
   return { nodes, origins, retired };
 }
+
+/** Where a ONE-LEVEL slice came from: the spine (subject @ revision) and the
+ *  node whose direct children it lists. */
+export interface LevelMerge {
+  readonly subject: string;
+  readonly revision: string;
+  readonly parent: string;
+}
+
+/** Merge one level of a spine -- the direct children of `merge.parent`, as the
+ *  tree route's `parent=` answers them.
+ *
+ * A level is a PARTIAL slice of a spine, and successive levels of the same
+ * subject @ revision must UNION: none of them claims the spine's other rows are
+ * gone. That is already what `mergeSpine` does with a non-null root -- it only
+ * ever prunes rows its subject contributed at a DIFFERENT revision -- so a
+ * level delegates to it, and the one completeness claim it keeps is the right
+ * one: the first level of a subject's NEW revision retires that subject's rows
+ * from the old revision (the rows the new revision still holds come back as
+ * their levels are opened again). An empty level is a no-op, as ever: it
+ * cannot retire anything, so a subject whose new revision has no children at
+ * all keeps its old rows until Refresh. */
+export function mergeLevel(forest: Forest, incoming: readonly AssetNode[], merge: LevelMerge): Forest {
+  return mergeSpine(forest, incoming, { subject: merge.subject, revision: merge.revision, root: merge.parent });
+}
