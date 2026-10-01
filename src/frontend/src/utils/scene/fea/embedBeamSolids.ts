@@ -6,7 +6,7 @@
 // that -- it assembles one GLB per mode and drives a single morph influence --
 // so this is the slim version: parse the solid mesh, hang it under the FEA
 // primitive, give it a morph that follows the same influence, and colour it
-// from the nodes it sits on. With the rotation term in the warp
+// by its own displacement. With the rotation term in the warp
 // (beamSolidDisplacement) a torsion mode turns the sections, which a beam drawn
 // as a line cannot show at all.
 //
@@ -20,8 +20,9 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import {fetchBeamSolidsWarp, type ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
+import {abaqus} from "./colormaps";
 import {RESULT_LINE_SEGMENTS_NAME} from "./resultLineSegments";
-import {installBeamSolidWarp} from "./streaming/warp";
+import {beamSolidDisplacement, installBeamSolidWarp} from "./streaming/warp";
 
 export const EMBED_BEAM_SOLIDS_NAME = "fea-beam-solids";
 
@@ -67,17 +68,24 @@ export async function loadEmbedBeamSolids(
     }
 }
 
-/** Per-vertex colour: the two end nodes' colours, interpolated along the beam. */
-export function beamSolidColors(warp: ParsedBeamSolidsWarp, nodeColors: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): Float32Array {
-    const out = new Float32Array(warp.n_verts * 3);
-    for (let v = 0; v < warp.n_verts; v++) {
-        const t = warp.t[v];
-        const a = warp.node0[v];
-        const b = warp.node1[v];
-        out[v * 3] = (1 - t) * nodeColors.getX(a) + t * nodeColors.getX(b);
-        out[v * 3 + 1] = (1 - t) * nodeColors.getY(a) + t * nodeColors.getY(b);
-        out[v * 3 + 2] = (1 - t) * nodeColors.getZ(a) + t * nodeColors.getZ(b);
+/** Per-vertex colour: the solid's OWN displacement magnitude -- translation
+ *  and twist together -- on the abaqus ramp, peaking at the largest.
+ *
+ *  Not the nodes' colours interpolated: those follow the nodes' translation,
+ *  and in a torsion mode that is round-off (~1e-15) normalised to full scale,
+ *  which painted the beam in noise stripes while the section twisted. */
+export function beamSolidColors(displacement: Float32Array): Float32Array {
+    const n = displacement.length / 3;
+    const mag = new Float32Array(n);
+    let max = 0;
+    for (let v = 0; v < n; v++) {
+        const m = Math.hypot(displacement[v * 3], displacement[v * 3 + 1], displacement[v * 3 + 2]);
+        mag[v] = m;
+        if (m > max) max = m;
     }
+    const out = new Float32Array(n * 3);
+    const inv = max > 0 ? 1 / max : 0;
+    for (let v = 0; v < n; v++) abaqus(mag[v] * inv, out, v * 3);
     return out;
 }
 
@@ -91,14 +99,12 @@ export function attachEmbedBeamSolids(
 ): THREE.Mesh {
     const {mesh, basePositions, warp} = solids;
     const geom = mesh.geometry;
-    const nodeColors = primary.geometry.getAttribute("color");
-    if (nodeColors) {
-        geom.setAttribute("color", new THREE.BufferAttribute(beamSolidColors(warp, nodeColors), 3));
-    }
+    const displacement = beamSolidDisplacement(warp, basePositions, mode.field, mode.stepValues, mode.nodePositions);
+    geom.setAttribute("color", new THREE.BufferAttribute(beamSolidColors(displacement), 3));
     // Flat shading needs no normals (the bake writes none); it shades each face
     // from its own screen-space derivatives, so the deformed shape lights right.
     mesh.material = new THREE.MeshStandardMaterial({
-        vertexColors: !!nodeColors,
+        vertexColors: true,
         flatShading: true,
         side: THREE.DoubleSide,
         metalness: 0,

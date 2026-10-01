@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import type {FeaManifestField} from "@/services/viewerApi";
+import {beamSolidColors} from "@/utils/scene/fea/embedBeamSolids";
 import {beamSolidDisplacement} from "@/utils/scene/fea/streaming/warp";
 import {rotationOffsets} from "@/utils/scene/fea/warpComponents";
 
@@ -50,6 +51,14 @@ test("Sesam's leading ALL reduction is neither a translation nor a rotation", ()
     const step = new Float32Array([9, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0.2, 0, 0]);
     const d = beamSolidDisplacement(warp, vertexBase, f, step, nodePositions);
     assert.deepEqual(Array.from(d).map((v) => Math.round(v * 1e6) / 1e6), [0, 0, 0.01]);
+});
+
+test("a twisting solid is coloured by how far it moves, root to tip", () => {
+    // Three vertices moving 0, 0.5 and 1 (a twist growing toward the tip): blue -> green -> red.
+    const colors = beamSolidColors(new Float32Array([0, 0, 0, 0, 0, 0.5, 0, 0, 1]));
+    assert.deepEqual(Array.from(colors.slice(0, 3)), [0, 0, 1]);
+    assert.deepEqual(Array.from(colors.slice(3, 6)), [0, 1, 0]);
+    assert.deepEqual(Array.from(colors.slice(6, 9)), [1, 0, 0]);
 });
 
 test("rotation slots are found by name across solvers, never by position", () => {
