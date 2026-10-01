@@ -55,7 +55,6 @@ from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.assets import router as assets_router
 from .routes.clash_check import router as clash_check_router
-from .routes.export_selection import router as export_selection_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
     RestContext,
@@ -76,6 +75,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     validate_cron,
     worker_advertised_exts,
 )
+from .routes.export_selection import router as export_selection_router
 from .routes.fea import router as fea_router
 from .routes.plugin_jobs import enqueue_plugin_job
 from .routes.plugin_jobs import router as plugin_jobs_router
