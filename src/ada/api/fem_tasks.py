@@ -114,7 +114,11 @@ def is_eig_skip(
     if reduced_integration is True:
         if use_hex_quad is False and geom_repr in (GeomRepr.SHELL, GeomRepr.SOLID):
             return True
-        if fem_format in (FEA.CODE_ASTER, FEA.SESAM):
+        # Code_Aster sub-integrates solids only (3D_SI); its plate/shell and beam modelisations have no
+        # reduced variant. Sestra's flat shell (FQUS) takes no integration record (GELINT) at all.
+        if fem_format == FEA.CODE_ASTER and geom_repr != GeomRepr.SOLID:
+            return True
+        if fem_format == FEA.SESAM:
             return True
     if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE:
         return True

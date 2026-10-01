@@ -1,7 +1,6 @@
 from enum import Enum
 
 from ada.config import logger
-from ada.fem.exceptions import IncompatibleElements
 from ada.fem.formats.code_aster.elem_shapes import ada_to_med_format
 from ada.fem.shapes.definitions import BaseShapeEnum, LineShapes, MassTypes
 
@@ -13,19 +12,11 @@ from ada.fem.shapes.definitions import BaseShapeEnum, LineShapes, MassTypes
 _MED_TO_ADA_PREFERRED = {"SE2": LineShapes.LINE, "PO1": MassTypes.MASS}
 
 
-def ada_to_med_type(ada_elem_type: BaseShapeEnum, reduced_integration: bool = False):
+def ada_to_med_type(ada_elem_type: BaseShapeEnum):
+    """The MED cell type: geometry only. Reduced integration is chosen by the modelisation (3D_SI)."""
     result = ada_to_med_format.get(ada_elem_type, None)
     if result is None:
         raise KeyError(f'Unsupported value "{ada_elem_type}"')
-
-    if reduced_integration is True:
-        raise IncompatibleElements(f"Reduced integration is not yet supported for element type {ada_elem_type}")
-        # reduced_elem = med_reduced_map.get(result, None)
-        # if reduced_elem is None:
-        #     logger.warning(f"Reduced integration is not supported for element type {result}")
-        # else:
-        #     result = reduced_elem
-
     return result
 
 
