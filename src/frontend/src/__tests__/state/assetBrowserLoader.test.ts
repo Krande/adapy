@@ -155,6 +155,33 @@ test("a late older index does not overwrite a newer one's rows", async () => {
   assert.equal(s.forest.nodes.get("area-1")?.label, "Area One", "R2 re-merged after the late R1");
 });
 
+/** The fixture's whole-scope index, writable: what a publish (or a delete) changes server-side. */
+const publishedCollections = (index: WireAssetIndex) =>
+  index.collections as Record<string, WireAssetIndex["collections"][string]>;
+
+test("a refresh re-reads which collections exist -- a publish can be a new one's first", async () => {
+  const { api } = makeApi();
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api);
+  await loader.loadCollections(SCOPE);
+  publishedCollections(await api.getAssetIndex(SCOPE))["new-c"] = [{ subject: "new-c", revisions: [{ revision: R3, files: [] }] }];
+  await loader.refresh(SCOPE);
+  const s = useAssetBrowserStore.getState();
+  assert.deepEqual(s.collections, ["new-c", "old-b", "plant-a"]);
+  assert.equal(s.collection, "plant-a", "the open collection stays open");
+  assert.ok(s.forest.nodes.has("area-2"), "and is rebuilt");
+});
+
+test("a refresh whose open collection is gone opens another, as a first load would", async () => {
+  const { api } = makeApi();
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api);
+  await loader.loadCollections(SCOPE);
+  delete publishedCollections(await api.getAssetIndex(SCOPE))["plant-a"];
+  await loader.refresh(SCOPE);
+  const s = useAssetBrowserStore.getState();
+  assert.deepEqual(s.collections, ["old-b"]);
+  assert.equal(s.collection, "old-b");
+});
+
 const AREA_FIRST = { subject: "area-1", revision: R1, node: "area-1" };
 const LEVEL_1 = { subject: "area-1", revision: R1, node: "level-1" };
 

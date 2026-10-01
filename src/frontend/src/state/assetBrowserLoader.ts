@@ -261,10 +261,24 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     await openCollection(scope, collection);
   }
 
-  /** Refresh: rebuild the collection's forest from nothing. */
+  /** Refresh: re-read which collections exist, then rebuild the open one's forest from nothing.
+   *  The list too, because a refresh is what follows a publish -- and a publish can be the first
+   *  of a new collection, which would otherwise stay out of the picker until a scope switch. */
   async function refresh(scope: string): Promise<void> {
     const s = store.getState();
     if (!s.collection) return loadCollections(scope);
+    const gen = ++generation;
+    let names: string[];
+    try {
+      names = [...indexFromWire(await api.getAssetIndex(scope)).collections.keys()].sort();
+    } catch (e) {
+      if (alive(gen, scope, s.collection)) store.getState().setIndexError(message(e));
+      return;
+    }
+    if (!alive(gen, scope, s.collection)) return;
+    // The open collection is gone (its last source deleted): pick as a first load would.
+    if (!names.includes(s.collection)) return loadCollections(scope);
+    s.setCollections(names);
     generation++;
     for (const k of [...indexSlices.keys()]) {
       if (k.startsWith(`${s.collection}@`)) {
