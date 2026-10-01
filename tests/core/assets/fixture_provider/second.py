@@ -113,6 +113,44 @@ def publish_second_branch(
     return revision
 
 
+def publish_second_claim(
+    store,
+    *,
+    subject: str,
+    collection: str = "fixture-a",
+    instant: str = "2026-09-22T09:00:00Z",
+) -> str:
+    """Publish THIS provider's build claim on a subject the first provider already published.
+
+    The key grammar has no provider segment, so this lands as just another revision of the same
+    subject -- which is the provider axis the routes must select along: ``published`` resolves to
+    whichever is newest, and each provider id resolves to its own.
+    """
+    revision = revision_from_instant(instant)
+    raw = SECOND_SOURCE_TEXT.encode("utf-8")
+    source_key = asset_key(collection, subject, revision, SECOND_SOURCE_FILENAME)
+    store.put(source_key, raw)
+    manifest = AssetManifest(
+        provider=SECOND_PROVIDER_ID,
+        collection=collection,
+        subject=subject,
+        revision=revision,
+        node=subject,
+        produced_at=instant,
+        published_at=instant,
+        delivery="build",
+        build=BuildSpec(
+            capability=SECOND_BUILD_CAPABILITY,
+            options={"outline_ref": subject, "source_key": source_key},
+            fingerprint_inputs=("source_key", "outline_ref"),
+        ),
+        artefacts=(ArtefactEntry(role="source", key=source_key, sha256=_sha(raw), size=len(raw)),),
+        counts={"nodes": 1},
+    )
+    store.put(asset_key(collection, subject, revision, MANIFEST_FILENAME), manifest.to_json())
+    return revision
+
+
 def second_branch_nodes(attach_to: str = "site") -> list[dict]:
     """The rows this provider contributes to the collection spine."""
     records = parse_outline(SECOND_SOURCE_TEXT.encode("utf-8"))

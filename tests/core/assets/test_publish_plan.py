@@ -80,6 +80,41 @@ def _apply(plan: PublishPlan, *, dry_run: bool = False, replace_existing: bool =
     return outcome, store
 
 
+def _two_subject_plan() -> PublishPlan:
+    return PublishPlan(
+        collection=COLLECTION,
+        revision=REVISION,
+        subjects=("pump-a",),
+        writes=(
+            _manifest_write(subject="pump-a"),
+            _manifest_write(subject="pump-b", provider="someone-else"),
+        ),
+    )
+
+
+def test_a_manifest_in_another_providers_name_is_refused():
+    """Readers select a subject's revisions by the manifest's provider; a publisher may only
+    write in its own name."""
+    written: dict[str, bytes] = {}
+    with pytest.raises(PublishError, match="someone-else"):
+        apply_publish_plan(
+            _two_subject_plan(),
+            published_by=CORE_ACTOR,
+            published_via="user",
+            dry_run=False,
+            replace_existing=False,
+            write=written.__setitem__,
+            provider="fixture-lines",
+        )
+    assert written == {}  # refused before a single byte lands
+
+
+def test_without_a_provider_the_manifest_provider_is_not_checked():
+    """Existing callers that name no provider keep today's behaviour."""
+    outcome, _ = _apply(_two_subject_plan())
+    assert len(outcome.written) == 2
+
+
 # --------------------------------------------------------------------------------------------
 # The owner gate (Decision 6): only core may set published_by / published_via.
 # --------------------------------------------------------------------------------------------

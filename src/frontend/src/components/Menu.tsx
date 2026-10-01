@@ -172,8 +172,11 @@ const Menu = () => {
   const systemPanelOpen = useEquipmentCatalogStore((s) => s.systemPanelOpen);
   const { showInfoBox: showWebsocketInfoBox } =
     stores.useWebsocketStatusStore();
-  const { isTreeCollapsed, setIsTreeCollapsed, treeViewWidth } =
-    stores.useTreeViewStore();
+  // Field by field, not the whole store: the menu bar would otherwise re-render
+  // on every tree change, selection included.
+  const isTreeCollapsed = stores.useTreeViewStore((s) => s.isTreeCollapsed);
+  const setIsTreeCollapsed = stores.useTreeViewStore((s) => s.setIsTreeCollapsed);
+  const treeViewWidth = stores.useTreeViewStore((s) => s.treeViewWidth);
   const isDesktop = useIsDesktop();
 
   // On desktop the tree panel pushes the menu bar to its right so

@@ -66,7 +66,17 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //   1.7.0  kept in step with viewer-core 1.7.0 (`stopLocalViewer` on
 //          `@/viewer-core/app`), which is what a shell's `coreApiRange` is
 //          checked against — the same reason as 1.4.0.
-export const PLUGIN_API_VERSION = "1.7.0";
+//   1.8.0  `@/services/assetScopeCollections` — the pure reader for which of an asset
+//          provider's collections may be REQUESTED per scope (`parseScopeCollections`,
+//          `enabledFor`, the `public.assets.scope_collections` setting the admin Providers tab
+//          writes). `enabledFor` returns `null` for unrestricted and `[]` for nothing enabled,
+//          and the type keeps them apart. A minor bump by the criterion above: a plugin that
+//          imports the module and is built into a 1.7.0 core fails at an undefined import from
+//          inside itself; with the bump it is skipped with one line naming the mismatch.
+//          This entry was 1.7.0 on its branch; main published 1.7.0 first, for viewer-core
+//          parity, so -- as with 1.4.0 -- the number moved up rather than meaning two things.
+//          Plugin-side only, so viewer-core stays at 1.7.0, as it did through 1.6.0.
+export const PLUGIN_API_VERSION = "1.8.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -235,11 +245,16 @@ export interface SceneHandle {
   // upright on load instead of laying it on its side. The rotation is applied
   // before the recentering frame is measured, so it composes correctly with
   // `translate` and leaves a "y" model sharing one frame with a "z" one.
+  //
+  // `displayName` is what the model is called to a person -- its root row in the Scene tree.
+  // Defaults to the model's own root name, else to `sourceName`; the tree can be switched to show
+  // the unique `sourceName` instead.
   loadModelFromUrl: (
     owner: string,
     url: string,
     opts?: {
       sourceName?: string;
+      displayName?: string;
       headers?: Record<string, string>;
       translate?: boolean;
       sourceUpAxis?: "z" | "y";

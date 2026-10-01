@@ -21,8 +21,10 @@ import {
   assetSourceName,
   DeliveryError,
   loadNode,
+  loadPrepared,
   parseBuildSummary,
   parseDeliveryClaim,
+  prepareNode,
   validateBuildSummary,
   type DeliveryApi,
   type LoadNodeDeps,
@@ -127,6 +129,39 @@ test("assetSourceName omits #node when the row IS the subject", () => {
 test("assetSourceName appends #node for a covered (ghost) row", () => {
   const name = assetSourceName({ ...REF, node: "member-3" });
   assert.equal(name, "assets:fixture-lines/plant-a/area-1@20260901T100000Z#member-3");
+});
+
+// --- prepared ahead -----------------------------------------------------------------
+
+test("a build can be prepared without touching the scene, and loaded from that preparation later", async () => {
+  const { deps, calls } = fakeDeps({
+    async buildAssetNode(_scope, body) {
+      calls.buildAssetNode.push(body);
+      return buildResponse();
+    },
+    async getBuildSummary(_scope, key) {
+      calls.getBuildSummary.push(key);
+      return summaryDoc();
+    },
+  });
+  const claim = parseDeliveryClaim({ kind: "build", capability: "asset-build-fixture", revision: REF.revision, provider: "fixture-lines" } as WireDeliveryClaim);
+  const prepared = prepareNode(deps, SCOPE, REF, claim);
+  const p = await prepared;
+  assert.equal(calls.loadModelFromUrl.length, 0, "preparing loads nothing");
+  assert.equal(p.url, `blob://${SCOPE}/${summaryDoc().glb_key}`);
+  const asset = await loadPrepared(deps, REF, prepared, "Area One");
+  assert.equal(calls.buildAssetNode.length, 1, "the build is not asked for again");
+  assert.equal(calls.loadModelFromUrl.length, 1);
+  assert.equal(calls.loadModelFromUrl[0][1], p.url);
+  assert.equal((calls.loadModelFromUrl[0][2] as { displayName?: string }).displayName, "Area One");
+  assert.equal(asset.glbKey, summaryDoc().glb_key);
+});
+
+test("a prepared node already in the scene is not loaded again", async () => {
+  const { deps, calls, loadedNames } = fakeDeps();
+  loadedNames.add(assetSourceName(REF));
+  await loadPrepared(deps, REF, Promise.resolve({ url: "blob://x", revision: REF.revision, provider: REF.provider }));
+  assert.equal(calls.loadModelFromUrl.length, 0);
 });
 
 // --- mesh ----------------------------------------------------------------------

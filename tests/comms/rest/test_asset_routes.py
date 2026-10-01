@@ -20,8 +20,14 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from tests.core.assets.fixture_provider import FIXTURE_PROVIDER_ID  # noqa: E402
 from tests.core.assets.fixture_provider.provider import (  # noqa: E402
+    BUILD_CAPABILITY,
     FakeStore,
     publish_fixture,
+)
+from tests.core.assets.fixture_provider.second import (  # noqa: E402
+    SECOND_BUILD_CAPABILITY,
+    SECOND_PROVIDER_ID,
+    publish_second_claim,
 )
 
 from ada.comms.rest.app import create_app  # noqa: E402
@@ -74,6 +80,42 @@ def client_and_revision(tmp_path):
 
 def _scope_url(path: str) -> str:
     return f"/api/scopes/user:me/assets/{path}"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_route_caches():
+    """The route caches are keyed by (scope prefix, key) -- immutable in production, but every test
+    here publishes into a NEW sandbox at the SAME deterministic keys."""
+    from ada.comms.rest.routes import assets as assets_routes
+
+    assets_routes.clear_asset_spine_cache()
+    assets_routes.clear_asset_attributes_cache()
+    yield
+    assets_routes.clear_asset_spine_cache()
+    assets_routes.clear_asset_attributes_cache()
+
+
+@pytest.fixture
+def two_providers(tmp_path):
+    """``pump-b`` carries provider A's build claim AND provider B's, newer, on the same subject.
+
+    The key grammar has no provider segment, so both are just revisions of one subject: the
+    provider axis is read off each manifest.
+    """
+    store = FakeStore()
+    rev_a = publish_fixture(store)
+    rev_b = publish_second_claim(store, collection=COLLECTION, subject="pump-b")
+    assert rev_b > rev_a
+
+    scope_root = tmp_path / "users" / "local-dev"
+    for key, data in store.blobs.items():
+        dest = scope_root / key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        yield client, rev_a, rev_b
 
 
 def test_providers_always_offers_the_built_in_published_one(client_and_revision):
@@ -189,6 +231,65 @@ def test_build_delivery_claim_carries_opaque_options(client_and_revision):
     assert body["options"]["ref"] == "pump-b"
 
 
+def test_delivery_published_takes_the_newest_revision_of_any_provider(two_providers):
+    client, _, rev_b = two_providers
+    body = client.get(_scope_url(f"delivery/published/{COLLECTION}/pump-b")).json()
+    assert (body["provider"], body["revision"]) == (SECOND_PROVIDER_ID, rev_b)
+    assert body["capability"] == SECOND_BUILD_CAPABILITY
+
+
+def test_delivery_named_provider_selects_its_own_publish(two_providers):
+    client, rev_a, rev_b = two_providers
+    a = client.get(_scope_url(f"delivery/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-b"))
+    b = client.get(_scope_url(f"delivery/{SECOND_PROVIDER_ID}/{COLLECTION}/pump-b"))
+    assert a.status_code == 200 and b.status_code == 200, (a.text, b.text)
+    assert (a.json()["provider"], a.json()["revision"]) == (FIXTURE_PROVIDER_ID, rev_a)
+    assert a.json()["capability"] == BUILD_CAPABILITY
+    assert (b.json()["provider"], b.json()["revision"]) == (SECOND_PROVIDER_ID, rev_b)
+
+
+def test_delivery_explicit_revision_by_another_provider_is_409(two_providers):
+    client, rev_a, _ = two_providers
+    r = client.get(_scope_url(f"delivery/{SECOND_PROVIDER_ID}/{COLLECTION}/pump-b"), params={"revision": rev_a})
+    assert r.status_code == 409, r.text
+    assert FIXTURE_PROVIDER_ID in r.json()["detail"]
+    # ... while the provider that did write it gets it.
+    r = client.get(_scope_url(f"delivery/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-b"), params={"revision": rev_a})
+    assert r.status_code == 200, r.text
+
+
+def test_delivery_provider_that_never_published_the_subject_is_404_naming_it(two_providers):
+    client, _, _ = two_providers
+    r = client.get(_scope_url(f"delivery/nobody-here/{COLLECTION}/pump-b"))
+    assert r.status_code == 404, r.text
+    assert "nobody-here" in r.json()["detail"]
+    # pump-a was only ever published by provider A.
+    r = client.get(_scope_url(f"delivery/{SECOND_PROVIDER_ID}/{COLLECTION}/pump-a"))
+    assert r.status_code == 404, r.text
+
+
+def test_delivery_for_a_covered_node_reads_the_covering_subject(client_and_revision):
+    """A node covered by a publish rooted above it has no manifest of its own."""
+    client, revision = client_and_revision
+    assert client.get(_scope_url(f"delivery/published/{COLLECTION}/covered-node")).status_code == 404
+    r = client.get(_scope_url(f"delivery/published/{COLLECTION}/covered-node"), params={"subject": "pump-a"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kind"] == "mesh"
+    assert body["url"] == f"assets/{COLLECTION}/pump-a/{revision}/model.glb"
+    assert (body["provider"], body["revision"]) == (FIXTURE_PROVIDER_ID, revision)
+
+
+def test_attributes_select_by_provider_too(two_providers):
+    """Provider A's attributes stay reachable under A even though B's revision is newer."""
+    client, rev_a, _ = two_providers
+    r = client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-b"))
+    assert r.status_code == 200, r.text
+    assert r.json()["revision"] == rev_a
+    r = client.get(_scope_url(f"attributes/{SECOND_PROVIDER_ID}/{COLLECTION}/pump-a"))
+    assert r.status_code == 404
+
+
 def test_node_without_a_claim_is_404(client_and_revision):
     client, _ = client_and_revision
     assert client.get(_scope_url(f"delivery/published/{COLLECTION}/unit-1")).status_code == 404
@@ -208,6 +309,160 @@ def test_unreadable_stored_blob_is_502_not_404(client_and_revision, tmp_path):
     r = client.get(_scope_url(f"tree/published/{COLLECTION}"))
     assert r.status_code == 502
     assert "unknown hierarchy schema" in r.json()["detail"]
+
+
+# --- one level at a time -----------------------------------------------------------------------------
+#
+# `parent=` answers ONE level of a stored spine: expanding a row must cost that row's children, not
+# the whole site's subtree.
+
+
+def _level(client, revision, parent: str, root: str = COLLECTION) -> dict:
+    r = client.get(
+        _scope_url(f"tree/published/{COLLECTION}"), params={"root": root, "revision": revision, "parent": parent}
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _by_id(body: dict) -> dict:
+    cols = body["cols"]
+    return {row[cols.index("id")]: dict(zip(cols, row)) for row in body["rows"]}
+
+
+def test_parent_equal_to_the_subject_answers_its_first_level(client_and_revision):
+    client, revision = client_and_revision
+    body = _level(client, revision, COLLECTION)
+    assert body["cols"][-1] == "children"
+    assert body["parent"] == COLLECTION
+    rows = _by_id(body)
+    assert set(rows) == {"site"}
+    assert rows["site"]["children"] == 2  # unit-1, unit-2
+    assert rows["site"]["label"] == "Fixture Site"
+
+
+def test_parent_answers_only_that_nodes_direct_children(client_and_revision):
+    client, revision = client_and_revision
+    rows = _by_id(_level(client, revision, "site"))
+    assert set(rows) == {"unit-1", "unit-2"}
+    assert rows["unit-1"]["children"] == 2
+    assert rows["unit-2"]["children"] == 1
+    assert all(r["parent"] == "site" for r in rows.values())
+
+    pumps = _by_id(_level(client, revision, "unit-1"))
+    assert set(pumps) == {"pump-a", "pump-b"}
+    assert {r["children"] for r in pumps.values()} == {0}
+    # Same columns as the stored spine, plus the count.
+    whole = client.get(_scope_url(f"tree/published/{COLLECTION}")).json()
+    assert _level(client, revision, "unit-1")["cols"] == whole["cols"] + ["children"]
+
+
+def test_a_parent_the_spine_does_not_hold_is_an_empty_level_not_a_404(client_and_revision):
+    """Asked per expanded row: "nothing under it here" is the answer for a leaf and a stranger
+    alike. A 404 stays reserved for a spine that is not there."""
+    client, revision = client_and_revision
+    assert _level(client, revision, "no-such-node")["rows"] == []
+    assert _level(client, revision, "pump-a")["rows"] == []
+    r = client.get(
+        _scope_url(f"tree/published/{COLLECTION}"), params={"root": "pump-a", "revision": revision, "parent": "x"}
+    )
+    assert r.status_code == 404
+
+
+def test_without_parent_the_whole_spine_comes_back_unchanged(client_and_revision):
+    client, _ = client_and_revision
+    body = client.get(_scope_url(f"tree/published/{COLLECTION}")).json()
+    assert "children" not in body["cols"]
+    assert "parent" not in body
+    assert len(body["rows"]) == 6
+
+
+def test_a_spine_is_read_and_parsed_once_per_revision(client_and_revision, monkeypatch):
+    """Immutable at its key (the revision is in it), so every later level comes from the cache."""
+    from ada.comms.rest.routes import assets as assets_routes
+    from ada.comms.rest.storage import Storage
+
+    client, revision = client_and_revision
+    reads: list[str] = []
+    real_get = Storage.get_bytes
+
+    async def counting_get(self, scope, key):
+        if key.endswith("/hierarchy.json"):
+            reads.append(key)
+        return await real_get(self, scope, key)
+
+    monkeypatch.setattr(Storage, "get_bytes", counting_get)
+    parses = []
+    real_parse = assets_routes.parse_hierarchy
+    monkeypatch.setattr(assets_routes, "parse_hierarchy", lambda raw: (parses.append(1), real_parse(raw))[1])
+
+    for parent in (COLLECTION, "site", "unit-1", "unit-2"):
+        _level(client, revision, parent)
+    assert client.get(_scope_url(f"tree/published/{COLLECTION}"), params={"revision": revision}).status_code == 200
+    assert len(reads) == 1
+    assert len(parses) == 1
+
+
+def test_published_spines_are_stored_gzipped_and_read_back_identically(tmp_path):
+    """Core compresses every hierarchy.json AT REST when it applies a plan; the manifest keeps
+    describing the document, and every reader (the routes, the published provider) gets it back."""
+    import gzip as _gzip
+    import hashlib
+
+    from tests.core.assets.fixture_provider.provider import FixtureLinesProvider
+    from tests.core.assets.fixture_provider.publisher import (
+        FixtureLinesPublisher,
+        stage_fixture_source,
+    )
+
+    from ada.assets.keys import ASSET_PREFIX, asset_key
+    from ada.assets.manifest import (
+        HIERARCHY_FILENAME,
+        MANIFEST_FILENAME,
+        Actor,
+        parse_manifest,
+    )
+    from ada.assets.projection import parse_hierarchy
+    from ada.assets.publish import apply_publish_plan
+
+    store = FakeStore()
+    stage_fixture_source(store, staging_id="up1")
+    staged = {"source.jsonl": f"{ASSET_PREFIX}/_staging/up1/source.jsonl"}
+    plan = FixtureLinesPublisher().derive(None, staged, storage=store, collection=COLLECTION, options={}, dry_run=False)
+    planned = {w.key: w.data for w in plan.writes}
+    apply_publish_plan(
+        plan,
+        published_by=Actor(id="local-dev", display="Local Dev"),
+        published_via="user",
+        dry_run=False,
+        replace_existing=False,
+        occupied=set(),
+        write=store.put,
+    )
+    key = asset_key(COLLECTION, COLLECTION, plan.revision, HIERARCHY_FILENAME)
+    stored = store.blobs[key]
+    assert stored[:2] == b"\x1f\x8b"
+    assert _gzip.decompress(stored) == planned[key]
+    # The manifest describes the DOCUMENT, not its stored encoding.
+    manifest = parse_manifest(store.blobs[asset_key(COLLECTION, COLLECTION, plan.revision, MANIFEST_FILENAME)])
+    entry = next(a for a in manifest.artefacts if a.role == "hierarchy")
+    assert entry.sha256 == hashlib.sha256(planned[key]).hexdigest()
+    assert entry.size == len(planned[key])
+
+    expected = parse_hierarchy(planned[key])
+    assert parse_hierarchy(stored) == expected
+    assert FixtureLinesProvider(store.reader()).hierarchy(None, COLLECTION) == expected
+
+    scope_root = tmp_path / "users" / "local-dev"
+    for k, data in store.blobs.items():
+        dest = scope_root / k
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+    assert (scope_root / key).read_bytes()[:2] == b"\x1f\x8b"
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        body = client.get(_scope_url(f"tree/published/{COLLECTION}")).json()
+        assert body["rows"] == [list(r) for r in expected.rows]
+        assert set(_by_id(_level(client, plan.revision, "site"))) == {"unit-1", "unit-2"}
 
 
 def test_files_listing_accepts_a_bounded_prefix(client_and_revision):
@@ -300,3 +555,120 @@ def test_the_document_is_parsed_once_per_revision(client_and_revision, monkeypat
     for _ in range(3):
         assert client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a")).status_code == 200
     assert len(calls) == 1
+
+
+# --- managing the files: list every one, delete what can go on its own -----------------------------
+
+
+def _put(tmp_path, key: str, data: bytes = b"x") -> None:
+    dest = tmp_path / "users" / "local-dev" / key
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+
+
+def test_every_asset_file_is_listed_and_classified(client_and_revision, tmp_path):
+    client, revision = client_and_revision
+    _put(tmp_path, "assets/_staging/abc123/site-0.glb", b"12345")
+    _put(tmp_path, f"_derived/assets/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a/{revision}/all/fp01/model.glb", b"123")
+
+    body = client.get(_scope_url("files")).json()
+    by_area: dict[str, list] = {}
+    for f in body["files"]:
+        by_area.setdefault(f["area"], []).append(f)
+
+    published = by_area["published"]
+    assert any(f["subject"] == "pump-a" and f["revision"] == revision and f["file"] == "asset.json" for f in published)
+    assert all(f["collection"] == COLLECTION for f in published)
+    [staged] = by_area["staged"]
+    assert (staged["staging_id"], staged["file"], staged["size"]) == ("abc123", "site-0.glb", 5)
+    [derived] = by_area["derived"]
+    assert (derived["provider"], derived["subject"], derived["node"], derived["file"]) == (
+        FIXTURE_PROVIDER_ID,
+        "pump-a",
+        None,
+        "model.glb",
+    )
+    assert body["totals"]["staged"] == {"files": 1, "size": 5}
+
+
+def test_a_staged_or_cached_file_is_deleted_on_its_own(client_and_revision, tmp_path):
+    client, revision = client_and_revision
+    staged = "assets/_staging/abc123/site-0.glb"
+    derived = f"_derived/assets/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a/{revision}/all/fp01/model.glb"
+    _put(tmp_path, staged)
+    _put(tmp_path, derived)
+
+    for key in (staged, derived):
+        r = client.delete(_scope_url("files"), params={"key": key})
+        assert r.status_code == 200, r.text
+        assert r.json()["deleted"] == [key]
+    assert not client.get(_scope_url("files")).json()["totals"].get("staged")
+    assert client.delete(_scope_url("files"), params={"key": staged}).status_code == 404
+
+
+def test_a_published_file_is_refused_and_names_its_revision(client_and_revision):
+    """One file out of a published revision is a publish that lists and badges like a working one
+    and fails at load; it goes with its revision, through the unpublish route."""
+    client, revision = client_and_revision
+    key = f"assets/{COLLECTION}/pump-a/{revision}/asset.json"
+    r = client.delete(_scope_url("files"), params={"key": key})
+    assert r.status_code == 409
+    body = r.json()
+    assert (body["subject"], body["revision"]) == ("pump-a", revision)
+    assert "unpublish" in body["reason"]
+    assert client.get(_scope_url(f"delivery/published/{COLLECTION}/pump-a")).status_code == 200, "still published"
+
+
+def test_a_key_outside_the_asset_areas_is_refused(client_and_revision):
+    client, _ = client_and_revision
+    assert client.delete(_scope_url("files"), params={"key": "models/plant.ifc"}).status_code == 400
+
+
+# --- sources: one entry per publish, deleted with everything derived from it ----------------------
+
+
+def test_each_publish_is_one_source_with_its_derived_files(client_and_revision, tmp_path):
+    client, revision = client_and_revision
+    _put(tmp_path, f"_derived/assets/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a/{revision}/all/fp01/model.glb", b"123")
+    _put(tmp_path, f"_derived/assets/{FIXTURE_PROVIDER_ID}/gone/pump-z/{revision}/all/fp02/model.glb", b"1")
+
+    body = client.get(_scope_url("sources")).json()
+    [src] = [s for s in body["sources"] if s["collection"] == COLLECTION]
+    assert (src["provider"], src["revision"]) == (FIXTURE_PROVIDER_ID, revision)
+    assert src["subjects"] >= 2 and src["derived_files"] > src["subjects"]
+    assert [o["key"] for o in body["orphans"]] == [
+        f"_derived/assets/{FIXTURE_PROVIDER_ID}/gone/pump-z/{revision}/all/fp02/model.glb"
+    ], "a cached build whose source is gone is an orphan"
+
+    detail = client.get(_scope_url(f"sources/{COLLECTION}/{revision}"), params={"provider": FIXTURE_PROVIDER_ID}).json()
+    assert any(d["key"].endswith("/model.glb") for d in detail["derived"])
+    assert any(p["key"].endswith("/asset.json") for p in detail["published"])
+
+
+def test_deleting_a_source_removes_everything_derived_from_it(client_and_revision, tmp_path):
+    client, revision = client_and_revision
+    build = f"_derived/assets/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a/{revision}/all/fp01/model.glb"
+    _put(tmp_path, build)
+
+    r = client.delete(_scope_url(f"sources/{COLLECTION}/{revision}"), params={"provider": FIXTURE_PROVIDER_ID})
+    assert r.status_code == 200, r.text
+    deleted = r.json()["deleted"]
+    assert build in deleted
+    manifests = [i for i, k in enumerate(deleted) if k.endswith("/asset.json")]
+    others = [i for i, k in enumerate(deleted) if not k.endswith("/asset.json")]
+    assert max(manifests) < min(others), "manifests go first"
+    assert not [s for s in client.get(_scope_url("sources")).json()["sources"] if s["collection"] == COLLECTION]
+    assert client.get(_scope_url(f"delivery/published/{COLLECTION}/pump-a")).status_code == 404
+
+
+def test_two_providers_on_one_node_are_two_sources_deleted_apart(two_providers):
+    """Provider B's claim on pump-b is its own source: deleting it takes B's publish and leaves A's
+    claim on the same node exactly as it was."""
+    client, rev_a, rev_b = two_providers
+    sources = {(s["provider"], s["revision"]) for s in client.get(_scope_url("sources")).json()["sources"]}
+    assert {(FIXTURE_PROVIDER_ID, rev_a), (SECOND_PROVIDER_ID, rev_b)} <= sources
+
+    r = client.delete(_scope_url(f"sources/{COLLECTION}/{rev_b}"), params={"provider": SECOND_PROVIDER_ID})
+    assert r.status_code == 200, r.text
+    assert client.get(_scope_url(f"delivery/{SECOND_PROVIDER_ID}/{COLLECTION}/pump-b")).status_code == 404
+    assert client.get(_scope_url(f"delivery/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-b")).status_code == 200

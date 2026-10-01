@@ -13,6 +13,8 @@
  * which the tab displays and never branches on.
  */
 
+import type { TreeViewHints } from "./treeView";
+
 export type DeliveryKind = "none" | "mesh" | "build";
 
 // --- wire ----------------------------------------------------------------------
@@ -100,6 +102,12 @@ export interface AssetNode {
    *  the wire means "the slice's provider", and ./projection fills it in so a
    *  mixed collection and a single-source one read the same. */
   readonly provider: string;
+  /** How many children this node has in the spine it came from -- set only on
+   *  rows of a ONE-LEVEL slice (the tree route's `parent=`, whose trailing
+   *  `children` column it is). What tells a row whose level below is not
+   *  fetched yet apart from a real dead end. Absent on a whole-spine row: a
+   *  whole spine holds its children already. */
+  readonly children?: number;
 }
 
 export interface HierarchySlice {
@@ -112,6 +120,9 @@ export interface HierarchySlice {
   readonly producedAt: string;
   readonly depth: number;
   readonly nodes: readonly AssetNode[];
+  /** The provider's defaults for DRAWING this collection (`view` on the wire),
+   *  published with its collection index. See `./treeView`. */
+  readonly view?: TreeViewHints;
 }
 
 export interface Actor {

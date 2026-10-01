@@ -22,9 +22,14 @@ import traceback as tb_module
 
 import asyncpg
 
-from ada.assets.keys import ASSET_PREFIX
+from ada.assets.keys import ASSET_PREFIX, STAGING_SEGMENT
 from ada.assets.manifest import Actor
-from ada.assets.publish import PublishError, PublishPlan, apply_publish_plan
+from ada.assets.publish import (
+    PublishError,
+    PublishPlan,
+    apply_publish_plan,
+    stored_encoding,
+)
 from ada.assets.publishers import AssetPublisherError, asset_publisher
 from ada.config import logger
 
@@ -35,6 +40,21 @@ from ..worker.source_nodes import _SyncStorageFacade
 from .registry import JobContext, SyntheticFormatHandler
 
 ASSET_PUBLISH_KIND = "asset_publish"
+
+
+def consumed_staging(staged: dict, *, dry_run: bool) -> list[str]:
+    """The staged keys a FINISHED publish has consumed and may now clear.
+
+    ``GET /assets/staging`` is the store's memory of what was staged and NOT YET PUBLISHED, and a
+    staging left behind after its publish reads, for ever, as work nobody finished -- the listing
+    stops meaning anything once every publish leaves an entry in it. So a real publish clears what
+    it was handed. A dry run clears nothing: it is the preview a publish of the same staging
+    follows. Only keys under the staging prefix, whatever a caller passed.
+    """
+    if dry_run:
+        return []
+    prefix = f"{ASSET_PREFIX}/{STAGING_SEGMENT}/"
+    return sorted({str(k) for k in staged.values() if str(k).startswith(prefix)})
 
 
 async def _run_asset_publish(
@@ -113,7 +133,10 @@ async def _run_asset_publish(
         return
 
     def _write(key: str, data: bytes) -> None:
-        sync_storage.put_bytes(key, data)
+        # A hierarchy spine arrives gzip-compressed from apply_publish_plan (gzip at rest): store
+        # it as-is and label it, so the blob route and presigned reads carry its Content-Encoding.
+        encoding = stored_encoding(data)
+        sync_storage.put_bytes(key, data, content_encoding=encoding, pre_compressed=encoding is not None)
 
     try:
         await queue.update(job_id, stage="publish", progress=0.60)
@@ -127,6 +150,7 @@ async def _run_asset_publish(
                 replace_existing=replace_existing,
                 occupied=occupied,
                 write=_write,
+                provider=str(provider_id),
             ),
         )
     except PublishError as exc:
@@ -152,6 +176,14 @@ async def _run_asset_publish(
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
         await _audit_done(db_pool, job_id, "error", str(exc), started_at)
         return
+
+    # After the summary, so a publish is never reported as failed over its own cleanup; a key that
+    # cannot be removed stays listed as staged, which is the honest state for it.
+    for key in consumed_staging(staged, dry_run=dry_run):
+        try:
+            await storage.delete(scope, key)
+        except Exception:
+            logger.warning("worker: asset_publish %s could not clear staged %s", job_id, key, exc_info=True)
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     logger.info(

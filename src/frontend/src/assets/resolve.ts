@@ -49,6 +49,14 @@ export interface ResolvedSubject {
    * resolution (same mode, same bound, computed once) answering two questions
    * that were always different. Equal to `revision` when no predicate is given. */
   readonly content: AssetRevision | null;
+  /** The content pick PER PROVIDER: provider id -> the newest revision that
+   *  provider published for this subject satisfying the mode and carrying
+   *  content. Several providers can publish into one collection, and the same
+   *  node can carry geometry from each; `content` is only the newest of them,
+   *  so this is what lets a row offer every one. Same mode, same bound -- under
+   *  `run` a provider either published at that stamp or is absent. Empty when
+   *  no predicate is given. */
+  readonly byProvider: ReadonlyMap<string, AssetRevision>;
 }
 
 export interface ResolveOptions {
@@ -122,7 +130,16 @@ export function resolveCollection(
     const revision = pick(subject, mode);
     if (revision) {
       const content = carries ? pick(subject, mode, carries) : revision;
-      subjects.set(name, { subject: name, revision, newest, content });
+      const byProvider = new Map<string, AssetRevision>();
+      if (carries) {
+        const providers = new Set<string>();
+        for (const r of revs) if (r.manifest?.provider) providers.add(r.manifest.provider);
+        for (const p of providers) {
+          const hit = pick(subject, mode, (r) => r.manifest?.provider === p && carries(r));
+          if (hit) byProvider.set(p, hit);
+        }
+      }
+      subjects.set(name, { subject: name, revision, newest, content, byProvider });
     } else if (newest) missing.set(name, { subject: name, newest });
   }
   incomplete.sort();

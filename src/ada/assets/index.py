@@ -102,6 +102,11 @@ def fold_listing(keys: Iterable[str]) -> AssetIndex:
         # explicitly keeps them out of `malformed`, which is meant to surface publisher bugs.
         if key.startswith(f"{ASSET_PREFIX}/{STAGING_SEGMENT}/"):
             continue
+        # So does every other segment core reserves (a leading `_`: the saved tree views under
+        # `_view/`, and whatever core adds next). Reserved means "not a collection", so it is
+        # never an asset and never a malformed one either.
+        if key.startswith(f"{ASSET_PREFIX}/_"):
+            continue
         if not key.startswith(f"{ASSET_PREFIX}/"):
             continue  # not ours; a scope holds plenty else
         if key.endswith("/"):

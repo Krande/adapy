@@ -51,18 +51,24 @@ export const assetsApi = {
 
   /** One hierarchy slice. `root` absent = the collection index at `revision`;
    *  present = that root's subtree spine. `revision` is always passed by the tab
-   *  -- it resolves revisions itself, from the index, so the server never picks. */
+   *  -- it resolves revisions itself, from the index, so the server never picks.
+   *
+   *  `parent` narrows the answer to ONE LEVEL of that spine: the rows whose
+   *  parent is `parent`, each with a trailing `children` column (its own child
+   *  count in the spine). `parent === root` is the spine's first level. */
   async getAssetTree(
     scope: ScopeUrl,
     provider: string,
     collection: string,
-    opts: { root?: string | null; revision: string },
+    opts: { root?: string | null; revision: string; parent?: string | null },
   ): Promise<WireHierarchySlice> {
     const q = new URLSearchParams({ revision: opts.revision });
     if (opts.root) q.set("root", opts.root);
+    if (opts.parent) q.set("parent", opts.parent);
     const url = `${base(scope)}/tree/${encodeURIComponent(provider)}/${encodeURIComponent(collection)}?${q}`;
     const r = await authedFetch(url);
-    return jsonOrThrow<WireHierarchySlice>(r, `getAssetTree(${collection}, ${opts.root ?? "index"}@${opts.revision})`);
+    const what = `${opts.root ?? "index"}@${opts.revision}${opts.parent ? ` under ${opts.parent}` : ""}`;
+    return jsonOrThrow<WireHierarchySlice>(r, `getAssetTree(${collection}, ${what})`);
   },
 
   /** The delivery claim for one node -- `mesh` or `build`. `node` is the
@@ -135,4 +141,124 @@ export const assetsApi = {
     const r = await authedFetch(filesApi.blobUrl(scope, key));
     return jsonOrThrow<unknown>(r, `getBuildSummary(${key})`);
   },
+
+  /** Publish what is staged under `assets/_staging/<staging_id>/` as `provider`'s
+   *  format: the provider derives, core writes (`POST /assets/publish`). A job:
+   *  poll it, then read `derived_key` for the outcome. */
+  async publishStaged(
+    scope: ScopeUrl,
+    body: { provider: string; staging_id: string; dry_run?: boolean; replace?: boolean },
+  ): Promise<{ job_id: string; derived_key: string; dry_run: boolean }> {
+    const r = await authedFetch(`${base(scope)}/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return jsonOrThrow(r, `publishStaged(${body.staging_id})`);
+  },
+
+  /** What is staged and not yet published, grouped by staging id -- the store's
+   *  memory of a request or upload nobody finished publishing. */
+  async listStaging(scope: ScopeUrl): Promise<{
+    staged: { staging_id: string; files: { file: string; key: string; size: number | null }[]; size: number }[];
+  }> {
+    const r = await authedFetch(`${base(scope)}/staging`);
+    return jsonOrThrow(r, "listStaging");
+  },
+
+  /** Every file in this scope's asset areas -- published, staged and cached builds -- classified. */
+  async listFiles(scope: ScopeUrl): Promise<WireAssetFiles> {
+    const r = await authedFetch(`${base(scope)}/files`);
+    return jsonOrThrow(r, "listFiles");
+  },
+
+  /** Delete ONE staged or cached-build file. A published file answers 409 naming its revision:
+   *  it goes only with that revision (`unpublishRevision`). */
+  async deleteFile(scope: ScopeUrl, key: string): Promise<{ ok: boolean; deleted: string[] }> {
+    const r = await authedFetch(`${base(scope)}/files?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+    return jsonOrThrow(r, `deleteFile(${key})`);
+  },
+
+  /** Unpublish one subject-revision -- every file in it. Refused (409, with `reason`) while another
+   *  manifest still names one of them. */
+  async unpublishRevision(
+    scope: ScopeUrl,
+    collection: string,
+    subject: string,
+    revision: string,
+  ): Promise<{ ok: boolean; deleted: string[]; reason: string | null; held_by: string[] }> {
+    const r = await authedFetch(
+      `${base(scope)}/${encodeURIComponent(collection)}/${encodeURIComponent(subject)}/${encodeURIComponent(revision)}`,
+      { method: "DELETE" },
+    );
+    if (r.status === 409) return r.json();
+    return jsonOrThrow(r, `unpublishRevision(${collection}/${subject}@${revision})`);
+  },
 };
+
+/** One source: one provider's publish into one collection at one revision, with what was derived. */
+export interface WireAssetSource {
+  collection: string;
+  revision: string;
+  provider: string;
+  /** The source file(s) it stored, else what it is (`tree-<provider>`). */
+  label: string;
+  subjects: number;
+  size: number;
+  derived_files: number;
+  derived_size: number;
+  last_modified: string | null;
+}
+
+export const assetSourcesApi = {
+  async list(scope: ScopeUrl): Promise<{ sources: WireAssetSource[]; orphans: { key: string; size: number }[] }> {
+    const r = await authedFetch(`${base(scope)}/sources`);
+    return jsonOrThrow(r, "listSources");
+  },
+  async files(
+    scope: ScopeUrl,
+    s: Pick<WireAssetSource, "collection" | "revision" | "provider">,
+  ): Promise<WireAssetSource & { published: { key: string; size: number }[]; derived: { key: string; size: number }[] }> {
+    const r = await authedFetch(
+      `${base(scope)}/sources/${encodeURIComponent(s.collection)}/${encodeURIComponent(s.revision)}?provider=${encodeURIComponent(s.provider)}`,
+    );
+    return jsonOrThrow(r, "sourceFiles");
+  },
+  /** Delete the source and everything derived from it. 409 (with `reason`, `held_by`) while another
+   *  source still references one of its files. */
+  async remove(
+    scope: ScopeUrl,
+    s: Pick<WireAssetSource, "collection" | "revision" | "provider">,
+  ): Promise<{ ok: boolean; deleted?: string[]; reason?: string; held_by?: string[] }> {
+    const r = await authedFetch(
+      `${base(scope)}/sources/${encodeURIComponent(s.collection)}/${encodeURIComponent(s.revision)}?provider=${encodeURIComponent(s.provider)}`,
+      { method: "DELETE" },
+    );
+    if (r.status === 409) return r.json();
+    return jsonOrThrow(r, "deleteSource");
+  },
+};
+
+export interface WireAssetFile {
+  key: string;
+  size: number;
+  last_modified: string | null;
+  area: "published" | "staged" | "derived";
+  /** Derived only: a cached `build`, or a publish job's `publish-summary`. */
+  kind?: "build" | "publish-summary";
+  job?: string;
+  file: string;
+  collection?: string;
+  subject?: string;
+  revision?: string;
+  staging_id?: string;
+  provider?: string;
+  node?: string | null;
+  fingerprint?: string;
+}
+
+export interface WireAssetFiles {
+  files: WireAssetFile[];
+  unrecognised: { key: string; size: number; last_modified: string | null }[];
+  totals: Record<string, { files: number; size: number }>;
+}

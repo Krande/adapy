@@ -72,6 +72,22 @@ def test_build_claim_carries_opaque_options(store_and_provider):
     assert claim.options["ref"] == "pump-b"  # a vendor field core does not interpret
 
 
+def test_a_covered_node_reads_the_claim_of_its_covering_subject(store_and_provider):
+    """``subject=`` names the publish that COVERS the node; the mesh key is that subject's."""
+    store, provider, revision = store_and_provider
+    claim = provider.delivery(None, "fixture-a", "some-covered-node", subject="pump-a")
+    assert isinstance(claim, MeshDelivery)
+    assert claim.url == asset_key("fixture-a", "pump-a", revision, "model.glb")
+    assert provider.delivery(None, "fixture-a", "some-covered-node") is None
+
+
+def test_the_producing_provider_selects_and_a_stranger_finds_nothing(store_and_provider):
+    _, provider, revision = store_and_provider
+    assert provider.manifest("fixture-a", "pump-b", provider=FIXTURE_PROVIDER_ID).revision == revision
+    assert provider.manifest("fixture-a", "pump-b", provider="published").revision == revision
+    assert provider.manifest("fixture-a", "pump-b", provider="someone-else") is None
+
+
 def test_branch_nodes_have_no_delivery(store_and_provider):
     _, provider, _ = store_and_provider
     assert provider.delivery(None, "fixture-a", "unit-1") is None

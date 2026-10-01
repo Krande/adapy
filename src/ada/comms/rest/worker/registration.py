@@ -38,6 +38,10 @@ class Registration:
     ext_allow_set: set[str] | None
     conversions: list[dict]
     publish: Callable[[], Awaitable[bool]]
+    #: Qualify capabilities a plugin asked for after boot and add the kept ones to
+    #: ``capabilities`` (the same list ``publish`` advertises), returning them. See
+    #: ``ada.plugins.request_worker_capabilities``.
+    add_capabilities: Callable[[list[str]], list[str]]
 
 
 def _connection_specs_for_heartbeat(capabilities: list[str]) -> list[dict]:
@@ -283,8 +287,10 @@ async def build_registration(queue: JobQueue) -> Registration:
     )
     # Detailing engines (a fabrication-detail stage after the structural build).
     procedural_detailing_engines = _advertised_specs("detailing engines", "ada.topo_model", "detailing_engine_specs")
-    # Backend plugin specs (the viewer plugin system) for ``/api/plugins``.
-    plugin_specs = locally_registered_specs()
+    # Backend plugin specs (the viewer plugin system) for ``/api/plugins``: NOT read here. They are
+    # re-read on every heartbeat (see `_publish_registration`), because a plugin may re-register its
+    # spec mid-life -- a provider whose collections it rediscovers -- and a list frozen at boot would
+    # keep advertising the old one until a restart.
 
     # --- capability qualification ------------------------------------------
     #
@@ -322,8 +328,10 @@ async def build_registration(queue: JobQueue) -> Registration:
         # served. Silence here is the support ticket this design exists to
         # prevent.
         logger.warning("worker: withholding capability %s — %s", _w["capability"], _w["reason"])
-    capabilities = _verdict.kept
-    withheld = _verdict.withheld
+    # Copied, because it is EXTENDED in place by `_add_capabilities` below and `_publish_registration`
+    # must see the extension: both close over this one list.
+    capabilities = list(_verdict.kept)
+    withheld = list(_verdict.withheld)
 
     # Only the packages some requirement actually names. The full manifest is
     # ~24 kB (197 entries, mostly repeated channel URLs) and this row is
@@ -382,7 +390,7 @@ async def build_registration(queue: JobQueue) -> Registration:
                     "procedural_template_specs": procedural_templates,
                     "procedural_engine_specs": procedural_engines,
                     "procedural_detailing_engine_specs": procedural_detailing_engines,
-                    "plugin_specs": plugin_specs,
+                    "plugin_specs": locally_registered_specs(),
                     "connection_specs": connection_specs,
                     "clash_passes": clash_passes,
                     "started_at": started_at,
@@ -394,6 +402,23 @@ async def build_registration(queue: JobQueue) -> Registration:
             return False
         return True
 
+    def _add_capabilities(requested: list[str]) -> list[str]:
+        """Qualify capabilities a plugin asked for after boot; add and return the kept ones.
+
+        The SAME verdict the boot capabilities got -- the requirements and package manifest read
+        above -- so a pool reached this way is held to the evidence a declared one is. The
+        "once at startup" reasoning above is about TAKING pools away under load; adding one is a
+        new consumer beside the others and tears nothing down.
+        """
+        if not requested:
+            return []
+        verdict = evaluate(requested, requirements, worker_packages)
+        for w in verdict.withheld:
+            logger.warning("worker: withholding requested capability %s — %s", w["capability"], w["reason"])
+        withheld.extend(verdict.withheld)
+        capabilities.extend(verdict.kept)
+        return list(verdict.kept)
+
     return Registration(
         worker_id=worker_id,
         image_tag=image_tag,
@@ -404,4 +429,5 @@ async def build_registration(queue: JobQueue) -> Registration:
         ext_allow_set=ext_allow_set,
         conversions=conversions,
         publish=_publish_registration,
+        add_capabilities=_add_capabilities,
     )

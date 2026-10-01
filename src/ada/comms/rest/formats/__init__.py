@@ -16,6 +16,7 @@ from . import (
     convert,
     engine_build,
     equipment,
+    export_selection,
     fea,
     parity,
     plugin,
@@ -53,6 +54,8 @@ register(engine_build.ProceduralEngineBuildHandler())
 # Synthetic: the model comes from a provider that reads its own format, so there is no source
 # file to stream and no extension to dispatch on (see the module docstring).
 register(clash_check_asset.ClashCheckAssetHandler())
+# Synthetic for the same reason: a published node's selection is read by its provider.
+register(export_selection.ExportSelectionAssetHandler())
 # Source-backed kinds that are not registry conversions.
 register(utility.UtilityHandler())
 register(fea.FeaArtefactsHandler())
@@ -60,6 +63,7 @@ register(fea.FeaMetaHandler())
 register(parity.ParityHandler())
 register(clash_check.ClashCheckHandler())
 register(clash_detail.ClashDetailHandler())
+register(export_selection.ExportSelectionHandler())
 # Everything else: the ConverterRegistry-backed convert() path.
 register(convert.ConvertHandler(), fallback=True)
 

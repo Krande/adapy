@@ -201,6 +201,28 @@ def test_a_real_publish_ends_with_manifests_present_written_last_and_change_publ
     assert node_manifest["change"]["published_via"] == "user"
 
 
+def test_a_publish_whose_manifests_name_another_provider_is_refused(client):
+    """Readers select a subject's revisions by the manifest's ``provider``, so a publisher writing
+    manifests in someone else's name would land revisions under THEIR selection. Registered here
+    as ``impostor``, the fixture publisher still stamps ``fixture-lines`` into every manifest."""
+    from ada.assets.publishers import register_asset_publisher
+
+    register_asset_publisher("impostor", FixtureLinesPublisher)
+    c, tmp_path = client
+    staged_key = _stage(tmp_path, "up1")
+
+    r = c.post(_publish_url(), json={"provider": "impostor", "staging_id": "up1", "collection": COLLECTION})
+    assert r.status_code == 200, r.text
+    status = _poll_done(c, r.json()["job_id"])
+    assert status["status"] != local_jobs.STATUS_DONE, status
+    error = json.dumps(status)
+    assert "impostor" in error and FIXTURE_PROVIDER_ID in error
+
+    # Refused means nothing landed, and the staging is still there to publish properly.
+    assert not (_scope_root(tmp_path) / "assets" / COLLECTION).exists()
+    assert _exists(tmp_path, staged_key)
+
+
 def test_dry_run_publish_writes_nothing_to_disk_but_the_summary_says_so(client):
     c, tmp_path = client
     _stage(tmp_path, "up1")
@@ -220,6 +242,42 @@ def test_dry_run_publish_writes_nothing_to_disk_but_the_summary_says_so(client):
     assert len(outcome["written"]) > 0  # it still REPORTS what it would have written ...
     for key in outcome["written"]:
         assert not _exists(tmp_path, key)  # ... none of which actually landed on disk
+
+
+def _staging_ids(c) -> set[str]:
+    r = c.get("/api/scopes/user:me/assets/staging")
+    assert r.status_code == 200, r.text
+    return {g["staging_id"] for g in r.json()["staged"]}
+
+
+def test_a_real_publish_clears_the_staging_it_consumed(client):
+    """`GET /assets/staging` lists what was staged and NOT YET published; a staging that outlived
+    its publish would read as unfinished work for ever."""
+    c, tmp_path = client
+    staged_key = _stage(tmp_path, "up1")
+    _stage(tmp_path, "up2")  # someone else's, and untouched by this publish
+
+    r = c.post(_publish_url(), json={"provider": FIXTURE_PROVIDER_ID, "staging_id": "up1", "collection": COLLECTION})
+    status = _poll_done(c, r.json()["job_id"])
+    assert status["status"] == local_jobs.STATUS_DONE, status
+
+    assert not _exists(tmp_path, staged_key)
+    assert _staging_ids(c) == {"up2"}
+
+
+def test_a_dry_run_keeps_the_staging_for_the_publish_that_follows_it(client):
+    c, tmp_path = client
+    staged_key = _stage(tmp_path, "up1")
+
+    r = c.post(
+        _publish_url(),
+        json={"provider": FIXTURE_PROVIDER_ID, "staging_id": "up1", "collection": COLLECTION, "dry_run": True},
+    )
+    status = _poll_done(c, r.json()["job_id"])
+    assert status["status"] == local_jobs.STATUS_DONE, status
+
+    assert _exists(tmp_path, staged_key)
+    assert _staging_ids(c) == {"up1"}
 
 
 # --------------------------------------------------------------------------------------------

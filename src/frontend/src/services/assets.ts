@@ -1,4 +1,5 @@
-// The asset surface an out-of-tree plugin may depend on — plugin API 1.6.0.
+// The asset surface an out-of-tree plugin may depend on — plugin API 1.6.0, and 1.8.0 for the
+// per-scope enabled collections re-exported at the bottom.
 //
 // WHY A REGISTRY AND NOT A ROUTE. Core reads an asset tree over REST, and for a provider whose
 // data a worker can see that is the whole story. It is not the whole story for a provider that
@@ -191,3 +192,18 @@ function isNotFound(e: unknown): boolean {
   if (typeof status === "number") return status === 404;
   return /\b404\b/.test(String((e as { message?: unknown })?.message ?? e));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Which of a provider's collections may be requested per scope -- plugin API 1.8.0.
+//
+// The reader a provider's request dialog narrows its picker with. Lives in its own pure module
+// (`services/assetScopeCollections.ts`) so it can be imported without the API client; re-exported
+// here so a plugin finds the whole asset surface in one place. The admin Providers tab writes it.
+// ---------------------------------------------------------------------------------------------
+export {
+  ASSET_SCOPE_COLLECTIONS_KEY,
+  enabledFor,
+  isCollectionEnabled,
+  parseScopeCollections,
+} from "@/services/assetScopeCollections";
+export type { EnabledCollections, ScopeCollectionsMap } from "@/services/assetScopeCollections";

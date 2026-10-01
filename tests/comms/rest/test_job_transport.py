@@ -130,15 +130,18 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
 
     assert set(get_args(TransportFeature)) == set(FEATURE_UNAVAILABLE_DETAIL)
     assert all(FEATURE_UNAVAILABLE_DETAIL.values())
-    # Five kinds run without a queue, for the same reason: a single-node viewer
+    # Six kinds run without a queue, for the same reason: a single-node viewer
     # with the model in its own scope must be able to run the thing the UI
     # offers. `asset_build` joined `plugin_jobs` with Decision 1's build
     # delivery -- a 503 there would make `build` a delivery kind that only
     # exists in a cluster -- `asset_publish` with Phase 4's publish surface on
     # the same argument about `publish`, and `clash_check`/`clash_detail` with
     # Decision 10's Clashes tab (identifying joints and detailing a BUILT-IN
-    # spec want no kernel this process does not already have).
-    assert LOCAL_FEATURES == frozenset({"asset_build", "asset_publish", "clash_check", "clash_detail", "plugin_jobs"})
+    # spec want no kernel this process does not already have), and
+    # `export_selection` with the selected-object panel's "Download as".
+    assert LOCAL_FEATURES == frozenset(
+        {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs"}
+    )
 
 
 # --------------------------------------------------------------------------

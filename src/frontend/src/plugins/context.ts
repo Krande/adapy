@@ -107,13 +107,30 @@ function makeSceneHandle(): SceneHandle {
       );
       const sourceName =
         opts?.sourceName || url.split("?")[0].split("/").pop() || `${owner}-model`;
-      const group = await setupModelLoaderAsync({
-        modelUrl: url,
-        translate: opts?.translate ?? true,
+      // The same load profiling the viewer's own file loads get (admin, opt-in; null otherwise):
+      // models loaded through a plugin or a provider were invisible to it.
+      const { beginLoadMetrics } = await import("@/utils/scene/loadMetrics");
+      const metrics = beginLoadMetrics({
+        scope: scopeUrlPart(useScopeStore.getState().current),
+        key: `${owner}:${sourceName}`,
         sourceName,
-        requestHeaders: opts?.headers,
-        sourceUpAxis: opts?.sourceUpAxis ?? "z",
+        transport: url.startsWith("blob:") ? "blob" : url.startsWith("http") && !url.startsWith(location.origin) ? "presigned" : "relayed",
       });
+      let group: Awaited<ReturnType<typeof setupModelLoaderAsync>>;
+      try {
+        group = await setupModelLoaderAsync({
+          modelUrl: url,
+          translate: opts?.translate ?? true,
+          sourceName,
+          displayName: opts?.displayName,
+          requestHeaders: opts?.headers,
+          sourceUpAxis: opts?.sourceUpAxis ?? "z",
+          metrics,
+        });
+      } catch (e) {
+        metrics?.fail(e instanceof Error ? e.message : String(e), e instanceof Error ? e.stack : undefined);
+        throw e;
+      }
       // Register the source -> group mapping so the model shows up in the
       // loaded-sources list and `unloadModel` can drop just this one, exactly as
       // core's own overlay path does.

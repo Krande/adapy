@@ -371,5 +371,9 @@ class _SyncStorageFacade:
     def get_bytes(self, key: str) -> bytes:
         return self._run(self._s.get_bytes(self._scope, key))
 
-    def put_bytes(self, key: str, data: bytes, content_encoding: "str | None" = None) -> None:
-        self._run(self._s.put_bytes(self._scope, key, data, content_encoding=content_encoding))
+    def put_bytes(
+        self, key: str, data: bytes, content_encoding: "str | None" = None, pre_compressed: bool = False
+    ) -> None:
+        # `pre_compressed` only when asked: a stand-in storage need not know the keyword.
+        extra = {"pre_compressed": True} if pre_compressed else {}
+        self._run(self._s.put_bytes(self._scope, key, data, content_encoding=content_encoding, **extra))

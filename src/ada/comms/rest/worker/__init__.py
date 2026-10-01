@@ -70,6 +70,7 @@ from .pools import (  # noqa: F401
     POOL_STREAK_LIMIT,
     _advance_pool_cursor,
     _bool_env,
+    _capabilities_to_add,
     _declared_capabilities,
     _per_fetch_timeout,
     _pool_capabilities,

@@ -1,5 +1,6 @@
 import React, {useState} from "react";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
+import {useSceneModelNames} from "@/hooks/useSceneModelNames";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {requestRender} from "@/state/perfStore";
 import ViewIcon from "../icons/ViewIcon";
@@ -17,6 +18,9 @@ import ViewOffIcon from "../icons/ViewOffIcon";
 
 const LoadedModelsSection: React.FC = () => {
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
+    // Each model as the Scene tree calls it: its root row's label, so the two lists agree and both
+    // follow the Names / IDs toggle. A model with no root row there falls back to its source name.
+    const modelName = useSceneModelNames();
     // group.visible lives outside React — tick forces a re-render
     // after a toggle so the icon state tracks it.
     const [, setTick] = useState(0);
@@ -51,7 +55,7 @@ const LoadedModelsSection: React.FC = () => {
             {Array.from(loadedSourceNames).map((name) => {
                 const group = loadedSourceGroups.get(name);
                 const visible = group ? group.visible : true;
-                const basename = name.split("/").pop() ?? name;
+                const basename = modelName(name);
                 return (
                     <li key={name} className="flex items-center gap-1.5 py-1">
                         {group ? (

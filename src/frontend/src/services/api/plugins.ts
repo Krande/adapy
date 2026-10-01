@@ -54,6 +54,11 @@ export interface BackendPluginSpec {
   requires_admin?: boolean;
   origin?: string;
   online?: boolean;
+  /** Declared by the plugin, read only by the admin Providers tab: the asset
+   *  provider whose collections the field named by `asset_collections_field`
+   *  lists. See `services/assetScopeCollections.ts`. */
+  asset_provider_id?: string;
+  asset_collections_field?: string;
 }
 
 export const pluginsApi = {

@@ -103,3 +103,19 @@ def test_columnar_form_stays_compact():
     payload = build_hierarchy(provider="p", collection="c", produced_at="t", nodes=nodes).to_json()
     assert len(payload) / len(nodes) < 80, f"{len(payload) / len(nodes):.0f} B/node is too fat for a 41k spine"
     assert json.loads(payload)["schema"] == HIERARCHY_SCHEMA
+
+
+def test_a_collection_index_carries_the_providers_view_suggestion_through_a_round_trip():
+    """Additive at hierarchy@1: the suggestion survives build -> JSON -> parse, and only its two
+    known keys, each a list of kinds, are kept."""
+    slice_ = _slice(view={"flatten_kinds": ["worl", ""], "root_kinds": ["site"], "colour": "red"})
+    assert slice_.view == {"flatten_kinds": ["worl"], "root_kinds": ["site"]}
+    back = parse_hierarchy(slice_.to_json())
+    assert back.view == {"flatten_kinds": ["worl"], "root_kinds": ["site"]}
+
+
+def test_a_slice_without_a_view_writes_none_and_a_malformed_one_reads_as_none():
+    assert "view" not in json.loads(_slice().to_json())
+    doc = json.loads(_slice().to_json())
+    doc["view"] = {"flatten_kinds": "worl"}
+    assert parse_hierarchy(json.dumps(doc)).view is None
