@@ -1,5 +1,4 @@
-"""``SAVE_PROCEDURAL_MODEL`` (ws/REST parity plan, step 3 --
-docs/documents/ws_rest_parity.rst): the local viewer's save verb.
+"""``SAVE_PROCEDURAL_MODEL``: the local viewer's save verb.
 
 Driven with a stub server/client, like ``test_request_id.py``, so the
 assertion is on the serialized reply that would hit the socket. ``base_dir``

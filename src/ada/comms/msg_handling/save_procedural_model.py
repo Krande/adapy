@@ -36,8 +36,7 @@ _MODELS_SUBDIR = ".ada_procedural_models"
 
 # Mirrors the REST commit endpoint's HTTP 409 for the same situation -- a
 # stale base revision -- so a client that already knows to special-case 409
-# recognises this one too. See docs/documents/ws_rest_parity.rst, "revisions
-# and optimistic concurrency".
+# recognises this one too.
 CONFLICT_ERROR_CODE = 409
 
 # An opaque token: letters/digits/'.'/'_'/'-' only, starting with a letter or
@@ -56,7 +55,7 @@ def default_procedural_model_dir() -> pathlib.Path:
     """Next to the source file the model was shown from.
 
     This websocket server process *is* the process that called
-    ``assembly.show()`` (see docs/documents/ws_rest_parity.rst) -- there is no
+    ``assembly.show()`` -- there is no
     separate "which file opened this" to track down; it is simply whatever
     ``__main__`` is. Falls back to the current working directory for a
     REPL/notebook session, which has no ``__main__`` file.
@@ -125,7 +124,6 @@ def save_procedural_model(
     """Write a procedural document to local disk, keyed by an opaque
     ``model_id``, with a content-hash revision.
 
-    See docs/documents/ws_rest_parity.rst, step 3 ("SAVE_PROCEDURAL_MODEL").
     Replies with the new content hash on success. Rejects with an ERROR reply:
     a generic one for a malformed request (missing/invalid ``model_id``), or
     one carrying ``code=CONFLICT_ERROR_CODE`` when ``expected_content_hash``

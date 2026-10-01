@@ -19,7 +19,7 @@ two-ended systems, and then routes and models the lot. Four things happen here:
    named ``<line number>/<segment number>`` -- *except* at a 3+-way junction (a tee, a wye), where
    :func:`_fold_branch_groups` merges the segments meeting there into a single **branched** system
    instead (``ada.topology.routing.route_system`` detects two or more ``System.segments`` sharing a
-   junction equipment and routes every leg; see :doc:`/documents/routing_through_objects`, Stage 2).
+   junction equipment and routes every leg).
    A DEXPI segment is by definition a two-ended run, so segment-per-system is both faithful to the
    source and routable for the common (degree-2-or-fewer) case; the parent ``PipingNetworkSystem``
    survives as the run's ``MEDIUM`` and as provenance in its ``METADATA``. Segment-per-system is

@@ -3,8 +3,7 @@
 THIS IS THE ENGINE, NOT THE CONTRACT. Nothing outside
 :mod:`ada.comms.rest.job_transport` calls into here: a route submits a
 ``JobRequest`` to ``RestContext.jobs`` and ``LocalJobTransport`` is what turns
-that into the thread below. Start from ``job_transport`` (and
-``docs/documents/job_transport.rst``) for which job kinds exist without a
+that into the thread below. Start from ``job_transport`` for which job kinds exist without a
 queue and what a route gets when one does not.
 
 A plugin's on-demand backend job normally goes onto NATS and is picked up by a

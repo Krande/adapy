@@ -4,8 +4,7 @@
 // does -- there's just whatever name the process gave the scene it pushed. The save handler
 // (`ada.comms.msg_handling.save_procedural_model`) validates `model_id` as an opaque token --
 // letters/digits/'.'/'_'/'-' only, 1-128 characters, starting with a letter or digit -- and
-// rejects anything else before it ever touches disk (docs/documents/ws_rest_parity.rst, "model
-// id: opaque token vs file path"). A raw source name can carry spaces, colons, slashes; none of
+// rejects anything else before it ever touches disk. A raw source name can carry spaces, colons, slashes; none of
 // that is valid there, so it is sanitised into something that is rather than passed through and
 // left to fail on the first commit.
 
