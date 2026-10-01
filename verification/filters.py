@@ -34,6 +34,7 @@ Markdown references resolve as `${ filter_name.attr_name(:fmtspec) }`.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import pathlib
 from typing import TYPE_CHECKING, Literal, Optional
@@ -61,6 +62,7 @@ _eig_logger = logging.getLogger(__name__)
 _ASSETS_DIR = pathlib.Path(__file__).parent / "_assets"
 #: The cantilever eigen cases' JSON cache (tasks.py writes it); the plate cases keep theirs apart.
 _CACHE_DIR = pathlib.Path(__file__).parent / ".cache"
+_PLATE_CACHE_DIR = pathlib.Path(__file__).parent / ".cache-plate"
 
 
 def _poster(rel_path: str) -> str | None:
@@ -518,6 +520,67 @@ _GRID_DIV_OPEN = '::: {class="grid grid-cols-1 sm:grid-cols-2 gap-4"}'
 _GRID_DIV_CLOSE = ":::"
 
 
+def _snapshot_modes(case_key: str) -> dict[int, dict]:
+    """A case's per-mode data, from the JSON snapshot every build writes for every solver (the live ones
+    are gitignored, the licensed ones committed): mode number -> the mode's fields. Empty when none."""
+    for cache_dir in (_CACHE_DIR, _PLATE_CACHE_DIR):
+        path = cache_dir / f"{case_key}.json"
+        if not path.is_file():
+            continue
+        try:
+            modes = json.loads(path.read_text(encoding="utf-8")).get("eigen_mode_data") or {}
+        except (OSError, ValueError) as exc:
+            _eig_logger.warning("fea_modes_compare: unreadable snapshot %s: %s", path, exc)
+            return {}
+        return {int(m["no"]): m for m in modes.values() if isinstance(m, dict) and m.get("no") is not None}
+    return {}
+
+
+def _fmt(value, spec: str) -> str:
+    if value is None:
+        return "–"
+    text = format(value, spec)
+    # A value that rounds to zero (an off-axis factor of 1e-14, say) prints without a sign.
+    return text[1:] if text.startswith("-") and float(text) == 0.0 else text
+
+
+def mode_data_table(rows: list[tuple[str, dict | None]]) -> str:
+    """The table under one mode's figures: a row per solver shown, with what its reader reported.
+
+    ``rows`` is ``(solver label, mode fields | None)``. The participation factor is scaled to unit
+    generalised mass, ``sign(Γ)·√Meff`` -- each solver normalises its eigenvectors its own way, so the raw
+    factors do not compare (see the modal participation section). A quantity no solver reported is left
+    out; a value one solver did not report shows as "–". Empty when no row has data.
+    """
+    from types import SimpleNamespace
+
+    from utils import MODAL_MASS_QUANTITIES
+
+    pf_of = MODAL_MASS_QUANTITIES["pf"][0]  # the same scaling as the modal participation tables
+
+    def field(key):
+        return lambda m: m.get(key)
+
+    def participation(direction):
+        keys = ("px", "py", "pz", "efx", "efy", "efz")
+        return lambda m: pf_of(SimpleNamespace(**{k: m.get(k) for k in keys}), direction)
+
+    columns = [
+        ("f [Hz]", field("f_hz"), ".3f"),
+        ("λ [rad²/s²]", field("eigenvalue"), ".6g"),
+        *[(f"Meff {d} [kg]", field(f"ef{d.lower()}"), ".2f") for d in "XYZ"],
+        *[(f"Γ {d}", participation(d), ".3f") for d in "XYZ"],
+    ]
+    data = [(label, m) for label, m in rows if m]
+    if not data:
+        return ""
+    kept = [c for c in columns if any(c[1](m) is not None for _, m in data)]
+    header = "| Solver | " + " | ".join(name for name, *_ in kept) + " |"
+    rule = "|:--|" + "--:|" * len(kept)
+    body = ["| " + label + " | " + " | ".join(_fmt(get(m), spec) for _, get, spec in kept) + " |" for label, m in data]
+    return "\n".join([header, rule, *body])
+
+
 def _split_case_name(case_name: str, prefix: str) -> tuple[str, str] | None:
     """``<prefix>_<solver>_<configuration>`` -> ``(solver, configuration)``, or None if not ours."""
     head = f"{prefix}_"
@@ -624,6 +687,7 @@ class FeaModesCompareFilter(FigureSourceFilter):
 
         # One hash per mesh, not one per figure: every mode of a case shares its GLB.
         glb_sha = {s: hashlib.sha256(a.mesh_glb_path.read_bytes()).hexdigest() for s, a in loaded.items()}
+        modes_by_solver = {s: _snapshot_modes(a.key) for s, a in loaded.items()} if analysis == "eigen" else {}
         mode_indices = sorted({i for a in loaded.values() for i in a.poster_paths})
         for mode_idx in mode_indices:
             if analysis == "eigen":
@@ -635,6 +699,15 @@ class FeaModesCompareFilter(FigureSourceFilter):
                     continue
                 entries.append(self._render_one(solver, assets, glb_sha[solver], mode_idx, poster, analysis=analysis))
             entries.append(MarkdownChunk(text=_GRID_DIV_CLOSE))
+            if analysis == "eigen":
+                rows = [
+                    (_SOLVER_LABEL[s], modes_by_solver[s].get(mode_idx + 1))
+                    for s, a in loaded.items()
+                    if a.poster_paths.get(mode_idx) is not None
+                ]
+                table = mode_data_table(rows)
+                if table:
+                    entries.append(MarkdownChunk(text=f"\n{table}\n"))
         return entries
 
     @staticmethod

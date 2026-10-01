@@ -42,6 +42,23 @@ _PNG_BYTES = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_snapshots(tmp_path, monkeypatch):
+    """The per-mode tables read each case's JSON snapshot; point them at an empty cache of the test's own,
+    so what a test sees doesn't depend on which snapshots the checkout's verification/.cache holds."""
+    import filters
+
+    monkeypatch.setattr(filters, "_CACHE_DIR", tmp_path / ".cache")
+    monkeypatch.setattr(filters, "_PLATE_CACHE_DIR", tmp_path / ".cache-plate")
+
+
+def _write_snapshot(tmp_path, case_key: str, modes: dict[int, dict]) -> None:
+    cache = tmp_path / ".cache"
+    cache.mkdir(exist_ok=True)
+    payload = {"name": case_key, "eigen_mode_data": {str(n): {"no": n, **fields} for n, fields in modes.items()}}
+    (cache / f"{case_key}.json").write_text(json.dumps(payload))
+
+
 def _make_case(case_dir: pathlib.Path, *, modes: list[int]) -> None:
     """Write a minimal FEA bundle: manifest + mesh GLB + per-mode PNG posters.
 
@@ -164,3 +181,52 @@ def test_no_matching_cases_returns_placeholder_chunk(tmp_path):
     assert len(out) == 1
     assert isinstance(out[0], MarkdownChunk)
     assert "plate_EIG" in out[0].text
+
+
+def test_each_mode_gets_a_table_of_its_data_below_the_figures(tmp_path):
+    """Below a mode's figures: a row per solver with its frequency, eigenvalue, effective masses and
+    mass-normalised participation factors, read from the case's snapshot."""
+    ca, ccx = "cantilever_EIG_ca_shell_o1_hqTrue_riFalse", "cantilever_EIG_ccx_shell_o1_hqTrue_riFalse"
+    _make_case(tmp_path / "_assets" / ca, modes=[1, 2])
+    _make_case(tmp_path / "_assets" / ccx, modes=[1, 2])
+    _write_snapshot(tmp_path, ca, {1: {"f_hz": 13.146, "efy": 119.92, "py": 10.951}, 2: {"f_hz": 19.972}})
+    _write_snapshot(tmp_path, ccx, {1: {"f_hz": 12.764, "eigenvalue": 6431.71, "efy": 119.9, "py": -0.5}})
+
+    texts = _texts(_render(tmp_path, "cantilever_EIG"))
+    tables = [t for t in texts if t.strip().startswith("| Solver |")]
+    assert len(tables) == 2  # one per mode
+
+    mode1 = tables[0].strip().splitlines()
+    assert mode1[0] == "| Solver | f [Hz] | λ [rad²/s²] | Meff Y [kg] | Γ Y |"  # unreported quantities left out
+    assert mode1[2] == "| Calculix | 12.764 | 6431.71 | 119.90 | -10.950 |"  # sign(Γ)·√Meff
+    assert mode1[3] == "| Code_Aster | 13.146 | – | 119.92 | 10.951 |"
+    # Calculix reported nothing for mode 2: only Code_Aster's row
+    assert [r.split("|")[1].strip() for r in tables[1].strip().splitlines()[2:]] == ["Code_Aster"]
+
+
+def test_the_table_follows_the_grid_and_needs_a_snapshot(tmp_path):
+    from paradoc.figure_sources.filters.base import MarkdownChunk
+
+    key = "cantilever_EIG_ca_shell_o1_hqTrue_riFalse"
+    _make_case(tmp_path / "_assets" / key, modes=[1])
+    assert not any("| Solver |" in t for t in _texts(_render(tmp_path, "cantilever_EIG")))
+
+    _write_snapshot(tmp_path, key, {1: {"f_hz": 13.1}})
+    out = _render(tmp_path, "cantilever_EIG")
+    close = next(i for i, e in enumerate(out) if isinstance(e, MarkdownChunk) and e.text == ":::")
+    assert out[close + 1].text.strip().startswith("| Solver | f [Hz] |")
+
+
+def test_static_analysis_has_no_mode_table(tmp_path):
+    key = "plate_static_ca_shell_o1_stTrue_h0p0625"
+    _make_case(tmp_path / "_assets" / "plate" / key, modes=[1])
+    _write_snapshot(tmp_path, key, {1: {"f_hz": 1.0}})
+    assert not any("| Solver |" in t for t in _texts(_render(tmp_path, "plate_static", analysis="static")))
+
+
+def test_a_value_rounding_to_zero_prints_without_a_sign():
+    from filters import _fmt
+
+    assert _fmt(-1e-14, ".3f") == "0.000"
+    assert _fmt(-0.25, ".3f") == "-0.250"
+    assert _fmt(None, ".3f") == "–"
