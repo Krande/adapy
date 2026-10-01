@@ -343,25 +343,71 @@ export async function loadNode(
   claim: DeliveryClaim,
   displayName?: string,
 ): Promise<LoadedAsset> {
-  const sourceName = assetSourceName(ref);
-
-  if (deps.isLoaded(sourceName)) {
-    return { sourceName, ref, revision: ref.revision, provider: ref.provider };
+  if (deps.isLoaded(assetSourceName(ref))) {
+    return { sourceName: assetSourceName(ref), ref, revision: ref.revision, provider: ref.provider };
   }
+  return loadPrepared(deps, ref, prepareNode(deps, scope, ref, claim), displayName);
+}
 
+/** Everything `loadNode` needs to put a node in the scene, worked out ahead of doing so: the URL
+ *  to load (a build's GLB, built first when it was not yet), and what the load reports. */
+export interface PreparedNode {
+  url: string;
+  headers?: Record<string, string>;
+  sourceUpAxis?: "z" | "y";
+  revision: string;
+  provider: string;
+  glbKey?: string;
+  counts?: Readonly<Record<string, number>>;
+  warnings?: readonly string[];
+}
+
+/** The scene-side half of `loadNode`: put an already-prepared node in the scene. ``prepared`` is a
+ *  promise so a bulk load can start preparing the next nodes -- their builds can take minutes --
+ *  while this one loads; a node already in the scene is not loaded again. */
+export async function loadPrepared(
+  deps: LoadNodeDeps,
+  ref: NodeRef,
+  prepared: Promise<PreparedNode>,
+  displayName?: string,
+): Promise<LoadedAsset> {
+  const sourceName = assetSourceName(ref);
+  const p = await prepared;
+  if (deps.isLoaded(sourceName)) {
+    return { sourceName, ref, revision: p.revision, provider: p.provider };
+  }
+  await deps.loadModelFromUrl(OWNER, p.url, {
+    sourceName,
+    ...(displayName ? { displayName } : {}),
+    ...(p.headers ? { headers: p.headers } : {}),
+    ...(p.sourceUpAxis ? { sourceUpAxis: p.sourceUpAxis } : {}),
+  });
+  return {
+    sourceName,
+    ref,
+    revision: p.revision,
+    provider: p.provider,
+    ...(p.glbKey ? { glbKey: p.glbKey } : {}),
+    ...(p.counts ? { counts: p.counts } : {}),
+    ...(p.warnings ? { warnings: p.warnings } : {}),
+  };
+}
+
+/** The network half of `loadNode`: a claim to the URL its model loads from -- for a `build`
+ *  claim, after the build (a job, polled) has produced it. Touches nothing in the scene. */
+export async function prepareNode(
+  deps: LoadNodeDeps,
+  scope: string,
+  ref: NodeRef,
+  claim: DeliveryClaim,
+): Promise<PreparedNode> {
   if (claim.kind === "mesh") {
     // The built-in `published` provider mints `url` as a storage KEY, not an
     // absolute URL (`routes/assets.py`'s mesh branch: `"url": mesh_key`) --
     // told apart from a live provider's (possibly presigned) absolute URL by
     // SHAPE, never by provider id, so no provider-conditional code lands here.
     const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(claim.url) ? claim.url : deps.blobUrl(scope, claim.url);
-    await deps.loadModelFromUrl(OWNER, url, {
-      sourceName,
-      ...(displayName ? { displayName } : {}),
-      headers: claim.headers,
-      sourceUpAxis: claim.sourceUpAxis,
-    });
-    return { sourceName, ref, revision: claim.revision, provider: claim.provider };
+    return { url, headers: claim.headers, sourceUpAxis: claim.sourceUpAxis, revision: claim.revision, provider: claim.provider };
   }
 
   // `node` is the row actually built -- the clicked row for a covered load,
@@ -403,11 +449,8 @@ export async function loadNode(
     derivedPrefix,
   });
 
-  const glbUrl = deps.blobUrl(scope, summary.glbKey);
-  await deps.loadModelFromUrl(OWNER, glbUrl, { sourceName, ...(displayName ? { displayName } : {}) });
   return {
-    sourceName,
-    ref,
+    url: deps.blobUrl(scope, summary.glbKey),
     revision: built.revision,
     provider: built.provider,
     glbKey: summary.glbKey,

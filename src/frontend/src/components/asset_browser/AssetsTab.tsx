@@ -33,10 +33,12 @@ import type { ChangeState } from "@/assets/changes";
 import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionRequest";
 import {
     assetSourceName,
-    loadNode,
+    loadPrepared,
     parseDeliveryClaim,
+    prepareNode,
     type LoadNodeDeps,
     type NodeRef,
+    type PreparedNode,
 } from "@/assets/delivery";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
@@ -348,8 +350,12 @@ interface AssetLoadControl {
     /** What the build said it could not draw, once loaded: members of the node's source that are
      *  not in the model, and why -- the build summary's `warnings`. Empty when it drew them all. */
     notes: readonly string[];
-    /** Resolves when the model is in the scene, or the attempt failed (its error is then in the store). */
-    load: () => Promise<void>;
+    /** The network half of a load -- the delivery claim, and the build when it needs one -- without
+     *  touching the scene. A bulk load starts this for the next nodes while the current one loads. */
+    prepare: () => Promise<PreparedNode>;
+    /** Resolves when the model is in the scene, or the attempt failed (its error is then in the
+     *  store). ``prepared``: a `prepare()` already under way, so it is not started twice. */
+    load: (prepared?: Promise<PreparedNode>) => Promise<void>;
     unload: () => void;
     reveal: () => void;
 }
@@ -395,6 +401,15 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
         const asset = loaded.find((a) => a.sourceName === sourceName);
         const loadedHere = !!asset;
         const root = loadedHere ? loadedTreeRoot(treeData, sourceName) : null;
+        const deps = () => realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name));
+        const prepare = async (): Promise<PreparedNode> => {
+            // The claim's own provider in the path: the server then reads THAT provider's
+            // manifest for the subject, not whichever provider published it last.
+            const wireClaim = await assetsApi.getAssetDelivery(scope, ref.provider, ref.collection, ref.subject, {
+                revision: ref.revision,
+            });
+            return prepareNode(deps(), scope, ref, parseDeliveryClaim(wireClaim));
+        };
         out.push({
             rowId: id,
             badge,
@@ -406,23 +421,17 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
             notes: asset?.warnings ?? [],
             // The work lives in the store, not in the caller: a context menu closes
             // the moment its item is clicked, and the load must outlive it.
-            load: () => {
+            prepare,
+            load: (prepared) => {
                 useAssetBrowserStore.getState().beginLoad(key);
                 return (async () => {
                     try {
-                        // The claim's own provider in the path: the server then reads THAT provider's
-                        // manifest for the subject, not whichever provider published it last.
-                        const wireClaim = await assetsApi.getAssetDelivery(scope, ref.provider, ref.collection, ref.subject, {
-                            revision: ref.revision,
-                        });
-                        const claim = parseDeliveryClaim(wireClaim);
-                        const deps = realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name));
                         // The row's label names the model in the scene; with two providers' geometry
                         // for one node side by side, the provider tells the two rows apart.
                         const facts = rowFacts(view, id);
                         const label = facts?.node.label ?? id;
                         const several = (facts?.claims ?? []).filter((b) => b.weight !== "below").length > 1;
-                        const asset = await loadNode(deps, scope, ref, claim, several ? `${label} · ${badge.provider}` : label);
+                        const asset = await loadPrepared(deps(), ref, prepared ?? prepare(), several ? `${label} · ${badge.provider}` : label);
                         useAssetBrowserStore.getState().endLoad(key, asset);
                         requestRender();
                     } catch (e) {
@@ -504,8 +513,26 @@ async function loadSelection(scope: string, collection: string, controls: readon
         return;
     }
     const session = beginBulkLoad(scope, `assets:${collection}`);
+    // THE NEXT NODES ARE PREPARED WHILE ONE LOADS. Preparing a node is network and server work --
+    // its delivery claim, and for a node not built yet a build job that can take minutes -- and
+    // nothing in it touches the scene, so a few run ahead of the loads, which stay one at a time.
+    const PREPARE_AHEAD = 3;
+    const prepared = new Map<AssetLoadControl, Promise<PreparedNode>>();
+    const prepareAhead = (from: number) => {
+        for (let j = from; j < Math.min(controls.length, from + 1 + PREPARE_AHEAD); j++) {
+            if (prepared.has(controls[j])) continue;
+            const p = controls[j].prepare();
+            // Settled even if nobody awaits it: its error, if any, surfaces in that node's own load.
+            p.catch(() => undefined);
+            prepared.set(controls[j], p);
+        }
+    };
     try {
-        for (const c of controls) await c.load();
+        for (let i = 0; i < controls.length; i++) {
+            prepareAhead(i);
+            await controls[i].load(prepared.get(controls[i]));
+            prepared.delete(controls[i]);
+        }
     } finally {
         endBulkLoad(session);
     }
@@ -609,7 +636,7 @@ const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ c
                 disabled={control.busy}
                 className={`${BTN_PRIMARY} shrink-0`}
                 title={`From ${control.provider}${via} @ ${formatRevision(badge.revision)}`}
-                onClick={control.load}
+                onClick={() => void control.load()}
             >
                 {control.busy ? "Loading…" : named ? `Load · ${control.provider}` : "Load into scene"}
             </button>
@@ -949,7 +976,7 @@ const AssetRowMenu: React.FC<{
                 label: load.busy ? `Loading…${from}` : `Load into scene${from}`,
                 disabled: load.busy,
                 title: `From ${load.provider} @ ${formatRevision(load.badge.revision)}`,
-                onClick: load.load,
+                onClick: () => void load.load(),
             });
         }
     }
