@@ -1265,6 +1265,11 @@ def get_nodal_results(
         for row in data:
             node_id = int(row[nid])
             values = np.asarray(row[start:stop], dtype=float)
+            if values.size < len(comps):
+                # A node only solids touch has 3 dofs, and Sestra writes its record with 3 components. In a model
+                # that also has 6-dof nodes (shells, beams, a coupling's reference node) the rows would not stack;
+                # the rotations it does not have are reported as zero.
+                values = np.concatenate([values, np.zeros(len(comps) - values.size)])
             if int(row[itrans_i]) != 0:
                 values = _nodal_vector_to_model(values, node_id, transforms)
             rows.append((node_id, *values))
