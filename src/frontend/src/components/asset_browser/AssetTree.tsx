@@ -43,10 +43,16 @@ import { isOutOfScope } from "@/assets/treeView";
 import type { AssetNode } from "@/assets/types";
 import { isSearchTerm, rowFacts, searchRows, shallowestHit, type RowBadge } from "@/assets/rowFacts";
 import { levelWanted, rowLevelState, type LevelRequest } from "@/assets/spines";
+import { rangeIds, treeKeyAction } from "@/assets/treeKeys";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import type { AssetTreeStyle } from "@/state/assetBrowserStore";
 
 import { formatRevision } from "./format";
+
+/** How a row is being chosen: alone (click), from the anchor to it (shift-click), in or out of
+ *  the selection (ctrl/cmd-click), or focused within the selection it is already part of
+ *  (right-click). */
+type SelectHow = "only" | "range" | "toggle" | "keep";
 
 const ROW_HEIGHT = 26;
 const SEARCH_DEBOUNCE_MS = 180;
@@ -175,17 +181,20 @@ const AssetRow: React.FC<{
     depth: number;
     hasChildren: boolean;
     expanded: boolean;
+    /** In the selection. */
     selected: boolean;
+    /** THE row: the one the keys move from and the detail shows. */
+    focused: boolean;
     spine: ReturnType<typeof rowLevelState>;
     showProvider: boolean;
     /** Drawn although it is out of scope, because "show hidden" is on. */
     outOfScope: boolean;
     treeStyle: AssetTreeStyle;
     onToggle: () => void;
-    onSelect: () => void;
+    onSelect: (how: SelectHow) => void;
     onRetry: () => void;
     onContextMenu: (x: number, y: number) => void;
-}> = ({ view, id, depth, hasChildren, expanded, selected, spine, showProvider, outOfScope, treeStyle, onToggle, onSelect, onRetry, onContextMenu }) => {
+}> = ({ view, id, depth, hasChildren, expanded, selected, focused, spine, showProvider, outOfScope, treeStyle, onToggle, onSelect, onRetry, onContextMenu }) => {
     const facts = rowFacts(view, id);
     if (!facts) return null;
     const { node } = facts;
@@ -204,16 +213,19 @@ const AssetRow: React.FC<{
             aria-selected={selected}
             aria-expanded={hasChildren ? expanded : undefined}
             aria-level={depth + 1}
-            onClick={onSelect}
+            // Shift-click would otherwise also drag a text selection across the rows it spans.
+            onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+            onClick={(e) => onSelect(e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "only")}
             onContextMenu={(e) => {
                 e.preventDefault();
-                // Select first, so the detail below shows the row the menu acts on.
-                onSelect();
+                // Focus first, so the detail below shows the row the menu acts on -- keeping a
+                // selection the row is part of, as a file manager does.
+                onSelect("keep");
                 onContextMenu(e.clientX, e.clientY);
             }}
             className={`relative flex items-center gap-1.5 h-full pr-2 cursor-pointer rounded whitespace-nowrap text-[13px] ${
-                selected ? "bg-blue-500/20 text-white shadow-[inset_2px_0_0_var(--color-blue-400)]" : "text-gray-200 hover:bg-white/5"
-            } ${outOfScope ? "opacity-45" : facts.dimmed ? "opacity-60" : ""}`}
+                selected ? "bg-blue-500/20 text-white" : "text-gray-200 hover:bg-white/5"
+            } ${focused ? "shadow-[inset_2px_0_0_var(--color-blue-400)]" : ""} ${outOfScope ? "opacity-45" : facts.dimmed ? "opacity-60" : ""}`}
             style={{ paddingLeft: indent }}
             title={title}
         >
@@ -345,7 +357,8 @@ const AssetTree: React.FC<{
     const levelLoading = useAssetBrowserStore((s) => s.levelLoading);
     const levelErrors = useAssetBrowserStore((s) => s.levelErrors);
     const treeStyle = useAssetBrowserStore((s) => s.treeStyle);
-    const { toggleExpanded, select } = useAssetBrowserStore.getState();
+    const selection = useAssetBrowserStore((s) => s.selection);
+    const { toggleExpanded, setExpanded, select, selectRange, toggleSelected } = useAssetBrowserStore.getState();
 
     const search = useMemo(() => searchRows(view.hierarchy, searchTerm), [view.hierarchy, searchTerm]);
     const open = useMemo(() => {
@@ -386,6 +399,46 @@ const AssetTree: React.FC<{
     });
     const showProvider = view.providers.length > 1;
 
+    // The keys read "open" as the user's own expansion: a branch a search holds open is closed as
+    // far as Left is concerned, which steps to its parent rather than doing nothing.
+    const keyRows = useMemo(
+        () => rows.map((r) => ({ id: r.id, depth: r.depth, hasChildren: r.hasChildren, expanded: expanded.has(r.id) })),
+        [rows, expanded],
+    );
+
+    /** Select `id` the way a click (or the context menu) asks, and keep keyboard focus in the tree. */
+    const chooseRow = (id: string, how: SelectHow) => {
+        const s = useAssetBrowserStore.getState();
+        if (how === "range") selectRange(rangeIds(rows, s.anchor ?? s.selected, id), id);
+        else if (how === "toggle") toggleSelected(id);
+        else if (how === "keep" && s.selection.has(id)) selectRange([...s.selection], id);
+        else select(id);
+        scrollRef.current?.focus({ preventScroll: true });
+    };
+
+    const onKeyDown = (e: React.KeyboardEvent) => {
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
+        const s = useAssetBrowserStore.getState();
+        if (e.key === "Escape") {
+            // Back to the focused row alone.
+            if (s.selected && s.selection.size > 1) {
+                e.preventDefault();
+                select(s.selected);
+            }
+            return;
+        }
+        const action = treeKeyAction(keyRows, s.selected, e.key, e.shiftKey);
+        if (!action) return;
+        e.preventDefault();
+        if (action.kind === "expand") setExpanded(action.id, true);
+        else if (action.kind === "collapse") setExpanded(action.id, false);
+        else {
+            if (action.extend) selectRange(rangeIds(rows, s.anchor ?? s.selected, action.id), action.id);
+            else select(action.id);
+            virtualizer.scrollToIndex(rows.findIndex((r) => r.id === action.id), { align: "auto" });
+        }
+    };
+
     if (!rows.length) {
         return (
             <div className="p-3 text-xs text-gray-400">
@@ -394,7 +447,15 @@ const AssetTree: React.FC<{
         );
     }
     return (
-        <div ref={scrollRef} role="tree" className="flex-1 min-h-0 overflow-auto scrollbar px-1.5 py-1.5" data-testid="asset-tree">
+        <div
+            ref={scrollRef}
+            role="tree"
+            aria-multiselectable="true"
+            tabIndex={0}
+            onKeyDown={onKeyDown}
+            className="flex-1 min-h-0 overflow-auto scrollbar px-1.5 py-1.5 outline-none"
+            data-testid="asset-tree"
+        >
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualizer.getVirtualItems().map((item) => {
                     const row = rows[item.index];
@@ -418,13 +479,14 @@ const AssetTree: React.FC<{
                                 depth={row.depth}
                                 hasChildren={row.hasChildren}
                                 expanded={row.expanded}
-                                selected={selected === row.id}
+                                selected={selection.has(row.id)}
+                                focused={selected === row.id}
                                 spine={spine}
                                 showProvider={showProvider}
                                 outOfScope={markOut && isOutOfScope(view.hierarchy, outOfScope, row.id)}
                                 treeStyle={treeStyle}
                                 onToggle={() => toggleExpanded(row.id)}
-                                onSelect={() => select(row.id)}
+                                onSelect={(how) => chooseRow(row.id, how)}
                                 onRetry={() => level && onRetryLevel(level)}
                                 onContextMenu={(x, y) => onRowContextMenu(row.id, x, y)}
                             />

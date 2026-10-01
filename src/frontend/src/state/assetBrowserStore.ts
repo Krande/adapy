@@ -99,6 +99,11 @@ export interface AssetBrowserState {
   /** The focused row. One field on purpose: the tree is virtualised over ~41k
    *  rows, so selection is never per-row state. */
   selected: string | null;
+  /** Every selected row, `selected` among them: one, or a shift/ctrl-built range. Held as a set
+   *  of ids rather than per-row state for the same reason. */
+  selection: ReadonlySet<string>;
+  /** Where a shift-range starts: the last row chosen by a plain or ctrl click. */
+  anchor: string | null;
   searchTerm: string;
 
   /** How the provider suggests drawing this collection, off its newest merged
@@ -159,7 +164,12 @@ export interface AssetBrowserState {
   mergeSourceAnswer: (source: string, answer: SourceNodesAnswer | null, askedRefs: readonly string[]) => void;
   toggleExpanded: (id: string) => void;
   setExpanded: (id: string, on: boolean) => void;
+  /** Select `id` alone, and make it the anchor. */
   select: (id: string | null) => void;
+  /** Select exactly `ids`, focused on `focus`; the anchor stays where it was. */
+  selectRange: (ids: readonly string[], focus: string) => void;
+  /** Add `id` to the selection or take it out (ctrl/cmd-click); it becomes the anchor. */
+  toggleSelected: (id: string) => void;
   setSearchTerm: (term: string) => void;
   setViewHints: (hints: TreeViewHints | null) => void;
   setViewDoc: (doc: TreeViewDoc | null) => void;
@@ -201,6 +211,8 @@ const FOREST_RESET = {
   evidenceAsked: EMPTY_SET,
   expanded: EMPTY_SET,
   selected: null,
+  selection: EMPTY_SET,
+  anchor: null,
   // Re-read with the index it rides on. The saved view (`viewDoc`) is NOT here:
   // it belongs to the choice of collection, and Refresh rebuilds the forest
   // without re-reading it.
@@ -227,6 +239,8 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   evidenceAsked: EMPTY_SET,
   expanded: EMPTY_SET,
   selected: null,
+  selection: EMPTY_SET,
+  anchor: null,
   searchTerm: "",
   viewHints: null,
   viewDoc: null,
@@ -321,7 +335,16 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       else next.delete(id);
       return { expanded: next };
     }),
-  select: (selected) => set({ selected }),
+  select: (selected) => set({ selected, selection: selected === null ? EMPTY_SET : new Set([selected]), anchor: selected }),
+  selectRange: (ids, focus) => set({ selected: focus, selection: new Set(ids) }),
+  toggleSelected: (id) =>
+    set((s) => {
+      const selection = new Set(s.selection);
+      if (!selection.delete(id)) selection.add(id);
+      // Focus stays on the clicked row even when it was just deselected, as in a file manager;
+      // the detail then shows the row the click was about.
+      return { selection, selected: id, anchor: id };
+    }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setViewHints: (viewHints) => set({ viewHints }),
   setViewDoc: (viewDoc) => set({ viewDoc }),
