@@ -55,6 +55,7 @@ from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.assets import router as assets_router
 from .routes.clash_check import router as clash_check_router
+from .routes.export_selection import router as export_selection_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
     RestContext,
@@ -1430,6 +1431,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Decision 10 / Phase 6). Every path is ``/scopes/{scope}/clash-check...`` or
     # ``/scopes/{scope}/clash-detail``, neither colliding with any fixed/parameterised sibling.
     api.include_router(clash_check_router)
+
+    # A selection as a STEP/IFC download (routes/export_selection.py). One fixed path,
+    # ``/scopes/{scope}/export-selection``, with no parameterised sibling to collide with.
+    api.include_router(export_selection_router)
 
     # ── Equipment-type & system-template catalogs (per-scope) ────────
     #
