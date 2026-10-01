@@ -154,3 +154,17 @@ def test_it_localises_the_real_feedstock_recipe_shape(tmp_path):
     out = localise(RECIPE, str(tmp_path), version="9.9.9")
     assert out.count("path:") == 1
     assert "https://github.com/" not in out
+
+
+def test_the_source_block_pattern_does_not_backtrack_on_blank_lines():
+    """CodeQL py/redos: `[ \\t]+.*` let a run of blanks split between the two terms in every
+    possible way, so a `source:` followed by whitespace-only lines and no top-level key took
+    exponential time. Each body line now matches one way; this must be instant."""
+    import time
+
+    from localise_feedstock_recipe import _SOURCE_BLOCK
+
+    hostile = "source:\n" + "\t\t\n" * 40 + "\t"  # no newline, no top-level key: the match must fail
+    t0 = time.perf_counter()
+    _SOURCE_BLOCK.search(hostile)
+    assert time.perf_counter() - t0 < 0.5
