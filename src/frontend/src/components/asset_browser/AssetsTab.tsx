@@ -479,7 +479,7 @@ const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ c
                     type="button"
                     className="text-blue-300 hover:text-white disabled:text-gray-500"
                     disabled={!root}
-                    title={root ? "Select this model's root in the Files tab" : "Not in the Files tree yet"}
+                    title={root ? "Select this model's root in the Scene tab" : "Not in the scene yet"}
                     onClick={control.reveal}
                 >
                     reveal

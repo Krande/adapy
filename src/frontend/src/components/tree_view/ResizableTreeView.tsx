@@ -78,7 +78,7 @@ const ResizableTreeView: React.FC = () => {
                 gives mobile users an obvious way back to the viewer when
                 the drawer covers most of the screen. */}
             <div className="flex items-center justify-between h-11 pl-2.5 pr-1.5 border-b border-gray-700/80 text-white text-sm shrink-0">
-                {/* With a server the title slot carries the Files | Assets tabs;
+                {/* With a server the title slot carries the Scene | Sources tabs;
                     without one (notebook, websocket) the drawer is unchanged. */}
                 {assetsTabAvailable() ? <AssetBrowserTabs /> : <span className="font-semibold px-1">Selection</span>}
                 <button
