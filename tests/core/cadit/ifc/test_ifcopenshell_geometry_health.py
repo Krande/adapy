@@ -208,8 +208,10 @@ def _macho_binaries() -> list[tuple[pathlib.Path, bool]]:
         paths = [p for p in root.rglob("*") if p.suffix in (".dylib", ".so")]
     # The CPython extension module legitimately leaves Python's C-API symbols undefined (they are
     # resolved from the host interpreter, `-undefined dynamic_lookup`); plain shared libraries
-    # must resolve everything at link time.
-    return [(p, p.suffix == ".so" and "site-packages" in p.parts) for p in paths if p.is_file()]
+    # must resolve everything at link time. The record lists the versioned symlinks too
+    # (libifcopenshell.parse.0.9.dylib -> ...0.9.0.dylib): inspect each real file once.
+    unique = {p.resolve(): p for p in paths if p.is_file()}
+    return [(p, p.suffix == ".so" and "site-packages" in p.parts) for p in unique.values()]
 
 
 def _xfail_known_broken_build():
@@ -232,9 +234,9 @@ def test_macos_dylibs_two_level_namespace(request):
     problems = []
     for path, is_ext in bins:
         header = subprocess.run(["otool", "-hv", str(path)], capture_output=True, text=True, check=True).stdout
-        flags = set(header.split())
-        if "MH_TWOLEVEL" not in flags:
-            problems.append(f"{path.name}: not MH_TWOLEVEL (flat namespace)")
-        if not is_ext and "MH_NOUNDEFS" not in flags:
-            problems.append(f"{path.name}: not MH_NOUNDEFS (undefined symbols left for runtime)")
+        # `otool -hv` prints the flag names without their MH_ prefix ("NOUNDEFS DYLDLINK TWOLEVEL ...").
+        flags = {tok.removeprefix("MH_") for tok in header.split()}
+        missing = [f"MH_{f}" for f in ("TWOLEVEL", "NOUNDEFS") if f not in flags and not (is_ext and f == "NOUNDEFS")]
+        if missing:
+            problems.append(f"{path.name}: lacks {', '.join(missing)}")
     assert not problems, f"{len(problems)} of {len(bins)} ifcopenshell binaries mislinked:\n" + "\n".join(problems)
