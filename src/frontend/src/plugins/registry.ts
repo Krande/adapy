@@ -63,7 +63,10 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          A minor bump by the criterion above: it is a registry a plugin DEPENDS on, and a
 //          plugin built against it and loaded into 1.5.0 core would register into nothing —
 //          its collections would simply not appear, with no line naming the mismatch.
-export const PLUGIN_API_VERSION = "1.6.0";
+//   1.7.0  kept in step with viewer-core 1.7.0 (`stopLocalViewer` on
+//          `@/viewer-core/app`), which is what a shell's `coreApiRange` is
+//          checked against — the same reason as 1.4.0.
+export const PLUGIN_API_VERSION = "1.7.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

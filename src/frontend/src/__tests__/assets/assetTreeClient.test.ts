@@ -144,12 +144,12 @@ test("the registry can be listed, for a panel that says what this deployment rea
   }
 });
 
-test("the plugin API advertises 1.6.0", async () => {
+test("the plugin API advertises at least 1.6.0", async () => {
   // A plugin built against `registerAssetTreeClient` and loaded into a core that predates it
   // registers into nothing and its collections silently never appear -- the mismatch a minor
   // bump exists to turn into one log line.
-  const { PLUGIN_API_VERSION } = await import("@/plugins/registry");
-  assert.equal(PLUGIN_API_VERSION, "1.6.0");
+  const { PLUGIN_API_VERSION, _versionSatisfies } = await import("@/plugins/registry");
+  assert.equal(_versionSatisfies(PLUGIN_API_VERSION, ">=1.6.0 <2.0"), true);
 });
 
 test("a client that answers attributes live is asked, and is given the covering subject", async () => {

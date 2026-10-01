@@ -17,7 +17,7 @@ from ada.core.file_system import new_temp_path
 
 from . import auth as auth_module
 from . import db as db_module
-from . import failure_capture, local_jobs, pending_uploads
+from . import failure_capture, local_jobs, local_shutdown, pending_uploads
 from .auth import User
 from .config import Settings, load_settings
 from .converter import (
@@ -494,8 +494,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # /api/config is *almost* public (the SPA fetches it before it has
     # a token, to learn whether auth is enabled and what the issuer is)
     # — but it never leaks user data, so we serve it unauthenticated.
+    # ``POST /api/local/shutdown`` — only on a launcher's local viewer. See
+    # local_shutdown.py for why a deployment can never have it.
+    local_shutdown.install(app, settings)
+
     @app.get("/api/config")
-    async def api_config() -> JSONResponse:
+    async def api_config(request: Request) -> JSONResponse:
         # Image tags. Viewer's tag is baked in at image-build time
         # (deploy/Dockerfile.viewer ARG IMAGE_TAG) and read from env.
         # Worker's tag comes from the shared NATS KV — the worker
@@ -548,6 +552,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "extraSourceExts": extra_source_exts,
                 "streamingOnlyExts": streaming_only_exts,
                 "conversionMatrix": conversion_matrix,
+                # Whether this page may stop the local viewer it is served by,
+                # and the token that does it. JSON read by fetch, so another
+                # origin cannot read it; never in /config.js. See local_shutdown.
+                "localShutdown": local_shutdown.config_entry(settings, request),
             }
         )
 
@@ -2692,6 +2700,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # string would instead be a value, and a value has to mean something.
         if settings.ui_default:
             body += f"window.ADA_UI_DEFAULT = {_json.dumps(settings.ui_default)};\n"
+        # The capability only, never the token: any page may include this
+        # script. Emitted only when true, so a deployment's config.js is as
+        # before.
+        if local_shutdown.enabled(settings):
+            body += "window.ADA_LOCAL_SHUTDOWN = true;\n"
 
         # config.js is the SPA's source of truth for runtime config
         # (worker registry → extraSourceExts / streamingOnlyExts, image

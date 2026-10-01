@@ -112,6 +112,11 @@ declare global {
         // none, which means the build-time default still applies —
         // read it through `resolveUiShell`, not from here.
         ADA_UI_DEFAULT?: string;
+        // True only on a local viewer started with a shutdown token (see the
+        // REST server's local_shutdown.py): the page may offer to stop it.
+        // Never set on a deployment. The token itself is not here — /config.js
+        // is a script any page can include — but in /api/config.
+        ADA_LOCAL_SHUTDOWN?: boolean;
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -137,6 +142,9 @@ export const runtime = {
 
     // REST conversion pipeline
     convertEnabled: (): boolean => Boolean(w().CONVERT_ENABLED),
+
+    // A local viewer this page may stop (see services/localViewer.ts).
+    localShutdownAvailable: (): boolean => w().ADA_LOCAL_SHUTDOWN === true,
 
     // Image identity (REST mode only). Either may be empty in dev or
     // when the worker hasn't reported in yet.

@@ -86,7 +86,13 @@
 //          registered and a shell composing it by hand would silently hide
 //          their files. Kept in step with PLUGIN_API_VERSION 1.5.0, which is
 //          the same capability seen from the plugin's side.
-export const VIEWER_CORE_API_VERSION = "1.5.0";
+//   1.7.0  `localShutdownAvailable` + `stopLocalViewer` on `@/viewer-core/app`:
+//          a shell offers "stop the local viewer" on a viewer a launcher
+//          started with a shutdown token, and nowhere else. 1.6.0 is skipped
+//          on purpose: PLUGIN_API_VERSION already is 1.6.0 for a different
+//          capability, and a shell's `coreApiRange` is checked against THAT
+//          number, so this entry takes the next one both can share.
+export const VIEWER_CORE_API_VERSION = "1.7.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
