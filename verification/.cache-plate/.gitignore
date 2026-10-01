@@ -4,5 +4,8 @@
 # machine that builds the report and committing them would freeze a number someone can just compute.
 # Abaqus and Sestra cannot be run in CI, so when a licensed machine produces `plate_*_aba_*` /
 # `plate_*_ses_*` snapshots, those DO get committed -- that is what puts their columns in the table.
+# Beside each snapshot at the appendix seed sits its bundle (`<case>/`: mesh + nodal fields), which
+# is what puts their figures in the appendix. Posters are rendered from it at build time.
 *_ca_*
 *_ccx_*
+*.png

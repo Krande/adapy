@@ -279,42 +279,58 @@ class Eig(Filter):
         # modes (global X/Y/Z); registered by the eff_mass_table task.
         return TableView(table_key="eff_mass_summary")
 
-    # Per-mode cross-solver effective modal mass comparison, one table per
-    # (geom, order, direction), registered by eff_mass_compare_tables.
-    # Only the solid/shell × o1/o2 × Y/Z set is surfaced — those run two
-    # solvers and carry real bending mass; the report references keys
-    # statically and paradoc errors on an unresolved one.
+    # Per-mode cross-solver modal-mass comparison for the appendix: one effective
+    # mass (meff) and one participation factor (pf) table per (geom, order), rows
+    # by (mode, direction), registered by eff_mass_compare_tables. Every key is
+    # always registered (placeholder row when no solver reported it), because the
+    # report references them statically and paradoc errors on an unresolved one.
     @attr
-    def meff_solid_o1_y(self) -> TableView:
-        return TableView(table_key="eig_compare_solid_o1_meff_y")
+    def meff_solid_o1(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o1_meff")
 
     @attr
-    def meff_solid_o1_z(self) -> TableView:
-        return TableView(table_key="eig_compare_solid_o1_meff_z")
+    def meff_solid_o2(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o2_meff")
 
     @attr
-    def meff_solid_o2_y(self) -> TableView:
-        return TableView(table_key="eig_compare_solid_o2_meff_y")
+    def meff_shell_o1(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o1_meff")
 
     @attr
-    def meff_solid_o2_z(self) -> TableView:
-        return TableView(table_key="eig_compare_solid_o2_meff_z")
+    def meff_shell_o2(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o2_meff")
 
     @attr
-    def meff_shell_o1_y(self) -> TableView:
-        return TableView(table_key="eig_compare_shell_o1_meff_y")
+    def meff_line_o1(self) -> TableView:
+        return TableView(table_key="eig_compare_line_o1_meff")
 
     @attr
-    def meff_shell_o1_z(self) -> TableView:
-        return TableView(table_key="eig_compare_shell_o1_meff_z")
+    def meff_line_o2(self) -> TableView:
+        return TableView(table_key="eig_compare_line_o2_meff")
 
     @attr
-    def meff_shell_o2_y(self) -> TableView:
-        return TableView(table_key="eig_compare_shell_o2_meff_y")
+    def pf_solid_o1(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o1_pf")
 
     @attr
-    def meff_shell_o2_z(self) -> TableView:
-        return TableView(table_key="eig_compare_shell_o2_meff_z")
+    def pf_solid_o2(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o2_pf")
+
+    @attr
+    def pf_shell_o1(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o1_pf")
+
+    @attr
+    def pf_shell_o2(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o2_pf")
+
+    @attr
+    def pf_line_o1(self) -> TableView:
+        return TableView(table_key="eig_compare_line_o1_pf")
+
+    @attr
+    def pf_line_o2(self) -> TableView:
+        return TableView(table_key="eig_compare_line_o2_pf")
 
     @attr
     def freq_vs_mode_plot(self) -> FigureView:

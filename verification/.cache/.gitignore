@@ -1,3 +1,6 @@
 *_EIG_ca_*
 *_EIG_ccx_*
 debug.json
+# A committed bundle (`<case>/`, beside `<case>.json`) is mesh + nodal fields only. Its posters are
+# a rendering of it, re-made by the build that replays it, so they never get committed.
+*.png

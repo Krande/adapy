@@ -47,7 +47,7 @@ const EXPECTED_METHODS = [
   "adminCorpusUpdate", "adminCreateProject", "adminDeleteBlob", "adminDownloadAuditSource",
   "adminDownloadProfile", "adminFrontendLoadHotspots", "adminFrontendLoads",
   "adminGetAuditLog", "adminGetSetting", "adminIssueTargetGet", "adminIssueTargetSet",
-  "adminListMembers", "adminListProjects", "adminListStorage", "adminListWorkers",
+  "adminListMembers", "adminListProjects", "adminListStorage", "adminListUsers", "adminListWorkers",
   "adminMetricsHistory", "adminMintCliToken", "adminMoveKeysToFolder", "adminPerfHotspots",
   "adminPerfReport", "adminPerfThresholdsGet", "adminPerfThresholdsSet", "adminPerfWorkers",
   "adminPluginJobScheduleArchive", "adminPluginJobScheduleCreate",
