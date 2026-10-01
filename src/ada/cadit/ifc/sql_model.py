@@ -3,8 +3,6 @@ import pathlib
 import re
 
 import ifcopenshell
-from ifcopenshell import ifcopenshell_wrapper
-from ifcopenshell.entity_instance import entity_instance
 
 from ada.config import logger
 
@@ -41,6 +39,11 @@ class IfcSqlModel:
             schema = "IFC4X3_add2"
         self.ifc_schema_str = schema
         self.ifc_schema = ifcopenshell.ifcopenshell_wrapper.schema_by_name(schema)
+        # Holds one detached instance per IFC class for sqlite_entity to answer schema
+        # questions with. ifcopenshell 0.9 dropped new_IfcBaseClass(schema, cls) for a
+        # file-bound signature, so create them through an ordinary (empty) file instead.
+        self.shadow_file = ifcopenshell.file(schema=schema)
+        self.shadow_instances = {}
 
         self.cursor.execute("SELECT ifc_id, ifc_class FROM id_map")
         self.id_map = {}
@@ -96,6 +99,15 @@ class IfcSqlModel:
                             self.ifc_class_inverses[subtype.name()][declaration.name()].append(attribute.name())
 
             self.ifc_class_references[declaration.name()] = {"entity": entity, "entity_list": entity_list}
+
+    def shadow_instance(self, ifc_class: str):
+        """The C++ instance for ``ifc_class`` (``get_attribute_category`` lives there): on
+        ifcopenshell 0.8 behind the Python wrapper's ``wrapped_data``, on 0.9 the instance itself."""
+        inst = self.shadow_instances.get(ifc_class)
+        if inst is None:
+            inst = self.shadow_file.create_entity(ifc_class)
+            inst = self.shadow_instances[ifc_class] = getattr(inst, "wrapped_data", inst)
+        return inst
 
     def clear_cache(self):
         self.entity_cache = {}
@@ -305,19 +317,28 @@ class IfcSqlModel:
         return {"shapes": shapes, "geometry": geometry}
 
 
-class sqlite_entity(entity_instance):
+# A plain class, not an ``ifcopenshell.entity_instance`` subclass: from ifcopenshell 0.9 that
+# is the SWIG proxy itself and can't carry the ``wrapped_data`` indirection. ``wrapped_data``
+# is a shadow instance of the right type, so it answers schema questions (``is_a``, attribute
+# categories) on both 0.8 and 0.9 -- the same shape upstream's 0.9 ``sqlite_entity`` took.
+class sqlite_entity:
     def __init__(self, ifc_id, ifc_class, sqlite_store: IfcSqlModel = None):
         if not ifc_class:
             logger.debug("%s %s %s", id, ifc_class, sqlite_store)
             assert False
-        schema = sqlite_store.ifc_schema_str
-        e = ifcopenshell_wrapper.new_IfcBaseClass(schema, ifc_class)
+        e = sqlite_store.shadow_instance(ifc_class)
         s = sqlite_wrapper(ifc_id, ifc_class, sqlite_store)
-        super(entity_instance, self).__setattr__("wrapped_data", e)
-        super(entity_instance, self).__setattr__("sqlite_wrapper", s)
+        object.__setattr__(self, "wrapped_data", e)
+        object.__setattr__(self, "sqlite_wrapper", s)
 
     def id(self):
         return self.sqlite_wrapper.id
+
+    def is_a(self, *args):
+        return self.wrapped_data.is_a(*args)
+
+    def __bool__(self):
+        return True
 
     def __del__(self):
         pass
@@ -450,9 +471,9 @@ class sqlite_wrapper:
     def __init__(self, ifc_id: int, ifc_class: str, sqlite_store: IfcSqlModel):
         self.id = ifc_id
         self.ifc_class = ifc_class
-        self.sqlite_store = sqlite_store
-        self.attributes = self.sqlite_store.ifc_class_attributes[self.ifc_class]
-        self.inverse_attributes = self.sqlite_store.ifc_class_inverse_attributes[self.ifc_class]
+        self.file = sqlite_store
+        self.attributes = sqlite_store.ifc_class_attributes[self.ifc_class]
+        self.inverse_attributes = sqlite_store.ifc_class_inverse_attributes[self.ifc_class]
         self.attribute_cache = {}
         self.inverse_attribute_cache = {}
 

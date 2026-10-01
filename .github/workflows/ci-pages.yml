@@ -52,7 +52,7 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.10.2 # https://github.com/prefix-dev/setup-pixi
         with:
-          pixi-version: v0.68.0
+          pixi-version: v0.81.0
           environments: docs
           cache: true
 
@@ -68,7 +68,7 @@ jobs:
       - name: Install offscreen render deps (wgpu software Vulkan)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
 
-      # The report as downloadable DOCX / PDF, linked from the FEA verification docs page. They land
+      # The report as downloadable DOCX / ODT / PDF, linked from the FEA verification docs page. They land
       # in docs/_static/fea-report-files/, so they must exist before sphinx copies _static into the
       # site (and from there onto gh-pages). CI has no solvers, so every case comes from the
       # committed caches, as in the web report. continue-on-error: a failed export leaves a dead
@@ -76,6 +76,10 @@ jobs:
       - name: Export FEA report (DOCX)
         continue-on-error: true
         run: pixi run fea-doc-docx
+
+      - name: Export FEA report (ODT)
+        continue-on-error: true
+        run: pixi run fea-doc-odt
 
       - name: Export FEA report (PDF)
         continue-on-error: true

@@ -13,6 +13,7 @@ export type AdminTab =
     // maps in AdminPanel.
     | "performance"
     | "projects"
+    | "users"
     | "external_models"
     | "storage"
     | "workers"

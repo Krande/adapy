@@ -136,6 +136,7 @@ def _spline_plate():
     return ada.Plate.from_segments("spline_pl", segs, 0.05)
 
 
+@pytest.mark.ifcgeom
 def test_streaming_spline_plate_is_valid_analytic_ifc(tmp_path):
     """A B-spline-boundary plate emits an analytic IfcAdvancedBrep body — streamed as a C++-emitted
     SPF fragment under a typed IfcPlate wrapper when adacpp's ``ngeom_to_ifc_body_spf`` is present,

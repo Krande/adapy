@@ -23,7 +23,7 @@ def recycle_non_rooted(ifc_file: ifcopenshell.file) -> ifcopenshell.file:
     deleted.sort()
     deleted_q = deque(deleted)
     new = ""
-    for line in ifc_file.wrapped_data.to_string().split("\n"):
+    for line in ifc_file.to_string().split("\n"):
         try:
             if int(line.split("=")[0][1:]) != deleted_q[0]:
                 new += line + "\n"

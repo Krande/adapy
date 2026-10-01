@@ -90,6 +90,8 @@ from ada.fem.results.docs import (  # noqa: E402
     FeaCaseFilter,
     bake_fea_bundles,
     collect_fea_bundles,
+    restore_fea_bundles,
+    snapshot_fea_bundle,
     to_paradoc_rows,
 )
 
@@ -114,6 +116,27 @@ except ImportError:
 
 _EIG_MODES = 11
 
+#: Solvers a doc build cannot run -- they need a licence -- so their results replay from what a
+#: licensed machine committed: the JSON snapshot, and beside it the bundle holding the mode shapes.
+_CACHE_ONLY_SOLVERS = frozenset({"abaqus", "sesam"})
+
+
+def _snapshot_raw_data(case: FeaCaseResult, cache_dir: pathlib.Path) -> None:
+    """Bake the committed bundle for a live cache-only case, before its JSON snapshot is written.
+
+    Called where the snapshot is saved, so the two are always written together and the JSON's
+    `fea_bundle` names the bundle it went out with. A failed bake leaves the case without one; the
+    frequencies are still cached and the appendix says the figures are unavailable.
+    """
+    fmt = str(getattr(case.fem_format, "value", case.fem_format)).lower()
+    if case.results is None or fmt not in _CACHE_ONLY_SOLVERS:
+        return
+    try:
+        case.fea_bundle = snapshot_fea_bundle(case.results, key=case.name, cache_dir=cache_dir)
+    except Exception as exc:  # noqa: BLE001 - the frequencies are worth caching on their own
+        logger.warning(f"{case.name}: could not snapshot the FEA bundle: {exc}", exc_info=True)
+
+
 _COMPARISON_SPECS = [
     ("eig_compare_solid_o1", "solid", 1, None, "Eigenfrequency comparison (Hz) — solid, 1st order."),
     ("eig_compare_solid_o2", "solid", 2, None, "Eigenfrequency comparison (Hz) — solid, 2nd order."),
@@ -130,14 +153,12 @@ _COMPARISON_SPECS = [
 # keeps the side effect alongside the @task declarations.
 try:
     from ada.fem.formats.abaqus.config import AbaqusSetup as _AbaqusSetup
-    from ada.fem.formats.abaqus.post_processing import (
-        get_odb_dump_exe as _get_odb_dump_exe,
-    )
+    from ada.fem.formats.abaqus.post_processing import get_abaodb_exe as _get_abaodb_exe
     from ada.fem.formats.abaqus.post_processing import (
         post_processing_abaqus as _post_processing_abaqus,
     )
 
-    if _get_odb_dump_exe() is not None:
+    if _get_abaodb_exe() is not None:
         _AbaqusSetup.set_default_post_processor(_post_processing_abaqus)
 except Exception as _exc:  # noqa: BLE001
     logger.warning(f"abaqus post-processor wiring skipped: {_exc}")
@@ -374,24 +395,28 @@ def eig_tables(results: list) -> list:
     return out
 
 
+_MODAL_MASS_CAPTIONS = {
+    "meff": "Effective modal mass [kg] per mode, global X/Y/Z",
+    "pf": "Participation factor per mode scaled to unit generalised mass [√kg], global X/Y/Z",
+}
+
+
 @task(parent=postprocess)
 def eff_mass_compare_tables(results: list) -> list:
-    """Cross-solver effective modal mass comparison, mirroring the
-    eigenfrequency comparison tables: one table per (geom, order, global
-    direction). Directions with no excited mass (e.g. out-of-plane for a
-    planar cantilever) are skipped, as are groups with no solver that
-    reported effective mass."""
+    """Cross-solver per-mode modal-mass comparison for the appendix, mirroring the
+    eigenfrequency comparison tables: one effective-mass and one participation-factor
+    table per (geom, order), rows by (mode, global direction).
+
+    Every key is registered, with a placeholder row where no solver reported the
+    quantity: the appendix references them statically."""
     out: list = []
     for key, geo, order, _hq, _caption in _COMPARISON_SPECS:
-        for direction in ("X", "Y", "Z"):
-            df = ru.create_eff_mass_comparison_df(results, geo, order, direction)
-            if df is None or df.empty:
-                continue
+        for quantity, caption in _MODAL_MASS_CAPTIONS.items():
             out.append(
                 TableOutcome(
-                    key=f"{key}_meff_{direction.lower()}",
-                    df=df,
-                    caption=(f"Effective modal mass [kg], global {direction} — " f"{geo}, order {order}."),
+                    key=f"{key}_{quantity}",
+                    df=ru.create_modal_mass_comparison_df(results, geo, order, quantity),
+                    caption=f"{caption} — {geo}, order {order}.",
                     show_index=False,
                     default_sort=("Mode", True),
                 )
@@ -414,7 +439,7 @@ def eff_mass_table(results: list) -> list:
             df=df,
             caption=(
                 "Effective modal mass [kg] per case, summed over the captured modes "
-                "in the global X/Y/Z directions. Code_Aster reports translational "
+                "in the global X/Y/Z directions. Code_Aster and Sesam report translational "
                 "effective mass only."
             ),
             show_index=False,
@@ -429,6 +454,7 @@ def modal_tables(results: list) -> list:
     out: list = []
     for r in results:
         if save_cache:
+            _snapshot_raw_data(r, _CACHE_DIR)
             r.save_to_json(_CACHE_DIR / r.name)
         df = ru.eig_data_to_df(r.eig_data, ["Mode", "Eigenvalue (real)"])
         out.append(
@@ -530,7 +556,9 @@ def fea_outputs(results: list) -> list:
 
     One task fans out into all per-case artifacts:
     - Bakes fresh FEA bundles if `ADAPY_VERIFICATION_REGEN_ASSETS=1`
-    - Picks up committed bundles for cases that weren't re-baked
+    - Restores the bundles committed under `.cache/` (the cache-only solvers' mode shapes) into
+      `_assets/` and renders their posters
+    - Picks up bundles an earlier build left in `_assets/` for cases that weren't re-baked
     - Yields one ThreeDOutcome per paradoc row in the bundle + one
       FilterOutcome per `FeaCaseFilter`
 
@@ -544,10 +572,11 @@ def fea_outputs(results: list) -> list:
     fresh: dict = {}
     if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
         fresh = bake_fea_bundles(results, out_dir=_ASSETS_DIR)
-    cached = collect_fea_bundles(_ASSETS_DIR, skip_keys=set(fresh))
+    restored = restore_fea_bundles(_CACHE_DIR, _ASSETS_DIR, skip_keys=set(fresh), prefix="cantilever_")
+    cached = collect_fea_bundles(_ASSETS_DIR, skip_keys=set(fresh) | {a.key for a in restored})
 
     assets_by_name: dict = {**fresh}
-    for a in cached:
+    for a in [*restored, *cached]:
         # `collect_fea_bundles` walks recursively, so it also finds the plate bundles under
         # `_assets/plate/`; those are `plate_fea_outputs`' to register.
         if a.key.startswith("cantilever_"):
@@ -777,7 +806,7 @@ def plate_static_postprocess(results: list) -> list:
     """Wrap each live static case, then layer on any cached ones.
 
     Same two-source shape as `postprocess`: what ran this build, plus the JSON snapshots in
-    `.cache/` for the solvers this machine does not have. That is what lets a report built with only
+    `.cache-plate/` for the solvers this machine does not have. That is what lets a report built with only
     Calculix and Code_Aster still show the Abaqus and Sestra columns someone else measured.
     """
     out: list = []
@@ -795,6 +824,9 @@ def plate_static_postprocess(results: list) -> list:
         )
         wrapper.name = wrapper.safe_name
         cache_file = _PLATE_CACHE_DIR / f"{wrapper.name}.json"
+        if wrapper.mesh_size == _PLATE_EIG_MESH_SIZE:
+            # The appendix shows the static cases at this seed only (`plate_static_fea_outputs`).
+            _snapshot_raw_data(wrapper, _PLATE_CACHE_DIR)
         try:
             wrapper.save_to_json(cache_file)
         except Exception as exc:  # noqa: BLE001
@@ -855,6 +887,7 @@ def plate_eig_postprocess(results: list) -> list:
         )
         fvr.name = case.get("name", fvr.name)
         fvr.name = fvr.safe_name
+        _snapshot_raw_data(fvr, _PLATE_CACHE_DIR)
         try:
             fvr.save_to_json(_PLATE_CACHE_DIR / f"{fvr.name}.json")
         except Exception as exc:  # noqa: BLE001
@@ -900,14 +933,16 @@ def _plate_bundle_outcomes(cases: list, prefix: str) -> list:
     """Bake the live plate cases into `_assets/plate/` and register what is on disk.
 
     The shape `fea_outputs` has for the cantilever: fresh bakes under `ADAPY_VERIFICATION_REGEN_ASSETS=1`,
-    otherwise whatever bundles an earlier build left. Cached-only cases (Abaqus, Sestra) carry no live
-    result and so no bundle; the appendix shows the formats that ran.
+    then the cache-only cases (Abaqus, Sestra) restored from the bundles committed in `.cache-plate/`,
+    then whatever bundles an earlier build left.
     """
     fresh: dict = {}
     if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
         fresh = bake_fea_bundles(cases, out_dir=_PLATE_ASSETS_DIR)
     assets_by_name: dict = {**fresh}
-    for a in collect_fea_bundles(_PLATE_ASSETS_DIR, skip_keys=set(fresh)):
+    restored = restore_fea_bundles(_PLATE_CACHE_DIR, _PLATE_ASSETS_DIR, skip_keys=set(fresh), prefix=prefix)
+    skip = set(fresh) | {a.key for a in restored}
+    for a in [*restored, *collect_fea_bundles(_PLATE_ASSETS_DIR, skip_keys=skip)]:
         if a.key.startswith(prefix):
             assets_by_name.setdefault(a.key, a)
 

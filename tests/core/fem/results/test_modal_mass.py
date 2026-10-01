@@ -85,6 +85,81 @@ def test_read_modal_mass_csv_missing_file(tmp_path):
     assert _read_modal_mass_csv(tmp_path / "nope.csv") == {}
 
 
+def test_abaqus_dat_modal_tables(fem_files):
+    """The three *FREQUENCY tables of a real Abaqus .dat, each from its own block."""
+    from ada.fem.formats.abaqus.results._results import get_eigen_data as aba_eigen_data
+
+    summary = aba_eigen_data(fem_files / "cantilever/abaqus/eigen_solid_cantilever_abaqus.dat")
+    assert [m.no for m in summary.modes] == list(range(1, 21))
+
+    m1 = summary.modes[0]
+    assert (m1.eigenvalue, m1.f_rad, m1.f_hz) == (7827.2, 88.471, 14.081)
+    assert (m1.py, m1.prz) == (1.5635, 3.4112)
+    # effective mass, not a second copy of the participation factors
+    assert (m1.efy, m1.efrx, m1.efrz) == (116.35, 29.086, 553.86)
+    assert summary.modes[8].efx == 153.45
+    assert summary.tot_eff_mass == [153.45, 176.34, 170.46, 91.871, 613.33, 608.88]
+    # The last table ends at its TOTAL row: nothing after it is read as a mode.
+    assert summary.modes[-1].efy == 0.95660
+
+
+def test_abaqus_dat_rows_after_the_tables_are_not_modes(tmp_path):
+    """A digit-led line after a table (e.g. a later step's memory estimate) must not replace mode 1."""
+    from ada.fem.formats.abaqus.results._results import get_eigen_data as aba_eigen_data
+
+    dat = tmp_path / "eig.dat"
+    dat.write_text(
+        """
+                              E I G E N V A L U E    O U T P U T
+
+ MODE NO      EIGENVALUE              FREQUENCY         GENERALIZED MASS   COMPOSITE MODAL DAMPING
+                             (RAD/TIME)   (CYCLES/TIME)
+
+       1       7827.2         88.471         14.081         47.597         0.0000
+
+                   M E M O R Y   E S T I M A T E
+     1          2.55E+07               18                 40
+"""
+    )
+    summary = aba_eigen_data(dat)
+    assert [(m.no, m.f_hz) for m in summary.modes] == [(1, 14.081)]
+    assert summary.modes[0].efy is None and summary.tot_eff_mass is None
+
+
+def test_sesam_modal_load_factors_from_sif(fem_files):
+    """RDMLFACT: one record per mode; the square of a translational factor is its effective mass."""
+    from ada.fem.formats.sesam.results.modal_mass import (
+        add_modal_mass,
+        read_modal_load_factors,
+    )
+
+    sif = fem_files / "cantilever/sesam/eigen/line/EIGEN_LINE_CANTILEVER_SESAMR1.SIF"
+    factors = read_modal_load_factors(sif)
+    assert sorted(factors) == list(range(1, 21))
+    assert all(len(f) == 6 for f in factors.values())
+    assert factors[2][1] == -1.08033667e01  # mode 2 bends in Y
+
+    summary = add_modal_mass(EigenDataSummary([EigenMode(1), EigenMode(2)]), factors)
+    m2 = summary.modes[1]
+    assert m2.py == -1.08033667e01
+    assert m2.efy == (-1.08033667e01) ** 2
+    # Rotational terms are not reported (see the module docstring).
+    assert (m2.prz, m2.efrz) == (None, None)
+    # Mass-normalised modes: 20 modes capture most, and never more, of the 190 kg.
+    total_y = sum(f[1] ** 2 for f in factors.values())
+    assert 150 < total_y < 190
+
+
+def test_sesam_sif_result_carries_modal_mass(fem_files):
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+    result = read_sif_file(fem_files / "cantilever/sesam/eigen/shell/EIGEN_SHELL_CANTILEVER_SESAMR1.SIF")
+    summary = result.get_eig_summary()
+    assert summary.modes and all(m.efx is not None for m in summary.modes)
+    # frequencies still come from SESTRA.LIS
+    assert summary.modes[0].f_hz is not None
+
+
 def test_calc_tot_eff_mass_is_none_safe():
     # Code_Aster gives translational effective mass only; rotational stays None.
     summary = EigenDataSummary(

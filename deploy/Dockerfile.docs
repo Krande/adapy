@@ -9,7 +9,7 @@
 # this Dockerfile, or the workflow itself — see the ``docs`` filter in
 # .forgejo/workflows/build.yaml.
 
-ARG PIXI_VERSION=0.68.0
+ARG PIXI_VERSION=0.81.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the rendered footer can
 # carry the release tag if conf.py ever wants it. Defaults to "dev" for
 # local builds.

@@ -128,6 +128,13 @@ class FeaCaseResult:
         Timestamp the wrapper was created or last cached. Used to
         invalidate stale JSON snapshots if a report grows a freshness
         policy; today it's informational only.
+    fea_bundle :
+        Reference to the committed artefact bundle (mesh + nodal fields)
+        written beside this snapshot by
+        :func:`ada.fem.results.docs.snapshot_fea_bundle`: ``dir`` (relative
+        to the cache dir), ``manifest_sha256`` and ``n_steps``. ``None`` for
+        a case whose raw data is not cached -- one a doc build re-runs, or a
+        snapshot written before bundles were.
     """
 
     name: str
@@ -136,6 +143,7 @@ class FeaCaseResult:
     metadata: dict = field(default_factory=dict)
     software_version: Optional[str] = None
     last_modified: datetime = field(default_factory=datetime.now)
+    fea_bundle: Optional[dict] = None
 
     def __post_init__(self):
         # Take the version off the live result unless given explicitly. Readers say "N/A" when
@@ -167,7 +175,9 @@ class FeaCaseResult:
     #: own well-known non-result filenames to this set via the
     #: ``skip_stems=`` argument; the class default covers the names
     #: adapy reports have historically reserved.
-    CACHE_SKIP_STEMS: ClassVar[frozenset[str]] = frozenset({"software_versions", "debug"})
+    #: ``fea.manifest`` is the manifest of a committed bundle, which sits in
+    #: a subdirectory of the same cache dir the walk globs recursively.
+    CACHE_SKIP_STEMS: ClassVar[frozenset[str]] = frozenset({"software_versions", "debug", "fea.manifest"})
 
     def save_to_json(self, cache_filepath: "pathlib.Path | str") -> None:
         """Persist a JSON snapshot of this case for offline replay.
@@ -178,7 +188,7 @@ class FeaCaseResult:
         path = pathlib.Path(cache_filepath).with_suffix(".json")
         # Key ordering matches the legacy verification-report convention:
         # common fields first, subclass extras second, ``last_modified`` last.
-        # Stable order keeps the committed ``_cache/*.json`` diffs limited
+        # Stable order keeps the committed ``.cache/*.json`` diffs limited
         # to actual data changes when a new bake re-writes the file.
         payload = {
             "name": self.name,
@@ -186,6 +196,8 @@ class FeaCaseResult:
             "software_version": self.software_version,
             "metadata": self.metadata,
             **self._extra_payload(),
+            # Only when there is one, so a snapshot without raw data keeps its old shape.
+            **({"fea_bundle": self.fea_bundle} if self.fea_bundle else {}),
             "last_modified": self.last_modified.timestamp(),
         }
         with open(path, "w") as f:
@@ -220,6 +232,7 @@ class FeaCaseResult:
             metadata=payload.get("metadata", {}),
             software_version=payload.get("software_version"),
             last_modified=datetime.fromtimestamp(payload["last_modified"]),
+            fea_bundle=payload.get("fea_bundle"),
         )
         instance._hydrate_extras(payload)
         return instance

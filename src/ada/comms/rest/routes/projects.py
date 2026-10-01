@@ -30,11 +30,20 @@ async def api_me(
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     # Lazy upsert on first authenticated hit so the `users` table
-    # tracks who has actually signed in. No-op when DB is off.
+    # tracks who has actually signed in. No-op when DB is off. The admin
+    # flag and group claims ride along so the admin Users tab can show
+    # them; they are otherwise derived per request and never stored.
     pool = getattr(request.app.state, "db_pool", None)
     projects: list[dict] = []
     if pool is not None:
-        await db_module.upsert_user(pool, user.sub, user.email, user.display_name)
+        await db_module.upsert_user(
+            pool,
+            user.sub,
+            user.email,
+            user.display_name,
+            is_admin=user.is_admin,
+            groups=sorted(user.groups),
+        )
         for p in await db_module.list_user_projects(pool, user.sub):
             projects.append({"id": p.id, "slug": p.slug, "name": p.name, "role": p.role})
 

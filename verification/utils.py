@@ -33,6 +33,7 @@ Surface:
 from __future__ import annotations
 
 import logging
+import math
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
@@ -223,54 +224,79 @@ def _case_label(res: FeaVerificationResult) -> str:
     return f"{short_name_map[res.fem_format]}_{geo}_o{elo}{s_str}{uri_str}"
 
 
-_EFF_MASS_DIR_ATTR = {"X": "efx", "Y": "efy", "Z": "efz"}
+_DIRECTIONS = ("X", "Y", "Z")
 
 
-def create_eff_mass_comparison_df(
-    results: list[FeaVerificationResult], geom_repr: str, el_order: int, direction: str
-) -> pd.DataFrame | None:
-    """Cross-solver comparison of per-mode effective modal mass [kg] in one
-    global direction — the effective-mass analogue of
-    :func:`create_df_of_data`. Rows are modes, columns are the matching
-    cases (same ``solver[_tag][R]`` convention as the frequency tables).
+def _effective_mass(mode, direction: str) -> float | None:
+    return getattr(mode, f"ef{direction.lower()}")
 
-    Returns None only when no matching case carries effective mass for
-    this (geom, order). A table that happens to be all-zero (an
-    out-of-plane direction the cantilever never excites) is still
-    returned so its key is registered — the report references specific
-    keys statically, and paradoc errors on an unresolved reference, so a
-    registered-but-zero table is safer than a skipped one.
+
+def _mass_normalised_participation(mode, direction: str) -> float | None:
+    """The participation factor of the mode scaled to unit generalised mass.
+
+    A participation factor is relative to the eigenvector's normalisation, which is each solver's
+    own (Abaqus: largest displacement 1; Calculix, Code_Aster, Sestra: unit generalised mass), so
+    raw factors do not compare. Scaled to unit generalised mass they do, and that factor is
+    ``sign(Γ)·√Meff`` because ``Meff = Γ²·m_gen``. The sign is the solver's eigenvector sign, which
+    is arbitrary per mode.
     """
-    attr = _EFF_MASS_DIR_ATTR[direction]
-    df_main = None
+    gamma = getattr(mode, f"p{direction.lower()}")
+    meff = _effective_mass(mode, direction)
+    if gamma is None or meff is None:
+        return None
+    return float(math.copysign(math.sqrt(max(meff, 0.0)), gamma))
 
+
+#: The per-mode modal-mass quantities the appendix compares: value function and rounding.
+MODAL_MASS_QUANTITIES = {
+    "meff": (_effective_mass, 1),
+    "pf": (_mass_normalised_participation, 3),
+}
+
+
+def create_modal_mass_comparison_df(
+    results: list[FeaVerificationResult], geom_repr: str, el_order: int, quantity: str
+) -> pd.DataFrame:
+    """Cross-solver comparison of one per-mode modal-mass quantity, for one (geom, order).
+
+    ``quantity`` is a key of :data:`MODAL_MASS_QUANTITIES`: ``"meff"`` for the effective modal mass
+    [kg], ``"pf"`` for the mass-normalised participation factor. Rows are ``(Mode, Direction)`` over
+    the global X/Y/Z directions; columns are the matching cases (the ``solver[_tag][R]`` convention
+    of the frequency tables). Cases whose reader reported none of it are left out.
+
+    Never empty: with no case to compare, one row says so. The report references every table key
+    statically and paradoc errors on an unresolved one, and whether a configuration has data
+    depends on which solvers ran and which snapshots are committed.
+    """
+    value_of, decimals = MODAL_MASS_QUANTITIES[quantity]
+    df_main = None
     for res in results:
         geo = res.metadata["geo"]
         elo = res.metadata["elo"]
         if geom_repr != geo or el_order != elo:
             continue
         modes = res.eig_data.modes if res.eig_data is not None else []
-        if not modes or all(getattr(m, attr) is None for m in modes):
+        rows = [(m.no, d, value_of(m, d)) for m in modes for d in _DIRECTIONS]
+        if all(v is None for *_, v in rows):
             continue
-
         value_col = _case_label(res).replace(f"_{geo}_o{elo}", "")  # solver[_tag][R]
-        df_current = pd.DataFrame([(m.no, getattr(m, attr)) for m in modes], columns=["Mode", value_col])
-        new_col = df_current[value_col] if df_main is not None else df_current
-        df_main = append_df(df_main, new_col)
+        df_current = pd.DataFrame(rows, columns=["Mode", "Direction", value_col]).set_index(["Mode", "Direction"])
+        df_main = df_current if df_main is None else df_main.join(df_current, how="outer")
 
-    if df_main is None or df_main.empty:
-        return None
-    return df_main.round(1)
+    if df_main is None:
+        return pd.DataFrame([{"Mode": "-", "Direction": "-", "Note": "No solver reported it for this mesh."}])
+    return df_main.round(decimals).reset_index().sort_values(["Mode", "Direction"]).reset_index(drop=True)
 
 
 def create_eff_mass_summary_df(results: list[FeaVerificationResult]) -> pd.DataFrame | None:
     """Summary of effective modal mass [kg] per case: one row per case,
     summed over its captured modes in the global X/Y/Z directions.
 
-    Only cases whose reader populated effective mass are included
-    (Calculix + Code_Aster today); returns None if none did, so the
-    caller skips registering an empty table. Note Code_Aster reports
-    translational effective mass only — there is no rotational column.
+    Only cases whose reader populated effective mass are included (every
+    solver's does, but an Abaqus / Sesam snapshot cached before theirs did
+    carries none); returns None if none did, so the caller skips registering
+    an empty table. Code_Aster and Sesam report translational effective mass
+    only — there is no rotational column.
     """
     rows = []
     for res in results:
@@ -346,7 +372,7 @@ def mid_span_u3(result, length: float, width: float) -> float:
 
     from ada.fem.results.field_data import NodalFieldType
 
-    if hasattr(result, "to_fea_result"):  # FEAResultV2 (Abaqus via ODBDump) carries no mesh itself
+    if hasattr(result, "to_fea_result"):  # FEAResultV2 (Abaqus via abaodb) carries no mesh itself
         result = result.to_fea_result()
 
     coords = np.asarray(result.mesh.nodes.coords, dtype=float)

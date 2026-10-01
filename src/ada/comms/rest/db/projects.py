@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import asyncpg
 
+from ._common import _loads_jsonb
+
 
 @dataclass(frozen=True)
 class Project:
@@ -18,21 +20,104 @@ class Project:
 # ── Repository helpers ────────────────────────────────────────────────
 
 
-async def upsert_user(pool: asyncpg.Pool, sub: str, email: str, display_name: str) -> None:
-    """Lazy user upsert on first authenticated request. Bumps last_seen_at."""
+async def upsert_user(
+    pool: asyncpg.Pool,
+    sub: str,
+    email: str,
+    display_name: str,
+    *,
+    is_admin: bool | None = None,
+    groups: list[str] | None = None,
+) -> None:
+    """Lazy user upsert on first authenticated request. Bumps last_seen_at.
+
+    ``is_admin`` / ``groups`` are the token's view of the principal, recorded
+    for the admin Users tab. ``None`` means "this caller has no opinion" (the
+    CI-bot provisioning path) and keeps whatever was stored — COALESCE, so a
+    bot rotation never erases what a real sign-in recorded.
+    """
     await pool.execute(
         """
-        INSERT INTO users (sub, email, display_name)
-        VALUES ($1, $2, $3)
+        INSERT INTO users (sub, email, display_name, is_admin, groups)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (sub) DO UPDATE SET
             email = EXCLUDED.email,
             display_name = EXCLUDED.display_name,
+            is_admin = COALESCE(EXCLUDED.is_admin, users.is_admin),
+            groups = COALESCE(EXCLUDED.groups, users.groups),
             last_seen_at = NOW()
         """,
         sub,
         email or None,
         display_name or None,
+        is_admin,
+        groups,
     )
+
+
+def _iso(ts) -> str | None:
+    return ts.isoformat() if ts else None
+
+
+async def list_users(pool: asyncpg.Pool) -> list[dict]:
+    """Admin view: every known principal with its project memberships.
+
+    One row per ``users.sub`` — the primary key, so the list is unique by
+    construction. That covers everyone who has signed in (``/api/me`` upserts)
+    plus subs an admin added to a project before their first sign-in (the
+    placeholder rows ``add_project_member`` inserts), and CI bots.
+
+    Activity bounds come from ``audit_log`` through ``audit_log_user_idx``
+    (user_sub, ts DESC): each is one index probe per user, not a scan, so the
+    list stays cheap however long the log grows. A COUNT would not be, which is
+    why there is none.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT u.sub, u.email, u.display_name, u.last_seen_at, u.created_at,
+               u.is_admin, u.groups,
+               (SELECT a.ts FROM audit_log a WHERE a.user_sub = u.sub
+                 ORDER BY a.ts ASC LIMIT 1) AS first_activity_at,
+               (SELECT a.ts FROM audit_log a WHERE a.user_sub = u.sub
+                 ORDER BY a.ts DESC LIMIT 1) AS last_activity_at,
+               COALESCE(
+                   json_agg(
+                       json_build_object(
+                           'id', p.id::text,
+                           'slug', p.slug,
+                           'name', p.name,
+                           'role', m.role,
+                           'added_at', m.added_at,
+                           'archived', p.archived_at IS NOT NULL
+                       )
+                       ORDER BY p.name
+                   ) FILTER (WHERE p.id IS NOT NULL),
+                   '[]'::json
+               ) AS projects
+        FROM users u
+        LEFT JOIN project_members m ON m.user_sub = u.sub
+        LEFT JOIN projects p ON p.id = m.project_id
+        GROUP BY u.sub
+        ORDER BY lower(COALESCE(u.display_name, u.email, u.sub)), u.sub
+        """
+    )
+    out: list[dict] = []
+    for r in rows:
+        out.append(
+            {
+                "sub": r["sub"],
+                "email": r["email"],
+                "display_name": r["display_name"],
+                "last_seen_at": _iso(r["last_seen_at"]),
+                "created_at": _iso(r["created_at"]),
+                "is_admin": r["is_admin"],
+                "groups": list(r["groups"]) if r["groups"] is not None else None,
+                "first_activity_at": _iso(r["first_activity_at"]),
+                "last_activity_at": _iso(r["last_activity_at"]),
+                "projects": _loads_jsonb(r["projects"]) or [],
+            }
+        )
+    return out
 
 
 async def list_user_projects(pool: asyncpg.Pool, user_sub: str) -> list[Project]:

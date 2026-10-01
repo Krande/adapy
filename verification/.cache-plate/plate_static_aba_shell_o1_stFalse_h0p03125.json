@@ -1,7 +1,7 @@
 {
     "name": "plate_static_aba_shell_o1_stFalse_h0p03125",
     "fem_format": "abaqus",
-    "software_version": "2024",
+    "software_version": "2025",
     "metadata": {
         "elo": 1
     },
@@ -9,5 +9,5 @@
     "mesh_size": 0.03125,
     "stiffened": false,
     "n_shells": 2048,
-    "last_modified": 1790592506.821545
+    "last_modified": 1790759738.009725
 }

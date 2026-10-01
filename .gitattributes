@@ -9,3 +9,11 @@ files/ifc_files/beam-standard-case-gz.ifc binary
 # are exempt from end-of-line conversion.
 src/frontend/src/__tests__/fixtures/beam_solids_compact/two_beams.bin binary
 src/frontend/src/__tests__/fixtures/beam_solids_compact/two_beams.expected.json -text
+
+# The FEA bundles committed beside the verification report's cached results
+# (Abaqus / Sestra mode shapes). The blobs and GLBs are binary whatever their
+# bytes happen to look like, and each manifest is kept byte for byte: the case
+# JSON records its sha256, which a CRLF translation would break.
+verification/.cache*/**/*.bin binary
+verification/.cache*/**/*.glb binary
+verification/.cache*/**/fea.manifest.json -text

@@ -91,7 +91,7 @@ def line_elem_to_ifc(elem: Elem, f, subref, owner_history):
     :param elem:
     :param f:
     :param owner_history:
-    :type f: ifcopenshell.file.file
+    :type f: ifcopenshell.file
     :return:
     """
 

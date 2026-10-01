@@ -89,6 +89,7 @@ def test_admin_endpoint_requires_admin(monkeypatch, tmp_path):
             ("/api/admin/audit", "GET"),
             ("/api/admin/projects", "GET"),
             ("/api/admin/projects", "POST"),
+            ("/api/admin/users", "GET"),
             (f"/api/admin/projects/{uuid.uuid4()}/members", "GET"),
             (f"/api/admin/projects/{uuid.uuid4()}/ci-bot", "POST"),
         ):
@@ -103,6 +104,8 @@ def test_admin_endpoints_503_without_db(tmp_path):
         r = client.get("/api/admin/audit")
         assert r.status_code == 503
         r = client.get("/api/admin/projects")
+        assert r.status_code == 503
+        r = client.get("/api/admin/users")
         assert r.status_code == 503
         r = client.post(f"/api/admin/projects/{uuid.uuid4()}/ci-bot")
         assert r.status_code == 503
@@ -208,6 +211,146 @@ async def test_admin_project_lifecycle(tmp_path):
         assert await dbm.archive_project(pool, proj["id"]) is False  # already archived
     finally:
         await dbm.close_pool(pool)
+
+
+def test_admin_users_list_serialises_rows(tmp_path):
+    """``GET /api/admin/users`` shape, without Postgres: a fake pool hands
+    back rows the way asyncpg does (datetimes, a text[] as a list, the json
+    aggregate as a string) and the route must return plain JSON."""
+    from datetime import datetime, timezone
+
+    seen = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+
+    class _FakePool:
+        async def fetch(self, sql, *args):
+            assert "FROM users u" in sql
+            return [
+                {
+                    "sub": "abc-123",
+                    "email": "ada@example.com",
+                    "display_name": "Ada Lovelace",
+                    "last_seen_at": seen,
+                    "created_at": None,
+                    "is_admin": True,
+                    "groups": ["ada-admins", "staff"],
+                    "first_activity_at": seen,
+                    "last_activity_at": seen,
+                    "projects": '[{"id": "p1", "slug": "demo", "name": "Demo", "role": "owner",'
+                    ' "added_at": "2026-08-01T00:00:00+00:00", "archived": false}]',
+                },
+                {
+                    # A placeholder row: added to a project before ever signing in.
+                    "sub": "never-signed-in",
+                    "email": None,
+                    "display_name": None,
+                    "last_seen_at": seen,
+                    "created_at": None,
+                    "is_admin": None,
+                    "groups": None,
+                    "first_activity_at": None,
+                    "last_activity_at": None,
+                    "projects": "[]",
+                },
+            ]
+
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        app.state.db_pool = _FakePool()
+        r = client.get("/api/admin/users")
+        assert r.status_code == 200, r.text
+        users = r.json()["users"]
+    assert [u["sub"] for u in users] == ["abc-123", "never-signed-in"]
+    ada = users[0]
+    assert ada["display_name"] == "Ada Lovelace"
+    assert ada["email"] == "ada@example.com"
+    assert ada["is_admin"] is True
+    assert ada["groups"] == ["ada-admins", "staff"]
+    assert ada["last_seen_at"] == seen.isoformat()
+    assert ada["projects"] == [
+        {
+            "id": "p1",
+            "slug": "demo",
+            "name": "Demo",
+            "role": "owner",
+            "added_at": "2026-08-01T00:00:00+00:00",
+            "archived": False,
+        }
+    ]
+    ghost = users[1]
+    # Unknown stays unknown — never coerced to False / [].
+    assert ghost["is_admin"] is None
+    assert ghost["groups"] is None
+    assert ghost["projects"] == []
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_admin_list_users_memberships_and_claims():
+    """list_users: one row per sub, memberships aggregated (incl. archived
+    projects, flagged), activity bounds from audit_log, and the token claims
+    upsert_user records — with a claim-less upsert (the CI-bot path) keeping
+    what a real sign-in stored."""
+    pool = await dbm.init_pool(POSTGRES_URL)
+    assert pool is not None
+    try:
+        marker = uuid.uuid4().hex[:12]
+        sub = f"sub-users-{marker}"
+        await dbm.upsert_user(pool, sub, "u@example.com", "User Tab", is_admin=True, groups=["g1", "g2"])
+        # Second upsert without claims must not erase them.
+        await dbm.upsert_user(pool, sub, "u@example.com", "User Tab")
+
+        live = await dbm.create_project(pool, f"live-{marker}", "Live")
+        old = await dbm.create_project(pool, f"old-{marker}", "Old")
+        await dbm.add_project_member(pool, live["id"], sub, "owner")
+        await dbm.add_project_member(pool, old["id"], sub, "member")
+        await dbm.archive_project(pool, old["id"])
+
+        # Placeholder user: added to a project, never signed in.
+        ghost = f"ghost-{marker}"
+        await dbm.add_project_member(pool, live["id"], ghost)
+
+        for action in ("upload", "download"):
+            await dbm.insert_audit(pool, user_sub=sub, scope_kind="user", scope_id=sub, action=action, status="ok")
+
+        users = {u["sub"]: u for u in await dbm.list_users(pool)}
+        me = users[sub]
+        assert me["display_name"] == "User Tab"
+        assert me["email"] == "u@example.com"
+        assert me["is_admin"] is True
+        assert me["groups"] == ["g1", "g2"]
+        assert me["created_at"] is not None
+        assert me["first_activity_at"] is not None
+        assert me["last_activity_at"] >= me["first_activity_at"]
+        by_slug = {p["slug"]: p for p in me["projects"]}
+        assert by_slug[f"live-{marker}"]["role"] == "owner"
+        assert by_slug[f"live-{marker}"]["archived"] is False
+        assert by_slug[f"old-{marker}"]["archived"] is True
+
+        g = users[ghost]
+        assert g["display_name"] is None
+        assert g["is_admin"] is None
+        assert g["groups"] is None
+        assert g["first_activity_at"] is None
+        assert [p["slug"] for p in g["projects"]] == [f"live-{marker}"]
+        # Unique by sub, not by name or email.
+        assert len([u for u in users.values() if u["sub"] == sub]) == 1
+    finally:
+        await dbm.close_pool(pool)
+
+
+@needs_postgres
+def test_admin_users_endpoint_records_me_claims(tmp_path):
+    """End-to-end: /api/me stores the caller's admin flag, and the caller
+    then shows up in /api/admin/users with it."""
+    app = create_app(_settings(tmp_path, db_url=POSTGRES_URL))
+    with TestClient(app) as client:
+        assert client.get("/api/me").status_code == 200
+        r = client.get("/api/admin/users")
+        assert r.status_code == 200, r.text
+        users = {u["sub"]: u for u in r.json()["users"]}
+        assert users["local-dev"]["is_admin"] is True
+        assert users["local-dev"]["display_name"] == "Local Dev"
+        assert users["local-dev"]["groups"] == []
 
 
 @needs_postgres

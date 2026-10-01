@@ -157,6 +157,7 @@ def test_ngeom_serializes_thick_shell():
     assert len(blob) > 100
 
 
+@pytest.mark.ifcgeom
 def test_ifc_export_validates_and_tessellates():
     import ifcopenshell
     import ifcopenshell.geom
