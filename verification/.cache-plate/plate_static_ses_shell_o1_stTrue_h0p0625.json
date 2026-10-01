@@ -11,8 +11,8 @@
     "n_shells": 512,
     "fea_bundle": {
         "dir": "plate_static_ses_shell_o1_stTrue_h0p0625",
-        "manifest_sha256": "0e85a1832c9ec6670f2f329a0305bec4dc41ef69e7a56ad749c439f51cd4e948",
+        "manifest_sha256": "ff6bf540b8405a53ca1ffd4b3625015f24d23cf9b9bb904142923987659c77a1",
         "n_steps": 1
     },
-    "last_modified": 1790759738.032786
+    "last_modified": 1790876084.291174
 }
