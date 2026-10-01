@@ -230,3 +230,17 @@ test("a spec's asset_node_request is read with the option that carries the node"
   ]);
   assert.equal(none.nodeRequest, null);
 });
+
+test("a node request's max_nodes is read as declared; anything that is not a count above 1 is absent", () => {
+  const read = (max_nodes: unknown) =>
+    assetProviderCollections([
+      {
+        id: "one",
+        asset_provider_id: "vendor",
+        asset_collections_field: "items",
+        asset_node_request: { options: {}, collection_option: "project", node_option: "nodes", max_nodes },
+      },
+    ])[0].nodeRequest?.maxNodes;
+  assert.equal(read(20), 20);
+  for (const bad of [1, 0, -3, 2.5, "20", null, undefined]) assert.equal(read(bad), undefined, String(bad));
+});

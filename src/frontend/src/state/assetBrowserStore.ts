@@ -188,7 +188,8 @@ export interface AssetBrowserState {
    *  what keeps this mirror honest against an unload that happened anywhere
    *  else. Driven from `useModelState.loadedSourceNames`, never guessed. */
   reconcileLoaded: (liveSourceNames: ReadonlySet<string>) => void;
-  /** Drop everything drawn from the current collection, keep the choice of it.
+  /** Drop everything drawn from the current collection, keep the choice of it -- and what is open
+   *  and selected in it.
    *  What Refresh does: a union cannot express deletion, so rebuilding from
    *  nothing is the one way to see a tree with nothing stale in it. */
   resetForest: () => void;
@@ -391,7 +392,19 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       return next.length === s.loaded.length ? s : { loaded: next };
     }),
 
-  resetForest: () => set((s) => ({ ...FOREST_RESET, forestVersion: s.forestVersion + 1 })),
+  // Where the user IS survives: what is open and what is selected name the same ids in the rebuilt
+  // forest, and a refresh after a request (one per batch, for a selection) that collapsed the tree
+  // and dropped the selection each time would undo the browsing it was meant to update. The open
+  // rows re-fetch their levels, as any open row without its level does.
+  resetForest: () =>
+    set((s) => ({
+      ...FOREST_RESET,
+      expanded: s.expanded,
+      selected: s.selected,
+      selection: s.selection,
+      anchor: s.anchor,
+      forestVersion: s.forestVersion + 1,
+    })),
   resetForScope: (scope) =>
     set((s) => ({
       scope,

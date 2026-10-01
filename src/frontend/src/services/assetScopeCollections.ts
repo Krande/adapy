@@ -208,6 +208,11 @@ export interface AssetNodeRequest extends AssetCollectionRequest {
    *  this option. For a provider that must find a node published under ANOTHER provider's id --
    *  an id it cannot turn back into anything of its own -- the label is the name to look for. */
   labelOption?: string;
+  /** `max_nodes`: how many nodes ONE request may name. Several selected nodes are sent in batches
+   *  of this size -- one job for many is what a provider that pays a heavy start per job (opening
+   *  a design project) wants. Undeclared (absent here): 1, a job per node, which every provider can
+   *  take. */
+  maxNodes?: number;
 }
 
 function parseNodeRequest(pluginId: string, raw: unknown, requiresAdmin: boolean): AssetNodeRequest | null {
@@ -216,7 +221,8 @@ function parseNodeRequest(pluginId: string, raw: unknown, requiresAdmin: boolean
   const nodeOption = raw.node_option;
   if (typeof nodeOption !== "string" || !nodeOption.trim()) return null;
   const labelOption = typeof raw.label_option === "string" && raw.label_option.trim() ? raw.label_option.trim() : undefined;
-  return { ...base, nodeOption: nodeOption.trim(), ...(labelOption ? { labelOption } : {}) };
+  const maxNodes = typeof raw.max_nodes === "number" && Number.isInteger(raw.max_nodes) && raw.max_nodes > 1 ? raw.max_nodes : null;
+  return { ...base, nodeOption: nodeOption.trim(), ...(labelOption ? { labelOption } : {}), ...(maxNodes ? { maxNodes } : {}) };
 }
 
 /** A declared rescan: `asset_collections_refresh` on a plugin spec, which is the

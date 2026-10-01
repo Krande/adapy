@@ -118,9 +118,39 @@ export function nodeRequestOptions(
   requestedAt: string,
   label?: string,
 ): Record<string, unknown> {
-  const options: Record<string, unknown> = { ...requestOptions(req, collection, requestedAt), [req.nodeOption]: [node] };
-  if (req.labelOption && label) options[req.labelOption] = [label];
+  return nodesRequestOptions(req, collection, [{ id: node, label }], requestedAt);
+}
+
+/** One node of a request: its id as the browser shows it, and its label when known. */
+export interface NodeTarget {
+  id: string;
+  label?: string;
+}
+
+/** `nodeRequestOptions` for several nodes in ONE request: the ids in order under `nodeOption`, and
+ *  -- when declared and any label is known -- the labels index for index under `labelOption` (""
+ *  for a node with none, so the two lists stay aligned). */
+export function nodesRequestOptions(
+  req: AssetNodeRequest,
+  collection: string,
+  nodes: readonly NodeTarget[],
+  requestedAt: string,
+): Record<string, unknown> {
+  const options: Record<string, unknown> = {
+    ...requestOptions(req, collection, requestedAt),
+    [req.nodeOption]: nodes.map((n) => n.id),
+  };
+  if (req.labelOption && nodes.some((n) => n.label)) options[req.labelOption] = nodes.map((n) => n.label ?? "");
   return options;
+}
+
+/** `nodes` cut into the requests a provider takes: batches of its declared `maxNodes` (1 when it
+ *  declared none), in order. */
+export function nodeBatches<T>(req: AssetNodeRequest, nodes: readonly T[]): T[][] {
+  const size = Math.max(1, req.maxNodes ?? 1);
+  const out: T[][] = [];
+  for (let i = 0; i < nodes.length; i += size) out.push(nodes.slice(i, i + size));
+  return out;
 }
 
 export async function requestCollection(
@@ -147,9 +177,22 @@ export async function requestNode(
   node: string,
   nodeLabel?: string,
 ): Promise<CollectionRequestOutcome> {
+  return requestNodes(deps, scope, providerId, req, collection, [{ id: node, label: nodeLabel }]);
+}
+
+/** `requestNode` for several nodes in one request -- one batch of `nodeBatches`. */
+export async function requestNodes(
+  deps: CollectionRequestDeps,
+  scope: string,
+  providerId: string,
+  req: AssetNodeRequest,
+  collection: string,
+  nodes: readonly NodeTarget[],
+): Promise<CollectionRequestOutcome> {
   const now = deps.now ?? (() => Date.now());
-  const options = nodeRequestOptions(req, collection, node, new Date(now()).toISOString(), nodeLabel);
-  return stageAndPublish(deps, scope, providerId, req, options, collection, `${collection} / ${nodeLabel ?? node}`);
+  const options = nodesRequestOptions(req, collection, nodes, new Date(now()).toISOString());
+  const what = nodes.length === 1 ? `${collection} / ${nodes[0].label ?? nodes[0].id}` : `${collection} / ${nodes.length} nodes`;
+  return stageAndPublish(deps, scope, providerId, req, options, collection, what);
 }
 
 async function stageAndPublish(

@@ -3,9 +3,12 @@ import { test } from "node:test";
 
 import {
   CollectionRequestError,
+  nodeBatches,
   nodeRequestOptions,
+  nodesRequestOptions,
   requestCollection,
   requestNode,
+  requestNodes,
   unchangedOf,
   requestOptions,
   stagingIdOf,
@@ -151,6 +154,38 @@ test("a node request carries the node's label only when the provider declares wh
   assert.deepEqual(labelled.labels, ["/SITE-1"]);
   assert.deepEqual(labelled.nodes, ["n1"]);
 });
+test("several nodes go in one request: ids in order, labels index for index", () => {
+  const req = { ...REQ, nodeOption: "nodes", labelOption: "labels" };
+  const options = nodesRequestOptions(req, "ALPHA", [{ id: "n1", label: "/SITE-1" }, { id: "n2" }, { id: "n3", label: "/SITE-3" }], "t0");
+  assert.deepEqual(options.nodes, ["n1", "n2", "n3"]);
+  assert.deepEqual(options.labels, ["/SITE-1", "", "/SITE-3"], "a node without a label keeps its slot");
+  assert.equal("labels" in nodesRequestOptions(req, "ALPHA", [{ id: "n1" }], "t0"), false, "no labels at all: none sent");
+});
+
+test("a selection is cut into batches of the provider's max_nodes, a node each when undeclared", () => {
+  const ids = ["a", "b", "c", "d", "e"];
+  assert.deepEqual(nodeBatches({ ...REQ, nodeOption: "nodes" }, ids), [["a"], ["b"], ["c"], ["d"], ["e"]]);
+  assert.deepEqual(nodeBatches({ ...REQ, nodeOption: "nodes", maxNodes: 2 }, ids), [["a", "b"], ["c", "d"], ["e"]]);
+  assert.deepEqual(nodeBatches({ ...REQ, nodeOption: "nodes", maxNodes: 20 }, ids), [ids]);
+});
+
+test("a batch is one job naming every node in it", async () => {
+  const { api, calls } = fakeApi();
+  const tracked: string[] = [];
+  await requestNodes(
+    { api, wait: noWait, trackJob: (o) => tracked.push(o.label) },
+    "project:1",
+    "vendor",
+    { ...REQ, nodeOption: "nodes", label: "Request geometry" },
+    "alpha",
+    [{ id: "n1" }, { id: "n2" }],
+  );
+  const jobs = calls.filter((c) => c.kind === "pluginJob");
+  assert.equal(jobs.length, 1);
+  assert.deepEqual((jobs[0].args[1] as { options: Record<string, unknown> }).options.nodes, ["n1", "n2"]);
+  assert.deepEqual(tracked, ["Request geometry: alpha / 2 nodes", "Publish alpha / 2 nodes"]);
+});
+
 test("a provider that finds its source unchanged gets no publish, and the outcome says so", async () => {
   const { api, calls } = fakeApi({ fetchSummary: { asset_unchanged: true, revision: "r0", subjects: ["n1"], message: "same ETags" } });
   const out = await requestNode({ api, wait: noWait }, "project:1", "vendor", { ...REQ, nodeOption: "nodes" }, "alpha", "n1");

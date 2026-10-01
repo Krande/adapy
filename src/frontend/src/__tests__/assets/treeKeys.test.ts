@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 
-import { rangeIds, treeKeyAction, type KeyRow } from "../../assets/treeKeys";
+import { actionTargets, rangeIds, treeKeyAction, type KeyRow } from "../../assets/treeKeys";
 import { useAssetBrowserStore } from "../../state/assetBrowserStore";
 
 const ROWS: KeyRow[] = [
@@ -73,7 +73,36 @@ test("a range without a visible anchor is just the focus", () => {
   assert.deepEqual(rangeIds(ROWS, "collapsed-away", "site-b"), ["site-b"]);
 });
 
+const PARENT: Record<string, string | null> = { "site-a": null, "zone-1": "site-a", "zone-2": "site-a", "site-b": null, "site-c": null };
+const parentOf = (id: string) => PARENT[id];
+
+test("an action on a row outside the selection, or on a selection of one, is about that row", () => {
+  assert.deepEqual(actionTargets(new Set(["site-a", "site-b"]), "site-c", parentOf), ["site-c"]);
+  assert.deepEqual(actionTargets(new Set(["site-b"]), "site-b", parentOf), ["site-b"]);
+});
+
+test("an action on a row in the selection applies to its topmost rows, in selection order", () => {
+  // zone-1 sits under the selected site-a: site-a's subtree already carries it.
+  assert.deepEqual(actionTargets(new Set(["site-b", "site-a", "zone-1"]), "zone-1", parentOf), ["site-b", "site-a"]);
+  assert.deepEqual(actionTargets(new Set(["zone-1", "zone-2"]), "zone-2", parentOf), ["zone-1", "zone-2"], "siblings both stay");
+});
+
 beforeEach(() => useAssetBrowserStore.getState().resetForScope("user:me"));
+
+test("the store: a refresh keeps what is open and selected; a collection switch does not", () => {
+  const s = () => useAssetBrowserStore.getState();
+  s().setExpanded("site-a", true);
+  s().select("zone-1");
+  s().selectRange(["zone-1", "zone-2"], "zone-2");
+  s().resetForest();
+  assert.ok(s().expanded.has("site-a"));
+  assert.deepEqual([...s().selection], ["zone-1", "zone-2"]);
+  assert.equal(s().selected, "zone-2");
+  assert.equal(s().anchor, "zone-1");
+  s().setCollection("another");
+  assert.equal(s().expanded.size, 0);
+  assert.equal(s().selection.size, 0);
+});
 
 test("the store: a click selects one and anchors there; a range keeps the anchor", () => {
   const s = () => useAssetBrowserStore.getState();

@@ -72,6 +72,24 @@ function parentIndex(rows: readonly KeyRow[], at: number): number {
   return -1;
 }
 
+/** The rows an action on `id` applies to: the whole selection when `id` is part of a selection of
+ *  several, else `id` alone -- a click outside the selection acts on what was clicked, as in a file
+ *  manager. Only the TOPMOST of them: a selected row under another selected row is already part of
+ *  that one's subtree, and loading or requesting it again would put its geometry in twice. In
+ *  selection order. */
+export function actionTargets(
+  selection: ReadonlySet<string>,
+  id: string,
+  parentOf: (id: string) => string | null | undefined,
+): string[] {
+  if (selection.size < 2 || !selection.has(id)) return [id];
+  const covered = (n: string): boolean => {
+    for (let p = parentOf(n); p; p = parentOf(p)) if (selection.has(p)) return true;
+    return false;
+  };
+  return [...selection].filter((n) => !covered(n));
+}
+
 /** The visible rows from `anchor` to `focus`, inclusive, in tree order. Just `focus` when the
  *  anchor is not visible -- collapsed away, or never set -- since a range needs both ends. */
 export function rangeIds(rows: readonly { readonly id: string }[], anchor: string | null, focus: string): string[] {

@@ -30,7 +30,7 @@ import {
     type TreeViewDoc,
 } from "@/assets/treeView";
 import type { ChangeState } from "@/assets/changes";
-import { requestNode } from "@/assets/collectionRequest";
+import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionRequest";
 import {
     assetSourceName,
     loadNode,
@@ -41,6 +41,7 @@ import {
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
+import { actionTargets } from "@/assets/treeKeys";
 import type { ResolutionMode, WireNodeAttributes } from "@/assets/types";
 import PositionedMenu, { type KebabMenuItem } from "@/components/common/PositionedMenu";
 import type { TreeNodeData } from "@/components/tree_view/CustomNode";
@@ -335,6 +336,8 @@ const Orphans: React.FC<{
 
 /** Load / reveal / unload for one row and ONE provider's claim on it. */
 interface AssetLoadControl {
+    /** The row it was offered for. */
+    rowId: string;
     badge: RowBadge;
     provider: string;
     loaded: boolean;
@@ -354,8 +357,11 @@ interface AssetLoadControl {
  *  One hook for the detail's bottom row and the row's context menu, so the two can never disagree
  *  about what loading this row means. Load state is keyed per row AND provider: two providers'
  *  geometry for one node are two loads, with two scene names (`assetSourceName` carries the
- *  provider), and either can be on screen without the other. */
-function useAssetLoads(view: AssetView, id: string, scope: string): AssetLoadControl[] {
+ *  provider), and either can be on screen without the other.
+ *
+ *  For several rows (a selection), every row's controls in row order, each scene model ONCE: rows
+ *  covered by the same publish above them would otherwise each load the same model. */
+function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): AssetLoadControl[] {
     const { useAssetBrowserStore, useModelState, useTreeViewStore } = useViewerStores();
     const loadBusy = useAssetBrowserStore((s) => s.loadBusy);
     const loadErrors = useAssetBrowserStore((s) => s.loadErrors);
@@ -372,15 +378,19 @@ function useAssetLoads(view: AssetView, id: string, scope: string): AssetLoadCon
     }, [liveSourceNames, useAssetBrowserStore]);
 
     const out: AssetLoadControl[] = [];
-    for (const badge of rowFacts(view, id)?.claims ?? []) {
+    const seen = new Set<string>();
+    for (const id of ids) for (const badge of rowFacts(view, id)?.claims ?? []) {
         if (badge.weight === "below") continue;
         const ref = refForBadge(view, id, badge);
         if (!ref) continue;
         const key = loadKey(id, badge.provider);
         const sourceName = assetSourceName(ref);
+        if (seen.has(sourceName)) continue;
+        seen.add(sourceName);
         const loadedHere = loaded.some((a) => a.sourceName === sourceName);
         const root = loadedHere ? loadedTreeRoot(treeData, sourceName) : null;
         out.push({
+            rowId: id,
             badge,
             provider: badge.provider,
             loaded: loadedHere,
@@ -445,17 +455,44 @@ interface NodeRequestControl {
 }
 
 const NOTHING_TO_LOAD = "No geometry is published at or above this node yet";
+const NOTHING_TO_LOAD_ANY = "No geometry is published at or above any of the selected nodes yet";
 
-const LoadControls: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view, id, scope }) => {
-    const controls = useAssetLoads(view, id, scope);
+/** A selection's load controls, per provider: what is still to load, what is in the scene, what is
+ *  loading and what failed. One reading for the detail's buttons and the menu's items. */
+interface LoadGroup {
+    provider: string;
+    toLoad: AssetLoadControl[];
+    loaded: AssetLoadControl[];
+    busy: number;
+    failed: AssetLoadControl[];
+}
+
+function loadGroups(controls: readonly AssetLoadControl[]): LoadGroup[] {
+    const by = new Map<string, LoadGroup>();
+    for (const c of controls) {
+        const g = by.get(c.provider) ?? { provider: c.provider, toLoad: [], loaded: [], busy: 0, failed: [] };
+        if (c.loaded) g.loaded.push(c);
+        else if (c.busy) g.busy += 1;
+        else g.toLoad.push(c);
+        if (!c.busy && c.error) g.failed.push(c);
+        by.set(c.provider, g);
+    }
+    return [...by.values()];
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const LoadControls: React.FC<{ view: AssetView; ids: readonly string[]; scope: string }> = ({ view, ids, scope }) => {
+    const controls = useAssetLoads(view, ids, scope);
     if (!controls.length) {
         // Drawn, and disabled: a missing button reads as a layout glitch, a greyed one as "not yet".
         return (
-            <button type="button" disabled className={`${BTN_PRIMARY} shrink-0`} title={NOTHING_TO_LOAD}>
+            <button type="button" disabled className={`${BTN_PRIMARY} shrink-0`} title={ids.length > 1 ? NOTHING_TO_LOAD_ANY : NOTHING_TO_LOAD}>
                 Load into scene
             </button>
         );
     }
+    if (ids.length > 1) return <BulkLoads groups={loadGroups(controls)} />;
     // One provider: the plain button. Several: one per provider, each naming it -- which
     // geometry lands in the scene is the user's choice, and the two can be compared side by side.
     const named = controls.length > 1;
@@ -463,6 +500,46 @@ const LoadControls: React.FC<{ view: AssetView; id: string; scope: string }> = (
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
             {controls.map((control) => (
                 <SingleLoad key={control.provider} control={control} named={named} />
+            ))}
+        </div>
+    );
+};
+
+/** A selection's loads, one set of controls per provider: load what is not in the scene yet, unload
+ *  what is. Each model still loads on its own -- this only starts them together. */
+const BulkLoads: React.FC<{ groups: readonly LoadGroup[] }> = ({ groups }) => {
+    const named = groups.length > 1;
+    return (
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            {groups.map((g) => (
+                <div key={g.provider} className="flex items-center gap-2 min-w-0">
+                    <button
+                        type="button"
+                        disabled={!g.toLoad.length}
+                        className={`${BTN_PRIMARY} shrink-0`}
+                        title={`Load ${plural(g.toLoad.length, "model")} from ${g.provider}`}
+                        onClick={() => g.toLoad.forEach((c) => c.load())}
+                    >
+                        {g.toLoad.length ? `Load ${g.toLoad.length}` : "All loaded"}
+                        {named ? ` · ${g.provider}` : ""}
+                    </button>
+                    {g.busy > 0 && <span className="text-gray-400 shrink-0">loading {g.busy}…</span>}
+                    {g.loaded.length > 0 && (
+                        <button
+                            type="button"
+                            className="text-gray-300 hover:text-white shrink-0"
+                            title={`Unload the ${plural(g.loaded.length, "model")} from ${g.provider} in the scene`}
+                            onClick={() => g.loaded.forEach((c) => c.unload())}
+                        >
+                            unload {g.loaded.length}
+                        </button>
+                    )}
+                    {g.failed.length > 0 && (
+                        <span className="text-red-300 truncate" title={g.failed.map((c) => `${c.rowId}: ${c.error}`).join("\n")}>
+                            {g.failed.length} failed
+                        </span>
+                    )}
+                </div>
             ))}
         </div>
     );
@@ -780,29 +857,56 @@ const RequestControls: React.FC<{ requests: readonly NodeRequestControl[] }> = (
     );
 };
 
-/** Right-click menu for one tree row. */
+/** Right-click menu for a tree row -- or for the selection it is part of (`ids`, its topmost rows):
+ *  every action then applies to all of them. */
 const AssetRowMenu: React.FC<{
     view: AssetView;
+    /** The row right-clicked. */
     id: string;
+    /** What the actions apply to: `[id]`, or the selection it is part of. */
+    ids: readonly string[];
     scope: string;
     x: number;
     y: number;
     requests: readonly NodeRequestControl[];
     /** Several requestable providers: the menu item opens the picker here instead of asking one. */
     onPickRequests: (x: number, y: number) => void;
+    /** The out-of-scope switch for these rows, or null where it does not apply. */
+    scopeItem: KebabMenuItem | null;
     onClose: () => void;
-}> = ({ view, id, scope, x, y, requests, onPickRequests, onClose }) => {
-    const loads = useAssetLoads(view, id, scope);
+}> = ({ view, id, ids, scope, x, y, requests, onPickRequests, scopeItem, onClose }) => {
+    const many = ids.length > 1;
+    const loads = useAssetLoads(view, ids, scope);
     const joints = useJointsCheck(view, id, scope);
     const items: KebabMenuItem[] = [];
     if (!loads.length) {
-        items.push({ key: "load", label: "Load into scene", disabled: true, onClick: () => {}, title: NOTHING_TO_LOAD });
+        items.push({ key: "load", label: "Load into scene", disabled: true, onClick: () => {}, title: many ? NOTHING_TO_LOAD_ANY : NOTHING_TO_LOAD });
+    }
+    if (many) {
+        const groups = loadGroups(loads);
+        for (const g of groups) {
+            const from = groups.length > 1 ? ` · ${g.provider}` : "";
+            items.push({
+                key: `load:${g.provider}`,
+                label: g.toLoad.length ? `Load ${plural(g.toLoad.length, "model")} into scene${from}` : `All loaded${from}`,
+                disabled: !g.toLoad.length,
+                title: g.busy ? `${g.busy} still loading` : undefined,
+                onClick: () => g.toLoad.forEach((c) => c.load()),
+            });
+            if (g.loaded.length) {
+                items.push({
+                    key: `unload:${g.provider}`,
+                    label: `Unload ${plural(g.loaded.length, "model")} from scene${from}`,
+                    onClick: () => g.loaded.forEach((c) => c.unload()),
+                });
+            }
+        }
     }
     const named = loads.length > 1;
-    for (const load of loads) {
+    for (const load of many ? [] : loads) {
         const from = named ? ` · ${load.provider}` : "";
         if (load.loaded) {
-            items.push({ key: `reveal:${load.provider}`, label: `Reveal in Files${from}`, disabled: !load.root, onClick: load.reveal });
+            items.push({ key: `reveal:${load.provider}`, label: `Reveal in Scene${from}`, disabled: !load.root, onClick: load.reveal });
             items.push({ key: `unload:${load.provider}`, label: `Unload from scene${from}`, onClick: load.unload });
         } else {
             items.push({
@@ -826,13 +930,15 @@ const AssetRowMenu: React.FC<{
     } else if (requests.length > 1) {
         items.push({
             key: "request",
-            label: "Request geometry…",
+            label: many ? `Request geometry for ${ids.length}…` : "Request geometry…",
             disabled: requests.every((r) => !!r.blocked),
             title: REQUEST_TITLE,
             onClick: () => onPickRequests(x, y),
         });
     }
-    if (joints) {
+    if (scopeItem) items.push(scopeItem);
+    // One node's analysis: offered for the row clicked, not for a selection.
+    if (joints && !many) {
         items.push({
             key: "joints",
             label: "Check for joints",
@@ -842,7 +948,7 @@ const AssetRowMenu: React.FC<{
             onClick: joints.run,
         });
     }
-    const label = rowFacts(view, id)?.node.label ?? id;
+    const label = many ? `${ids.length} selected` : (rowFacts(view, id)?.node.label ?? id);
     return <PositionedMenu items={items} anchor={{ kind: "point", x, y }} onClose={onClose} header={label} />;
 };
 
@@ -852,10 +958,13 @@ const AssetRowMenu: React.FC<{
 const Detail: React.FC<{
     view: AssetView;
     id: string;
+    /** What the bottom row's actions apply to: `[id]`, or the selection's topmost rows. The facts
+     *  above are always `id`'s -- the focused row. */
+    ids: readonly string[];
     scope: string;
     requests: readonly NodeRequestControl[];
     actions?: React.ReactNode;
-}> = ({ view, id, scope, requests, actions }) => {
+}> = ({ view, id, ids, scope, requests, actions }) => {
     const facts = rowFacts(view, id);
     const orphan = view.orphans.find((o) => o.id === id);
     const resolved = view.resolution.subjects.get(id);
@@ -932,8 +1041,19 @@ const Detail: React.FC<{
                     />
                 )}
             </div>
-            <div className="shrink-0 flex items-center gap-2 border-t border-gray-700/70 px-3 py-1.5 min-h-[2.5rem]" data-testid="asset-detail-actions">
-                <LoadControls view={view} id={id} scope={scope} />
+            {ids.length > 1 && (
+                <div
+                    className="shrink-0 border-t border-gray-700/70 px-3 pt-1.5 text-gray-400"
+                    title={ids.map((n) => rowFacts(view, n)?.node.label ?? n).join("\n")}
+                >
+                    {ids.length} selected — the actions below apply to all of them
+                </div>
+            )}
+            <div
+                className={`shrink-0 flex items-center gap-2 px-3 py-1.5 min-h-[2.5rem] ${ids.length > 1 ? "" : "border-t border-gray-700/70"}`}
+                data-testid="asset-detail-actions"
+            >
+                <LoadControls view={view} ids={ids} scope={scope} />
                 {requests.length > 0 && <RequestControls requests={requests} />}
                 {actions &&<div className="ml-auto shrink-0 flex items-center">{actions}</div>}
             </div>
@@ -1016,6 +1136,7 @@ const AssetsTab: React.FC = () => {
     const evidenceAsked = useAssetBrowserStore((s) => s.evidenceAsked);
     const selected = useAssetBrowserStore((s) => s.selected);
     const searchTerm = useAssetBrowserStore((s) => s.searchTerm);
+    const selection = useAssetBrowserStore((s) => s.selection);
     const { setMode, select, setSearchTerm } = useAssetBrowserStore.getState();
 
     // A scope switch invalidates everything; the first open of the tab loads.
@@ -1150,9 +1271,12 @@ const AssetsTab: React.FC = () => {
             out_of_scope: [...viewSettings.outOfScope].sort(),
             updated_at: new Date().toISOString(),
         });
-    const toggleOutOfScope = (id: string) => {
+    const setOutOfScope = (ids: readonly string[], out: boolean) => {
         const next = new Set(viewSettings.outOfScope);
-        if (!next.delete(id)) next.add(id);
+        for (const id of ids) {
+            if (out) next.add(id);
+            else next.delete(id);
+        }
         // Only the list changes: saved kind choices are kept as saved, and a
         // provider default stays a default rather than being frozen into the file.
         void saveView({
@@ -1161,22 +1285,33 @@ const AssetsTab: React.FC = () => {
             updated_at: new Date().toISOString(),
         });
     };
-    // The out-of-scope switch for the selected row, drawn on the detail's action row.
-    const scopeToggle = (id: string): React.ReactNode => {
-        if (viewSettings.outOfScope.has(id)) {
-            return (
-                <button
-                    type="button"
-                    disabled={viewBusy}
-                    className={BTN_QUIET}
-                    title="Draw this branch again, for everyone in this scope"
-                    onClick={() => toggleOutOfScope(id)}
-                >
-                    Back in scope
-                </button>
-            );
+    // What the out-of-scope switch does for `ids`. Taking rows OUT wins over putting some back: a
+    // selection that is partly out already is most likely being taken out the rest of the way. Null
+    // where every row is out through a branch above it, which only that branch can change.
+    const scopeSwitch = (ids: readonly string[]): { label: string; title: string; run: () => void } | null => {
+        const many = ids.length > 1;
+        const own = ids.filter((id) => viewSettings.outOfScope.has(id));
+        const free = ids.filter((id) => !own.includes(id) && !(view && isOutOfScope(view.hierarchy, viewSettings.outOfScope, id)));
+        if (free.length) {
+            return {
+                label: many ? `Out of scope (${free.length})` : "Out of scope",
+                title: `Stop drawing ${many ? "these branches" : "this branch"} and everything under ${many ? "them" : "it"}, for everyone in this scope. Hides nothing that is published; Show hidden draws it again.`,
+                run: () => setOutOfScope(free, true),
+            };
         }
-        if (view && isOutOfScope(view.hierarchy, viewSettings.outOfScope, id)) {
+        if (own.length) {
+            return {
+                label: many ? `Back in scope (${own.length})` : "Back in scope",
+                title: `Draw ${many ? "these branches" : "this branch"} again, for everyone in this scope`,
+                run: () => setOutOfScope(own, false),
+            };
+        }
+        return null;
+    };
+    // The out-of-scope switch for the selected rows, drawn on the detail's action row.
+    const scopeToggle = (ids: readonly string[]): React.ReactNode => {
+        const sw = scopeSwitch(ids);
+        if (!sw) {
             return (
                 <span className="text-gray-500" title="Out of scope through a branch above it.">
                     out of scope above
@@ -1184,17 +1319,17 @@ const AssetsTab: React.FC = () => {
             );
         }
         return (
-            <button
-                type="button"
-                disabled={viewBusy}
-                className={BTN_QUIET}
-                title="Stop drawing this branch and everything under it, for everyone in this scope. Hides nothing that is published; Show hidden draws it again."
-                onClick={() => toggleOutOfScope(id)}
-            >
-                Out of scope
+            <button type="button" disabled={viewBusy} className={BTN_QUIET} title={sw.title} onClick={sw.run}>
+                {sw.label}
             </button>
         );
     };
+    const scopeMenuItem = (ids: readonly string[]): KebabMenuItem | null => {
+        const sw = scopeSwitch(ids);
+        return sw ? { key: "scope", label: sw.label, title: sw.title, disabled: viewBusy, separatorBefore: true, onClick: sw.run } : null;
+    };
+    // What an action on `id` applies to: the selection's topmost rows when `id` is in it, else `id`.
+    const targetsOf = (id: string): string[] => actionTargets(selection, id, (n) => view?.hierarchy.byId.get(n)?.parent);
     const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
     const [requestPickerAt, setRequestPickerAt] = useState<{ id: string; x: number; y: number } | null>(null);
 
@@ -1232,42 +1367,50 @@ const AssetsTab: React.FC = () => {
     // EVERY provider that can be asked for one node, not only the one whose spine drew the row:
     // the point of a second provider is geometry the first does not have. Each request publishes
     // under the provider that was asked, so its claim sits beside the others rather than on top.
-    const nodeRequestsFor = (id: string): NodeRequestControl[] => {
-        const node = view?.hierarchy.byId.get(id)?.data;
-        if (!view || !node) return [];
+    //
+    // SEVERAL NODES (a selection) go in as few requests as the provider takes: batches of its
+    // declared `maxNodes`, one job each, all started together. The state stays per (node,
+    // provider), so each row still shows its own request; the control sums them.
+    const nodeRequestsFor = (ids: readonly string[]): NodeRequestControl[] => {
+        if (!view) return [];
+        const targets: NodeTarget[] = [];
+        for (const id of ids) {
+            const node = view.hierarchy.byId.get(id)?.data;
+            if (node) targets.push({ id, label: node.label });
+        }
+        if (!targets.length) return [];
         const collection = view.collection;
+        const many = targets.length > 1;
         return [...nodeRequests.entries()]
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([providerId, req]) => {
-                const key = loadKey(id, providerId);
-                const st = nodeRequestState.get(key);
+                const states = targets.map((t) => nodeRequestState.get(loadKey(t.id, providerId)));
+                const running = states.filter((st) => st?.busy);
+                const errors = targets.flatMap((t, i) => (states[i]?.error && !states[i]?.busy ? [`${t.label ?? t.id}: ${states[i]!.error}`] : []));
+                const notes = states.flatMap((st) => (st?.note && !st.busy ? [st.note] : []));
                 return {
                     provider: providerId,
-                    label: req.label,
-                    busy: !!st?.busy,
-                    stage: st?.stage ?? null,
-                    error: st?.error ?? null,
-                    note: st?.note ?? null,
+                    label: many ? `${req.label} (${targets.length})` : req.label,
+                    busy: running.length > 0,
+                    stage: many ? (running.length ? `${running.length} of ${targets.length} running` : null) : (states[0]?.stage ?? null),
+                    error: errors.length ? (many ? `${errors.length} failed:\n${errors.join("\n")}` : states[0]!.error) : null,
+                    note: notes.length ? (many ? `${notes.length} of ${targets.length} up to date` : notes[0]) : null,
                     blocked: req.requiresAdmin && !isAdmin ? `Only an administrator can run ${req.pluginId}` : null,
                     run: () => {
-                        patchNodeRequest(key, { busy: true, stage: null, error: null, note: null });
-                        void requestNode(
-                            requestDeps((stage) => patchNodeRequest(key, { stage })),
-                            scope,
-                            providerId,
-                            req,
-                            collection,
-                            id,
-                            node.label,
-                        )
-                            .then(async (out) => {
-                                // Unchanged: the provider's last publish already covers this node, so
-                                // nothing new was published -- the note says which one.
-                                patchNodeRequest(key, { busy: false, stage: null, note: out.unchanged ? `up to date (${out.revision})` : null });
-                                // Re-read, so the new publish's claim reaches the row and Load enables.
-                                await loader.refresh(scope);
-                            })
-                            .catch((e) => patchNodeRequest(key, { busy: false, stage: null, error: e instanceof Error ? e.message : String(e) }));
+                        for (const batch of nodeBatches(req, targets)) {
+                            const keys = batch.map((t) => loadKey(t.id, providerId));
+                            const patch = (p: Parameters<typeof patchNodeRequest>[1]) => keys.forEach((k) => patchNodeRequest(k, p));
+                            patch({ busy: true, stage: null, error: null, note: null });
+                            void requestNodes(requestDeps((stage) => patch({ stage })), scope, providerId, req, collection, batch)
+                                .then(async (out) => {
+                                    // Unchanged: the provider's last publish already covers these nodes, so
+                                    // nothing new was published -- the note says which one.
+                                    patch({ busy: false, stage: null, note: out.unchanged ? `up to date (${out.revision})` : null });
+                                    // Re-read, so the new publish's claims reach the rows and Load enables.
+                                    await loader.refresh(scope);
+                                })
+                                .catch((e) => patch({ busy: false, stage: null, error: e instanceof Error ? e.message : String(e) }));
+                        }
                     },
                 };
             });
@@ -1493,26 +1636,29 @@ const AssetsTab: React.FC = () => {
                     <Detail
                         view={view}
                         id={selected}
+                        ids={targetsOf(selected)}
                         scope={scope}
-                        requests={nodeRequestsFor(selected)}
-                        actions={view.hierarchy.byId.has(selected) ? scopeToggle(selected) : null}
+                        requests={nodeRequestsFor(targetsOf(selected))}
+                        actions={view.hierarchy.byId.has(selected) ? scopeToggle(targetsOf(selected)) : null}
                     />
                 )}
                 {view && rowMenu && view.hierarchy.byId.has(rowMenu.id) && (
                     <AssetRowMenu
                         view={view}
                         id={rowMenu.id}
+                        ids={targetsOf(rowMenu.id)}
                         scope={scope}
                         x={rowMenu.x}
                         y={rowMenu.y}
-                        requests={nodeRequestsFor(rowMenu.id)}
+                        requests={nodeRequestsFor(targetsOf(rowMenu.id))}
                         onPickRequests={(x, y) => setRequestPickerAt({ id: rowMenu.id, x, y })}
+                        scopeItem={scopeMenuItem(targetsOf(rowMenu.id))}
                         onClose={() => setRowMenu(null)}
                     />
                 )}
                 {view && requestPickerAt && view.hierarchy.byId.has(requestPickerAt.id) && (
                     <RequestPicker
-                        requests={nodeRequestsFor(requestPickerAt.id)}
+                        requests={nodeRequestsFor(targetsOf(requestPickerAt.id))}
                         anchor={{ x: requestPickerAt.x, y: requestPickerAt.y }}
                         onClose={() => setRequestPickerAt(null)}
                     />
