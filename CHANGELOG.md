@@ -2,6 +2,16 @@
 
 
 
+## v0.99.0 (2026-10-01)
+
+### Feature
+
+* feat(viewer): a local viewer can be stopped from its page, a deployment never (#425)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`38dc313`](https://github.com/Krande/adapy/commit/38dc3131ad5be1e1c0246d9e8f7359f6715c3270))
+
+
 ## v0.98.0 (2026-10-01)
 
 ### Feature
