@@ -245,11 +245,16 @@ export interface SceneHandle {
   // upright on load instead of laying it on its side. The rotation is applied
   // before the recentering frame is measured, so it composes correctly with
   // `translate` and leaves a "y" model sharing one frame with a "z" one.
+  //
+  // `displayName` is what the model is called to a person -- its root row in the Scene tree.
+  // Defaults to the model's own root name, else to `sourceName`; the tree can be switched to show
+  // the unique `sourceName` instead.
   loadModelFromUrl: (
     owner: string,
     url: string,
     opts?: {
       sourceName?: string;
+      displayName?: string;
       headers?: Record<string, string>;
       translate?: boolean;
       sourceUpAxis?: "z" | "y";

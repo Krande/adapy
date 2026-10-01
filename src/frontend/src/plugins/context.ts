@@ -122,6 +122,7 @@ function makeSceneHandle(): SceneHandle {
           modelUrl: url,
           translate: opts?.translate ?? true,
           sourceName,
+          displayName: opts?.displayName,
           requestHeaders: opts?.headers,
           sourceUpAxis: opts?.sourceUpAxis ?? "z",
           metrics,

@@ -412,7 +412,12 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
                         });
                         const claim = parseDeliveryClaim(wireClaim);
                         const deps = realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name));
-                        const asset = await loadNode(deps, scope, ref, claim);
+                        // The row's label names the model in the scene; with two providers' geometry
+                        // for one node side by side, the provider tells the two rows apart.
+                        const facts = rowFacts(view, id);
+                        const label = facts?.node.label ?? id;
+                        const several = (facts?.claims ?? []).filter((b) => b.weight !== "below").length > 1;
+                        const asset = await loadNode(deps, scope, ref, claim, several ? `${label} · ${badge.provider}` : label);
                         useAssetBrowserStore.getState().endLoad(key, asset);
                         requestRender();
                     } catch (e) {

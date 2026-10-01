@@ -1,6 +1,7 @@
 import {create} from 'zustand';
 import {TreeApi} from "react-arborist";
 import {TreeNodeData} from "../components/tree_view/CustomNode";
+import {labelRoots, readRootLabelMode, writeRootLabelMode, type RootLabelMode} from "@/utils/tree_view/rootLabels";
 
 export interface TreeNode {
     id: string;
@@ -55,6 +56,10 @@ export interface TreeViewState {
     setTreeViewWidth: (w: number) => void;
 
     setMaxId(max_id: number): void;
+
+    /** Whether a model's root row shows its top-level name or the unique id it was loaded under. */
+    rootLabelMode: RootLabelMode;
+    setRootLabelMode: (mode: RootLabelMode) => void;
 }
 
 let rangeIndex: Map<string, TreeNodeData> = new Map();
@@ -83,4 +88,14 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
     treeViewWidth: 256,
     setTreeViewWidth: (w) => set({treeViewWidth: w}),
     setMaxId: (max_id) => set({max_id: max_id}),
+    rootLabelMode: readRootLabelMode(),
+    setRootLabelMode: (mode) => {
+        writeRootLabelMode(mode);
+        set((s) => {
+            if (!s.treeData) return {rootLabelMode: mode};
+            const treeData = labelRoots(s.treeData, mode);
+            rangeIndex = buildRangeIndex(treeData);
+            return {rootLabelMode: mode, treeData};
+        });
+    },
 }));

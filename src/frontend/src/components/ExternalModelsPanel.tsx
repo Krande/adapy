@@ -190,6 +190,8 @@ const ExternalModelsPanel: React.FC = () => {
                 const ctx = makePluginContextStandalone(OWNER);
                 await ctx.scene.loadModelFromUrl(OWNER, url, {
                     sourceName: sourceNameFor(m),
+                    // Its name, not its id, on its root row in the Scene tree.
+                    displayName: m.name,
                     // Empty for a presigned URL; populated for a provider whose
                     // fetch must be authenticated. Passing them through means the
                     // panel works for both without branching on provider.

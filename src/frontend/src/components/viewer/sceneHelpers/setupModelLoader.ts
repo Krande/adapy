@@ -44,6 +44,9 @@ export interface SetupModelLoaderOptions {
     translate?: boolean;
     prepareHook?: SetupModelPrepareHook;
     sourceName?: string;
+    /** What the caller calls this model (a site's label, a model's name): its root row's name in
+     *  the Scene tree. Absent: the model's own root name, else the source name. */
+    displayName?: string;
     /** Auth headers for loading directly from the authed REST streaming GET (REST-mode view). */
     requestHeaders?: Record<string, string>;
     /** Optional admin load-metrics recorder (REST view path). No-op when absent. */
@@ -69,6 +72,7 @@ export async function setupModelLoaderAsync(
         translate = true,
         prepareHook,
         sourceName,
+        displayName,
         requestHeaders,
         metrics,
         autoFitOverride,
@@ -200,7 +204,7 @@ export async function setupModelLoaderAsync(
     >;
 
     // delegate all the caching to our helper (sourceName -> the tree root label)
-    await cacheAndBuildTree(model_hash, rawUD, sourceName);
+    await cacheAndBuildTree(model_hash, rawUD, sourceName, displayName);
 
     // Union of per-geometry boundingBoxes (set cheaply in prepareLoadedModel via
     // fastComputeBounds) — avoids setFromObject's per-vertex iteration on large

@@ -5,6 +5,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {clearFaceHighlight} from "@/utils/mesh_select/faceHighlight";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {TreeNodeData} from "@/components/tree_view/CustomNode";
+import {labelRoots, topLevelName} from "@/utils/tree_view/rootLabels";
 
 /**
  * 1) cache hierarchy + drawRanges
@@ -22,18 +23,13 @@ function filenameLabel(sourceName: string | undefined, fallback: string): string
     return base || fallback || "model";
 }
 
-// Append -2 / -3 / ... when an identical filename is already a root.
-function dedupLabel(base: string, existing: string[]): string {
-    if (!existing.includes(base)) return base;
-    let n = 2;
-    while (existing.includes(`${base}-${n}`)) n++;
-    return `${base}-${n}`;
-}
 
 export async function cacheAndBuildTree(
     key: string,
     rawUserData: Record<string, any>,
     sourceName?: string,
+    /** What the caller calls this model -- a site's label, a model's name -- for its root row. */
+    displayName?: string,
 ): Promise<void> {
     const tree_store = useTreeViewStore.getState()
 
@@ -113,10 +109,9 @@ export async function cacheAndBuildTree(
                 ? [prev].filter((c) => c.model_key !== key)
                 : [];
 
-        treeData.name = dedupLabel(
-            filenameLabel(sourceName, treeData.name),
-            siblings.map((c) => c.name),
-        );
+        // Both names on the root; which one shows is the viewer's choice (`rootLabels`).
+        treeData.source_label = filenameLabel(sourceName, treeData.name);
+        treeData.top_name = topLevelName(displayName, treeData.name, treeData.source_label);
 
         const container: TreeNodeData = {
             id: ROOTS_CONTAINER_ID,
@@ -125,7 +120,7 @@ export async function cacheAndBuildTree(
             model_key: null,
             node_name: null,
         };
-        tree_store.setTreeData(container);
+        tree_store.setTreeData(labelRoots(container, tree_store.rootLabelMode));
 
         // Only the NEW model's ids can raise the maximum -- they were numbered from it -- so only
         // its subtree is walked. Walking the whole container (every model loaded so far, an await

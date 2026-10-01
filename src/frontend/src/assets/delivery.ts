@@ -269,7 +269,7 @@ export interface LoadNodeDeps {
   loadModelFromUrl: (
     owner: string,
     url: string,
-    opts?: { sourceName?: string; headers?: Record<string, string>; sourceUpAxis?: "z" | "y" },
+    opts?: { sourceName?: string; displayName?: string; headers?: Record<string, string>; sourceUpAxis?: "z" | "y" },
   ) => Promise<void>;
   isLoaded: (sourceName: string) => boolean;
   blobUrl: (scope: string, key: string) => string;
@@ -333,12 +333,15 @@ async function pollToTerminal(deps: LoadNodeDeps, jobId: string, capability: str
  *
  *  A source name already in the scene short-circuits before any of the
  *  above: `assetSourceName` is scene identity, so a second load of the same
- *  node is a lookup, never a fetch. */
+ *  node is a lookup, never a fetch.
+ *
+ *  `displayName` is the node as the tree shows it, for its root row in the scene. */
 export async function loadNode(
   deps: LoadNodeDeps,
   scope: string,
   ref: NodeRef,
   claim: DeliveryClaim,
+  displayName?: string,
 ): Promise<LoadedAsset> {
   const sourceName = assetSourceName(ref);
 
@@ -354,6 +357,7 @@ export async function loadNode(
     const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(claim.url) ? claim.url : deps.blobUrl(scope, claim.url);
     await deps.loadModelFromUrl(OWNER, url, {
       sourceName,
+      ...(displayName ? { displayName } : {}),
       headers: claim.headers,
       sourceUpAxis: claim.sourceUpAxis,
     });
@@ -400,7 +404,7 @@ export async function loadNode(
   });
 
   const glbUrl = deps.blobUrl(scope, summary.glbKey);
-  await deps.loadModelFromUrl(OWNER, glbUrl, { sourceName });
+  await deps.loadModelFromUrl(OWNER, glbUrl, { sourceName, ...(displayName ? { displayName } : {}) });
   return {
     sourceName,
     ref,

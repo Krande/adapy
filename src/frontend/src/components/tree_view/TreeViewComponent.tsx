@@ -6,7 +6,7 @@ import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
-    const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope} = useTreeViewStore();
+    const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope, rootLabelMode, setRootLabelMode} = useTreeViewStore();
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -59,14 +59,30 @@ const TreeViewComponent: React.FC = () => {
     return (
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
             <div ref={headerRef} className={"w-full pr-1 pt-1"}>
-                <input
-                    className={"w-full bg-gray-600 text-white rounded-sm pl-1"}
-                    placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search here"}
-                    onInput={
-                    (event) => {
-                        useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
-                    }
-                }/>
+                <div className="flex items-center gap-1">
+                    <input
+                        className={"flex-1 min-w-0 bg-gray-600 text-white rounded-sm pl-1"}
+                        placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search here"}
+                        onInput={
+                        (event) => {
+                            useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
+                        }
+                    }/>
+                    {/* What each loaded model's root row is called: its top-level name, or the
+                        unique id it was loaded under. */}
+                    <button
+                        type="button"
+                        className="shrink-0 rounded-sm border border-gray-600 px-1.5 text-[11px] leading-5 text-gray-300 hover:bg-gray-700"
+                        title={
+                            rootLabelMode === "name"
+                                ? "Model roots show their top-level name. Click to show the unique id each was loaded under."
+                                : "Model roots show the unique id each was loaded under. Click to show their top-level name."
+                        }
+                        onClick={() => setRootLabelMode(rootLabelMode === "name" ? "id" : "name")}
+                    >
+                        {rootLabelMode === "name" ? "Names" : "IDs"}
+                    </button>
+                </div>
                 {scopeNodeId && (
                     <div className="mt-1 flex items-center">
                         <span
