@@ -2,6 +2,15 @@
 
 
 
+## v0.100.0 (2026-10-01)
+
+### Feature
+
+* feat: provider collections per scope, request and rescan from the browser, and a redrawn asset tree (#421)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`2c5c20e`](https://github.com/Krande/adapy/commit/2c5c20ebbcaeeff91db1cf4f5f96495982d2675d))
+
+
 ## v0.99.0 (2026-10-01)
 
 ### Feature
