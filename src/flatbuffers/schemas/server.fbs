@@ -13,8 +13,7 @@ table ServerProcessInfo {
 // document rides as JSON text -- the schema wire type, not a re-encoding of
 // every procedural doc field -- so the wire contract doesn't have to track
 // the document's own evolution. ``model_id`` is an opaque token the client
-// invents; it is never a file path (see docs/documents/ws_rest_parity.rst,
-// "model id: opaque token vs file path"). ``expected_content_hash`` is the
+// invents; it is never a file path. ``expected_content_hash`` is the
 // sha256 hex digest of the bytes the client last read for this model_id;
 // absent/empty means "no concurrency check, just write" (first save, or a
 // model with no local conflict history yet).
@@ -35,7 +34,7 @@ table ProceduralModelSaveReply {
 // LIST_PROCEDURAL_MODELS takes no request payload -- like LIST_PROCEDURES and
 // LIST_FILE_OBJECTS, the command_type alone selects the handler in
 // default_on_message. It lists every document under the same directory
-// SAVE_PROCEDURAL_MODEL writes into (docs/documents/ws_rest_parity.rst, step 6).
+// SAVE_PROCEDURAL_MODEL writes into.
 
 // One entry in a LIST_PROCEDURAL_MODELS reply. ``modified_at`` is the file's
 // mtime as Unix milliseconds (integer, like ``WebClient.last_heartbeat``

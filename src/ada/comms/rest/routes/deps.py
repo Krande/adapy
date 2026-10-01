@@ -559,8 +559,7 @@ async def publish_capability_requirements(queue: JobQueue, value: str | None) ->
     never "the fleet stopped".
     """
     # Not a transport concern at all: this uses the queue as a KEY-VALUE
-    # STORE that workers read, not as a way to run work. See the closing note
-    # in docs/documents/job_transport.rst.
+    # STORE that workers read, not as a way to run work.
     if not queue.enabled:
         return
     try:

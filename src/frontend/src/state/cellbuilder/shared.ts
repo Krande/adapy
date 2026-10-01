@@ -47,7 +47,7 @@ export function currentScopePart(): string {
   // `useScopeStore` in the first place. `LOCAL_MODEL_SCOPE` is the explicit sentinel the ws/REST
   // parity plan calls for here, not the REST-oriented "user:me" default: that string would work
   // by accident today and quietly mean something real the day a local model syncs to a server
-  // (docs/documents/ws_rest_parity.rst, "scope strings"). REST always resolves a real scope
+  // with a real scope. REST always resolves a real scope
   // before falling through to this branch, so this only ever fires on the websocket transport.
   return capabilities.transport === "ws" ? LOCAL_MODEL_SCOPE : "user:me";
 }

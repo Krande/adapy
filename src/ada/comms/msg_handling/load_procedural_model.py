@@ -36,8 +36,7 @@ def load_procedural_model(
     ``save_procedural_model`` (this is the read half of the same on-disk layout -- see that
     module's docstring). Replies with the document JSON plus its current sha256 ``content_hash``,
     so a client that loads a model can thread that hash back as ``expected_content_hash`` on its
-    next save (the same contract the save reply already gives a saver, see
-    ``docs/documents/ws_rest_parity.rst``).
+    next save (the same contract the save reply already gives a saver).
 
     Rejects with a generic ERROR reply for a missing/invalid ``model_id`` or for a ``model_id``
     nothing has been saved under yet -- there is no revision-conflict distinction to make on a
