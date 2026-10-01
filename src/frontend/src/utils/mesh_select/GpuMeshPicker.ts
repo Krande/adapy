@@ -3,6 +3,7 @@ import * as Comlink from "comlink";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import {usePerfStore} from "@/state/perfStore";
+import {coalescedGroups} from "./groupRuns";
 // Inline-bundled worker — Vite handles the import + URL plumbing.
 // We never instantiate this until the first ``registerMesh`` call so
 // startup cost is zero for users who haven't loaded a model yet.
@@ -828,38 +829,14 @@ class GpuMeshPicker {
             return;
         }
 
-        // Walk drawRanges in start order, emit groups. Coalesce runs
-        // of visible ranges (and gaps between drawRanges) into single
-        // materialIndex=0 groups; each hidden range gets its own
-        // materialIndex=1 group. Mirrors CustomBatchedMesh.updateGroups
-        // and reuses the same cached sorted-segments view so we don't
-        // re-sort drawRanges on every pick.
+        // Visible ranges and the gaps between them draw with material 0, hidden ones with 1, and every
+        // run of neighbours with one material is one group (`groupRuns.coalescedGroups`) -- as
+        // CustomBatchedMesh.updateGroups does, on the same cached sorted-segments view. A large
+        // isolation is then a few draws per pick, not one per hidden part.
         const segs = mesh.getSortedSegments();
-        const n = segs.ids.length;
-
-        let cur = 0;
-        let runStart: number | null = null;
-        const flushRun = (end: number) => {
-            if (runStart !== null && end > runStart) {
-                pickerGeom.addGroup(runStart, end - runStart, 0);
-            }
-            runStart = null;
-        };
-        for (let i = 0; i < n; i++) {
-            const id = segs.ids[i];
-            const s = segs.starts[i];
-            const c = segs.counts[i];
-            if (s > cur && runStart === null) runStart = cur;
-            if (hidden.has(id)) {
-                flushRun(s);
-                pickerGeom.addGroup(s, c, 1);
-            } else {
-                if (runStart === null) runStart = s;
-            }
-            cur = s + c;
+        for (const g of coalescedGroups(segs.starts, segs.counts, (i) => (hidden.has(segs.ids[i]) ? 1 : 0), total, 0)) {
+            pickerGeom.addGroup(g.start, g.count, g.materialIndex);
         }
-        if (cur < total && runStart === null) runStart = cur;
-        flushRun(total);
     }
 
     /** Compute the world-space position of the picked range's first

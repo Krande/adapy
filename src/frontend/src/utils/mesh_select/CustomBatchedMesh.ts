@@ -4,6 +4,7 @@ import {selectedMaterial} from '../default_materials';
 import {buildEdgeGeometryAsync, buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {clipWithModel} from "@/utils/scene/section_clipping";
+import {coalescedGroups} from "./groupRuns";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -202,44 +203,23 @@ export class CustomBatchedMesh extends THREE.Mesh {
             return;
         }
 
+        // One group per run of neighbouring ranges that share a material -- selected and hidden runs
+        // included, not only the default one (`groupRuns.coalescedGroups`). Gaps between ranges draw
+        // with the default material.
         const segs = this.getSortedSegments();
-        const n = segs.ids.length;
-
-        // Walk segments, merging default-material runs (including any
-        // gaps between segments) into a single addGroup at flush time.
-        // Only selected/hidden ranges produce their own groups.
-        let cur = 0;
-        let runStart: number | null = null;
-        const flushRun = (end: number) => {
-            if (runStart !== null && end > runStart) {
-                this.geometry.addGroup(runStart, end - runStart, 0);
-            }
-            runStart = null;
-        };
-
-        for (let i = 0; i < n; i++) {
-            const id = segs.ids[i];
-            const s = segs.starts[i];
-            const c = segs.counts[i];
-            if (s > cur && runStart === null) {
-                runStart = cur;
-            }
-            const mi: 0 | 1 | 2 = this.hiddenRanges.has(id)
-                ? 2
-                : this.selectedRanges.has(id)
-                    ? (this._usesVertexColorsFlag ? 0 : 1)
-                    : 0;
-            if (mi === 0) {
-                if (runStart === null) runStart = s;
-            } else {
-                flushRun(s);
-                this.geometry.addGroup(s, c, mi);
-            }
-            cur = s + c;
-        }
-        // Trailing default region or open run extends to idxCount.
-        if (cur < idxCount && runStart === null) runStart = cur;
-        flushRun(idxCount);
+        const groups = coalescedGroups(
+            segs.starts,
+            segs.counts,
+            (i) => {
+                const id = segs.ids[i];
+                if (this.hiddenRanges.has(id)) return 2;
+                if (this.selectedRanges.has(id)) return this._usesVertexColorsFlag ? 0 : 1;
+                return 0;
+            },
+            idxCount,
+            0,
+        );
+        for (const g of groups) this.geometry.addGroup(g.start, g.count, g.materialIndex);
     }
 
     /** call this when you have a renderer and want the overlay in the scene */
@@ -689,16 +669,18 @@ export class CustomBatchedMesh extends THREE.Mesh {
             .map(([id, [s, c]]) => ({ id, s, c }))
             .sort((a, b) => a.s - b.s);
 
-        let cur = 0;
+        // Selected (and not hidden) ranges show; gaps and everything else are invisible. Neighbouring
+        // ranges of one material share a group, so a large selection is a few draws, not one per part.
         const selectedSet = new Set(rangeIds);
-        for (const { id, s, c } of segs) {
-            if (s > cur) overlayGeom.addGroup(cur, s - cur, 1); // gap = invisible
-            let mi: 0 | 1 = 1; // default invisible
-            if (!this.hiddenRanges.has(id) && selectedSet.has(id)) mi = 0; // show selected
-            overlayGeom.addGroup(s, c, mi);
-            cur = s + c;
+        for (const g of coalescedGroups(
+            segs.map((x) => x.s),
+            segs.map((x) => x.c),
+            (i) => (!this.hiddenRanges.has(segs[i].id) && selectedSet.has(segs[i].id) ? 0 : 1),
+            idxCount,
+            1,
+        )) {
+            overlayGeom.addGroup(g.start, g.count, g.materialIndex);
         }
-        if (cur < idxCount) overlayGeom.addGroup(cur, idxCount - cur, 1);
 
         // Ensure CPU updater is not used for this path
         this._overlaySourceIndices = undefined;
