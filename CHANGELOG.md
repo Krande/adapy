@@ -2,6 +2,15 @@
 
 
 
+## v0.98.0 (2026-10-01)
+
+### Feature
+
+* feat: cache Abaqus/Sestra mode shapes and modal mass in the FEA verification report (#422)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`b3ca006`](https://github.com/Krande/adapy/commit/b3ca00668530e1eac239349561a9f0b27cfb8fbd))
+
+
 ## v0.97.0 (2026-10-01)
 
 ### Feature
