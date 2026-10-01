@@ -345,6 +345,9 @@ interface AssetLoadControl {
     root: TreeNodeData | null;
     busy: boolean;
     error: string | null;
+    /** What the build said it could not draw, once loaded: members of the node's source that are
+     *  not in the model, and why -- the build summary's `warnings`. Empty when it drew them all. */
+    notes: readonly string[];
     /** Resolves when the model is in the scene, or the attempt failed (its error is then in the store). */
     load: () => Promise<void>;
     unload: () => void;
@@ -389,7 +392,8 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
         const sourceName = assetSourceName(ref);
         if (seen.has(sourceName)) continue;
         seen.add(sourceName);
-        const loadedHere = loaded.some((a) => a.sourceName === sourceName);
+        const asset = loaded.find((a) => a.sourceName === sourceName);
+        const loadedHere = !!asset;
         const root = loadedHere ? loadedTreeRoot(treeData, sourceName) : null;
         out.push({
             rowId: id,
@@ -399,6 +403,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
             root,
             busy: loadBusy.has(key),
             error: loadErrors.get(key) ?? null,
+            notes: asset?.warnings ?? [],
             // The work lives in the store, not in the caller: a context menu closes
             // the moment its item is clicked, and the load must outlive it.
             load: () => {
@@ -576,6 +581,12 @@ const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ c
         return (
             <div className="flex items-center gap-2 min-w-0" title={`${control.provider}${via}`}>
                 <span className="text-green-300 truncate">Loaded{named ? ` · ${control.provider}` : via ? ` (${via.trim()})` : ""}</span>
+                {control.notes.length > 0 && (
+                    // Said where the model is, not left for someone to find missing in it.
+                    <span className="shrink-0 text-amber-300 cursor-help" title={control.notes.join("\n")}>
+                        incomplete
+                    </span>
+                )}
                 <button
                     type="button"
                     className="text-blue-300 hover:text-white disabled:text-gray-500"
