@@ -414,30 +414,26 @@ class GpuMeshPicker {
         // Per-triangle colour map + global id allocation. ID assignment
         // MUST happen on main (sequential counter shared across all
         // registered meshes); the worker only consumes the resulting
-        // ``triColor`` array, not the counter. Adding to ``idToEntry``
+        // colour runs, not the counter. Adding to ``idToEntry``
         // here is also safe — until the worker responds, the picker
         // mesh isn't in the scene, so no GPU pixel can decode to an id
         // we haven't yet built geometry for.
-        const triColor = new Uint8Array(nTris * 3);
+        //
+        // ONLY THE IDS ARE ALLOCATED HERE: one loop step per RANGE. Writing each id into every
+        // triangle it covers is per TRIANGLE -- tens of millions of writes on a large model, ~450 ms
+        // of main thread per such model in the load audit -- so it is sent to the worker as runs
+        // `(startTri, triCount, id)` and filled there (`pickerColors.fillTriColors`). Runs apply in
+        // order, so a face run below overwrites its solid's run exactly as the in-place fill did.
+        const colorRuns: number[] = [];
         for (const [rangeId, [start, count]] of mesh.drawRanges) {
             if (count <= 0) continue;
             const id = this.idCounter++;
-            const r = id & 0xff;
-            const g = (id >> 8) & 0xff;
-            const b = (id >> 16) & 0xff;
-            const startTri = (start / 3) | 0;
-            const triCount = (count / 3) | 0;
             this.idToEntry.set(id, {
                 mesh,
                 rangeId,
                 firstVertexIndex: indices[start],
             });
-            for (let t = 0; t < triCount; t++) {
-                const ti = (startTri + t) * 3;
-                triColor[ti] = r;
-                triColor[ti + 1] = g;
-                triColor[ti + 2] = b;
-            }
+            colorRuns.push((start / 3) | 0, (count / 3) | 0, id);
         }
 
         // Per-FACE pick ids (gpuFacePicking): overwrite the per-solid colours above with one id per
@@ -462,11 +458,7 @@ class GpuMeshPicker {
                 for (const f of faces) {
                     if (f.length <= 0) continue;
                     const id = this.idCounter++;
-                    const fr = id & 0xff;
-                    const fg = (id >> 8) & 0xff;
-                    const fb = (id >> 16) & 0xff;
-                    const startTri = (f.start / 3) | 0;
-                    const triCount = (f.length / 3) | 0;
+                    colorRuns.push((f.start / 3) | 0, (f.length / 3) | 0, id);
                     this.idToEntry.set(id, {
                         mesh,
                         rangeId: f.rangeId,
@@ -476,12 +468,6 @@ class GpuMeshPicker {
                         faceStart: f.start,
                         faceLen: f.length,
                     });
-                    for (let t = 0; t < triCount; t++) {
-                        const ti = (startTri + t) * 3;
-                        triColor[ti] = fr;
-                        triColor[ti + 1] = fg;
-                        triColor[ti + 2] = fb;
-                    }
                 }
             }
         }
@@ -538,6 +524,7 @@ class GpuMeshPicker {
             morphCopies.push((sourceMorphs![m].array as Float32Array).slice());
         }
 
+        const colorRunsArr = Uint32Array.from(colorRuns);
         const input: PickerBuildInput = {
             flat,
             indices: indicesCopy,
@@ -545,7 +532,7 @@ class GpuMeshPicker {
             itemSize,
             nTris,
             nOrigVerts: posAttr.count,
-            triColor,
+            colorRuns: colorRunsArr,
             morphArrs: morphCopies,
             morphItemSize,
             morphTargetsRelative: geom.morphTargetsRelative === true,
@@ -556,7 +543,7 @@ class GpuMeshPicker {
         const transfers: ArrayBuffer[] = [
             indicesCopy.buffer as ArrayBuffer,
             posCopy.buffer as ArrayBuffer,
-            triColor.buffer as ArrayBuffer,
+            colorRunsArr.buffer as ArrayBuffer,
             ...morphCopies.map((m) => m.buffer as ArrayBuffer),
         ];
 
