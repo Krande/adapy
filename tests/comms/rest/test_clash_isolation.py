@@ -23,10 +23,11 @@ os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test
 
 import pytest  # noqa: E402
 
+from ada.comms.rest import subprocess_convert  # noqa: E402
+
 # Imported for its side effect as much as anything: app creation pulls adacpp in before numpy's
 # BLAS initialises, which this environment needs (see the other REST suites).
 from ada.comms.rest.app import create_app  # noqa: E402,F401
-from ada.comms.rest import subprocess_convert  # noqa: E402
 from ada.comms.rest.formats import clash_isolation  # noqa: E402
 from ada.comms.rest.subprocess_convert import (  # noqa: E402
     HAVE_POSIX_FORK,

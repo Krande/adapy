@@ -90,9 +90,9 @@ def _connection_specs_for_heartbeat(capabilities: list[str]) -> list[dict]:
                 "priority": spec.priority,
                 "roles": spec_to_form_schema(spec),
                 # The spec's own attribution wins where it has one, as for passes and checkers.
-                "capability": None
-                if spec.name in BUILTIN_SPEC_NAMES
-                else (getattr(spec, "capability", None) or own_capability),
+                "capability": (
+                    None if spec.name in BUILTIN_SPEC_NAMES else (getattr(spec, "capability", None) or own_capability)
+                ),
             }
         )
     return out

@@ -879,7 +879,8 @@ def _core_clash_checkers() -> list[dict]:
     """Core's own checker, in the catalog shape -- the ``code`` half of the checker union."""
     try:
         import ada.clash.identify  # noqa: F401,PLC0415 - registers core's passes, which its checker lists
-        from ada.clash.passes import BUILTIN_CHECKER as _CORE, list_checkers
+        from ada.clash.passes import BUILTIN_CHECKER as _CORE
+        from ada.clash.passes import list_checkers
     except ImportError:
         # The slim api cannot load the passes, but it can still NAME core's checker: it is always
         # there, and a dropdown missing its default would be a worse answer than one missing the

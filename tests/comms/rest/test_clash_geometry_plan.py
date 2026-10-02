@@ -691,7 +691,14 @@ def test_a_member_whose_publish_has_no_source_artefact_is_planned_and_checked(cl
         nodes=[_row("fnbare", None, "/Z100-ZONE", leaf=False), _row("fnb1", "fnbare", "/Z100-BEAMS2")],
     )
     member = {
-        "target": {"kind": "node", "provider": MESH, "collection": COLLECTION, "subject": "fnbare", "revision": None, "node": None},
+        "target": {
+            "kind": "node",
+            "provider": MESH,
+            "collection": COLLECTION,
+            "subject": "fnbare",
+            "revision": None,
+            "node": None,
+        },
         "element": "/Z100-BEAMS2",
         "path": ["/Z100-BEAMS2"],
     }

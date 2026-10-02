@@ -31,8 +31,21 @@ from ada.clash import native_joints
 from ada.clash.classify import describe_member, type_key_for, type_label_for
 from ada.clash.match import _angle_between, applicable_specs
 from ada.clash.options import ClashOptions
-from ada.clash.passes import BUILTIN_CHECKER, ClashPass, get_checker, passes_for, register_pass, selected_passes
-from ada.clash.result import ClashContact, ClashResult, JointMember, JointRecord, group_joints
+from ada.clash.passes import (
+    BUILTIN_CHECKER,
+    ClashPass,
+    get_checker,
+    passes_for,
+    register_pass,
+    selected_passes,
+)
+from ada.clash.result import (
+    ClashContact,
+    ClashResult,
+    JointMember,
+    JointRecord,
+    group_joints,
+)
 from ada.config import logger
 
 __all__ = ["ClashOptions", "identify_joints", "run_clash_check"]
