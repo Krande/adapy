@@ -27,8 +27,12 @@ def get_eigen_data(rmed_file) -> EigenDataSummary:
 
         for mname, m in modes.items():
             mode = m.attrs["NDT"]
-            freq = m.attrs["PDT"]
-            eigen_modes.append(EigenMode(int(mode), f_hz=float(freq)))
+            freq = float(m.attrs["PDT"])
+            # The MED field carries only the frequency; for the undamped
+            # modes CALC_MODES solves for, omega = 2*pi*f and the eigenvalue
+            # is omega**2.
+            omega = 2 * np.pi * freq
+            eigen_modes.append(EigenMode(int(mode), f_hz=freq, f_rad=omega, eigenvalue=omega**2))
 
     # Effective modal mass + participation factors aren't in the MED field
     # output — the writer dumps them (global translational axes) to a CSV

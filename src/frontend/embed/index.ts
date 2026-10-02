@@ -52,6 +52,13 @@ import {
     stepFeaSweep,
     tickFeaAnimation,
 } from "../src/utils/scene/fea/feaAnimationDriver"
+import { findMorphPrimitive, type MorphPrimitive } from "../src/utils/scene/fea/morphPrimitive"
+import {
+    attachEmbedBeamSolids,
+    loadEmbedBeamSolids,
+    setEmbedBeamSolidsVisible,
+} from "../src/utils/scene/fea/embedBeamSolids"
+import { installBeamLinesFromEdges } from "../src/utils/scene/fea/beamLinesFromEdges"
 
 import { EmbedUI } from "./EmbedUI"
 import {
@@ -86,6 +93,10 @@ export interface MountViewerOptions {
     showControls?: boolean
     onReady?: () => void
     onError?: (err: Error) => void
+    /** Internal (mountFeaArtefactViewer): called every frame with THIS viewer's FEA state --
+     *  the live store while it is the active viewer, its parked copy while it is not -- so
+     *  per-viewer scene state follows that viewer's controls and no other's. */
+    onFrame?: (fea: FeaAnimationState | undefined) => void
 }
 
 export interface MountedViewer {
@@ -118,6 +129,11 @@ export interface MountFeaArtefactViewerOptions {
      *  per-mode figures share one bundle on disk while showing
      *  different deformations inline. */
     modeIndex?: number
+    /** Start with beam elements drawn as their solid cross-section (which
+     *  also shows twist) instead of as lines. Only matters for a bundle that
+     *  carries beam solids; the simulation controls' toggle still switches.
+     *  Default false: lines. paradoc passes the document's choice. */
+    beamSolids?: boolean
     onReady?: () => void
     onError?: (err: Error) => void
 }
@@ -348,10 +364,12 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
         // keeps playing while the user works in another panel.
         if (isActiveInstance(instance)) {
             tickFeaAnimation(delta)
+            opts.onFrame?.(useFeaAnimationStore.getState())
         } else {
             const fea = parkedState<FeaAnimationState>(instance, "useFeaAnimationStore")
             const stepped = fea ? stepFeaSweep(fea, instance.feaPhase, delta) : null
             if (stepped) instance.feaPhase = stepped.phase
+            opts.onFrame?.(fea)
         }
         // Reposition the key light to track the camera each frame —
         // matches the standalone viewer's lighting feel.
@@ -656,32 +674,16 @@ function applyCameraPreset(
 function activateFeaSession(
     manifest: import("../src/services/viewerApi").FeaManifest,
     modeIndex: number,
-): void {
+): MorphPrimitive | null {
     // Called from `onReady`, inside the loading viewer's turn, so the
     // mounted runtime is that viewer's.
     const scene = getViewerRuntime().scene.current
-    if (!scene) return
+    if (!scene) return null
 
-    // Find the first mesh whose geometry has a morph attribute — the
-    // bake installs exactly one (the mode displacement delta).
-    // CustomBatchedMesh has `isMesh = true`, so this catches both
-    // it and any leftover plain Mesh in the same traversal.
-    type MorphMesh = THREE.Mesh & { morphTargetInfluences?: number[] }
-    let found: MorphMesh | null = null
-    scene.traverse((obj) => {
-        if (found) return
-        const m = obj as any
-        if (
-            m.isMesh &&
-            m.geometry?.morphAttributes?.position?.length > 0
-        ) {
-            found = m
-        }
-    })
-    // Re-bound: TS cannot see the assignment inside the callback and
-    // narrows `found` to `null` -- every use below then typed as `never`.
-    const feaMesh = found as MorphMesh | null
-    if (!feaMesh) return
+    // The primitive carrying the mode displacement morph the bake
+    // installs: a Mesh, or for a beam model its node Points.
+    const feaMesh = findMorphPrimitive(scene)
+    if (!feaMesh) return null
 
     // prepareLoadedModel only copies morphTargetInfluences onto the
     // CustomBatchedMesh when useAnimationStore.hasAnimation is true
@@ -690,6 +692,12 @@ function activateFeaSession(
     // already set by assembleFeaGlb survive the export/import.
     feaMesh.morphTargetInfluences = [1.0]
     const enableMorph = (mat: THREE.Material) => {
+        // A ShaderMaterial -- the sphere impostor a beam model's node
+        // points get -- manages its own USE_COLOR define and morph chunks.
+        // Setting vertexColors on it makes three.js define USE_COLOR a
+        // second time, the vertex shader fails to compile and the points
+        // vanish ("'USE_COLOR' : macro redefined").
+        if ((mat as any).isShaderMaterial) return
         let dirty = false
         if ("morphTargets" in mat && (mat as any).morphTargets !== true) {
             ;(mat as any).morphTargets = true
@@ -719,7 +727,7 @@ function activateFeaSession(
             c.isLineSegments &&
             c.geometry?.morphAttributes?.position?.length > 0
         ) {
-            c.morphTargetInfluences = feaMesh!.morphTargetInfluences
+            c.morphTargetInfluences = feaMesh.morphTargetInfluences
             if (c.material) {
                 const lm = c.material as THREE.Material
                 if ("morphTargets" in lm) {
@@ -729,6 +737,14 @@ function activateFeaSession(
             }
         }
     })
+
+    // A beam model is node points only, and its elements were drawn by
+    // nothing but the one-pixel edge hairline. Draw them as fat,
+    // result-coloured lines that follow the morph, as the standalone
+    // viewer does.
+    if ((feaMesh as any).isPoints) {
+        installBeamLinesFromEdges(feaMesh)
+    }
 
     // Field range follows the active field's analysis_kind. Match the
     // global modeIndex to the (field, step) the bake actually
@@ -775,6 +791,7 @@ function activateFeaSession(
     s.setManifest(manifest as never)
     s.setIsPlaying(false)
     s.setSessionActive(true)
+    return feaMesh
 }
 
 
@@ -824,21 +841,32 @@ export function mountFeaArtefactViewer(
             // Lazy import so a host that never asks for FEA doesn't
             // pay the THREE.GLTFExporter + parser bundle cost on
             // page load.
-            const {assembleAnimatedFeaGlb} = await import(
+            const {assembleAnimatedFeaGlbWithInfo} = await import(
                 "../src/utils/scene/fea/assembleFeaGlb"
             )
-            const modelBytes = await assembleAnimatedFeaGlb(
-                opts.fetcher,
-                opts.manifest as never, // typed loosely on the public API
-                opts.modeIndex ?? 0,
-            )
+            // The beam solids load beside the assembly: they need nothing
+            // from it until both are in hand.
+            const [assembled, beamSolids] = await Promise.all([
+                assembleAnimatedFeaGlbWithInfo(
+                    opts.fetcher,
+                    opts.manifest as never, // typed loosely on the public API
+                    opts.modeIndex ?? 0,
+                ),
+                loadEmbedBeamSolids(opts.fetcher, opts.manifest as never),
+            ])
             if (disposed) return
             const userOnReady = opts.onReady
+            // The primitive the session runs on, once it does; the per-frame
+            // hook below keeps its beam solids in step with this viewer's toggle.
+            let feaPrimitive: MorphPrimitive | null = null
             inner = mountViewer(element, {
-                modelBytes,
+                modelBytes: assembled.bytes,
                 camera: opts.camera,
                 caption: opts.caption,
                 showControls: opts.showControls,
+                onFrame: (fea) => {
+                    if (feaPrimitive && fea) setEmbedBeamSolidsVisible(feaPrimitive, fea.beamSolidsVisible)
+                },
                 onReady: () => {
                     // Hook the live scene up to the feaAnimationStore so
                     // SimulationControls' FeaModeControls panel surfaces
@@ -847,10 +875,17 @@ export function mountFeaArtefactViewer(
                     // sync with the standalone viewer's REST path.
                     if (!disposed) {
                         try {
-                            activateFeaSession(
+                            feaPrimitive = activateFeaSession(
                                 opts.manifest as never,
                                 opts.modeIndex ?? 0,
                             )
+                            // Beam solids are attached whenever the bundle has
+                            // them, so the controls' toggle can switch; the
+                            // host (the document) picks the starting state.
+                            if (feaPrimitive && beamSolids) {
+                                attachEmbedBeamSolids(feaPrimitive, beamSolids, assembled)
+                                useFeaAnimationStore.getState().setBeamSolidsVisible(opts.beamSolids === true)
+                            }
                         } catch (err) {
                             // Session activation is best-effort —
                             // without it the mesh still renders at the

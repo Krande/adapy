@@ -12,7 +12,6 @@ ordinary run. What this module pins in two parts:
    to this.
 2. Where 3+ segments meet at that fitting (a real branch -- a T or a wye, not a 2-way pass-through),
    they fold into ONE **branched** system instead of staying three disconnected two-ended ones (see
-   docs/documents/routing_through_objects.rst, Stage 2, and
    :func:`ada.cadit.dexpi.read.to_procedural._fold_branch_groups`):
    ``ada.topology.routing.route_system`` detects two or more ``System.segments`` sharing a junction
    equipment and routes every leg, adding a hub fitting where they meet.
@@ -204,7 +203,7 @@ def test_the_segment_that_nests_the_tee_does_not_also_carry_it_as_an_interior_co
 # What the runs connect to
 # --------------------------------------------------------------------------- #
 def test_the_tee_s_three_segments_fold_into_one_branched_system(converted):
-    """A 3+-way junction is a branch (see docs/documents/routing_through_objects.rst, Stage 2):
+    """A 3+-way junction is a branch:
     its segments become ONE system instead of three disconnected two-ended ones.
     ``METADATA["branch"]["legs"]`` names each ORIGINAL segment, in order, which is what the merge
     writer reads to split this back into the three ``PipingNetworkSegment``\\ s the source had."""

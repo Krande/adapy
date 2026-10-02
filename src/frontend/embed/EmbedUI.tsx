@@ -68,8 +68,26 @@ export const EmbedUI: React.FC = () => {
     // practice (the user closes the tree to reach the toolbar).
     const shiftPx = !isTreeCollapsed ? treeViewWidth : 0
 
+    // The panels below the toolbar get the viewer's height, not the
+    // window's: a 3D figure in a document is a few hundred pixels tall, and
+    // a panel capped at 70% of the window ran off its bottom. Handed to the
+    // simulation panel as ``--ada-sim-max-h`` (its scroll area's cap).
+    const rootRef = React.useRef<HTMLDivElement | null>(null)
+    const [panelMaxH, setPanelMaxH] = React.useState<number | null>(null)
+    React.useEffect(() => {
+        const el = rootRef.current
+        if (!el) return
+        const ro = new ResizeObserver(() => {
+            // Toolbar row (40 px + 8 px padding top and gap) and the panel's
+            // own header (~32 px) come off the top; 8 px of air at the bottom.
+            setPanelMaxH(Math.max(80, el.clientHeight - 56 - 32 - 8))
+        })
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
+
     return (
-        <div className="absolute inset-0 pointer-events-none">
+        <div ref={rootRef} className="absolute inset-0 pointer-events-none">
             {/* The tree drawer is the only child here that *isn't* in
                 the toolbar column; it needs its own pointer-events-auto
                 opt-in or every click in it (close ×, node selection,
@@ -79,11 +97,14 @@ export const EmbedUI: React.FC = () => {
             <div className="pointer-events-auto">
                 <ResizableTreeView />
             </div>
+            {/* Spans the viewer (inset-x-0) so the panels' ``100%`` caps mean the
+                viewer's width. Only the controls themselves take pointer events;
+                the empty stretch around them leaves the model draggable. */}
             <div
-                className="absolute left-0 top-0 z-10 py-2 flex flex-col gap-2 pointer-events-none transition-[padding] duration-150"
+                className="absolute inset-x-0 top-0 z-10 py-2 flex flex-col gap-2 pointer-events-none transition-[padding] duration-150"
                 style={{ paddingLeft: `${shiftPx}px` }}
             >
-                <div className="flex flex-row items-center gap-2 px-2 pointer-events-auto">
+                <div className="self-start flex flex-row items-center gap-2 px-2 pointer-events-auto">
                     <button
                         type="button"
                         className={btnClass(!isTreeCollapsed)}
@@ -123,7 +144,10 @@ export const EmbedUI: React.FC = () => {
                         </button>
                     )}
                 </div>
-                <div className="px-2 flex flex-col gap-2 pointer-events-auto max-w-[100vw]">
+                <div
+                    className="px-2 flex flex-col items-start gap-2 pointer-events-none min-w-0 [&>*]:pointer-events-auto [&>*]:max-w-full"
+                    style={panelMaxH ? ({ "--ada-sim-max-h": `${panelMaxH}px` } as React.CSSProperties) : undefined}
+                >
                     {showInfo && <ObjectInfoBox />}
                     {showScene && <SceneInfoBox />}
                     {animPanelAvailable && isControlsVisible && <SimulationControls />}

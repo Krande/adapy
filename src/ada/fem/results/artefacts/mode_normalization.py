@@ -45,6 +45,24 @@ def translation_columns(components: Sequence[str]) -> list[int]:
     return list(range(min(3, len(components))))
 
 
+#: Accepted spellings per rotation axis, lowercased, x, y, z order -- Sesam RX.., Code_Aster DRX..,
+#: Abaqus UR1... The same list as the viewer's ``warpComponents.ts``.
+ROTATION_ALIASES: tuple[tuple[str, ...], ...] = (
+    ("rx", "drx", "ur1", "r1", "rotx", "thx"),
+    ("ry", "dry", "ur2", "r2", "roty", "thy"),
+    ("rz", "drz", "ur3", "r3", "rotz", "thz"),
+)
+
+
+def rotation_columns(components: Sequence[str]) -> list[int] | None:
+    """Columns of (rx, ry, rz) in a displacement record, by component name; None unless all three
+    are named. No positional fallback: a three-column record has no rotations, and guessing slots
+    3..5 of an unnamed one would twist a model by whatever sits there."""
+    names = [c.lower() for c in components]
+    by_name = [next((i for i, n in enumerate(names) if n in aliases), -1) for aliases in ROTATION_ALIASES]
+    return by_name if all(i >= 0 for i in by_name) else None
+
+
 def reference_length(points: np.ndarray) -> float:
     """The model's bounding-box diagonal -- the length a mode's amplitude is scaled against."""
     pts = np.asarray(points, dtype=float)

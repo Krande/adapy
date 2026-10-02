@@ -26,7 +26,7 @@ def add_constraint_concepts_to_fem(
 
     A beam end constraint supports the cross-section of that beam end: a line mesh directly at its end node, and a
     shell/solid mesh through a reference node on the beam axis coupled to the section nodes (see
-    :func:`_add_section_support`). A point constraint at the end of one of the given beams does the same, otherwise
+    :func:`_add_section_support`) -- or, with ``section_support="direct"``, on the section nodes themselves. A point constraint at the end of one of the given beams does the same, otherwise
     it restrains the mesh node at its position. A curve constraint restrains all mesh nodes on its segment, and a rigid link becomes
     a support at its master point coupled to the mesh nodes inside its influence region. Where a point or curve
     constraint shares nodes with a beam end constraint, the beam end constraint is kept on those nodes. Rotational
@@ -41,7 +41,11 @@ def add_constraint_concepts_to_fem(
     for bec in concepts.beam_end_constraints.values():
         end_pos = to_global_points(bec.beam, bec.position)
         nodes = _nodes_in_section_plane(bec.beam, fem, end_pos, tol)
-        if _add_section_support(fem, bec.name, bec.dof_constraints, nodes, end_pos):
+        if bec.section_support == "direct":
+            added = _add_bc(fem, bec.name, bec.dof_constraints, nodes)
+        else:
+            added = _add_section_support(fem, bec.name, bec.dof_constraints, nodes, end_pos)
+        if added:
             claimed_by.update({n.id: bec.name for n in nodes})
 
     for pc in concepts.point_constraints.values():

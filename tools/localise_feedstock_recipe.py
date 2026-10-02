@@ -32,9 +32,12 @@ import sys
 
 #: Matches the whole `source:` block of a v1 recipe that fetches a tarball. Anchored
 #: on the key at column 0 and terminated by the next top-level key, so an indented
-#: `url:` elsewhere in the file cannot be mistaken for it.
+#: `url:` elsewhere in the file cannot be mistaken for it. Each body line matches ONE
+#: way: one blank, then the rest of the line. `[ \t]+.*` let a run of blanks split
+#: between the two terms in every possible way, which backtracks exponentially on a
+#: block of whitespace-only lines with no top-level key after it (CodeQL py/redos).
 _SOURCE_BLOCK = re.compile(
-    r"^source:\n(?:[ \t]+.*\n|\n)*?(?=^[A-Za-z_]|\Z)",
+    r"^source:\n(?:[ \t][^\n]*\n|\n)*?(?=^[A-Za-z_]|\Z)",
     re.MULTILINE,
 )
 

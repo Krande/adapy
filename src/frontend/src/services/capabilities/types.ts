@@ -97,7 +97,7 @@ export type CapabilityTransport = "rest" | "ws";
  * selected, which is the REST-oriented default and happens to be exactly what a websocket session
  * sees too (there is no `/api/me` to populate a scope there). Passing `"user:me"` in that case
  * would *work by accident* and quietly mean something real the day a local model is synced to a
- * server (see docs/documents/ws_rest_parity.rst, "scope strings"). This sentinel is what the
+ * server. This sentinel is what the
  * websocket transport passes instead: recognisable as "no real scope" on sight, and never produced
  * or interpreted by the REST path, so passing it there fails the same way any other unrecognised
  * scope segment would -- rejected by absence of support, not by a special-cased guard. */
@@ -163,8 +163,8 @@ export interface ProceduralModelResult {
   doc?: ProceduralDoc | null;
 }
 
-/** One entry in a local-disk model browser listing (``LIST_PROCEDURAL_MODELS`` --
- * docs/documents/ws_rest_parity.rst, step 6). ``contentHash`` is the same sha256 hex digest
+/** One entry in a local-disk model browser listing (``LIST_PROCEDURAL_MODELS``).
+ * ``contentHash`` is the same sha256 hex digest
  * ``commitModel``/``fetchModel`` traffic in, so a browser row can be compared against a hash
  * already held (e.g. the currently-open model's ``knownHashes`` entry) without a round trip.
  * ``modifiedAt`` is Unix milliseconds -- display/sort only, never a concurrency token. */
@@ -233,8 +233,7 @@ export interface ProceduralModelCapability {
    * that nothing is listening: there is a live adapy process on the other end of the socket, and it
    * is what pushed this model into the viewer in the first place. It is that **no save verb is
    * implemented over the websocket transport yet**, so there is nowhere for an edit to go. That is a
-   * gap in the protocol, not a property of the transport, and it is expected to close -- see
-   * `docs/documents/ws_rest_parity.rst`.
+   * gap in the protocol, not a property of the transport, and it is expected to close.
    *
    * Consumers should therefore gate editing UI on this flag rather than on "is this the websocket
    * path", so that when the verb lands, flipping this to true restores those controls with no other
@@ -245,7 +244,7 @@ export interface ProceduralModelCapability {
    *
    * `canEdit` answers one question -- "is there anywhere at all to commit an edit" -- and it
    * flips for the FIRST write verb that lands (save). Every verb after that lands on its own
-   * schedule (see docs/documents/ws_rest_parity.rst's migration list), so a control that calls a
+   * schedule, so a control that calls a
    * *different* verb cannot infer "this works" from `canEdit` alone without either lying about
    * verbs that aren't there yet or reintroducing a second all-or-nothing flag next to it. `supports`
    * is the per-verb answer instead: REST supports every verb unconditionally (nothing here changes

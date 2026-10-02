@@ -156,20 +156,36 @@ class ConstraintConceptPoint:
 # Define TypeAlias for the ends of a beam
 BeamEnd: TypeAlias = Literal["n1", "n2"]
 
+#: How a beam-end support reaches the nodes of a shell/solid cross-section (a line mesh has one end node either way):
+#:
+#: - ``"coupled"``: a reference node on the beam axis carries the support and is tied to the section nodes by a
+#:   kinematic coupling in all 6 dofs. The section moves as a rigid body about the beam end, so a pinned end is free
+#:   to rotate.
+#: - ``"direct"``: the support acts on every section node. Simpler -- no reference node, no coupling for the solver
+#:   to support -- but a face whose nodes are all held in translation cannot rotate, so any end with its
+#:   translations fixed is effectively clamped whatever its rotational dofs say. Solid-only nodes get dofs 1-3.
+SectionSupport: TypeAlias = Literal["coupled", "direct"]
+
 
 @dataclass
 class ConstraintConceptBeamEnd:
-    """A support at one end of a beam. In a shell/solid mesh it restrains the whole cross-section face of that end."""
+    """A support at one end of a beam. In a shell/solid mesh it restrains the cross-section face of that end, through
+    a coupled reference node or directly on the section nodes (see :data:`SectionSupport`)."""
 
     name: str
     beam: Beam
     end: BeamEnd
     dof_constraints: list[ConstraintConceptDofType]
+    section_support: SectionSupport = "coupled"
     parent: ConstraintConcepts = field(init=False, repr=False)
 
     def __post_init__(self):
         if self.end not in get_args(BeamEnd):
             raise ValueError(f'Invalid beam end: "{self.end}". Must be one of {get_args(BeamEnd)}.')
+        if self.section_support not in get_args(SectionSupport):
+            raise ValueError(
+                f'Invalid section support: "{self.section_support}". Must be one of {get_args(SectionSupport)}.'
+            )
 
         # fill in all dof_constraints not explicitly defined with "fixed
         self.dof_constraints = _constraint_dof_type_resolver(self.dof_constraints)

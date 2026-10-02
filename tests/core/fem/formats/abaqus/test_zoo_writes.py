@@ -32,6 +32,11 @@ CALCULIX_GAPS = {
     "loads": (ValueError, "Calculix loads need a fem_set; gravity/acceleration fields have none"),
     "read_back_deck": (IncompatibleElements, "a read deck's elements carry no FemSection, which Calculix needs"),
     "sets_empty": (ValueError, "the Calculix set writer raises on an empty set (Abaqus logs and drops it)"),
+    # The Calculix writer used to drop every constraint; it now writes kinematic couplings and refuses the rest
+    # rather than describing a different model.
+    "constraints": (IncompatibleElements, "the Calculix writer has no *Tie, and no coupling on shell nodes"),
+    "constraints_equation": (IncompatibleElements, "the Calculix writer has no *Equation"),
+    "constraints_assembly_level": (IncompatibleElements, "a coupling the Calculix writer cannot take"),
 }
 
 

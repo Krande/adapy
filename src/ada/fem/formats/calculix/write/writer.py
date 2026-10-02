@@ -20,6 +20,7 @@ from ada.fem.steps import StepExplicit
 
 from ..compatibility import check_compatibility
 from .templates import main_header_str
+from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_loads import get_all_grav_loads
 from .write_steps import step_str
@@ -63,6 +64,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
         # Assembly Level information
         f.write("\n".join([material_str(mat) for mat in p.materials]) + "\n")
+        f.write(constraints_str(p, assembly) + "\n")
         f.write("\n".join([bc_str(x) for x in p.fem.bcs + assembly.fem.bcs]) + "\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
         # *STEP block. ``ada convert --to calculix`` produces exactly that (a conversion
@@ -75,7 +77,6 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
         # f.write(mass_str)
         # f.write(surfaces_str)
-        # f.write(constraints_str)
         # f.write(springs_str)
 
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')

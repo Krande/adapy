@@ -138,7 +138,10 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     if len(part.fem.sections.solids) > 0:
         so_elset_str = ",".join([f"'{solid_fs.elset.name}'" for solid_fs in part.fem.sections.solids])
         section_sets += f"so_sets = ({so_elset_str})\n"
-        model_type_str += type_tmpl_str.format(elset_str="so_sets", el_formula="3D")
+        # Reduced integration is the modelisation, not the mesh cell: 3D_SI (check_reduced_integration
+        # has already refused the cells it doesn't cover).
+        so_formula = "3D_SI" if part.fem.options.CODE_ASTER.use_reduced_integration else "3D"
+        model_type_str += type_tmpl_str.format(elset_str="so_sets", el_formula=so_formula)
 
     if len(couplings) > 0:
         output_mesh = "mesh_ref"

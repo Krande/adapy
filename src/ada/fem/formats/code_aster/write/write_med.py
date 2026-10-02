@@ -47,7 +47,7 @@ def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py
     elements_group.attrs.create("CGT", 1)
 
     for group, elements in part.fem.elements.group_by_type():
-        med_type = ada_to_med_type(group, part.fem.options.CODE_ASTER.use_reduced_integration)
+        med_type = ada_to_med_type(group)
         elements = list(elements)
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
             # Point-mass / spring elements attach to a single node. The

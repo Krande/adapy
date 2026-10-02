@@ -41,12 +41,13 @@ def test_a_non_permutation_is_rejected():
 @pytest.mark.parametrize("order", ALL_ORDERS, ids=lambda o: o.name)
 def test_every_declared_permutation_is_self_consistent(order):
     """to_format and from_format must undo each other, and cover the shape's nodes."""
-    for ctype in list(NATIVE_MIDSIDE_EDGES) + [SolidShapes.TETRA, SolidShapes.HEX8]:
+    first_order = {SolidShapes.TETRA: 4, SolidShapes.HEX8: 8}  # num_nodes() covers the second-order shapes
+    for ctype in list(NATIVE_MIDSIDE_EDGES) + list(first_order):
         fwd = order.to_format(ctype)
         if fwd is None:
             continue
         assert order.from_format(ctype) == invert(fwd)
-        n = num_nodes(ctype)
+        n = first_order[ctype] if ctype in first_order else num_nodes(ctype)
         assert sorted(fwd) == list(range(n)), f"{order.name}/{ctype} does not cover {n} nodes"
 
 
@@ -87,6 +88,21 @@ def test_sesam_interleaves_the_isoparametric_solids_and_scqs():
 
     # SCTS (figure 5-25) is corners-then-midsides, i.e. native
     assert SESAM_ORDER.to_format(ShellShapes.TRI6) is None
+
+
+def test_sesam_tetr_is_the_mirror_of_native_and_tpri_is_not():
+    """TETR (33) wants 1-2-3 clockwise seen from node 4: written natively, Sestra stops with "TETB30 ... THE NODES
+    ARE WRONGLY NUMBERED". TPRI (32) keeps native handedness: mirrored, Sestra fails on a non-positive Jacobian."""
+    native = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+    def signed_volume(x):
+        return np.linalg.det(np.stack([x[1] - x[0], x[2] - x[0], x[3] - x[0]]))
+
+    assert signed_volume(native) > 0
+    tetr = native[list(SESAM_ORDER.to_format(SolidShapes.TETRA))]
+    assert signed_volume(tetr) < 0
+    assert SESAM_ORDER.to_format(SolidShapes.WEDGE) is None
+    assert SESAM_ORDER.to_format(SolidShapes.HEX8) is None
 
 
 def test_sesam_tetra10_matches_figure_5_31():

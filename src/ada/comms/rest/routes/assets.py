@@ -61,6 +61,7 @@ from ada.assets.registry import (
     registered_provider_ids,
 )
 from ada.assets.unpublish import plan_unpublish
+from ada.config import logger
 
 from .. import auth as auth_module
 from ..auth import User
@@ -99,6 +100,19 @@ async def _list_asset_keys(ctx: RestContext, scope: Scope, prefix: str) -> list[
     return [e.key for e in entries]
 
 
+#: What a scope reader is told about a provider whose factory raised. It still appears -- a silently
+#: missing provider looks like one that was never installed -- but the exception text stays in the
+#: server log: built from the provider's configuration, it can carry hosts, paths or credentials.
+PROVIDER_LOAD_FAILED = "provider failed to load; see the server log"
+
+
+def _public_provider(entry: dict) -> dict:
+    if "error" not in entry:
+        return entry
+    logger.warning("asset provider %r failed to load: %s", entry["id"], entry["error"])
+    return {**entry, "error": PROVIDER_LOAD_FAILED}
+
+
 def _is_published(provider: str) -> bool:
     """The built-in path serves any provider that publishes under the key grammar.
 
@@ -121,7 +135,7 @@ async def api_asset_providers(scope_obj: Scope = Depends(scope_from_path)) -> JS
             "capabilities": ["tree"],
         }
     ]
-    providers.extend(p for p in asset_providers() if p["id"] != PUBLISHED_PROVIDER_ID)
+    providers.extend(_public_provider(p) for p in asset_providers() if p["id"] != PUBLISHED_PROVIDER_ID)
     return JSONResponse({"providers": providers})
 
 

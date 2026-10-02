@@ -1,6 +1,5 @@
-"""``LIST_PROCEDURAL_MODELS`` and ``LOAD_PROCEDURAL_MODEL`` (ws/REST parity plan, step 6 --
-docs/documents/ws_rest_parity.rst): the local-disk model browser's read half of
-``SAVE_PROCEDURAL_MODEL``.
+"""``LIST_PROCEDURAL_MODELS`` and ``LOAD_PROCEDURAL_MODEL``: the local-disk model browser's read
+half of ``SAVE_PROCEDURAL_MODEL``.
 
 Driven with the same stub server/client as ``test_save_procedural_model.py``, so the assertion is
 on the serialized reply that would hit the socket. ``base_dir`` is passed explicitly everywhere so

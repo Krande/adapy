@@ -66,6 +66,7 @@ figure_source: fea_modes_compare
 figure_title: Cantilever eigenmodes by format
 case_prefix: cantilever_EIG
 analysis: eigen
+beam_solids: true
 -->
 
 ## Plate eigenvalue analysis
@@ -77,6 +78,7 @@ figure_source: fea_modes_compare
 figure_title: Plate eigenmodes by format
 case_prefix: plate_EIG
 analysis: eigen
+beam_solids: true
 -->
 
 ## Plate static analysis
@@ -89,4 +91,5 @@ figure_source: fea_modes_compare
 figure_title: Plate deflection by format
 case_prefix: plate_static
 analysis: static
+beam_solids: true
 -->

@@ -34,7 +34,10 @@ import {
     selectFeaResultComponent,
     selectFeaResultLayer,
 } from "@/utils/scene/fea/resultSelection";
-import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
+import {
+    load_fea_streaming,
+    setBeamSolidsVisible as setBeamSolidsVisibleScene,
+} from "@/utils/scene/handlers/load_fea_streaming";
 import {followerUrl} from "@/utils/simChannel";
 import {runtime} from "@/runtime/config";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -303,7 +306,15 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setScaleFactor,
         setIpReduction,
         setNodalAverage,
+        beamSolidsVisible,
+        setBeamSolidsVisible,
     } = useFeaAnimationStore();
+
+    const hasBeamSolids = !!(manifest?.mesh?.beam_solids_url || manifest?.mesh?.beam_solids_compact_url);
+    const onToggleBeamSolids = (next: boolean) => {
+        setBeamSolidsVisible(next);
+        setBeamSolidsVisibleScene(next);
+    };
 
     // Options panel toggle — currently houses just the colormap
     // picker. Kept folded by default so the controls row stays
@@ -504,25 +515,31 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         });
     };
 
+    // Laid out by the panel's OWN width (a container query, ``@container`` /
+    // ``@sm:``), not the browser window's. In a document the window is wide
+    // while the panel sits in a 3D figure a few hundred pixels across, and the
+    // window breakpoints gave it the desktop layout there: rows wider than the
+    // figure, controls cut off at its edge. Rows wrap when they must.
     return (
-        <div className="flex flex-col gap-2 min-w-0">
+        <div className="@container flex flex-col gap-2 min-w-0">
             {/* Row 1 — Field / Comp / Step selectors only. Gear
                 moved down to the transport row so this stays a
                 focused "what are you looking at" line.
-                Mobile width: ``flex-1`` on each label distributes
+                Narrow panel: ``flex-1`` on each label distributes
                 the available width evenly between the three
                 dropdowns, ``min-w-0 truncate`` on the selects
                 lets long field names (e.g. "Contact Normal Force
                 Vector") ellipsise instead of pushing the row past
-                the viewport. ``sm:flex-none`` reverts to natural
-                width on desktop so the dropdowns size to content
+                the panel, and the row wraps when even that is not
+                enough. ``@sm:flex-none`` reverts to natural width
+                on a wide panel so the dropdowns size to content
                 with ``justify-between`` spacing the groups. */}
             {manifest && (
-                <div className="flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white">
-                    <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                <div className="flex flex-row flex-wrap items-center justify-between gap-x-2 gap-y-1 w-full min-w-0 text-xs text-white">
+                    <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
-                            className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                            className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none truncate"
                             value={fieldPickerValue}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -552,12 +569,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                        <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
                             <span className="text-gray-300 shrink-0">
                                 Comp{activeUnit ? ` [${activeUnit}]` : ""}
                             </span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none truncate"
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -570,10 +587,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </label>
                     )}
                     {activeField && nSteps > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                        <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
                             <span className="text-gray-300 shrink-0">Step</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate"
+                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none @sm:max-w-40 truncate"
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -607,7 +624,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 fills the same total width as row 1 — the slider
                 absorbs whatever space is left after the fixed-width
                 period + scale inputs. */}
-            <div className="flex flex-row items-center gap-x-2 w-full min-w-0">
+            <div className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 w-full min-w-0">
                 <div className="flex items-center gap-2 flex-1 min-w-[100px]">
                     <input
                         type="range"
@@ -630,7 +647,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={period}
                         onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded-sm"
+                        className="text-black w-12 @sm:w-16 px-1 rounded-sm"
                         title="Oscillation period (seconds)"
                     />
                     s
@@ -646,7 +663,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={scaleFactor}
                         onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded-sm"
+                        className="text-black w-12 @sm:w-16 px-1 rounded-sm"
                         title="Warp scale factor — multiplier on top of the slider value (default 1)"
                     />
                 </div>
@@ -656,23 +673,23 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 gear, all sized + placed identically so they read as
                 one group of action buttons. Gear lives right after
                 the data-panel button (no ``ml-auto`` push-to-right). */}
-            <div className="flex flex-row items-center gap-x-2 min-w-0">
+            <div className="flex flex-row flex-wrap items-center gap-2 min-w-0">
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
                     onClick={isPlaying ? onPause : onPlay}
                     title={isPlaying ? "Pause oscillation" : "Play oscillation"}
                 >
                     <PlayPauseIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
                     onClick={onStop}
                     title="Stop and reset deformation to 0"
                 >
                     <StopIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
                     onClick={onToggleData}
                     title="Toggle simulation data panel"
                 >
@@ -680,7 +697,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </button>
                 <button
                     className={
-                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm " +
+                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm " +
                         (showOptions ? "ring-2 ring-blue-300" : "")
                     }
                     onClick={() => setShowOptions((v) => !v)}
@@ -691,8 +708,27 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </button>
             </div>
 
+            {/* Beams as solid. Here as well as in the Scene > FEM panel, and through
+                the same store flag + scene helper, so the two can never disagree: in
+                the paradoc embed this panel is the only one there is, and a beam drawn
+                as a line cannot show a torsion mode at all. Only offered when the
+                bundle has beam solids to show. */}
+            {hasBeamSolids && (
+                <label
+                    className="flex items-center gap-1 px-2 text-xs text-white"
+                    title="Draw beam elements as their solid cross-section, which also shows twist"
+                >
+                    <input
+                        type="checkbox"
+                        checked={beamSolidsVisible}
+                        onChange={(e) => onToggleBeamSolids(e.target.checked)}
+                    />
+                    <span className="text-gray-300">Beams as solid</span>
+                </label>
+            )}
+
             {showOptions && (
-                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
+                <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
                     <label className="flex items-center gap-1">
                         <span className="text-gray-300">Colormap</span>
                         <select
@@ -770,8 +806,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             <span className="text-gray-300">Smooth (nodal avg)</span>
                         </label>
                     )}
-                    {/* Beam-solid toggle moved to the Scene > FEM panel
-                        (single source of truth — FemConceptsPanel). */}
                     {/* Warp toggle. Disabled (and forced visually off)
                         for reaction-force fields — applying a force
                         vector as a morph would visualise force as

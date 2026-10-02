@@ -127,6 +127,28 @@ def test_providers_always_offers_the_built_in_published_one(client_and_revision)
     assert "published" in ids
 
 
+def test_a_broken_provider_is_listed_without_its_exception_text(client_and_revision, monkeypatch, caplog):
+    """A provider whose factory raised still shows -- but its exception text, which can carry the
+    hosts, paths or credentials of its configuration, stays in the server log (CodeQL
+    py/stack-trace-exposure)."""
+    from ada.comms.rest.routes import assets as assets_routes
+
+    secret = "OperationalError: could not connect to postgres://svc:hunter2@10.0.0.5/catalogue"
+    monkeypatch.setattr(
+        assets_routes, "asset_providers", lambda: [{"id": "broken", "label": "Broken", "error": secret, "delivery": []}]
+    )
+    client, _ = client_and_revision
+    # adapy's logger does not propagate to the root one caplog listens on: hand it caplog's handler.
+    monkeypatch.setattr(assets_routes.logger, "handlers", [*assets_routes.logger.handlers, caplog.handler])
+    with caplog.at_level("WARNING", logger=assets_routes.logger.name):
+        r = client.get(_scope_url("providers"))
+    assert r.status_code == 200, r.text
+    (entry,) = [p for p in r.json()["providers"] if p["id"] == "broken"]
+    assert entry["error"] == assets_routes.PROVIDER_LOAD_FAILED
+    assert "hunter2" not in r.text
+    assert "hunter2" in caplog.text
+
+
 def test_index_folds_without_listing_the_whole_scope(client_and_revision):
     client, revision = client_and_revision
     r = client.get(_scope_url("index"), params={"collection": COLLECTION})
