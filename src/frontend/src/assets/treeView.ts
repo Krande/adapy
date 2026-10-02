@@ -169,10 +169,18 @@ export interface DisplayResult<T> {
 export function displayHierarchy<T extends { readonly kind: string }>(
   h: Hierarchy<T>,
   settings: TreeViewSettings,
-  opts: { searchActive: boolean; showHidden: boolean },
+  opts: {
+    searchActive: boolean;
+    showHidden: boolean;
+    /** Rows to draw at all; a row it rejects is dropped with its subtree. The caller's filter --
+     *  "is or contains something from this provider" -- applied at every level, so a kept branch
+     *  shows only the way down to what matched. Absent: every row. */
+    keep?: (id: string) => boolean;
+  },
 ): DisplayResult<T> {
   const flatten = settings.flattenKinds;
   const hideOut = !opts.showHidden && settings.outOfScope.size > 0;
+  const keep = opts.keep;
   const kindOf = (id: string) => normKind(h.byId.get(id)?.data.kind ?? "");
 
   // Children as drawn: a flattened child is replaced by its own drawn
@@ -182,6 +190,7 @@ export function displayHierarchy<T extends { readonly kind: string }>(
     const out: string[] = [];
     for (const id of ids) {
       if (hideOut && settings.outOfScope.has(id)) continue;
+      if (keep && !keep(id)) continue;
       if (flatten.size && flatten.has(kindOf(id)) && depth < 64) out.push(...lift(h.childrenOf(id), depth + 1));
       else out.push(id);
     }
@@ -190,13 +199,13 @@ export function displayHierarchy<T extends { readonly kind: string }>(
   const childrenOf = (id: string): readonly string[] => {
     let hit = memo.get(id);
     if (!hit) {
-      hit = flatten.size || hideOut ? lift(h.childrenOf(id), 0) : h.childrenOf(id);
+      hit = flatten.size || hideOut || keep ? lift(h.childrenOf(id), 0) : h.childrenOf(id);
       memo.set(id, hit);
     }
     return hit;
   };
 
-  const lifted = flatten.size || hideOut ? lift(h.roots, 0) : [...h.roots];
+  const lifted = flatten.size || hideOut || keep ? lift(h.roots, 0) : [...h.roots];
   const census = new Map<string, number>();
   for (const id of lifted) {
     const kind = (h.byId.get(id)?.data.kind ?? "").trim();

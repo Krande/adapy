@@ -244,3 +244,15 @@ test("a node request's max_nodes is read as declared; anything that is not a cou
   assert.equal(read(20), 20);
   for (const bad of [1, 0, -3, 2.5, "20", null, undefined]) assert.equal(read(bad), undefined, String(bad));
 });
+test("on_demand is read only when declared true -- a load may then request the node first", () => {
+  const specs = (on_demand?: unknown) => [
+    {
+      id: "p",
+      asset_provider_id: "quick",
+      asset_node_request: { options: {}, collection_option: "project", node_option: "nodes", ...(on_demand === undefined ? {} : { on_demand }) },
+    },
+  ];
+  assert.equal(assetProviderCollections(specs(true))[0].nodeRequest?.onDemand, true);
+  assert.equal(assetProviderCollections(specs())[0].nodeRequest?.onDemand, undefined);
+  assert.equal(assetProviderCollections(specs("yes"))[0].nodeRequest?.onDemand, undefined, "only a real true opts in");
+});

@@ -28,15 +28,31 @@ import {
   type ClashCheckTarget,
   type ClashCheckResponse,
   type ClashDetailResponse,
+  type WireClashChecker,
+  type WireClashContact,
   type WireClashPass,
   type WireClashPassSpec,
   type WireClashApplicableSpec,
   type WireClashGroup,
   type WireClashJoint,
   type WireClashResult,
+  type WireGeometryPlan,
+  type WireGeometryProvider,
 } from "@/services/api/clashCheck";
+import type { CollectionRequestDeps } from "@/assets/collectionRequest";
+import type { AssetNodeRequest } from "@/services/assetScopeCollections";
 import { conversionApi } from "@/services/api/conversion";
+import { settingsApi } from "@/services/api/settings";
+import {
+  CLASH_SPEC_PROVIDERS_KEY,
+  parseSpecProviders,
+  preferenceFor,
+  rankSpecs,
+  type SpecProviderPreference,
+} from "@/services/clashSpecProviders";
 import { trackJob } from "@/services/jobTracking";
+import { describeRequestOutcome, planNodeCount, requestGroupGeometry } from "@/utils/groups/groupRequest";
+import { groupNodePlan, memberKey, parseMember, type GroupMember } from "@/utils/groups/savedGroups";
 
 // ---------------------------------------------------------------------------------------------
 // The browser's model. Camel-cased, `applicable` normalised (`capability` stays `null` rather
@@ -61,6 +77,21 @@ export interface ClashJointMember {
   readonly guid: string | null;
   readonly section: string | null;
   readonly memberType: string | null;
+  /** `incoming` | `landing` where the checker resolved it; `null` where it did not. */
+  readonly role: string | null;
+  /** `start` | `end`: which end of this member is at the contact. */
+  readonly end: string | null;
+}
+
+/** What a geometric pass measured at a contact. Absent fields were NOT measured. */
+export interface ClashContact {
+  readonly normal: readonly [number, number, number] | null;
+  readonly penetrationDepth: number | null;
+  readonly nearPoints: readonly (readonly [number, number, number])[];
+  readonly contactArea: number | null;
+  readonly securityMargin: number | null;
+  readonly incomingAngleDeg: number | null;
+  readonly extras: Readonly<Record<string, unknown>>;
 }
 
 export interface ClashJoint {
@@ -75,8 +106,8 @@ export interface ClashJoint {
    *  tell them apart can neither judge a joint nor filter it out. */
   readonly origin: string;
   /** What a geometric pass measured at the contact (normal, penetration depth, patch area), or
-   *  null for a pass that works on axes. Carried, never interpreted here. */
-  readonly contact: Readonly<Record<string, unknown>> | null;
+   *  null for a pass that works on axes. Shown, never used to decide anything here. */
+  readonly contact: ClashContact | null;
 }
 
 /** One pass the check knew about, and what became of it. */
@@ -111,6 +142,9 @@ export interface ClashResult {
   readonly warnings: readonly string[];
   /** Every pass the check knew about, run or not -- what the producer filter is built from. */
   readonly passes: readonly ClashPassReport[];
+  /** The checker that ran (`adapy` for core's, which an @1 document implies). */
+  readonly checker: string;
+  readonly checkerCapability: string | null;
   readonly jointsById: ReadonlyMap<string, ClashJoint>;
 }
 
@@ -121,7 +155,43 @@ export class ClashResultError extends Error {
   }
 }
 
-const CLASH_RESULT_SCHEMA = "ada.clash/result@1";
+/** Every schema this viewer reads. @2 only ADDS optional fields, so an @1 document (a cached
+ *  result, or the browser check's) reads as an @2 one with them absent -- which it is. */
+const READABLE_CLASH_RESULT_SCHEMAS: readonly string[] = ["ada.clash/result@1", "ada.clash/result@2"];
+
+/** Core's own checker id (`ada/clash/builtin_names.py`). */
+export const BUILTIN_CHECKER = "adapy";
+
+function parseContact(c: WireClashContact | null | undefined): ClashContact | null {
+  if (!c) return null;
+  return {
+    normal: c.normal ?? null,
+    penetrationDepth: c.penetration_depth ?? null,
+    nearPoints: c.near_points ?? [],
+    contactArea: c.contact_area ?? null,
+    securityMargin: c.security_margin ?? null,
+    incomingAngleDeg: c.incoming_angle_deg ?? null,
+    // An @1 contact was an untyped bag; whatever is not in the @2 vocabulary is kept as an extra
+    // rather than dropped, the same rule `ClashContact.from_dict` holds in Python.
+    extras: {
+      ...Object.fromEntries(
+        Object.entries(c).filter(
+          ([k]) =>
+            ![
+              "normal",
+              "penetration_depth",
+              "near_points",
+              "contact_area",
+              "security_margin",
+              "incoming_angle_deg",
+              "extras",
+            ].includes(k),
+        ),
+      ),
+      ...(c.extras ?? {}),
+    },
+  };
+}
 
 function parseApplicable(entries: readonly WireClashApplicableSpec[] | undefined): readonly ClashApplicableSpec[] {
   return (entries ?? []).map((a) => ({
@@ -140,10 +210,11 @@ export function parseClashResult(doc: unknown): ClashResult {
     throw new ClashResultError(`clash result must be a JSON object, got ${doc === null ? "null" : typeof doc}`);
   }
   const raw = doc as Partial<WireClashResult>;
-  if (raw.schema !== CLASH_RESULT_SCHEMA) {
+  if (typeof raw.schema !== "string" || !READABLE_CLASH_RESULT_SCHEMAS.includes(raw.schema)) {
     throw new ClashResultError(
       `unknown clash result schema ${JSON.stringify(raw.schema)}: this viewer reads ` +
-        `${JSON.stringify(CLASH_RESULT_SCHEMA)} only. Refusing rather than reading the fields it recognises.`,
+        `${READABLE_CLASH_RESULT_SCHEMAS.map((s) => JSON.stringify(s)).join(", ")} only. ` +
+        "Refusing rather than reading the fields it recognises.",
     );
   }
   const joints: ClashJoint[] = (raw.joints ?? []).map((j: WireClashJoint) => ({
@@ -155,6 +226,8 @@ export function parseClashResult(doc: unknown): ClashResult {
       guid: m.guid ?? null,
       section: m.section ?? null,
       memberType: m.member_type ?? null,
+      role: m.role ?? null,
+      end: m.end ?? null,
     })),
     typeKey: j.type_key,
     typeLabel: j.type_label,
@@ -162,7 +235,7 @@ export function parseClashResult(doc: unknown): ClashResult {
     // Defaulted, not required: a document written before joints carried their producer still
     // reads, and reads as what it was -- core's beam pass was the only one there.
     origin: j.origin ?? "beam-beam",
-    contact: j.contact ?? null,
+    contact: parseContact(j.contact),
   }));
   const jointsById = new Map(joints.map((j) => [j.id, j] as const));
   const groups: ClashGroup[] = (raw.groups ?? []).map((g: WireClashGroup) => ({
@@ -189,6 +262,8 @@ export function parseClashResult(doc: unknown): ClashResult {
       reason: p.reason ?? null,
       capability: p.capability ?? null,
     })),
+    checker: raw.checker ?? BUILTIN_CHECKER,
+    checkerCapability: raw.checker_capability ?? null,
     jointsById,
   };
 }
@@ -455,9 +530,10 @@ export function jointMarkers(
 
 /** The spec each joint would be detailed WITH: its highest-priority applicable spec, ties broken
  *  by name so the answer is stable. `null` for a joint no registered spec binds. */
-export function specForJoint(joint: ClashJoint): ClashApplicableSpec | null {
-  if (joint.applicable.length === 0) return null;
-  return [...joint.applicable].sort((a, b) => b.priority - a.priority || a.spec.localeCompare(b.spec))[0];
+export function specForJoint(joint: ClashJoint, providers: SpecProviderPreference = null): ClashApplicableSpec | null {
+  // The scope's spec-provider preference first (`services/clashSpecProviders.ts`), then the spec's
+  // own priority. Unrestricted (`null`) is priority alone -- what this always did.
+  return rankSpecs(joint.applicable, providers)[0] ?? null;
 }
 
 /** "Generate detail model" as JOBS: one batch per spec, each joint in exactly one of them.
@@ -472,12 +548,13 @@ export function specForJoint(joint: ClashJoint): ClashApplicableSpec | null {
 export function detailBatches(
   result: ClashResult,
   only?: ReadonlySet<string> | readonly string[] | null,
+  providers: SpecProviderPreference = null,
 ): readonly { spec: ClashApplicableSpec; jointIds: readonly string[] }[] {
   const limit = only == null ? null : only instanceof Set ? only : new Set(only);
   const bySpec = new Map<string, { spec: ClashApplicableSpec; jointIds: string[] }>();
   for (const joint of result.joints) {
     if (limit && !limit.has(joint.id)) continue;
-    const spec = specForJoint(joint);
+    const spec = specForJoint(joint, providers);
     if (!spec) continue;
     const bucket = bySpec.get(spec.spec) ?? { spec, jointIds: [] };
     bucket.jointIds.push(joint.id);
@@ -517,6 +594,28 @@ export function isolationMembers(
  */
 export function checkedSourceName(sourceName: string | null, loaded: string | null): string | null {
   return sourceName ?? loaded;
+}
+
+/** Whether two targets check the same model, compared by VALUE -- callers build a fresh object per
+ *  render, and identity would reset the result on every repaint. A group is its members (in any
+ *  order); its name is only a label, so renaming one does not throw a result away. */
+export function sameClashTarget(a: ClashCheckTarget | null, b: ClashCheckTarget | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.kind === "file" && b.kind === "file") return a.sourceKey === b.sourceKey;
+  if (a.kind === "node" && b.kind === "node") {
+    return (
+      a.collection === b.collection &&
+      a.subject === b.subject &&
+      (a.revision ?? null) === (b.revision ?? null) &&
+      (a.node ?? null) === (b.node ?? null)
+    );
+  }
+  if (a.kind === "group" && b.kind === "group") {
+    if (a.members.length !== b.members.length) return false;
+    const keys = new Set(a.members.map(memberKey));
+    return b.members.every((m) => keys.has(memberKey(m)));
+  }
+  return false;
 }
 
 /** Whether a spec should be OFFERED, never whether it would succeed.
@@ -744,6 +843,308 @@ export async function runClashDetailFlow(
 }
 
 // ---------------------------------------------------------------------------------------------
+// Missing geometry, asked for BEFORE a check. A check through a geometry provider leaves out every
+// member that provider has no node for; the user who picked the provider usually wants those
+// members IN, and the provider can often be asked to publish them. So a group or node check through
+// a provider first asks the server which members it would leave out (`geometry-plan`), offers to
+// request them, requests exactly those, re-plans to confirm, and only then checks. The check is a
+// cache miss after a new publish without `force`: its derived key carries the collection's listing
+// token whenever a geometry provider is in play (`routes/clash_check.py`).
+// ---------------------------------------------------------------------------------------------
+
+/** What the panel asks before a check through a geometry provider that lacks some members.
+ *
+ *  `offer` -- the provider takes node requests and this user may run them: request, skip, or cancel.
+ *  `admin-only` -- it takes them, but only an administrator may: skip or cancel.
+ *  `no-request` -- it takes none, so nothing can be asked for: skip or cancel. */
+export interface GeometryRequestPrompt {
+  readonly kind: "offer" | "admin-only" | "no-request";
+  readonly provider: string;
+  /** How many members the provider has no node for. */
+  readonly count: number;
+  /** The request is quick (`on_demand`), not a long export. Only meaningful for `offer`. */
+  readonly onDemand: boolean;
+  /** The plugin that would run the request, when there is one. */
+  readonly pluginId: string | null;
+  /** Why each member is missing, as the plan says -- shown on hover. */
+  readonly reasons: readonly string[];
+}
+
+export type GeometryPromptAnswer = "request" | "skip" | "cancel";
+
+/** The prompt for a plan's unmatched members, given how (and whether) the provider takes node
+ *  requests and whether this user is an administrator. `null` when nothing is missing. */
+export function geometryRequestPrompt(
+  plan: WireGeometryPlan,
+  req: AssetNodeRequest | null,
+  isAdmin: boolean,
+): GeometryRequestPrompt | null {
+  if (plan.unmatched.length === 0) return null;
+  const kind = !req ? "no-request" : req.requiresAdmin && !isAdmin ? "admin-only" : "offer";
+  return {
+    kind,
+    provider: plan.geometry_provider,
+    count: plan.unmatched.length,
+    onDemand: Boolean(req?.onDemand),
+    pluginId: req?.pluginId ?? null,
+    reasons: plan.unmatched.map((u) => u.reason),
+  };
+}
+
+/** The question, in words: count, provider, how long a request takes, and who may run it. */
+export function geometryPromptSentence(p: GeometryRequestPrompt): string {
+  const missing = `${p.count} member${p.count === 1 ? "" : "s"} ${p.count === 1 ? "has" : "have"} no geometry at ${p.provider}`;
+  if (p.kind === "no-request") {
+    return `${missing}, and ${p.provider} takes no node requests, so it cannot be asked for ${p.count === 1 ? "it" : "them"}. The check would leave ${p.count === 1 ? "it" : "them"} out.`;
+  }
+  if (p.kind === "admin-only") {
+    return `${missing}. Only an administrator can request ${p.count === 1 ? "it" : "them"}${p.pluginId ? ` (${p.pluginId})` : ""}; the check would leave ${p.count === 1 ? "it" : "them"} out.`;
+  }
+  const how = p.onDemand
+    ? "The request is quick."
+    : "The request runs an export at the provider and may take several minutes.";
+  return `${missing}. Request ${p.count === 1 ? "it" : "them"} from ${p.provider} before the check? ${how}`;
+}
+
+export interface GeometryCheckFlowDeps extends ClashFlowDeps {
+  /** `POST …/clash-check/geometry-plan`. */
+  geometryPlan(scope: string, target: ClashCheckTarget, provider: string): Promise<WireGeometryPlan>;
+  /** How `provider` takes node requests, or null when it takes none. */
+  nodeRequestFor(provider: string): Promise<AssetNodeRequest | null>;
+  isAdmin: boolean;
+  /** Ask the user; resolves with their answer. */
+  prompt(question: GeometryRequestPrompt): Promise<GeometryPromptAnswer>;
+  /** Element members -> the published tree's row ids (`resolveElementRows`). */
+  resolveRows(scope: string, members: readonly GroupMember[]): Promise<ReadonlyMap<string, string>>;
+  /** The request jobs' own deps -- the same ones "Request geometry…" uses. */
+  request: CollectionRequestDeps;
+  /** Where the flow has got to, for the panel; `null` when it moves on to the check itself. */
+  onStage?: (stage: string | null) => void;
+  /** After a request published something: let the asset browser re-read what is published. */
+  afterRequest?: () => Promise<void> | void;
+}
+
+export interface GeometryCheckOutcome {
+  readonly result: ClashResult;
+  readonly derivedKey: string;
+  readonly cached: boolean;
+  /** What happened to the missing members on the way, for the panel. */
+  readonly notes: readonly string[];
+}
+
+/** `runClashCheckFlow`, preceded -- for a group or node checked through a geometry provider -- by
+ *  the missing-geometry step above. Resolves `null` when the user cancels. */
+export async function runGeometryAwareCheckFlow(
+  deps: GeometryCheckFlowDeps,
+  scope: string,
+  target: ClashCheckTarget,
+  options: ClashCheckOptions,
+): Promise<GeometryCheckOutcome | null> {
+  const provider = options.geometry_provider;
+  const notes: string[] = [];
+  const stage = (s: string | null) => deps.onStage?.(s);
+  if (provider && target.kind !== "file") {
+    stage(`asking ${provider} which members it has`);
+    const plan = await deps.geometryPlan(scope, target, provider);
+    if (plan.unmatched.length > 0) {
+      const req = await deps.nodeRequestFor(provider);
+      const question = geometryRequestPrompt(plan, req, deps.isAdmin) as GeometryRequestPrompt;
+      stage(null);
+      const answer = await deps.prompt(question);
+      if (answer === "cancel") return null;
+      if (answer === "request" && question.kind === "offer" && req) {
+        notes.push(...(await requestMissing(deps, scope, provider, req, plan, stage)));
+        stage(`asking ${provider} again`);
+        const again = await deps.geometryPlan(scope, target, provider);
+        if (again.unmatched.length > 0) {
+          notes.push(
+            `${again.unmatched.length} member${again.unmatched.length === 1 ? " is" : "s are"} still not at ${provider} and ` +
+              `${again.unmatched.length === 1 ? "is" : "are"} left out: ${again.unmatched[0].reason}` +
+              (again.unmatched.length > 1 ? " (and others)" : ""),
+          );
+        } else {
+          notes.push(`Every member is now at ${provider}.`);
+        }
+      } else {
+        notes.push(`${plan.unmatched.length} member${plan.unmatched.length === 1 ? "" : "s"} not at ${provider} left out.`);
+      }
+    }
+  }
+  stage(null);
+  const out = await runClashCheckFlow(deps, scope, target, options);
+  return { ...out, notes };
+}
+
+/** Request exactly the plan's unmatched members from `provider`, through the shared group request:
+ *  element members resolved to the published tree's rows, whole nodes by their own id, each with the
+ *  label the plan looked it up under (a provider may need it to find a node another provider
+ *  published), in the provider's batches. Returns notes for the panel. */
+async function requestMissing(
+  deps: GeometryCheckFlowDeps,
+  scope: string,
+  provider: string,
+  req: AssetNodeRequest,
+  plan: WireGeometryPlan,
+  stage: (s: string | null) => void,
+): Promise<string[]> {
+  const notes: string[] = [];
+  const members: GroupMember[] = [];
+  const labels = new Map<string, string>();
+  for (const u of plan.unmatched) {
+    const member = parseMember(u.member);
+    if (!member) continue;
+    members.push(member);
+    if (u.label) labels.set(memberKey(member), u.label);
+  }
+  stage("finding the missing members in the published tree");
+  const rows = await deps.resolveRows(scope, members);
+  const nodePlan = groupNodePlan(members, rows, labels);
+  if (nodePlan.unresolved.length > 0) {
+    const first = nodePlan.unresolved[0];
+    notes.push(
+      `${nodePlan.unresolved.length} member${nodePlan.unresolved.length === 1 ? "" : "s"} could not be requested: ` +
+        `${first.reason}${nodePlan.unresolved.length > 1 ? " (and others)" : ""}.`,
+    );
+  }
+  const count = planNodeCount(nodePlan);
+  if (count === 0) return notes;
+  stage(`requesting ${count} node${count === 1 ? "" : "s"} from ${provider}`);
+  const requestDeps: CollectionRequestDeps = {
+    ...deps.request,
+    onStage: (s) => {
+      deps.request.onStage?.(s);
+      stage(s);
+    },
+  };
+  const out = await requestGroupGeometry(requestDeps, scope, [{ providerId: provider, req }], nodePlan);
+  notes.push(`Requested from ${provider}: ${describeRequestOutcome(out)}`);
+  if (out.failed.length) notes.push(`${out.failed.length} request${out.failed.length === 1 ? "" : "s"} failed: ${out.failed.join("; ")}`);
+  if (out.published > 0) await deps.afterRequest?.();
+  return notes;
+}
+
+/** The options a run sends, from what the panel holds.
+ *
+ *  Core's checker is sent as it always was -- no `checker` field -- so a default run keeps the
+ *  options document, and with it the derived key, of every result cached before checkers existed.
+ *  A contributed checker sends its name and ITS settings, filled from its advertised defaults; core's
+ *  tolerances are dropped for one that says it does not use them, so editing a field the engine
+ *  ignores cannot turn a cache hit into a rerun.
+ *
+ *  `selectedPasses === null` means "the checker's default set", which the wire expresses by
+ *  OMITTING the field -- sending an empty array would ask for no passes at all. */
+export function checkRequestOptions(state: {
+  options: ClashCheckOptions;
+  selectedPasses: readonly string[] | null;
+  checker: string;
+  checkerOptions: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  availableCheckers: readonly WireClashChecker[] | null;
+  /** `null`/absent = each member read by its own provider, which the wire expresses by OMITTING
+   *  `geometry_provider` -- so a default run keeps the cache key it always had. */
+  geometryProvider?: string | null;
+}): ClashCheckOptions {
+  const geometry: Partial<ClashCheckOptions> = state.geometryProvider
+    ? { geometry_provider: state.geometryProvider }
+    : {};
+  const withPasses: ClashCheckOptions = {
+    ...(state.selectedPasses === null ? state.options : { ...state.options, passes: state.selectedPasses }),
+    ...geometry,
+  };
+  if (state.checker === BUILTIN_CHECKER) return withPasses;
+  const spec = state.availableCheckers?.find((c) => c.name === state.checker);
+  const typed = state.checkerOptions[state.checker] ?? {};
+  const checkerOptions: Record<string, unknown> = {};
+  for (const opt of spec?.options ?? []) {
+    const value = opt.key in typed ? typed[opt.key] : opt.default;
+    if (value !== undefined && value !== null && value !== "") checkerOptions[opt.key] = value;
+  }
+  const base: ClashCheckOptions = spec?.uses_core_options ? withPasses : { root: state.options.root ?? null };
+  return {
+    ...base,
+    ...geometry,
+    ...(state.selectedPasses !== null ? { passes: state.selectedPasses } : {}),
+    checker: state.checker,
+    ...(Object.keys(checkerOptions).length ? { checker_options: checkerOptions } : {}),
+  };
+}
+
+/** The spec-provider preference in force: the session's override when set, else the scope's. */
+export function effectiveSpecProviders(state: {
+  adminSpecProviders: SpecProviderPreference;
+  specProvidersOverride: SpecProviderPreference | undefined;
+}): SpecProviderPreference {
+  return state.specProvidersOverride === undefined ? state.adminSpecProviders : state.specProvidersOverride;
+}
+
+/** One entry of the panel's "Geometry from" choice. */
+export interface GeometryProviderChoice {
+  readonly id: string;
+  readonly label: string;
+  /** Whether a live pool can read it into members -- only then can it be picked. */
+  readonly readable: boolean;
+  /** Why it cannot be picked, when it cannot. */
+  readonly reason: string | null;
+}
+
+export const UNREADABLE_GEOMETRY_REASON = "can't be read into members -- choose a provider that publishes members";
+
+/** The providers a target's members were published by, as far as the target says. A file has none. */
+export function targetProviders(target: ClashCheckTarget | null): readonly string[] {
+  if (!target || target.kind === "file") return [];
+  const out = new Set<string>();
+  if (target.kind === "node") {
+    if (target.provider) out.add(target.provider);
+    for (const p of target.collectionProviders ?? []) out.add(p);
+  } else {
+    for (const m of target.members) if (m.target.kind === "node" && m.target.provider) out.add(m.target.provider);
+  }
+  return [...out].sort();
+}
+
+/** What the "Geometry from" select offers: every provider a live pool can read, then -- disabled,
+ *  with the reason -- the target's own providers that nobody can read, so a user looking for the
+ *  provider they picked the members in sees WHY it is not a choice rather than its absence.
+ *
+ *  `available === null` (never asked, or the route predates this) offers nothing at all: an
+ *  unknown list is not evidence that the target's providers are unreadable. */
+export function geometryProviderChoices(
+  target: ClashCheckTarget | null,
+  available: readonly WireGeometryProvider[] | null,
+): readonly GeometryProviderChoice[] {
+  const out: GeometryProviderChoice[] = [];
+  const seen = new Set<string>();
+  for (const p of available ?? []) {
+    seen.add(p.id);
+    out.push({
+      id: p.id,
+      label: p.label || p.id,
+      readable: p.readable,
+      reason: p.readable ? null : p.unavailable_reason || UNREADABLE_GEOMETRY_REASON,
+    });
+  }
+  if (available !== null) {
+    for (const id of targetProviders(target)) {
+      if (seen.has(id)) continue;
+      out.push({ id, label: id, readable: false, reason: UNREADABLE_GEOMETRY_REASON });
+    }
+  }
+  return out.sort((a, b) => Number(b.readable) - Number(a.readable) || a.id.localeCompare(b.id));
+}
+
+/** Where a result's geometry came from, read off its provenance: the provider asked for, and how
+ *  many members were re-addressed to it or left out. `null` when the check read each member from
+ *  its own provider, which is what every result written before the choice existed did. */
+export function geometrySourceOf(
+  result: ClashResult | null,
+): { provider: string; remapped: number; unmatched: number } | null {
+  const prov = result?.provenance ?? {};
+  const provider = prov.geometry_provider;
+  if (typeof provider !== "string" || !provider) return null;
+  const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+  return { provider, remapped: count(prov.geometry_remap), unmatched: count(prov.geometry_unmatched) };
+}
+
+// ---------------------------------------------------------------------------------------------
 // The store. Thin: state plus actions that assemble the REAL deps (the REST client, the global
 // job toast) and call the pure flows above. `ClashesPanel.tsx` reads state and derives its view
 // with the pure functions above in a `useMemo`, never by adding new store fields for a badge.
@@ -752,8 +1153,9 @@ export async function runClashDetailFlow(
 interface ClashCheckState {
   /** The scene source name the check was run against, for display only. */
   sourceName: string | null;
-  /** Set when the thing to check is a PUBLISHED NODE rather than a file. Mutually exclusive
-   *  with `sourceKey` by construction -- the two setters clear each other -- because the
+  /** Set when the thing to check was chosen EXPLICITLY -- a published node (the Sources tab's
+   *  "Check for joints") or a saved group -- rather than followed from the loaded file. Mutually
+   *  exclusive with `sourceKey` by construction -- the setters clear each other -- because the
    *  route refuses both at once and a store holding both would have to guess which it meant. */
   assetTarget: ClashCheckTarget | null;
   /** The model's SOURCE key -- what the check actually reads (never the GLB). */
@@ -805,10 +1207,40 @@ interface ClashCheckState {
    *  yet, which that function deliberately reads as "offer everything" rather than as "nothing
    *  is available". */
   liveCapabilities: ReadonlySet<string> | null;
+  /** Which clash-check ENGINES this deployment could run -- core's plus every checker a live pool
+   *  advertises. `null` until asked; the panel then offers core's alone. */
+  availableCheckers: readonly WireClashChecker[] | null;
+  /** The engine the NEXT run uses. Core's by default. */
+  checker: string;
+  /** The selected checker's own settings, keyed by its advertised option keys. Kept per checker,
+   *  so switching engines and back does not lose what was typed. */
+  checkerOptions: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /** Every spec provider (capability, or `builtin`) a live pool could serve a spec from. */
+  specProviders: readonly string[];
+  /** The scope's admin default spec-provider preference (`public.clash.spec_providers`). `null` is
+   *  unrestricted -- also what an unconfigured scope or an unreadable setting answers. */
+  adminSpecProviders: SpecProviderPreference;
+  /** This session's override of that default, or `undefined` to follow it. Distinct from `null`,
+   *  which is an override to "every provider". */
+  specProvidersOverride: SpecProviderPreference | undefined;
   /** Producers whose joints are hidden in the result view. A joint found by a hidden producer is
    *  filtered out of the rows, the markers and the counts alike, so the view never shows a number
    *  that does not match what is listed. */
   hiddenOrigins: readonly string[];
+  /** Which provider the NEXT run reads members' geometry from. `null` = each member's own -- what
+   *  every run did before this existed, and what the wire says by omitting the field. Ignored for
+   *  a plain file, which has no provider. */
+  geometryProvider: string | null;
+  /** The providers a live pool can read into members. `null` until asked. */
+  availableGeometryProviders: readonly WireGeometryProvider[] | null;
+  /** The question a run through a geometry provider is waiting on: some members are not at the
+   *  provider -- request them first? `null` when nothing is being asked. */
+  geometryPrompt: GeometryRequestPrompt | null;
+  /** Where the missing-geometry step has got to (planning, requesting, re-planning). */
+  geometryStage: string | null;
+  /** What the last run's missing-geometry step did, for the panel. */
+  geometryNotes: readonly string[];
+  answerGeometryPrompt: (answer: GeometryPromptAnswer) => void;
   /** What the browser run is doing, while it does it -- a pyodide boot is slow enough that a bare
    *  spinner is not an honest answer. `null` when no browser run is in flight. */
   browserStage: string | null;
@@ -831,8 +1263,13 @@ interface ClashCheckState {
   detailProgress: { done: number; total: number } | null;
 
   setSource: (sourceName: string | null, sourceKey: string | null) => void;
+  /** The panel following the LOADED model: `setSource`, unless a node or group was picked
+   *  explicitly -- loading or mounting must not silently replace a target the user chose. */
+  followLoadedSource: (sourceName: string | null) => void;
   /** Point the check at a published node. `label` is what the panel calls it. */
   setAssetTarget: (label: string | null, target: ClashCheckTarget | null) => void;
+  /** Point the check at a saved group: its members, across models, checked as one model. */
+  setGroupTarget: (group: { name: string; members: readonly GroupMember[] }) => void;
   setOptions: (patch: Partial<ClashCheckOptions>) => void;
   setFilters: (patch: Partial<ClashFilters>) => void;
   selectGroup: (typeKey: string | null) => void;
@@ -843,6 +1280,13 @@ interface ClashCheckState {
   setShowMarkers: (v: boolean) => void;
   setInBrowser: (v: boolean) => void;
   setSelectedPasses: (names: readonly string[] | null) => void;
+  /** Pick the engine. Clears the pass selection: passes belong to a checker, and a selection made
+   *  for one engine names passes the other does not have. */
+  setChecker: (name: string) => void;
+  setCheckerOption: (key: string, value: unknown) => void;
+  setGeometryProvider: (id: string | null) => void;
+  /** Override the scope's spec-provider preference for this session; `undefined` follows it again. */
+  setSpecProvidersOverride: (pref: SpecProviderPreference | undefined) => void;
   /** Fetch what this deployment can run. Best effort: a deployment whose routes predate these
    *  answers 404, and the panel then falls back to offering core's passes and every capability,
    *  which is exactly what it did before they existed. */
@@ -873,6 +1317,30 @@ function realFlowDeps(scope: string): ClashFlowDeps {
   };
 }
 
+/** The answer the open `geometryPrompt` is waiting for. One at a time: `runCheck` refuses to start
+ *  while busy, and the prompt is part of a run. */
+let pendingGeometryAnswer: ((answer: GeometryPromptAnswer) => void) | null = null;
+
+/** The live deps of the missing-geometry step. Imported on first use: they reach the asset browser,
+ *  the plugin listing and the request form's job deps, none of which a check without a geometry
+ *  provider -- or a test of this store -- should have to load. */
+async function realGeometryDeps(
+  scope: string,
+  set: (patch: Partial<ClashCheckState>) => void,
+): Promise<GeometryCheckFlowDeps> {
+  const live = await import("@/state/clashGeometryDeps");
+  return {
+    ...realFlowDeps(scope),
+    ...(await live.geometryRequestDeps(scope, (stage) => set({ geometryStage: stage }))),
+    prompt: (question) =>
+      new Promise<GeometryPromptAnswer>((resolve) => {
+        pendingGeometryAnswer = resolve;
+        set({ geometryPrompt: question });
+      }),
+    onStage: (stage) => set({ geometryStage: stage }),
+  };
+}
+
 const INITIAL_OPTIONS: ClashCheckOptions = {
   out_of_plane_tol: 0.1,
   point_tol: 1e-5,
@@ -898,6 +1366,17 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   hiddenOrigins: [],
   availablePasses: null,
   liveCapabilities: null,
+  availableCheckers: null,
+  checker: BUILTIN_CHECKER,
+  checkerOptions: {},
+  specProviders: [],
+  adminSpecProviders: null,
+  specProvidersOverride: undefined,
+  geometryProvider: null,
+  availableGeometryProviders: null,
+  geometryPrompt: null,
+  geometryStage: null,
+  geometryNotes: [],
 
   jobId: null,
   derivedKey: null,
@@ -920,17 +1399,13 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     // that is no longer selected would misreport joints that are not there. Compared by VALUE --
     // the panel builds a fresh object per render, so identity would reset the result on every
     // repaint and lose the run the user just made.
-    const prev = get().assetTarget;
-    const same =
-      prev !== null &&
-      target !== null &&
-      prev.kind === "node" &&
-      target.kind === "node" &&
-      prev.collection === target.collection &&
-      prev.subject === target.subject &&
-      (prev.revision ?? null) === (target.revision ?? null) &&
-      (prev.node ?? null) === (target.node ?? null);
-    if (same) return;
+    if (sameClashTarget(get().assetTarget, target)) {
+      // Same model, maybe a new name for it (a renamed group): keep the result, update the label.
+      if (label !== get().sourceName) set({ sourceName: label });
+      return;
+    }
+    // A question about the previous target's members no longer means anything.
+    if (get().geometryPrompt) get().answerGeometryPrompt("cancel");
     set({
       sourceName: label,
       sourceKey: null,
@@ -947,6 +1422,15 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       producedJoints: null,
       producedSkipped: [],
     });
+  },
+
+  setGroupTarget: (group) => {
+    get().setAssetTarget(`group ${group.name}`, { kind: "group", name: group.name, members: [...group.members] });
+  },
+
+  followLoadedSource: (sourceName) => {
+    if (get().assetTarget !== null) return;
+    get().setSource(sourceName, sourceName);
   },
 
   setSource: (sourceName, sourceKey) => {
@@ -994,18 +1478,54 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   setShowMarkers: (v) => set({ showMarkers: v }),
   setInBrowser: (v) => set({ inBrowser: v }),
   setSelectedPasses: (names) => set({ selectedPasses: names }),
+  setChecker: (name) => set({ checker: name, selectedPasses: null }),
+  setCheckerOption: (key, value) =>
+    set((s) => ({
+      checkerOptions: { ...s.checkerOptions, [s.checker]: { ...(s.checkerOptions[s.checker] ?? {}), [key]: value } },
+    })),
+  setSpecProvidersOverride: (pref) => set({ specProvidersOverride: pref }),
+  setGeometryProvider: (id) => set({ geometryProvider: id || null }),
+  answerGeometryPrompt: (answer) => {
+    const resolve = pendingGeometryAnswer;
+    pendingGeometryAnswer = null;
+    set({ geometryPrompt: null });
+    resolve?.(answer);
+  },
 
   loadCapabilities: async (scope) => {
-    // Both are optional knowledge: failing to learn them must leave the panel usable, not
-    // empty. Settled independently so one missing route does not cost the other's answer.
-    const [passes, caps] = await Promise.allSettled([
+    // All optional knowledge: failing to learn any of it must leave the panel usable, not
+    // empty. Settled independently so one missing route does not cost the others' answers.
+    const [passes, caps, checkers, specProviders, geometry] = await Promise.allSettled([
       clashCheckApi.listPasses(scope as never),
       clashCheckApi.listLiveConnectionCapabilities(scope as never),
+      clashCheckApi.listCheckers(scope as never),
+      settingsApi.getPublicSetting(CLASH_SPEC_PROVIDERS_KEY),
+      clashCheckApi.listGeometryProviders(scope as never),
     ]);
-    set({
+    const liveCapabilities = caps.status === "fulfilled" ? caps.value : null;
+    const availableCheckers = checkers.status === "fulfilled" ? checkers.value : null;
+    const availableGeometryProviders = geometry.status === "fulfilled" ? geometry.value : null;
+    set((s) => ({
+      availableGeometryProviders,
+      // A provider chosen earlier that no live pool can read any more falls back to each member's
+      // own, rather than staying selected for a run that would read nothing.
+      geometryProvider:
+        availableGeometryProviders &&
+        s.geometryProvider &&
+        !availableGeometryProviders.some((p) => p.id === s.geometryProvider && p.readable)
+          ? null
+          : s.geometryProvider,
       availablePasses: passes.status === "fulfilled" ? passes.value : null,
-      liveCapabilities: caps.status === "fulfilled" ? caps.value : null,
-    });
+      liveCapabilities,
+      availableCheckers,
+      // A checker chosen earlier whose pool has since gone is dropped back to core's, rather than
+      // left selected for a run the route will refuse.
+      checker:
+        availableCheckers && !availableCheckers.some((c) => c.name === s.checker) ? BUILTIN_CHECKER : s.checker,
+      specProviders: [...(liveCapabilities ?? [])].sort(),
+      adminSpecProviders:
+        specProviders.status === "fulfilled" ? preferenceFor(parseSpecProviders(specProviders.value), scope) : null,
+    }));
   },
   toggleOriginHidden: (origin) =>
     set((s) => ({
@@ -1016,14 +1536,22 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
 
   runCheck: async (scope) => {
     const { sourceKey, assetTarget, options, inBrowser } = get();
-    // A node's model is read by its provider on a worker, so the in-browser path below cannot
-    // serve one: it scans a FILE this process fetched. Falling through to the server is not a
-    // degradation here, it is the only way the format can be read at all.
+    // A node's model is read by its provider on a worker, and a group combines several models on
+    // the server, so the in-browser path below can serve neither: it scans ONE FILE this process
+    // fetched. Falling through to the server is not a degradation here, it is the only way the
+    // check can be made at all.
     if (!sourceKey && !assetTarget) return;
     if (get().busy) return;
     set({ busy: true, error: null, browserStage: null });
     try {
-      if (sourceKey && inBrowser && browserClashCheckSupports(sourceKey)) {
+      // The browser runs core's checker only; a contributed engine lives on its pool.
+      if (
+        sourceKey &&
+        !assetTarget &&
+        inBrowser &&
+        get().checker === BUILTIN_CHECKER &&
+        browserClashCheckSupports(sourceKey)
+      ) {
         // No job, no upload: the file is fetched once for the scan and everything else happens
         // here. `derivedKey` stays null on purpose -- there IS no server-side document to point a
         // detail hand-off at, and a key that resolved to nothing would fail later and further away
@@ -1046,17 +1574,41 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         });
         return;
       }
-      const { result, derivedKey, cached } = await runClashCheckFlow(
-        realFlowDeps(scope),
-        scope,
-        assetTarget ?? { kind: "file", sourceKey: sourceKey as string },
-        // `null` selection means "core's default set", which the wire expresses by OMITTING the
-        // field -- sending an empty array would ask for no passes at all.
-        get().selectedPasses === null ? options : { ...options, passes: get().selectedPasses ?? [] },
-      );
+      const target = assetTarget ?? { kind: "file" as const, sourceKey: sourceKey as string };
+      // A plain file has no provider to read it from, so the choice is not sent for one.
+      const requestOptions = checkRequestOptions({ ...get(), geometryProvider: assetTarget ? get().geometryProvider : null });
+      if (assetTarget && requestOptions.geometry_provider) {
+        // Through a geometry provider: find the members it lacks and offer to request them first.
+        set({ geometryNotes: [], geometryStage: null });
+        const outcome = await runGeometryAwareCheckFlow(await realGeometryDeps(scope, set), scope, target, requestOptions);
+        if (outcome === null) {
+          set({ busy: false, geometryStage: null, geometryNotes: ["Cancelled; nothing was checked."] });
+          return;
+        }
+        const { result, derivedKey, cached, notes } = outcome;
+        set({
+          result,
+          derivedKey,
+          cached,
+          busy: false,
+          geometryStage: null,
+          geometryNotes: notes,
+          selectedGroup: null,
+          selectedJoints: [],
+          selectedJoint: null,
+        });
+        return;
+      }
+      const { result, derivedKey, cached } = await runClashCheckFlow(realFlowDeps(scope), scope, target, requestOptions);
       set({ result, derivedKey, cached, busy: false, selectedGroup: null, selectedJoints: [], selectedJoint: null });
     } catch (e) {
-      set({ busy: false, browserStage: null, error: e instanceof Error ? e.message : String(e) });
+      set({
+        busy: false,
+        browserStage: null,
+        geometryStage: null,
+        geometryPrompt: null,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   },
 
@@ -1087,7 +1639,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   runDetailAll: async (scope, only) => {
     const { derivedKey, result } = get();
     if (!derivedKey || !result || get().detailBusy) return;
-    const batches = detailBatches(result, only ?? null);
+    const batches = detailBatches(result, only ?? null, effectiveSpecProviders(get()));
     if (batches.length === 0) {
       set({ detailError: "No joint in this result has a generator that could detail it." });
       return;
@@ -1133,11 +1685,18 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     set({ detailBusy: false, detailProgress: null });
   },
 
-  reset: () =>
+  reset: () => {
+    // A run waiting on the prompt is cancelled, not left hanging on an answer nobody can give.
+    get().answerGeometryPrompt("cancel");
     set({
       sourceName: null,
       sourceKey: null,
+      assetTarget: null,
       options: INITIAL_OPTIONS,
+      geometryProvider: null,
+      geometryPrompt: null,
+      geometryStage: null,
+      geometryNotes: [],
       filters: DEFAULT_CLASH_FILTERS,
       selectedGroup: null,
       selectedJoints: [],
@@ -1156,5 +1715,6 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       producedJoints: null,
       producedSkipped: [],
       detailProgress: null,
-    }),
+    });
+  },
 }));

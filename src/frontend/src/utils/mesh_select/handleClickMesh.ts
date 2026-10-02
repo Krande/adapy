@@ -8,7 +8,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {setFaceHighlight, clearFaceHighlight} from "./faceHighlight";
 import {perform_selection} from "./perform_selection";
 import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
-import {useTreeViewStore} from "@/state/treeViewStore";
+import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
@@ -95,6 +95,11 @@ export async function handleClickMesh(
         useSelectedObjectStore.getState().clearSelectedObjects();
     }
 
+    // Show the pick in the open tree (Scene or Sources) -- only in Solid mode, Faces mode doesn't
+    // select the whole object. Before the name lookup below: an element with no name still has a
+    // row, and returning early used to leave the tree on the previous pick.
+    if (!facePicking) revealPickInTrees(mesh.unique_key, rangeId);
+
     // update object info
     const last_selected_name = await queryNameFromRangeId(mesh.unique_key, rangeId);
     if (!last_selected_name) {
@@ -112,39 +117,4 @@ export async function handleClickMesh(
     useObjectInfoStore.getState().setFileName(activeFile);
     useObjectInfoStore.getState().setJsonData(null);
     void query_ws_server_mesh_info(last_selected_name, faceIndex, activeFile);
-
-    // update tree selection — only in Solid mode; Faces mode doesn't select the whole object
-    const treeViewStore = useTreeViewStore.getState();
-    if (!facePicking && treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isTreeCollapsed) {
-        // flag programmatic change
-        // @ts-ignore
-        treeViewStore.tree.isProgrammaticChange = true;
-
-        const node_ids: string[] = [];
-        for (const [m, selectedRanges] of useSelectedObjectStore.getState().selectedObjects) {
-            // Determine lookup key per object type
-            const lookupKey: string | undefined = (m as any).unique_key ?? (m.userData ? m.userData['unique_hash'] : undefined);
-            if (!lookupKey) continue;
-            for (const rid of selectedRanges) {
-                // Resolve by (model_key, rangeId) — the unique numeric node id —
-                // never by display name, which repeats thousands of times in
-                // real CAD models and made the tree highlight the wrong row.
-                const node = treeViewStore.findNodeByRangeId(lookupKey, rid);
-                if (node) node_ids.push(node.id);
-            }
-        }
-
-        const lastNode = treeViewStore.findNodeByRangeId(mesh.unique_key, rangeId);
-        treeViewStore.tree.setSelection({
-            ids: node_ids,
-            mostRecent: lastNode,
-            anchor: lastNode,
-        });
-        if (lastNode) treeViewStore.tree.scrollTo({id: lastNode.id});
-
-        // @ts-ignore
-        treeViewStore.tree.isProgrammaticChange = false;
-    }
-
-
 }

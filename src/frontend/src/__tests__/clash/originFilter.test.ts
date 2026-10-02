@@ -81,7 +81,9 @@ test("a geometric pass's measurement survives parsing, an axis pass's absence st
   // The data a generator sizes its output from. Carried, never interpreted here.
   const r = parseClashResult(doc());
   assert.equal(r.joints[0].contact, null);
-  assert.deepEqual(r.joints[2].contact, { penetration_depth: 0.002 });
+  // Typed (@2's `ClashContact`), and what was not measured reads as null rather than zero.
+  assert.equal(r.joints[2].contact?.penetrationDepth, 0.002);
+  assert.equal(r.joints[2].contact?.contactArea, null);
 });
 
 test("a document written before joints carried a producer still reads", () => {

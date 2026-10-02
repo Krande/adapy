@@ -190,3 +190,36 @@ async def read_conversion_settings(db_pool: asyncpg.Pool | None, job: Job) -> Co
             profile_enabled = str(per_job["profile_conversions"]).strip().lower() in {"1", "true", "yes", "on"}
 
     return ConversionSettings(profile_enabled=profile_enabled, env_overrides=env_overrides, timeout_s=timeout_s)
+
+
+def _minutes_to_s(raw: str | None) -> float | None:
+    try:
+        tm = float((raw or "").strip())
+    except (TypeError, ValueError):
+        return None
+    return tm * 60.0 if tm > 0 else None
+
+
+async def read_clash_timeout_s(db_pool: asyncpg.Pool | None) -> float | None:
+    """Wall-clock budget for a clash job's forked child (``formats/clash_isolation.py``).
+
+    ``clash_timeout_minutes`` when set, else the conversions' ``conversion_timeout_minutes`` -- a
+    deployment that already bounds its jobs gets the clash checks bounded too without a second
+    knob, and one that wants clash checks to run longer (or shorter) than a tessellation can
+    say so. Unset / 0 / non-numeric everywhere means no timeout, the same default conversions
+    have: a legitimately big check must not be killed by a limit nobody chose. Read per job, like
+    the conversion settings, so an admin change applies without a restart.
+    """
+    if db_pool is None:
+        return None
+    for key in ("clash_timeout_minutes", "conversion_timeout_minutes"):
+        try:
+            raw = await db_module.get_setting(db_pool, key)
+        except Exception:
+            logger.exception("worker: failed to read %s setting", key)
+            continue
+        if raw is not None and raw.strip() != "":
+            # An explicit clash value wins even when it is 0: that is how an admin says "no
+            # timeout for clash checks" on a deployment that times out its conversions.
+            return _minutes_to_s(raw)
+    return None

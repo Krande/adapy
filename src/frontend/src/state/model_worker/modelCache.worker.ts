@@ -238,7 +238,10 @@ class ModelWorkerAPI {
         }
 
         // link parents → children
-        let root: TreeNodeData | null = null;
+        // EVERY top-level entry is kept: a GLB merged from several sources (one per site file, say)
+        // carries one `"*"` root per source, and keeping only the last dropped the others' whole
+        // subtrees -- their elements drew, but picking one found no tree row to select.
+        const roots: TreeNodeData[] = [];
         for (const [rangeId, [, parent]] of Object.entries(hierarchy)) {
             // convert id to string
             const string_id = id_rangeIdMap.get(rangeId);
@@ -249,7 +252,7 @@ class ModelWorkerAPI {
                 continue;
             }
             if (parent === "*" || parent === null) {
-                root = nodes[string_id];
+                roots.push(nodes[string_id]);
             } else {
                 // id_hierarchy keys are JSON strings, but the parent field is emitted as a NUMBER by
                 // the native C++ writer (build_scene_extras: `hier << parent`), so a raw Map.get(0)
@@ -284,6 +287,18 @@ class ModelWorkerAPI {
             });
             n.children.forEach(sortRec);
         };
+        // One root as before; several are held under a synthetic one (no rangeId: it draws nothing
+        // and picks nothing), numbered after every real node so its id cannot collide.
+        let root: TreeNodeData | null = roots.length === 1 ? roots[0] : null;
+        if (roots.length > 1) {
+            root = {
+                id: String(id),
+                name: roots.map((r) => r.name).join(" + "),
+                children: roots,
+                model_key: key,
+                node_name: null,
+            };
+        }
         if (root) sortRec(root);
 
         return root;

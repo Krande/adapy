@@ -89,7 +89,10 @@ def _connection_specs_for_heartbeat(capabilities: list[str]) -> list[dict]:
                 "tags": sorted(spec.tags),
                 "priority": spec.priority,
                 "roles": spec_to_form_schema(spec),
-                "capability": None if spec.name in BUILTIN_SPEC_NAMES else own_capability,
+                # The spec's own attribution wins where it has one, as for passes and checkers.
+                "capability": None
+                if spec.name in BUILTIN_SPEC_NAMES
+                else (getattr(spec, "capability", None) or own_capability),
             }
         )
     return out
@@ -142,6 +145,91 @@ def _clash_passes_for_heartbeat(capabilities: list[str]) -> list[dict]:
                 # capability-free by definition, and anything else is this worker's, when this
                 # worker can be named at all.
                 "capability": entry["capability"] or (None if entry["name"] in CORE_PASS_NAMES else own_capability),
+            }
+        )
+    return out
+
+
+def _clash_checkers_for_heartbeat(capabilities: list[str]) -> list[dict]:
+    """This worker's registered clash CHECKERS -- the engines a check can be routed to.
+
+    Same attribution rule as the passes: core's checker answers ``capability: None``, a checker
+    that named its pool keeps it, and anything else is this worker's single declared capability
+    when there is exactly one. The API routes a check to that token, so a checker advertised with
+    no capability and not core's would run on the default pool, which does not have its code --
+    which is why the API refuses to route one rather than guess.
+    """
+    try:
+        import ada.clash.identify  # noqa: F401,PLC0415 - registers core's passes, which core's checker lists
+        from ada.clash.passes import BUILTIN_CHECKER, list_checkers
+    except Exception:
+        logger.exception("worker: ada.clash unavailable for the clash_checkers heartbeat (non-fatal)")
+        return []
+
+    own = sorted({t for c in capabilities if (t := capability_token(c)) and t != "base"})
+    own_capability = own[0] if len(own) == 1 else None
+
+    out: list[dict] = []
+    for entry in list_checkers():
+        is_core = entry["name"] == BUILTIN_CHECKER
+        out.append(
+            {
+                **entry,
+                "slug": entry["name"],
+                "capability": None if is_core else (entry["capability"] or own_capability),
+            }
+        )
+    return out
+
+
+def _asset_concept_readers_for_heartbeat(capabilities: list[str]) -> list[dict]:
+    """Which providers' published nodes this worker can READ into objects (``ada.assets.concepts``).
+
+    What the clash panel's "geometry from" choice is offered from: a check can only take its members
+    from a provider some live worker can read, and a provider that publishes meshes only has no
+    reader anywhere. Same catalog shape and the same attribution rule as the passes and checkers --
+    this worker's single declared (non-``base``) capability, or ``None`` when it cannot be named --
+    and availability is ASKED of each reader (a reader whose dependency is missing says so).
+
+    Re-read on every heartbeat rather than once at boot: a reader is registered by whichever plugin
+    owns the provider, and that can happen after the worker connected.
+
+    ``readable_pools`` -- this worker's pool when it can read the provider, else nothing -- is
+    declared a ``union_fields`` key, so the API sees EVERY pool that can read a provider rather than
+    the first worker's verdict (``live_worker_specs`` keeps the first worker's scalars). That is
+    what a check through a geometry provider is routed by (``routes/clash_check.py``).
+    """
+    try:
+        from ada.assets.concepts import concept_providers
+    except Exception:
+        logger.exception("worker: ada.assets.concepts unavailable for the asset_concept_readers heartbeat (non-fatal)")
+        return []
+
+    tokens = {t for c in capabilities if (t := capability_token(c))}
+    own = sorted(t for t in tokens if t != "base")
+    own_capability = own[0] if len(own) == 1 else None
+    # EVERY pool this worker serves, not the one it can be attributed to: a job routed to any of its
+    # pools may land on it, and it can read the provider there. On a combined worker (one process
+    # serving many pools -- a dev stack, a small deployment) the single-pool attribution answered
+    # "default pool" only, and a check whose checker lives on a named pool was refused as needing
+    # two pools when one worker carried both. `None` is the default pool, served via `base`.
+    serves: list[str | None] = ([None] if "base" in tokens or not tokens else []) + own
+    try:
+        rows = concept_providers()
+    except Exception:
+        logger.exception("worker: listing concepts readers failed (non-fatal)")
+        return []
+    out: list[dict] = []
+    for row in rows:
+        readable = bool(row.get("available", True))
+        out.append(
+            {
+                **row,
+                "slug": row["id"],
+                "readable": readable,
+                "capability": own_capability,
+                "readable_pools": serves if readable else [],
+                "union_fields": ["readable_pools"],
             }
         )
     return out
@@ -355,6 +443,8 @@ async def build_registration(queue: JobQueue) -> Registration:
     # with. Same union, same attribution-by-capability, so the panel can offer a contributed pass
     # as a checkbox BEFORE the first run that uses it.
     clash_passes = _clash_passes_for_heartbeat(capabilities)
+    # Clash checkers: the ENGINES a check can be routed to, each owning some of the passes above.
+    clash_checkers = _clash_checkers_for_heartbeat(capabilities)
 
     async def _publish_registration() -> bool:
         """Publish the registration; return whether it reached the bus.
@@ -393,6 +483,8 @@ async def build_registration(queue: JobQueue) -> Registration:
                     "plugin_specs": locally_registered_specs(),
                     "connection_specs": connection_specs,
                     "clash_passes": clash_passes,
+                    "clash_checkers": clash_checkers,
+                    "asset_concept_readers": _asset_concept_readers_for_heartbeat(capabilities),
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

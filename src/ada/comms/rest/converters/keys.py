@@ -282,11 +282,23 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     "_procedural/",
     "_equipment/",
     "_engines/",
+    "_groups/",
 )
 
 
 def is_hidden_key(key: str) -> bool:
     return key.lstrip("/").startswith(HIDDEN_PREFIXES)
+
+
+# Per-scope state the VIEWER writes through the generic blob route -- today the saved clash groups
+# at ``_groups/groups.json``. Hidden like the rest (it is not a user file), but unlike ``_derived/``
+# it is client-written, so the upload route exempts it from the source-extension whitelist rather
+# than refusing a ``.json`` that no converter reads.
+SCOPE_STATE_PREFIXES: tuple[str, ...] = ("_groups/",)
+
+
+def is_scope_state_key(key: str) -> bool:
+    return key.lstrip("/").startswith(SCOPE_STATE_PREFIXES)
 
 
 def is_versions_artefact_key(key: str) -> bool:

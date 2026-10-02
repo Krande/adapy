@@ -136,7 +136,10 @@ const RequestCollection: React.FC<{
                 <>
                     <div className="text-gray-400">Request from a provider</div>
                     <div className="flex flex-wrap items-center gap-1">
-                        {providers.length > 1 && (
+                        {/* Shown even for ONE provider: the request goes to that provider, and a
+                            row naming no provider read as if the choice depended on another one
+                            being up (a single provider looked like no provider at all). */}
+                        {providers.length > 0 && (
                             <select
                                 aria-label="Provider"
                                 className="h-7 rounded-md border border-gray-700 bg-gray-800 text-xs text-gray-100 px-2"

@@ -22,6 +22,7 @@ import asyncio
 import gzip
 import json
 import os
+import time
 import uuid
 from collections import OrderedDict
 
@@ -43,7 +44,13 @@ from ada.assets.build import (
     derived_asset_prefix,
 )
 from ada.assets.index import fold_listing
-from ada.assets.keys import ASSET_PREFIX, STAGING_SEGMENT, AssetKeyError, asset_key
+from ada.assets.keys import (
+    ASSET_PREFIX,
+    STAGING_SEGMENT,
+    AssetKeyError,
+    asset_key,
+    is_valid_segment,
+)
 from ada.assets.manifest import (
     HIERARCHY_FILENAME,
     MANIFEST_FILENAME,
@@ -59,6 +66,14 @@ from ada.assets.registry import (
     asset_provider,
     asset_providers,
     registered_provider_ids,
+)
+from ada.assets.rollup import (
+    ROLLUP_SCHEMA,
+    TreeDocument,
+    TreePlacement,
+    listing_token,
+    plan_rollup,
+    rollup_body,
 )
 from ada.assets.unpublish import plan_unpublish
 from ada.config import logger
@@ -165,6 +180,156 @@ async def api_asset_index(
     if manifests:
         await _fold_manifest_summaries(ctx, scope_obj, collection, body)
     return JSONResponse(body)
+
+
+@router.get("/scopes/{scope}/assets/geometry/{collection}")
+async def api_asset_geometry(
+    collection: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> Response:
+    """The collection's GEOMETRY ROLL-UP: per provider (and for ``any``), the subjects whose latest
+    content carries loadable geometry (``here``), every row with such a subject somewhere below it
+    in the merged collection tree (``below``), and the ones no tree places (``unplaced``).
+
+    What lets the browser mark a row it has never expanded: the tree arrives a level at a time, so
+    without this every unopened branch reads "unknown" (see ``ada.assets.rollup`` for the rules).
+
+    Computed from the stored documents only -- manifests and hierarchy slices -- and cached under
+    ``_derived/assets/_geometry/<collection>/<token>.json``, where the token hashes the collection's
+    listing (keys, sizes, times): any publish or unpublish moves it, so a cached answer is never
+    stale and needs no invalidation.
+    """
+    if not is_valid_segment(collection):
+        raise HTTPException(status_code=400, detail=f"invalid collection {collection!r}")
+    entries = await ctx.storage.list_prefix(scope_obj, f"{ASSET_PREFIX}/{collection}/")
+    if not entries:
+        raise HTTPException(status_code=404, detail=f"no published collection {collection!r}")
+    token = _rollup_token(entries)
+    cache_key = f"{_ROLLUP_PREFIX}/{collection}/{token}.json"
+
+    try:
+        cached = json.loads(await ctx.storage.get_bytes(scope_obj, cache_key))
+        if isinstance(cached, dict) and cached.get("index_token") == token:
+            return _json_response(request, {**cached, "cached": True})
+    except (FileNotFoundError, KeyError):
+        pass
+    except Exception as exc:  # noqa: BLE001 - an unreadable cache entry is recomputed, never served
+        logger.warning("geometry roll-up cache %s unreadable: %s", cache_key, exc)
+
+    inflight_key = (scope_obj.prefix(), cache_key)
+    pending = _ROLLUP_INFLIGHT.get(inflight_key)
+    if pending is None:
+        pending = asyncio.ensure_future(_compute_rollup(ctx, scope_obj, collection, entries, token, cache_key))
+        _ROLLUP_INFLIGHT[inflight_key] = pending
+        pending.add_done_callback(lambda _f: _ROLLUP_INFLIGHT.pop(inflight_key, None))
+    body = await asyncio.shield(pending)
+    return _json_response(request, {**body, "cached": False})
+
+
+# -- geometry roll-up -------------------------------------------------------------------------
+
+#: Where roll-ups are cached. ``_geometry`` cannot collide with a provider id: a segment never starts
+#: with ``_``, the same reservation ``_publish`` relies on.
+_ROLLUP_PREFIX = f"{DERIVED_ASSET_PREFIX}/_geometry"
+#: Bumped when the roll-up's RULES change, so an answer cached under the old ones is not served.
+_ROLLUP_VERSION = "1"
+#: Hierarchy documents read at once. Low on purpose: a site spine can be tens of MB parsed.
+_ROLLUP_SPINE_CONCURRENCY = 4
+_ROLLUP_INFLIGHT: "dict[tuple[str, str], asyncio.Future]" = {}
+
+
+def _rollup_token(entries) -> str:
+    return listing_token(entries, salt=f"{ROLLUP_SCHEMA}|{_ROLLUP_VERSION}")
+
+
+def _hierarchy_edges(raw: bytes) -> list[tuple[str, str | None]]:
+    """``(id, parent)`` of every row -- all the roll-up needs of a document, so the parsed slice
+    is dropped as soon as this returns."""
+    return _slice_edges(parse_hierarchy(raw))
+
+
+def _slice_edges(slice_) -> list[tuple[str, str | None]]:
+    id_at, parent_at = slice_.column("id"), slice_.column("parent")
+    return [(str(r[id_at]), None if r[parent_at] is None else str(r[parent_at])) for r in slice_.rows]
+
+
+async def _compute_rollup(
+    ctx: RestContext, scope_obj: Scope, collection: str, entries, token: str, cache_key: str
+) -> dict:
+    started = time.perf_counter()
+    subjects = fold_listing([e.key for e in entries]).subjects(collection)
+
+    gate = asyncio.Semaphore(_MANIFEST_READ_CONCURRENCY)
+
+    async def manifest(subject: str, revision: str):
+        key = asset_key(collection, subject, revision, MANIFEST_FILENAME)
+        async with gate:
+            try:
+                raw = await ctx.storage.get_bytes(scope_obj, key)
+            except (FileNotFoundError, KeyError):
+                return None
+        try:
+            m = parse_manifest(raw)
+        except ManifestError:
+            return None  # not content, as in the browser: a mark has to be a fact
+        return (m.provider, m.delivery)
+
+    wanted = [(s.subject, r.revision) for s in subjects for r in s.revisions if r.has_manifest]
+    summaries = await asyncio.gather(*(manifest(s, r) for s, r in wanted))
+    plan = plan_rollup(collection, subjects, dict(zip(wanted, summaries)))
+    placement = TreePlacement(collection)
+
+    tree_gate = asyncio.Semaphore(_ROLLUP_SPINE_CONCURRENCY)
+    targets = [s for s in plan.any_here if s != collection]
+
+    def done() -> bool:
+        return all(placement.placed(s) for s in targets)
+
+    async def read(doc: TreeDocument, *, skip_when_done: bool = False) -> None:
+        key = asset_key(collection, doc.subject, doc.revision, HIERARCHY_FILENAME)
+        hit = _SPINE_CACHE.get((scope_obj.prefix(), key))
+        try:
+            if hit is not None:
+                edges = _slice_edges(hit.slice_)
+            else:
+                async with tree_gate:
+                    if skip_when_done and done():
+                        return  # an earlier spine of this wave placed the last one
+                    raw = await ctx.storage.get_bytes(scope_obj, key)
+                    # Off the event loop: a whole-site spine takes a while to parse.
+                    edges = await asyncio.to_thread(_hierarchy_edges, raw)
+        except (FileNotFoundError, KeyError):
+            return
+        except HierarchyError as exc:
+            logger.warning("geometry roll-up: %s unreadable: %s", key, exc)
+            return
+        placement.add(doc, edges)
+
+    await asyncio.gather(*(read(d) for d in plan.index_documents))
+    # Spines in WAVES, each one the spines whose subject the tree now reaches -- exactly what the
+    # browser could open -- and only while some subject with geometry is still not placed: once
+    # every one is, its ancestry is complete and the rest of the spines cannot change the answer.
+    while not done():
+        wave = placement.spines_to_read(plan)
+        if not wave:
+            break
+        await asyncio.gather(*(read(d, skip_when_done=True) for d in wave))
+
+    body = rollup_body(plan, placement, index_token=token)
+    body["stats"]["computed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+    try:
+        await ctx.storage.put_bytes(
+            scope_obj, cache_key, json.dumps(body, separators=(",", ":")).encode("utf-8"), content_encoding="gzip"
+        )
+        # Older tokens of this collection answer listings that no longer exist.
+        for old in await ctx.storage.list_prefix(scope_obj, f"{_ROLLUP_PREFIX}/{collection}/"):
+            if old.key != cache_key:
+                await ctx.storage.delete(scope_obj, old.key)
+    except Exception as exc:  # noqa: BLE001 - the answer stands without its cache
+        logger.warning("geometry roll-up cache %s not written: %s", cache_key, exc)
+    return body
 
 
 @router.get("/scopes/{scope}/assets/tree/{provider}/{collection}")
@@ -811,6 +976,13 @@ def _classify_asset_file(key: str) -> dict | None:
         if provider and job and filename:
             return {"area": "derived", "kind": "publish-summary", "provider": provider, "job": job, "file": filename}
         return None
+    if key.startswith(f"{_ROLLUP_PREFIX}/"):
+        # A collection's geometry roll-up: derived from the whole collection rather than one
+        # source, so no source owns it; a newer listing replaces it (see api_asset_geometry).
+        collection, _, filename = key[len(f"{_ROLLUP_PREFIX}/") :].partition("/")
+        if collection and filename:
+            return {"area": "derived", "kind": "geometry-rollup", "collection": collection, "file": filename}
+        return None
     if key.startswith(f"{DERIVED_ASSET_PREFIX}/"):
         parts = key[len(DERIVED_ASSET_PREFIX) + 1 :].split("/", 6)
         if len(parts) == 7 and all(parts):
@@ -945,6 +1117,8 @@ async def _publish_sources(ctx: RestContext, scope_obj: Scope) -> tuple[dict, li
             orphans.append(entry)
         elif kind.get("kind") == "publish-summary":
             summaries.append((entry, kind))
+        elif kind.get("kind") == "geometry-rollup":
+            continue  # a cache over the whole collection, not derived from any one source
         else:
             g = groups.get((kind["collection"], kind["revision"], kind["provider"]))
             if g is not None and kind["subject"] in g["subjects"]:

@@ -55,6 +55,44 @@ export function hideSelectedRanges(): void {
     requestRender();
 }
 
+/** Hide everything that is NOT selected, across every loaded mesh -- the inverse of
+ * ``hideSelectedRanges`` (Shift+I). The selection is kept, so the user can act on what is left on
+ * screen; Shift+U brings the rest back.
+ *
+ * A no-op when nothing is selected: "hide everything" is not what anybody pressing this means.
+ * Ranges hidden before stay hidden -- a selected range that was already hidden is not resurrected
+ * by hiding the others. */
+export function hideUnselectedRanges(): void {
+    const selected = useSelectedObjectStore.getState().selectedObjects;
+    if (selected.size === 0) return;
+    const scene = getViewerRuntime().scene.current;
+    if (!scene) return;
+
+    // Selection entries can be keyed by a CustomBatchedMesh or by a wrapper whose subtree holds
+    // one (see hideSelectedRanges); fold both into "ranges to keep, per mesh".
+    const keep = new Map<CustomBatchedMesh, Set<string>>();
+    const addKeep = (mesh: CustomBatchedMesh, ids: Iterable<string>) => {
+        const set = keep.get(mesh) ?? new Set<string>();
+        for (const id of ids) set.add(id);
+        keep.set(mesh, set);
+    };
+    selected.forEach((rangeIds, obj) => {
+        if (obj instanceof CustomBatchedMesh) addKeep(obj, rangeIds);
+        else (obj as THREE.Object3D).traverse((child) => {
+            if (child instanceof CustomBatchedMesh) addKeep(child, rangeIds);
+        });
+    });
+
+    scene.traverse((obj) => {
+        if (!(obj instanceof CustomBatchedMesh)) return;
+        const hidden = obj.getHiddenRanges();
+        const visibleSelected = new Set([...(keep.get(obj) ?? [])].filter((id) => !hidden.has(id)));
+        // A mesh with nothing selected is isolated to nothing, i.e. hidden whole.
+        obj.isolateDrawRanges(visibleSelected);
+    });
+    requestRender();
+}
+
 /** Unhide every draw range across every loaded mesh. No-op when
  * nothing is hidden — safe to call unconditionally. */
 export function unhideAllRanges(): void {

@@ -463,6 +463,25 @@ class LocalJobTransport(_BaseTransport):
         """The check kind's local engine. Its identity travels in ``conversion_options`` (the
         route composed it), matching ``_submit_asset_build``'s argument for why."""
         opts = req.conversion_options or {}
+        if opts.get("group"):
+            # A named GROUP of members from several sources, checked as one model.
+            job = local_jobs.start_clash_check_group(
+                group=dict(opts["group"]),
+                token=str(opts.get("group_token") or ""),
+                options=dict(opts.get("options") or {}),
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+            return SubmittedJob(
+                job_id=job.job_id,
+                derived_key=job.derived_key,
+                status=job.status,
+                stage=job.stage,
+                progress=job.progress,
+                target_capability=None,
+                payload=job.as_json(),
+            )
         # A published NODE names itself with a subject, not a key -- and its model comes from the
         # provider that owns the format rather than from a file this process can open. Told apart
         # by what the route put in the options, not by the source key's shape: an asset source IS a

@@ -29,6 +29,14 @@ Implementation notes:
   that might double-close inherited file descriptors.
 * Progress callbacks come back as newline-delimited JSON over a pipe;
   the parent forwards them to the existing queue-update flow.
+* The fork/watchdog machinery is :func:`run_isolated` (any synchronous
+  ``fn(child)``); :func:`run_isolated_convert` is the conversion-shaped
+  wrapper over it. Other heavy jobs (the clash checks) use ``run_isolated``
+  directly so cancel / timeout / RSS handling has exactly one copy.
+* A child that needs blobs it cannot know up front (a provider reading its
+  own published source) asks the PARENT for them over a request pipe
+  (``child.call``) -- the inherited obstore / asyncio clients are not
+  fork-safe, so the child never talks to storage itself.
 """
 
 from __future__ import annotations
@@ -83,7 +91,7 @@ def _require_posix() -> None:
     """
     if not HAVE_POSIX_FORK:
         raise RuntimeError(
-            "run_isolated_convert requires a POSIX platform (os.fork + fcntl); "
+            "run_isolated / run_isolated_convert require a POSIX platform (os.fork + fcntl); "
             f"this is {sys.platform}. The REST worker is Linux-only."
         )
 
@@ -314,12 +322,112 @@ def _flush_std() -> None:
             pass
 
 
-async def run_isolated_convert(
-    convert_fn: Callable[..., "bytes | pathlib.Path"],
-    src_path: pathlib.Path,
-    source_key: str,
-    target_format: str,
-    convert_kwargs: Optional[dict] = None,
+@dataclasses.dataclass
+class IsolatedResult:
+    """What :func:`run_isolated` hands back.
+
+    ``work_dir`` is the child's output directory -- kept only when the child exited 0, so the
+    caller can read/stream whatever ``fn`` wrote there, then call :meth:`cleanup`. On any failure
+    it is already gone and ``work_dir`` is None.
+    """
+
+    work_dir: Optional[pathlib.Path]
+    error: Optional[str]  # "<ExcType>: <msg>" from the child, or the watchdog's own reason
+    traceback: Optional[str]
+    exit_code: int  # 0 success; >0 clean error; <0 = -signal
+    signal_name: Optional[str]  # "CANCELLED" / "TIMEOUT" / "OOM" when WE reaped it, else e.g. "SIGSEGV"
+    samples: list[ConvertSample]
+    final_metrics: dict
+    # The child's exception split into its parts, so a caller can keep its own wording (str(exc))
+    # rather than the "<type>: <msg>" form ``error`` carries.
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+    profile_bytes: Optional[bytes] = None
+    log_bytes: Optional[bytes] = None
+
+    @property
+    def cancelled(self) -> bool:
+        return self.signal_name == "CANCELLED"
+
+    @property
+    def ok(self) -> bool:
+        return self.exit_code == 0 and self.work_dir is not None
+
+    def cleanup(self) -> None:
+        """Remove the work dir and everything ``fn`` left in it. Idempotent."""
+        if self.work_dir is None:
+            return
+        shutil.rmtree(self.work_dir, ignore_errors=True)
+        self.work_dir = None
+
+
+class IsolatedChild:
+    """The handle ``fn`` receives inside the forked child.
+
+    ``work_dir`` is where ``fn`` writes its outputs (the parent reads them after a clean exit).
+    ``progress(stage, frac)`` reaches the parent's ``on_progress``. ``call(op, **args)`` asks the
+    parent's ``serve`` callback to do something only the parent safely can (storage I/O) and
+    blocks for the answer -- the child is single-threaded synchronous code, so one request at a
+    time is all the protocol needs.
+    """
+
+    def __init__(self, work_dir: pathlib.Path, progress_fd: int, req_fd: Optional[int], resp_fd: Optional[int]):
+        self.work_dir = work_dir
+        self._progress_fd = progress_fd
+        self._req_fd = req_fd
+        self._resp_fd = resp_fd
+        self._resp_buf = b""
+        self._seq = 0
+
+    def progress(self, stage: str, frac: float) -> None:
+        try:
+            line = json.dumps({"stage": stage, "frac": float(frac)}) + "\n"
+            os.write(self._progress_fd, line.encode("utf-8"))
+        except (BrokenPipeError, OSError):
+            pass
+
+    def call(self, op: str, **args: Any) -> Any:
+        if self._req_fd is None or self._resp_fd is None:
+            raise RuntimeError(f"isolated child asked the parent for {op!r}, but this run serves no requests")
+        self._seq += 1
+        data = (json.dumps({"id": self._seq, "op": op, "args": args}) + "\n").encode("utf-8")
+        while data:
+            n = os.write(self._req_fd, data)
+            data = data[n:]
+        while b"\n" not in self._resp_buf:
+            chunk = os.read(self._resp_fd, 65536)
+            if not chunk:
+                raise RuntimeError(f"parent closed the request channel while serving {op!r}")
+            self._resp_buf += chunk
+        line, _, self._resp_buf = self._resp_buf.partition(b"\n")
+        msg = json.loads(line.decode("utf-8"))
+        if "error" in msg:
+            # Re-raise the absences as the types a reader catches (a provider probing for an
+            # optional blob expects FileNotFoundError/KeyError, not a generic failure).
+            exc_type = _RPC_EXC_TYPES.get(msg.get("type") or "", RuntimeError)
+            raise exc_type(msg["error"])
+        return msg.get("result")
+
+
+_RPC_EXC_TYPES: dict[str, type[Exception]] = {
+    "FileNotFoundError": FileNotFoundError,
+    "KeyError": KeyError,
+    "ValueError": ValueError,
+    "PermissionError": PermissionError,
+}
+
+#: The parent-side half of ``IsolatedChild.call``: ``await serve(op, args)`` returns a
+#: JSON-serialisable result, or raises (the exception travels back to the child).
+ServeFn = Callable[[str, dict], Awaitable[Any]]
+
+
+async def run_isolated(
+    fn: Callable[[IsolatedChild], None],
+    *,
+    label: str = "isolated job",
+    child_name: Optional[str] = None,
+    crash_hint: str = "",
+    work_prefix: str = "adapy-isolated-",
     on_progress: Optional[Callable[[str, float], Awaitable[None]]] = None,
     on_sample: Optional[Callable[[ConvertSample], Awaitable[None]]] = None,
     sample_interval_s: float = 2.0,
@@ -327,49 +435,64 @@ async def run_isolated_convert(
     env_overrides: Optional[dict[str, str]] = None,
     timeout_s: Optional[float] = None,
     cancel_check: Optional[Callable[[], Awaitable[bool]]] = None,
-) -> IsolatedConvertResult:
-    """Fork, run ``convert_fn`` in the child, sample resource usage in
-    the parent, and join with full rusage on exit.
+    serve: Optional[ServeFn] = None,
+) -> IsolatedResult:
+    """Fork, run ``fn(child)`` in the child, sample resource usage in the parent, and join with
+    full rusage on exit -- killable on cancel, timeout and RSS.
 
-    ``on_progress`` is invoked with ``(stage, frac)`` for each progress
-    line the child emits. ``on_sample`` is invoked once per heartbeat
-    sample so the caller can stream them to the database without
-    waiting for the child to exit (important for crash cases where the
+    ``fn`` must not touch anything the parent's event loop owns (NATS, asyncpg, obstore): it is a
+    copy of those objects across a fork, not a working client. Do network I/O in the parent before
+    forking, or route it through ``serve`` (see :class:`IsolatedChild`).
+
+    ``on_progress`` is invoked with ``(stage, frac)`` for each progress line the child emits.
+    ``on_sample`` is invoked once per heartbeat sample so the caller can stream them to the
+    database without waiting for the child to exit (important for crash cases where the
     in-memory list is the only record of partial progress).
 
-    ``profile_in_child`` enables cProfile inside the child process; the
-    profiler can't meaningfully cross a fork boundary so we attach
-    it to the child's interpreter and ship the dump back via a
-    sidecar tempfile read after exit. The dump survives clean errors
-    too (the child writes it in a finally), which is what makes
-    "profile a job that fails after 6 minutes" actually useful.
+    ``profile_in_child`` enables cProfile inside the child process; the profiler can't
+    meaningfully cross a fork boundary so we attach it to the child's interpreter and ship the
+    dump back via a sidecar file read after exit. The dump survives clean errors too (the child
+    writes it in a finally), which is what makes "profile a job that fails after 6 minutes"
+    actually useful.
 
-    ``timeout_s`` is the wall-clock budget. ``None`` (or non-positive)
-    disables the watchdog — the conversion runs until it exits on its
-    own. When set, the parent SIGTERMs the child after the deadline
-    expires; if it doesn't die within 30 s of grace, SIGKILL follows.
-    The returned :class:`IsolatedConvertResult` carries ``signal_name=
-    "TIMEOUT"`` in that case so the worker can surface a clear,
-    timeout-specific error rather than a generic "killed by signal".
+    ``timeout_s`` is the wall-clock budget. ``None`` (or non-positive) disables the watchdog. When
+    set, the parent SIGTERMs the child after the deadline expires; if it doesn't die within 30 s of
+    grace, SIGKILL follows. ``cancel_check`` is polled every few seconds; True reaps the child the
+    same way with a 5 s grace. The result carries ``signal_name`` "TIMEOUT" / "CANCELLED" / "OOM"
+    when the watchdog did the killing, so the caller can tell those apart from a crash.
+
+    ``label`` names the work in the watchdog's own error messages ("conversion ran out of
+    memory ..."); ``child_name`` + ``crash_hint`` word the killed-by-signal message.
     """
     _require_posix()
-    convert_kwargs = convert_kwargs or {}
+    child_name = child_name or label
 
-    work_dir = pathlib.Path(tempfile.mkdtemp(prefix="adapy-convert-"))
-    result_path = work_dir / "out.bin"
-    err_path = work_dir / "error.json"
-    profile_path = work_dir / "profile.prof"
-    log_path = work_dir / "convert.log"
+    work_dir = pathlib.Path(tempfile.mkdtemp(prefix=work_prefix))
+    err_path = work_dir / ".error.json"
+    profile_path = work_dir / ".profile.prof"
+    log_path = work_dir / ".child.log"
     progr_r, progr_w = os.pipe()
+    # Request/response pipes exist only when the caller serves requests -- a plain conversion
+    # never asks the parent for anything.
+    req_r = req_w = resp_r = resp_w = None
+    if serve is not None:
+        req_r, req_w = os.pipe()
+        resp_r, resp_w = os.pipe()
 
     started_at = time.monotonic()
     samples: list[ConvertSample] = []
 
+    # Flush BEFORE forking: anything still sitting in the parent's stdio buffers would otherwise be
+    # copied into the child and written out a second time when the child flushes.
+    _flush_std()
     pid = os.fork()
     if pid == 0:
         # ── child ──
         try:
             os.close(progr_r)
+            for fd in (req_r, resp_w):
+                if fd is not None:
+                    os.close(fd)
             # Default signal handlers in the child so a SIGTERM from
             # the orchestrator hits us cleanly rather than being
             # swallowed by the parent's asyncio handlers.
@@ -381,7 +504,7 @@ async def run_isolated_convert(
 
             # Become a process-group leader so the watchdog can reap the whole
             # group on timeout / cancel — including any tessellation worker pool the
-            # conversion spawns, which a bare kill(child_pid) would orphan.
+            # job spawns, which a bare kill(child_pid) would orphan.
             try:
                 os.setsid()
             except OSError:
@@ -399,16 +522,14 @@ async def run_isolated_convert(
                     else:
                         os.environ[str(k)] = str(v)
 
-            # Capture everything the conversion emits — Python logging AND the adacpp/OCCT
+            # Capture everything the job emits — Python logging AND the adacpp/OCCT
             # C++ libraries' stdout/stderr — to a per-job log file at the fd level, so a
             # silently-swallowed library warning (e.g. "meshopt compression skipped") is
             # recoverable through the audit log instead of vanishing. Progress uses its own
             # pipe (progr_w), so redirecting fd 1/2 here doesn't disturb it.
             try:
-                import sys as _sys
-
-                _sys.stdout.flush()
-                _sys.stderr.flush()
+                sys.stdout.flush()
+                sys.stderr.flush()
                 _logfd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
                 os.dup2(_logfd, 1)
                 os.dup2(_logfd, 2)
@@ -421,8 +542,8 @@ async def run_isolated_convert(
             # (OOM rows came back with an empty log — the very reason you couldn't see why it died).
             # ``reconfigure`` raises ValueError/AttributeError (not OSError), so it gets its own guard.
             try:
-                _sys.stdout.reconfigure(line_buffering=True)
-                _sys.stderr.reconfigure(line_buffering=True)
+                sys.stdout.reconfigure(line_buffering=True)
+                sys.stderr.reconfigure(line_buffering=True)
             except Exception:
                 pass
 
@@ -436,12 +557,7 @@ async def run_isolated_convert(
                 except (ValueError, TypeError):
                     pass
 
-            def _child_progress(stage: str, frac: float) -> None:
-                try:
-                    line = json.dumps({"stage": stage, "frac": float(frac)}) + "\n"
-                    os.write(progr_w, line.encode("utf-8"))
-                except (BrokenPipeError, OSError):
-                    pass
+            child = IsolatedChild(work_dir, progr_w, req_w, resp_r)
 
             profiler = None
             if profile_in_child:
@@ -453,13 +569,7 @@ async def run_isolated_convert(
                 if profiler is not None:
                     profiler.enable()
                 try:
-                    out = convert_fn(
-                        src_path,
-                        source_key,
-                        target_format,
-                        _child_progress,
-                        **convert_kwargs,
-                    )
+                    fn(child)
                 finally:
                     if profiler is not None:
                         profiler.disable()
@@ -467,77 +577,15 @@ async def run_isolated_convert(
                             profiler.dump_stats(str(profile_path))
                         except Exception:
                             pass
-                if out is None:
-                    out = b""
-                if isinstance(out, (bytes, bytearray, memoryview)):
-                    result_path.write_bytes(bytes(out))
-                elif isinstance(out, (str, os.PathLike)):
-                    # Handler wrote its output to disk and handed back the
-                    # path; move it into the result slot rather than reading
-                    # it into RAM here (the big-STEP child-copy we're killing).
-                    _move_into_result(os.fspath(out), result_path)
-                else:
-                    raise TypeError(f"convert returned {type(out).__name__}, expected bytes or a path")
-                # The quantity take-off the exporter computed while the structured model was
-                # still alive (`converters/takeoff`). Written HERE because this is where the
-                # result file's path is known -- the exporter hands its output back as bytes and
-                # never learns where they land. The parent uploads it beside the GLB.
-                try:
-                    from ada.comms.rest.converters.takeoff import write_takeoff_sidecar
-
-                    write_takeoff_sidecar(result_path)
-                except Exception:
-                    pass
-                # Emit per-conversion quality tallies for the parent to fold into convert_meta
-                # (marker-line channel, same as the C++ [STEPPROF-JSON] profiler). Best-effort:
-                # a tally failure must never fail an otherwise-successful conversion.
-                try:
-                    from ada.visit.tessellate import (
-                        consume_mesh_distortion_stats,
-                        consume_tess_fallback_stats,
-                    )
-
-                    fb = consume_tess_fallback_stats()
-                    if fb.get("count"):
-                        _sys.stderr.write("[TESSFALLBACK-JSON] " + json.dumps(fb) + "\n")
-                    md = consume_mesh_distortion_stats()
-                    if md.get("distorted_tris"):
-                        _sys.stderr.write("[MESHHEALTH-JSON] " + json.dumps(md) + "\n")
-                except Exception:
-                    pass
-                # Triangle tally -> convert_meta["tri_stats"] (regression signal, see tess_stats).
-                # Native mesh conversions record it directly; for GLB (no tri count in the return)
-                # parse the output's JSON chunk. Best-effort — never fail a good conversion.
-                try:
-                    from ada.cadit.step.tess_stats import (
-                        consume_tri_stats,
-                        count_glb_tri_stats,
-                    )
-
-                    ts = consume_tri_stats()
-                    if not ts.get("n_tris") and target_format in ("glb", "gltf"):
-                        ts = count_glb_tri_stats(result_path)
-                    if ts.get("n_tris"):
-                        _sys.stderr.write("[TRISTATS-JSON] " + json.dumps(ts) + "\n")
-                except Exception:
-                    pass
                 _flush_std()
                 os._exit(0)
             except BaseException as exc:  # noqa: BLE001 — propagate verbatim
-                # Even on failure, dump whatever profile data was
-                # collected up to the exception — that's exactly the
-                # data an operator needs to see *where* in the run we
-                # crashed.
-                if profiler is not None:
-                    try:
-                        profiler.disable()
-                        profiler.dump_stats(str(profile_path))
-                    except Exception:
-                        pass
                 err_path.write_text(
                     json.dumps(
                         {
                             "error": f"{type(exc).__name__}: {exc}",
+                            "type": type(exc).__name__,
+                            "message": str(exc),
                             "tb": traceback.format_exc(),
                         }
                     )
@@ -555,8 +603,14 @@ async def run_isolated_convert(
     # ── parent ──
     os.close(progr_w)
     _set_nonblocking(progr_r)
+    if serve is not None:
+        os.close(req_w)
+        os.close(resp_r)
+        _set_nonblocking(req_r)
 
     pending_progress = b""
+    pending_requests = b""
+    serving: set[asyncio.Task] = set()
 
     def _drain_progress_lines() -> list[tuple[str, float]]:
         nonlocal pending_progress
@@ -582,6 +636,43 @@ async def run_isolated_convert(
                 continue
         return out
 
+    async def _serve_one(req: dict) -> None:
+        try:
+            reply: dict = {"id": req.get("id"), "result": await serve(str(req.get("op")), req.get("args") or {})}
+        except Exception as exc:  # noqa: BLE001 — travels back to the child as its exception
+            reply = {"id": req.get("id"), "error": str(exc), "type": type(exc).__name__}
+        data = (json.dumps(reply) + "\n").encode("utf-8")
+        try:
+            while data:
+                n = os.write(resp_w, data)
+                data = data[n:]
+        except OSError:
+            pass  # child already gone (killed mid-request) -- nothing to answer
+
+    def _drain_requests() -> None:
+        # Each request becomes a task so a slow download never stalls the cancel / timeout /
+        # RSS checks below -- the watchdog must keep ticking while the parent fetches.
+        nonlocal pending_requests
+        if serve is None:
+            return
+        while True:
+            try:
+                chunk = os.read(req_r, 65536)
+            except (BlockingIOError, OSError):
+                break
+            if not chunk:
+                break
+            pending_requests += chunk
+        while b"\n" in pending_requests:
+            line, _, pending_requests = pending_requests.partition(b"\n")
+            try:
+                req = json.loads(line.decode("utf-8"))
+            except ValueError:
+                continue
+            task = asyncio.ensure_future(_serve_one(req))
+            serving.add(task)
+            task.add_done_callback(serving.discard)
+
     last_sample_time = 0.0
     final_status = 0
     final_rusage = None
@@ -606,85 +697,98 @@ async def run_isolated_convert(
     mem_limit_bytes: Optional[int] = _resolve_mem_limit_bytes()
     oomed = False
 
-    while True:
-        try:
-            wpid, status, rusage = os.wait4(pid, os.WNOHANG)
-        except ChildProcessError:
-            wpid, status, rusage = pid, 0, None  # already reaped
-        if wpid == pid:
-            final_status = status
-            final_rusage = rusage
-            break
-
-        now = time.monotonic()
-
-        # User cancellation — poll the source-of-truth (audit_log) every few seconds
-        # and reap the child (group) when the job is cancelled, so an actively-running
-        # conversion actually stops instead of completing into an orphaned blob.
-        if cancel_check is not None and not cancelled and (now - last_cancel_check) >= CANCEL_POLL_S:
-            last_cancel_check = now
+    try:
+        while True:
             try:
-                if await cancel_check():
-                    cancelled = True
-                    kill_grace = CANCEL_GRACE_S
-                    logger.info("convert: %s cancelled by user; reaping child", source_key)
-            except Exception:
-                logger.debug("convert: cancel_check raised; ignoring this tick", exc_info=True)
+                wpid, status, rusage = os.wait4(pid, os.WNOHANG)
+            except ChildProcessError:
+                wpid, status, rusage = pid, 0, None  # already reaped
+            if wpid == pid:
+                final_status = status
+                final_rusage = rusage
+                break
 
-        # Watchdog escalation (shared by timeout + cancel). Two-step (TERM then KILL)
-        # so a converter with a SIGTERM cleanup path can flush; an OCCT-bound
-        # tessellation that ignores SIGTERM still gets reaped within the grace window.
-        timed_out_now = deadline is not None and now >= deadline
-        if timed_out_now:
-            timed_out = True
-        if timed_out_now or cancelled:
-            if sigterm_sent_at is None:
-                _signal_child(pid, signal.SIGTERM)
-                sigterm_sent_at = now
-                logger.warning(
-                    "convert: %s for %s; sent SIGTERM",
-                    "cancelled" if cancelled else f"timeout {timeout_s:.0f}s exceeded",
-                    source_key,
-                )
-            elif not sigkill_sent and (now - sigterm_sent_at) >= kill_grace:
-                _signal_child(pid, signal.SIGKILL)
-                sigkill_sent = True
-                logger.warning("convert: SIGTERM not honoured for %s; sent SIGKILL", source_key)
+            now = time.monotonic()
 
-        # Memory watchdog: reap the child before it can OOM-kill the whole pod.
-        if mem_limit_bytes is not None and not sigkill_sent and not oomed:
-            rss_kb = _read_rss_kb(pid)
-            if rss_kb is not None and rss_kb * 1024 > mem_limit_bytes:
-                oomed = True
-                sigkill_sent = True
-                _signal_child(pid, signal.SIGKILL)
-                logger.warning(
-                    "convert: RSS %.0f MB exceeded limit %.0f MB for %s; sent SIGKILL "
-                    "(out of memory — failing the job in isolation rather than OOM-killing the pod)",
-                    rss_kb / 1024.0,
-                    mem_limit_bytes / 1e6,
-                    source_key,
-                )
-
-        if now - last_sample_time >= sample_interval_s:
-            sample = _proc_stats(pid, started_at)
-            if sample is not None:
-                samples.append(sample)
-                if on_sample is not None:
-                    try:
-                        await on_sample(sample)
-                    except Exception:
-                        logger.exception("on_sample callback raised; continuing")
-            last_sample_time = now
-
-        for stage, frac in _drain_progress_lines():
-            if on_progress is not None:
+            # User cancellation — poll the source-of-truth (audit_log) every few seconds
+            # and reap the child (group) when the job is cancelled, so an actively-running
+            # job actually stops instead of completing into an orphaned blob.
+            if cancel_check is not None and not cancelled and (now - last_cancel_check) >= CANCEL_POLL_S:
+                last_cancel_check = now
                 try:
-                    await on_progress(stage, frac)
+                    if await cancel_check():
+                        cancelled = True
+                        kill_grace = CANCEL_GRACE_S
+                        logger.info("%s: cancelled by user; reaping child", child_name)
                 except Exception:
-                    logger.exception("on_progress callback raised; continuing")
+                    logger.debug("%s: cancel_check raised; ignoring this tick", child_name, exc_info=True)
 
-        await asyncio.sleep(0.1)
+            # Watchdog escalation (shared by timeout + cancel). Two-step (TERM then KILL)
+            # so a job with a SIGTERM cleanup path can flush; an OCCT-bound
+            # computation that ignores SIGTERM still gets reaped within the grace window.
+            timed_out_now = deadline is not None and now >= deadline
+            if timed_out_now:
+                timed_out = True
+            if timed_out_now or cancelled:
+                if sigterm_sent_at is None:
+                    _signal_child(pid, signal.SIGTERM)
+                    sigterm_sent_at = now
+                    logger.warning(
+                        "%s: %s; sent SIGTERM",
+                        child_name,
+                        "cancelled" if cancelled else f"timeout {timeout_s:.0f}s exceeded",
+                    )
+                elif not sigkill_sent and (now - sigterm_sent_at) >= kill_grace:
+                    _signal_child(pid, signal.SIGKILL)
+                    sigkill_sent = True
+                    logger.warning("%s: SIGTERM not honoured; sent SIGKILL", child_name)
+
+            # Memory watchdog: reap the child before it can OOM-kill the whole pod.
+            if mem_limit_bytes is not None and not sigkill_sent and not oomed:
+                rss_kb = _read_rss_kb(pid)
+                if rss_kb is not None and rss_kb * 1024 > mem_limit_bytes:
+                    oomed = True
+                    sigkill_sent = True
+                    _signal_child(pid, signal.SIGKILL)
+                    logger.warning(
+                        "%s: RSS %.0f MB exceeded limit %.0f MB; sent SIGKILL "
+                        "(out of memory — failing the job in isolation rather than OOM-killing the pod)",
+                        child_name,
+                        rss_kb / 1024.0,
+                        mem_limit_bytes / 1e6,
+                    )
+
+            if now - last_sample_time >= sample_interval_s:
+                sample = _proc_stats(pid, started_at)
+                if sample is not None:
+                    samples.append(sample)
+                    if on_sample is not None:
+                        try:
+                            await on_sample(sample)
+                        except Exception:
+                            logger.exception("on_sample callback raised; continuing")
+                last_sample_time = now
+
+            for stage, frac in _drain_progress_lines():
+                if on_progress is not None:
+                    try:
+                        await on_progress(stage, frac)
+                    except Exception:
+                        logger.exception("on_progress callback raised; continuing")
+
+            _drain_requests()
+
+            await asyncio.sleep(0.1)
+    finally:
+        # A request still in flight belongs to a child that no longer exists.
+        for task in list(serving):
+            task.cancel()
+        for fd in (req_r, resp_w):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     # Drain any final progress lines the child wrote just before exit.
     for stage, frac in _drain_progress_lines():
@@ -735,22 +839,20 @@ async def run_isolated_convert(
             # treated as an error.
             exit_code = -signal.SIGTERM
 
-    out_path: Optional[pathlib.Path] = None
     error_msg: Optional[str] = None
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
     error_tb: Optional[str] = None
     profile_bytes: Optional[bytes] = None
     log_bytes: Optional[bytes] = None
-    success = exit_code == 0 and result_path.exists()
+    success = exit_code == 0
     try:
-        if success:
-            # Hand the output back as a path; the caller streams it to storage
-            # and calls cleanup_output() afterwards. We deliberately do NOT
-            # read it into RAM here — that buffer was the parent-side peak.
-            out_path = result_path
         if exit_code != 0 and err_path.exists():
             try:
                 d = json.loads(err_path.read_text())
                 error_msg = d.get("error") or None
+                error_type = d.get("type") or None
+                error_message = d.get("message")
                 error_tb = d.get("tb") or None
             except (ValueError, TypeError, OSError):
                 pass
@@ -767,9 +869,9 @@ async def run_isolated_convert(
             except OSError:
                 pass
     finally:
-        # Small sidecars are always reclaimed. The result file + its work dir
-        # survive on success (ownership passes to the caller); on any failure
-        # we drop them too so a crashed/oomed job leaves no tmp residue.
+        # Our own sidecars are always reclaimed. The work dir (fn's outputs) survives on
+        # success -- ownership passes to the caller; on any failure we drop it too so a
+        # crashed/oomed job leaves no tmp residue.
         for p in (err_path, profile_path, log_path):
             try:
                 if p.exists():
@@ -777,31 +879,22 @@ async def run_isolated_convert(
             except OSError:
                 pass
         if not success:
-            try:
-                if result_path.exists():
-                    result_path.unlink()
-            except OSError:
-                pass
-            try:
-                work_dir.rmdir()
-            except OSError:
-                pass
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     if exit_code < 0 and error_msg is None:
         if oomed:
             lim_mb = (mem_limit_bytes or 0) / 1e6
             error_msg = (
-                f"conversion ran out of memory (exceeded the {lim_mb:.0f} MB per-job "
+                f"{label} ran out of memory (exceeded the {lim_mb:.0f} MB per-job "
                 f"limit) and was terminated. The model is too large/heavy for this "
                 f"worker's memory budget — raise the limit or reduce the geometry."
             )
         elif timed_out:
             mins = (timeout_s or 0) / 60.0
-            error_msg = f"conversion exceeded the configured timeout " f"of {mins:.1f} minutes and was terminated."
+            error_msg = f"{label} exceeded the configured timeout " f"of {mins:.1f} minutes and was terminated."
         else:
-            error_msg = (
-                f"convert subprocess killed by {sig_name or f'signal {-exit_code}'} "
-                f"(SIGSEGV/SIGABRT typically means a C++ heap fault inside the CAD/FEM stack)."
+            error_msg = f"{child_name} subprocess killed by {sig_name or f'signal {-exit_code}'}" + (
+                f" {crash_hint}" if crash_hint else "."
             )
 
     final_metrics: dict[str, Any] = {}
@@ -821,14 +914,138 @@ async def run_isolated_convert(
         # If wait4 missed (non-Linux fallback) take peak RSS from samples.
         final_metrics.setdefault("peak_rss_kb", max(s.peak_rss_kb for s in samples))
 
-    return IsolatedConvertResult(
-        out_path=out_path,
+    return IsolatedResult(
+        work_dir=work_dir if success else None,
         error=error_msg,
         traceback=error_tb,
         exit_code=exit_code,
         signal_name=sig_name,
         samples=samples,
         final_metrics=final_metrics,
+        error_type=error_type,
+        error_message=error_message,
         profile_bytes=profile_bytes,
         log_bytes=log_bytes,
+    )
+
+
+async def run_isolated_convert(
+    convert_fn: Callable[..., "bytes | pathlib.Path"],
+    src_path: pathlib.Path,
+    source_key: str,
+    target_format: str,
+    convert_kwargs: Optional[dict] = None,
+    on_progress: Optional[Callable[[str, float], Awaitable[None]]] = None,
+    on_sample: Optional[Callable[[ConvertSample], Awaitable[None]]] = None,
+    sample_interval_s: float = 2.0,
+    profile_in_child: bool = False,
+    env_overrides: Optional[dict[str, str]] = None,
+    timeout_s: Optional[float] = None,
+    cancel_check: Optional[Callable[[], Awaitable[bool]]] = None,
+) -> IsolatedConvertResult:
+    """Run ``convert_fn(src_path, source_key, target_format, on_progress, **convert_kwargs)`` in
+    a forked child (:func:`run_isolated`) and hand its output back as a file.
+
+    The conversion-shaped wrapper: the child writes whatever ``convert_fn`` returned (bytes, or a
+    path it moves into place) to ``out.bin`` in the work dir, plus the conversion's sidecars
+    (take-off, tessellation tallies). Watchdog semantics -- ``timeout_s``, ``cancel_check``, the RSS
+    limit, ``signal_name`` "TIMEOUT"/"CANCELLED"/"OOM" -- are :func:`run_isolated`'s.
+    """
+    _require_posix()
+    convert_kwargs = convert_kwargs or {}
+
+    def _convert_in_child(child: IsolatedChild) -> None:
+        result_path = child.work_dir / "out.bin"
+        out = convert_fn(src_path, source_key, target_format, child.progress, **convert_kwargs)
+        if out is None:
+            out = b""
+        if isinstance(out, (bytes, bytearray, memoryview)):
+            result_path.write_bytes(bytes(out))
+        elif isinstance(out, (str, os.PathLike)):
+            # Handler wrote its output to disk and handed back the
+            # path; move it into the result slot rather than reading
+            # it into RAM here (the big-STEP child-copy we're killing).
+            _move_into_result(os.fspath(out), result_path)
+        else:
+            raise TypeError(f"convert returned {type(out).__name__}, expected bytes or a path")
+        # The quantity take-off the exporter computed while the structured model was
+        # still alive (`converters/takeoff`). Written HERE because this is where the
+        # result file's path is known -- the exporter hands its output back as bytes and
+        # never learns where they land. The parent uploads it beside the GLB.
+        try:
+            from ada.comms.rest.converters.takeoff import write_takeoff_sidecar
+
+            write_takeoff_sidecar(result_path)
+        except Exception:
+            pass
+        # Emit per-conversion quality tallies for the parent to fold into convert_meta
+        # (marker-line channel, same as the C++ [STEPPROF-JSON] profiler). Best-effort:
+        # a tally failure must never fail an otherwise-successful conversion.
+        try:
+            from ada.visit.tessellate import (
+                consume_mesh_distortion_stats,
+                consume_tess_fallback_stats,
+            )
+
+            fb = consume_tess_fallback_stats()
+            if fb.get("count"):
+                sys.stderr.write("[TESSFALLBACK-JSON] " + json.dumps(fb) + "\n")
+            md = consume_mesh_distortion_stats()
+            if md.get("distorted_tris"):
+                sys.stderr.write("[MESHHEALTH-JSON] " + json.dumps(md) + "\n")
+        except Exception:
+            pass
+        # Triangle tally -> convert_meta["tri_stats"] (regression signal, see tess_stats).
+        # Native mesh conversions record it directly; for GLB (no tri count in the return)
+        # parse the output's JSON chunk. Best-effort — never fail a good conversion.
+        try:
+            from ada.cadit.step.tess_stats import (
+                consume_tri_stats,
+                count_glb_tri_stats,
+            )
+
+            ts = consume_tri_stats()
+            if not ts.get("n_tris") and target_format in ("glb", "gltf"):
+                ts = count_glb_tri_stats(result_path)
+            if ts.get("n_tris"):
+                sys.stderr.write("[TRISTATS-JSON] " + json.dumps(ts) + "\n")
+        except Exception:
+            pass
+
+    res = await run_isolated(
+        _convert_in_child,
+        label="conversion",
+        child_name="convert",
+        crash_hint="(SIGSEGV/SIGABRT typically means a C++ heap fault inside the CAD/FEM stack).",
+        work_prefix="adapy-convert-",
+        on_progress=on_progress,
+        on_sample=on_sample,
+        sample_interval_s=sample_interval_s,
+        profile_in_child=profile_in_child,
+        env_overrides=env_overrides,
+        timeout_s=timeout_s,
+        cancel_check=cancel_check,
+    )
+
+    out_path: Optional[pathlib.Path] = None
+    if res.work_dir is not None:
+        candidate = res.work_dir / "out.bin"
+        if res.exit_code == 0 and candidate.exists():
+            # Hand the output back as a path; the caller streams it to storage
+            # and calls cleanup_output() afterwards. We deliberately do NOT
+            # read it into RAM here — that buffer was the parent-side peak.
+            out_path = candidate
+        else:
+            res.cleanup()
+
+    return IsolatedConvertResult(
+        out_path=out_path,
+        error=res.error,
+        traceback=res.traceback,
+        exit_code=res.exit_code,
+        signal_name=res.signal_name,
+        samples=res.samples,
+        final_metrics=res.final_metrics,
+        profile_bytes=res.profile_bytes,
+        log_bytes=res.log_bytes,
     )

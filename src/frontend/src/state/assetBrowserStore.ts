@@ -13,7 +13,7 @@ import type { SourceNodeRow, SourceNodesAnswer } from "@/assets/changes";
 import type { LoadedAsset } from "@/assets/delivery";
 import { EMPTY_FOREST, mergeLevel, mergeSpine, type Forest, type LevelMerge, type SpineMerge } from "@/assets/merge";
 import type { TreeViewDoc, TreeViewHints } from "@/assets/treeView";
-import type { AssetIndex, AssetNode, ResolutionMode } from "@/assets/types";
+import type { AssetIndex, AssetNode, ResolutionMode, WireGeometryRollup } from "@/assets/types";
 
 export type AssetBrowserTab = "files" | "assets";
 
@@ -39,6 +39,29 @@ function writeTreeStyle(style: AssetTreeStyle): void {
   }
 }
 
+/** What the marks at the end of each row show: which PROVIDERS published at, over or below it;
+ *  whether there is loadable GEOMETRY at, over or below it; or nothing. A per-viewer preference. */
+export type AssetTreeMarks = "providers" | "geometry" | "off";
+
+const TREE_MARKS_KEY = "ada.assets.treeMarks";
+
+function readTreeMarks(): AssetTreeMarks {
+  try {
+    const v = globalThis.localStorage?.getItem(TREE_MARKS_KEY);
+    return v === "geometry" || v === "off" ? v : "providers";
+  } catch {
+    return "providers";
+  }
+}
+
+function writeTreeMarks(marks: AssetTreeMarks): void {
+  try {
+    globalThis.localStorage?.setItem(TREE_MARKS_KEY, marks);
+  } catch {
+    // Remembered for this page only.
+  }
+}
+
 const EMPTY_SET: ReadonlySet<string> = Object.freeze(new Set<string>());
 const EMPTY_ERRORS: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_LOADED_ASSETS: readonly LoadedAsset[] = Object.freeze([]);
@@ -57,6 +80,10 @@ export interface AssetBrowserState {
   index: AssetIndex | null;
   indexLoading: boolean;
   indexError: string | null;
+  /** The server's GEOMETRY ROLL-UP for the chosen collection (`GET /assets/geometry/...`), read
+   *  with the index and re-read when it refreshes; null = not (yet) available, in which case the
+   *  geometry overlay falls back to what the loaded rows alone can say. */
+  geometryRollup: WireGeometryRollup | null;
   mode: ResolutionMode;
 
   /** Every row held, the spine that contributed each, and what was pruned. */
@@ -104,6 +131,10 @@ export interface AssetBrowserState {
   selection: ReadonlySet<string>;
   /** Where a shift-range starts: the last row chosen by a plain or ctrl click. */
   anchor: string | null;
+  /** A row chosen from OUTSIDE the tree (a pick in the 3D view) that the tree should scroll to
+   *  once it is drawn. The nonce makes picking the same row twice scroll twice; the tree clears
+   *  it when done (`clearReveal`). */
+  reveal: { readonly id: string; readonly nonce: number } | null;
   searchTerm: string;
 
   /** How the provider suggests drawing this collection, off its newest merged
@@ -117,6 +148,7 @@ export interface AssetBrowserState {
   showHidden: boolean;
   /** Row style, remembered per viewer. */
   treeStyle: AssetTreeStyle;
+  treeMarks: AssetTreeMarks;
 
   /** Scene content loaded through the Assets tab (Phase 3), mirrored against
    *  the scene's live loaded-source set (`reconcileLoaded`) so a model
@@ -136,6 +168,7 @@ export interface AssetBrowserState {
   setCollections: (collections: readonly string[]) => void;
   setCollection: (collection: string | null) => void;
   setIndex: (index: AssetIndex) => void;
+  setGeometryRollup: (rollup: WireGeometryRollup | null) => void;
   setIndexLoading: (loading: boolean) => void;
   setIndexError: (error: string | null) => void;
   /** Deliberately leaves the tree alone: a mode is a lens over the same
@@ -170,11 +203,17 @@ export interface AssetBrowserState {
   selectRange: (ids: readonly string[], focus: string) => void;
   /** Add `id` to the selection or take it out (ctrl/cmd-click); it becomes the anchor. */
   toggleSelected: (id: string) => void;
+  /** Open every row in `open`, select `id` alone and ask the tree to scroll to it -- in one
+   *  update, so the tree never draws the selection before the branch holding it is open. */
+  revealRow: (id: string, open: readonly string[]) => void;
+  /** Done with the reveal `nonce` (a newer one is left alone). */
+  clearReveal: (nonce: number) => void;
   setSearchTerm: (term: string) => void;
   setViewHints: (hints: TreeViewHints | null) => void;
   setViewDoc: (doc: TreeViewDoc | null) => void;
   setShowHidden: (on: boolean) => void;
   setTreeStyle: (style: AssetTreeStyle) => void;
+  setTreeMarks: (marks: AssetTreeMarks) => void;
   /** A load just started for `id` -- clears any previous error for it too, so
    *  retrying a failed row does not show a stale message beside the spinner. */
   beginLoad: (id: string) => void;
@@ -214,11 +253,14 @@ const FOREST_RESET = {
   selected: null,
   selection: EMPTY_SET,
   anchor: null,
+  reveal: null,
   // Re-read with the index it rides on. The saved view (`viewDoc`) is NOT here:
   // it belongs to the choice of collection, and Refresh rebuilds the forest
   // without re-reading it.
   viewHints: null,
 };
+
+let revealNonce = 0;
 
 export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   tab: "files",
@@ -228,6 +270,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   index: null,
   indexLoading: false,
   indexError: null,
+  geometryRollup: null,
   mode: { kind: "latest" },
   forest: EMPTY_FOREST,
   forestVersion: 0,
@@ -242,11 +285,13 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   selected: null,
   selection: EMPTY_SET,
   anchor: null,
+  reveal: null,
   searchTerm: "",
   viewHints: null,
   viewDoc: null,
   showHidden: false,
   treeStyle: readTreeStyle(),
+  treeMarks: readTreeMarks(),
   loaded: EMPTY_LOADED_ASSETS,
   loadBusy: EMPTY_SET,
   loadErrors: EMPTY_ERRORS,
@@ -258,9 +303,10 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
     set((s) =>
       s.collection === collection
         ? s
-        : { collection, index: null, indexError: null, ...FOREST_RESET, viewDoc: null, forestVersion: s.forestVersion + 1 },
+        : { collection, index: null, indexError: null, geometryRollup: null, ...FOREST_RESET, viewDoc: null, forestVersion: s.forestVersion + 1 },
     ),
   setIndex: (index) => set({ index, indexError: null }),
+  setGeometryRollup: (geometryRollup) => set({ geometryRollup }),
   setIndexLoading: (indexLoading) => set({ indexLoading }),
   setIndexError: (indexError) => set({ indexError }),
   setMode: (mode) => set({ mode }),
@@ -346,10 +392,26 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       // the detail then shows the row the click was about.
       return { selection, selected: id, anchor: id };
     }),
+  revealRow: (id, open) =>
+    set((s) => {
+      const expanded = open.every((o) => s.expanded.has(o)) ? s.expanded : new Set([...s.expanded, ...open]);
+      return {
+        expanded,
+        selected: id,
+        selection: new Set([id]),
+        anchor: id,
+        reveal: { id, nonce: ++revealNonce },
+      };
+    }),
+  clearReveal: (nonce) => set((s) => (s.reveal?.nonce === nonce ? { reveal: null } : s)),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
   setViewHints: (viewHints) => set({ viewHints }),
   setViewDoc: (viewDoc) => set({ viewDoc }),
   setShowHidden: (showHidden) => set({ showHidden }),
+  setTreeMarks: (treeMarks) => {
+    writeTreeMarks(treeMarks);
+    set({ treeMarks });
+  },
   setTreeStyle: (treeStyle) => {
     writeTreeStyle(treeStyle);
     set({ treeStyle });
@@ -413,6 +475,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       index: null,
       indexLoading: false,
       indexError: null,
+      geometryRollup: null,
       ...FOREST_RESET,
       viewDoc: null,
       forestVersion: s.forestVersion + 1,

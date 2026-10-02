@@ -107,3 +107,18 @@ test("malformed hints and documents read as none rather than breaking the tab", 
     rootKinds: ["SITE"],
   });
 });
+
+test("keep draws only the rows it accepts, dropping a rejected row with its subtree", () => {
+  // The provider filter's shape: the matched leaf and the rows on the way down to it are kept.
+  const wanted = new Set(["world", "site-a", "zone-1", "beam"]);
+  const d = displayHierarchy(h, NO_VIEW, { ...opts, keep: (id) => wanted.has(id) });
+  assert.deepEqual(d.hierarchy.roots, ["world"]);
+  assert.deepEqual(d.hierarchy.childrenOf("world"), ["site-a"]);
+  assert.deepEqual(d.hierarchy.childrenOf("zone-1"), ["beam"]);
+});
+
+test("keep rejecting a top-level row hides it, and composes with flattening", () => {
+  const view = resolveTreeView(null, { flattenKinds: ["worl"] });
+  const d = displayHierarchy(h, view, { ...opts, keep: (id) => id !== "site-b" });
+  assert.deepEqual(d.hierarchy.roots, ["site-a", "appl"]);
+});

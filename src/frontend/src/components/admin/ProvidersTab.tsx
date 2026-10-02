@@ -18,6 +18,8 @@ import {
 } from "@/services/assetScopeCollections";
 import {fuzzyFilter} from "@/services/fuzzy";
 
+import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
+
 // Admin tab — which of an asset provider's collections may be REQUESTED in each
 // scope.
 //
@@ -68,6 +70,8 @@ interface RescanState {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const SHOW_ENABLED_KEY = "ada.admin.providers.showEnabled";
 
 /** How long a rescan job may take before the tab stops watching it. A scan of two
  *  file servers has been measured at ~11 s; this is generous on purpose. */
@@ -140,6 +144,23 @@ const ProvidersTab: React.FC = () => {
     const [filter, setFilter] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [rescans, setRescans] = useState<Record<string, RescanState>>({});
+    // A viewer convenience, so per browser: whether each restricted row lists its enabled
+    // collections as tags beside the count.
+    const [showEnabled, setShowEnabled] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem(SHOW_ENABLED_KEY) !== "0";
+        } catch {
+            return true;
+        }
+    });
+    const toggleShowEnabled = (on: boolean) => {
+        setShowEnabled(on);
+        try {
+            localStorage.setItem(SHOW_ENABLED_KEY, on ? "1" : "0");
+        } catch {
+            // Not remembered; still applied for this visit.
+        }
+    };
 
     const rescan = useCallback(async (providerId: string, refresh: AssetCollectionsRefresh, before: readonly string[]) => {
         const set = (s: RescanState) => setRescans((prev) => ({...prev, [providerId]: s}));
@@ -241,6 +262,14 @@ const ProvidersTab: React.FC = () => {
                             hides nothing already published.
                         </p>
                     </div>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-300 shrink-0 py-1">
+                        <input
+                            type="checkbox"
+                            checked={showEnabled}
+                            onChange={(e) => toggleShowEnabled(e.target.checked)}
+                        />
+                        Show enabled projects
+                    </label>
                     <button
                         type="button"
                         className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800"
@@ -369,6 +398,24 @@ const ProvidersTab: React.FC = () => {
                                                             {advertised.length > 0 && ` of ${advertised.length} advertised`}
                                                             {unadvertised > 0 && ` · ${unadvertised} not advertised`}
                                                         </button>
+                                                        {showEnabled && enabled.length > 0 && (
+                                                            <ul className="inline-flex flex-wrap gap-1 align-middle ml-2" aria-label="Enabled collections">
+                                                                {[...enabled].sort().map((c) => {
+                                                                    const live = advertised.includes(c);
+                                                                    return (
+                                                                        <li
+                                                                            key={c}
+                                                                            className={`rounded-sm px-1.5 py-0.5 text-[10px] font-mono ${
+                                                                                live ? "bg-emerald-900/60 text-emerald-100" : "bg-gray-800 text-amber-300"
+                                                                            }`}
+                                                                            title={live ? c : `${c} — enabled, but no online worker advertises it right now`}
+                                                                        >
+                                                                            {c.toUpperCase()}
+                                                                        </li>
+                                                                    );
+                                                                })}
+                                                            </ul>
+                                                        )}
                                                         {isOpen && (
                                                             <div className="rounded-sm border border-gray-700 bg-gray-900/60 p-2 space-y-2 max-w-xl">
                                                                 <input
@@ -437,6 +484,11 @@ const ProvidersTab: React.FC = () => {
                     </section>
                 );
             })}
+
+            {/* Not an asset provider, but the same question asked of another registry: which of
+                the providers a live pool offers does each scope use. Kept in its own component --
+                it shares the scope rows and nothing else. */}
+            <ClashSpecProvidersSection rows={rows.filter((r) => !r.stale)} />
         </div>
     );
 };

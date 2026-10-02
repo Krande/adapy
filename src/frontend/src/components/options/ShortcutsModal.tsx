@@ -30,15 +30,20 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     when: "Active whenever the viewer has focus (ignored while typing in a field)",
     shortcuts: [
       { keys: ["Shift", "H"], description: "Hide the current selection" },
+      { keys: ["Shift", "I"], description: "Hide everything except the current selection" },
+      { keys: ["Shift", "G"], description: "Save the selection as a named group (shared in the scope)" },
       { keys: ["Shift", "U"], description: "Unhide everything" },
       { keys: ["Shift", "F"], description: "Center the view on the selection" },
       { keys: ["Shift", "A"], description: "Zoom to fit the whole model" },
       { keys: ["Shift", "Q"], description: "Toggle the Options menu" },
-      { keys: ["Shift", "T"], description: "Toggle the selection tree" },
+      { keys: ["Shift", "T"], description: "Open the tree at the selected element and focus it for arrow-key navigation; pressed while the tree is focused, close it" },
       {
         keys: ["Shift", "C"],
-        description: "Copy selected object names to the clipboard",
+        description: "Copy selected names to the clipboard (levels picked in the tree copy as the levels' own names)",
       },
+      { keys: ["Ctrl", "C"], description: "Same as Shift+C, unless text is highlighted" },
+      
+      { keys: ["Esc"], description: "While a tree has focus: close the tree panel (in Sources, first narrows a multi-selection)" },
       {
         keys: ["Shift", "↑"],
         description: "Select the parent level of the current selection (tree up)",

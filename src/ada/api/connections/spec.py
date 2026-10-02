@@ -112,6 +112,13 @@ class ConnectionSpec:
     its handler expects. Lives next to the spec declaration so the
     spec, its handler, and its sample synth stay co-located.
     """
+    capability: str | None = None
+    """The worker pool that serves this spec, when the registering
+    package knows it. Left ``None``, the heartbeat attributes it to the
+    worker's single non-``base`` capability -- which a worker serving
+    several pools cannot answer, so a contributed spec on such a worker
+    would otherwise read as a built-in. Naming it here is what lets a
+    spec's PROVIDER be told apart, and offered or hidden, by pool."""
 
 
 ConnectionBuilder = Callable[..., Any]
@@ -121,6 +128,21 @@ ConnectionBuilder = Callable[..., Any]
 class RegisteredConnection:
     spec: ConnectionSpec
     fn: ConnectionBuilder
+
+
+class NotApplicable(Exception):
+    """Raised by a builder to DECLINE a joint its spec's criteria matched but its own finer
+    prerequisites do not -- "not mine, try the next spec", which is not an error.
+
+    A spec's role criteria (kind, section family, angle) are coarse; a builder may need more (a
+    stub detail needs boolean cuts on a member; a gusset needs room). Declining lets the detail run
+    fall through to the joint's next applicable spec from the same provider, in priority order, the
+    way a provider's own design loop does -- instead of recording the joint as failed.
+
+    A provider on a core older than this class raises its own exception of the same NAME; the
+    detail loop recognises that too (by name), so a provider can subclass this when it is present
+    and keep working where it is not.
+    """
 
 
 _REGISTRY: dict[str, RegisteredConnection] = {}

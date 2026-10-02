@@ -41,6 +41,7 @@ __all__ = [
     "export_filename",
     "export_source_selection",
     "find_selection",
+    "reparent_selection",
     "scope_to_selection",
     "selection_derived_key",
     "write_selection",
@@ -163,7 +164,6 @@ def scope_to_selection(model: Any, element: str | None, path: Sequence[str] = ()
     conversion of that file would; a bare ``Part`` (what a provider hands back) is wrapped.
     """
     import ada
-    from ada import Part
 
     if element is None and isinstance(model, ada.Assembly):
         return model
@@ -174,6 +174,20 @@ def scope_to_selection(model: Any, element: str | None, path: Sequence[str] = ()
     else:
         target = find_selection(model, element, path)
 
+    _mark_added(reparent_selection(target, out))
+    return out
+
+
+def reparent_selection(target: Any, into: Any) -> Any:
+    """Move ``target`` (a part or one physical object) under ``into``, where its ancestors placed it.
+
+    Returns the part now directly under ``into``. Shared with the clash check over a group
+    (``ada.clash.group_model``), which re-parents each member into its own part the same way.
+    The source model is left with a dangling entry, never re-read: callers resolve every
+    selection they want from one model BEFORE moving any of them.
+    """
+    from ada import Part
+
     if isinstance(target, Part):
         # Resolved BEFORE the move: an absolute placement is accumulated through the ancestors,
         # and after the move the only ancestor left is the new, unplaced root.
@@ -181,18 +195,15 @@ def scope_to_selection(model: Any, element: str | None, path: Sequence[str] = ()
         # as read-only), and this one is about to become the part's own.
         absolute = target.placement.get_absolute_placement(include_rotations=True).copy_to()
         target.placement = absolute
-        out.add_part(target)
-        top = target
-    else:
-        # A lone object keeps the part it sat in as its holder, so the exported file still names
-        # the level it came from and the object stays where that level placed it.
-        owner = target.parent
-        holder = Part(str(owner.name), placement=owner.placement.get_absolute_placement(include_rotations=True))
-        holder.add_object(target)
-        out.add_part(holder)
-        top = holder
-    _mark_added(top)
-    return out
+        into.add_part(target)
+        return target
+    # A lone object keeps the part it sat in as its holder, so the exported file still names
+    # the level it came from and the object stays where that level placed it.
+    owner = target.parent
+    holder = Part(str(owner.name), placement=owner.placement.get_absolute_placement(include_rotations=True))
+    holder.add_object(target)
+    into.add_part(holder)
+    return holder
 
 
 def _step_has_solids(path: pathlib.Path) -> bool:

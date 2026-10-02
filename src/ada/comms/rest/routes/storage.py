@@ -325,6 +325,7 @@ async def api_scope_blob_put(
     from ..converter import (
         is_derived_key,
         is_published_asset_key,
+        is_scope_state_key,
         is_versions_artefact_key,
     )
 
@@ -338,10 +339,12 @@ async def api_scope_blob_put(
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
-    # is_published_asset_key. The is_derived_key guard above applies to both.
+    # is_published_asset_key. The is_derived_key guard above applies to both. Viewer-written
+    # scope state (``_groups/``) is exempt for the same reason: it is never converted.
     if (
         not is_versions_artefact_key(clean)
         and not is_published_asset_key(clean)
+        and not is_scope_state_key(clean)
         and not await is_accepted_source(ctx.queue, ctx.worker_registry, clean)
     ):
         raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")

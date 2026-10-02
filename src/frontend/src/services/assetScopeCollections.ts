@@ -213,6 +213,11 @@ export interface AssetNodeRequest extends AssetCollectionRequest {
    *  a design project) wants. Undeclared (absent here): 1, a job per node, which every provider can
    *  take. */
   maxNodes?: number;
+  /** `on_demand: true`: the request is quick and cheap enough to run as part of a LOAD -- fetching
+   *  already-built geometry, not running a long export. "Load into scene" on a node this provider
+   *  has not published yet then offers to request it first, publish it into the scope, and load
+   *  it. Undeclared: the request is an explicit action only, as before. */
+  onDemand?: boolean;
 }
 
 function parseNodeRequest(pluginId: string, raw: unknown, requiresAdmin: boolean): AssetNodeRequest | null {
@@ -222,7 +227,13 @@ function parseNodeRequest(pluginId: string, raw: unknown, requiresAdmin: boolean
   if (typeof nodeOption !== "string" || !nodeOption.trim()) return null;
   const labelOption = typeof raw.label_option === "string" && raw.label_option.trim() ? raw.label_option.trim() : undefined;
   const maxNodes = typeof raw.max_nodes === "number" && Number.isInteger(raw.max_nodes) && raw.max_nodes > 1 ? raw.max_nodes : null;
-  return { ...base, nodeOption: nodeOption.trim(), ...(labelOption ? { labelOption } : {}), ...(maxNodes ? { maxNodes } : {}) };
+  return {
+    ...base,
+    nodeOption: nodeOption.trim(),
+    ...(labelOption ? { labelOption } : {}),
+    ...(maxNodes ? { maxNodes } : {}),
+    ...(raw.on_demand === true ? { onDemand: true } : {}),
+  };
 }
 
 /** A declared rescan: `asset_collections_refresh` on a plugin spec, which is the

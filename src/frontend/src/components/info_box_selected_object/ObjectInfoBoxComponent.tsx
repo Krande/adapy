@@ -2,7 +2,7 @@ import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useState} from 'react';
 import {useViewerRefs, useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
-import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
+import {hideSelectedRanges, hideUnselectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 import {centerViewOnSelection} from '@/utils/scene/centerViewOnSelection';
 import {frameCells} from '@/utils/scene/frameCells';
@@ -266,6 +266,20 @@ const ObjectInfoBox = () => {
                             <EyeOffIcon/>
                             Hide
                             {isMultiSelect ? ` (${multiSelectCount})` : ""}
+                        </button>
+                    )}
+                    {/* The inverse of Hide: keep the selection, hide the rest. Not for builder
+                        cells, which have their own visibility system. */}
+                    {displayName && !cellCtx && (
+                        <button
+                            type="button"
+                            onClick={hideUnselectedRanges}
+                            className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                            title="Hide everything that is not selected (Shift+I)"
+                            aria-label="Hide unselected"
+                        >
+                            <EyeOffIcon/>
+                            Hide others
                         </button>
                     )}
                     {/* Unhide all is a scene-wide recovery action — it stays

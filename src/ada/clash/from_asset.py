@@ -89,14 +89,20 @@ def clash_check_from_asset_node(
     """
     from ada.clash.identify import run_clash_check
 
+    options = options or ClashOptions()
     manifest = _manifest_for(storage, collection, subject, revision)
+    geometry_provider = options.geometry_provider
+    if geometry_provider and geometry_provider != manifest.provider:
+        return _check_through_geometry_provider(
+            manifest, node=node, storage=storage, options=options, geometry_provider=geometry_provider
+        )
     from ada.assets.concepts import part_for_manifest
 
     part = part_for_manifest(manifest, storage=storage, scope=scope, node=node)
     result = run_clash_check(
         part,
         source_key=_source_key_of(manifest),
-        options=options or ClashOptions(),
+        options=options,
         # A joint list is only as trustworthy as the read behind it, and "a provider read its own
         # format" is something a reader of the result -- or of a bug report quoting it -- must not
         # have to infer from which route answered.
@@ -109,3 +115,45 @@ def clash_check_from_asset_node(
         },
     )
     return result.to_dict()
+
+
+def _check_through_geometry_provider(manifest, *, node, storage, options: ClashOptions, geometry_provider: str):
+    """The node checked with ANOTHER provider's geometry of it (``ada.clash.geometry_source``).
+
+    Built as a one-member GROUP, through the very function a group check uses, and recorded as one
+    (``provenance.group``): the node's own provider may have no reader at all, so a detail job must
+    rebuild from the re-addressed member -- which the group detail kind already does -- rather than
+    from the node it was asked about.
+    """
+    from dataclasses import replace
+
+    from ada.clash.builtin_specs import register_builtin_specs
+    from ada.clash.geometry_source import node_group
+    from ada.clash.group_model import build_group_model, geometry_provenance
+    from ada.clash.identify import run_clash_check
+
+    asked = node_group(
+        provider=manifest.provider,
+        collection=manifest.collection,
+        subject=manifest.subject,
+        revision=manifest.revision,
+        node=node,
+    )
+    built = build_group_model(asked, storage=storage, geometry_provider=geometry_provider)
+    register_builtin_specs()
+    result = run_clash_check(
+        built.model,
+        source_key=_source_key_of(manifest),
+        options=options,
+        provenance={
+            "reader": "group",
+            "provider": manifest.provider,
+            "collection": manifest.collection,
+            "subject": manifest.subject,
+            "revision": manifest.revision,
+            "group": built.group,
+            "members_resolved": built.resolved,
+            **geometry_provenance(built, asked, geometry_provider),
+        },
+    )
+    return replace(result, warnings=(*built.warnings, *result.warnings)).to_dict()

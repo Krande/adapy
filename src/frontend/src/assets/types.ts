@@ -79,6 +79,26 @@ export interface WireAssetIndex {
   readonly malformed: readonly { readonly key: string; readonly reason: string }[];
 }
 
+/** One section of the geometry roll-up: subjects with loadable geometry, every row with one of
+ *  them strictly below it, and the subjects no published tree places. */
+export interface WireGeometrySection {
+  readonly here: readonly string[];
+  readonly below: readonly string[];
+  readonly unplaced?: readonly string[];
+}
+
+/** `GET /assets/geometry/{collection}` (`ada.assets/geometry@1`), under the `latest` resolution. */
+export interface WireGeometryRollup {
+  readonly schema: string;
+  readonly collection: string;
+  readonly index_token: string;
+  readonly mode?: string;
+  readonly providers: Readonly<Record<string, WireGeometrySection>>;
+  readonly any: WireGeometrySection;
+  readonly cached?: boolean;
+  readonly stats?: Readonly<Record<string, number>>;
+}
+
 export interface WireProvider {
   readonly id: string;
   readonly label: string;

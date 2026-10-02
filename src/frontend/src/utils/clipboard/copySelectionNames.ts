@@ -13,6 +13,7 @@
 
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {selectedTreeRowNames} from "@/utils/tree_view/treeKeyboard";
 
 /** Resolve every (mesh, drawRangeId) pair in a selection map into
  * the corresponding element name via the existing range-id lookup.
@@ -80,7 +81,8 @@ export async function writeToClipboard(text: string): Promise<boolean> {
 export async function copySelectionNames(
     selection: Map<CustomBatchedMesh | unknown, Set<string>>,
 ): Promise<number> {
-    const names = await resolveSelectionNames(selection);
+    // Levels picked in the tree copy as the levels' own names, not every member under them.
+    const names = selectedTreeRowNames() ?? (await resolveSelectionNames(selection));
     if (names.length === 0) return 0;
     const ok = await writeToClipboard(names.join("\n"));
     return ok ? names.length : 0;
