@@ -123,7 +123,7 @@ _CACHE_ONLY_SOLVERS = frozenset({"abaqus", "sesam"})
 
 #: How many runs of each solver may go at once (paradoc runs a task's cells side by side within
 #: these). The licensed ones are held by their shared pools, not by the cores:
-#:   * Abaqus: two jobs, at most -- the FlexNet pool is shared, a CPUS=2 job holds 3 of its tokens,
+#:   * Abaqus: two jobs, at most -- the FlexNet pool is shared, a CPUS=2 job holds 5 of its tokens,
 #:     and each job also waits until the pool has room for it (below).
 #:   * Sesam: two of the eight floating SESTRA licences, which are checked out per running job.
 #: Calculix and Code_Aster are licence-free and run single-core here; six each fits the 32-core

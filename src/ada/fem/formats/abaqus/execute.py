@@ -63,7 +63,10 @@ def run_abaqus(
 
 class AbaqusExecute(LocalExecute):
     def run(self, exit_on_complete=True, run_cmd=None, bat_start_str=None):
-        from ada.fem.formats.abaqus.licensing import abaqus_license_slot
+        from ada.fem.formats.abaqus.licensing import (
+            abaqus_job_tokens,
+            abaqus_license_slot,
+        )
         from ada.fem.formats.general import FEATypes
 
         exe_path = self.get_exe(FEATypes.ABAQUS)
@@ -74,8 +77,9 @@ class AbaqusExecute(LocalExecute):
         if not self.auto_execute:
             return self._run_local(run_cmd, stop_cmd, exit_on_complete, bat_start_str)
         # Opt-in (ADA_ABAQUS_LICENSE_WAIT_S): hold the start until the shared pool has this job's
-        # tokens, counting the ones our other running jobs hold.
-        with abaqus_license_slot():
+        # tokens (by analysis: an eigen deck needs fewer than a static one), counting the ones our
+        # other running jobs hold.
+        with abaqus_license_slot(tokens=abaqus_job_tokens(self.inp_path)):
             return self._run_local(run_cmd, stop_cmd, exit_on_complete, bat_start_str)
 
 

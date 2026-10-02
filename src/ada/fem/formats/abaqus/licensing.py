@@ -11,7 +11,7 @@ solver matrix -- makes that likely, so each job first takes a *slot*:
 A slot is granted when the pool has room for this job on top of every job
 this process already holds a slot for:
 
-    issued - (in use by others) - needed * (our slots + 1) >= 0
+    issued - (in use by others) - (tokens our running jobs need) - needed >= 0
 
 "In use by others" is read from ``abaqus licensing ru``: its total in use,
 less the checkouts it lists for this user on this host. Our own jobs are
@@ -26,8 +26,10 @@ unchanged:
     Seconds a job waits for a slot before starting anyway. Unset or 0: no
     accounting at all (the default).
 ``ADA_ABAQUS_JOB_TOKENS``
-    Tokens one job holds (default 3: a CPUS=2 Abaqus/Standard job on the
-    license server this was written against).
+    Tokens one job holds. Unset: read from the job's deck
+    (:func:`abaqus_job_tokens`) -- on the license server this was written
+    against a CPUS=2 Abaqus/Standard job holds 3 for an eigenfrequency
+    analysis and 5 for a static one.
 
 What this cannot see is another user's job taking the tokens between the
 check and the checkout. Abaqus has its own license queueing for that
@@ -117,42 +119,78 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+#: Tokens a CPUS=2 Abaqus/Standard job holds, by analysis, as ``abaqus licensing ru`` lists them on
+#: the license server this was written against. A deck with any step other than a frequency
+#: extraction is planned at the larger number.
+EIGEN_JOB_TOKENS = 3
+GENERAL_JOB_TOKENS = 5
+
+_STEP_PROCEDURE = re.compile(
+    r"^\s*\*(frequency|static|dynamic|visco|heat transfer|coupled temperature-displacement|buckle|"
+    r"steady state dynamics|modal dynamic|random response|response spectrum|complex frequency|"
+    r"soils|geostatic|direct cyclic|annealing|mass diffusion)\b",
+    re.IGNORECASE,
+)
+
+
+def abaqus_job_tokens(inp_path: os.PathLike | str | None) -> int:
+    """Tokens to plan for the job ``inp_path`` describes: ``EIGEN_JOB_TOKENS`` when its only
+    analysis procedure is a frequency extraction, ``GENERAL_JOB_TOKENS`` otherwise (and when the
+    deck cannot be read). Only keyword lines are looked at."""
+    procedures = set()
+    try:
+        with open(inp_path, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.startswith("*") or line.lstrip().startswith("*"):
+                    m = _STEP_PROCEDURE.match(line)
+                    if m:
+                        procedures.add(m.group(1).lower())
+    except (OSError, TypeError):
+        return GENERAL_JOB_TOKENS
+    return EIGEN_JOB_TOKENS if procedures == {"frequency"} else GENERAL_JOB_TOKENS
+
+
 _slots_lock = threading.Lock()
-_slots_held = 0
+#: Tokens reserved by the jobs this process has admitted and not yet finished -- each at its own
+#: count, so a 3-token eigen job asking for room sees a running 5-token static job as 5.
+_tokens_reserved = 0
 
 
 @contextlib.contextmanager
 def abaqus_license_slot(
+    tokens: int = GENERAL_JOB_TOKENS,
     status: Callable[[], Optional[AbaqusTokens]] = abaqus_token_status,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> Iterator[bool]:
-    """Hold an Abaqus job until the pool has its tokens (see module docstring); yields whether it
-    had to wait. A no-op unless ``ADA_ABAQUS_LICENSE_WAIT_S`` is set. Never raises on the license
-    side: when the server cannot be asked, or the wait runs out, the job starts and Abaqus decides.
+    """Hold an Abaqus job that needs ``tokens`` until the pool has room for it (see module
+    docstring); yields whether it had to wait. A no-op unless ``ADA_ABAQUS_LICENSE_WAIT_S`` is set.
+    Never raises on the license side: when the server cannot be asked, or the wait runs out, the
+    job starts and Abaqus decides.
     """
-    global _slots_held
+    global _tokens_reserved
     wait_s = _env_float("ADA_ABAQUS_LICENSE_WAIT_S", 0.0)
     if wait_s <= 0:
         yield False
         return
 
-    needed = int(_env_float("ADA_ABAQUS_JOB_TOKENS", 3))
+    needed = int(_env_float("ADA_ABAQUS_JOB_TOKENS", tokens))
     deadline = clock() + wait_s
     waited = False
     while True:
-        tokens = status()  # outside the lock: a server round trip should not hold up the others
+        pool = status()  # outside the lock: a server round trip should not hold up the others
         with _slots_lock:
-            room = None if tokens is None else tokens.issued - tokens.others - needed * (_slots_held + 1)
+            room = None if pool is None else pool.issued - pool.others - _tokens_reserved - needed
             if room is None or room >= 0 or clock() >= deadline:
                 if room is not None and room < 0:
                     logger.warning(f"Abaqus: no room for {needed} tokens after {wait_s:.0f} s; starting anyway")
-                _slots_held += 1
+                _tokens_reserved += needed
                 break
+            reserved = _tokens_reserved
         if not waited:
             logger.info(
-                f"Abaqus: waiting for {needed} tokens ({tokens.issued - tokens.others} not held by others, "
-                f"{_slots_held} of our jobs running)"
+                f"Abaqus: waiting for {needed} tokens ({pool.issued - pool.others} not held by others, "
+                f"{reserved} held by our running jobs)"
             )
         waited = True
         sleep(10.0)
@@ -160,4 +198,4 @@ def abaqus_license_slot(
         yield waited
     finally:
         with _slots_lock:
-            _slots_held -= 1
+            _tokens_reserved -= needed
