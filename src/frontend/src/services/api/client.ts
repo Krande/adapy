@@ -103,9 +103,14 @@ export function detailText(body: string): string {
     const d = parsed?.detail;
     if (typeof d === "string") return d;
     if (Array.isArray(d)) {
-      return d
-        .map((e) => (e && typeof e === "object" && "msg" in e ? String((e as { msg: unknown }).msg) : String(e)))
-        .join("; ");
+      // Spelled out rather than as one `"msg" in e ? ... : ...` ternary: minified, that put two
+      // quoted literals around code, and the bundle provenance check read the code as a string.
+      const parts: string[] = [];
+      for (const e of d) {
+        const msg = e && typeof e === "object" ? (e as { msg?: unknown }).msg : undefined;
+        parts.push(msg === undefined ? String(e) : String(msg));
+      }
+      return parts.join("; ");
     }
     return "";
   } catch {
