@@ -4,6 +4,7 @@ import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
 import SceneTreeRow from './SceneTreeRow';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
+import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
 
 const TreeViewComponent: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
@@ -48,6 +49,22 @@ const TreeViewComponent: React.FC = () => {
             setTree(tree);
         }
     }, []);
+
+    // Back from hidden (the Sources tab was showing, or the drawer was shut): bring the selection
+    // into view again. A pick made meanwhile selected its row here, but scrolled a list zero rows
+    // tall, so the row is selected somewhere off screen.
+    const wasHidden = useRef(false);
+    useEffect(() => {
+        if (treeHeight <= 0) {
+            wasHidden.current = true;
+            return;
+        }
+        if (!wasHidden.current) return;
+        wasHidden.current = false;
+        const tree = treeRef.current;
+        const node = tree?.mostRecentNode ?? tree?.selectedNodes?.[0];
+        if (node) tree.scrollTo(node.id);
+    }, [treeHeight]);
 
     const handleSelect = (ids: NodeApi[]) => {
         if (!treeRef.current?.isProgrammaticChange) {
@@ -102,7 +119,17 @@ const TreeViewComponent: React.FC = () => {
                     </div>
                 )}
             </div>
-            <div>
+            <div
+                // Esc / Alt+T close the drawer while the tree has focus. Caught here, in the
+                // capture phase, and stopped: the tree consumes its own keys, and letting Alt+T go on
+                // to the viewer's global handler would reopen what this just closed.
+                onKeyDownCapture={(e) => {
+                    if (!isTreeCloseKey(e)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeTreeFromKeyboard();
+                }}
+            >
                 <Tree
                     className={"text-white scrollbar"}
                     width={"100%"}

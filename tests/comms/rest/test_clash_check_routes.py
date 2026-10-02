@@ -143,7 +143,8 @@ def _run_check(client, source_key: str, options: dict | None = None) -> tuple[di
 def test_clash_check_finds_the_girder_gusset_joint(client_and_scope, ifc_source_key):
     client, _ = client_and_scope
     result, _ = _run_check(client, ifc_source_key)
-    assert result["schema"] == "ada.clash/result@1"
+    assert result["schema"] == "ada.clash/result@2"
+    assert result["checker"] == "adapy"
     assert result["counts"]["members"] == 2
     assert result["counts"]["joints"] == 1
     assert len(result["joints"]) == 1
@@ -464,3 +465,123 @@ def test_a_provider_the_caller_names_wrongly_is_refused(client_and_scope, publis
     )
     assert r.status_code == 409
     assert LINES_PROVIDER in r.json()["detail"]
+
+
+# ── checkers ──────────────────────────────────────────────────────────
+
+
+def test_checker_listing_always_offers_cores_own(client_and_scope):
+    client, _ = client_and_scope
+    r = client.get(f"/api/scopes/{SCOPE}/clash-check/checkers")
+    assert r.status_code == 200, r.text
+    by_name = {c["name"]: c for c in r.json()["checkers"]}
+    assert by_name["adapy"]["capability"] is None
+
+
+def test_a_checker_this_viewer_cannot_run_is_refused_by_name(client_and_scope, ifc_source_key):
+    """Enqueued anyway, it would run nowhere -- or as core's check under another engine's name."""
+    client, _ = client_and_scope
+    r = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"source_key": ifc_source_key, "options": {"checker": "nobody-has-this"}},
+    )
+    assert r.status_code == 409, r.text
+    assert "nobody-has-this" in r.json()["detail"]
+
+
+def test_the_listing_urls_are_routable(client_and_scope):
+    """The panel builds these from the same base as the POST; a typo there answered 404 for months."""
+    client, _ = client_and_scope
+    for tail in ("passes", "checkers", "connection-specs", "geometry-providers"):
+        assert client.get(f"/api/scopes/{SCOPE}/clash-check/{tail}").status_code == 200
+
+
+# ── geometry providers ────────────────────────────────────────────────
+
+
+def test_geometry_providers_list_what_this_viewer_can_read(client_and_scope, published_lines_node):
+    """Queue-less: the readers registered in THIS process are what a check here can read with."""
+    client, _ = client_and_scope
+    r = client.get(f"/api/scopes/{SCOPE}/clash-check/geometry-providers")
+    assert r.status_code == 200, r.text
+    by_id = {p["id"]: p for p in r.json()["providers"]}
+    assert by_id[LINES_PROVIDER]["readable"] is True
+
+
+@pytest.mark.asyncio
+async def test_geometry_providers_union_every_live_pools_readers():
+    from types import SimpleNamespace
+
+    from ada.comms.rest.routes.clash_check import api_clash_geometry_providers
+
+    class _Jobs:
+        kind = "queue"
+
+        async def advertised_specs(self, field, fallback_field=None):
+            assert field == "asset_concept_readers"
+            return {
+                "member-reader": {"slug": "member-reader", "id": "member-reader", "label": "Members", "readable": True},
+                "broken-reader": {
+                    "slug": "broken-reader",
+                    "id": "broken-reader",
+                    "available": False,
+                    "readable": False,
+                    "unavailable_reason": "dependency missing",
+                },
+            }
+
+    resp = await api_clash_geometry_providers(scope_obj=None, ctx=SimpleNamespace(jobs=_Jobs()))
+    providers = json.loads(resp.body)["providers"]
+    assert [p["id"] for p in providers] == ["broken-reader", "member-reader"]
+    assert providers[1] == {
+        "id": "member-reader",
+        "label": "Members",
+        "readable": True,
+        "capability": None,
+        "origin": "code",
+    }
+    assert providers[0]["readable"] is False and providers[0]["unavailable_reason"] == "dependency missing"
+
+
+def test_a_geometry_provider_moves_the_key_only_where_it_can_change_the_model(
+    client_and_scope, ifc_source_key, published_lines_node
+):
+    client, _ = client_and_scope
+    _, plain = _run_check(client, ifc_source_key)
+    # A file has no provider: asking for one is the same check and the same entry.
+    r = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"source_key": ifc_source_key, "options": {"include_plate_joints": False, "geometry_provider": "x"}},
+    )
+    assert r.json()["derived_key"] == plain
+
+    _, node_key = _run_node_check(client, {})
+    # A node's own provider is the same check too...
+    own = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={
+            "collection": LINES_COLLECTION,
+            "subject": LINES_SUBJECT,
+            "options": {"geometry_provider": LINES_PROVIDER},
+        },
+    )
+    assert own.json() == {"job_id": None, "derived_key": node_key, "cached": True}
+    # A provider nothing here can read is refused before anything is enqueued...
+    unread = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"collection": LINES_COLLECTION, "subject": LINES_SUBJECT, "options": {"geometry_provider": "other"}},
+    )
+    assert unread.status_code == 409 and "'other'" in unread.json()["detail"], unread.text
+    # ...while another provider's geometry that this viewer CAN read is another check.
+    from ada.assets.concepts import register_asset_concepts
+
+    register_asset_concepts("other", lambda: _LinesConcepts())
+    other = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"collection": LINES_COLLECTION, "subject": LINES_SUBJECT, "options": {"geometry_provider": "other"}},
+    )
+    assert other.status_code == 200, other.text
+    assert other.json()["derived_key"] != node_key
+    # Nothing of "other" is published, so the job fails by name rather than checking nothing.
+    status = _wait_done(client, other.json()["job_id"])
+    assert status["status"] == "error" and "'other'" in (status.get("error") or ""), status

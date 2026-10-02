@@ -13,67 +13,67 @@ enough to build with. A spec's registered function wants the actual ``Beam``/``P
 which exist only in a freshly-reloaded model, so this handler re-opens the SOURCE exactly the way
 ``clash_check`` does (:class:`.registry.SourceFormatHandler` -> the shared ``ada_load`` dispatch)
 rather than trying to resurrect objects out of JSON.
+
+A GROUP HAS NO SOURCE TO STREAM. A result over a named group (``provenance.group``) was checked
+against a model assembled from several sources, so its detail job is the synthetic
+``clash_detail_group`` kind: it rebuilds that model through ``ada.clash.group_model`` -- the same
+function the check used, which is what makes the ids reproduce -- and then runs the same loop.
 """
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
+import json
 import pathlib
+import shutil
 import traceback as tb_module
+from typing import Any, Callable
 
 import asyncpg
 
-from ada.clash import (
-    ClashOptions,
-    ClashResultError,
-    describe_member,
-    identify_joints,
-    parse_clash_result,
-)
-from ada.clash.builtin_specs import register_builtin_specs
-from ada.clash.match import detail_pairs
+from ada.clash import ClashOptions, ClashResultError, parse_clash_result
+from ada.clash.detail import build_detail, found_id, joints_by_id
 from ada.config import logger
 
 from ..converters.ada_load import _load_with_ada
-from ..converters.registry import UnsupportedFormat
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
 from ..worker.audit import _audit_done
-from .registry import JobContext, SourceFormatHandler
+from ..worker.settings import read_clash_timeout_s
+from .clash_isolation import run_clash_work
+from .registry import JobContext, SourceFormatHandler, SyntheticFormatHandler
 
 CLASH_DETAIL_KIND = "clash_detail"
+CLASH_DETAIL_GROUP_KIND = "clash_detail_group"
 
-
-def _found_id(found) -> str:
-    """The exact formula ``run_clash_check`` stamps a joint's id with -- duplicated rather than
-    imported because it is three lines of a documented, deterministic PUBLIC contract
-    (``ada.clash.identify.run_clash_check``'s own docstring), not an internal of ``identify.py``:
-    re-deriving it here is what lets a cached id be matched back up without ``ada.clash`` having
-    to expose a second, id-taking entrypoint that exists for exactly one caller."""
-    names = sorted(describe_member(m).name for m in found.members)
-    return hashlib.sha256("|".join([found.origin, *names]).encode("utf-8")).hexdigest()[:12]
+#: Kept under its old name: the formula now lives in ``ada.clash.detail``, beside the loop that uses it.
+_found_id = found_id
 
 
 def _options_from(raw: dict) -> ClashOptions:
-    return ClashOptions(
-        out_of_plane_tol=float(raw.get("out_of_plane_tol", 0.1)),
-        point_tol=float(raw.get("point_tol", 1e-5)),
-        root=raw.get("root") or None,
-        include_plate_joints=bool(raw.get("include_plate_joints", True)),
-    )
+    # Every field, `checker` and `passes` included: a detail job re-runs identification to get
+    # real members back, and a re-run with fewer passes or another checker reproduces other ids.
+    return ClashOptions.from_dict(raw)
+
+
+class ClashDetailError(ValueError):
+    """A detail request the reloaded model cannot answer (its message is the whole story)."""
 
 
 async def _run_clash_detail(
     *,
     job: Job,
-    src_path: pathlib.Path,
+    load_model: Callable[[Any, Any], Any],
     scope,
     storage: "Storage",
     queue: "JobQueue",
     db_pool: "asyncpg.Pool | None",
     started_at: float,
+    needs_storage: bool = False,
 ) -> None:
+    """The detail job, whichever way its model is reopened. ``load_model(cached_result, storage)``
+    runs in the killable child (a thread where there is no fork) and returns the model the cached
+    result was checked against; ``storage`` is a synchronous facade when ``needs_storage``, else
+    None."""
     job_id = job.job_id
     opts = job.conversion_options or {}
     result_key = opts.get("result_key")
@@ -89,7 +89,7 @@ async def _run_clash_detail(
     missing_fields = [f for f in ("result_key", "spec") if not opts.get(f)]
     if missing_fields or not joint_ids:
         names = ", ".join(missing_fields or ["joint_ids"])
-        await _fail("detail", f"conversion_options missing {names} for a {CLASH_DETAIL_KIND} job")
+        await _fail("detail", f"conversion_options missing {names} for a {job.target_format} job")
         return
 
     try:
@@ -108,37 +108,11 @@ async def _run_clash_detail(
 
     options = _options_from(cached.options)
 
-    ext = src_path.suffix.lower()
-    loop = asyncio.get_running_loop()
-
-    def _load_and_find():
-        model = _load_with_ada(src_path, ext)
-        register_builtin_specs()
-        outcome = identify_joints(model, options)
-        return {_found_id(f): f for f in outcome.joints}
-
-    try:
-        await queue.update(job_id, stage="loading", progress=0.20)
-        by_id = await loop.run_in_executor(None, _load_and_find)
-    except UnsupportedFormat as exc:
-        await _fail("loading", str(exc))
-        return
-    except Exception as exc:
-        logger.exception("worker: clash_detail failed to reload %s for job %s", job.source_key, job_id)
-        await _fail("loading", str(exc), tb_module.format_exc())
-        return
-
-    absent = [jid for jid in joint_ids if jid not in by_id]
-    if absent:
-        await _fail(
-            "detail",
-            "joint id(s) not reproducible from this source at these options: "
-            f"{', '.join(absent)} -- the cached result and the source may have drifted apart",
-        )
-        return
-
     from ada.api.connections.spec import get_registered
 
+    # Checked here, before any reload: a spec this pool cannot serve is a routing fact, and
+    # saying so must not cost a model read. The registry is process-global, so the child that
+    # builds sees the very same registration.
     try:
         registered = get_registered(spec_name)
     except KeyError:
@@ -149,84 +123,50 @@ async def _run_clash_detail(
         )
         return
 
-    def _build() -> tuple[bytes, dict]:
-        from ada import Part
-        from ada.core.file_system import new_temp_path
-        from ada.topo_model.takeoff import _joints_takeoff
-
-        joints_part = Part("Joints")
-        skipped: list[str] = []
-        for jid in joint_ids:
-            found = by_id[jid]
-            # One connection per way the spec's roles bind at this contact -- a joint is a contact
-            # NODE and three or four members can meet at one, while a builder takes a pair. See
-            # `ada.clash.match.detail_pairs`, which the queue-less engine in `local_jobs` uses too:
-            # the same job kind must not mean two different things depending on where it ran.
-            try:
-                pairs = detail_pairs(registered.spec, found)
-            except ValueError as exc:
-                skipped.append(f"{jid}: {exc}")
-                continue
-            for i, (landing, incoming) in enumerate(pairs):
-                try:
-                    conn = registered.fn(
-                        landing=landing,
-                        incoming=incoming,
-                        centre=found.centre,
-                        # What the PASS measured at this contact, where it measured anything:
-                        # normal, penetration depth, nearest points, patch area. A pass that works
-                        # on axes has none and this is None, which every builder already tolerates
-                        # -- but a builder given a geometric contact can size its output from the
-                        # real overlap instead of inferring one. Without this the richer passes
-                        # would be pointless: the data they exist to produce would be computed,
-                        # carried through the result document, and then dropped on the last step.
-                        clash=found.contact,
-                        name=f"{spec_name}_{jid}" if i == 0 else f"{spec_name}_{jid}_{i}",
-                        **gen_options,
-                    )
-                except Exception as exc:  # noqa: BLE001 - one joint's refusal is not the run's
-                    # A builder's own prerequisites can be finer than a spec's criteria express;
-                    # the other joints in the batch are still worth building. Only a run where
-                    # NOTHING built is a failure -- see the queue-less engine, same rule.
-                    skipped.append(f"{jid}: {type(exc).__name__}: {exc}")
-                    continue
-                joints_part.add_part(conn)
-        if not joints_part.parts and skipped:
-            raise ValueError(
-                f"{spec_name} detailed none of the {len(joint_ids)} joint(s) handed to it: " + "; ".join(skipped[:5])
+    def _work(out_dir: pathlib.Path, work_storage, progress) -> None:
+        # Reload + re-identify + build + GLB export: all of it in the killable child
+        # (``clash_isolation``). Outputs are files; the parent uploads them after a clean exit.
+        progress("loading", 0.20)
+        by_id = joints_by_id(load_model(cached, work_storage), options)
+        progress("detail", 0.55)
+        absent = [jid for jid in joint_ids if jid not in by_id]
+        if absent:
+            raise ClashDetailError(
+                "joint id(s) not reproducible from this source at these options: "
+                f"{', '.join(absent)} -- the cached result and the source may have drifted apart"
             )
+        glb_bytes, stats = build_detail(
+            registered, spec_name=spec_name, joint_ids=joint_ids, by_id=by_id, gen_options=gen_options
+        )
+        (out_dir / "detail.glb").write_bytes(glb_bytes)
+        (out_dir / "stats.json").write_bytes(json.dumps(stats).encode("utf-8"))
 
-        glb_path = new_temp_path(suffix=".glb")
-        try:
-            joints_part.to_gltf(glb_path)
-            glb_bytes = glb_path.read_bytes()
-        finally:
-            glb_path.unlink(missing_ok=True)
-
-        stats = {"joints": _joints_takeoff(joints_part)}
-        if skipped:
-            stats["skipped"] = skipped
-        return glb_bytes, stats
-
-    try:
-        await queue.update(job_id, stage="detail", progress=0.55)
-        glb_bytes, stats = await loop.run_in_executor(None, _build)
-    except Exception as exc:
-        logger.exception("worker: clash_detail build failed for job %s (spec %s)", job_id, spec_name)
-        await _fail("detail", str(exc), tb_module.format_exc())
-        return
+    out_dir = await run_clash_work(
+        _work,
+        job=job,
+        queue=queue,
+        db_pool=db_pool,
+        started_at=started_at,
+        stage="loading",
+        storage=storage if needs_storage else None,
+        scope=scope,
+        timeout_s=await read_clash_timeout_s(db_pool),
+        label="clash detail",
+    )
+    if out_dir is None:
+        return  # cancelled / failed -- already reported
 
     try:
         await queue.update(job_id, stage="upload", progress=0.85)
-        import json as _json
-
         if glb_key:
-            await storage.put_bytes(scope, glb_key, glb_bytes, content_encoding="gzip")
-        await storage.put_bytes(scope, job.derived_key, _json.dumps(stats).encode("utf-8"), content_encoding="gzip")
+            await storage.put_bytes(scope, glb_key, (out_dir / "detail.glb").read_bytes(), content_encoding="gzip")
+        await storage.put_bytes(scope, job.derived_key, (out_dir / "stats.json").read_bytes(), content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: clash_detail upload failed for job %s", job_id)
         await _fail("upload", str(exc), tb_module.format_exc())
         return
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     await _audit_done(db_pool, job_id, "done", None, started_at)
@@ -236,12 +176,43 @@ class ClashDetailHandler(SourceFormatHandler):
     kind = CLASH_DETAIL_KIND
 
     async def run(self, job: Job, ctx: JobContext) -> None:
+        src_path: pathlib.Path = ctx.src_path
+
+        def _load(_cached, _storage):
+            return _load_with_ada(src_path, src_path.suffix.lower())
+
         await _run_clash_detail(
             job=job,
-            src_path=ctx.src_path,
+            load_model=_load,
             scope=ctx.scope,
             storage=ctx.storage,
             queue=ctx.queue,
             db_pool=ctx.db_pool,
             started_at=ctx.started_at,
+        )
+
+
+class ClashDetailGroupHandler(SyntheticFormatHandler):
+    """Detail joints from a result over a named GROUP (see the module docstring)."""
+
+    kind = CLASH_DETAIL_GROUP_KIND
+
+    async def run(self, job: Job, ctx: JobContext) -> None:
+        from ada.clash.group_model import build_group_model
+
+        def _load(cached, storage):
+            group = cached.provenance.get("group")
+            if not isinstance(group, dict):
+                raise ClashResultError("this clash result was not checked over a group (no provenance.group)")
+            return build_group_model(group, storage=storage).model
+
+        await _run_clash_detail(
+            job=job,
+            load_model=_load,
+            scope=ctx.scope,
+            storage=ctx.storage,
+            queue=ctx.queue,
+            db_pool=ctx.db_pool,
+            started_at=ctx.started_at,
+            needs_storage=True,
         )

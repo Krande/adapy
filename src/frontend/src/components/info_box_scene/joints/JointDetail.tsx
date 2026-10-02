@@ -7,10 +7,55 @@
 
 import React from "react";
 
-import { groupColor, specForJoint, useClashCheckStore, type ClashJoint, type ClashResult } from "@/state/clashCheckStore";
+import { rankSpecs, specProviderLabel, specProviderOf } from "@/services/clashSpecProviders";
+import {
+  effectiveSpecProviders,
+  groupColor,
+  specForJoint,
+  useClashCheckStore,
+  type ClashContact,
+  type ClashJoint,
+  type ClashResult,
+} from "@/state/clashCheckStore";
 import { isSpecAvailable } from "@/state/clashCheckStore";
 
 const fmt = (n: number) => (Number.isFinite(n) ? n.toFixed(2) : "—");
+const mm = (m: number) => `${(m * 1000).toFixed(1)} mm`;
+
+/** What the checker measured at this contact. Every line is optional -- absent means not
+ *  measured -- and an axis pass measured nothing, so the whole block is absent for it. */
+const ContactFacts: React.FC<{ contact: ClashContact }> = ({ contact }) => {
+  const rows: [string, string][] = [];
+  if (contact.penetrationDepth !== null) rows.push(["penetration", mm(contact.penetrationDepth)]);
+  if (contact.contactArea !== null) rows.push(["contact area", `${(contact.contactArea * 1e6).toFixed(0)} mm²`]);
+  if (contact.incomingAngleDeg !== null) rows.push(["incoming angle", `${contact.incomingAngleDeg.toFixed(1)}°`]);
+  if (contact.securityMargin !== null) rows.push(["margin", mm(contact.securityMargin)]);
+  if (contact.normal) rows.push(["normal", contact.normal.map((v) => v.toFixed(2)).join(", ")]);
+  const extras = Object.entries(contact.extras);
+  if (rows.length === 0 && extras.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="text-gray-500">contact</div>
+      {rows.map(([k, v]) => (
+        <div key={k} className="flex items-center gap-2 text-gray-300">
+          <span className="text-gray-500 w-24 shrink-0">{k}</span>
+          <span className="tabular-nums">{v}</span>
+        </div>
+      ))}
+      {extras.length > 0 && (
+        <details className="text-gray-500">
+          <summary className="cursor-pointer">checker details</summary>
+          {extras.map(([k, v]) => (
+            <div key={k} className="flex items-center gap-2">
+              <span className="w-24 shrink-0">{k}</span>
+              <span className="truncate text-gray-400">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
+            </div>
+          ))}
+        </details>
+      )}
+    </div>
+  );
+};
 
 const JointDetail: React.FC<{
   joint: ClashJoint;
@@ -21,10 +66,13 @@ const JointDetail: React.FC<{
   const detailBusy = useClashCheckStore((s) => s.detailBusy);
   const detailSpec = useClashCheckStore((s) => s.detailSpec);
   const runDetail = useClashCheckStore((s) => s.runDetail);
-  const best = specForJoint(joint);
-  // `null` for the live capability set: the union route does not exist yet, so this fails OPEN
-  // rather than hiding a spec that may well run (see `isSpecAvailable`).
-  const available = best ? isSpecAvailable(best, null) : false;
+  const liveCapabilities = useClashCheckStore((s) => s.liveCapabilities);
+  const adminSpecProviders = useClashCheckStore((s) => s.adminSpecProviders);
+  const specProvidersOverride = useClashCheckStore((s) => s.specProvidersOverride);
+  const providers = effectiveSpecProviders({ adminSpecProviders, specProvidersOverride });
+  const best = specForJoint(joint, providers);
+  const offered = new Set(rankSpecs(joint.applicable, providers).map((s) => s.spec));
+  const available = best ? isSpecAvailable(best, liveCapabilities) : false;
   const busyHere = detailBusy && detailSpec === best?.spec;
 
   return (
@@ -56,9 +104,17 @@ const JointDetail: React.FC<{
             <span className="text-gray-500 shrink-0">{m.kind}</span>
             {m.section && <span className="text-gray-500 shrink-0">{m.section}</span>}
             {m.memberType && <span className="text-gray-500 shrink-0">{m.memberType}</span>}
+            {m.role && (
+              <span className="text-sky-300 shrink-0" title={m.end ? `its ${m.end} is at the contact` : undefined}>
+                {m.role}
+                {m.end ? ` (${m.end})` : ""}
+              </span>
+            )}
           </div>
         ))}
       </div>
+
+      {joint.contact && <ContactFacts contact={joint.contact} />}
 
       <div className="flex flex-col gap-0.5">
         <div className="text-gray-500">generators</div>
@@ -66,11 +122,16 @@ const JointDetail: React.FC<{
           <div className="text-gray-500 italic">No registered spec matches this joint.</div>
         ) : (
           joint.applicable.map((spec) => (
-            <div key={spec.spec} className="flex items-center gap-2 text-gray-300">
-              <span className="truncate flex-1 min-w-0">{spec.spec}</span>
-              <span className="text-gray-500 shrink-0">
-                {spec.capability ? `pool: ${spec.capability}` : "built-in"}
+            <div
+              key={spec.spec}
+              className={`flex items-center gap-2 ${offered.has(spec.spec) ? "text-gray-300" : "text-gray-600 line-through"}`}
+              title={offered.has(spec.spec) ? undefined : "Its provider is not enabled for detailing here"}
+            >
+              <span className="truncate flex-1 min-w-0">
+                {spec.spec}
+                {best?.spec === spec.spec ? " ✓" : ""}
               </span>
+              <span className="text-gray-500 shrink-0">{specProviderLabel(specProviderOf(spec))}</span>
             </div>
           ))
         )}

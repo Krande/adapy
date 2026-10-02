@@ -31,8 +31,21 @@ from ada.clash import native_joints
 from ada.clash.classify import describe_member, type_key_for, type_label_for
 from ada.clash.match import _angle_between, applicable_specs
 from ada.clash.options import ClashOptions
-from ada.clash.passes import ClashPass, register_pass, selected_passes
-from ada.clash.result import ClashResult, JointRecord, group_joints
+from ada.clash.passes import (
+    BUILTIN_CHECKER,
+    ClashPass,
+    get_checker,
+    passes_for,
+    register_pass,
+    selected_passes,
+)
+from ada.clash.result import (
+    ClashContact,
+    ClashResult,
+    JointMember,
+    JointRecord,
+    group_joints,
+)
 from ada.config import logger
 
 __all__ = ["ClashOptions", "identify_joints", "run_clash_check"]
@@ -45,12 +58,20 @@ class _Found:
     members: list[Any]
     centre: tuple[float, float, float]
     landing: Any | None = None
-    #: The PASS that found it. Part of the joint's id, so it is a wire constant.
-    origin: str = "beam-beam"
+    #: The PASS that found it. Part of the joint's id, so it is a wire constant. Left empty, the
+    #: registry stamps the name of the pass that returned it -- a default naming core's beam pass
+    #: would credit every contributed pass's joints to core.
+    origin: str = ""
     #: What the pass measured, where it measured anything -- contact normal, penetration depth,
     #: patch area. Core carries it and never reads it; a connection builder receives it as its
-    #: ``clash`` argument, which is what a generator sizes its output from.
-    contact: Mapping[str, Any] | None = None
+    #: ``clash`` argument, which is what a generator sizes its output from. A plain mapping is
+    #: read into a :class:`ClashContact` when the joint is recorded.
+    contact: ClashContact | Mapping[str, Any] | None = None
+    #: Which member is ``incoming`` and which ``landing``, by member name, where the pass resolved
+    #: it. Left empty, the roles follow ``landing``: that member lands, the others are incoming.
+    roles: Mapping[str, str] | None = None
+    #: Which end of each member is at the contact (``start`` | ``end``), by member name.
+    ends: Mapping[str, str] | None = None
 
 
 @dataclass
@@ -100,8 +121,19 @@ def identify_joints(model, options: ClashOptions | None = None) -> IdentifyOutco
         )
         return outcome
 
+    checker = get_checker(options.checker)
+    if checker is None:
+        # Named but not registered HERE: the check was routed to a pool that does not carry the
+        # checker's code. Said in words rather than run as core's -- a result labelled with one
+        # engine and produced by another is the one answer nobody could explain afterwards.
+        outcome.warnings.append(
+            f"clash checker {options.checker!r} is not registered in this process, so nothing was checked"
+        )
+        outcome.passes = []
+        return outcome
+
     ran: list[dict] = []
-    for clash_pass in selected_passes(options.passes):
+    for clash_pass in _passes_to_run(checker.name, options.passes):
         if clash_pass.fn is None:
             ran.append({"name": clash_pass.name, "ran": False, "reason": "registered without an implementation"})
             continue
@@ -117,6 +149,9 @@ def identify_joints(model, options: ClashOptions | None = None) -> IdentifyOutco
             continue
         for item in found:
             item.origin = item.origin or clash_pass.name
+            # Typed here rather than when the joint is recorded: a detail job reuses these very
+            # objects and hands `contact` to a builder, which must get what a result reader gets.
+            item.contact = ClashContact.from_dict(item.contact)
         outcome.joints.extend(found)
         # Counted in `passes`, not in `counts`: `counts` OMITS what was not measured rather than
         # zeroing it, and a per-pass tally that wrote 0 for a pass that never ran would be exactly
@@ -126,9 +161,13 @@ def identify_joints(model, options: ClashOptions | None = None) -> IdentifyOutco
     # Passes that exist and were NOT asked for are reported too: a panel offers the difference as
     # a checkbox, and a reader who sees no plate joints deserves to know whether any were sought.
     selected_names = {entry["name"] for entry in ran}
+    # Core's checker reports every registered pass, as it always has -- an explicit list may name any
+    # of them. A contributed checker reports only its own: another engine's passes are not "not
+    # selected", they belong to a check that was not run.
     from ada.clash.passes import all_passes
 
-    for clash_pass in all_passes():
+    reportable = all_passes() if checker.name == BUILTIN_CHECKER else passes_for(checker.name)
+    for clash_pass in reportable:
         if clash_pass.name not in selected_names:
             ran.append(
                 {
@@ -140,6 +179,21 @@ def identify_joints(model, options: ClashOptions | None = None) -> IdentifyOutco
             )
     outcome.passes = ran
     return outcome
+
+
+def _passes_to_run(checker_name: str, names) -> tuple[ClashPass, ...]:
+    """The checker's passes, narrowed by an explicit ``passes`` list where one was sent.
+
+    Core's checker keeps its older reading of an explicit list -- any registered pass by name --
+    so a request written before checkers existed runs what it always ran.
+    """
+    if checker_name == BUILTIN_CHECKER:
+        return selected_passes(names)
+    owned = passes_for(checker_name)
+    if names is None:
+        return owned
+    wanted = {str(n) for n in names}
+    return tuple(p for p in owned if p.name in wanted)
 
 
 # ── core's own passes ────────────────────────────────────────────────────────────────────────
@@ -373,7 +427,7 @@ def run_clash_check(
 
     joints: list[JointRecord] = []
     for found in outcome.joints:
-        described = [describe_member(m) for m in found.members]
+        described = _with_roles(found, [describe_member(m) for m in found.members])
         angle = _angle_between(found.members[0], found.members[1]) if len(found.members) >= 2 else None
         ident = hashlib.sha256(
             "|".join([found.origin, *sorted(m.name for m in described)]).encode("utf-8")
@@ -391,6 +445,7 @@ def run_clash_check(
             )
         )
 
+    checker = get_checker(options.checker)
     counts = dict(outcome.counts)
     counts["joints"] = len(joints)
     matched = sum(1 for j in joints if j.applicable)
@@ -407,4 +462,27 @@ def run_clash_check(
         provenance=dict(provenance or {}),
         warnings=tuple(outcome.warnings),
         passes=tuple(outcome.passes),
+        checker=options.checker or BUILTIN_CHECKER,
+        checker_capability=checker.capability if checker is not None else None,
     )
+
+
+def _with_roles(found: _Found, described: list[JointMember]) -> list[JointMember]:
+    """Stamp each member's ``role`` and ``end`` from what the pass resolved.
+
+    A pass that names roles explicitly wins. Otherwise ``landing`` decides: that member lands, the
+    rest are incoming. A pass that resolved neither leaves both unset -- three columns meeting at a
+    node have no landing, and inventing one would be the classifier's guess presented as geometry.
+    """
+    from dataclasses import replace
+
+    roles = dict(found.roles or {})
+    if not roles and found.landing is not None:
+        landing_name = getattr(found.landing, "name", None)
+        for member in found.members:
+            name = getattr(member, "name", None)
+            roles[name] = "landing" if member is found.landing or name == landing_name else "incoming"
+    ends = dict(found.ends or {})
+    if not roles and not ends:
+        return described
+    return [replace(d, role=roles.get(d.name), end=ends.get(d.name)) for d in described]

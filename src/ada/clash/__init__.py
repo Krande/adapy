@@ -60,6 +60,7 @@ from ada.clash.result import (
 #: exports is readable here and a typo is an AttributeError at import of the NAME, not a silent miss.
 _LAZY = {
     "ApplicableSpec": "result",
+    "ClashContact": "result",
     "ClashResult": "result",
     "ClashResultError": "result",
     "JointGroup": "result",
@@ -74,6 +75,10 @@ _LAZY = {
     "applicable_specs": "match",
     "bindings_for_spec": "match",
     "detail_pairs": "match",
+    "ClashChecker": "passes",
+    "ClashPass": "passes",
+    "register_checker": "passes",
+    "register_pass": "passes",
     "identify_joints": "identify",
     "run_clash_check": "identify",
     "clash_check_from_members": "from_scan",

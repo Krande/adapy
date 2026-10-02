@@ -11,6 +11,7 @@ from . import (
     asset_publish,
     clash_check,
     clash_check_asset,
+    clash_check_group,
     clash_detail,
     component,
     convert,
@@ -54,6 +55,10 @@ register(engine_build.ProceduralEngineBuildHandler())
 # Synthetic: the model comes from a provider that reads its own format, so there is no source
 # file to stream and no extension to dispatch on (see the module docstring).
 register(clash_check_asset.ClashCheckAssetHandler())
+# Synthetic too, with no single source at all: a group's members come from several files and
+# nodes, each read through the storage facade (see the module docstring); its detail likewise.
+register(clash_check_group.ClashCheckGroupHandler())
+register(clash_detail.ClashDetailGroupHandler())
 # Synthetic for the same reason: a published node's selection is read by its provider.
 register(export_selection.ExportSelectionAssetHandler())
 # Source-backed kinds that are not registry conversions.

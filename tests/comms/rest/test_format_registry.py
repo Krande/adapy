@@ -41,6 +41,9 @@ CHAIN_KINDS = [
     # Synthetic: the model comes from a provider that reads its own source format, so there
     # is no file to stream and no extension to dispatch on.
     ("clash_check_asset", True),
+    # Synthetic with no single source at all: a group's members come from several files and nodes.
+    ("clash_check_group", True),
+    ("clash_detail_group", True),
     # Synthetic for the same reason: a published node's selection is read by its provider.
     ("export_selection_asset", True),
     ("utility", False),

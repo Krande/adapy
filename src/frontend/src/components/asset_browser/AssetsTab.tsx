@@ -17,6 +17,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { create } from "zustand";
 
 import { revisionsOf } from "@/assets/assetIndex";
 import { buildAssetHierarchy, buildAssetView, type AssetView } from "@/assets/assetView";
@@ -40,6 +41,7 @@ import {
     type NodeRef,
     type PreparedNode,
 } from "@/assets/delivery";
+import { geometryIndex, rowHasGeometry } from "@/assets/geometryMarks";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
@@ -72,6 +74,7 @@ import { selectTreeNode } from "@/utils/tree_view/treeNavigation";
 import AssetTree from "./AssetTree";
 import { formatRevision } from "./format";
 import RequestCollection, { requestDeps } from "./RequestCollection";
+import TreeLegend from "./TreeLegend";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
 // Owner tag for every scene object this tab adds -- the same role `OWNER` in
@@ -93,7 +96,7 @@ const ROOTS_CONTAINER_ID = "__roots__";
  *  for "is this already loaded". Built fresh per call rather than memoised --
  *  every field it closes over is either a stable module export or a snapshot
  *  read at call time, so there is nothing to keep in sync. */
-function realDeliveryDeps(isLoaded: (sourceName: string) => boolean): LoadNodeDeps {
+export function realDeliveryDeps(isLoaded: (sourceName: string) => boolean): LoadNodeDeps {
     return {
         api: {
             buildAssetNode: (scope, body) => assetsApi.buildAssetNode(scope, body),
@@ -451,12 +454,91 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
             },
         });
     }
+
+    // Start the loads an on-demand request was waiting for, once its publish has given the row a
+    // claim. `take` makes the start exactly-once across every mounted instance of this hook.
+    const pending = usePendingLoads((s) => s.keys);
+    useEffect(() => {
+        if (!pending.size) return;
+        for (const control of out) {
+            if (control.loaded || control.busy) continue;
+            if (usePendingLoads.getState().take(loadKey(control.rowId, control.provider))) void control.load();
+        }
+        // `out` is rebuilt every render; what matters is the claims it carries and the pending set.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pending, out.map((c) => loadKey(c.rowId, c.provider)).join("|")]);
     return out;
 }
 
 /** The store's load-state key: a row and a provider, since each provider's claim loads alone. */
 function loadKey(id: string, provider: string): string {
     return `${id}\u0000${provider}`;
+}
+
+/** Loads waiting on an on-demand request: when the request publishes and the tab re-reads, the
+ *  row's new claim for that provider is loaded by whichever `useAssetLoads` sees it first.
+ *  Module-level rather than component state because the request outlives the menu or detail that
+ *  started it, and the claim arrives in a later render than the click. */
+const usePendingLoads = create<{
+    keys: ReadonlySet<string>;
+    add: (keys: readonly string[]) => void;
+    drop: (keys: readonly string[]) => void;
+    /** Remove `key` and say whether it was there -- so exactly one caller starts the load. */
+    take: (key: string) => boolean;
+}>((set, get) => ({
+    keys: new Set(),
+    add: (keys) => set((s) => ({ keys: new Set([...s.keys, ...keys]) })),
+    drop: (keys) => set((s) => ({ keys: new Set([...s.keys].filter((k) => !keys.includes(k))) })),
+    take: (key) => {
+        if (!get().keys.has(key)) return false;
+        set((s) => ({ keys: new Set([...s.keys].filter((k) => k !== key)) }));
+        return true;
+    },
+}));
+
+/** "Load into scene" for a provider that has published nothing at or above these rows yet, but
+ *  can be asked for them quickly (`on_demand`). One per such provider. */
+interface RequestLoadControl {
+    provider: string;
+    busy: boolean;
+    blocked: string | null;
+    /** Confirm with the user, request, and load what arrives. */
+    run: () => void;
+}
+
+/** The on-demand request-and-load controls for `ids`: every on-demand provider with no deliverable
+ *  claim on any of them. A provider that already has a claim loads it the ordinary way. */
+function requestLoadsFor(
+    view: AssetView,
+    ids: readonly string[],
+    loads: readonly AssetLoadControl[],
+    requests: readonly NodeRequestControl[],
+): RequestLoadControl[] {
+    const claimed = new Set(loads.map((l) => l.provider));
+    return requests
+        .filter((r) => r.onDemand && !claimed.has(r.provider))
+        .map((r) => ({
+            provider: r.provider,
+            busy: r.busy,
+            blocked: r.blocked,
+            run: () => {
+                const what =
+                    ids.length === 1 ? `"${rowFacts(view, ids[0])?.node.label ?? ids[0]}"` : `these ${ids.length} nodes`;
+                const ok = window.confirm(
+                    `${what} ${ids.length === 1 ? "has" : "have"} no ${r.provider} geometry in this scope yet.\n\n` +
+                        `Request ${ids.length === 1 ? "it" : "them"} from ${r.provider} now? The geometry is fetched once, ` +
+                        "published here so it is cached for everyone in the scope, and then loaded into the scene.",
+                );
+                if (!ok) return;
+                const keys = ids.map((id) => loadKey(id, r.provider));
+                usePendingLoads.getState().add(keys);
+                // A failed request is reported where every request reports (its error under the
+                // detail's request controls); the loads it would have started are dropped with it.
+                void r.run().then((done) => {
+                    if (!done) usePendingLoads.getState().drop(keys);
+                });
+            },
+        }));
 }
 
 /** Asking the provider for one node's geometry (`asset_node_request`), as the tab tracks it. Null
@@ -472,7 +554,10 @@ interface NodeRequestControl {
     note: string | null;
     /** Why the request cannot be made by this user, or null. */
     blocked: string | null;
-    run: () => void;
+    /** The provider declared the request quick enough to run as part of a load (`on_demand`). */
+    onDemand: boolean;
+    /** Resolves true when every batch published (or was already up to date) and the tab re-read. */
+    run: () => Promise<boolean>;
 }
 
 const NOTHING_TO_LOAD = "No geometry is published at or above this node yet";
@@ -538,8 +623,19 @@ async function loadSelection(scope: string, collection: string, controls: readon
     }
 }
 
-const LoadControls: React.FC<{ view: AssetView; ids: readonly string[]; scope: string }> = ({ view, ids, scope }) => {
+const LoadControls: React.FC<{
+    view: AssetView;
+    ids: readonly string[];
+    scope: string;
+    requests?: readonly NodeRequestControl[];
+}> = ({ view, ids, scope, requests = [] }) => {
     const controls = useAssetLoads(view, ids, scope);
+    const onDemand = requestLoadsFor(view, ids, controls, requests);
+    const named = controls.length + onDemand.length > 1;
+    const requestLoads = onDemand.map((r) => <RequestLoad key={`request:${r.provider}`} control={r} named={named} />);
+    if (!controls.length && onDemand.length) {
+        return <div className="flex items-center gap-2 min-w-0 flex-wrap">{requestLoads}</div>;
+    }
     if (!controls.length) {
         // Drawn, and disabled: a missing button reads as a layout glitch, a greyed one as "not yet".
         return (
@@ -548,18 +644,39 @@ const LoadControls: React.FC<{ view: AssetView; ids: readonly string[]; scope: s
             </button>
         );
     }
-    if (ids.length > 1) return <BulkLoads groups={loadGroups(controls)} scope={scope} collection={view.collection} />;
+    if (ids.length > 1) {
+        return (
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <BulkLoads groups={loadGroups(controls)} scope={scope} collection={view.collection} />
+                {requestLoads}
+            </div>
+        );
+    }
     // One provider: the plain button. Several: one per provider, each naming it -- which
     // geometry lands in the scene is the user's choice, and the two can be compared side by side.
-    const named = controls.length > 1;
     return (
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
             {controls.map((control) => (
                 <SingleLoad key={control.provider} control={control} named={named} />
             ))}
+            {requestLoads}
         </div>
     );
 };
+
+/** "Load into scene" from a provider that has not published this node here yet: asks first, then
+ *  requests, publishes and loads (`requestLoadsFor`). */
+const RequestLoad: React.FC<{ control: RequestLoadControl; named: boolean }> = ({ control, named }) => (
+    <button
+        type="button"
+        disabled={control.busy || !!control.blocked}
+        className={`${BTN_PRIMARY} shrink-0`}
+        title={control.blocked ?? `Not published here yet — requests it from ${control.provider} first, then loads it`}
+        onClick={control.run}
+    >
+        {control.busy ? `Requesting${named ? ` · ${control.provider}` : ""}…` : named ? `Load · ${control.provider}` : "Load into scene"}
+    </button>
+);
 
 /** A selection's loads, one set of controls per provider: load what is not in the scene yet, unload
  *  what is. Each model still loads on its own -- this only starts them together. */
@@ -765,6 +882,8 @@ function useJointsCheck(view: AssetView, id: string, scope: string) {
             subject: badge.at,
             revision: badge.revision,
             node: id,
+            provider: badge.provider,
+            collectionProviders: view.contentProviders,
         });
         setMode("clashes");
         setShowSceneInfoBox(true);
@@ -939,9 +1058,21 @@ const AssetRowMenu: React.FC<{
 }> = ({ view, id, ids, scope, x, y, requests, onPickRequests, scopeItem, onClose }) => {
     const many = ids.length > 1;
     const loads = useAssetLoads(view, ids, scope);
+    const onDemand = requestLoadsFor(view, ids, loads, requests);
     const joints = useJointsCheck(view, id, scope);
     const items: KebabMenuItem[] = [];
-    if (!loads.length) {
+    // A provider that can be asked on demand loads from here too: confirm, request, load.
+    for (const r of onDemand) {
+        const from = loads.length + onDemand.length > 1 ? ` · ${r.provider}` : "";
+        items.push({
+            key: `request-load:${r.provider}`,
+            label: r.busy ? `Requesting…${from}` : `Load into scene${from}`,
+            disabled: r.busy || !!r.blocked,
+            title: r.blocked ?? `Not published here yet — requests it from ${r.provider} first, then loads it`,
+            onClick: r.run,
+        });
+    }
+    if (!loads.length && !onDemand.length) {
         items.push({ key: "load", label: "Load into scene", disabled: true, onClick: () => {}, title: many ? NOTHING_TO_LOAD_ANY : NOTHING_TO_LOAD });
     }
     if (many) {
@@ -1115,7 +1246,7 @@ const Detail: React.FC<{
                 className={`shrink-0 flex items-center gap-2 px-3 py-1.5 min-h-[2.5rem] ${ids.length > 1 ? "" : "border-t border-gray-700/70"}`}
                 data-testid="asset-detail-actions"
             >
-                <LoadControls view={view} ids={ids} scope={scope} />
+                <LoadControls view={view} ids={ids} scope={scope} requests={requests} />
                 {requests.length > 0 && <RequestControls requests={requests} />}
                 {actions &&<div className="ml-auto shrink-0 flex items-center">{actions}</div>}
             </div>
@@ -1295,9 +1426,27 @@ const AssetsTab: React.FC = () => {
     // Only WHETHER a search is on reaches the drawn hierarchy. Keyed on the term itself, every
     // keystroke rebuilt the whole tree for an answer that changes at most twice per search.
     const searchActive = isSearchTerm(searchTerm);
+    // Provider filter: draw only the rows that ARE, or CONTAIN, something the chosen provider
+    // published -- a claim of any weight (rooted here, covering from above, or rooted below). With
+    // the server's geometry roll-up every row is judged, opened or not; without it, a row whose
+    // levels below are not fetched yet cannot be judged and is kept: hiding it would hide a match
+    // the tree simply has not read. Per collection, cleared when the collection changes.
+    const [providerFilter, setProviderFilter] = useState<string>("");
+    useEffect(() => setProviderFilter(""), [collection]);
+    const geometryRollup = useAssetBrowserStore((s) => s.geometryRollup);
+    const keepForProvider = useMemo(() => {
+        if (!view || !providerFilter) return undefined;
+        // GEOMETRY from the provider, not any claim: a tree published at the collection root covers
+        // every row, so counting tree-only publishes made every provider match everything.
+        const idx = geometryIndex(view, providerFilter, geometryRollup);
+        return (id: string) => rowHasGeometry(view, idx, id);
+    }, [view, providerFilter, geometryRollup]);
     const display = useMemo(
-        () => (view ? displayHierarchy(view.hierarchy, viewSettings, { searchActive, showHidden }) : null),
-        [view, viewSettings, searchActive, showHidden],
+        () =>
+            view
+                ? displayHierarchy(view.hierarchy, viewSettings, { searchActive, showHidden, keep: keepForProvider })
+                : null,
+        [view, viewSettings, searchActive, showHidden, keepForProvider],
     );
     const topKinds = useMemo(
         () => (view ? [...new Set(view.hierarchy.roots.map((id) => view.hierarchy.byId.get(id)?.data.kind ?? ""))] : []),
@@ -1458,21 +1607,30 @@ const AssetsTab: React.FC = () => {
                     error: errors.length ? (many ? `${errors.length} failed:\n${errors.join("\n")}` : states[0]!.error) : null,
                     note: notes.length ? (many ? `${notes.length} of ${targets.length} up to date` : notes[0]) : null,
                     blocked: req.requiresAdmin && !isAdmin ? `Only an administrator can run ${req.pluginId}` : null,
-                    run: () => {
-                        for (const batch of nodeBatches(req, targets)) {
-                            const keys = batch.map((t) => loadKey(t.id, providerId));
-                            const patch = (p: Parameters<typeof patchNodeRequest>[1]) => keys.forEach((k) => patchNodeRequest(k, p));
-                            patch({ busy: true, stage: null, error: null, note: null });
-                            void requestNodes(requestDeps((stage) => patch({ stage })), scope, providerId, req, collection, batch)
-                                .then(async (out) => {
-                                    // Unchanged: the provider's last publish already covers these nodes, so
-                                    // nothing new was published -- the note says which one.
-                                    patch({ busy: false, stage: null, note: out.unchanged ? `up to date (${out.revision})` : null });
-                                    // Re-read, so the new publish's claims reach the rows and Load enables.
-                                    await loader.refresh(scope);
-                                })
-                                .catch((e) => patch({ busy: false, stage: null, error: e instanceof Error ? e.message : String(e) }));
-                        }
+                    onDemand: !!req.onDemand,
+                    run: async () => {
+                        const results = await Promise.all(
+                            nodeBatches(req, targets).map((batch) => {
+                                const keys = batch.map((t) => loadKey(t.id, providerId));
+                                const patch = (p: Parameters<typeof patchNodeRequest>[1]) => keys.forEach((k) => patchNodeRequest(k, p));
+                                patch({ busy: true, stage: null, error: null, note: null });
+                                return requestNodes(requestDeps((stage) => patch({ stage })), scope, providerId, req, collection, batch)
+                                    .then((out) => {
+                                        // Unchanged: the provider's last publish already covers these nodes, so
+                                        // nothing new was published -- the note says which one.
+                                        patch({ busy: false, stage: null, note: out.unchanged ? `up to date (${out.revision})` : null });
+                                        return true;
+                                    })
+                                    .catch((e) => {
+                                        patch({ busy: false, stage: null, error: e instanceof Error ? e.message : String(e) });
+                                        return false;
+                                    });
+                            }),
+                        );
+                        // Re-read, so the new publish's claims reach the rows and Load enables -- once,
+                        // after every batch, rather than once per batch.
+                        await loader.refresh(scope);
+                        return results.every(Boolean);
                     },
                 };
             });
@@ -1538,6 +1696,23 @@ const AssetsTab: React.FC = () => {
                         ))}
                     </select>
                     <ModePicker mode={mode} revisions={revisions} onChange={setMode} />
+                    {(view?.contentProviders.length ?? 0) > 0 && (
+                        <select
+                            aria-label="Provider filter"
+                            className={`${CONTROL} px-2 min-w-0 max-w-[30%] truncate ${providerFilter ? "border-blue-400 text-blue-200" : ""}`}
+                            value={providerFilter}
+                            onChange={(e) => setProviderFilter(e.target.value)}
+                            title="Show only rows that are, or contain, something published by this provider"
+                        >
+                            <option value="">All providers</option>
+                            {view!.contentProviders.map((p) => (
+                                <option key={p} value={p}>
+                                    {p}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    <TreeLegend providers={view?.contentProviders ?? []} geometryProvider={providerFilter || null} />
                     <IconButton label="Refresh — re-read the index and rebuild the tree from nothing" onClick={() => void loader.refresh(scope)}>
                         <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" />
                     </IconButton>
@@ -1678,6 +1853,7 @@ const AssetsTab: React.FC = () => {
                         <AssetTree
                             view={view}
                             display={display.hierarchy}
+                            geometryProvider={providerFilter || null}
                             outOfScope={viewSettings.outOfScope}
                             showHidden={showHidden}
                             onRetryLevel={(req) => void loader.loadLevel(scope, req)}

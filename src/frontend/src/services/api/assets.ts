@@ -15,6 +15,7 @@ import { filesApi } from "./files";
 import type {
   WireAssetIndex,
   WireBuildAssetResponse,
+  WireGeometryRollup,
   WireDeliveryClaim,
   WireHierarchySlice,
   WireNodeAttributes,
@@ -69,6 +70,15 @@ export const assetsApi = {
     const r = await authedFetch(url);
     const what = `${opts.root ?? "index"}@${opts.revision}${opts.parent ? ` under ${opts.parent}` : ""}`;
     return jsonOrThrow<WireHierarchySlice>(r, `getAssetTree(${collection}, ${what})`);
+  },
+
+  /** The collection's GEOMETRY ROLL-UP (`ada.assets/geometry@1`): per provider and for `any`,
+   *  the subjects with loadable geometry (`here`) and every row with one below it in the WHOLE
+   *  collection tree (`below`) -- what lets the overlay mark a branch nobody has opened. Computed
+   *  and cached by the server per index listing, so it is current with the index it rode in with. */
+  async getGeometryRollup(scope: ScopeUrl, collection: string): Promise<WireGeometryRollup> {
+    const r = await authedFetch(`${base(scope)}/geometry/${encodeURIComponent(collection)}`);
+    return jsonOrThrow<WireGeometryRollup>(r, `getGeometryRollup(${collection})`);
   },
 
   /** The delivery claim for one node -- `mesh` or `build`. `node` is the
@@ -244,8 +254,9 @@ export interface WireAssetFile {
   size: number;
   last_modified: string | null;
   area: "published" | "staged" | "derived";
-  /** Derived only: a cached `build`, or a publish job's `publish-summary`. */
-  kind?: "build" | "publish-summary";
+  /** Derived only: a cached `build`, a publish job's `publish-summary`, or a collection's
+   *  cached `geometry-rollup`. */
+  kind?: "build" | "publish-summary" | "geometry-rollup";
   job?: string;
   file: string;
   collection?: string;

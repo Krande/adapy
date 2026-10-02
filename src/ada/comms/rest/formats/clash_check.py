@@ -15,9 +15,9 @@ other IFC source) needs no special case here at all: it is simply an ``.ifc`` ke
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import pathlib
+import shutil
 import traceback as tb_module
 
 import asyncpg
@@ -28,10 +28,11 @@ from ada.clash.builtin_specs import BUILTIN_SPEC_NAMES, register_builtin_specs
 from ada.config import logger
 
 from ..converters.ada_load import _load_with_ada
-from ..converters.registry import UnsupportedFormat
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
 from ..worker.audit import _audit_done
+from ..worker.settings import read_clash_timeout_s
+from .clash_isolation import run_clash_work
 from .registry import JobContext, SourceFormatHandler
 
 CLASH_CHECK_KIND = "clash_check"
@@ -42,12 +43,7 @@ def _options_from(raw: dict) -> ClashOptions:
     normalised with the same defaults the dataclass declares, so a caller that sends ``{}`` and
     one that spells out the defaults produce the identical options object (and therefore the
     identical derived key the route composed before this job was even enqueued)."""
-    return ClashOptions(
-        out_of_plane_tol=float(raw.get("out_of_plane_tol", 0.1)),
-        point_tol=float(raw.get("point_tol", 1e-5)),
-        root=raw.get("root") or None,
-        include_plate_joints=bool(raw.get("include_plate_joints", True)),
-    )
+    return ClashOptions.from_dict(raw)
 
 
 async def _capability_of_factory(queue: "JobQueue"):
@@ -107,9 +103,19 @@ async def _run_clash_check(
         return
 
     ext = src_path.suffix.lower()
-    loop = asyncio.get_running_loop()
 
-    def _read_and_hash():
+    # Tolerant of an already-registered name (see its own docstring) -- called on every clash_check
+    # run, not once at import time, because this is a fresh worker PROCESS as far as the spec
+    # registry is concerned and the registry is process-global. Done here, in the parent, before
+    # the fork: the child inherits the registry and the live-capability answers as plain data.
+    register_builtin_specs()
+    capability_of = await _capability_of_factory(queue)
+    provenance = {"adapy_version": _adapy_version()}
+
+    def _work(out_dir: pathlib.Path, _storage, progress) -> None:
+        # The source is already on local disk (the worker's shared pre-step), so the read, the
+        # hash and the check all run in the killable child (``clash_isolation``).
+        progress("loading", 0.15)
         # Members are all a check needs, and for an IFC they can be read without
         # ifcopenshell and without building any geometry (`load_members_or_model`).
         model = load_members_or_model(src_path, ext, _load_with_ada)
@@ -117,62 +123,45 @@ async def _run_clash_check(
         # disk -- the route that enqueued this job priced its derived key off a cheap key/e_tag
         # token instead (see routes/clash_check.py) precisely so it never has to fetch the whole
         # source just to answer a POST.
-        sha256 = hashlib.sha256(src_path.read_bytes()).hexdigest()
-        return model, sha256
-
-    try:
-        await queue.update(job_id, stage="loading", progress=0.15)
-        model, source_sha256 = await loop.run_in_executor(None, _read_and_hash)
-    except UnsupportedFormat as exc:
-        msg = str(exc)
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="loading", error=msg)
-        await _audit_done(db_pool, job_id, "error", msg, started_at)
-        return
-    except Exception as exc:
-        logger.exception("worker: clash_check failed to load %s for job %s", source_key, job_id)
-        trace = tb_module.format_exc()
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
-        return
-
-    # Tolerant of an already-registered name (see its own docstring) -- called on every clash_check
-    # run, not once at import time, because this is a fresh worker PROCESS as far as the spec
-    # registry is concerned and the registry is process-global.
-    register_builtin_specs()
-    capability_of = await _capability_of_factory(queue)
-
-    def _check():
-        return run_clash_check(
+        source_sha256 = hashlib.sha256(src_path.read_bytes()).hexdigest()
+        progress("clash", 0.55)
+        result = run_clash_check(
             model,
             source_key=source_key,
             options=options,
             capability_of=capability_of,
             source_sha256=source_sha256,
-            provenance={"adapy_version": _adapy_version()},
+            provenance=provenance,
         )
+        doc = result.to_json()
+        (out_dir / "result.json").write_bytes(doc.encode("utf-8") if isinstance(doc, str) else doc)
 
-    try:
-        await queue.update(job_id, stage="clash", progress=0.55)
-        result = await loop.run_in_executor(None, _check)
-    except Exception as exc:
-        logger.exception("worker: clash_check failed for job %s", job_id)
-        trace = tb_module.format_exc()
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="clash", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
-        return
+    out_dir = await run_clash_work(
+        _work,
+        job=job,
+        queue=queue,
+        db_pool=db_pool,
+        started_at=started_at,
+        stage="loading",
+        timeout_s=await read_clash_timeout_s(db_pool),
+    )
+    if out_dir is None:
+        return  # cancelled / failed -- already reported
 
     try:
         await queue.update(job_id, stage="upload", progress=0.9)
         # gzip-at-rest, same as every other derived JSON blob: the presigned GET serves raw
         # bytes, so a derived document has to arrive already compressed (reference:
         # "Viewer GLB presigned-download needs gzip-at-rest").
-        await storage.put_bytes(scope, job.derived_key, result.to_json(), content_encoding="gzip")
+        await storage.put_bytes(scope, job.derived_key, (out_dir / "result.json").read_bytes(), content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: clash_check upload failed for job %s", job_id)
         trace = tb_module.format_exc()
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
         await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
         return
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     await _audit_done(db_pool, job_id, "done", None, started_at)

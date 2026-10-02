@@ -6,6 +6,7 @@ import SourceSection from "./SourceSection";
 import StatsSection from "./StatsSection";
 import ModelStatsSection from "./ModelStatsSection";
 import GroupsSection from "./GroupsSection";
+import SavedGroupsSection from "./SavedGroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
 import FacePickingToggle from "./FacePickingToggle";
 import FaceSearchSection from "./FaceSearchSection";
@@ -207,6 +208,12 @@ const SceneInfoBox = () => {
                         </CollapsibleSection>
                         <CollapsibleSection title="Groups" defaultOpen={!isMobile}>
                             <GroupsSection />
+                        </CollapsibleSection>
+                        {/* The viewer's OWN groups, named from a selection across models and
+                            shared in the scope -- beside the groups a model carries, not mixed
+                            into that list, which is read-only and per model. */}
+                        <CollapsibleSection title="Saved groups" defaultOpen={!isMobile}>
+                            <SavedGroupsSection />
                         </CollapsibleSection>
                         <CollapsibleSection title="Source & re-convert" defaultOpen={false}>
                             <SourceSection />

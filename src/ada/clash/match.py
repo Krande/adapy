@@ -163,7 +163,9 @@ def applicable_specs(
         matches.append(
             ApplicableSpec(
                 spec=reg.spec.name,
-                capability=capability_of(reg) if capability_of else None,
+                # Without a live answer, the spec's own stated pool (``ConnectionSpec.capability``)
+                # rather than None, which would present a contributed spec as a built-in.
+                capability=capability_of(reg) if capability_of else getattr(reg.spec, "capability", None),
                 tags=tuple(sorted(reg.spec.tags or ())),
                 priority=int(reg.spec.priority or 0),
             )

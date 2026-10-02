@@ -95,7 +95,7 @@ export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 // ---------------------------------------------------------------------------
 export { center_on_bounding_box, centerViewOnSelection } from "@/utils/scene/centerViewOnSelection";
 export { zoomToAll } from "@/components/viewer/sceneHelpers/setupCameraControlsHandlers";
-export { hideSelectedRanges, unhideAllRanges } from "@/utils/scene/visibility";
+export { hideSelectedRanges, hideUnselectedRanges, unhideAllRanges } from "@/utils/scene/visibility";
 export { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 
 // ---------------------------------------------------------------------------

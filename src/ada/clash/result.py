@@ -1,4 +1,4 @@
-"""``ada.clash/result@1`` -- what one clash check found, as a document.
+"""``ada.clash/result@2`` -- what one clash check found, as a document.
 
 ONE OBJECT, READ BY EVERYTHING. The panel's groups, counts, filters and its hand-off to a
 generator are all functions of this document; the browser recomputes nothing. That is the same
@@ -25,7 +25,9 @@ from typing import Any, Mapping, Sequence
 
 __all__ = [
     "CLASH_RESULT_SCHEMA",
+    "READABLE_CLASH_RESULT_SCHEMAS",
     "ApplicableSpec",
+    "ClashContact",
     "ClashResult",
     "ClashResultError",
     "JointMember",
@@ -34,7 +36,121 @@ __all__ = [
     "parse_clash_result",
 ]
 
-CLASH_RESULT_SCHEMA = "ada.clash/result@1"
+#: @2 over @1: a typed ``contact``, member ``role``/``end``, and the ``checker`` that produced the
+#: result. Every addition is optional, so an @1 document reads as an @2 one with those absent --
+#: which is exactly what it was: core's checker, axis passes, no contact measured.
+CLASH_RESULT_SCHEMA = "ada.clash/result@2"
+READABLE_CLASH_RESULT_SCHEMAS = ("ada.clash/result@1", CLASH_RESULT_SCHEMA)
+
+Vec3 = tuple[float, float, float]
+
+
+def _vec3(value) -> Vec3 | None:
+    if value is None:
+        return None
+    x, y, z = (float(v) for v in value)
+    return (x, y, z)
+
+
+def _opt_float(value) -> float | None:
+    return None if value is None else float(value)
+
+
+@dataclass(frozen=True)
+class ClashContact:
+    """What a geometric pass measured where two members meet -- the neutral form of a contact.
+
+    Every field is optional: an axis pass measures none of them and carries no contact at all, a
+    mesh pass measures most of them. Absent means NOT MEASURED, never zero -- the same rule
+    ``counts`` follows, because a penetration depth of 0 is a touching contact and an absent one is
+    a contact nobody measured.
+
+    ``near_points`` is one point per member, in the joint's ``members`` order: the point on that
+    member's solid nearest the other. ``normal`` points from the first member towards the second --
+    and a pass that resolves roles lists the INCOMING member first, so where roles are present the
+    normal points incoming -> landing and ``near_points[0]`` is on the incoming member.
+
+    ``penetration_depth`` is how deep the solids overlap, POSITIVE when they do (0 when they only
+    touch). Collision libraries disagree on the sign -- coal reports overlap as negative -- so a
+    pass converts to this convention rather than passing its library's through.
+
+    ``extras`` is the checker's own, for what this vocabulary does not cover. Core carries it and
+    reads none of it; a builder from the same provider may.
+    """
+
+    normal: Vec3 | None = None
+    penetration_depth: float | None = None
+    near_points: tuple[Vec3, ...] = ()
+    #: Contact-patch area in m^2.
+    contact_area: float | None = None
+    #: The margin the checker inflated solids by when it tested them, in m.
+    security_margin: float | None = None
+    #: Degrees between the INCOMING member's axis and the contact normal, where the checker
+    #: resolved which member is incoming (``JointMember.role``).
+    incoming_angle_deg: float | None = None
+    extras: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        out: dict[str, Any] = {}
+        if self.normal is not None:
+            out["normal"] = list(self.normal)
+        if self.penetration_depth is not None:
+            out["penetration_depth"] = self.penetration_depth
+        if self.near_points:
+            out["near_points"] = [list(p) for p in self.near_points]
+        for key in ("contact_area", "security_margin", "incoming_angle_deg"):
+            value = getattr(self, key)
+            if value is not None:
+                out[key] = value
+        if self.extras:
+            out["extras"] = dict(self.extras)
+        return out
+
+    # Read-only mapping access, for builders written when ``contact`` was an untyped mapping:
+    # ``contact["penetration_depth"]`` and ``contact.get("patch_area")`` keep working, an extra
+    # answering by its own key exactly as it did before it was moved under ``extras``.
+    def _flat(self) -> dict:
+        flat = self.to_dict()
+        extras = flat.pop("extras", {})
+        return {**extras, **flat}
+
+    def __getitem__(self, key: str) -> Any:
+        return self._flat()[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._flat()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._flat().get(key, default)
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any] | None) -> "ClashContact | None":
+        """Read a contact. ``None`` in, ``None`` out; unknown keys go to ``extras`` rather than being
+        dropped, so an @1 contact (an untyped mapping) survives the read whole."""
+        if raw is None:
+            return None
+        if isinstance(raw, ClashContact):
+            return raw
+        known = {
+            "normal",
+            "penetration_depth",
+            "near_points",
+            "contact_area",
+            "security_margin",
+            "incoming_angle_deg",
+            "extras",
+        }
+        extras = dict(raw.get("extras") or {})
+        extras.update({k: v for k, v in raw.items() if k not in known})
+        return cls(
+            normal=_vec3(raw.get("normal")),
+            penetration_depth=_opt_float(raw.get("penetration_depth")),
+            near_points=tuple(_vec3(p) for p in raw.get("near_points") or ()),  # type: ignore[misc]
+            contact_area=_opt_float(raw.get("contact_area")),
+            security_margin=_opt_float(raw.get("security_margin")),
+            incoming_angle_deg=_opt_float(raw.get("incoming_angle_deg")),
+            extras=extras,
+        )
 
 
 class ClashResultError(ValueError):
@@ -53,10 +169,17 @@ class JointMember:
     section: str | None = None
     #: Column | Girder | Brace for a beam; None for a plate, which has no axis to classify.
     member_type: str | None = None
+    #: ``incoming`` | ``landing`` where the pass resolved which member lands on which; ``None``
+    #: where it did not (a node shared by three columns has no landing). The same two words
+    #: ``MemberRole`` binds a spec by, so a builder can trust them instead of re-deriving them.
+    role: str | None = None
+    #: Which end of this member is at the contact: ``start`` | ``end``, or ``None`` when the
+    #: contact is not at an end (a plate, or a beam met mid-span).
+    end: str | None = None
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {"name": self.name, "kind": self.kind}
-        for key in ("guid", "section", "member_type"):
+        for key in ("guid", "section", "member_type", "role", "end"):
             value = getattr(self, key)
             if value is not None:
                 out[key] = value
@@ -107,7 +230,7 @@ class JointRecord:
     #: that works on geometry rather than axes, and passed to a connection builder as its
     #: ``clash`` argument -- the data a generator sizes its output from. Core reads none of it;
     #: it is carried, not interpreted.
-    contact: Mapping[str, Any] | None = None
+    contact: ClashContact | None = None
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {
@@ -120,7 +243,7 @@ class JointRecord:
             "applicable": [a.to_dict() for a in self.applicable],
         }
         if self.contact is not None:
-            out["contact"] = dict(self.contact)
+            out["contact"] = self.contact.to_dict()
         return out
 
 
@@ -162,6 +285,10 @@ class ClashResult:
     #: A pass that was available and not selected is in here too, because "not run" and "found
     #: nothing" are different answers and the panel offers the difference as a checkbox.
     passes: tuple[Mapping[str, Any], ...] = ()
+    #: The checker that ran (``ada.clash.passes.ClashChecker``) and the pool it ran on. A detail
+    #: job re-runs identification to get real members back, so it has to run where this ran.
+    checker: str | None = None
+    checker_capability: str | None = None
     schema: str = CLASH_RESULT_SCHEMA
 
     def to_dict(self) -> dict:
@@ -174,6 +301,10 @@ class ClashResult:
             "groups": [g.to_dict() for g in self.groups],
             "provenance": dict(self.provenance),
         }
+        if self.checker is not None:
+            out["checker"] = self.checker
+        if self.checker_capability is not None:
+            out["checker_capability"] = self.checker_capability
         if self.source_sha256 is not None:
             out["source_sha256"] = self.source_sha256
         if self.warnings:
@@ -233,9 +364,10 @@ def parse_clash_result(doc: bytes | str | Mapping[str, Any]) -> ClashResult:
         raw = doc
     if not isinstance(raw, dict):
         raise ClashResultError(f"clash result must be a JSON object, got {type(raw).__name__}")
-    if raw.get("schema") != CLASH_RESULT_SCHEMA:
+    if raw.get("schema") not in READABLE_CLASH_RESULT_SCHEMAS:
         raise ClashResultError(
-            f"unknown clash result schema {raw.get('schema')!r}: this core reads " f"{CLASH_RESULT_SCHEMA!r} only."
+            f"unknown clash result schema {raw.get('schema')!r}: this core reads "
+            f"{', '.join(READABLE_CLASH_RESULT_SCHEMAS)} only."
         )
 
     def _applicable(entries) -> tuple[ApplicableSpec, ...]:
@@ -260,6 +392,8 @@ def parse_clash_result(doc: bytes | str | Mapping[str, Any]) -> ClashResult:
                     guid=m.get("guid"),
                     section=m.get("section"),
                     member_type=m.get("member_type"),
+                    role=m.get("role"),
+                    end=m.get("end"),
                 )
                 for m in j.get("members") or ()
             ),
@@ -269,7 +403,7 @@ def parse_clash_result(doc: bytes | str | Mapping[str, Any]) -> ClashResult:
             # Defaulted, not required: a document written before joints carried their producer
             # still reads, and reads as what it was -- core's beam pass was the only one there.
             origin=str(j.get("origin") or "beam-beam"),
-            contact=j.get("contact"),
+            contact=ClashContact.from_dict(j.get("contact")),
         )
         for j in raw.get("joints") or ()
     )
@@ -293,4 +427,7 @@ def parse_clash_result(doc: bytes | str | Mapping[str, Any]) -> ClashResult:
         provenance=dict(raw.get("provenance") or {}),
         warnings=tuple(str(w) for w in raw.get("warnings") or ()),
         passes=tuple(dict(p) for p in raw.get("passes") or ()),
+        # Absent on @1, where core's checker was the only one there was.
+        checker=raw.get("checker") or (raw.get("options") or {}).get("checker"),
+        checker_capability=raw.get("checker_capability"),
     )

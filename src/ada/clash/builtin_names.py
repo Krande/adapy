@@ -15,4 +15,8 @@ BOX_JOINT_SPEC_NAME = "builtin.box_joint"
 #: Every spec core itself registers. A name in here is served by the default pool.
 BUILTIN_SPEC_NAMES = (GIRDER_GUSSET_SPEC_NAME, BOX_JOINT_SPEC_NAME)
 
-__all__ = ["BOX_JOINT_SPEC_NAME", "BUILTIN_SPEC_NAMES", "GIRDER_GUSSET_SPEC_NAME"]
+#: Core's own clash checker (``ada.clash.passes.ClashChecker``). Here for the same reason: the route
+#: decides whether a check needs routing to a pool before anything that registers checkers loads.
+BUILTIN_CHECKER = "adapy"
+
+__all__ = ["BOX_JOINT_SPEC_NAME", "BUILTIN_CHECKER", "BUILTIN_SPEC_NAMES", "GIRDER_GUSSET_SPEC_NAME"]

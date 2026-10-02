@@ -16,7 +16,7 @@ import type { SourceNodesAnswer } from "@/assets/changes";
 import { parseHierarchySlice } from "@/assets/projection";
 import { levelKey, type LevelRequest } from "@/assets/spines";
 import type { TreeViewHints } from "@/assets/treeView";
-import type { AssetNode, WireAssetIndex, WireHierarchySlice } from "@/assets/types";
+import type { AssetNode, WireAssetIndex, WireGeometryRollup, WireHierarchySlice } from "@/assets/types";
 
 import type { AssetBrowserState } from "./assetBrowserStore";
 
@@ -28,6 +28,9 @@ export interface AssetsApiLike {
     collection: string,
     opts: { root?: string | null; revision: string; parent?: string | null },
   ): Promise<WireHierarchySlice>;
+  /** The server's geometry roll-up. Optional: a server without the route (or a test that does not
+   *  care) leaves the overlay to what the loaded rows can say. */
+  getGeometryRollup?(scope: string, collection: string): Promise<WireGeometryRollup>;
 }
 
 /** The change feed's fetch side (`services/api/sourceNodes`), injected the
@@ -132,8 +135,27 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     }
   }
 
+  /** The collection's geometry roll-up, read beside its index (and so again on every refresh, which
+   *  re-opens the collection). Best-effort: an absent route or a failure leaves `null`, and the
+   *  overlay says only what the loaded rows can. */
+  async function loadGeometryRollup(scope: string, collection: string): Promise<void> {
+    if (!api.getGeometryRollup) return;
+    const gen = generation;
+    let rollup: WireGeometryRollup | null = null;
+    try {
+      const wire = await api.getGeometryRollup(scope, collection);
+      rollup = wire && wire.collection === collection && wire.any ? wire : null;
+    } catch {
+      rollup = null;
+    }
+    if (alive(gen, scope, collection)) store.getState().setGeometryRollup(rollup);
+  }
+
   async function openCollection(scope: string, collection: string): Promise<void> {
     const gen = generation;
+    // In parallel with the index, never ahead of it: the overlay reads both, and a roll-up that
+    // fails must not hold the tree up.
+    const rollup = loadGeometryRollup(scope, collection);
     try {
       const index = indexFromWire(await api.getAssetIndex(scope, collection));
       if (!alive(gen, scope, collection)) return;
@@ -141,6 +163,8 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
       await syncCollectionIndexes(scope);
     } catch (e) {
       if (alive(gen, scope, collection)) store.getState().setIndexError(message(e));
+    } finally {
+      await rollup;
     }
   }
 

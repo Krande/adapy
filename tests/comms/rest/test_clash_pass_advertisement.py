@@ -75,3 +75,47 @@ def test_the_advertisement_describes_a_pass_well_enough_to_offer_it():
     assert beam["label"]
     assert beam["needs_backend"] is False
     assert entries["plate-beam"]["needs_backend"] is True
+
+
+def test_checkers_advertise_core_as_capability_free_and_keep_a_stated_pool():
+    """A checker is what a check is ROUTED by, so its attribution decides where the job goes."""
+    from ada.clash import passes as passes_mod
+    from ada.clash.passes import ClashChecker, register_checker
+    from ada.comms.rest.worker.registration import _clash_checkers_for_heartbeat
+
+    register_checker(ClashChecker(name="test-chk", label="C", capability="stated"))
+    register_checker(ClashChecker(name="test-chk2", label="C2"))
+    try:
+        # A worker serving several pools -- the combined dev-stack worker -- cannot attribute an
+        # unstated checker, but one that names its pool keeps it.
+        entries = {e["name"]: e for e in _clash_checkers_for_heartbeat(["base", "one", "two"])}
+        assert entries["adapy"]["capability"] is None
+        assert entries["test-chk"]["capability"] == "stated"
+        assert entries["test-chk2"]["capability"] is None
+        assert entries["test-chk"]["slug"] == "test-chk"
+        single = {e["name"]: e for e in _clash_checkers_for_heartbeat(["base", "one"])}
+        assert single["test-chk2"]["capability"] == "one"
+    finally:
+        passes_mod._CHECKERS.pop("test-chk", None)
+        passes_mod._CHECKERS.pop("test-chk2", None)
+
+
+def test_concept_readers_are_advertised_with_their_availability_and_this_workers_pool():
+    """What the panel's "geometry from" choice is offered from: only a provider some live worker can
+    READ into objects can be the source of a check's members."""
+    from ada.assets.concepts import clear_asset_concepts, register_asset_concepts
+    from ada.comms.rest.worker.registration import _asset_concept_readers_for_heartbeat
+
+    register_asset_concepts("member-reader", lambda: object(), label="Members")
+    register_asset_concepts("missing-dep", lambda: object(), available=lambda: False)
+    try:
+        entries = {e["id"]: e for e in _asset_concept_readers_for_heartbeat(["base", "one"])}
+        assert entries["member-reader"]["slug"] == "member-reader"  # merge_catalog_specs keys on this
+        assert entries["member-reader"]["readable"] is True
+        assert entries["member-reader"]["label"] == "Members"
+        assert entries["member-reader"]["capability"] == "one"
+        assert entries["missing-dep"]["readable"] is False
+        unnamed = {e["id"]: e for e in _asset_concept_readers_for_heartbeat(["base", "one", "two"])}
+        assert unnamed["member-reader"]["capability"] is None
+    finally:
+        clear_asset_concepts()

@@ -21,8 +21,9 @@ is where the model came from, because ``clash_check_from_asset_node`` stamps the
 
 from __future__ import annotations
 
-import asyncio
 import json
+import pathlib
+import shutil
 import traceback as tb_module
 
 from ada.clash import ClashOptions
@@ -30,6 +31,8 @@ from ada.config import logger
 
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job
 from ..worker.audit import _audit_done
+from ..worker.settings import read_clash_timeout_s
+from .clash_isolation import run_clash_work
 from .registry import JobContext, SyntheticFormatHandler
 
 CLASH_CHECK_ASSET_KIND = "clash_check_asset"
@@ -47,8 +50,6 @@ class ClashCheckAssetHandler(SyntheticFormatHandler):
     async def run(self, job: Job, ctx: JobContext) -> None:
         from ada.clash.from_asset import clash_check_from_asset_node
 
-        from ..worker.source_nodes import _SyncStorageFacade
-
         opts = job.conversion_options or {}
         collection = str(opts.get("collection") or "")
         subject = str(opts.get("subject") or "")
@@ -62,14 +63,13 @@ class ClashCheckAssetHandler(SyntheticFormatHandler):
         revision = opts.get("revision") or None
         node = opts.get("node") or None
 
-        loop = asyncio.get_running_loop()
-        storage = _SyncStorageFacade(ctx.storage, ctx.scope, loop)
-
-        def _check() -> dict:
-            # The provider reads its own source through this same facade, which is why the
-            # handler hands the facade over rather than any bytes: what it needs, and how much of
-            # it, is the provider's business and core does not model it.
-            return clash_check_from_asset_node(
+        def _work(out_dir: pathlib.Path, storage, progress) -> None:
+            # The provider reads its own source through the storage facade, which is why the
+            # handler hands a facade over rather than any bytes: what it needs, and how much of
+            # it, is the provider's business and core does not model it. In the killable child
+            # that facade is served by the parent (``clash_isolation.ChildStorage``).
+            progress("clash", 0.4)
+            document = clash_check_from_asset_node(
                 collection=collection,
                 subject=subject,
                 storage=storage,
@@ -77,27 +77,32 @@ class ClashCheckAssetHandler(SyntheticFormatHandler):
                 node=node,
                 options=options,
             )
+            (out_dir / "result.json").write_bytes(json.dumps(document).encode("utf-8"))
 
-        try:
-            await ctx.queue.update(job.job_id, stage="clash", progress=0.4)
-            document = await loop.run_in_executor(None, _check)
-        except Exception as exc:
-            # Includes the two absences worth telling apart in the message rather than in the
-            # status: no published manifest for the subject, and no reader for its provider in
-            # THIS process -- the second means the check was routed to a pool that cannot serve
-            # the format, which is a deployment fact and not a bad model.
-            logger.exception("worker: clash_check_asset failed for job %s", job.job_id)
-            trace = tb_module.format_exc()
-            await ctx.queue.update(job.job_id, status=JOB_STATUS_ERROR, stage="clash", error=str(exc))
-            await _audit_done(ctx.db_pool, job.job_id, "error", str(exc), ctx.started_at, traceback=trace)
-            return
+        # A failure names the two absences worth telling apart in the message rather than in the
+        # status: no published manifest for the subject, and no reader for its provider in THIS
+        # process -- the second means the check was routed to a pool that cannot serve the
+        # format, which is a deployment fact and not a bad model.
+        out_dir = await run_clash_work(
+            _work,
+            job=job,
+            queue=ctx.queue,
+            db_pool=ctx.db_pool,
+            started_at=ctx.started_at,
+            stage="clash",
+            storage=ctx.storage,
+            scope=ctx.scope,
+            timeout_s=await read_clash_timeout_s(ctx.db_pool),
+        )
+        if out_dir is None:
+            return  # cancelled / failed -- already reported
 
         try:
             await ctx.queue.update(job.job_id, stage="upload", progress=0.9)
             await ctx.storage.put_bytes(
                 ctx.scope,
                 job.derived_key,
-                json.dumps(document).encode("utf-8"),
+                (out_dir / "result.json").read_bytes(),
                 content_encoding="gzip",
             )
         except Exception as exc:
@@ -106,6 +111,8 @@ class ClashCheckAssetHandler(SyntheticFormatHandler):
             await ctx.queue.update(job.job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
             await _audit_done(ctx.db_pool, job.job_id, "error", str(exc), ctx.started_at, traceback=trace)
             return
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
 
         await ctx.queue.update(job.job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
         await _audit_done(ctx.db_pool, job.job_id, "done", None, ctx.started_at)

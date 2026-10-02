@@ -18,6 +18,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   checkedSourceName,
   detailBatches,
+  effectiveSpecProviders,
   groupColor,
   memberNamesForGroup,
   useClashCheckStore,
@@ -48,6 +49,9 @@ const IdentifiedJoints: React.FC = () => {
   const detailBusy = useClashCheckStore((s) => s.detailBusy);
   const detailProgress = useClashCheckStore((s) => s.detailProgress);
   const checkedSource = useClashCheckStore((s) => s.sourceName);
+  const adminSpecProviders = useClashCheckStore((s) => s.adminSpecProviders);
+  const specProvidersOverride = useClashCheckStore((s) => s.specProvidersOverride);
+  const providers = effectiveSpecProviders({ adminSpecProviders, specProvidersOverride });
   const loadedSourceName = useModelState((s) => s.loadedSourceName);
   // The model the CHECK ran against -- see `checkedSourceName`. After a detail run the loaded
   // source is the produced overlay, which carries none of these member names.
@@ -146,7 +150,7 @@ const IdentifiedJoints: React.FC = () => {
 
   if (!result || result.joints.length === 0) return null;
 
-  const withGenerator = detailBatches(result).reduce((n, b) => n + b.jointIds.length, 0);
+  const withGenerator = detailBatches(result, null, providers).reduce((n, b) => n + b.jointIds.length, 0);
 
   return (
     <div className="flex flex-col gap-2">

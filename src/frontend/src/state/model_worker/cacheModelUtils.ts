@@ -129,14 +129,17 @@ export async function cacheAndBuildTree(
     }
 }
 
-/** The largest leaf id under `root`, iteratively: a deep tree must not cost a stack frame (or a
- *  promise) per node. */
-function maxNodeId(root: TreeNodeData): number {
+/** The largest id anywhere under `root`, iteratively: a deep tree must not cost a stack frame (or a
+ *  promise) per node. EVERY node, not only leaves -- ids are handed out in `id_hierarchy` order,
+ *  so an assembly row can hold the largest one, and the next model numbered from a leaf maximum
+ *  reused it: two rows with one id, and a pick selecting the wrong one. */
+export function maxNodeId(root: TreeNodeData): number {
     let max = 0;
     const stack: TreeNodeData[] = [root];
     for (let node = stack.pop(); node; node = stack.pop()) {
-        if (node.children.length === 0) max = Math.max(max, Number(node.id));
-        else for (const child of node.children) stack.push(child);
+        const n = Number(node.id);
+        if (Number.isFinite(n)) max = Math.max(max, n);
+        for (const child of node.children) stack.push(child);
     }
     return max;
 }

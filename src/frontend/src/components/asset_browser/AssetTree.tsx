@@ -37,7 +37,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { AssetView } from "@/assets/assetView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
-import { flattenVisible, type Hierarchy } from "@/assets/hierarchy";
+import { ancestorsOf, flattenVisible, type Hierarchy } from "@/assets/hierarchy";
 import { kindTile } from "@/assets/kindTile";
 import { isOutOfScope } from "@/assets/treeView";
 import type { AssetNode } from "@/assets/types";
@@ -45,9 +45,11 @@ import { isSearchTerm, rowFacts, searchRows, shallowestHit, type RowBadge } from
 import { levelWanted, rowLevelState, type LevelRequest } from "@/assets/spines";
 import { rangeIds, treeKeyAction } from "@/assets/treeKeys";
 import { useViewerStores } from "@/state/AdaViewerContext";
-import type { AssetTreeStyle } from "@/state/assetBrowserStore";
+import type { AssetTreeMarks, AssetTreeStyle } from "@/state/assetBrowserStore";
+import { GEOMETRY_MARK_TITLE, geometryIndex, geometryMark, type GeometryIndex, type GeometryMark } from "@/assets/geometryMarks";
 
 import { formatRevision } from "./format";
+import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
 
 /** How a row is being chosen: alone (click), from the anchor to it (shift-click), in or out of
  *  the selection (ctrl/cmd-click), or focused within the selection it is already part of
@@ -105,6 +107,25 @@ const ProviderDots: React.FC<{ claims: readonly RowBadge[] }> = ({ claims }) => 
         })}
     </span>
 );
+
+/** The geometry overlay's mark: green = there is something to load (filled here, ring covered from
+ *  above, faint ring somewhere below); gray ring = tree only; a dotted ring = not known yet. */
+export const GeometryDot: React.FC<{ mark: GeometryMark | null }> = ({ mark }) => {
+    if (!mark) return null;
+    const style: React.CSSProperties =
+        mark === "here"
+            ? { background: GEOMETRY_GREEN }
+            : mark === "covered"
+              ? { boxShadow: `inset 0 0 0 1.5px ${GEOMETRY_GREEN}` }
+              : mark === "below"
+                ? { boxShadow: `inset 0 0 0 1.5px ${GEOMETRY_GREEN}`, opacity: 0.55 }
+                : mark === "tree"
+                  ? { boxShadow: "inset 0 0 0 1.5px #6b7280" }
+                  : { border: "1px dotted #9ca3af" };
+    return <span className="w-1.5 h-1.5 rounded-full shrink-0 inline-block" style={style} title={GEOMETRY_MARK_TITLE[mark]} />;
+};
+
+export const GEOMETRY_GREEN = "#34d399";
 
 const Word: React.FC<{ tone: "amber" | "gray" | "red"; title: string; children: React.ReactNode }> = ({ tone, title, children }) => (
     <span
@@ -190,11 +211,15 @@ const AssetRow: React.FC<{
     /** Drawn although it is out of scope, because "show hidden" is on. */
     outOfScope: boolean;
     treeStyle: AssetTreeStyle;
+    /** What the row's trailing marks show (`AssetTreeMarks`). */
+    marks: AssetTreeMarks;
+    /** The geometry index, when `marks` is "geometry". */
+    geoIdx: GeometryIndex | null;
     onToggle: () => void;
     onSelect: (how: SelectHow) => void;
     onRetry: () => void;
     onContextMenu: (x: number, y: number) => void;
-}> = ({ view, id, depth, hasChildren, expanded, selected, focused, spine, showProvider, outOfScope, treeStyle, onToggle, onSelect, onRetry, onContextMenu }) => {
+}> = ({ view, id, depth, hasChildren, expanded, selected, focused, spine, showProvider, outOfScope, treeStyle, marks, geoIdx, onToggle, onSelect, onRetry, onContextMenu }) => {
     const facts = rowFacts(view, id);
     if (!facts) return null;
     const { node } = facts;
@@ -315,11 +340,19 @@ const AssetRow: React.FC<{
                     the leaves held there are a floor, not a count. */}
                 {hasChildren && !expanded && facts.payload > 0 && !view.unexplored.has(id) ? facts.payload : ""}
             </span>
-            {facts.claims.length > 1 ? (
-                <ProviderDots claims={facts.claims} />
-            ) : (
-                <span className="w-2 shrink-0 grid place-items-center">{facts.badge && <StateDot badge={facts.badge} />}</span>
-            )}
+            {marks === "providers" ? (
+                // Always tinted by provider -- one claim or several -- so a colour means one
+                // provider everywhere; the Legend names them.
+                facts.claims.length ? (
+                    <ProviderDots claims={facts.claims} />
+                ) : (
+                    <span className="w-2 shrink-0 grid place-items-center">{facts.badge && <StateDot badge={facts.badge} />}</span>
+                )
+            ) : marks === "geometry" && geoIdx ? (
+                <span className="w-2 shrink-0 grid place-items-center">
+                    <GeometryDot mark={geometryMark(view, geoIdx, id)} />
+                </span>
+            ) : null}
         </div>
     );
 };
@@ -336,7 +369,11 @@ const AssetTree: React.FC<{
     onRetryLevel: (req: LevelRequest) => void;
     /** Right-click on a row, at viewport coordinates. */
     onRowContextMenu: (id: string, x: number, y: number) => void;
-}> = ({ view, display, outOfScope, showHidden, onRetryLevel, onRowContextMenu }) => {
+    /** The provider the tree is filtered to, if any. The geometry overlay then answers for THAT
+     *  provider: marking every row with another provider's geometry under a filter that says "show
+     *  me this provider" reads as this provider having it. */
+    geometryProvider?: string | null;
+}> = ({ view, display, outOfScope, showHidden, onRetryLevel, onRowContextMenu, geometryProvider }) => {
     const { useAssetBrowserStore } = useViewerStores();
     const expanded = useAssetBrowserStore((s) => s.expanded);
     const selected = useAssetBrowserStore((s) => s.selected);
@@ -357,6 +394,14 @@ const AssetTree: React.FC<{
     const levelLoading = useAssetBrowserStore((s) => s.levelLoading);
     const levelErrors = useAssetBrowserStore((s) => s.levelErrors);
     const treeStyle = useAssetBrowserStore((s) => s.treeStyle);
+    const treeMarks = useAssetBrowserStore((s) => s.treeMarks);
+    // The server's roll-up, when it was fetched: what lets an unopened branch be marked at all.
+    const geometryRollup = useAssetBrowserStore((s) => s.geometryRollup);
+    // Built once per view, only when the geometry overlay is on.
+    const geoIdx = useMemo(
+        () => (treeMarks === "geometry" ? geometryIndex(view, geometryProvider || undefined, geometryRollup) : null),
+        [view, treeMarks, geometryProvider, geometryRollup],
+    );
     const selection = useAssetBrowserStore((s) => s.selection);
     const { toggleExpanded, setExpanded, select, selectRange, toggleSelected } = useAssetBrowserStore.getState();
 
@@ -399,6 +444,26 @@ const AssetTree: React.FC<{
     });
     const showProvider = view.providers.length > 1;
 
+    // A row revealed from outside the tree (a pick in the 3D view, `revealPickInTrees`): scroll to
+    // it once it is among the drawn rows. The reveal opens its branch in the same update, so it is
+    // normally there on the next render; a row the drawing hides (a flattened kind, a search, out
+    // of scope) falls back to its nearest drawn ancestor. Not drawn at all yet: wait for the rows.
+    const reveal = useAssetBrowserStore((s) => s.reveal);
+    useEffect(() => {
+        if (!reveal) return;
+        let at = rows.findIndex((r) => r.id === reveal.id);
+        if (at < 0) {
+            for (const up of ancestorsOf(view.hierarchy, reveal.id)) {
+                at = rows.findIndex((r) => r.id === up);
+                if (at >= 0) break;
+            }
+        }
+        if (at < 0) return;
+        virtualizer.scrollToIndex(at, { align: "center" });
+        useAssetBrowserStore.getState().clearReveal(reveal.nonce);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reveal, rows]);
+
     // The keys read "open" as the user's own expansion: a branch a search holds open is closed as
     // far as Left is concerned, which steps to its parent rather than doing nothing.
     const keyRows = useMemo(
@@ -417,16 +482,18 @@ const AssetTree: React.FC<{
     };
 
     const onKeyDown = (e: React.KeyboardEvent) => {
-        if (e.altKey || e.ctrlKey || e.metaKey) return;
         const s = useAssetBrowserStore.getState();
-        if (e.key === "Escape") {
-            // Back to the focused row alone.
-            if (s.selected && s.selection.size > 1) {
-                e.preventDefault();
-                select(s.selected);
-            }
+        if (isTreeCloseKey(e)) {
+            e.preventDefault();
+            // Stopped, or Alt+T would go on to the viewer's handler and reopen the drawer.
+            e.stopPropagation();
+            // Esc first narrows a multi-selection back to the focused row; once there is nothing
+            // to narrow, it (and Alt+T always) closes the drawer.
+            if (e.key === "Escape" && s.selected && s.selection.size > 1) select(s.selected);
+            else closeTreeFromKeyboard();
             return;
         }
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
         const action = treeKeyAction(keyRows, s.selected, e.key, e.shiftKey);
         if (!action) return;
         e.preventDefault();
@@ -485,6 +552,8 @@ const AssetTree: React.FC<{
                                 showProvider={showProvider}
                                 outOfScope={markOut && isOutOfScope(view.hierarchy, outOfScope, row.id)}
                                 treeStyle={treeStyle}
+                                marks={treeMarks}
+                                geoIdx={geoIdx}
                                 onToggle={() => toggleExpanded(row.id)}
                                 onSelect={(how) => chooseRow(row.id, how)}
                                 onRetry={() => level && onRetryLevel(level)}

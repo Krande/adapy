@@ -383,3 +383,42 @@ test("a response for a collection the user has left is dropped", async () => {
   assert.equal(s.collection, "old-b");
   assert.ok(!s.forest.nodes.has("level-1"), "the late plant-a level did not land in old-b's forest");
 });
+
+test("the geometry roll-up is read with the index, re-read on refresh, and optional", async () => {
+  const { api } = makeApi();
+  let served = 0;
+  const withRollup: AssetsApiLike = {
+    ...api,
+    async getGeometryRollup(_scope, collection) {
+      served++;
+      return {
+        schema: "ada.assets/geometry@1",
+        collection,
+        index_token: `t${served}`,
+        providers: {},
+        any: { here: ["member-1"], below: ["area-1", "level-1"] },
+      };
+    },
+  };
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, withRollup);
+  await loader.loadCollections(SCOPE);
+  assert.equal(useAssetBrowserStore.getState().geometryRollup?.index_token, "t1");
+  await loader.refresh(SCOPE);
+  assert.equal(useAssetBrowserStore.getState().geometryRollup?.index_token, "t2");
+  await loader.chooseCollection(SCOPE, "old-b");
+  assert.equal(useAssetBrowserStore.getState().geometryRollup?.collection, "old-b");
+
+  // A server without the route: the tree loads as before, and the overlay stays client-only.
+  useAssetBrowserStore.getState().resetForScope(SCOPE);
+  const failing: AssetsApiLike = {
+    ...api,
+    async getGeometryRollup() {
+      throw new Error("404 Not Found");
+    },
+  };
+  await createAssetBrowserLoader(useAssetBrowserStore, failing).loadCollections(SCOPE);
+  const s = useAssetBrowserStore.getState();
+  assert.equal(s.geometryRollup, null);
+  assert.equal(s.indexError, null);
+  assert.ok(s.forest.nodes.has("area-1"));
+});

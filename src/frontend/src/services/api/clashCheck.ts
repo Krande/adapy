@@ -13,6 +13,7 @@
 // the same Wire/model split `services/api/assets.ts` + `@/assets/*` already hold.
 
 import { runtime } from "@/runtime/config";
+import type { GroupMember } from "@/utils/groups/savedGroups";
 
 import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
 import { filesApi } from "./files";
@@ -42,6 +43,24 @@ export interface WireClashJointMember {
   readonly section?: string | null;
   /** Column | Girder | Brace for a beam; absent for a plate. */
   readonly member_type?: string | null;
+  /** `incoming` | `landing`, where the checker resolved which member lands on which. @2. */
+  readonly role?: string | null;
+  /** `start` | `end`: which end of this member is at the contact. @2. */
+  readonly end?: string | null;
+}
+
+/** What a geometric pass measured at a contact (`ClashContact`, `ada/clash/result.py`). Every
+ *  field optional, and ABSENT means not measured -- never zero. `near_points` follows the joint's
+ *  `members` order; `normal` points from the first member to the second. */
+export interface WireClashContact {
+  readonly normal?: readonly [number, number, number];
+  readonly penetration_depth?: number;
+  readonly near_points?: readonly (readonly [number, number, number])[];
+  readonly contact_area?: number;
+  readonly security_margin?: number;
+  readonly incoming_angle_deg?: number;
+  /** The checker's own, outside this vocabulary. Shown, never interpreted. */
+  readonly extras?: Readonly<Record<string, unknown>>;
 }
 
 export interface WireClashJoint {
@@ -51,7 +70,7 @@ export interface WireClashJoint {
    *  joints carried their producer, where core's beam pass was the only one there. */
   readonly origin?: string;
   /** What a geometric pass measured at the contact; absent for a pass that works on axes. */
-  readonly contact?: Readonly<Record<string, unknown>> | null;
+  readonly contact?: WireClashContact | null;
   readonly members: readonly WireClashJointMember[];
   readonly type_key: string;
   readonly type_label: string;
@@ -84,10 +103,14 @@ export interface WireClashResult {
   readonly warnings?: readonly string[];
   /** Every pass the check knew about, run or not. What the producer filter is built from. */
   readonly passes?: readonly WireClashPass[];
+  /** The checker that ran, and its pool (@2). Absent on @1, where core's was the only one. */
+  readonly checker?: string | null;
+  readonly checker_capability?: string | null;
 }
 
-/** Core's own options -- tolerances and a subtree scope. No provider option ever rides in this
- *  document (`ada/clash/identify.py`'s `ClashOptions`). */
+/** Core's own options -- tolerances and a subtree scope (`ada/clash/options.py`'s `ClashOptions`).
+ *  No provider's OWN option rides in this document; `geometry_provider` names a provider id as
+ *  data, the way a manifest does. */
 export interface ClashCheckOptions {
   readonly out_of_plane_tol?: number;
   readonly point_tol?: number;
@@ -101,6 +124,55 @@ export interface ClashCheckOptions {
    *  Pass NAMES, never a provider id: core never learns which package contributed one, the same
    *  convention `applicable`'s `capability` already follows. */
   readonly passes?: readonly string[];
+  /** Which CHECKER runs the check (`ClashChecker`). Omitted means core's own. A contributed
+   *  checker is routed to the pool advertising it, and owns its passes. */
+  readonly checker?: string;
+  /** The checker's own settings, as its advertised `options` form describes them. */
+  readonly checker_options?: Readonly<Record<string, unknown>>;
+  /** Which asset provider the members' GEOMETRY is read from (`ClashOptions.geometry_provider`).
+   *  Omitted means each node is read by the provider that published it. A provider id here names
+   *  one a live pool can read into members (`listGeometryProviders`); a node another provider
+   *  published in the same collection is matched to it by NAME on the worker. */
+  readonly geometry_provider?: string;
+}
+
+/** A provider a check could take its members' geometry from (`GET …/clash-check/geometry-providers`). */
+export interface WireGeometryProvider {
+  readonly id: string;
+  readonly label?: string;
+  /** Whether a live pool can read it into members right now. */
+  readonly readable: boolean;
+  readonly capability?: string | null;
+  readonly origin?: string;
+  readonly unavailable_reason?: string;
+}
+
+/** One setting a checker takes, as it advertises it. The panel draws these generically. */
+export interface WireClashCheckerOption {
+  readonly key: string;
+  readonly label?: string;
+  readonly type: "number" | "integer" | "boolean" | "string";
+  readonly default?: number | boolean | string | null;
+  readonly min?: number;
+  readonly max?: number;
+  readonly unit?: string;
+  readonly help?: string;
+}
+
+/** A clash-check ENGINE the deployment could run (`GET …/clash-check/checkers`). */
+export interface WireClashChecker {
+  readonly slug: string;
+  readonly name: string;
+  readonly label?: string;
+  readonly description?: string;
+  /** The pool it runs on; `null` for core's, which runs anywhere. */
+  readonly capability?: string | null;
+  readonly passes?: readonly string[];
+  readonly options?: readonly WireClashCheckerOption[];
+  /** Whether core's tolerances (out-of-plane, point, plate joints) apply to it. */
+  readonly uses_core_options?: boolean;
+  readonly priority?: number;
+  readonly origin?: string;
 }
 
 /** One pass the check knew about, and what became of it. Present for passes that were available
@@ -114,6 +186,20 @@ export interface WireClashPass {
   /** The pool that can run it, or absent for one core runs anywhere. Lets the panel say WHY a
    *  pass is unavailable rather than merely that it is. */
   readonly capability?: string | null;
+}
+
+/** `POST …/clash-check/geometry-plan`: which of a check's members the chosen geometry provider has a
+ *  node for, answered BEFORE the check by the same matching the worker runs. Members are in the
+ *  group wire shape, as the CHECK resolves them (revision and provider filled in). */
+export interface WireGeometryPlan {
+  readonly geometry_provider: string;
+  /** Re-addressed to the provider's node of the same name. */
+  readonly matched: readonly { readonly from: GroupMember; readonly to: GroupMember }[];
+  /** Would be left out: why, and the name the member was looked for under (`null` when its own
+   *  provider published none) -- what a provider asked to publish it has to find it by. */
+  readonly unmatched: readonly { readonly member: GroupMember; readonly reason: string; readonly label?: string | null }[];
+  /** Read as they are: files, and nodes the provider published itself. */
+  readonly unchanged: readonly GroupMember[];
 }
 
 export interface ClashCheckResponse {
@@ -142,7 +228,7 @@ function detailBase(scope: ScopeUrl): string {
   return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/clash-detail`;
 }
 
-/** WHAT IS BEING CHECKED, and the route takes exactly one of the two.
+/** WHAT IS BEING CHECKED, and the route takes exactly one addressing form.
  *
  *  A FILE is a source key core can read -- the same key the scene was loaded from. A NODE is a
  *  published asset subject, whose provider reads a format core has none: the check reaches the
@@ -161,15 +247,27 @@ export type ClashCheckTarget =
       readonly revision?: string | null;
       /** The node actually checked, when it differs from the subject that covers it. */
       readonly node?: string | null;
-    };
+      /** Who published the covering subject, and every provider with content in the collection.
+       *  For the panel's "geometry from" choice only -- never sent: the route reads the provider
+       *  off the manifest itself. */
+      readonly provider?: string | null;
+      readonly collectionProviders?: readonly string[];
+    }
+  /** A SAVED GROUP: members from several models (files and/or nodes), checked together as one
+   *  combined model. The members go on the wire exactly as the group stores them. */
+  | { readonly kind: "group"; readonly name: string; readonly members: readonly GroupMember[] };
 
 /** How a target reads in a job label or an error -- never parsed, only shown. */
 export function describeClashTarget(target: ClashCheckTarget): string {
-  return target.kind === "file" ? target.sourceKey : `${target.collection}/${target.subject}`;
+  if (target.kind === "file") return target.sourceKey;
+  if (target.kind === "group") return `group ${target.name}`;
+  return `${target.collection}/${target.subject}`;
 }
 
-function clashTargetBody(target: ClashCheckTarget): Record<string, unknown> {
+/** The addressing part of the request body -- exactly one form. Exported for its test. */
+export function clashTargetBody(target: ClashCheckTarget): Record<string, unknown> {
   if (target.kind === "file") return {source_key: target.sourceKey};
+  if (target.kind === "group") return {group: {name: target.name, members: target.members}};
   return {
     collection: target.collection,
     subject: target.subject,
@@ -191,6 +289,21 @@ export const clashCheckApi = {
       body: JSON.stringify({ ...clashTargetBody(body.target), options: body.options ?? {} }),
     });
     return jsonOrThrow<ClashCheckResponse>(r, `runClashCheck(${describeClashTarget(body.target)})`);
+  },
+
+  /** Which members `geometryProvider` has no node for -- asked before a check through it, so the
+   *  missing ones can be requested first. Reads published documents only; enqueues nothing. A file
+   *  target has no provider and is never planned. */
+  async geometryPlan(
+    scope: ScopeUrl,
+    body: { target: ClashCheckTarget; geometryProvider: string },
+  ): Promise<WireGeometryPlan> {
+    const r = await authedFetch(`${checkBase(scope)}/geometry-plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...clashTargetBody(body.target), geometry_provider: body.geometryProvider }),
+    });
+    return jsonOrThrow<WireGeometryPlan>(r, `geometryPlan(${describeClashTarget(body.target)})`);
   },
 
   async runClashDetail(
@@ -247,15 +360,31 @@ export const clashCheckApi = {
    *  run anywhere. Which package contributed one is never reported -- the capability is the whole
    *  of what core knows, the convention `applicable` already follows. */
   async listPasses(scope: ScopeUrl): Promise<readonly WireClashPassSpec[]> {
-    const r = await authedFetch(`${runtime.apiBase}/scopes/${scope}/clash-check/passes`);
+    const r = await authedFetch(`${checkBase(scope)}/passes`);
     const body = await jsonOrThrow<{ passes?: readonly WireClashPassSpec[] }>(r, "listPasses");
     return body.passes ?? [];
+  },
+
+  /** Which ENGINES a check can run with: core's own, unioned with every checker a live pool
+   *  advertises. A contributed one is listed only while its pool is up. */
+  async listCheckers(scope: ScopeUrl): Promise<readonly WireClashChecker[]> {
+    const r = await authedFetch(`${checkBase(scope)}/checkers`);
+    const body = await jsonOrThrow<{ checkers?: readonly WireClashChecker[] }>(r, "listCheckers");
+    return body.checkers ?? [];
+  },
+
+  /** Which providers a check can take its members' GEOMETRY from: every provider a live pool can
+   *  read into objects. One that publishes meshes only is absent -- it has no reader anywhere. */
+  async listGeometryProviders(scope: ScopeUrl): Promise<readonly WireGeometryProvider[]> {
+    const r = await authedFetch(`${checkBase(scope)}/geometry-providers`);
+    const body = await jsonOrThrow<{ providers?: readonly WireGeometryProvider[] }>(r, "listGeometryProviders");
+    return body.providers ?? [];
   },
 
   /** The capabilities a connection spec could be routed to right now -- the live union behind
    *  `isSpecAvailable`. A capability absent from this set has no pool serving it. */
   async listLiveConnectionCapabilities(scope: ScopeUrl): Promise<ReadonlySet<string>> {
-    const r = await authedFetch(`${runtime.apiBase}/scopes/${scope}/clash-check/connection-specs`);
+    const r = await authedFetch(`${checkBase(scope)}/connection-specs`);
     const body = await jsonOrThrow<{ connection_specs?: readonly { capability?: string | null }[] }>(
       r,
       "listLiveConnectionCapabilities",

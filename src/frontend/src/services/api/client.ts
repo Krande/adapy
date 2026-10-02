@@ -80,13 +80,43 @@ export async function readDetail(r: Response): Promise<string> {
 
 export async function jsonOrThrow<T>(r: Response, what: string): Promise<T> {
   if (!r.ok) {
+    const detail = await readDetail(r);
+    // The server's own sentence, where it sent one: "409 Conflict" alone tells a user nothing
+    // about which of the route's refusals they hit, and every caller shows `message`.
+    const reason = detailText(detail);
     throw new ApiError(
-      `${what} failed: ${r.status} ${r.statusText}`,
+      `${what} failed: ${r.status} ${r.statusText}${reason ? ` — ${reason}` : ""}`,
       r.status,
-      await readDetail(r),
+      detail,
     );
   }
   return (await r.json()) as T;
+}
+
+/** The human part of an error body: FastAPI's `{"detail": "..."}` (or a list of validation
+ *  errors), else short plain text. Empty when there is nothing worth showing. */
+export function detailText(body: string): string {
+  const raw = body.trim();
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as { detail?: unknown };
+    const d = parsed?.detail;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) {
+      // Spelled out rather than as one `"msg" in e ? ... : ...` ternary: minified, that put two
+      // quoted literals around code, and the bundle provenance check read the code as a string.
+      const parts: string[] = [];
+      for (const e of d) {
+        const msg = e && typeof e === "object" ? (e as { msg?: unknown }).msg : undefined;
+        parts.push(msg === undefined ? String(e) : String(msg));
+      }
+      return parts.join("; ");
+    }
+    return "";
+  } catch {
+    // Not JSON: plain text is worth showing when short; an HTML error page is not.
+    return raw.length <= 300 && !raw.startsWith("<") ? raw : "";
+  }
 }
 
 export function authHeader(): Record<string, string> {

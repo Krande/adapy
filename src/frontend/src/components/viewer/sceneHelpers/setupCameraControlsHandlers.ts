@@ -7,7 +7,9 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
-import {hideSelectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
+import {toggleTreeFocus} from "@/utils/tree_view/treeKeyboard";
+import {groupSelectionFromKeyboard} from "@/utils/groups/groupShortcut";
+import {hideSelectedRanges, hideUnselectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_view/treeNavigation";
 import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
@@ -72,9 +74,30 @@ export function setupCameraControlsHandlers(
         const key = event.key.toLowerCase();
         const shift = event.shiftKey;
         const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+        const ctrl = event.ctrlKey || event.metaKey;
+
+        if (ctrl && !shift && !event.altKey && key === "c") {
+            // Ctrl/Cmd+C copies the selection's names -- the levels' own names when levels are
+            // picked in the tree -- unless the user has highlighted text, which the browser copies.
+            if ((window.getSelection()?.toString() ?? "").length > 0) return;
+            if (selectedObjects.size === 0 && !useTreeViewStore.getState().tree?.selectedNodes.length) return;
+            event.preventDefault();
+            void copySelectionNames(selectedObjects).then((n) => {
+                if (n === 0) console.warn("Ctrl+C: nothing copied");
+            });
+            return;
+        }
 
         if (shift && key === "h") {
             hideSelectedRanges();
+        } else if (shift && key === "i" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            // Modifiers excluded so a browser chord (Ctrl+Shift+I opens devtools) never also
+            // hides half the model.
+            hideUnselectedRanges();
+        } else if (shift && key === "g" && !ctrl && !event.altKey) {
+            // Shift+G: save the selection as a named group shared in the scope.
+            event.preventDefault();
+            void groupSelectionFromKeyboard();
         } else if (shift && key === "u") {
             unhideAllRanges();
         } else if (shift && key === "f") {
@@ -114,9 +137,13 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
-        } else if (shift && key === "t") {
-            const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore.getState();
-            setIsTreeCollapsed(!isTreeCollapsed);
+        } else if (shift && key === "t" && !ctrl && !event.altKey) {
+            // Shift+T: open the tree at the selected element and focus it for the arrow keys (or,
+            // open but unfocused, just focus it there). Closing is Shift+T or Esc from INSIDE the
+            // tree, handled by the trees themselves -- a focused tree consumes its keys.
+            // Not an Alt or Ctrl chord: the browser and OS own too many of those (Ctrl+T, Alt+T).
+            event.preventDefault();
+            toggleTreeFocus();
         } else if (shift && key === "c") {
             // Copy the name of each selected object to the clipboard,
             // one per line. Same routine the ObjectInfoBox button uses
