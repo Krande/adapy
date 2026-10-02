@@ -2,6 +2,15 @@
 
 
 
+## v0.102.0 (2026-10-02)
+
+### Feature
+
+* feat(clash): selectable clash checkers, saved groups as clash targets, a geometry-provider choice, and a geometry roll-up for the asset tree (#428)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`05cd8ce`](https://github.com/Krande/adapy/commit/05cd8ce35250ffab4d85c2c32ee0bc02e672fef7))
+
+
 ## v0.101.0 (2026-10-02)
 
 ### Feature
