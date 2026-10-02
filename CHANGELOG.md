@@ -2,6 +2,15 @@
 
 
 
+## v0.101.0 (2026-10-02)
+
+### Feature
+
+* feat: Code_Aster 3D_SI and Sesam solids; configurable beam-end support; security fixes; docs cleanup (#426)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`b303b9a`](https://github.com/Krande/adapy/commit/b303b9ab68b73f1a65e02b306664ae7cb5c51cb0))
+
+
 ## v0.100.0 (2026-10-01)
 
 ### Feature
