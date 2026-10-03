@@ -4,7 +4,7 @@ import os
 # -- Project information -----------------------------------------------------
 
 project = "ada"
-html_title = "ADA - Assembly for Design & Analysis"
+html_title = "ADA - Advanced Design & Analysis"
 author = "Kristoffer H. Andersen"
 copyright = f"{datetime.datetime.now().year}, {author}"
 # -- Get version information and date from Git ----------------------------

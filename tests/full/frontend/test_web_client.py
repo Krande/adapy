@@ -36,7 +36,7 @@ async def test_basic_frontend(http_server):
         response = await browser_page.goto(http_server.url, timeout=1000)
         assert response.status == 200
         title = await browser_page.title()
-        assert title == "ADA-PY Viewer"  # Replace with your expected title
+        assert title == "Ada Studio"  # Replace with your expected title
 
         await browser.close()
 

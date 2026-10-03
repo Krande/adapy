@@ -9,7 +9,7 @@ license = "GPL-3.0-or-later"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
 ]
-description = "Assembly for Design & Analysis - A python library and 'ada' command line tool for structural analysis and design"
+description = "Advanced Design & Analysis - A python library and 'ada' command line tool for structural analysis and design"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [

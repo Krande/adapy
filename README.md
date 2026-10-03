@@ -1,4 +1,4 @@
-# ADA - Assembly for Design & Analysis
+# ADA - Advanced Design & Analysis
 
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/ada-py/badges/version.svg)](https://anaconda.org/conda-forge/ada-py)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/ada-py/badges/latest_release_date.svg)](https://anaconda.org/krande/ada-py)

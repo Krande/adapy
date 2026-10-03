@@ -631,7 +631,7 @@ to attach them to the start of each source file to most effectively
 state the exclusion of warranty; and each file should have at least
 the "copyright" line and a pointer to where the full notice is found.
 
-    ada - Assembly for Design & Analysis - A toolkit for structural analysis and design
+    ada - Advanced Design & Analysis - A toolkit for structural analysis and design
     Copyright (C) 2021  Kristoffer H. Andersen
 
     This program is free software: you can redistribute it and/or modify
