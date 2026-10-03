@@ -2,6 +2,15 @@
 
 
 
+## v0.103.0 (2026-10-03)
+
+### Feature
+
+* feat: rename the frontend to Ada Studio; ADA = Advanced Design &amp; Analysis (#429)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`aa1a9e7`](https://github.com/Krande/adapy/commit/aa1a9e75a585731bb0259d484fab15d752582ada))
+
+
 ## v0.102.0 (2026-10-02)
 
 ### Feature
