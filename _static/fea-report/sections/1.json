@@ -1,0 +1,243 @@
+{
+  "section": {
+    "id": "summary",
+    "title": "Summary",
+    "level": 1,
+    "index": 1,
+    "isAppendix": false
+  },
+  "doc": {
+    "blocks": [
+      {
+        "t": "Header",
+        "c": [
+          1,
+          [
+            "summary",
+            [],
+            []
+          ],
+          [
+            {
+              "t": "Str",
+              "c": "Summary"
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/01-summary.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "A"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "summary"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "all"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "performed"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "analyses"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "will"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "be"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "performed"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "this"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "section"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "a"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "percentage"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "difference"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "for"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "each"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "FEA"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "solver"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "per"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "type"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "analysis"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "will"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "be"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "calculated"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "presented."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/01-summary.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,62 @@
+{
+ "cells": [
+  {
+   "metadata": {
+    "collapsed": true
+   },
+   "cell_type": "markdown",
+   "source": "#",
+   "id": "74a45ebd8806b650"
+  },
+  {
+   "metadata": {},
+   "cell_type": "markdown",
+   "source": "# Box",
+   "id": "d59d1152b15b3812"
+  },
+  {
+   "metadata": {
+    "jupyter": {
+     "is_executing": true
+    }
+   },
+   "cell_type": "code",
+   "source": "import ada",
+   "id": "5d56ea782852b2d9",
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "metadata": {},
+   "cell_type": "code",
+   "outputs": [],
+   "execution_count": null,
+   "source": [
+    "box = ada.PrimBox(\"box1\", (0,0,0), (1,1,1))\n",
+    "box.show()"
+   ],
+   "id": "67b703d9e4a230d6"
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 2
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython2",
+   "version": "2.7.6"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
