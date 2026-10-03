@@ -1,5 +1,5 @@
 main_comm_str = """#
-#   COMM file created by ADA (Assembly for Design and Analysis)
+#   COMM file created by ADA (Advanced Design and Analysis)
 #
 
 # Units: N, m

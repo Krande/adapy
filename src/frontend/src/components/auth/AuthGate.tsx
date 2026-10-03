@@ -86,7 +86,7 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
     return (
         <div className="flex h-full w-full items-center justify-center bg-gray-900 text-white">
             <div className="max-w-sm rounded-sm bg-gray-800 p-6 space-y-4 shadow-xl">
-                <h1 className="text-lg font-bold">ada viewer</h1>
+                <h1 className="text-lg font-bold">Ada Studio</h1>
                 <p className="text-sm text-gray-300">
                     Sign in with your organisation account to continue.
                 </p>

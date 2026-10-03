@@ -1,4 +1,4 @@
-// Registration of the built-in adapy viewer UI as a UI shell.
+// Registration of the built-in Ada Studio UI as a UI shell.
 //
 // The stock UI is not privileged: it goes through `registerUiShell` exactly like
 // an overlaid alternative UI does. That is what keeps the mechanism honest — if
@@ -15,7 +15,7 @@ export function registerCoreUiShell(): void {
     {
       id: CORE_UI_SHELL_ID,
       label: "Classic",
-      description: "The built-in adapy viewer UI.",
+      description: "The built-in Ada Studio UI.",
       order: 0,
       // Lazy: in the code-split hosted build this keeps the core UI out of the
       // entry chunk when another shell is active. The embed build inlines all

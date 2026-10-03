@@ -23,7 +23,7 @@
 
 import type React from "react";
 
-/** The built-in shell id — the stock adapy viewer UI. Always registered. */
+/** The built-in shell id — the stock Ada Studio UI. Always registered. */
 export const CORE_UI_SHELL_ID = "core";
 
 /** `?ui=<id>` — per-tab override, wins over everything. */

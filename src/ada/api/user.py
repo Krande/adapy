@@ -11,7 +11,7 @@ class User:
     prefix_titles: str = None
     suffix_titles: str = None
     org_id: str = "ADA"
-    org_name: str = "Assembly For Design and Analysis"
+    org_name: str = "Advanced Design and Analysis"
     org_description: str = None
     role: str = "Engineer"
     parent = None

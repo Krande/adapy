@@ -1,4 +1,4 @@
-Assembly for Design & Analysis (ADA)
+Advanced Design & Analysis (ADA)
 ==============================================================
 
 A python library for structural analysis and design that focus on interoperability between

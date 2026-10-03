@@ -1,6 +1,8 @@
-# Adapy-viewer
+# Ada Studio
 
-A simple threejs (three-fiber to be precise) based viewer for Adapy.
+The Ada Studio frontend for adapy (Advanced Design & Analysis). It started as a threejs (three-fiber to be precise)
+based viewer and now also covers modelling, analysis results and model management; the 3D viewport is one component
+of it.
 
 It should be able to load any Adapy design or FE model and display it in the browser. 
 The 3D models are sent as GLB files over a websocket connection along with instructions packaged in a json object.
