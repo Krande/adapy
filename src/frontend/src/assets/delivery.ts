@@ -273,6 +273,11 @@ export interface LoadNodeDeps {
   ) => Promise<void>;
   isLoaded: (sourceName: string) => boolean;
   blobUrl: (scope: string, key: string) => string;
+  /** Headers a `blobUrl` URL needs (the bearer token when auth is on). The blob route is
+   *  authed and the scene loader fetches the URL itself, so without them every relayed
+   *  load is a 401. Read at load time, not at prepare time: a bulk load prepares ahead,
+   *  and a build can outlive the token it started with. */
+  blobHeaders?: () => Record<string, string>;
   trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void;
   /** Poll backoff between job-status checks. Defaults to a real 1.5s timer;
    *  tests inject an instant no-op so a job/poll test runs with no fake timers
@@ -354,6 +359,8 @@ export async function loadNode(
 export interface PreparedNode {
   url: string;
   headers?: Record<string, string>;
+  /** `url` came from `deps.blobUrl`, so it is loaded with `deps.blobHeaders()`. */
+  viaBlobRoute?: boolean;
   sourceUpAxis?: "z" | "y";
   revision: string;
   provider: string;
@@ -376,10 +383,11 @@ export async function loadPrepared(
   if (deps.isLoaded(sourceName)) {
     return { sourceName, ref, revision: p.revision, provider: p.provider };
   }
+  const headers = p.headers ?? (p.viaBlobRoute ? deps.blobHeaders?.() : undefined);
   await deps.loadModelFromUrl(OWNER, p.url, {
     sourceName,
     ...(displayName ? { displayName } : {}),
-    ...(p.headers ? { headers: p.headers } : {}),
+    ...(headers && Object.keys(headers).length ? { headers } : {}),
     ...(p.sourceUpAxis ? { sourceUpAxis: p.sourceUpAxis } : {}),
   });
   return {
@@ -406,8 +414,9 @@ export async function prepareNode(
     // absolute URL (`routes/assets.py`'s mesh branch: `"url": mesh_key`) --
     // told apart from a live provider's (possibly presigned) absolute URL by
     // SHAPE, never by provider id, so no provider-conditional code lands here.
-    const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(claim.url) ? claim.url : deps.blobUrl(scope, claim.url);
-    return { url, headers: claim.headers, sourceUpAxis: claim.sourceUpAxis, revision: claim.revision, provider: claim.provider };
+    const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(claim.url);
+    const url = absolute ? claim.url : deps.blobUrl(scope, claim.url);
+    return { url, headers: claim.headers, viaBlobRoute: !absolute, sourceUpAxis: claim.sourceUpAxis, revision: claim.revision, provider: claim.provider };
   }
 
   // `node` is the row actually built -- the clicked row for a covered load,
@@ -451,6 +460,7 @@ export async function prepareNode(
 
   return {
     url: deps.blobUrl(scope, summary.glbKey),
+    viaBlobRoute: true,
     revision: built.revision,
     provider: built.provider,
     glbKey: summary.glbKey,

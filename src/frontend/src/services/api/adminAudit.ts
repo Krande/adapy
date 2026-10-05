@@ -92,6 +92,43 @@ export interface IssueTargetConfig {
   token_present: boolean;
 }
 
+/** One recheck of an audit issue: a ``trigger='issue-recheck'`` run re-running the cells
+ *  that reproduced the issue's fingerprint. ``verdict`` is null until the run finishes. */
+export interface AuditIssueRecheck {
+  id: number;
+  fp: string;
+  run_id: string;
+  created_at: string | null;
+  created_by: string | null;
+  verdict: "fixed" | "reproduced" | "changed" | "unverifiable" | "error" | null;
+  verdict_detail: string | null;
+  verdict_at: string | null;
+}
+
+/** An open ``audit-fp:*`` issue on the configured forge. */
+export interface AuditIssue {
+  fp: string;
+  number: number;
+  title: string;
+  url: string | null;
+  /** Distinct cells that ever failed with this fingerprint. */
+  cells: number;
+  /** A recheck run for it is still going. */
+  rechecking: boolean;
+  last_recheck: AuditIssueRecheck | null;
+}
+
+/** What a recheck request dispatched. */
+export interface AuditIssueRecheckStart {
+  runs: { run_id: string; scope: string; worker_pool: string | null; cells: number; fps: string[] }[];
+  /** Already being rechecked; left alone. */
+  busy: string[];
+  /** No cell that can be re-run. */
+  no_cells: string[];
+  /** Per fingerprint: cells that cannot be re-run, and why. */
+  skipped: Record<string, string[]>;
+}
+
 // One audit_log row scoped to a parent audit_run. Narrower projection
 // than ``AuditEntry`` — the grid view doesn't need user_sub /
 // scope_kind / traceback (all redundant for cells in one run).
@@ -486,6 +523,29 @@ export const adminAuditApi = {
         await readDetail(r),
       );
     }
+  },
+
+  /** Admin: open audit issues on the configured forge, with each one's failing-cell count
+   * and latest recheck. ``configured: false`` when no issue target is set. */
+  async adminAuditIssues(): Promise<{ configured: boolean; issues: AuditIssue[] }> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/audit/issues`);
+    return jsonOrThrow(r, "adminAuditIssues");
+  },
+
+  /** Admin: recheck one issue — re-run every cell that reproduced its fingerprint. When the
+   * run finishes the bot comments the verdict, and closes the issue if every cell passed. */
+  async adminAuditIssueRecheck(fp: string): Promise<AuditIssueRecheckStart> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/audit/issues/${encodeURIComponent(fp)}/recheck`,
+      { method: "POST" },
+    );
+    return jsonOrThrow(r, `adminAuditIssueRecheck(${fp})`);
+  },
+
+  /** Admin: recheck every open audit issue (e.g. after a new worker image is deployed). */
+  async adminAuditIssuesRecheckAll(): Promise<AuditIssueRecheckStart> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/audit/issues/recheck-all`, { method: "POST" });
+    return jsonOrThrow(r, "adminAuditIssuesRecheckAll");
   },
 
   /** Admin: re-run the issue-bot for ONE failed user conversion

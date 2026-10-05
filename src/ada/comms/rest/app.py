@@ -2616,6 +2616,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         if conv is None:
                             break
                         await _run_issue_bot_for_conversion(pool, conv)
+                    # Link failed rows to their issue fingerprint (audit_log.issue_fp) so a
+                    # recheck can find the cells behind an issue. One batch per tick: old
+                    # rows are caught up gradually, new ones within a tick of failing.
+                    await db_module.backfill_audit_log_issue_fps(pool)
                 except asyncio.CancelledError:
                     raise
                 except Exception:

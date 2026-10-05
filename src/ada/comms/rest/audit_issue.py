@@ -116,6 +116,18 @@ def fingerprint(
     return digest[:16]
 
 
+def fingerprint_job(job: dict) -> str:
+    """:func:`fingerprint` of one audit_log row (``key``, ``target_format``, ``error``,
+    ``traceback``) -- the one place a row becomes a fingerprint, shared by the sync, the
+    ``issue_fp`` backfill and the recheck verdict so the three can never disagree."""
+    return fingerprint(
+        source_ext=_ext_of(job.get("key")),
+        target_format=(job.get("target_format") or "").strip().lower(),
+        error_msg=job.get("error"),
+        traceback=job.get("traceback"),
+    )
+
+
 def sanitize_corpus_key(scope: str, key: str) -> str:
     """Map a real corpus filename to a sanitised public form.
 
@@ -210,8 +222,10 @@ def issue_body(
         "_Auto-opened by the ada-py issue bot. Comments listing "
         "further reproductions are appended whenever the same "
         "fingerprint trips again — from either an audit sweep or "
-        "a regular user conversion. The bot does not auto-close; "
-        "close the issue manually once the root cause ships._"
+        "a regular user conversion. Once a fix ships, **Recheck** "
+        "this issue from the admin audit panel: the bot re-runs "
+        "every cell that reproduced it and closes the issue when "
+        "they all pass._"
     )
     return "\n".join(parts)
 
@@ -344,6 +358,7 @@ async def sync_run_issues(
     run: dict,
     failed_jobs: list[dict],
     source_label: str = "audit run",
+    skip_fps: frozenset[str] | set[str] = frozenset(),
 ) -> dict:
     """Sync one audit-run's failures against the configured forge.
 
@@ -358,6 +373,12 @@ async def sync_run_issues(
     syncing a single user-driven failure pass "user conversion"
     instead.
 
+    ``skip_fps`` are fingerprints this sync must leave alone: a recheck run's own
+    fingerprints, which get a verdict comment instead of a reproduction comment.
+
+    A fingerprint whose issue was CLOSED (by a recheck, or by hand) and that fails again is
+    reopened with a comment saying so, rather than opened as a duplicate issue.
+
     The client conforms to :class:`ada.comms.rest.issue_client.GitForgeClient`.
     Errors on individual issues are caught + counted; one broken cell
     doesn't abort the whole sync (the dashboard rebuild step still
@@ -365,6 +386,7 @@ async def sync_run_issues(
     """
     opened = 0
     commented = 0
+    reopened = 0
     errors: list[str] = []
     # Deduplicate by fingerprint within the run so multiple cells
     # tripping the same regression produce one comment, not N.
@@ -372,15 +394,10 @@ async def sync_run_issues(
     for job in failed_jobs:
         ext = _ext_of(job.get("key"))
         target = (job.get("target_format") or "").strip().lower()
-        fp = fingerprint(
-            source_ext=ext,
-            target_format=target,
-            error_msg=job.get("error"),
-            traceback=job.get("traceback"),
-        )
+        fp = fingerprint_job(job)
         scope = scope_of(job)
         sanitized = sanitize_corpus_key(scope, job.get("key") or "")
-        if fp in seen_fps:
+        if fp in seen_fps or fp in skip_fps:
             continue
         seen_fps[fp] = {
             "fp": fp,
@@ -399,19 +416,23 @@ async def sync_run_issues(
             errors.append(f"lookup {fp}: {exc}")
             continue
         try:
-            if existing:
-                issue = existing[0]
-                await client.comment_issue(
-                    issue.number,
-                    body=comment_body(
-                        fp=fp,
-                        run_id=run["id"],
-                        sanitized_source=ctx["sanitized_source"],
-                        run_started_at=run.get("started_at"),
-                        source_label=source_label,
-                    ),
+            closed = [] if existing else await client.list_issues_by_label(label, state="closed")
+            if existing or closed:
+                issue = (existing or closed)[0]
+                body = comment_body(
+                    fp=fp,
+                    run_id=run["id"],
+                    sanitized_source=ctx["sanitized_source"],
+                    run_started_at=run.get("started_at"),
+                    source_label=source_label,
                 )
-                commented += 1
+                if existing:
+                    commented += 1
+                else:
+                    await client.set_issue_state(issue.number, state="open")
+                    body = "**Reopened: this fingerprint failed again after the issue was closed.**\n\n" + body
+                    reopened += 1
+                await client.comment_issue(issue.number, body=body)
             else:
                 await client.create_issue(
                     title=issue_title(
@@ -444,6 +465,7 @@ async def sync_run_issues(
     return {
         "opened": opened,
         "commented": commented,
+        "reopened": reopened,
         "errors": errors,
         "unique_failures": len(seen_fps),
     }
@@ -516,3 +538,204 @@ async def rebuild_dashboard_issue(
         return {"updated": True, "created": True, "tracked": len(open_fps)}
     except Exception as exc:
         return {"updated": False, "error": f"dashboard write failed: {exc}"}
+
+
+# ── Issue recheck ──────────────────────────────────────────────────
+#
+# A recheck re-runs every cell that ever reproduced a fingerprint, as an ordinary audit
+# run with ``trigger=RECHECK_TRIGGER``, and when that run finishes the issue-bot gives the
+# fingerprint a verdict and closes its issue if every cell passed.
+
+RECHECK_TRIGGER = "issue-recheck"
+
+_PASS_STATUSES = frozenset({"ok", "done"})
+_FAIL_STATUSES = frozenset({"error", "failed"})
+_WASM_POOL = "wasm"
+
+
+def recheck_cells(
+    rows: list[dict],
+    *,
+    failure_slug: str,
+) -> tuple[dict[tuple[str, str | None], list[tuple[str, str]]], list[str]]:
+    """Turn the failing rows behind one fingerprint (newest first, as
+    ``db.list_issue_fp_rows`` returns them) into the cells a recheck re-runs.
+
+    Returns ``(groups, skipped)``: ``groups`` maps ``(scope, worker_pool)`` -- one audit run
+    each, since a run has one scope and one pool -- to its ``(key, target)`` cells, and
+    ``skipped`` names, sanitised, each failing cell that cannot be re-run and why.
+
+    Where a cell is re-run decides whose files a recheck touches, so the order is strict:
+
+    * the failure-corpus copy (``failure_key``) when capture took one -- the bytes that
+      actually failed, in an admin-only scope, so rechecking a user's failure never reads
+      or writes that user's scope;
+    * a corpus row in place -- corpus files are frozen;
+    * a shared row in place;
+    * otherwise (a user or project file with no preserved copy) the cell is skipped.
+
+    A cell that failed in the browser engine is skipped too: the server cannot re-run it.
+    """
+    groups: dict[tuple[str, str | None], list[tuple[str, str]]] = {}
+    seen: set[tuple[str, str, str]] = set()
+    covered: set[tuple] = set()
+    skipped_reasons: dict[tuple, str] = {}
+    for r in rows:
+        kind = (r.get("scope_kind") or "").strip()
+        target = (r.get("target_format") or "").strip().lower()
+        original = (kind, r.get("scope_id"), r.get("key"), target)
+        pool = r.get("worker_pool")
+        resolved: tuple[str, str] | None = None
+        reason = ""
+        if isinstance(pool, str) and pool.strip().lower() == _WASM_POOL:
+            reason = "failed in the browser engine, which the server cannot re-run"
+        elif r.get("failure_key"):
+            resolved = (f"corpus:{failure_slug}", r["failure_key"])
+        elif kind == "corpus":
+            resolved = (f"corpus:{r.get('scope_id') or ''}", r.get("key") or "")
+        elif kind == "shared":
+            resolved = ("shared", r.get("key") or "")
+        else:
+            reason = f"no preserved copy of its {kind or 'unknown'}-scope source"
+        if resolved is None or not resolved[1] or not target:
+            skipped_reasons.setdefault(original, reason or "no source key or target")
+            continue
+        covered.add(original)
+        scope_str, key = resolved
+        if (scope_str, key, target) in seen:
+            continue
+        seen.add((scope_str, key, target))
+        groups.setdefault((scope_str, pool), []).append((key, target))
+    skipped = [
+        f"{sanitize_corpus_key(scope_of({'scope_kind': o[0], 'scope_id': o[1]}), o[2] or '')} → {o[3]}: {why}"
+        for o, why in skipped_reasons.items()
+        if o not in covered
+    ]
+    return groups, skipped
+
+
+def recheck_verdict(fp: str, cells: list[tuple[str, str]], run_jobs: list[dict]) -> dict:
+    """Judge one fingerprint from a finished recheck run.
+
+    ``run_jobs`` are the run's audit_log rows (oldest first; failed ones need ``error`` and
+    ``traceback`` to be fingerprinted). Each requested cell's newest row counts:
+
+    * ``fixed`` -- every cell passed;
+    * ``reproduced`` -- any cell failed with ``fp`` again;
+    * ``changed`` -- no cell reproduced ``fp``, but one failed with another fingerprint;
+    * ``unverifiable`` -- nothing failed, but a cell is missing from the run (its source is
+      gone) or did not finish, so the run proves nothing about it.
+    """
+    latest: dict[tuple[str, str], dict] = {}
+    for j in run_jobs:
+        latest[(j.get("key") or "", (j.get("target_format") or "").strip().lower())] = j
+    passed = reproduced = changed = missing = 0
+    new_fps: list[str] = []
+    for key, target in cells:
+        j = latest.get((key, target.lower()))
+        status = (j or {}).get("status")
+        if status in _PASS_STATUSES:
+            passed += 1
+        elif status in _FAIL_STATUSES:
+            got = fingerprint_job(j)
+            if got == fp:
+                reproduced += 1
+            else:
+                changed += 1
+                if got not in new_fps:
+                    new_fps.append(got)
+        else:
+            missing += 1
+    if reproduced:
+        verdict = "reproduced"
+    elif changed:
+        verdict = "changed"
+    elif missing or not cells:
+        verdict = "unverifiable"
+    else:
+        verdict = "fixed"
+    return {
+        "verdict": verdict,
+        "total": len(cells),
+        "passed": passed,
+        "reproduced": reproduced,
+        "changed": changed,
+        "missing": missing,
+        "new_fps": new_fps,
+    }
+
+
+def recheck_summary(result: dict) -> str:
+    """One line for the admin UI and the recheck row's ``verdict_detail``."""
+    parts = [f"passed {result['passed']}/{result['total']}"]
+    if result["reproduced"]:
+        parts.append(f"reproduced {result['reproduced']}")
+    if result["changed"]:
+        parts.append(f"failed differently {result['changed']}")
+    if result["missing"]:
+        parts.append(f"not re-run {result['missing']}")
+    return ", ".join(parts)
+
+
+_VERDICT_HEADLINE = {
+    "fixed": "**Recheck passed — closing.** Every cell that reproduced this fingerprint now converts.",
+    "reproduced": "**Recheck: still reproduces.** Leaving this open.",
+    "changed": (
+        "**Recheck: no longer this failure, but not passing either.** Leaving this open; "
+        "the new failure is tracked under its own fingerprint."
+    ),
+    "unverifiable": (
+        "**Recheck inconclusive.** Some cells could not be re-run (source gone or the cell "
+        "did not finish), so this stays open."
+    ),
+}
+
+
+def recheck_comment(*, fp: str, run_id: str, result: dict, worker_image_tags: list[str]) -> str:
+    """Comment posted on the issue when a recheck run finishes."""
+    lines = [_VERDICT_HEADLINE[result["verdict"]], ""]
+    lines.append(f"- Recheck run: `{run_id}`")
+    lines.append(f"- Cells: {recheck_summary(result)}")
+    if worker_image_tags:
+        lines.append("- Worker image: " + ", ".join(f"`{t}`" for t in worker_image_tags))
+    if result["new_fps"]:
+        lines.append("- Now failing as: " + ", ".join(f"`{fp_label(f)}`" for f in result["new_fps"]))
+    lines.append(f"- Fingerprint: `{fp}`")
+    return "\n".join(lines)
+
+
+async def publish_recheck_verdicts(
+    client,
+    *,
+    run: dict,
+    rechecks: list[dict],
+    run_jobs: list[dict],
+) -> list[dict]:
+    """Judge every fingerprint a finished recheck run was checking, comment the verdict on
+    its open issue, and close the issue when the verdict is ``fixed``.
+
+    Returns ``[{"id", "verdict", "detail"}]`` per recheck row for the caller to persist. A
+    forge error on one fingerprint is recorded as verdict ``error`` (with the verdict it
+    would have had in ``detail``) and does not stop the others. A fingerprint with no open
+    issue -- closed by hand meanwhile -- still gets its verdict recorded."""
+    tags = sorted({j["worker_image_tag"] for j in run_jobs if j.get("worker_image_tag")})
+    out: list[dict] = []
+    for rc in rechecks:
+        fp = rc["fp"]
+        result = recheck_verdict(fp, [tuple(c) for c in rc["cells"]], run_jobs)
+        detail = recheck_summary(result)
+        try:
+            issues = await client.list_issues_by_label(fp_label(fp), state="open")
+            if issues:
+                number = issues[0].number
+                await client.comment_issue(
+                    number,
+                    body=recheck_comment(fp=fp, run_id=run["id"], result=result, worker_image_tags=tags),
+                )
+                if result["verdict"] == "fixed":
+                    await client.set_issue_state(number, state="closed")
+        except Exception as exc:
+            out.append({"id": rc["id"], "verdict": "error", "detail": f"{result['verdict']} ({detail}); forge: {exc}"})
+            continue
+        out.append({"id": rc["id"], "verdict": result["verdict"], "detail": detail})
+    return out

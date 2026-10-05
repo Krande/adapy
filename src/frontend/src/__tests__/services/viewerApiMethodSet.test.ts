@@ -36,7 +36,8 @@ const { viewerApi } = await import("@/services/viewerApi");
 // not a function" three files away from the actual mistake.
 const EXPECTED_METHODS = [
   "adminAddMember", "adminArchiveProject", "adminAudit", "adminAuditActive",
-  "adminAuditCellHistory", "adminAuditClientMetrics", "adminAuditLogSyncIssue",
+  "adminAuditCellHistory", "adminAuditClientMetrics", "adminAuditIssueRecheck",
+  "adminAuditIssues", "adminAuditIssuesRecheckAll", "adminAuditLogSyncIssue",
   "adminAuditRunCancel", "adminAuditRunCells", "adminAuditRunCreate",
   "adminAuditRunDelete", "adminAuditRunGet", "adminAuditRunReDispatch",
   "adminAuditRunRerunCell", "adminAuditRunSyncIssues", "adminAuditRunValidate",

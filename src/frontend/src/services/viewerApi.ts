@@ -116,6 +116,9 @@ export type {
   AuditRun,
   AuditCellHistoryRow,
   IssueTargetConfig,
+  AuditIssue,
+  AuditIssueRecheck,
+  AuditIssueRecheckStart,
   AuditRunJob,
   AuditSchedule,
 } from "./api/adminAudit";

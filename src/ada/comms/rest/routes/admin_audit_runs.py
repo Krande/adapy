@@ -102,6 +102,7 @@ async def audit_dispatch(
     extend: bool = False,
     reserve_validation: bool = False,
     consume_reserve: bool = False,
+    only_cells: set[tuple[str, str]] | None = None,
 ) -> None:
     """Enumerate the scope's files × the converter matrix and
     enqueue one regular convert job per cell. Cached cells
@@ -130,6 +131,11 @@ async def audit_dispatch(
     or pre-reservation rows) the total grows by the parity cell count
     and the run reopens; an empty cell set is then a no-op.
 
+    ``only_cells`` (an issue recheck) narrows the run to those ``(key, target)``
+    cells -- conversion and parity alike -- out of what the scope enumerates NOW,
+    so a cell whose source has since gone simply is not in the run, and the
+    recheck verdict reports it as not re-run rather than as passing.
+
     Errors during enumeration / enqueue surface as a ``failed``
     audit row on the cell that tripped them — the run still
     finishes when the rest of the jobs complete.
@@ -155,7 +161,11 @@ async def audit_dispatch(
             return
         await db_module.set_audit_run_total(pool, run_id, 0)
         return
-    cells = audit_cells_for_files(files, validate_only)
+    if only_cells is not None:
+        wanted = {(k, t.lower()) for k, t in only_cells}
+        cells = [c for c in audit_cells_for_files(files, False) + audit_cells_for_files(files, True) if c in wanted]
+    else:
+        cells = audit_cells_for_files(files, validate_only)
 
     if extend:
         if consume_reserve:

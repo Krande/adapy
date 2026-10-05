@@ -16,6 +16,7 @@ Extracted from ``create_app``; see ``routes/__init__`` for the pattern.
 from __future__ import annotations
 
 import os
+import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -89,8 +90,17 @@ async def run_issue_bot_for(pool, run: dict) -> None:
     from .. import audit_issue, issue_client
 
     run_id = run["id"]
+    # An issue recheck run (``trigger='issue-recheck'``) also carries the fingerprints it
+    # was started for; each gets a verdict below instead of a reproduction comment.
+    rechecks: list[dict] = []
+    if run.get("trigger") == audit_issue.RECHECK_TRIGGER:
+        rechecks = await db_module.list_rechecks_for_run(pool, run_id)
     cfg = await load_issue_target_config(pool)
     if cfg is None:
+        for rc in rechecks:
+            await db_module.set_issue_recheck_verdict(
+                pool, rc["id"], verdict="error", detail="issue target disabled or token env var unset"
+            )
         await db_module.mark_audit_run_issue_bot(
             pool,
             run_id,
@@ -137,6 +147,7 @@ async def run_issue_bot_for(pool, run: dict) -> None:
                 client,
                 run=run,
                 failed_jobs=failed,
+                skip_fps={rc["fp"] for rc in rechecks},
             )
         except Exception as exc:
             logger.exception("issue-bot: sync_run_issues failed")
@@ -148,7 +159,22 @@ async def run_issue_bot_for(pool, run: dict) -> None:
             )
             return
     else:
-        summary = {"opened": 0, "commented": 0, "errors": [], "unique_failures": 0}
+        summary = {"opened": 0, "commented": 0, "reopened": 0, "errors": [], "unique_failures": 0}
+
+    # Verdicts before the dashboard, so an issue a recheck just closed drops off it.
+    if rechecks:
+        try:
+            jobs = await db_module.list_audit_run_jobs(pool, run_id)
+            detail_by_id = {f["id"]: f for f in failed}
+            run_jobs = [{**j, **detail_by_id.get(j["id"], {})} for j in jobs]
+            verdicts = await audit_issue.publish_recheck_verdicts(client, run=run, rechecks=rechecks, run_jobs=run_jobs)
+        except Exception as exc:
+            logger.exception("issue-bot: recheck verdicts failed for run %s", run_id)
+            verdicts = [{"id": rc["id"], "verdict": "error", "detail": str(exc)} for rc in rechecks]
+        for v in verdicts:
+            await db_module.set_issue_recheck_verdict(pool, v["id"], verdict=v["verdict"], detail=v["detail"])
+            if v["verdict"] == "error":
+                summary["errors"].append(f"recheck {v['id']}: {v['detail']}")
 
     try:
         dash = await audit_issue.rebuild_dashboard_issue(client, last_run=run)
@@ -170,12 +196,17 @@ async def run_issue_bot_for(pool, run: dict) -> None:
         )
         return
 
-    note = f"opened={summary['opened']} commented={summary['commented']} " f"unique={summary['unique_failures']}"
+    note = (
+        f"opened={summary['opened']} commented={summary['commented']} "
+        f"reopened={summary.get('reopened', 0)} unique={summary['unique_failures']} "
+        f"rechecked={len(rechecks)}"
+    )
+    acted = bool(failed or rechecks)
     await db_module.mark_audit_run_issue_bot(
         pool,
         run_id,
-        status="done" if failed else "skipped",
-        error=None if failed else "no failures to report",
+        status="done" if acted else "skipped",
+        error=None if acted else "no failures to report",
     )
     logger.info("issue-bot: synced run %s — %s", run_id, note)
 
@@ -412,6 +443,197 @@ async def admin_audit_log_sync_issue(
 
     background_tasks.add_task(_kick)
     return JSONResponse({"id": audit_id, "status": "queued"}, status_code=202)
+
+
+# ── Issue recheck ─────────────────────────────────────────────
+#
+# Re-run every cell that reproduced an open issue's fingerprint, as an audit run with
+# ``trigger='issue-recheck'``; when it finishes the issue-bot poller comments a verdict on
+# the issue and closes it if every cell passed (``run_issue_bot_for``).
+
+_FP_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _forge_client(cfg: dict):
+    from .. import issue_client
+
+    return issue_client.build_client(cfg["kind"], repo=cfg["repo"], token=cfg["token"], base_url=cfg["base_url"])
+
+
+async def _open_issue_fps(cfg: dict) -> list[tuple[str, object]]:
+    """``(fingerprint, issue)`` for every open ``audit-fp:*`` issue on the forge."""
+    issues = await _forge_client(cfg).list_issues_by_label("audit", state="open")
+    out: list[tuple[str, object]] = []
+    for issue in issues:
+        for lab in issue.labels:
+            if lab and lab.startswith("audit-fp:"):
+                out.append((lab[len("audit-fp:") :], issue))
+                break
+    return out
+
+
+async def _require_issue_target(pool) -> dict:
+    cfg = await load_issue_target_config(pool)
+    if cfg is None:
+        raise HTTPException(
+            status_code=409,
+            detail="no issue target configured (or its token env var is unset) — set one in the Issue target tab",
+        )
+    return cfg
+
+
+async def start_issue_recheck(
+    ctx: RestContext,
+    pool,
+    user: User,
+    fps: list[str],
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Dispatch recheck runs for ``fps``: one audit run per ``(scope, worker pool)`` the
+    fingerprints' cells resolve to (``audit_issue.recheck_cells``), shared by every
+    fingerprint with cells there, each fingerprint's cells recorded against its run.
+
+    A fingerprint already being rechecked is left alone (``busy``); one with no cell that
+    can be re-run is reported (``no_cells``) without a run. The returned ``skipped`` lists,
+    per fingerprint, the cells that cannot be re-run and why."""
+    from .. import audit_issue, failure_capture
+    from .admin_audit_runs import audit_dispatch
+
+    # A row that failed seconds ago may not be fingerprinted by the poller yet.
+    while await db_module.backfill_audit_log_issue_fps(pool) > 0:
+        pass
+    busy = await db_module.pending_recheck_fps(pool, fps)
+    runs: dict[tuple[str, str | None], dict] = {}
+    skipped: dict[str, list[str]] = {}
+    no_cells: list[str] = []
+    for fp in fps:
+        if fp in busy:
+            continue
+        rows = await db_module.list_issue_fp_rows(pool, fp)
+        groups, why = audit_issue.recheck_cells(rows, failure_slug=failure_capture.slug())
+        if why:
+            skipped[fp] = why
+        if not groups:
+            no_cells.append(fp)
+            continue
+        for group, cells in groups.items():
+            entry = runs.setdefault(group, {"cells": set(), "fps": {}})
+            entry["cells"].update(cells)
+            entry["fps"][fp] = cells
+
+    if runs:
+        ctx.jobs.require("conversion")
+    started: list[dict] = []
+    for (scope_str, worker_pool), entry in runs.items():
+        kind, _, ident = scope_str.partition(":")
+        scope_obj = Scope.corpus(ident) if kind == "corpus" else Scope.shared()
+        names = sorted(entry["fps"])
+        run = await db_module.create_audit_run(
+            pool,
+            scope=scope_str,
+            worker_pool=worker_pool,
+            trigger=audit_issue.RECHECK_TRIGGER,
+            note="issue recheck: "
+            + ", ".join(audit_issue.fp_label(f) for f in names[:5])
+            + (f" (+{len(names) - 5})" if len(names) > 5 else ""),
+            created_by=user.sub,
+            force_rebuild=True,
+        )
+        for fp, cells in entry["fps"].items():
+            await db_module.create_issue_recheck(pool, fp=fp, run_id=run["id"], cells=cells, created_by=user.sub)
+        background_tasks.add_task(
+            audit_dispatch,
+            ctx,
+            run["id"],
+            scope_obj,
+            worker_pool,
+            user.sub,
+            pool,
+            True,
+            only_cells=entry["cells"],
+        )
+        started.append(
+            {
+                "run_id": run["id"],
+                "scope": scope_str,
+                "worker_pool": worker_pool,
+                "cells": len(entry["cells"]),
+                "fps": names,
+            }
+        )
+    return {"runs": started, "busy": sorted(busy), "no_cells": no_cells, "skipped": skipped}
+
+
+@router.get("/audit/issues")
+async def admin_audit_issues(request: Request) -> JSONResponse:
+    """Open audit issues on the configured forge, each with its failing-cell count and its
+    latest recheck -- the list the admin rechecks from."""
+    pool = require_pool(request)
+    cfg = await load_issue_target_config(pool)
+    if cfg is None:
+        return JSONResponse({"configured": False, "issues": []})
+    try:
+        open_fps = await _open_issue_fps(cfg)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"issue lookup failed: {exc}") from exc
+    fps = [fp for fp, _ in open_fps]
+    while await db_module.backfill_audit_log_issue_fps(pool) > 0:
+        pass
+    counts = await db_module.count_issue_fp_cells(pool, fps)
+    latest = await db_module.latest_rechecks(pool, fps)
+    busy = await db_module.pending_recheck_fps(pool, fps)
+    return JSONResponse(
+        {
+            "configured": True,
+            "issues": [
+                {
+                    "fp": fp,
+                    "number": issue.number,
+                    "title": issue.title,
+                    "url": issue.html_url,
+                    "cells": counts.get(fp, 0),
+                    "rechecking": fp in busy,
+                    "last_recheck": latest.get(fp),
+                }
+                for fp, issue in open_fps
+            ],
+        }
+    )
+
+
+@router.post("/audit/issues/{fp}/recheck")
+async def admin_audit_issue_recheck(
+    fp: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Recheck one issue: re-run every cell that reproduced fingerprint ``fp``."""
+    if not _FP_RE.match(fp):
+        raise HTTPException(status_code=400, detail="fp must be the 16-hex-char fingerprint")
+    pool = require_pool(request)
+    await _require_issue_target(pool)
+    result = await start_issue_recheck(ctx, pool, user, [fp], background_tasks)
+    return JSONResponse(result, status_code=202)
+
+
+@router.post("/audit/issues/recheck-all")
+async def admin_audit_issues_recheck_all(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Recheck every open audit issue -- e.g. after a new worker image is deployed."""
+    pool = require_pool(request)
+    cfg = await _require_issue_target(pool)
+    try:
+        fps = [fp for fp, _ in await _open_issue_fps(cfg)]
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"issue lookup failed: {exc}") from exc
+    result = await start_issue_recheck(ctx, pool, user, fps, background_tasks)
+    return JSONResponse(result, status_code=202)
 
 
 # ── Cross-conversion perf dashboard (M6) ──────────────────────
