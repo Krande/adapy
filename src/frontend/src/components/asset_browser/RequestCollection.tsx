@@ -15,6 +15,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { requestCollection, type CollectionRequestDeps } from "@/assets/collectionRequest";
+import { requestValues } from "@/assets/providerOptions";
+import { readProviderOptions } from "@/services/providerOptions";
 import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
 import type { ScopeUrl } from "@/services/api/client";
@@ -54,6 +56,12 @@ export function requestDeps(onStage: (s: string) => void): CollectionRequestDeps
             makePluginContextStandalone(OWNER).trackJob(opts);
         },
         onStage,
+        // Read fresh per request, so a value someone just changed is the one sent. Only what the
+        // panel stored, which only ever stores the options the provider declares.
+        providerOptions: async (scope, providerId, collection) => {
+            const doc = await readProviderOptions(scope, collection);
+            return requestValues(doc, providerId, Object.keys(doc.providers[providerId] ?? {}));
+        },
     };
 }
 

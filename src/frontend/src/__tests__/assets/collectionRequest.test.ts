@@ -9,6 +9,7 @@ import {
   requestCollection,
   requestNode,
   requestNodes,
+  requestOptionChoices,
   unchangedOf,
   requestOptions,
   stagingIdOf,
@@ -195,4 +196,72 @@ test("a provider that finds its source unchanged gets no publish, and the outcom
   assert.equal(out.message, "same ETags");
   assert.equal(calls.filter((c) => c.kind === "publish").length, 0, "nothing is published");
   assert.equal(unchangedOf({ asset_staging_id: "x" }), null);
+});
+// --- provider options: sent with every request for the collection ---------------------------
+
+test("a collection's provider options are sent under the declared options, never over them", async () => {
+  const { api, calls } = fakeApi();
+  const asked: unknown[] = [];
+  await requestCollection(
+    {
+      api,
+      wait: noWait,
+      providerOptions: async (scope, provider, collection) => {
+        asked.push([scope, provider, collection]);
+        // `action` and `project` here must lose to the request's own.
+        return { extra_dbs: ["X"], action: "something-else", project: "OTHER" };
+      },
+    },
+    "project:1",
+    "vendor",
+    REQ,
+    "ALPHA",
+  );
+  assert.deepEqual(asked, [["project:1", "vendor", "ALPHA"]]);
+  const sent = (calls[0].args[1] as { options: Record<string, unknown> }).options;
+  assert.deepEqual(sent.extra_dbs, ["X"]);
+  assert.equal(sent.action, "fetch-tree");
+  assert.equal(sent.project, "ALPHA");
+});
+
+test("node requests carry the provider options too", async () => {
+  const { api, calls } = fakeApi();
+  const nodeReq = { ...REQ, nodeOption: "nodes" };
+  await requestNodes({ api, wait: noWait, providerOptions: async () => ({ extra_dbs: ["X"] }) }, "s", "vendor", nodeReq, "ALPHA", [
+    { id: "n1" },
+  ]);
+  const sent = (calls[0].args[1] as { options: Record<string, unknown> }).options;
+  assert.deepEqual(sent.extra_dbs, ["X"]);
+  assert.deepEqual(sent.nodes, ["n1"]);
+});
+
+test("options that cannot be read fail the request before anything is asked", async () => {
+  const { api, calls } = fakeApi();
+  await assert.rejects(
+    requestCollection(
+      {
+        api,
+        wait: noWait,
+        providerOptions: async () => {
+          throw new Error("unreadable");
+        },
+      },
+      "s",
+      "vendor",
+      REQ,
+      "ALPHA",
+    ),
+    (e: unknown) => e instanceof CollectionRequestError && /unreadable/.test(e.message) && /was not requested/.test(e.message),
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("a choices request runs the job and hands back its summary, publishing nothing", async () => {
+  const { api, calls } = fakeApi({ fetchSummary: { option_choices: { extra_dbs: [{ value: "X" }] } } });
+  const summary = await requestOptionChoices({ api, wait: noWait }, "s", { ...REQ, options: { action: "list-choices" } }, "ALPHA");
+  assert.deepEqual(summary, { option_choices: { extra_dbs: [{ value: "X" }] } });
+  assert.deepEqual(calls.map((c) => c.kind), ["pluginJob"]);
+  const sent = (calls[0].args[1] as { options: Record<string, unknown> }).options;
+  assert.equal(sent.action, "list-choices");
+  assert.equal(sent.project, "ALPHA");
 });

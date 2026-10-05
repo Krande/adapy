@@ -46,6 +46,7 @@ import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphan
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
 import { actionTargets } from "@/assets/treeKeys";
+import { bothKeep, loadsProvider, membersForIds, treeSetFilter, type TreeSet } from "@/assets/treeSets";
 import { beginBulkLoad, endBulkLoad } from "@/utils/scene/loadingView";
 import type { ResolutionMode, WireNodeAttributes } from "@/assets/types";
 import PositionedMenu, { type KebabMenuItem } from "@/components/common/PositionedMenu";
@@ -58,11 +59,12 @@ import { conversionApi } from "@/services/api/conversion";
 import { filesApi } from "@/services/api/files";
 import { sourceNodesApi } from "@/services/api/sourceNodes";
 import { readViewDoc, writeViewDoc } from "@/services/assetView";
-import { assetProviderCollections, type AssetNodeRequest } from "@/services/assetScopeCollections";
+import { assetProviderCollections, type AssetNodeRequest, type AssetRequestOptions } from "@/services/assetScopeCollections";
 import { viewerApi } from "@/services/viewerApi";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useMeStore } from "@/state/meStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
+import { useTreeSetsStore } from "@/state/treeSetsStore";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { loaderFor } from "@/state/assetBrowserLoader";
 import { useModelSessionStore } from "@/state/modelSession";
@@ -75,6 +77,8 @@ import AssetTree from "./AssetTree";
 import { formatRevision } from "./format";
 import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
+import ProviderOptionsPanel from "./ProviderOptionsPanel";
+import TreeSetsPanel from "./TreeSetsPanel";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
 // Owner tag for every scene object this tab adds -- the same role `OWNER` in
@@ -624,6 +628,65 @@ async function loadSelection(scope: string, collection: string, controls: readon
     }
 }
 
+/** "Load set": every member's geometry, from the providers the member chose, as ONE bulk load.
+ *  The same controls a selection's load uses (`useAssetLoads`), so what loads, how it is named in
+ *  the scene and how it reports a failure are the tree's own. A member with no published geometry
+ *  from a provider it chose is counted, not requested -- requesting is the row's own action. */
+const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string }> = ({ view, set, scope }) => {
+    const present = set.members.filter((m) => view.hierarchy.byId.has(m.id));
+    const controls = useAssetLoads(
+        view,
+        present.map((m) => m.id),
+        scope,
+    );
+    const byId = new Map(present.map((m) => [m.id, m]));
+    const wanted = controls.filter((c) => {
+        const m = byId.get(c.rowId);
+        return !!m && loadsProvider(m, c.provider);
+    });
+    const toLoad = wanted.filter((c) => !c.loaded && !c.busy);
+    const loaded = wanted.filter((c) => c.loaded);
+    const busy = wanted.filter((c) => c.busy).length;
+    const failed = wanted.filter((c) => !c.busy && c.error);
+    // Which (member, provider) pairs were asked for and have nothing published to load.
+    const covered = new Set(controls.map((c) => loadKey(c.rowId, c.provider)));
+    const unpublished = present.flatMap((m) =>
+        (m.providers ?? []).filter((p) => !covered.has(loadKey(m.id, p))).map((p) => `${m.label} · ${p}`),
+    );
+    const nothing = present.filter((m) => !controls.some((c) => c.rowId === m.id && loadsProvider(m, c.provider)));
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <button
+                type="button"
+                className={BTN_PRIMARY}
+                disabled={!toLoad.length}
+                title={toLoad.length ? toLoad.map((c) => `${rowFacts(view, c.rowId)?.node.label ?? c.rowId} · ${c.provider}`).join("\n") : "Nothing left to load"}
+                onClick={() => void loadSelection(scope, view.collection, toLoad)}
+            >
+                {busy ? `Loading… (${busy} left)` : toLoad.length ? `Load set (${plural(toLoad.length, "model")})` : "Set loaded"}
+            </button>
+            {loaded.length > 0 && (
+                <button type="button" className={BTN_SECONDARY} onClick={() => loaded.forEach((c) => c.unload())}>
+                    Unload ({loaded.length})
+                </button>
+            )}
+            {failed.length > 0 && (
+                <span className="text-red-300" title={failed.map((c) => `${c.rowId} · ${c.provider}: ${c.error}`).join("\n")}>
+                    {failed.length} failed
+                </span>
+            )}
+            {(nothing.length > 0 || unpublished.length > 0) && (
+                <span
+                    className="text-amber-300"
+                    title={[...nothing.map((m) => `${m.label}: no geometry published at or above it`), ...unpublished.map((u) => `${u}: not published`)].join("\n")}
+                >
+                    {nothing.length + unpublished.length} without geometry
+                </span>
+            )}
+        </div>
+    );
+};
+
 const LoadControls: React.FC<{
     view: AssetView;
     ids: readonly string[];
@@ -1055,8 +1118,10 @@ const AssetRowMenu: React.FC<{
     onPickRequests: (x: number, y: number) => void;
     /** The out-of-scope switch for these rows, or null where it does not apply. */
     scopeItem: KebabMenuItem | null;
+    /** "Add to set" / "Remove from set", one per set of the collection. */
+    setItems: readonly KebabMenuItem[];
     onClose: () => void;
-}> = ({ view, id, ids, scope, x, y, requests, onPickRequests, scopeItem, onClose }) => {
+}> = ({ view, id, ids, scope, x, y, requests, onPickRequests, scopeItem, setItems, onClose }) => {
     const many = ids.length > 1;
     const loads = useAssetLoads(view, ids, scope);
     const onDemand = requestLoadsFor(view, ids, loads, requests);
@@ -1131,6 +1196,7 @@ const AssetRowMenu: React.FC<{
         });
     }
     if (scopeItem) items.push(scopeItem);
+    items.push(...setItems);
     // One node's analysis: offered for the row clicked, not for a selection.
     if (joints && !many) {
         items.push({
@@ -1442,12 +1508,29 @@ const AssetsTab: React.FC = () => {
         const idx = geometryIndex(view, providerFilter, geometryRollup);
         return (id: string) => rowHasGeometry(view, idx, id);
     }, [view, providerFilter, geometryRollup]);
+    // Tree sets (`@/assets/treeSets`): the scope's named sets of branches for this collection, and
+    // the one this viewer narrowed the tree to. Read once per choice of collection, like the view.
+    const treeSets = useTreeSetsStore((s) => s.sets);
+    const activeSetId = useTreeSetsStore((s) => s.activeId);
+    const setsBusy = useTreeSetsStore((s) => s.busy);
+    const setsError = useTreeSetsStore((s) => s.error);
+    const me = useMeStore((s) => s.displayName || s.email);
+    const [setsOpen, setSetsOpen] = useState(false);
+    useEffect(() => {
+        if (collection && storeScope === scope) void useTreeSetsStore.getState().load(scope, collection);
+    }, [scope, collection, storeScope]);
+    const activeSet: TreeSet | null = treeSets.find((s) => s.id === activeSetId) ?? null;
+    const setFilter = useMemo(() => (view && activeSet ? treeSetFilter(activeSet, view.hierarchy) : null), [view, activeSet]);
     const display = useMemo(
         () =>
             view
-                ? displayHierarchy(view.hierarchy, viewSettings, { searchActive, showHidden, keep: keepForProvider })
+                ? displayHierarchy(view.hierarchy, viewSettings, {
+                      searchActive,
+                      showHidden,
+                      keep: bothKeep(keepForProvider, setFilter?.keep),
+                  })
                 : null,
-        [view, viewSettings, searchActive, showHidden, keepForProvider],
+        [view, viewSettings, searchActive, showHidden, keepForProvider, setFilter],
     );
     const topKinds = useMemo(
         () => (view ? [...new Set(view.hierarchy.roots.map((id) => view.hierarchy.byId.get(id)?.data.kind ?? ""))] : []),
@@ -1542,12 +1625,38 @@ const AssetsTab: React.FC = () => {
     };
     // What an action on `id` applies to: the selection's topmost rows when `id` is in it, else `id`.
     const targetsOf = (id: string): string[] => actionTargets(selection, id, (n) => view?.hierarchy.byId.get(n)?.parent);
+    // The selection's topmost rows, as set members: what the Sets panel adds or takes out.
+    const selectedMembers = useMemo(
+        () => (view && selected ? membersForIds(actionTargets(selection, selected, (n) => view.hierarchy.byId.get(n)?.parent), view.hierarchy) : []),
+        [view, selection, selected],
+    );
+    // "Add to <set>" / "Remove from <set>" for `ids`, one per set, on a row's right-click menu.
+    const setMenuItems = (ids: readonly string[]): KebabMenuItem[] => {
+        if (!view) return [];
+        return treeSets.map((s, i) => {
+            const have = new Set(s.members.map((m) => m.id));
+            const all = ids.every((id) => have.has(id));
+            const sets = useTreeSetsStore.getState();
+            return {
+                key: `set:${s.id}`,
+                label: all ? `Remove from set "${s.name}"` : `Add to set "${s.name}"`,
+                disabled: setsBusy,
+                separatorBefore: i === 0,
+                onClick: () =>
+                    void (all ? sets.removeMembers(s.id, [...ids]) : sets.addMembers(s.id, membersForIds(ids.filter((id) => !have.has(id)), view.hierarchy))),
+            };
+        });
+    };
     const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
     const [requestPickerAt, setRequestPickerAt] = useState<{ id: string; x: number; y: number } | null>(null);
 
     // Which providers can be asked for ONE node (`asset_node_request`), read off the live specs.
     const isAdmin = useMeStore((s) => s.isAdmin);
     const [nodeRequests, setNodeRequests] = useState<ReadonlyMap<string, AssetNodeRequest>>(new Map());
+    // Which providers declare per-collection request options, and the collections they serve.
+    const [optionProviders, setOptionProviders] = useState<
+        ReadonlyArray<{ providerId: string; collections: readonly string[]; declared: AssetRequestOptions }>
+    >([]);
     useEffect(() => {
         let live = true;
         viewerApi
@@ -1555,8 +1664,13 @@ const AssetsTab: React.FC = () => {
             .then((res) => {
                 if (!live) return;
                 const byProvider = new Map<string, AssetNodeRequest>();
-                for (const p of assetProviderCollections(res.plugins ?? [])) if (p.nodeRequest) byProvider.set(p.providerId, p.nodeRequest);
+                const withOptions: { providerId: string; collections: readonly string[]; declared: AssetRequestOptions }[] = [];
+                for (const p of assetProviderCollections(res.plugins ?? [])) {
+                    if (p.nodeRequest) byProvider.set(p.providerId, p.nodeRequest);
+                    if (p.requestOptions) withOptions.push({ providerId: p.providerId, collections: p.collections, declared: p.requestOptions });
+                }
                 setNodeRequests(byProvider);
+                setOptionProviders(withOptions);
             })
             .catch(() => {
                 // No specs, no request offered: the tree still browses.
@@ -1565,6 +1679,17 @@ const AssetsTab: React.FC = () => {
             live = false;
         };
     }, [scope]);
+    // The providers that declare request options for THIS collection -- matched as the provider
+    // spells its collections, which need not be the key's lower case.
+    const [optionsOpen, setOptionsOpen] = useState(false);
+    const collectionOptionProviders = useMemo(() => {
+        const out = new Map<string, AssetRequestOptions>();
+        const key = (collection ?? "").toLowerCase();
+        for (const p of optionProviders) {
+            if (p.collections.some((c) => c.toLowerCase() === key)) out.set(p.providerId, p.declared);
+        }
+        return out;
+    }, [optionProviders, collection]);
     // Per node, so a request keeps its progress while the user looks at other rows. Both jobs are
     // in the toast as well, and a request that outlives the tab is under "Staged, not published".
     const [nodeRequestState, setNodeRequestState] = useState<
@@ -1689,7 +1814,7 @@ const AssetsTab: React.FC = () => {
                         onChange={(e) => void loader.chooseCollection(scope, e.target.value)}
                     >
                         {(collections ?? []).map((c) => (
-                            // Shown as the project is written (ASP, SDE); the collection key is
+                            // Shown as the provider writes it (upper case); the collection key is
                             // lower-case by construction and stays the value.
                             <option key={c} value={c}>
                                 {c.toUpperCase()}
@@ -1717,6 +1842,38 @@ const AssetsTab: React.FC = () => {
                     <IconButton label="Refresh — re-read the index and rebuild the tree from nothing" onClick={() => void loader.refresh(scope)}>
                         <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" />
                     </IconButton>
+                    {treeSets.length > 0 && (
+                        <select
+                            aria-label="Set"
+                            className={`${CONTROL} px-2 min-w-0 max-w-[30%] truncate ${activeSet ? "border-blue-400 text-blue-200" : ""}`}
+                            value={activeSet?.id ?? ""}
+                            onChange={(e) => useTreeSetsStore.getState().setActive(e.target.value || null)}
+                            title="Draw only the branches in this set -- just for you"
+                        >
+                            <option value="">All rows</option>
+                            {treeSets.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                    {s.name}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    {collectionOptionProviders.size > 0 && (
+                        <IconButton
+                            label="Provider options — what every request for this collection asks its provider for"
+                            pressed={optionsOpen}
+                            onClick={() => setOptionsOpen((o) => !o)}
+                        >
+                            <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
+                        </IconButton>
+                    )}
+                    <IconButton
+                        label="Sets — named sets of branches the tree can be narrowed to, shared in this scope"
+                        pressed={setsOpen}
+                        onClick={() => setSetsOpen((o) => !o)}
+                    >
+                        <path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h6M11 11v3M9.5 12.5h3" />
+                    </IconButton>
                     <IconButton
                         label="View — where the tree starts, which top-level kinds, what is out of scope, row style"
                         pressed={viewOpen}
@@ -1740,6 +1897,57 @@ const AssetsTab: React.FC = () => {
                     />
                 )}
                 {!viewOpen && viewError && <Banner tone="error">{viewError}</Banner>}
+                {setsOpen && (
+                    <TreeSetsPanel
+                        sets={treeSets}
+                        activeId={activeSet?.id ?? null}
+                        missing={setFilter?.missing ?? []}
+                        selected={selectedMembers}
+                        busy={setsBusy}
+                        error={setsError}
+                        onActivate={(id) => useTreeSetsStore.getState().setActive(id)}
+                        onCreate={(name, members) =>
+                            void useTreeSetsStore
+                                .getState()
+                                .create(name, members, me)
+                                .then((s) => s && useTreeSetsStore.getState().setActive(s.id))
+                        }
+                        onRename={(id, name) => void useTreeSetsStore.getState().rename(id, name)}
+                        onDelete={(id) => void useTreeSetsStore.getState().remove(id)}
+                        onAdd={(id, members) => void useTreeSetsStore.getState().addMembers(id, members)}
+                        onRemove={(id, ids) => void useTreeSetsStore.getState().removeMembers(id, ids)}
+                        providers={view?.contentProviders ?? []}
+                        onSetProviders={(id, choices) => void useTreeSetsStore.getState().setProviders(id, choices)}
+                        loadControl={view && activeSet ? <SetLoad view={view} set={activeSet} scope={scope} /> : null}
+                        onReveal={(id) => {
+                            const open: string[] = [];
+                            let p = view?.hierarchy.byId.get(id)?.parent ?? null;
+                            while (p) {
+                                open.push(p);
+                                p = view?.hierarchy.byId.get(p)?.parent ?? null;
+                            }
+                            useAssetBrowserStore.getState().revealRow(id, open);
+                        }}
+                    />
+                )}
+                {!setsOpen && setsError && <Banner tone="error">{setsError}</Banner>}
+                {optionsOpen && collection && (
+                    <ProviderOptionsPanel scope={scope} collection={collection} providers={collectionOptionProviders} deps={requestDeps} />
+                )}
+                {!setsOpen && view && activeSet && (
+                    <div className="px-2 pt-2 flex items-center gap-2 text-xs shrink-0">
+                        <button
+                            type="button"
+                            className="rounded-full bg-blue-900/60 px-2 py-0.5 text-blue-100 hover:bg-blue-800 truncate"
+                            title="The tree is narrowed to this set. Manage it under Sets."
+                            onClick={() => setSetsOpen(true)}
+                        >
+                            Set: {activeSet.name}
+                            {(setFilter?.missing.length ?? 0) > 0 && ` · ${setFilter!.missing.length} not in tree`}
+                        </button>
+                        <SetLoad view={view} set={activeSet} scope={scope} />
+                    </div>
+                )}
                 <div className="px-2 pt-2 shrink-0">
                     <div className={`${CONTROL} flex items-center gap-2 px-2`}>
                         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="text-gray-400 shrink-0">
@@ -1894,6 +2102,7 @@ const AssetsTab: React.FC = () => {
                         requests={nodeRequestsFor(targetsOf(rowMenu.id))}
                         onPickRequests={(x, y) => setRequestPickerAt({ id: rowMenu.id, x, y })}
                         scopeItem={scopeMenuItem(targetsOf(rowMenu.id))}
+                        setItems={setMenuItems(targetsOf(rowMenu.id))}
                         onClose={() => setRowMenu(null)}
                     />
                 )}

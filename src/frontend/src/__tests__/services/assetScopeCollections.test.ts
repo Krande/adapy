@@ -93,8 +93,47 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
       refresh: null,
       request: null,
       nodeRequest: null,
+      requestOptions: null,
     },
   ]);
+});
+
+test("assetProviderCollections reads declared request options as the spec's own job_options", () => {
+  const specs = [
+    {
+      id: "exporter",
+      requires_admin: true,
+      asset_provider_id: "vendor",
+      asset_collections_field: "projects",
+      projects: ["A"],
+      job_options: [
+        { name: "dbs", type: "string_list", title: "Extra DBs" },
+        { name: "other", type: "bool" },
+      ],
+      asset_request_options: {
+        options: ["dbs", "undeclared"],
+        choices: { options: { action: "list" }, collection_option: "project", label: "List them" },
+      },
+    },
+  ];
+  const [p] = assetProviderCollections(specs);
+  assert.equal(p.requestOptions?.pluginId, "exporter");
+  // Only names the spec declares: "undeclared" has no type to render.
+  assert.deepEqual(p.requestOptions?.decls.map((d) => d.name), ["dbs"]);
+  assert.deepEqual(p.requestOptions?.choices, {
+    pluginId: "exporter",
+    options: { action: "list" },
+    collectionOption: "project",
+    label: "List them",
+    requiresAdmin: true,
+  });
+});
+
+test("request options naming nothing declared are no request options", () => {
+  const [p] = assetProviderCollections([
+    { id: "x", asset_provider_id: "vendor", asset_collections_field: "c", c: [], asset_request_options: { options: ["nope"] } },
+  ]);
+  assert.equal(p.requestOptions, null);
 });
 
 test("assetProviderCollections carries a declared rescan, naming the plugin to run it on", () => {

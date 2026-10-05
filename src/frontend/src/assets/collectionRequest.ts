@@ -48,6 +48,10 @@ export interface CollectionRequestDeps {
   onStage?: (stage: string) => void;
   wait?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** The collection's provider options (`@/assets/providerOptions`) for `providerId`, sent with
+   *  every request for it. A failure to read them fails the request: sent without them, a
+   *  request would publish something other than what the collection is set to. */
+  providerOptions?: (scope: string, providerId: string, collection: string) => Promise<Record<string, unknown>>;
 }
 
 /** What a finished request published -- or, when `unchanged`, the existing publish it found still
@@ -206,6 +210,20 @@ async function stageAndPublish(
 ): Promise<CollectionRequestOutcome> {
   const stage = (s: string) => deps.onStage?.(s);
 
+  // The collection's provider options UNDER the declared ones: they add to a request, and never
+  // change which job it is, which collection, or which nodes.
+  if (deps.providerOptions) {
+    let extra: Record<string, unknown>;
+    try {
+      extra = await deps.providerOptions(scope, providerId, collection);
+    } catch (e) {
+      throw new CollectionRequestError(
+        `could not read the provider options for ${collection}, so ${what} was not requested: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    options = { ...extra, ...options };
+  }
+
   stage(`asking ${req.pluginId} for ${what}`);
   const fetchJob = await deps.api.pluginJob(req.pluginId, { options }, { scope });
   deps.trackJob?.({ jobId: fetchJob.job_id, label: `${req.label}: ${what}`, derivedKey: fetchJob.derived_key });
@@ -237,6 +255,25 @@ async function stageAndPublish(
     revision: typeof outcome?.revision === "string" ? outcome.revision : "",
     subjects: Array.isArray(outcome?.subjects) ? outcome!.subjects.map(String) : [],
   };
+}
+
+/** Ask a provider what its request options can be set to for `collection`
+ *  (`asset_request_options.choices`), and return the job's summary -- `option_choices` on it is
+ *  read by `@/assets/providerOptions`. Nothing is staged or published. */
+export async function requestOptionChoices(
+  deps: CollectionRequestDeps,
+  scope: string,
+  req: AssetCollectionRequest,
+  collection: string,
+): Promise<unknown> {
+  const now = deps.now ?? (() => Date.now());
+  const options = requestOptions(req, collection, new Date(now()).toISOString());
+  const stage = (s: string) => deps.onStage?.(s);
+  stage(`asking ${req.pluginId} for the choices for ${collection}`);
+  const job = await deps.api.pluginJob(req.pluginId, { options }, { scope });
+  deps.trackJob?.({ jobId: job.job_id, label: `${req.label}: ${collection}`, derivedKey: job.derived_key });
+  await pollToTerminal(deps, job.job_id, PUBLISH_TIMEOUT_MS, `the choices for ${collection}`, stage);
+  return deps.api.readJson(scope, job.derived_key);
 }
 
 async function pollToTerminal(
