@@ -52,7 +52,7 @@ import PositionedMenu, { type KebabMenuItem } from "@/components/common/Position
 import type { TreeNodeData } from "@/components/tree_view/CustomNode";
 import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
-import type { ScopeUrl } from "@/services/api/client";
+import { authHeader, type ScopeUrl } from "@/services/api/client";
 import { fetchAssetAttributes } from "@/services/assets";
 import { conversionApi } from "@/services/api/conversion";
 import { filesApi } from "@/services/api/files";
@@ -109,6 +109,7 @@ export function realDeliveryDeps(isLoaded: (sourceName: string) => boolean): Loa
         loadModelFromUrl: (owner, url, opts) => makePluginContextStandalone(OWNER).scene.loadModelFromUrl(owner, url, opts),
         isLoaded,
         blobUrl: (scope, key) => filesApi.blobUrl(scope, key),
+        blobHeaders: () => authHeader(),
         trackJob: (opts) => {
             makePluginContextStandalone(OWNER).trackJob(opts);
         },

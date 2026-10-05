@@ -204,6 +204,72 @@ test("a mesh claim whose url is a storage KEY (the published provider) resolves 
   assert.equal(url, `blob://${SCOPE}/assets/plant-a/area-1/20260901T100000Z/mesh.glb`);
 });
 
+// --- auth on the blob route ------------------------------------------------------
+
+test("a storage-key mesh is loaded with the blob route's headers (the authed GET is a 401 without them)", async () => {
+  const { deps, calls } = fakeDeps();
+  deps.blobHeaders = () => ({ Authorization: "Bearer user-tok" });
+  const claim: WireDeliveryClaim = {
+    kind: "mesh",
+    url: "assets/plant-a/area-1/20260901T100000Z/mesh.glb",
+    source_up_axis: "z",
+    revision: "20260901T100000Z",
+    provider: "published",
+  };
+  await loadNode(deps, SCOPE, REF, parseDeliveryClaim(claim));
+  const opts = calls.loadModelFromUrl[0][2] as { headers?: Record<string, string> };
+  assert.deepEqual(opts.headers, { Authorization: "Bearer user-tok" });
+});
+
+test("a build's GLB is loaded with the blob route's headers, read at LOAD time rather than prepare time", async () => {
+  const { deps, calls } = fakeDeps({
+    async buildAssetNode() {
+      return buildResponse();
+    },
+    async getBuildSummary() {
+      return summaryDoc();
+    },
+  });
+  let token = "stale";
+  deps.blobHeaders = () => ({ Authorization: `Bearer ${token}` });
+  const claim = parseDeliveryClaim({ kind: "build", capability: "asset-build-fixture", revision: REF.revision, provider: "fixture-lines" } as WireDeliveryClaim);
+  const prepared = prepareNode(deps, SCOPE, REF, claim);
+  await prepared;
+  token = "refreshed";
+  await loadPrepared(deps, REF, prepared);
+  const opts = calls.loadModelFromUrl[0][2] as { headers?: Record<string, string> };
+  assert.deepEqual(opts.headers, { Authorization: "Bearer refreshed" });
+});
+
+test("an absolute provider URL never gets the blob route's headers (a bearer token must not leak to a CDN)", async () => {
+  const { deps, calls } = fakeDeps();
+  deps.blobHeaders = () => ({ Authorization: "Bearer user-tok" });
+  const claim: WireDeliveryClaim = {
+    kind: "mesh",
+    url: "https://cdn.example/models/area-1.glb?sig=abc",
+    source_up_axis: "z",
+    revision: "20260901T100000Z",
+    provider: "fixture-lines",
+  };
+  await loadNode(deps, SCOPE, REF, parseDeliveryClaim(claim));
+  const opts = calls.loadModelFromUrl[0][2] as { headers?: Record<string, string> };
+  assert.equal(opts.headers, undefined);
+});
+
+test("with auth off (no headers to send) the load carries no headers field at all", async () => {
+  const { deps, calls } = fakeDeps();
+  deps.blobHeaders = () => ({});
+  const claim: WireDeliveryClaim = {
+    kind: "mesh",
+    url: "assets/plant-a/area-1/20260901T100000Z/mesh.glb",
+    source_up_axis: "z",
+    revision: "20260901T100000Z",
+    provider: "published",
+  };
+  await loadNode(deps, SCOPE, REF, parseDeliveryClaim(claim));
+  assert.equal("headers" in (calls.loadModelFromUrl[0][2] as object), false);
+});
+
 // --- build: cached ---------------------------------------------------------------
 
 test("a cached build reads the summary WITHOUT enqueueing (no jobStatus call)", async () => {
