@@ -2,6 +2,15 @@
 
 
 
+## v0.104.0 (2026-10-05)
+
+### Feature
+
+* feat: recheck audit issues and close them when fixed; send the bearer token for asset GLB loads (#430)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`f6f4152`](https://github.com/Krande/adapy/commit/f6f415253ec6ce47e8647309bcfd2de87be0a9b3))
+
+
 ## v0.103.0 (2026-10-03)
 
 ### Feature
