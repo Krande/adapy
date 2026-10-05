@@ -34,6 +34,9 @@
 // core never translates: only the provider knows whether two spellings are one
 // collection.
 
+// React-free and import-free, so this module stays DOM-free.
+import { declaredOptions, type PluginJobOption } from "@/components/admin/pluginOptionFields";
+
 /** The public setting holding the per-scope enabled collections. */
 export const ASSET_SCOPE_COLLECTIONS_KEY = "public.assets.scope_collections";
 
@@ -164,6 +167,31 @@ export interface AssetProviderCollections {
   request: AssetCollectionRequest | null;
   /** How to ask the provider for one NODE of a published collection, when a spec declares it. */
   nodeRequest: AssetNodeRequest | null;
+  /** The provider's per-collection request options, when a spec declares them. */
+  requestOptions: AssetRequestOptions | null;
+}
+
+/** A declared `asset_request_options`: `{options: [names], choices?: request}`.
+ *
+ *  `options` names entries of the same spec's `job_options`; those declarations are what the
+ *  Sources tab renders, and the values set there are sent with every request for the collection
+ *  (`@/assets/providerOptions`). `choices` is a request whose job answers what they can be set to
+ *  for one collection, as `option_choices` on its summary. */
+export interface AssetRequestOptions {
+  pluginId: string;
+  decls: readonly PluginJobOption[];
+  choices: AssetCollectionRequest | null;
+}
+
+function parseRequestOptions(pluginId: string, spec: Record<string, unknown>): AssetRequestOptions | null {
+  const raw = spec.asset_request_options;
+  if (!pluginId || !isRecord(raw) || !Array.isArray(raw.options)) return null;
+  const names = raw.options.filter((n): n is string => typeof n === "string" && n.length > 0);
+  // Only options the spec actually declares: a name with no declaration has no type to render.
+  const byName = new Map(declaredOptions(spec).map((d) => [d.name, d]));
+  const decls = names.map((n) => byName.get(n)).filter((d): d is PluginJobOption => !!d);
+  if (!decls.length) return null;
+  return { pluginId, decls, choices: parseRequest(pluginId, raw.choices, spec.requires_admin === true) };
 }
 
 /** A declared request: `asset_collection_request` on a plugin spec.
@@ -262,6 +290,7 @@ export function assetProviderCollections(
       refresh: AssetCollectionsRefresh | null;
       request: AssetCollectionRequest | null;
       nodeRequest: AssetNodeRequest | null;
+      requestOptions: AssetRequestOptions | null;
     }
   >();
   for (const spec of specs) {
@@ -276,6 +305,7 @@ export function assetProviderCollections(
       refresh: null,
       request: null,
       nodeRequest: null,
+      requestOptions: null,
     };
     const pluginId = typeof spec.id === "string" ? spec.id : typeof spec.slug === "string" ? spec.slug : "";
     if (pluginId && !entry.pluginIds.includes(pluginId)) entry.pluginIds.push(pluginId);
@@ -290,6 +320,7 @@ export function assetProviderCollections(
     if (!entry.nodeRequest) {
       entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, spec.requires_admin === true);
     }
+    if (!entry.requestOptions) entry.requestOptions = parseRequestOptions(pluginId, spec);
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
     }
@@ -308,6 +339,7 @@ export function assetProviderCollections(
       refresh: e.refresh,
       request: e.request,
       nodeRequest: e.nodeRequest,
+      requestOptions: e.requestOptions,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
 }
