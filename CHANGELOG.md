@@ -2,6 +2,15 @@
 
 
 
+## v0.105.0 (2026-10-05)
+
+### Feature
+
+* feat(assets): tree sets and provider options in the Sources tab (#431)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`ec6b2fe`](https://github.com/Krande/adapy/commit/ec6b2feca61aa50837b82759e6e56fbe453ebf00))
+
+
 ## v0.104.0 (2026-10-05)
 
 ### Feature
