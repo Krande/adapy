@@ -13,9 +13,13 @@ from ada.comms.rest import audit_issue
 from ada.comms.rest.audit_issue import (
     comment_body,
     fingerprint,
+    fingerprint_job,
     fp_label,
     issue_body,
     issue_title,
+    publish_recheck_verdicts,
+    recheck_cells,
+    recheck_verdict,
     sanitize_corpus_key,
     scope_of,
     strip_volatile,
@@ -210,9 +214,10 @@ class _StubClient:
         self.created: list[dict] = []
         self.commented: list[tuple[int, str]] = []
         self.updated: list[tuple[int, str]] = []
+        self.states: list[tuple[int, str]] = []
 
     async def list_issues_by_label(self, label: str, *, state: str = "open"):
-        rows = self.existing.get(label, [])
+        rows = [r for r in self.existing.get(label, []) if r.get("state", "open") == state]
         return [_FakeIssue(**r) for r in rows]
 
     async def find_issue_by_title(self, title: str):
@@ -230,6 +235,9 @@ class _StubClient:
 
     async def update_issue_body(self, number: int, *, body: str):
         self.updated.append((number, body))
+
+    async def set_issue_state(self, number: int, *, state: str):
+        self.states.append((number, state))
 
 
 class _FakeIssue:
@@ -362,7 +370,7 @@ def test_sync_run_issues_handles_no_failures():
             failed_jobs=[],
         )
     )
-    assert summary == {"opened": 0, "commented": 0, "errors": [], "unique_failures": 0}
+    assert summary == {"opened": 0, "commented": 0, "reopened": 0, "errors": [], "unique_failures": 0}
 
 
 # ── M5b: source_label parameterization ─────────────────────────────
@@ -451,6 +459,222 @@ def test_sync_run_issues_forwards_source_label_to_comment():
     assert client.commented, "expected one comment"
     _, comment_text = client.commented[0]
     assert "user conversion" in comment_text
+
+
+# ── reopen + skip ──────────────────────────────────────────────────
+
+
+def _fp_of(key="a.step", target="glb", error="boom", tb=None):
+    return fingerprint_job({"key": key, "target_format": target, "error": error, "traceback": tb})
+
+
+def test_fingerprint_job_matches_fingerprint():
+    assert _fp_of() == fingerprint(source_ext=".step", target_format="glb", error_msg="boom", traceback=None)
+
+
+def test_sync_reopens_a_closed_issue_instead_of_opening_a_duplicate():
+    label = fp_label(_fp_of())
+    client = _StubClient(existing={label: [{"number": 4, "title": "t", "labels": [label], "state": "closed"}]})
+    summary = asyncio.run(
+        sync_run_issues(client, run={"id": "r2", "started_at": None}, failed_jobs=[_job("a.step", "glb")])
+    )
+    assert summary["reopened"] == 1 and summary["opened"] == 0 and summary["commented"] == 0
+    assert client.states == [(4, "open")]
+    assert client.created == []
+    assert client.commented[0][0] == 4 and "Reopened" in client.commented[0][1]
+
+
+def test_sync_leaves_skip_fps_alone():
+    client = _StubClient()
+    summary = asyncio.run(
+        sync_run_issues(
+            client,
+            run={"id": "r3", "started_at": None},
+            failed_jobs=[_job("a.step", "glb"), _job("b.step", "ifc", error="other")],
+            skip_fps={_fp_of()},
+        )
+    )
+    assert summary["opened"] == 1
+    assert [c["labels"][1] for c in client.created] == [fp_label(_fp_of("b.step", "ifc", "other"))]
+
+
+# ── recheck: which cells ───────────────────────────────────────────
+
+
+def _row(kind, sid, key, target="glb", failure_key=None, pool=None):
+    return {
+        "scope_kind": kind,
+        "scope_id": sid,
+        "key": key,
+        "target_format": target,
+        "failure_key": failure_key,
+        "worker_pool": pool,
+    }
+
+
+def test_recheck_cells_prefers_the_failure_corpus_copy_and_never_the_users_scope():
+    groups, skipped = recheck_cells(
+        [_row("user", "u1", "private/plant.step", failure_key="ab12.step")], failure_slug="failures"
+    )
+    assert groups == {("corpus:failures", None): [("ab12.step", "glb")]}
+    assert skipped == []
+
+
+def test_recheck_cells_reruns_corpus_and_shared_in_place():
+    groups, _ = recheck_cells(
+        [_row("corpus", "regress", "a.ifc", pool="audit"), _row("shared", None, "b.step")], failure_slug="failures"
+    )
+    assert groups == {("corpus:regress", "audit"): [("a.ifc", "glb")], ("shared", None): [("b.step", "glb")]}
+
+
+def test_recheck_cells_skips_a_private_file_with_no_copy_and_a_wasm_failure():
+    groups, skipped = recheck_cells(
+        [_row("project", "p1", "x.step"), _row("corpus", "c", "y.step", pool="wasm")], failure_slug="failures"
+    )
+    assert groups == {}
+    assert len(skipped) == 2
+    assert any("no preserved copy" in s for s in skipped)
+    assert any("browser engine" in s for s in skipped)
+    # A corpus filename is sanitised even in the admin-facing reason.
+    assert not any("y.step" in s for s in skipped)
+
+
+def test_recheck_cells_a_cell_with_any_rerunnable_row_is_not_skipped():
+    # Newest row lost its copy (capture disabled since), an older one had it.
+    groups, skipped = recheck_cells(
+        [_row("user", "u1", "f.step"), _row("user", "u1", "f.step", failure_key="cd34.step")], failure_slug="fails"
+    )
+    assert groups == {("corpus:fails", None): [("cd34.step", "glb")]}
+    assert skipped == []
+
+
+def test_recheck_cells_dedups_rows_resolving_to_one_cell():
+    groups, _ = recheck_cells(
+        [_row("user", "u1", "a.step", failure_key="ee.step"), _row("user", "u2", "b.step", failure_key="ee.step")],
+        failure_slug="failures",
+    )
+    assert groups == {("corpus:failures", None): [("ee.step", "glb")]}
+
+
+# ── recheck: verdict ───────────────────────────────────────────────
+
+_FP = _fp_of("a.step", "glb", "boom")
+
+
+def _run_job(key, target, status, error=None, tb=None, tag=None):
+    return {
+        "key": key,
+        "target_format": target,
+        "status": status,
+        "error": error,
+        "traceback": tb,
+        "worker_image_tag": tag,
+    }
+
+
+def test_verdict_fixed_when_every_cell_passes():
+    v = recheck_verdict(
+        _FP,
+        [("a.step", "glb"), ("b.step", "glb")],
+        [_run_job("a.step", "glb", "done"), _run_job("b.step", "glb", "ok")],
+    )
+    assert v["verdict"] == "fixed" and v["passed"] == 2
+
+
+def test_verdict_reproduced_beats_everything():
+    v = recheck_verdict(
+        _FP,
+        [("a.step", "glb"), ("c.step", "glb")],
+        [_run_job("a.step", "glb", "failed", "boom"), _run_job("c.step", "glb", "failed", "else")],
+    )
+    assert v["verdict"] == "reproduced" and v["changed"] == 1
+    assert v["new_fps"] == [_fp_of("c.step", "glb", "else")]
+
+
+def test_verdict_changed_when_it_fails_differently():
+    v = recheck_verdict(_FP, [("a.step", "glb")], [_run_job("a.step", "glb", "error", "new problem")])
+    assert v["verdict"] == "changed"
+
+
+def test_verdict_unverifiable_when_a_cell_is_missing_or_unfinished():
+    v = recheck_verdict(_FP, [("a.step", "glb"), ("gone.step", "glb")], [_run_job("a.step", "glb", "done")])
+    assert v["verdict"] == "unverifiable" and v["missing"] == 1
+    v = recheck_verdict(_FP, [("a.step", "glb")], [_run_job("a.step", "glb", "queued")])
+    assert v["verdict"] == "unverifiable"
+    assert recheck_verdict(_FP, [], [])["verdict"] == "unverifiable"
+
+
+def test_verdict_counts_the_newest_row_of_a_cell():
+    v = recheck_verdict(
+        _FP, [("a.step", "glb")], [_run_job("a.step", "glb", "failed", "boom"), _run_job("a.step", "glb", "done")]
+    )
+    assert v["verdict"] == "fixed"
+
+
+# ── recheck: publishing ────────────────────────────────────────────
+
+
+def _recheck(fp=_FP, cells=(("a.step", "glb"),), rid=1):
+    return {"id": rid, "fp": fp, "cells": [list(c) for c in cells]}
+
+
+def test_publish_fixed_comments_then_closes():
+    label = fp_label(_FP)
+    client = _StubClient(existing={label: [{"number": 7, "title": "t", "labels": [label]}]})
+    out = asyncio.run(
+        publish_recheck_verdicts(
+            client, run={"id": "rr"}, rechecks=[_recheck()], run_jobs=[_run_job("a.step", "glb", "done", tag="img:1")]
+        )
+    )
+    assert out == [{"id": 1, "verdict": "fixed", "detail": "passed 1/1"}]
+    assert client.commented[0][0] == 7 and "closing" in client.commented[0][1] and "`img:1`" in client.commented[0][1]
+    assert client.states == [(7, "closed")]
+
+
+def test_publish_reproduced_comments_and_keeps_open():
+    label = fp_label(_FP)
+    client = _StubClient(existing={label: [{"number": 7, "title": "t", "labels": [label]}]})
+    out = asyncio.run(
+        publish_recheck_verdicts(
+            client, run={"id": "rr"}, rechecks=[_recheck()], run_jobs=[_run_job("a.step", "glb", "failed", "boom")]
+        )
+    )
+    assert out[0]["verdict"] == "reproduced"
+    assert client.states == []
+    assert "still reproduces" in client.commented[0][1]
+
+
+def test_publish_records_a_verdict_when_the_issue_was_closed_meanwhile():
+    client = _StubClient()
+    out = asyncio.run(
+        publish_recheck_verdicts(
+            client, run={"id": "rr"}, rechecks=[_recheck()], run_jobs=[_run_job("a.step", "glb", "done")]
+        )
+    )
+    assert out[0]["verdict"] == "fixed"
+    assert client.commented == [] and client.states == []
+
+
+def test_publish_forge_error_is_recorded_not_raised():
+    class _Broken(_StubClient):
+        async def list_issues_by_label(self, label, *, state="open"):
+            raise RuntimeError("forge down")
+
+    out = asyncio.run(
+        publish_recheck_verdicts(
+            _Broken(), run={"id": "rr"}, rechecks=[_recheck()], run_jobs=[_run_job("a.step", "glb", "done")]
+        )
+    )
+    assert out[0]["verdict"] == "error" and "fixed" in out[0]["detail"] and "forge down" in out[0]["detail"]
+
+
+def test_issue_client_rejects_an_unknown_state():
+    import pytest
+
+    from ada.comms.rest.issue_client import GitHubClient
+
+    with pytest.raises(ValueError):
+        asyncio.run(GitHubClient(repo="o/r", token="t").set_issue_state(1, state="merged"))
 
 
 # Touch the module so unused-import lint passes don't drop it.

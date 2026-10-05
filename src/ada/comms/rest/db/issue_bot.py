@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
 import asyncpg
 
+from ._common import _loads_jsonb
 from .audit_runs import _audit_run_row
 
 # ── Audit issue-bot (M5 admin audit panel) ─────────────────────────
@@ -287,3 +290,167 @@ async def reset_audit_log_issue_bot(
         audit_id,
     )
     return result.endswith(" 1")
+
+
+# ── Issue recheck (migration 032) ──────────────────────────────────
+
+
+async def backfill_audit_log_issue_fps(pool: asyncpg.Pool, *, limit: int = 500) -> int:
+    """Fingerprint up to ``limit`` failed audit_log rows that have no ``issue_fp`` yet, and
+    return how many were stamped. The fingerprint is a pure function of the row, so this
+    covers rows that failed before migration 032 as well as new ones -- the poller calls it
+    every tick, and a recheck calls it once before reading the rows for a fingerprint."""
+    from ..audit_issue import fingerprint_job
+
+    rows = await pool.fetch(
+        """
+        SELECT id, key, target_format, error, traceback
+        FROM audit_log
+        WHERE status IN ('error', 'failed') AND issue_fp IS NULL
+        ORDER BY id ASC
+        LIMIT $1
+        """,
+        limit,
+    )
+    if not rows:
+        return 0
+    await pool.executemany(
+        "UPDATE audit_log SET issue_fp = $2 WHERE id = $1",
+        [(r["id"], fingerprint_job(dict(r))) for r in rows],
+    )
+    return len(rows)
+
+
+async def list_issue_fp_rows(pool: asyncpg.Pool, fp: str, *, limit: int = 1000) -> list[dict]:
+    """The failing rows behind fingerprint ``fp``, newest first, with what a recheck needs to
+    re-run each: scope, key, target, the preserved ``failure_key`` (the failure-corpus copy,
+    when capture took one) and the worker pool of the run it failed in (NULL for a user
+    conversion). ``audit_issue.recheck_cells`` turns these into the cells to re-run."""
+    rows = await pool.fetch(
+        """
+        SELECT al.scope_kind, al.scope_id, al.key, al.target_format, al.failure_key,
+               ar.worker_pool
+        FROM audit_log al
+        LEFT JOIN audit_runs ar ON ar.id = al.audit_run_id
+        WHERE al.issue_fp = $1
+        ORDER BY al.id DESC
+        LIMIT $2
+        """,
+        fp,
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
+async def count_issue_fp_cells(pool: asyncpg.Pool, fps: list[str]) -> dict[str, int]:
+    """Distinct failing cells per fingerprint, for the admin issue list."""
+    if not fps:
+        return {}
+    rows = await pool.fetch(
+        """
+        SELECT issue_fp, COUNT(DISTINCT (scope_kind, scope_id, key, target_format)) AS n
+        FROM audit_log
+        WHERE issue_fp = ANY($1::text[])
+        GROUP BY issue_fp
+        """,
+        fps,
+    )
+    return {r["issue_fp"]: int(r["n"]) for r in rows}
+
+
+def _recheck_row(r) -> dict:
+    return {
+        "id": r["id"],
+        "fp": r["fp"],
+        "run_id": str(r["run_id"]),
+        "cells": [tuple(c) for c in _loads_jsonb(r["cells"]) or []],
+        "created_by": r["created_by"],
+        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        "verdict": r["verdict"],
+        "verdict_detail": r["verdict_detail"],
+        "verdict_at": r["verdict_at"].isoformat() if r["verdict_at"] else None,
+    }
+
+
+async def create_issue_recheck(
+    pool: asyncpg.Pool,
+    *,
+    fp: str,
+    run_id: str,
+    cells: list[tuple[str, str]],
+    created_by: str | None,
+) -> dict:
+    """Record that ``run_id`` re-runs ``cells`` (``(key, target)`` in the run's scope) to
+    recheck fingerprint ``fp``."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO audit_issue_rechecks (fp, run_id, cells, created_by)
+        VALUES ($1, $2, $3::jsonb, $4)
+        RETURNING *
+        """,
+        fp,
+        run_id,
+        json.dumps([list(c) for c in cells]),
+        created_by,
+    )
+    return _recheck_row(row)
+
+
+async def list_rechecks_for_run(pool: asyncpg.Pool, run_id: str) -> list[dict]:
+    rows = await pool.fetch(
+        "SELECT * FROM audit_issue_rechecks WHERE run_id = $1 ORDER BY id ASC",
+        run_id,
+    )
+    return [_recheck_row(r) for r in rows]
+
+
+async def latest_rechecks(pool: asyncpg.Pool, fps: list[str]) -> dict[str, dict]:
+    """The most recent recheck per fingerprint, for the admin issue list."""
+    if not fps:
+        return {}
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT ON (fp) *
+        FROM audit_issue_rechecks
+        WHERE fp = ANY($1::text[])
+        ORDER BY fp, created_at DESC, id DESC
+        """,
+        fps,
+    )
+    return {r["fp"]: _recheck_row(r) for r in rows}
+
+
+async def pending_recheck_fps(pool: asyncpg.Pool, fps: list[str]) -> set[str]:
+    """Fingerprints with a recheck whose run is still going -- a second recheck of one of
+    these would only race the first."""
+    if not fps:
+        return set()
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT rc.fp
+        FROM audit_issue_rechecks rc
+        JOIN audit_runs ar ON ar.id = rc.run_id
+        WHERE rc.fp = ANY($1::text[]) AND rc.verdict IS NULL AND ar.status = 'running'
+        """,
+        fps,
+    )
+    return {r["fp"] for r in rows}
+
+
+async def set_issue_recheck_verdict(
+    pool: asyncpg.Pool,
+    recheck_id: int,
+    *,
+    verdict: str,
+    detail: str | None = None,
+) -> None:
+    await pool.execute(
+        """
+        UPDATE audit_issue_rechecks
+        SET verdict = $2, verdict_detail = $3, verdict_at = NOW()
+        WHERE id = $1
+        """,
+        recheck_id,
+        verdict,
+        detail,
+    )

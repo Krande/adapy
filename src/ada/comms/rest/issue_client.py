@@ -12,7 +12,8 @@ Endpoints we exercise:
 * ``POST   /repos/{repo}/issues`` — open a new issue with body + labels.
 * ``POST   /repos/{repo}/issues/{number}/comments`` — comment on existing.
 * ``PATCH  /repos/{repo}/issues/{number}`` — update the body (used to
-  rebuild the dashboard issue without spawning duplicates).
+  rebuild the dashboard issue without spawning duplicates), and the
+  state (a passing recheck closes an issue, a reproduction reopens it).
 
 The client is intentionally minimal — we don't wrap the full forge
 APIs, just the verbs the bot uses. Errors propagate as
@@ -81,6 +82,8 @@ class GitForgeClient(Protocol):
     async def comment_issue(self, number: int, *, body: str) -> None: ...
 
     async def update_issue_body(self, number: int, *, body: str) -> None: ...
+
+    async def set_issue_state(self, number: int, *, state: str) -> None: ...
 
 
 # ── Base implementation (shared by GitHub + Forgejo) ───────────────
@@ -194,6 +197,18 @@ class _BaseClient:
             "PATCH",
             self._issues_url(str(number)),
             json={"body": body},
+        )
+
+    async def set_issue_state(self, number: int, *, state: str) -> None:
+        """Close (``"closed"``) or reopen (``"open"``) an issue -- a recheck closes one
+        whose every cell passed, and a later reproduction reopens it. Same PATCH on both
+        forges."""
+        if state not in ("open", "closed"):
+            raise ValueError(f"issue state must be 'open' or 'closed', not {state!r}")
+        await self._request(
+            "PATCH",
+            self._issues_url(str(number)),
+            json={"state": state},
         )
 
 

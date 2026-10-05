@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useState} from "react";
 import {IssueTargetConfig, viewerApi} from "@/services/viewerApi";
 import InfoIcon from "@/components/icons/InfoIcon";
+import AuditIssuesSection from "./AuditIssuesSection";
 
 // Admin tab — configure where the audit-bot publishes failure
 // issues (the admin audit-panel design notes).
@@ -97,6 +98,10 @@ const API_CALLS_NOTE = (
             <li>Create an issue for a failure fingerprint that has no report yet.</li>
             <li>Comment on an issue when a known failure recurs.</li>
             <li>Edit the dashboard issue body so it stays a single up-to-date summary.</li>
+            <li>
+                Close an issue when a recheck finds every failing cell passing, and reopen it when the
+                same failure comes back. Same permission as editing the body.
+            </li>
         </ul>
     </>
 );
@@ -315,6 +320,7 @@ const IssueTargetTab: React.FC = () => {
                     )}
                 </div>
             </div>
+            {cfg.kind !== "disabled" && cfg.token_present && <AuditIssuesSection/>}
         </div>
     );
 };
