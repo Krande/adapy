@@ -82,7 +82,11 @@ class ConstraintConcepts:
                 target[name] = constraint
 
 
-_all_dofs = {"dx", "dy", "dz", "rx", "ry", "rz"}
+#: The six dofs in the order they are written and listed. A set of strings iterates in an order that changes with
+#: the interpreter's string hash seed, which made the dof order of every support (and of the GeniE XML written from
+#: it) differ between two runs of the same script.
+_DOF_ORDER = ("dx", "dy", "dz", "rx", "ry", "rz")
+_all_dofs = set(_DOF_ORDER)
 # Define TypeAlias for DOF types
 DofType: TypeAlias = Literal["dx", "dy", "dz", "rx", "ry", "rz"]
 
@@ -106,7 +110,7 @@ class ConstraintConceptDofType:
     def encastre(dof_type: ConstraintType = "fixed") -> list[ConstraintConceptDofType]:
         """All 6 dofs are fixed"""
         dofs = []
-        for dof in _all_dofs:
+        for dof in _DOF_ORDER:
             dofs.append(ConstraintConceptDofType(dof, dof_type))
         return dofs
 
@@ -114,7 +118,7 @@ class ConstraintConceptDofType:
     def pinned() -> list[ConstraintConceptDofType]:
         """All 3 translational dofs are fixed, and all 3 rotational dofs are free."""
         dofs = []
-        for dof in _all_dofs:
+        for dof in _DOF_ORDER:
             if dof == "rx" or dof == "ry" or dof == "rz":
                 dofs.append(ConstraintConceptDofType(dof, "free"))
             else:
@@ -124,14 +128,14 @@ class ConstraintConceptDofType:
 
 def _constraint_dof_type_resolver(dof_constraints: list[ConstraintConceptDofType]) -> list[ConstraintConceptDofType]:
     user_dofs = {x.dof for x in dof_constraints}
-    missing_dofs = _all_dofs.difference(user_dofs)
-    for missing_dof in missing_dofs:
-        dof_constraints.append(ConstraintConceptDofType(missing_dof, "fixed"))
+    for missing_dof in _DOF_ORDER:
+        if missing_dof not in user_dofs:
+            dof_constraints.append(ConstraintConceptDofType(missing_dof, "fixed"))
 
     dof_map = {d.dof: d for d in dof_constraints}
-    # sort self.dof_constraints in order of _all_dofs
+    # sort self.dof_constraints in order of _DOF_ORDER
     sorted_dofs = []
-    for dof in _all_dofs:
+    for dof in _DOF_ORDER:
         sorted_dofs.append(dof_map[dof])
     return sorted_dofs
 
