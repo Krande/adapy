@@ -52,7 +52,7 @@ _FEA_RESULT_EXTS: frozenset[str] = frozenset({".sif", ".sin"})
 # `convert` GLB pipeline. RMED lands here so uploads validate and
 # the manifest endpoint accepts the source, without forcing the
 # legacy `_via_fea_result` SIF-only handler to grow an RMED branch.
-_STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed"})
+_STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed", ".radanim"})
 
 
 # Source extensions accepted by the streaming-viewer bake (manifest
