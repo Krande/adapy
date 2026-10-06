@@ -14,10 +14,13 @@ say WHICH PART of a model an operation applies to — scoping a capacity check t
 one plate group, isolating a deck — and without the names reaching the browser, every
 such control had to be a text box you typed a name into from memory.
 
-Member ids are the deck's own element and node numbers, prefixed the way the
-frontend's draw-range lookup expects (``EL`` / ``P``). They need no remapping:
-``GSETMEMB``'s numbers are the same ``GELMNT1`` element numbers and ``GNODE``
-node numbers the baked mesh is keyed by.
+Member ids are the numbers people read, prefixed the way the frontend's
+draw-range lookup expects (``EL`` / ``P``). ``GSETMEMB`` lists INTERNAL node and
+element numbers (the manual: "program defined internal node/element numbers"),
+which is what the mesh is keyed by; the bake labels the mesh with the EXTERNAL
+numbers (GNODE NODEX, GELMNT1 ELNOX), which GeniE and Xtract show, so the
+members are translated to those. On a deck whose two numberings agree that is
+no change.
 """
 
 from __future__ import annotations
@@ -47,6 +50,10 @@ def manifest_groups(reader: Any) -> list[dict[str, Any]] | None:
         return None
     if not members_by_set or not names:
         return None
+    try:
+        node_shown, elem_shown = reader.external_number_maps()
+    except (AttributeError, NotImplementedError):
+        node_shown, elem_shown = None, None
 
     groups: list[dict[str, Any]] = []
     for set_id, by_type in members_by_set.items():
@@ -58,16 +65,16 @@ def manifest_groups(reader: Any) -> list[dict[str, Any]] | None:
         name = str(record[-1]).strip()
         if not name:
             continue
-        for kind, prefix, ids in (
-            ("element", "EL", by_type.get("elset") or []),
-            ("node", "P", by_type.get("nset") or []),
+        for kind, prefix, ids, shown in (
+            ("element", "EL", by_type.get("elset") or [], elem_shown or {}),
+            ("node", "P", by_type.get("nset") or [], node_shown or {}),
         ):
             if not ids:
                 continue
             groups.append(
                 {
                     "name": name,
-                    "members": [f"{prefix}{int(i)}" for i in ids],
+                    "members": [f"{prefix}{shown.get(int(i), int(i))}" for i in ids],
                     "fe_object_type": kind,
                 }
             )

@@ -180,6 +180,19 @@ class FEAResultStreamAdapter:
         # 0-based indices into the points array.
         ids = result.mesh.nodes.identifiers
         self._nmap = {int(x): i for i, x in enumerate(ids)}
+        # The element numbers people read, where they differ from the ids the mesh and
+        # results are keyed by (a Sesam deck whose external numbers are not its internal
+        # ones). Everything the bake writes for the viewer -- the mesh sidecars' element
+        # labels, element-field labels, beam-solid labels -- carries the shown number, so
+        # the viewer agrees with the deck's own tools. ``None``: they are the same.
+        label_map = getattr(result.mesh, "element_label_map", None)
+        self._elem_shown: dict[int, int] | None = label_map() if callable(label_map) else None
+
+    def _shown_elem(self, elem_id: int) -> int:
+        """The number a person reads for element ``elem_id``."""
+        if self._elem_shown is None:
+            return int(elem_id)
+        return self._elem_shown.get(int(elem_id), int(elem_id))
 
     def try_fem_concepts(self) -> dict | None:
         return self._fem_concepts
@@ -270,8 +283,11 @@ class FEAResultStreamAdapter:
             # ElementBlock.identifiers is the per-element label as it
             # appeared in the source FEA file. Forward verbatim so the
             # selection sidecar can carry real labels back to the
-            # picker, not just iteration-order indices.
-            block_ids = getattr(block, "identifiers", None)
+            # picker, not just iteration-order indices -- the number
+            # people read, where the block keeps one apart (labels).
+            block_ids = getattr(block, "labels", None)
+            if block_ids is None:
+                block_ids = getattr(block, "identifiers", None)
             if block_ids is not None:
                 identifiers = np.asarray(block_ids, dtype=np.int64).reshape(-1)
                 if identifiers.shape[0] != data_0.shape[0]:
@@ -285,7 +301,9 @@ class FEAResultStreamAdapter:
                 identifiers = None
             cell_blocks.append(CellBlockData(cell_type=cell_type_str, data=data_0, identifiers=identifiers))
 
-        node_labels = [int(x) for x in self._result.mesh.nodes.identifiers]
+        mesh_nodes = self._result.mesh.nodes
+        shown_nodes = getattr(mesh_nodes, "labels", None)
+        node_labels = [int(x) for x in (mesh_nodes.identifiers if shown_nodes is None else shown_nodes)]
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks, node_labels=node_labels)
         return self._geom
 
@@ -489,7 +507,7 @@ class FEAResultStreamAdapter:
                     elem_type=elem_type_str,
                     n_elements=n_elements,
                     n_ips=n_ips,
-                    element_labels=labels,
+                    element_labels=[self._shown_elem(label) for label in labels],
                     step_values=step_values,
                     element_node_indices=[element_nodes.get(int(label), []) for label in labels],
                     ip_layout=ip_layout,
@@ -534,7 +552,7 @@ class FEAResultStreamAdapter:
             # Verify label alignment with the spec's canonical order —
             # readers that emit rows in different orders between steps
             # would silently mis-correlate.
-            step_labels = per_elem[:, 0, 0].astype(int).tolist()
+            step_labels = [self._shown_elem(label) for label in per_elem[:, 0, 0].astype(int).tolist()]
             if step_labels != spec.element_labels:
                 raise ValueError(
                     f"element field {spec.name!r} step {r.step} label order "
@@ -650,7 +668,8 @@ class FEAResultStreamAdapter:
                 if shift1 is not None:
                     beam.e2 = -shift1
 
-            beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
+            # Labelled with the number people read, like the mesh sidecar's elements.
+            beams.append((beam, self._shown_elem(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
 
         if format == "compact":
             from .beam_compact import collect_beam_solid_instances
