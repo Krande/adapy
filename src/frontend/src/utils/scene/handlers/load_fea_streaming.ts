@@ -13,7 +13,6 @@
 
 import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import {capabilities} from "@/services/capabilities";
-import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {
@@ -21,7 +20,7 @@ import {
     requestingSceneColorOwner,
 } from "../fea/modeSceneColor";
 import type {FeaSessionHandle} from "@/state/modelSession";
-import {feaSession as session} from "../fea/streaming/session";
+import {feaSession as session, feaSourceScope} from "../fea/streaming/session";
 import {openFeaSession} from "../fea/streaming/sessionSetup";
 import {linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
 import {syncResultSession} from "../fea/streaming/legendSync";
@@ -34,6 +33,7 @@ import {installElementEdges} from "../fea/streaming/elementEdges";
 import {refreshUndeformedGhost, setFeaResultColorsVisible, syncFeaOverlayVisibility} from "../fea/streaming/visibility";
 
 export {
+    feaSourceScope,
     getActiveFeaMesh,
     getActiveFeaSelectedRangeIds,
     hasBeamSolids,
@@ -99,7 +99,9 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         }
     }
 
-    const scope = scopeUrlPart(useScopeStore.getState().current);
+    // The scope the open model came from when this repaints it, the browsing
+    // scope for a new source. See feaSourceScope.
+    const scope = feaSourceScope(sourceName);
     // One fetcher + cache key for every storage-layer call below. The
     // bake-job storage convention (`_derived/<src>.fea/<filename>`)
     // is encoded in `makeViewerApiFetcher`; downstream helpers stay
@@ -113,6 +115,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     let active: FeaSessionHandle | null = session.active;
     if (!active || active.sourceName !== sourceName) {
         active = await openFeaSession({fetcher, sourceName, manifest, stage, throwIfAborted});
+        active.scope = scope;
         const mesh = active.mesh;
 
         // Material flags (vertexColors + morphTargets) are flipped on

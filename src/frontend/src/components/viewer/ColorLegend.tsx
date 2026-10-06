@@ -9,7 +9,15 @@ import {
     contourBands,
     contourTicks,
 } from "@/utils/scene/fea/contourScale";
-import {visibleFieldValuesForSession} from "@/utils/scene/fea/visibleValues";
+import {
+    paintedFieldValuesForSession,
+    visibleFieldValuesForSession,
+} from "@/utils/scene/fea/visibleValues";
+import {
+    isPropertyField,
+    propertyLegendEntries,
+    propertySequentialColormap,
+} from "@/utils/scene/fea/propertyColors";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 
 function formatValue(value: number): string {
@@ -40,6 +48,10 @@ const ColorLegend = () => {
         () => manifest?.fields.find((candidate) => candidate.name_canonical === fieldName) ?? null,
         [manifest, fieldName],
     );
+    // A model property (thickness, material, section) is drawn in its own
+    // scheme, not the result colormap - see propertyColors.ts - and the legend
+    // follows the painter: its own colours, no bands, no pinned range, no case.
+    const property = isPropertyField(field);
     const activeUnit = selectedResultUnit(field, reduction);
     const activeStep = field?.steps[stepIndex];
     const tickCount = Math.min(Math.max(step, 1), 6);
@@ -51,7 +63,14 @@ const ColorLegend = () => {
     // colours, restricted to what is on screen.
     const categories = useMemo(
         () =>
-            sessionActive && field?.value_labels
+            sessionActive && property
+                ? (propertyLegendEntries(
+                      field,
+                      [min, max],
+                      visibleFieldValuesForSession(),
+                      paintedFieldValuesForSession(),
+                  ) ?? [])
+                : sessionActive && field?.value_labels
                 ? categoryEntries(
                       field.value_labels,
                       [min, max],
@@ -59,7 +78,7 @@ const ColorLegend = () => {
                       visibleFieldValuesForSession(),
                   )
                 : [],
-        [sessionActive, field, min, max, colormap],
+        [sessionActive, property, field, min, max, colormap],
     );
 
     // Banded and continuous are the same legend drawn two ways from the same
@@ -68,10 +87,10 @@ const ColorLegend = () => {
     // is the whole reason for asking for bands.
     const bands = useMemo(
         () =>
-            sessionActive && contour.levels !== null
+            sessionActive && contour.levels !== null && !property
                 ? contourBands([min, max], contour.levels, colormap)
                 : null,
-        [sessionActive, contour.levels, min, max, colormap],
+        [sessionActive, contour.levels, min, max, colormap, property],
     );
 
     const gradientStyle = useMemo(() => {
@@ -80,7 +99,9 @@ const ColorLegend = () => {
             const maxColor = `rgb(${colorPalette[1].map((value) => value * 255).join(", ")})`;
             return {backgroundImage: `linear-gradient(to top, ${minColor}, ${maxColor})`};
         }
-        const map = bandedColormap(getColormap(colormap), contour.levels);
+        const map = property
+            ? propertySequentialColormap(field)
+            : bandedColormap(getColormap(colormap), contour.levels);
         const rgb = new Float32Array(3);
         const stops: string[] = [];
         for (let index = 0; index <= 10; index++) {
@@ -91,7 +112,7 @@ const ColorLegend = () => {
             );
         }
         return {backgroundImage: `linear-gradient(to top, ${stops.join(", ")})`};
-    }, [sessionActive, colorPalette, colormap, contour.levels]);
+    }, [sessionActive, colorPalette, colormap, contour.levels, property, field]);
 
     if (!showLegend) return null;
 
@@ -99,7 +120,7 @@ const ColorLegend = () => {
     const selectableSurface = field?.surface === "selectable" || !!field?.surface_variants?.length;
     const surface = selectableSurface ? layer : field?.surface;
     const hasExactMarkers = field?.support === "result_point" || field?.support === "line_result_point";
-    const pinned = contour.min !== null || contour.max !== null;
+    const pinned = !property && (contour.min !== null || contour.max !== null);
 
     // Panel tokens, not literal black-on-white. The legend floats over the scene
     // inside a themed shell, and a hard black slab reads as a foreign object
@@ -110,10 +131,16 @@ const ColorLegend = () => {
             {sessionActive && field && (
                 <div className="mb-2 space-y-0.5 break-words">
                     <div className="font-semibold">{path}</div>
-                    <div>{reduction}{activeUnit ? ` [${activeUnit}]` : ""}</div>
+                    {property ? (
+                        <div className="opacity-80">
+                            Model property{activeUnit ? ` [${activeUnit}]` : ""}
+                        </div>
+                    ) : (
+                        <div>{reduction}{activeUnit ? ` [${activeUnit}]` : ""}</div>
+                    )}
                     {/* Name and number both: the number is what the picker and the
                         oracle listings key on, the name is what the deck calls it. */}
-                    {activeStep && (
+                    {activeStep && !property && (
                         <div>
                             Case: {activeStep.label}
                             {activeStep.name && activeStep.name !== activeStep.label

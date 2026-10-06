@@ -19,6 +19,7 @@ import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import {useConversionStore} from "@/state/conversionStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import type {LoadFeaStreaming} from "./types";
+import {defaultResultField} from "./defaultField";
 
 /** Toggle entry point: fetch the manifest, pick sensible defaults
  * (first field, default reduction, step 0, factor 1), and run
@@ -161,19 +162,9 @@ export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: st
             fireResultSidecarLoaders();
             return;
         }
-        // Prefer ``category === "displacement"`` so a fresh load opens
-        // on the deformation field — that's the field most users want
-        // to see first, and it's also the warp source for everything
-        // else. Falls back to the first renderable field (nodal or
-        // element) when the manifest has no displacement (e.g.
-        // stress-only output).
-        const field =
-            manifest.fields.find((f) => f.category === "displacement") ??
-            manifest.fields[0] ??
-            // A result-less deck (a design-model .fem/.inp/.med bake, or an
-            // input deck exported from a SIN) has geometry and no fields at
-            // all. Mesh-only is the correct open, not a crash on fields[0].
-            null;
+        // The field a fresh load opens on; null opens the mesh only. See
+        // defaultResultField: displacement first, never a model property.
+        const field = defaultResultField(manifest.fields);
         const reduction = field?.default_view?.reduction ?? "magnitude";
         await load({
             sourceName,

@@ -138,9 +138,11 @@ export function setFeaResultColorsVisible(visible: boolean): void {
     };
     for (const target of [session.active?.mesh, session.active?.beamSolidMesh]) {
         if (!target) continue;
-        // The beam-solid mesh only carries vertex colours when a field actually
-        // painted it; forcing them on would tint it by whatever is in the buffer.
-        if (visible && target === session.active?.beamSolidMesh && !target.geometry.getAttribute("color")) continue;
+        // A mesh only carries vertex colours once a field has painted it; forcing
+        // them on before that tints it by whatever is in the buffer. For the beam
+        // solids that was a tint; for the main mesh of a model opened with no
+        // result field (a model-only bake) it was a black model.
+        if (visible && !target.geometry.getAttribute("color")) continue;
         const m = target.material;
         if (Array.isArray(m)) m.forEach(setVc);
         else if (m) setVc(m as THREE.Material);
