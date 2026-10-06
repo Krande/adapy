@@ -65,7 +65,7 @@ FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset(
     # .inp/.fem/.med are design-model FEM meshes — they bake through the same streaming path
     # (mesh + beam-solids, no result fields) so FE-mesh viewing has a single pipeline. They
     # remain legacy-convertible (ifc/xml/step/…) on the /convert page, like .sif.
-    {".rmed", ".sif", ".sin", ".inp", ".fem", ".med"}
+    {".rmed", ".sif", ".sin", ".inp", ".fem", ".med", ".radanim"}
 )
 
 # Union of source extensions the legacy /convert pipeline knows how

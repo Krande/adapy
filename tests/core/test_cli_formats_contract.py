@@ -62,6 +62,7 @@ _DOCUMENTED_SIDECARS: dict[str, tuple[str, ...]] = {
     "sesam": ("sestra.inp",),
     "usfos": (),
     "code_aster": ("{name}.adapy_fem.json", "{name}.comm", "{name}.name_map.json"),
+    "opencourant": (),
 }
 
 

@@ -121,6 +121,11 @@ extensions, and ``--from`` / ``--to`` override that inference.
      - ``.med``
      - The output is the ``.med`` mesh; the ``.comm`` command file and two
        ``.json`` maps land beside it.
+   * - ``opencourant``
+     - ``.rad``
+     - OpenCourant (OpenRadioss) starter deck ``<name>_0000.rad``. The engine
+       deck ``<name>_0001.rad`` is written beside it when the model carries an
+       explicit step. Shell models only for now.
 
 Two extensions name more than one FEM format — ``.inp`` is both Abaqus and
 Calculix, ``.fem`` is both Sesam and USFOS — so each has exactly one default
