@@ -175,8 +175,16 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
 def add_loads(root: ET.Element, part: Part) -> None:
     from ada import Point
     from ada.api.transforms import to_global_points
-    from ada.cadit.gxml.write.write_loads import add_line_load, add_point_load
-    from ada.fem.concept.loads import LoadConceptLine, LoadConceptPoint
+    from ada.cadit.gxml.write.write_loads import (
+        add_line_load,
+        add_point_load,
+        add_prescribed_displacement,
+    )
+    from ada.fem.concept.loads import (
+        LoadConceptLine,
+        LoadConceptPoint,
+        LoadConceptPrescribedDisplacement,
+    )
 
     global_elem = root.find("./model/analysis_domain/analyses/global")
 
@@ -240,6 +248,10 @@ def add_loads(root: ET.Element, part: Part) -> None:
             elif isinstance(load, LoadConceptAccelerationField):
                 add_acceleration_field_load(
                     global_elem, lc_elem, load.acceleration, load.include_self_weight, load.rotational_field
+                )
+            elif isinstance(load, LoadConceptPrescribedDisplacement):
+                add_prescribed_displacement(
+                    global_elem, lc_elem, load.name, load.support.name, load.translation, load.rotation
                 )
             else:
                 raise ValueError(f"Unsupported load type: {type(load)}")

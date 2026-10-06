@@ -368,6 +368,82 @@ def test_a_curve_over_a_curved_edge_is_refused(example_files, tmp_path, monkeypa
     assert "Sc_negz" in part.concept_fem.constraints.curve_constraints
 
 
+# --- round trip --------------------------------------------------------------------------------
+
+
+def _state(a: ada.Assembly) -> dict:
+    """Every support and prescribed displacement, as plain values."""
+    out = {}
+    (part,) = a.get_all_subparts()
+    c = part.concept_fem.constraints
+
+    def dofs(concept):
+        return [(d.dof, d.constraint_type, d.spring_stiffness) for d in concept.dof_constraints]
+
+    for name, sp in c.point_constraints.items():
+        out[name] = ("point", _p(sp.position), dofs(sp))
+    for name, sc in c.curve_constraints.items():
+        out[name] = ("curve", _p(sc.start_pos), _p(sc.end_pos), dofs(sc))
+    for name, rl in c.rigid_links.items():
+        region = rl.influence_region
+        out[name] = (
+            "rigid link",
+            _p(rl.master_point),
+            _p(region.lower_corner),
+            _p(region.upper_corner),
+            dofs(rl),
+            rl.rotation_dependent,
+            rl.include_all_edges,
+        )
+    for lc in part.concept_fem.loads.load_cases.values():
+        for ld in lc.loads:
+            if isinstance(ld, LoadConceptPrescribedDisplacement):
+                out[ld.name] = ("prescribed", lc.name, ld.support.name, ld.translation, ld.rotation)
+    return out
+
+
+@pytest.mark.parametrize("fixture", ["genie_supports_all_kinds.xml", "genie_supports_frames.xml"])
+def test_read_write_read_is_identity(example_files, tmp_path, fixture):
+    first, _, _ = _read(_copy(example_files, tmp_path, fixture))
+    written = tmp_path / "written" / "written.xml"
+    written.parent.mkdir()
+    first.to_genie_xml(written)
+    second, _, report = _read(written)
+    assert _findings(report) == {}
+    assert _state(second) == _state(first)
+    # not vacuous: every kind is in it
+    kinds = {v[0] for v in _state(first).values()}
+    assert kinds == {"point", "curve", "rigid link", "prescribed"}
+
+
+def test_the_writer_writes_a_rigid_links_own_options(tmp_path):
+    """Every rigid link was written include_all_edges="true" rotation_dependent="true" whatever it
+    held; GeniE V8.13 imports rotation_dependent="true" as slave_r*="dependent"."""
+    from ada.fem.concept.constraints import (
+        ConstraintConceptDofType,
+        ConstraintConceptRigidLink,
+        RigidLinkRegion,
+    )
+
+    p = ada.Part("P") / ada.Plate.from_3d_points("Pl", [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], 0.01)
+    for name, rot, edges in [("a", False, True), ("b", True, False)]:
+        p.concept_fem.constraints.add_rigid_link(
+            ConstraintConceptRigidLink(
+                name,
+                (0.5, 0.5, 1),
+                RigidLinkRegion((0, 0, -0.1), (1, 1, 0.1)),
+                ConstraintConceptDofType.encastre(),
+                rotation_dependent=rot,
+                include_all_edges=edges,
+            )
+        )
+    xml = tmp_path / "rl.xml"
+    (ada.Assembly("A") / p).to_genie_xml(xml)
+    written = {el.get("name"): el.attrib for el in ET.parse(xml).getroot().iter("support_rigid_link")}
+    assert (written["a"]["rotation_dependent"], written["a"]["include_all_edges"]) == ("false", "true")
+    assert (written["b"]["rotation_dependent"], written["b"]["include_all_edges"]) == ("true", "false")
+
+
 # --- the user's model --------------------------------------------------------------------------
 
 
