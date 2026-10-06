@@ -36,6 +36,14 @@ import xml.etree.ElementTree as ET
 import zipfile
 from typing import TYPE_CHECKING, Callable
 
+from ada.cadit.sat.exceptions import ACISBinaryBodyError
+from ada.cadit.sat.sab import (
+    GNX_BINARY_BODY,
+    GNX_TEXT_BODY,
+    binary_body_message,
+    is_sab,
+)
+
 from ..sat_helpers import xml_elem_to_sat_text
 from ..xml_parse import genie_xml_root_from_bytes, read_genie_xml_root
 
@@ -99,7 +107,7 @@ def _write_workspace_zip(gnx_path: pathlib.Path, xml_text: str, sat_text: str) -
     with zipfile.ZipFile(gnx_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("lastUsedLicenseFileName.txt", GNX_LICENSE_FILE)
         z.writestr("modelData.js", _journal(now))
-        z.writestr("acisGeometry.sat", sat_text)
+        z.writestr(GNX_TEXT_BODY, sat_text)
         # An empty facet cache: GeniE re-facets the body on load.
         z.writestr("acisFaceFacets.bin", b"\x00\x00\x00\x00")
         z.writestr("assemblyType.txt", GNX_ASSEMBLY_TYPE)
@@ -201,7 +209,7 @@ def genie_xml_from_gnx(gnx_file: str | pathlib.Path, xml_file: str | pathlib.Pat
         if "modelData.xml" not in names:
             raise ValueError(f"{gnx_path.name}: not a Genie workspace (no modelData.xml member)")
         xml_bytes = z.read("modelData.xml")
-        sat_text = z.read("acisGeometry.sat").decode("utf-8", errors="replace") if "acisGeometry.sat" in names else ""
+        sat_text = _read_text_body(z, names, gnx_path.name)
 
     root = genie_xml_root_from_bytes(xml_bytes, f"{gnx_path.name}::modelData.xml")
     # Whatever body the XML itself carries wins over the member (a workspace
@@ -217,6 +225,27 @@ def genie_xml_from_gnx(gnx_file: str | pathlib.Path, xml_file: str | pathlib.Pat
     xml_path.parent.mkdir(parents=True, exist_ok=True)
     xml_path.write_text('<?xml version="1.0" encoding="ASCII"?>\n' + _as_declared_ascii(xml_text), encoding="utf-8")
     return xml_path
+
+
+def _read_text_body(z: zipfile.ZipFile, names: set[str], origin: str) -> str:
+    """The workspace's ACIS body as SAT text, or ``""`` when it carries none.
+
+    GeniE V9.3 can write the body in binary instead (member ``acisGeometry.sab``,
+    option "Write ACIS files in binary format"). That is refused by name here,
+    before the body reaches anything that parses it: fed to the SAT reader a
+    binary body yields no records, and measured on V9.3 workspaces the result
+    was not an error but a model with every beam and no plates. Binary bytes
+    under the text member's name are refused the same way -- GeniE itself reads
+    such a member as an empty body.
+    """
+    if GNX_BINARY_BODY in names:
+        raise ACISBinaryBodyError(binary_body_message(origin, GNX_BINARY_BODY))
+    if GNX_TEXT_BODY not in names:
+        return ""
+    data = z.read(GNX_TEXT_BODY)
+    if is_sab(data):
+        raise ACISBinaryBodyError(binary_body_message(origin, GNX_TEXT_BODY))
+    return data.decode("utf-8", errors="replace")
 
 
 def _sat_has_faces(sat_text: str) -> bool:

@@ -4,6 +4,8 @@ import zipfile
 from io import BytesIO
 
 from ada.cadit.gxml.xml_parse import read_genie_xml_root
+from ada.cadit.sat.exceptions import ACISBinaryBodyError
+from ada.cadit.sat.sab import binary_body_message, is_sab
 
 
 def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
@@ -18,6 +20,9 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
     else:
         raise NotImplementedError(f'SAT el Tag type "{sat_el.tag}" is not yet added')
 
+    if is_sab(data):
+        raise ACISBinaryBodyError(binary_body_message(f"<{sat_el.tag}>", "embedded geometry"))
+
     byio = BytesIO(data)
     try:
         zipdata = zipfile.ZipFile(byio)
@@ -27,6 +32,14 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
     res = {name: zipdata.read(name) for name in zipdata.namelist()}
     if len(res.keys()) != 1:
         raise NotImplementedError("No support for binary zip data containing multipart SAT file yet")
+
+    # GeniE V9.3 embeds text here even from a workspace whose body member is
+    # binary (measured on a concept XML exported with the option on), so this is
+    # a guard, not an observed path: a binary member would otherwise read as a
+    # body with no records and the plates would vanish without a word.
+    ((member, body),) = res.items()
+    if is_sab(body):
+        raise ACISBinaryBodyError(binary_body_message(f"<{sat_el.tag}>", member))
 
     return str(res["b64temp.sat"], encoding="utf-8").replace("\r", "")
 
