@@ -136,7 +136,7 @@ class GxmlStore:
         if extract_joints is True:
             p._connections = get_joints(self.xml_root, p)
 
-        get_boundary_conditions(self.xml_root, p)
+        get_boundary_conditions(self.xml_root, p, edge_curve_resolver=self.sat_factory.get_named_edge_curve)
         get_masses(self.xml_root, p)
         # after the plates: a surface load names its plate
         get_loads(self.xml_root, p)

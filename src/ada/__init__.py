@@ -75,6 +75,7 @@ from ada.fem.concept.loads import (
     LoadConceptCaseFactored,
     LoadConceptLine,
     LoadConceptPoint,
+    LoadConceptPrescribedDisplacement,
     LoadConceptSurface,
     RotationalAccelerationField,
 )
@@ -150,6 +151,7 @@ __all__ = [
     "LoadConceptPoint",
     "LoadConceptLine",
     "LoadConceptSurface",
+    "LoadConceptPrescribedDisplacement",
     "LoadConceptAccelerationField",
     "LoadConceptCaseCombination",
     "LoadConceptCaseFactored",

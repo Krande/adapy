@@ -39,6 +39,12 @@ the Sesam records GeniE meshed them into are the oracle for every reading below)
 * **Front and back.** ``footprint_plate side="front"`` with 1000 Pa on a plate whose normal is +z
   gave Fz = -4000 on 4 m2 (a front pressure pushes into the front face), ``side="back"`` +4000.
   ``LoadConceptSurface`` carries the side as written, against the plate's own normal.
+* **Prescribed displacements.** A ``prescribed_displacement`` names a support point
+  (``footprint_support_point``) and gives a ``displacement_constant``; GeniE V8.13 meshed it into
+  one BNDISPL per load case at that support's node (-0.01 in dz for ``translation dz="-0.01"``).
+  It is read as a :class:`LoadConceptPrescribedDisplacement` on the support point the support
+  reader read (:mod:`.read_bcs`, run first); one on a support that was refused, or on a rigid
+  link, is refused with it.
 
 Refused by name: a non-identity ``coordinate_system``; varying pressures
 (``pressure2d_3point_varying``, ``pressure2d_linear_function``); component surface loads
@@ -60,6 +66,7 @@ from ada.fem.concept.loads import (
     LoadConceptCaseFactored,
     LoadConceptLine,
     LoadConceptPoint,
+    LoadConceptPrescribedDisplacement,
     LoadConceptSurface,
 )
 from ada.fem.formats import conversion_report
@@ -241,8 +248,10 @@ def _explicit_load(el: ET.Element, geometry: _Geometry):
     _check_coordinate_system(el)
     footprint = _only_child(el, "footprint")
     intensity = _only_child(el, "intensity")
-    system = _system(intensity)
     name = el.get("name")
+    if el.tag == "prescribed_displacement":
+        return _prescribed_displacement(name, footprint, intensity, geometry)
+    system = _system(intensity)
 
     if el.tag == "point_load":
         force, moment = _point_intensity(intensity)
@@ -402,6 +411,30 @@ def _surface_footprint(footprint: ET.Element, geometry: _Geometry):
     raise _Refused(footprint.tag, "no concept surface load holds this kind of surface footprint")
 
 
+def _prescribed_displacement(name: str, footprint: ET.Element, intensity: ET.Element, geometry: _Geometry):
+    if (
+        footprint.tag != "footprint_support_point"
+        or len(footprint) != 0
+        or set(footprint.attrib) != {"support_point_ref"}
+    ):
+        raise _Refused(footprint.tag, "a prescribed displacement on something other than one support point")
+    support = geometry.support_point(footprint.get("support_point_ref"), footprint.tag)
+    if intensity.tag != "displacement_constant" or intensity.attrib:
+        raise _Refused(intensity.tag, "no concept prescribed displacement holds this kind of displacement")
+    values = intensity.findall("intensity")
+    if len(values) != 1 or sorted(c.tag for c in values[0]) != ["rotation", "translation"]:
+        raise _Refused(intensity.tag, "expected one intensity with one translation and one rotation")
+    translation, rotation = values[0].find("translation"), values[0].find("rotation")
+    _check_attributes(translation, {"dx", "dy", "dz"}, intensity.tag)
+    _check_attributes(rotation, {"rx", "ry", "rz"}, intensity.tag)
+    return LoadConceptPrescribedDisplacement(
+        name,
+        support,
+        translation=tuple(float(translation.get(k, "0")) for k in ("dx", "dy", "dz")),
+        rotation=tuple(float(rotation.get(k, "0")) for k in ("rx", "ry", "rz")),
+    )
+
+
 def _environmental_load(el: ET.Element):
     if el.tag == "gravity_load":
         if el.get("include_selfweight") != "true":
@@ -518,6 +551,14 @@ class _Geometry:
             raise _Refused(keyword, "a beam parameter outside 0..1", beam_ref=ref, param=param)
         a, b = line
         return tuple(a[i] + param * (b[i] - a[i]) for i in range(3))
+
+    def support_point(self, ref: str, keyword: str):
+        constraints = self.part.concept_fem.constraints
+        support = constraints.point_constraints.get(ref)
+        if support is None:
+            other = "a rigid-link support" if ref in constraints.rigid_links else "a support point that was not read"
+            raise _Refused(keyword, f"it names {other}", support_point_ref=ref)
+        return support
 
     def plate(self, ref: str, keyword: str):
         plate = self.part.plates.from_name(ref)
