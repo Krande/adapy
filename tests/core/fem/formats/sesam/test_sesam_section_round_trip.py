@@ -286,3 +286,67 @@ def test_a_file_with_a_glsec_that_is_not_an_angle_reads(tmp_path):
     assert f.kind == "suspect" and "is not an angle" in f.reason
     with pytest.raises(ValueError, match='"L200" is not an angle'):
         calculate_general_properties(sec)
+
+
+# --- L3: the shear factors SFY/SFZ on a profile card ------------------------------------------------
+
+
+def _rewrite(deck: pathlib.Path, card: str, edit) -> pathlib.Path:
+    from ada.fem.formats.sesam.write.write_utils import write_ff
+
+    rec = _records(deck, card)[0]
+    vals = edit([float(x) for x in rec.split()[1:]])
+    new = "" if vals is None else write_ff(card, [tuple(vals[i : i + 4]) for i in range(0, len(vals), 4)])
+    deck.write_text(deck.read_text().replace(rec + "\n", new))
+    return deck
+
+
+def _factors(sfy, sfz):
+    def edit(v):  # GIORH: geono hz ty bt tt bb tb sfy sfz
+        v[7], v[8] = sfy, sfz
+        return v
+
+    return edit
+
+
+def test_a_card_factor_without_a_gbeamg_is_applied(tmp_path):
+    """89-7012: SHARY = SHARY(calculated) x SFY. A GIORH SFY 0.5 / SFZ 0.8 with no GBEAMG beside it
+    (a hand-made or third-party deck; GeniE always writes GBEAMG) was read with the factors dropped
+    -- Sfy 1, Shary 2.08222e-3 for IPE300 -- and written back SFY 1.0. Now the section's properties
+    are calculated with them: Shary 1.04111e-3, Sharz 1.50920e-3 (GeniE's L3_I GBEAMG), and the card
+    says 0.5 / 0.8 again."""
+    deck = _write(_model(ada.Section("I", from_str="IPE300")), tmp_path, "i")
+    _rewrite(_rewrite(deck, "GIORH", _factors(0.5, 0.8)), "GBEAMG", lambda v: None)
+    assert not _records(deck, "GBEAMG")
+    (sec,) = _sections.__wrapped__(deck).values()
+    p = sec.properties
+    assert (p.Sfy, p.Sfz) == (0.5, 0.8)
+    assert (p.Shary, p.Sharz) == pytest.approx((1.04111050e-3, 1.50919675e-3), rel=1e-7)
+    again = _write(ada.from_fem(deck), tmp_path, "i2")
+    assert [float(x) for x in _records(again, "GIORH")[0].split()[8:10]] == [0.5, 0.8]
+    assert float(_records(again, "GBEAMG")[0].split()[11]) == pytest.approx(1.04111050e-3, rel=1e-7)
+
+
+def test_a_zero_shear_factor_is_a_zero_shear_area():
+    """89-7012 gives SFY no default: SHARY(MOD) = SHARY(PROG) x SFY, and a zero SHARY means shear
+    deformation is not included. GeniE V8.13-02 imports GIORH SFY 0 / SFZ 0 (I_SF0) and writes SHARY
+    = SHARZ = 0 beside SFY 0 -- 0 is not "not given". adapy reads it so: factors 0, unmodified."""
+    p = _sections(GENIE_IMPORT)["I_SF0"].properties
+    assert (p.Sfy, p.Sfz, p.Shary, p.Sharz) == (0.0, 0.0, 0.0, 0.0)
+    assert not p.modified
+
+
+def test_a_zero_shear_factor_beside_a_shear_area_is_suspect(tmp_path):
+    """SFY 0 beside a GBEAMG SHARY that is not zero contradicts itself: Sestra takes GBEAMG's SHARY,
+    GeniE recomputes 0. The GBEAMG and the factor are both kept as read, and a "suspect" finding
+    names the section."""
+    from ada.fem.formats import conversion_report
+
+    deck = _write(_model(ada.Section("I", from_str="IPE300")), tmp_path, "i")
+    _rewrite(deck, "GIORH", _factors(0.0, 1.0))
+    with conversion_report.collect() as rep:
+        (sec,) = _sections.__wrapped__(deck).values()
+    p = sec.properties
+    assert (p.Sfy, p.Sfz) == (0.0, 1.0) and p.Shary == pytest.approx(2.08222099e-3, rel=1e-8)
+    (f,) = [f for f in rep.findings if f.keyword == "GIORH"]
+    assert f.kind == "suspect" and f.subject == "IPE300" and "SFY" in f.reason

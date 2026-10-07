@@ -36,8 +36,26 @@ def interpret_section_props(name, sec_prop, parent: Part) -> Section:
 
     section = sec_interpreter(name, sec_prop)
     section.parent = parent
+    _apply_shear_factors(section, sec_prop)
 
     return section
+
+
+def _apply_shear_factors(section: Section, sec_prop) -> None:
+    """A parametric section's ``sfy``/``sfz`` (Sesam's SFY/SFZ: SHARY = calculated x SFY) go onto its
+    properties, which GeniE computes with them. A general section carries them itself."""
+    if section.type == Section.TYPES.GENERAL:
+        return
+    sfy, sfz = (float(sec_prop.attrib.get(k, 1.0)) for k in ("sfy", "sfz"))
+    if (sfy, sfz) == (1.0, 1.0):
+        return
+    from ada.sections.properties import calculate_general_properties
+
+    try:
+        section._genprops = calculate_general_properties(section, sfy=sfy, sfz=sfz)
+    except ValueError:  # not calculable (an angle without a second leg): refused by name when asked
+        return
+    section._genprops_normalized = False
 
 
 def box_sec(name, sec_prop) -> Section:

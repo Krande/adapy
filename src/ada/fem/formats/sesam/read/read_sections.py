@@ -71,26 +71,32 @@ def get_sections(bulk_str, fem: FEM, elrefs: dict[int, dict]) -> FemSections:
     # SFY/SFZ of each profile card, by GEONO: GBEAMG's SHARY/SHARZ already include them (89-7012;
     # measured, GeniE V8.13-02), so they go onto the GBEAMG's properties as the factors applied.
     shear_factors: dict[int, tuple[float, float]] = {}
+    profile_cards: dict[int, str] = {}
 
-    def profiles(read, regex):
+    def profiles(read, regex, card):
         for m in regex.finditer(bulk_str):
             d = m.groupdict()
-            shear_factors[str_to_int(d["geono"])] = tuple(
-                1.0 if d.get(k) is None else float(d[k]) for k in ("sfy", "sfz")
-            )
+            geono = str_to_int(d["geono"])
+            shear_factors[geono] = tuple(1.0 if d.get(k) is None else float(d[k]) for k in ("sfy", "sfz"))
+            profile_cards[geono] = card
             yield read(m, sect_names, fem)
 
     list_of_sections = chain(
-        profiles(get_isection, cards.GIORH.to_ff_re()),
-        profiles(get_box_section, cards.GBOX.to_ff_re()),
-        profiles(get_tubular_section, cards.re_gpipe),
-        profiles(get_angular_section, cards.GLSEC.to_ff_re()),
-        profiles(get_channel_section, cards.GCHAN.to_ff_re()),
-        profiles(get_flatbar, cards.re_gbarm),
+        profiles(get_isection, cards.GIORH.to_ff_re(), "GIORH"),
+        profiles(get_box_section, cards.GBOX.to_ff_re(), "GBOX"),
+        profiles(get_tubular_section, cards.re_gpipe, "GPIPE"),
+        profiles(get_angular_section, cards.GLSEC.to_ff_re(), "GLSEC"),
+        profiles(get_channel_section, cards.GCHAN.to_ff_re(), "GCHAN"),
+        profiles(get_flatbar, cards.re_gbarm, "GBARM"),
     )
 
     fem.parent._sections = Sections(list_of_sections, parent=fem.parent)
-    [add_general_sections(m, fem, shear_factors) for m in cards.re_gbeamg.finditer(bulk_str)]
+    with_gbeamg = {
+        add_general_sections(m, fem, shear_factors, profile_cards) for m in cards.re_gbeamg.finditer(bulk_str)
+    }
+    for geono, (sfy, sfz) in shear_factors.items():
+        if geono not in with_gbeamg and (sfy, sfz) != (1.0, 1.0):
+            apply_shear_factors(fem.parent.sections.get_by_id(geono), sfy, sfz)
 
     builder = _SectionBuilder(fem, elrefs, lcsysd, hinges, ecc, thick)
     fem_sections = FemSections(builder.build(section_sets(bulk_str, fem)), fem_obj=fem)
@@ -364,7 +370,28 @@ def get_flatbar(match, sect_names, fem) -> Section:
     )
 
 
-def add_general_sections(match, fem, shear_factors: dict[int, tuple[float, float]] | None = None) -> None:
+def apply_shear_factors(sec: Section, sfy: float, sfz: float) -> None:
+    """A profile card's SFY/SFZ with no GBEAMG beside it: the section's properties are its calculated
+    ones times the factors (89-7012, SHARY = SHARY(calculated) x SFY), as GeniE computes them on
+    import. Without this the factors were dropped (Sfy 1, unfactored Shary) and written back as 1.0.
+    A section that cannot be calculated keeps no properties, and refuses by name when asked."""
+    from ada.sections.properties import calculate_general_properties
+
+    try:
+        sec._genprops = calculate_general_properties(sec, sfy=sfy, sfz=sfz)
+    except ValueError:
+        return
+    sec._genprops_normalized = False
+
+
+def add_general_sections(
+    match,
+    fem,
+    shear_factors: dict[int, tuple[float, float]] | None = None,
+    profile_cards: dict[int, str] | None = None,
+) -> int:
+    """The GBEAMG record as the properties of the section of its GEONO (a GENERAL section when no
+    profile card has that number). Returns the GEONO."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     sfy, sfz = (shear_factors or {}).get(sec_id, (1.0, 1.0))
@@ -391,11 +418,26 @@ def add_general_sections(match, fem, shear_factors: dict[int, tuple[float, float
         sec = fem.parent.sections.get_by_id(sec_id)
         gen_props.parent = sec
         sec._genprops = normalize_general_properties(sec, gen_props)
+        for factor, area, axis in ((sfy, gen_props.Shary, "Y"), (sfz, gen_props.Sharz, "Z")):
+            if factor == 0.0 and area != 0.0:
+                # 89-7012: SHAR(MOD) = SHAR(calculated) x SF, so SF = 0 is a zero shear area (shear
+                # deformation not included), as GeniE V8.13-02 computes it on import
+                from ada.fem.formats import conversion_report
+
+                conversion_report.current().suspect(
+                    "sesam reader",
+                    (profile_cards or {}).get(sec_id, "GBEAMG"),
+                    sec.name,
+                    f"SF{axis} = 0 makes SHAR{axis} 0 (89-7012; GeniE recomputes it so on import), but the "
+                    f"GBEAMG beside it has SHAR{axis} {area:.6g}, which Sestra uses; both are kept as read",
+                    **{f"SF{axis}": factor, f"SHAR{axis}": area},
+                )
     else:
         stype = Section.TYPES.GENERAL
         sec = Section(name=f"GB{sec_id}", sec_id=sec_id, sec_type=stype, genprops=gen_props, parent=fem.parent)
         gen_props.parent = sec
         fem.parent.sections.add(sec)
+    return sec_id
 
 
 def get_tubular_section(match, sect_names, fem) -> Section:

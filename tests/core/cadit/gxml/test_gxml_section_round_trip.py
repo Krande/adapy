@@ -194,3 +194,79 @@ def test_a_general_section_keeps_every_explicit_property(tmp_path):
         if av is None:
             continue
         assert getattr(read.properties, name) == pytest.approx(av), name
+
+
+# --- shear factors on parametric sections --------------------------------------------------------
+
+GENIE_REVIEW_FEM = (
+    __import__("pathlib").Path(__file__).resolve().parents[4]
+    / "files/fem_files/sesam/section_props/genie_v8_13_review437_T1.FEM"
+)
+FACTORED = ("L3_I", "L3_BOX", "L3_ANG", "L3_CHAN", "L3_BAR", "L3_PIPE")
+
+
+def test_shear_factors_of_a_parametric_section_round_trip_through_genie_xml(tmp_path):
+    """GeniE's six sections with SFY 0.5 / SFZ 0.8 (read from its Sesam deck) are written with
+    ``sfy="0.5" sfz="0.8"`` and read back with those factors and GeniE's factored shear areas. The
+    writer wrote ``sfy="1"`` for every parametric section and the reader read the factors only for a
+    general section, so GeniE (which recomputes from the profile) and adapy both lost them."""
+    import xml.etree.ElementTree as ET
+
+    genie = {
+        s.name: s
+        for p in ada.from_fem(GENIE_REVIEW_FEM).get_all_parts_in_assembly(include_self=True)
+        for s in p.sections
+    }
+    part = ada.Part("P")
+    for i, name in enumerate(FACTORED):
+        part.add_beam(ada.Beam(f"bm{i}", (0, i, 0), (2, i, 0), sec=genie[name]))
+    xml_file = tmp_path / "factored.xml"
+    (ada.Assembly("rt") / part).to_genie_xml(xml_file)
+
+    written = {el.get("name"): el[0].attrib for el in ET.parse(xml_file).getroot().iter("section") if el.get("name")}
+    read = {s.name: s for p in ada.from_genie_xml(xml_file).get_all_parts_in_assembly(True) for s in p.sections}
+    for name in FACTORED:
+        assert (float(written[name]["sfy"]), float(written[name]["sfz"])) == pytest.approx((0.5, 0.8)), name
+        p, g = read[name].properties, genie[name].properties
+        assert (p.Sfy, p.Sfz) == pytest.approx((0.5, 0.8), rel=1e-7), name
+        assert (p.Shary, p.Sharz) == pytest.approx((g.Shary, g.Sharz), rel=1e-6), name
+
+
+def test_an_unfactored_parametric_section_is_written_with_factors_of_one(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    a = ada.Assembly("rt") / (ada.Part("P") / ada.Beam("bm", (0, 0, 0), (2, 0, 0), "IPE300"))
+    a.to_genie_xml(tmp_path / "i.xml")
+    (el,) = [el for el in ET.parse(tmp_path / "i.xml").getroot().iter("section") if el.get("name")]
+    assert (el[0].get("sfy"), el[0].get("sfz")) == ("1", "1")
+    (sec,) = [s for p in ada.from_genie_xml(tmp_path / "i.xml").get_all_parts_in_assembly(True) for s in p.sections]
+    assert (sec.properties.Sfy, sec.properties.Sfz) == (1, 1)
+
+
+def test_genie_applies_the_shear_factors_adapy_writes():
+    """GeniE V8.13-02 importing the Genie XML adapy writes for those six sections
+    (adapy_factored_sections.xml -> genie_v8_13_gxml_import.js) keeps SFY 0.5 / SFZ 0.8 on the cards
+    and computes the factored shear areas of its own deck: within 1.2e-7 (single precision)."""
+    from_xml = {
+        s.name: s
+        for p in ada.from_fem(GENIE_REVIEW_FEM.with_name("genie_v8_13_gxml_import_T1.FEM")).get_all_parts_in_assembly(
+            True
+        )
+        for s in p.sections
+    }
+    own = {s.name: s for p in ada.from_fem(GENIE_REVIEW_FEM).get_all_parts_in_assembly(True) for s in p.sections}
+    for name in FACTORED:
+        p, g = from_xml[name].properties, own[name].properties
+        assert (p.Sfy, p.Sfz) == pytest.approx((0.5, 0.8), rel=1e-7), name
+        assert (p.Shary, p.Sharz) == pytest.approx((g.Shary, g.Sharz), rel=2e-7), name
+
+
+def test_a_factored_general_section_keeps_its_explicit_shear_areas(tmp_path):
+    """A general section carries its factors and its (already factored) shear areas itself."""
+    gp = GeneralProperties(Ax=0.012, Ix=3.4e-05, Iy=1.2e-04, Iz=5.6e-05, Shary=0.0031, Sharz=0.0042, Sfy=0.5, Sfz=0.8)
+    src = ada.Section("GEN1", sec_type=ada.Section.TYPES.GENERAL, genprops=gp)
+    a = ada.Assembly("rt") / (ada.Part("P") / ada.Beam("bm", (0, 0, 0), (2, 0, 0), sec=src))
+    a.to_genie_xml(tmp_path / "g.xml")
+    (read,) = [s for p in ada.from_genie_xml(tmp_path / "g.xml").get_all_parts_in_assembly(True) for s in p.sections]
+    p = read.properties
+    assert (p.Sfy, p.Sfz, p.Shary, p.Sharz) == pytest.approx((0.5, 0.8, 0.0031, 0.0042))

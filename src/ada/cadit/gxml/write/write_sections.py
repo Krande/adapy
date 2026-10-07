@@ -80,6 +80,16 @@ def add_sections(root: ET.Element, part: Part):
         section2.append(sec2_props)
 
 
+def _shear_factors(section: Section) -> dict[str, str]:
+    """``sfy``/``sfz``: the Sesam shear factors the section's properties carry (read from a profile
+    card, 89-7012 SHARY = calculated x SFY), "1" for a section whose properties are calculated. GeniE
+    applies them when it computes the profile's properties on import."""
+    gp = section._genprops  # stored properties only: computing them here would refuse a degenerate angle
+    if gp is None:
+        return dict(sfy="1", sfz="1")
+    return dict(sfy=f"{gp.Sfy:.9g}", sfz=f"{gp.Sfz:.9g}")
+
+
 def to_gxml_angular_section(section: Section):
 
     return ET.Element(
@@ -90,8 +100,7 @@ def to_gxml_angular_section(section: Section):
             tw=str(section.t_w),
             tf=str(section.t_fbtn),
             fabrication="unknown",
-            sfy="1",
-            sfz="1",
+            **_shear_factors(section),
             general_properties_method="computed",
         ),
     )
@@ -104,8 +113,7 @@ def to_gxml_pipe_section(section: Section):
             od=str(section.r * 2),
             th=str(section.wt),
             fabrication="unknown",
-            sfy="1",
-            sfz="1",
+            **_shear_factors(section),
             general_properties_method="computed",
         ),
     )
@@ -121,8 +129,7 @@ def to_gxml_i_section(section: Section):
             tf=str(section.t_fbtn),
             fillet_radius="0.00",  # note this will be used in genie cog calc!
             fabrication="unknown",
-            sfy="1",
-            sfz="1",
+            **_shear_factors(section),
             general_properties_method="computed",
         ),
     )
@@ -138,8 +145,7 @@ def to_gxml_box_section(section: Section):
             tfbot=str(section.t_fbtn),
             tftop=str(section.t_ftop),
             fabrication="unknown",
-            sfy="1",
-            sfz="1",
+            **_shear_factors(section),
             general_properties_method="computed",
         ),
     )
@@ -159,8 +165,7 @@ def to_gxml_unsymm_i_section(section: Section):
             tfbot=str(section.t_fbtn),
             tftop=str(section.t_ftop),
             fabrication="unknown",
-            sfy="1",
-            sfz="1",
+            **_shear_factors(section),
             general_properties_method="computed",
         ),
     )
@@ -175,8 +180,7 @@ def to_gxml_channel_section(section: Section) -> ET.Element:
             tw=str(section.t_w),
             tf=str(section.t_fbtn),
             fabrication="unknown",
-            sfy="1",
-            sfz="1",
+            **_shear_factors(section),
             general_properties_method="computed",
         ),
     )
@@ -189,8 +193,7 @@ def to_gxml_bar_section(section: Section) -> ET.Element:
             h=str(section.h),
             b=str(section.w_btn),
             fabrication="unknown",
-            sfy="1",
-            sfz="1",
+            **_shear_factors(section),
             general_properties_method="computed",
         ),
     )
