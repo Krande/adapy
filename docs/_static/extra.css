@@ -7,6 +7,30 @@ iframe.ada-viewer {
   background: var(--md-default-bg-color);
 }
 
+/* Sidebar: make the top-level section names (Features, Primitives, …) read as group labels
+   rather than as one more page link, and tie each section's pages to it with a rule.
+   Desktop layout only; on small screens sections are drill-down levels and keep the theme look. */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary > .md-nav__list > .md-nav__item--section {
+    margin-top: 1.4em;
+  }
+
+  .md-nav--primary > .md-nav__list > .md-nav__item--section > .md-nav__link {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--md-accent-fg-color);
+    opacity: 1;
+  }
+
+  .md-nav--primary > .md-nav__list > .md-nav__item--section > .md-nav > .md-nav__list {
+    margin-left: 0.2rem;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--md-default-fg-color--lightest);
+  }
+}
+
 /* Mermaid architecture diagrams are wide; let them use the full content width and scroll
    sideways on small screens instead of shrinking the text to nothing. */
 .md-typeset .mermaid {
