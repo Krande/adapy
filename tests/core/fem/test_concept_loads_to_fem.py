@@ -466,3 +466,137 @@ def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(t
         a.to_fem("one", fmt, scratch_dir=tmp_path, overwrite=True)
     (lost,) = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
     assert (lost.kind, lost.stage, lost.details) == ("omitted", f"{fmt} writer", {"part": "p", "n_loads": 1})
+
+
+# --- refusals and physics the review of #435 found no test for (each fails under the mutation named) -------------
+
+
+def _bello2(deck) -> list[tuple]:
+    """Every BELLO2 as (load case, edge end a, edge end b), the ends in sorted order."""
+    return sorted(
+        (case, *sorted(ends)) for case, recs in load_records(deck).items() for (kind, *ends) in recs if kind == "BELLO2"
+    )
+
+
+def test_a_plate_edge_load_ending_inside_an_edge_writes_only_the_whole_edges(tmp_path):
+    """1000 N/m along the plate's edge y = 0 from x = 0.3 to 3.7 on a 0.5 m quad mesh. A BELLO2 loads a whole edge, so
+    the six edges 0.5..3.5 are written (3000 N) and the two it ends inside are reported by the conversion, which
+    leaves them out of the FE load. Fails if ``_edge_segments`` keeps the partial edges: the FE load then holds 8
+    segments, two of them part of an edge, which the Sesam writer refuses on its own (so the deck alone does not
+    tell) and a writer that loads whole edges would stretch over them (8 edges, 4000 N)."""
+    from ada.fem.concept.loads import LoadConceptLine
+
+    q = (0, 0, -1000.0)
+    a, p, _ = _plate_part("edge", LoadConceptLine("LE", (0.3, 0, 0), (3.7, 0, 0), q, q))
+    with conversion_report.collect() as report:
+        p.fem = p.to_fem_obj(0.5, use_quads=True)
+        a.to_fem("d", "sesam", scratch_dir=tmp_path, overwrite=True)
+    deck = next((tmp_path / "d").glob("*T1.FEM"))
+    edges = _bello2(deck)
+    assert [(lo[0], hi[0]) for _, lo, hi in edges] == [(0.5 * i, 0.5 * i + 0.5) for i in range(1, 7)]
+    assert all(lo[1] == hi[1] == 0.0 for _, lo, hi in edges)
+    assert resultants(deck)["LC"][0] == (0.0, 0.0, -3000.0)
+    (inside,) = [f for f in report.findings if f.subject == "LE in load case LC" and "edges" in f.details]
+    assert inside.kind == "omitted" and len(inside.details["edges"]) == 2
+    (load,) = p.fem.steps[0].load_cases["LC"].loads
+    assert len(load.segments) == 6 and all(s.l1 == s.l2 == 0.0 for s in load.segments)
+    assert not [f for f in report.findings if f.keyword == "Load" and f.kind == "omitted"]
+
+
+def test_a_line_load_along_an_interior_plate_edge_is_written_once_per_edge(tmp_path):
+    """1000 N/m along y = 0.5, inside the 4 x 1 plate: each of the 8 element edges under it is shared by two quads and
+    takes one BELLO2, on the lower element id of the two, 4000 N in all. Fails without the node-pair dedup: keyed per
+    element edge, 16 records and 8000 N; the ``pair in by_pair`` check alone removed, the higher element ids."""
+    from ada.fem.concept.loads import LoadConceptLine
+
+    q = (0, 0, -1000.0)
+    a, p, _ = _plate_part("inner", LoadConceptLine("LI", (0, 0.5, 0), (4, 0.5, 0), q, q))
+    with conversion_report.collect() as report:
+        p.fem = p.to_fem_obj(0.5, use_quads=True)
+        a.to_fem("d", "sesam", scratch_dir=tmp_path, overwrite=True)
+    deck = next((tmp_path / "d").glob("*T1.FEM"))
+    edges = _bello2(deck)
+    assert [(lo[0], hi[0], lo[1], hi[1]) for _, lo, hi in edges] == [
+        (0.5 * i, 0.5 * i + 0.5, 0.5, 0.5) for i in range(8)
+    ]
+    assert resultants(deck)["LC"][0] == (0.0, 0.0, -4000.0)
+    assert "LI in load case LC" not in _found(report)
+    for v in [v for name, v in _records(deck) if name == "BELLO2"]:
+        el = p.fem.elements.from_id(int(v[4]))
+        n = len(el.nodes)
+        ends = {el.nodes[int(v[7]) - 1].id, el.nodes[int(v[7]) % n].id}
+        sharing = [e.id for e in p.fem.elements if ends <= {m.id for m in e.nodes}]
+        assert len(sharing) == 2 and el.id == min(sharing)
+
+
+def test_a_settlement_value_on_a_dof_its_support_does_not_prescribe_is_reported(tmp_path):
+    """The support prescribes dz only; the case's prescribed displacement also gives dx 0.002. Sestra ignores a BNDISPL
+    value on a dof without FIX code 2 (measured by the reader's authors), so the dx value has nothing to act on: it is
+    named, and the case's Bc holds dz alone. Fails without the report."""
+    from ada.fem.concept.constraints import ConstraintConceptDofType as Dof
+    from ada.fem.concept.constraints import ConstraintConceptPoint
+    from ada.fem.concept.loads import LoadConceptCase, LoadConceptPrescribedDisplacement
+
+    a, p = _beam_part("pdx")
+    c = p.concept_fem.constraints
+    c.add_point_constraint(ConstraintConceptPoint("root", (0, 1.5, 0), Dof.encastre()))
+    kinds = {"dz": "prescribed"}
+    sp = c.add_point_constraint(
+        ConstraintConceptPoint(
+            "tip", (4, 1.5, 0), [Dof(d, kinds.get(d, "free")) for d in ("dx", "dy", "dz", "rx", "ry", "rz")]
+        )
+    )
+    p.concept_fem.loads.add_load_case(
+        LoadConceptCase("LC_pd", [LoadConceptPrescribedDisplacement("PD", sp, (0.002, 0.0, -0.01))])
+    )
+    with conversion_report.collect() as report:
+        p.fem = p.to_fem_obj(0.5, "line")
+    (bc,) = [b for b in p.fem.bcs if b.name == "tip_LC_pd"]
+    assert (bc.dofs, bc.magnitudes) == ([3], [-0.01])
+    (f,) = [f for f in report.findings if f.subject == "PD in load case LC_pd"]
+    assert (f.kind, f.keyword, f.details) == (
+        "omitted",
+        "LoadConceptPrescribedDisplacement",
+        {"dofs": [1], "values": [0.002]},
+    )
+
+
+def test_a_moment_on_a_node_of_solid_elements_only_is_dropped_and_named_and_the_force_kept(tmp_path):
+    """A point load with a moment at a corner of a meshed solid box: a solid node has no rotation, so the moment is
+    reported and left out and the force is written. Fails if the moment is kept."""
+    from ada.fem import Load
+    from ada.fem.concept.loads import LoadConceptCase, LoadConceptPoint
+
+    box = ada.PrimBox("box", (0, 0, 0), (1, 1, 1))
+    p = ada.Part("solid") / box
+    ada.Assembly("solid_a") / p
+    pt = LoadConceptPoint("P", (1, 1, 1), (0, 0, -1000.0), (10.0, 0, 0))
+    p.concept_fem.loads.add_load_case(LoadConceptCase("LC", [pt]))
+    with conversion_report.collect() as report:
+        fem = p.to_fem_obj(0.5)
+    (step,) = fem.steps
+    (load,) = step.load_cases["LC"].loads
+    assert load.type == Load.TYPES.FORCE and list(load.dof) == [0.0, 0.0, -1000.0, 0.0, 0.0, 0.0]
+    (f,) = [f for f in report.findings if f.subject == "P in load case LC"]
+    assert (f.kind, f.details["moment"]) == ("omitted", [10.0, 0.0, 0.0])
+
+
+def test_a_combination_with_a_phase_angle_is_refused_not_written_as_static(tmp_path):
+    """A term with a phase combines complex (harmonic) cases; a static FE load case has no phase, so the combination is
+    named and no case is made of it. Fails, with LCC written as 1.0 x LC, without the phase check."""
+    from ada.fem.concept.loads import (
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+        LoadConceptPoint,
+    )
+
+    a, p = _beam_part("phase", LoadConceptPoint("P", (2, 1.5, 0), (0, 0, -1000.0), (0, 0, 0)))
+    (lc,) = p.concept_fem.loads.load_cases.values()
+    term = LoadConceptCaseFactored(lc, 1.0, phase=90)
+    p.concept_fem.loads.add_load_case_combination(LoadConceptCaseCombination("LCC", [term]))
+    with conversion_report.collect() as report:
+        p.fem = p.to_fem_obj(0.5, "line")
+    (step,) = p.fem.steps
+    assert list(step.load_cases) == ["LC"]
+    (f,) = [f for f in report.findings if f.subject == "LCC" and f.kind == "omitted"]
+    assert (f.keyword, f.details) == ("LoadConceptCaseCombination", {"load_case": "LC", "phase": 90})
