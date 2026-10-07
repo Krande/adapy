@@ -674,3 +674,27 @@ def test_a_load_case_name_goes_to_the_result_case_it_became(tdresref):
     from ada.fem.formats.sesam.results.case_names import result_case_names
 
     assert result_case_names(_Sin(tdresref)) == {1: "LCa", 2: "LCb"}
+
+
+def test_a_sub_parts_combination_is_converted_and_not_also_reported_unconverted(tmp_path):
+    """The meshed part ``Top`` holds ``Sub``, which owns LC1 and LCC = 2 LC1. LCC was converted but recorded under
+    ``Top``, and the writer's check, which looks under the owner, then also reported "LCC of part Sub" omitted."""
+    from ada.fem.concept.loads import (
+        LoadConceptCase,
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+        LoadConceptPoint,
+    )
+
+    sub = ada.Part("Sub") / ada.Beam("bm", (0, 1.5, 0), (4, 1.5, 0), "IPE300")
+    top = ada.Part("Top") / sub
+    a = ada.Assembly("A") / top
+    lc = sub.concept_fem.loads.add_load_case(
+        LoadConceptCase("LC1", [LoadConceptPoint("P", (4, 1.5, 0), (0, 0, -1000.0), (0, 0, 0))])
+    )
+    sub.concept_fem.loads.add_load_case_combination(
+        LoadConceptCaseCombination("LCC", [LoadConceptCaseFactored(lc, 2.0)])
+    )
+    deck, report = _write(a, top, tmp_path)
+    assert resultants(deck)["LCC"][0] == (0.0, 0.0, -2000.0)
+    assert not [f for f in report.findings if f.kind == "omitted" and f.keyword.startswith("LoadConcept")]

@@ -93,8 +93,9 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
     from ada.fem.steps import StepImplicitStatic
 
     cases = concept_load_cases(part)
+    # with the part that owns each: a sub-part's combination is recorded under that part, as its load cases are
     combinations = [
-        lcc
+        (p, lcc)
         for p in part.get_all_subparts(include_self=True)
         for lcc in p.concept_fem.loads.load_case_combinations.values()
     ]
@@ -121,12 +122,12 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
         step.add_loadcase(LoadCase(lc.name, None, loads=loads, metadata={LOAD_CASE_NUMBER: lc.fem_loadcase_number}))
         converted.setdefault(owner.name, []).append(lc.name)
 
-    for lcc in combinations:
+    for owner, lcc in combinations:
         loads = conv.combination(lcc, fe_loads)
         if loads is None:
             continue
         step.add_loadcase(LoadCase(lcc.name, None, loads=loads))
-        converted.setdefault(part.name, []).append(lcc.name)
+        converted.setdefault(owner.name, []).append(lcc.name)
         report().note(
             STAGE,
             "LoadConceptCaseCombination",
