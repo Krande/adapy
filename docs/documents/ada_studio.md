@@ -61,7 +61,7 @@ explains how.
 **Scene → Clashes → Run clash check** finds every place members meet: beam to beam, plate to
 beam and plate to plate. It groups the joints by type (member kinds, section families, column or
 girder, the angle between them) and marks them in 3D. Filter the groups, isolate one, and see
-which [connection rules](procedural_modelling.md#connection-rules-as-functions) apply. Here, 12
+which [connection rules](architecture/platform.md#clash-and-joints-adaclash) apply. Here, 12
 joints match the built-in girder-gusset rule, and **generate detail model** builds those details.
 
 ![A clash check: every joint in the model, grouped by type](../screenshots/ada-studio/clash.png)
