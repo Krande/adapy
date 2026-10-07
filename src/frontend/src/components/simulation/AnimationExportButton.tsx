@@ -1,5 +1,6 @@
-import React, {useRef, useState} from "react";
+import React, {useCallback, useRef, useState} from "react";
 
+import AnchoredPopover from "../common/AnchoredPopover";
 import ExportAnimationIcon from "../icons/ExportAnimationIcon";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import type {ExportProgress} from "@/utils/scene/fea/animationExport/exportAnimation";
@@ -55,6 +56,11 @@ const AnimationExportButton: React.FC = () => {
     const [progress, setProgress] = useState<ExportProgress | null>(null);
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+    // The popover is portaled to <body> (AnchoredPopover): rendered inside the
+    // Simulation drawer it was clipped by the drawer's top edge.
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const closeOptions = useCallback(() => setOpen(false), []);
+    const clearError = useCallback(() => setError(null), []);
 
     const update = (patch: Partial<ExportSettings>) => {
         setSettings((prev) => {
@@ -103,6 +109,7 @@ const AnimationExportButton: React.FC = () => {
     return (
         <div className="relative">
             <button
+                ref={buttonRef}
                 className={BUTTON_CLASS + (open ? " ring-2 ring-blue-300" : "")}
                 onClick={() => setOpen((v) => !v)}
                 title="Save the animation as a video or GIF"
@@ -112,10 +119,11 @@ const AnimationExportButton: React.FC = () => {
                 <ExportAnimationIcon/>
             </button>
             {open && (
-                <div
-                    role="dialog"
-                    aria-label="Export animation"
-                    className="absolute bottom-full left-0 z-20 mb-1 flex w-60 flex-col gap-1.5 rounded-sm bg-gray-800 p-2 text-xs text-white shadow-lg"
+                <AnchoredPopover
+                    anchorRef={buttonRef}
+                    onClose={closeOptions}
+                    ariaLabel="Export animation"
+                    className="flex w-60 flex-col gap-1.5 rounded-sm bg-gray-800 p-2 text-xs text-white shadow-lg"
                 >
                     <label className="flex items-center justify-between gap-2">
                         <span className="text-gray-300">Format</span>
@@ -194,16 +202,19 @@ const AnimationExportButton: React.FC = () => {
                     >
                         Export
                     </button>
-                </div>
+                </AnchoredPopover>
             )}
             {error && (
-                <div
-                    className="absolute bottom-full left-0 z-20 mb-1 w-56 rounded-sm bg-red-800 px-2 py-1 text-xs text-white"
-                    onClick={() => setError(null)}
-                    title="Dismiss"
+                <AnchoredPopover
+                    anchorRef={buttonRef}
+                    onClose={clearError}
+                    role="alert"
+                    className="w-56 rounded-sm bg-red-800 px-2 py-1 text-xs text-white"
                 >
-                    Export failed: {error}
-                </div>
+                    <div onClick={clearError} title="Dismiss">
+                        Export failed: {error}
+                    </div>
+                </AnchoredPopover>
             )}
         </div>
     );
