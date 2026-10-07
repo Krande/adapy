@@ -82,9 +82,8 @@ import TreeOptionsPanel from "./TreeOptionsPanel";
 import TreeSetsPanel from "./TreeSetsPanel";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
-// Owner tag for every scene object this tab adds -- the same role `OWNER` in
-// `ExternalModelsPanel.tsx` plays for the External Models panel: a standalone
-// plugin context is the documented way for CORE UI (not just a plugin) to
+// Owner tag for every scene object this tab adds. A standalone plugin context
+// is the documented way for CORE UI (not just a plugin) to
 // reach `SceneHandle.loadModelFromUrl`/`unloadModel`, so loading and unloading
 // go through the exact path a plugin would use rather than a second one.
 const OWNER = "assets";
