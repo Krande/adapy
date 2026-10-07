@@ -258,7 +258,7 @@ def elements_line_profiles() -> ada.Assembly:
         ("box", "BG200x150x6x6"),
         ("pipe", "OD200x10"),
         ("circ", "CIRC100"),
-        ("angle", "L100x100x10"),
+        ("angle", "L100x10"),
         ("flat", "FB100x10"),
         ("channel", "UNP200"),
     ]
