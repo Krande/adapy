@@ -346,7 +346,9 @@ def _write_fem(model, output_file, fmt: str, superelement: int | None = None) ->
             logger.warning("could not remove the temporary directory %s; it can be deleted", tmp)
 
 
-def _write(model, output_file, fmt: str, superelement: int | None = None) -> list[pathlib.Path]:
+def _write(
+    model, output_file, fmt: str, superelement: int | None = None, binary_acis: bool = False
+) -> list[pathlib.Path]:
     """Write ``model`` as ``fmt`` to ``output_file``. Returns every path written."""
     if fmt in FEM_WRITE_FORMATS:
         return _write_fem(model, output_file, fmt, superelement=superelement)
@@ -361,7 +363,7 @@ def _write(model, output_file, fmt: str, superelement: int | None = None) -> lis
     elif fmt == "xml":
         model.to_genie_xml(out)
     elif fmt == "gnx":
-        model.to_gnx(out)
+        model.to_gnx(out, binary_acis=binary_acis)
     else:
         raise CliUsageError(f"writing {fmt!r} is not implemented; --to must be one of: {', '.join(WRITE_FORMATS)}")
 
@@ -403,10 +405,15 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     # Resolved here, not in _write_fem, so a contradictory --superelement is refused before the
     # input is read rather than after a multi-minute parse.
     seltyp = _resolve_superelement(out, getattr(args, "superelement", None)) if out_fmt == "sesam" else None
+    binary_acis = getattr(args, "binary_acis", False)
+    if binary_acis and out_fmt != "gnx":
+        # Only a GeniE workspace stores its ACIS body as a separate member; anywhere else the flag
+        # would be silently meaningless, so it is refused before the input is read.
+        raise CliUsageError(f"--binary-acis applies to gnx output only, not {out_fmt}")
 
     with conversion_report.collect() as report:
         model = _load(args.input, fmt=in_fmt, split=args.split, limit=args.limit)
-        written = _write(model, args.output, out_fmt, superelement=seltyp)
+        written = _write(model, args.output, out_fmt, superelement=seltyp, binary_acis=binary_acis)
 
     for path in written:
         print(path)
