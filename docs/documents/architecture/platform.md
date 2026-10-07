@@ -54,6 +54,22 @@ flowchart TB
     REGW -- "heartbeat" --> NATS
     FMT <--> S3
     APP -- "poll status" --> NATS
+
+    click APP href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/app.py" "create_app()"
+    click ROUTES href "https://github.com/Krande/adapy/tree/main/src/ada/comms/rest/routes" "Routers by domain"
+    click JT href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/job_transport.py" "Queue or local job transport"
+    click BG href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/app.py" "Lifespan background tasks"
+    click LOOP href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/worker/loop.py" "Worker main loop"
+    click POOLS href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/worker/pools.py" "Capability pools"
+    click REGW href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/worker/registration.py" "Heartbeat and capabilities"
+    click FMT href "https://github.com/Krande/adapy/tree/main/src/ada/comms/rest/formats" "Job handlers"
+    click CONV href "https://github.com/Krande/adapy/tree/main/src/ada/comms/rest/converters" "Converter registry"
+    click ISO href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/subprocess_convert.py" "run_isolated_convert"
+    click NATS href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/queue.py" "JobQueue"
+    click S3 href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/storage.py" "obstore-backed storage"
+    click PG href "https://github.com/Krande/adapy/tree/main/src/ada/comms/rest/migrations" "SQL migrations"
+    click IDP href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/auth.py" "OIDC JWT verification"
+    click BR href "frontend.html" "The viewer"
 ```
 
 ## REST API (`ada.comms.rest`)
@@ -136,6 +152,11 @@ flowchart LR
     H --> C3["run_procedure · list_procedures<br/>load / save_procedural_model"]
     H --> C4["mesh_info_callback · shutdown_server<br/>start_local_app · start_separate_node_editor"]
     WEB["web/serve.py<br/>serves the SPA, injects WS port"] --> FE
+
+    click SRV href "https://github.com/Krande/adapy/blob/main/src/ada/comms/wsock/server.py" "WebSocketAsyncServer"
+    click H href "https://github.com/Krande/adapy/blob/main/src/ada/comms/msg_handling/default_on_message.py" "Message dispatch"
+    click WEB href "https://github.com/Krande/adapy/blob/main/src/ada/comms/web/serve.py" "Static SPA server"
+    click FE href "frontend.html" "The viewer"
 ```
 
 The messages are defined once in `src/flatbuffers/schemas/*.fbs` (root: `message.fbs`).
@@ -174,6 +195,14 @@ flowchart LR
     GRP["group.py · group_model.py<br/>named member groups"] --> ID
     GEO["geometry_source.py<br/>match members across<br/>published assets"] --> SRC
     FA["from_asset.py"] --> SRC
+
+    click ID href "https://github.com/Krande/adapy/blob/main/src/ada/clash/identify.py" "Joint identification passes"
+    click CL href "https://github.com/Krande/adapy/blob/main/src/ada/clash/classify.py" "Joint typing"
+    click DET href "https://github.com/Krande/adapy/blob/main/src/ada/clash/detail.py" "Detailing generators"
+    click PASS href "https://github.com/Krande/adapy/blob/main/src/ada/clash/passes.py" "Pass registry"
+    click GRP href "https://github.com/Krande/adapy/blob/main/src/ada/clash/group.py" "Named member groups"
+    click GEO href "https://github.com/Krande/adapy/blob/main/src/ada/clash/geometry_source.py" "Cross-provider member matching"
+    click FA href "https://github.com/Krande/adapy/blob/main/src/ada/clash/from_asset.py" "Clash input from published assets"
 ```
 
 The REST routes in `routes/clash_check.py` enqueue `clash_*` jobs. Workers advertise the

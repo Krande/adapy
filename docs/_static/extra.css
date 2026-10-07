@@ -31,9 +31,176 @@ iframe.ada-viewer {
   }
 }
 
-/* Mermaid architecture diagrams are wide; let them use the full content width and scroll
-   sideways on small screens instead of shrinking the text to nothing. */
-.md-typeset .mermaid {
+/* Interactive Mermaid diagrams (_static/diagrams.js). */
+.md-typeset .ada-diagram {
+  position: relative;
+  margin: 1em 0 1.5em;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem 0.6rem;
+}
+
+.ada-diagram__bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  min-height: 1.6rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ada-diagram:hover .ada-diagram__bar,
+.ada-diagram:focus-within .ada-diagram__bar {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ada-diagram__bar {
+    opacity: 1;
+  }
+}
+
+.ada-diagram__hint,
+.ada-diagram-dialog__hint {
+  font-size: 0.6rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.ada-diagram__enlarge,
+.ada-diagram-dialog__bar button {
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.ada-diagram__enlarge:hover,
+.ada-diagram-dialog__bar button:hover {
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-fg-color);
+}
+
+.ada-diagram__figure {
+  cursor: zoom-in;
   overflow-x: auto;
   text-align: center;
+}
+
+.ada-diagram__figure svg {
+  height: auto;
+}
+
+.ada-diagram__error {
+  text-align: left;
+  color: var(--md-code-hl-special-color, #e55);
+}
+
+/* Connection tracing: everything not related to the hovered box fades out. */
+svg g.node,
+svg g.cluster,
+svg .flowchart-link,
+svg .edgeLabel,
+svg path.relation {
+  transition: opacity 0.12s;
+}
+
+svg g.node {
+  cursor: pointer;
+}
+
+svg.ada-tracing g.node:not(.ada-hl),
+svg.ada-tracing .flowchart-link:not(.ada-hl),
+svg.ada-tracing path.relation:not(.ada-hl),
+svg.ada-tracing .edgeLabel:not(.ada-hl) {
+  opacity: 0.12;
+}
+
+svg.ada-tracing .flowchart-link.ada-hl,
+svg.ada-tracing path.relation.ada-hl {
+  stroke: var(--md-accent-fg-color) !important;
+  stroke-width: 2.5px !important;
+}
+
+svg.ada-tracing g.node.ada-hl rect,
+svg.ada-tracing g.node.ada-hl polygon,
+svg.ada-tracing g.node.ada-hl path,
+svg.ada-tracing g.node.ada-hl circle {
+  stroke: var(--md-accent-fg-color) !important;
+}
+
+/* Boxes that link somewhere (`click … href` in the source): underlined label, accent outline. */
+svg a g.node .nodeLabel,
+svg a g.node text {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+svg a:hover g.node rect,
+svg a:hover g.node polygon,
+svg a:hover g.node path {
+  stroke: var(--md-accent-fg-color) !important;
+}
+
+/* Clusters fade a little too while tracing, so the traced path stands out. */
+svg.ada-tracing g.cluster {
+  opacity: 0.55;
+}
+
+/* Full-screen view. */
+.ada-diagram-dialog {
+  width: 96vw;
+  height: 94vh;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 8px;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  overflow: hidden;
+}
+
+.ada-diagram-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.ada-diagram-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.ada-diagram-dialog__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.ada-diagram-dialog__hint {
+  margin-right: auto;
+}
+
+.ada-diagram-dialog__viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.ada-diagram-dialog__viewport:active {
+  cursor: grabbing;
+}
+
+.ada-diagram-dialog__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
 }

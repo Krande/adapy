@@ -52,6 +52,23 @@ flowchart TB
     ST --> MW
     LOAD --> PICK
     HANDLERS --> PYO & NAT
+
+    click COMP href "https://github.com/Krande/adapy/tree/main/src/frontend/src/components" "React components"
+    click SHELL href "https://github.com/Krande/adapy/blob/main/src/frontend/src/plugins/uiShells.ts" "UI shells"
+    click ST href "https://github.com/Krande/adapy/tree/main/src/frontend/src/state" "zustand stores"
+    click MW href "https://github.com/Krande/adapy/blob/main/src/frontend/src/state/model_worker/modelCache.worker.ts" "IndexedDB model cache worker"
+    click API href "https://github.com/Krande/adapy/tree/main/src/frontend/src/services/api" "Typed REST client"
+    click TR href "https://github.com/Krande/adapy/blob/main/src/frontend/src/services/transport.ts" "REST / WebSocket transport switch"
+    click WS href "https://github.com/Krande/adapy/tree/main/src/frontend/src/utils/comms" "WebSocket and REST comms"
+    click FB href "https://github.com/Krande/adapy/tree/main/src/frontend/src/flatbuffers" "Generated FlatBuffers bindings"
+    click CORE href "https://github.com/Krande/adapy/tree/main/src/frontend/src/viewer-core" "Stable viewer API"
+    click LOAD href "https://github.com/Krande/adapy/tree/main/src/frontend/src/components/viewer/sceneHelpers" "Model loading"
+    click HANDLERS href "https://github.com/Krande/adapy/tree/main/src/frontend/src/utils/scene/handlers" "Scene handlers"
+    click FEA href "https://github.com/Krande/adapy/tree/main/src/frontend/src/utils/scene/fea/streaming" "FEA streaming"
+    click PICK href "https://github.com/Krande/adapy/tree/main/src/frontend/src/utils/mesh_select" "Batched meshes and GPU picking"
+    click PYO href "https://github.com/Krande/adapy/tree/main/src/frontend/src/utils/pyodide" "Pyodide conversion worker"
+    click NAT href "https://github.com/Krande/adapy/tree/main/src/frontend/src/utils/nativeConvert" "Emscripten conversion workers"
+    click PLUG href "https://github.com/Krande/adapy/blob/main/src/frontend/src/plugins/registry.ts" "Plugin registry"
 ```
 
 Main libraries: three.js, camera-controls, zustand, Comlink, Dexie, flatbuffers,

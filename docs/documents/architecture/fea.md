@@ -37,6 +37,17 @@ flowchart TB
     RESF --> READ --> RES --> VIEW
     RESF --> BAKE --> VIEW
     DECKIN --> BAKE
+
+    click PART href "core_model.html" "The object model"
+    click CONC href "https://github.com/Krande/adapy/tree/main/src/ada/fem/concept" "ConceptFEM: concept-level loads and constraints"
+    click GMSH href "https://github.com/Krande/adapy/tree/main/src/ada/fem/meshing" "GmshSession and partitioning"
+    click FEM href "https://github.com/Krande/adapy/blob/main/src/ada/fem/base.py" "class FEM"
+    click STORE href "https://github.com/Krande/adapy/tree/main/src/ada/api/mesh" "MeshArrays, ArrayNodes/ArrayElements, proxies"
+    click DECK href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/general.py" "write_to_fem and the per-solver dispatch"
+    click RUN href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/execute.py" "execute_fem"
+    click READ href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/postprocess.py" "postprocess → FEAResult"
+    click RES href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/common.py" "FEAResult, Mesh, FemNodes, ElementBlock"
+    click BAKE href "https://github.com/Krande/adapy/tree/main/src/ada/fem/results/artefacts" "Streaming viewer bake"
 ```
 
 ## The FE model (`ada.fem`)
@@ -300,6 +311,18 @@ flowchart TB
     B --> F["fea.FIELD.bin (nodal, AFBL)<br/>fea.FIELD.ETYPE.elements.bin (AFEL)<br/>step-major float32"]
     B --> BS["fea.beam_solids.compact.bin (AFBS)<br/>or beam-solid GLB + warp + elements"]
     B --> MF["fea.manifest.json (written last)<br/>fields · ranges · steps · groups"]
+
+    click REG href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/readers.py" "Suffix → stream-reader registry"
+    click R1 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/code_aster/read/med_stream_reader.py" "RmedStreamReader"
+    click R2 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/sesam/results/sif_stream.py" "SifStreamReader"
+    click R3 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/sesam/results/read_sin.py" "read_sin_file / SinStreamReader"
+    click R4 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/readers.py" "_make_fem_reader"
+    click P href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/protocol.py" "The FEAStreamReader protocol"
+    click B href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/bake.py" "bake_artefacts / bake_fea_artefacts_from_source"
+    click M href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/mesh.py" "Mesh GLB and sidecar writers"
+    click F href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/fields.py" "FieldBlobWriter / ElementFieldBlobWriter"
+    click BS href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/beam_compact.py" "Compact beam-solid instances"
+    click MF href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/manifest.py" "build_manifest / write_manifest"
 ```
 
 - Fields are written **one step at a time** (`FieldBlobWriter`, `ElementFieldBlobWriter`), so
@@ -332,6 +355,11 @@ flowchart TB
     OUT --> PD["paradoc build<br/>(report/ markdown)"]
     PD --> WEB["docs/_static/fea-report/<br/>static web bundle"]
     PD --> FILES["fea-report.pdf / .docx / .odt<br/>docs/_static/fea-report-files/"]
+
+    click T href "https://github.com/Krande/adapy/blob/main/verification/tasks.py" "The report's task DAG"
+    click CACHE href "https://github.com/Krande/adapy/tree/main/verification/.cache" "Committed Abaqus / Sesam results"
+    click PD href "https://github.com/Krande/adapy/blob/main/verification/paradoc.toml" "paradoc build profiles"
+    click WEB href "../fea/fea_verification.html" "Open the report page"
 ```
 
 Code_Aster and CalculiX run on every build. Abaqus and Sesam need licences, so their results

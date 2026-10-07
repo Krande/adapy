@@ -55,6 +55,20 @@ flowchart LR
     ASM -- "to_aveva_mac()" --> E3D
     ASM -- "to_fem()" --> GEN
     IFC & STEP -. "native paths" .-> NGEOM
+
+    click IFC href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/ifc" "IFC read/write, IfcStore"
+    click STEP href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/step" "STEP read/write and streaming"
+    click SAT href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/sat" "ACIS SAT"
+    click GXML href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/gxml" "Genie XML / GNX"
+    click DEXPI href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/dexpi" "DEXPI P&ID"
+    click E3D href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/e3d" "AVEVA E3D macros"
+    click NGEOM href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/ngeom" "Native geometry interchange"
+    click GEN href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/general.py" "FE format dispatch"
+    click POST href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/postprocess.py" "Result readers"
+    click FI href "https://github.com/Krande/adapy/blob/main/src/ada/factories.py" "from_ifc"
+    click FS href "https://github.com/Krande/adapy/blob/main/src/ada/factories.py" "from_step"
+    click FF href "https://github.com/Krande/adapy/blob/main/src/ada/factories.py" "from_fem"
+    click FR href "https://github.com/Krande/adapy/blob/main/src/ada/factories.py" "from_fem_res"
 ```
 
 ## CAD / BIM formats

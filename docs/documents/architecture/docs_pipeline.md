@@ -33,6 +33,13 @@ flowchart TB
     ZEN --> SITE
     SITE --> GH["GitHub Pages<br/>ci-pages.yml"]
     SITE --> IMG["docs image (nginx)<br/>deploy/Dockerfile.docs"]
+
+    click VER href "https://github.com/Krande/adapy/tree/main/verification" "The paradoc report project"
+    click FEADOC href "../fea/fea_verification.html" "The FEA verification report"
+    click NBCONV href "https://github.com/Krande/adapy/blob/main/scripts/docs_notebooks.py" "Notebook execution and conversion"
+    click ZEN href "https://github.com/Krande/adapy/blob/main/zensical.toml" "Site configuration"
+    click GH href "https://github.com/Krande/adapy/blob/main/.github/workflows/ci-pages.yml" "GitHub Pages workflow"
+    click IMG href "https://github.com/Krande/adapy/blob/main/deploy/Dockerfile.docs" "Docs image"
 ```
 
 ## Tasks
@@ -86,5 +93,27 @@ sequenceDiagram
   `_static/fea-report/index.html`) working for existing links.
 - Mermaid diagrams are `pymdownx.superfences` custom fences: write a ```` ```mermaid ````
   block. GitHub renders the same blocks when you read the Markdown in the repository.
+
+## Diagrams
+
+The fence is emitted as `<div class="ada-diagram">`, not the theme's `mermaid` class, and
+rendered by `docs/_static/diagrams.js`. The theme's own renderer draws into a closed shadow
+root, which leaves no way to make a diagram interactive. The script adds:
+
+| Feature | How it works |
+|---|---|
+| Enlarge | An **Enlarge** button on hover, or a click on empty diagram space, opens a full-screen view: wheel or pinch to zoom, drag to pan, **+ / − / Fit**, Esc to close. |
+| Trace connections | Hovering a box in a flowchart or class diagram dims everything except that box, its edges and its direct neighbours. Clicking a box pins the trace (useful on touch screens); clicking empty space releases it. |
+| Links and tooltips | A `click NODE href "url" "tooltip"` line makes the box a link (underlined) with a native tooltip. Architecture diagrams link boxes to the page that covers them or to the code on GitHub. |
+| Layout | Flowcharts use the ELK layout engine (`@mermaid-js/layout-elk`), which handles nested subgraphs much better than the default dagre. If ELK cannot load, dagre is used. |
+| Theme | Diagrams re-render when the light/dark palette is switched. |
+
+When you add a diagram:
+
+- Give boxes short ids (`FEM`, `REG`). Tracing parses edge ids of the form `L_SRC_DST_n`, and
+  ids containing `_` still work.
+- Add `click` lines for boxes that correspond to a module or a page. Use relative `.html` links
+  for pages and `https://github.com/Krande/adapy/blob|tree/main/...` for code.
+- Keep labels to two or three short lines. Detail belongs in the table under the diagram.
 - The API reference (`documents/code.md`) uses mkdocstrings with the Python handler
   (`paths = ["src"]`, Sphinx-style docstrings).

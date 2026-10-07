@@ -49,6 +49,21 @@ flowchart TB
     G -- "geom_to_occ_geom" --> OCC
     G -- "serialize_geometries" --> NGEOM --> ACPP
     PROTO -- "tessellate_batch" --> BM
+
+    click OBJ href "core_model.html#geometry-on-the-object" "solid_geom() / solid_occ() on every object"
+    click G href "https://github.com/Krande/adapy/blob/main/src/ada/geom/core.py" "Geometry"
+    click SOL href "https://github.com/Krande/adapy/blob/main/src/ada/geom/solids.py" "Solid definitions"
+    click CUR href "https://github.com/Krande/adapy/blob/main/src/ada/geom/curves.py" "Curve definitions"
+    click SUR href "https://github.com/Krande/adapy/blob/main/src/ada/geom/surfaces.py" "Surface definitions"
+    click BOOL href "https://github.com/Krande/adapy/blob/main/src/ada/geom/booleans.py" "BooleanOperation"
+    click PROTO href "https://github.com/Krande/adapy/blob/main/src/ada/cad/__init__.py" "CadBackend protocol"
+    click SEL href "https://github.com/Krande/adapy/blob/main/src/ada/cad/__init__.py" "select_backend()"
+    click BM href "https://github.com/Krande/adapy/blob/main/src/ada/cad/__init__.py" "BatchMesh / MeshGroup"
+    click CACHE href "https://github.com/Krande/adapy/blob/main/src/ada/cad/shape_cache.py" "Shape cache"
+    click DOC href "https://github.com/Krande/adapy/blob/main/src/ada/cad/doc.py" "OCAF/XCAF document backends"
+    click ACPP href "https://github.com/Krande/adapy/blob/main/src/ada/cad/__init__.py" "AdacppBackend"
+    click OCC href "https://github.com/Krande/adapy/tree/main/src/ada/occ" "pythonocc backend"
+    click NGEOM href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/ngeom" "NGEOM serialisation and native export"
 ```
 
 `ShapeHandle` is opaque: callers never touch kernel types directly. `to_occ_shape()` is the

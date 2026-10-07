@@ -72,6 +72,9 @@ nav = [
 ]
 
 extra_css = ["_static/extra.css"]
+# Renders the ```mermaid fences (see the superfences custom fence below) with enlarge,
+# pan/zoom, connection tracing and clickable boxes.
+extra_javascript = ["_static/diagrams.js"]
 
 [project.theme]
 language = "en"
@@ -121,8 +124,10 @@ pygments_lang_class = true
 [project.markdown_extensions.pymdownx.inlinehilite]
 [project.markdown_extensions.pymdownx.snippets]
 [project.markdown_extensions.pymdownx.superfences]
+# Not class "mermaid": the theme would render those itself, into a closed shadow root that
+# _static/diagrams.js cannot make interactive. "ada-diagram" blocks are rendered by that script.
 custom_fences = [
-  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+  { name = "mermaid", class = "ada-diagram", format = "pymdownx.superfences.fence_div_format" },
 ]
 [project.markdown_extensions.pymdownx.tabbed]
 alternate_style = true
