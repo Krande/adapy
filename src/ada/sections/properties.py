@@ -339,10 +339,14 @@ def calc_angular(sec: Section) -> GeneralProperties:
     Wxmin = Ix / d
     Wymin = Iy / max(z, hz - h)
     Wzmin = Iz / max(y, rj)
-    Sy = (ty * e**2) / 2
+    # Static moments and shear areas as GeniE writes them to GBEAMG: Sy is the web above the
+    # neutral axis (the web taken as reaching the axis even when that lies in the flange), and
+    # z-shear is carried by the web, y-shear by the flange. ``z`` above is not the centroid
+    # (``b`` has the wrong sign); ``c_z`` is.
+    Sy = ty * (hz - c_z) ** 2 / 2
     Sz = (tz * rj**2) / 2
     Shary = (Iz * tz / Sz) * sfy
-    Sharz = (Iy * tz / Sy) * sfz
+    Sharz = (Iy * ty / Sy) * sfz
 
     if posweb:
         Iyz = -Iyz
