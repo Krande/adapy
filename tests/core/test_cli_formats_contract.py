@@ -41,7 +41,7 @@ from ada_cli.main import _build_parser
 
 _REPO = pathlib.Path(__file__).parents[2]
 _README = _REPO / "README.md"
-_DOCS_PAGE = _REPO / "docs" / "documents" / "cli.rst"
+_DOCS_PAGE = _REPO / "docs" / "cli.md"
 
 # The prose surfaces live in the repo tree only; the wheel/sdist test env ships tests/ and files/
 # and nothing else, so skip there rather than fail. Same guard as test_cli_surface_docs.py.
@@ -54,7 +54,7 @@ _needs_repo = pytest.mark.skipif(
 _MODEL_NAME = "nm"
 
 #: What each writer leaves in ``<scratch>/<name>/`` besides its primary deck, for a model that has a
-#: step (Sesam writes ``sestra.inp`` only then). Mirrored by the notes column in cli.rst, because
+#: step (Sesam writes ``sestra.inp`` only then). Mirrored by the notes column in cli.md, because
 #: ``ada convert`` copies every one of these next to the output the user named.
 _DOCUMENTED_SIDECARS: dict[str, tuple[str, ...]] = {
     "abaqus": (),
@@ -72,7 +72,7 @@ def _drift(cli: set[str], library: set[str], cli_label: str, library_label: str)
         f"{cli_label} has drifted from {library_label}:\n"
         f"  in {cli_label} but unknown to {library_label}: {sorted(cli - library) or 'none'}\n"
         f"  in {library_label} but missing from {cli_label}: {sorted(library - cli) or 'none'}\n"
-        f"Update src/ada_cli/formats.py (and docs/documents/cli.rst + the README table) to match."
+        f"Update src/ada_cli/formats.py (and docs/cli.md + the README table) to match."
     )
 
 
@@ -281,7 +281,7 @@ def test_primary_pattern_matches_what_each_writer_produces(fmt: str, fem_write_o
     assert primary.is_file(), (
         f"FEM_WRITE_PRIMARY[{fmt!r}] = {pattern!r} promises {primary.name!r}, which the {fmt} writer did not "
         f"produce.\n  looked in: {produced}\n  found:     {listing or ['nothing']}\n"
-        f"Fix src/ada_cli/formats.py::FEM_WRITE_PRIMARY (and the sidecar notes in docs/documents/cli.rst)."
+        f"Fix src/ada_cli/formats.py::FEM_WRITE_PRIMARY (and the sidecar notes in docs/cli.md)."
     )
 
 
@@ -300,7 +300,7 @@ def test_writers_leave_only_the_sidecars_the_docs_promise(fmt: str, fem_write_ou
     assert sidecars == expected, (
         f"the {fmt} writer's sidecars changed: expected {expected or ['none']}, found {sidecars or ['none']}.\n"
         f"Every file here is copied next to the output the user named, so update the per-format notes in "
-        f"docs/documents/cli.rst and _DOCUMENTED_SIDECARS together."
+        f"docs/cli.md and _DOCUMENTED_SIDECARS together."
     )
 
 
@@ -313,7 +313,7 @@ def test_docs_page_names_every_format(name: str):
     """A format the CLI accepts but the reference page never mentions is a format nobody finds."""
     assert name in _DOCS_PAGE.read_text(
         encoding="utf-8"
-    ), f"docs/documents/cli.rst never mentions the {name!r} format, which ada convert accepts"
+    ), f"docs/cli.md never mentions the {name!r} format, which ada convert accepts"
 
 
 @_needs_repo
@@ -325,7 +325,7 @@ def test_docs_page_names_every_extension(ext: str):
     """Extensions are how the format is chosen by default, so the page owes the reader all of them."""
     assert f".{ext}" in _DOCS_PAGE.read_text(
         encoding="utf-8"
-    ), f"docs/documents/cli.rst never mentions '.{ext}', which ada convert infers a format from"
+    ), f"docs/cli.md never mentions '.{ext}', which ada convert infers a format from"
 
 
 @_needs_repo
@@ -337,8 +337,8 @@ def test_docs_page_documents_every_convert_flag():
     flags = {opt for action in convert._actions for opt in action.option_strings if opt.startswith("--")}
     flags -= {"--help"}
     page = _DOCS_PAGE.read_text(encoding="utf-8")
-    undocumented = sorted(flag for flag in flags if f"``{flag}``" not in page)
-    assert not undocumented, f"docs/documents/cli.rst does not document these ada convert flags: {undocumented}"
+    undocumented = sorted(flag for flag in flags if f"`{flag}`" not in page)
+    assert not undocumented, f"docs/cli.md does not document these ada convert flags: {undocumented}"
 
 
 @_needs_repo

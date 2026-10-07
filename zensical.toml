@@ -1,0 +1,144 @@
+# Zensical site for adapy (https://zensical.org). Build with `pixi run -e docs docs`,
+# preview with `pixi run -e docs docs-serve`.
+#
+# Notebook pages (docs/**/*.ipynb) are not read by Zensical: scripts/docs_notebooks.py
+# executes and converts them to Markdown beside their sources first (docs-notebooks task).
+
+[project]
+site_name = "ADA - Advanced Design & Analysis"
+site_description = "A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats."
+site_author = "Kristoffer H. Andersen"
+site_url = "https://krande.github.io/adapy/"
+repo_url = "https://github.com/Krande/adapy"
+repo_name = "Krande/adapy"
+edit_uri = "edit/main/docs/"
+copyright = "&copy; Kristoffer H. Andersen"
+docs_dir = "docs"
+site_dir = "site"
+# Pages are served as directories (docs/cli.md -> /cli/). The Sphinx-era documents/*.html
+# URLs are not redirected.
+
+nav = [
+  { "Home" = "index.md" },
+  { "Features" = [
+    "ada_studio.md",
+    "procedural_modelling.md",
+    "topology_engine.md",
+    "dexpi.md",
+    "path_to_software_agnosticism.md",
+    "meshing.md",
+    "cli.md",
+  ] },
+  { "Primitives" = [
+    "notebooks/design/primitives/box.md",
+    "notebooks/design/primitives/sphere.md",
+    "notebooks/design/primitives/cylinder.md",
+    "notebooks/design/primitives/cone.md",
+    "notebooks/design/primitives/extrusion.md",
+    "notebooks/design/primitives/revolve.md",
+    "notebooks/design/primitives/sweeps.md",
+    "notebooks/design/primitives/beams.md",
+    "notebooks/design/primitives/plates.md",
+    "notebooks/design/primitives/pipe.md",
+  ] },
+  { "Modelling" = [
+    "notebooks/design/boolean_operations.md",
+    "notebooks/design/parts_and_assemblies.md",
+    "notebooks/design/placement.md",
+    "notebooks/design/sections.md",
+  ] },
+  { "FEA" = [
+    "fea/software.md",
+    "fea/verification.md",
+  ] },
+  { "Architecture" = [
+    "architecture/index.md",
+    "architecture/core_model.md",
+    "architecture/geometry_and_visualisation.md",
+    "architecture/interop.md",
+    "architecture/fea.md",
+    "architecture/platform.md",
+    "architecture/frontend.md",
+    "architecture/docs_pipeline.md",
+  ] },
+  { "Code" = [
+    "code.md",
+  ] },
+  { "Profiling" = [
+    "profiling.md",
+  ] },
+]
+
+extra_css = ["_static/extra.css"]
+# Renders the ```mermaid fences (see the superfences custom fence below) with enlarge,
+# pan/zoom, connection tracing and clickable boxes.
+extra_javascript = ["_static/diagrams.js"]
+
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.code.copy",
+  "content.tabs.link",
+  "navigation.indexes",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.footer",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+# Setting markdown_extensions replaces Zensical's defaults, so the ones the pages use are
+# listed in full.
+[project.markdown_extensions.abbr]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.def_list]
+[project.markdown_extensions.footnotes]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.tables]
+[project.markdown_extensions.toc]
+permalink = true
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.emoji]
+emoji_index = "zensical.extensions.emoji.twemoji"
+emoji_generator = "zensical.extensions.emoji.to_svg"
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
+[project.markdown_extensions.pymdownx.superfences]
+# Not class "mermaid": the theme would render those itself, into a closed shadow root that
+# _static/diagrams.js cannot make interactive. "ada-diagram" blocks are rendered by that script.
+custom_fences = [
+  { name = "mermaid", class = "ada-diagram", format = "pymdownx.superfences.fence_div_format" },
+]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+
+# API reference (code.md), the replacement for sphinx.ext.autodoc.
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+inventories = ["https://docs.python.org/3/objects.inv"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "sphinx"
+show_source = false
+show_root_heading = true
+members_order = "source"
