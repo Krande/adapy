@@ -294,27 +294,34 @@ def test_overlapping_supports_are_one_charge_each_node_held_in_the_union_of_its_
     assert _excit(comm, "result") == ["supports", "ld_p1"]
 
 
-@pytest.mark.parametrize("other", ["support", "settlement"])
-def test_a_prescribed_dof_another_condition_holds_on_the_same_node_is_refused_by_name(tmp_path, other):
-    """The settling beam's tip (dz prescribed, -0.01 m in LC_s) also in another node set whose Bc holds dz at 0, or
-    prescribes it +0.02: one value would have to win, and as two charges Code_Aster stops (<ASSEMBLA_26>). Refused
-    at write time, naming the node, the dof and both conditions."""
+@pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])
+@pytest.mark.parametrize("other", ["support", "settlement", "step support"])
+def test_a_prescribed_dof_another_condition_holds_on_the_same_node_is_refused_by_name(tmp_path, other, fem_format):
+    """The settling beam's tip (dz prescribed, -0.01 m in LC_s) also in another node set whose Bc holds dz at 0 (in
+    the model or in the step), or prescribes it +0.02: one value would have to win. As two charges Code_Aster stops
+    (<ASSEMBLA_26>); CalculiX took it without a word, the step's value replacing the hold (measured on a plate strip,
+    ccx 2.23: the root reaction of the strip without the hold, 4.508286 N). Both writers refuse it at write time,
+    naming the node, the dof and both conditions."""
     from ada.fem import Bc
     from ada.fem.exceptions.model_definition import ConflictingBoundaryConditions
 
     a, p = _settling_beam()
     tip = p.fem.nodes.get_by_volume((L, 0, 0))[0]
     fs = p.fem.add_set(ada.fem.FemSet("tip2", [tip], "nset"))
-    p.fem.add_bc(Bc("tip_extra", fs, [3], magnitudes=[0.02] if other == "settlement" else None))
-    with pytest.raises(ConflictingBoundaryConditions) as info:
-        _comm(a, tmp_path)
-    err = info.value
-    assert (err.node, err.dof) == (tip.id, "DZ")
-    if other == "support":
-        assert (err.bc, err.other) == ("tip_LC_s", "tip_extra") and "holds it at 0" in str(err)
+    extra = Bc("tip_extra", fs, [3], magnitudes=[0.02] if other == "settlement" else None)
+    if other == "step support":
+        p.fem.steps[0].add_bc(extra)
     else:
+        p.fem.add_bc(extra)
+    with pytest.raises(ConflictingBoundaryConditions) as info:
+        a.to_fem("d", fem_format, scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+    err = info.value
+    assert (err.node, err.dof, err.writer) == (tip.id, "DZ", fem_format)
+    if other == "settlement":
         assert (err.bc, err.other) == ("tip_extra", "tip_LC_s") and "through another set" in str(err)
-    assert "ASSEMBLA_26" in str(err)
+    else:
+        assert (err.bc, err.other) == ("tip_LC_s", "tip_extra") and "holds it at 0" in str(err)
+    assert ("ASSEMBLA_26" if fem_format == "code_aster" else "without a word") in str(err)
 
 
 @pytest.mark.parametrize("order", [1, 2])

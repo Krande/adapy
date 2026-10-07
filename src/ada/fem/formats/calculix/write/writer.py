@@ -41,6 +41,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     p = get_fem_model_from_assembly(assembly)
     steps = all_steps(assembly)
     bcs = list(p.fem.bcs) + list(assembly.fem.bcs)
+    check_conflicting_bcs(bcs, steps)
     deck = DeckContext.of(p, steps, bcs)
 
     with open(inp_file, "w") as f:
@@ -84,6 +85,26 @@ def all_steps(assembly: Assembly) -> list:
     its concept load cases become. Only the assembly's first used to be written, so a second step and a part's step
     were left out of the deck."""
     return list(assembly.fem.steps) + [s for p in assembly.get_all_subparts() for s in p.fem.steps]
+
+
+def check_conflicting_bcs(bcs, steps) -> None:
+    """Refuse by name (:class:`~ada.fem.exceptions.model_definition.ConflictingBoundaryConditions`) a prescribed dof of
+    a node another support holds, or another settlement's node set prescribes, in the same dof -- over the model's
+    boundary conditions and every step's own, as the Code_Aster writer refuses them
+    (:func:`ada.fem.formats.code_aster.write.write_bc.check_overlaps`).
+
+    CalculiX took such a model without a word: the support's hold is model data and the value a ``*BOUNDARY`` in the
+    step, which modifies it, so the value won. Measured, ccx 2.23, the plate strip in cylindrical bending with its tip
+    edge's dz prescribed -0.01 m and one tip node also in a set whose ``Bc`` holds dz: root reaction 4.508286 N, the
+    strip without the hold's 4.508288 N -- the whole edge settled, the hold ignored.
+    """
+    from ada.fem.formats.code_aster.write.write_bc import check_overlaps
+    from ada.fem.formats.prescribed import prescribed_dofs
+
+    every = list(bcs)
+    for step in steps:
+        every += [bc for bc in step.bcs.values() if all(bc is not b for b in every)]
+    check_overlaps(every, prescribed_dofs(every), writer="calculix")
 
 
 #: The element set the deck's ``*DLOAD GRAV`` names: every structural element CalculiX takes a body force on.

@@ -69,13 +69,14 @@ def supports_str(bcs, prescribed=frozenset(), name: str = SUPPORTS) -> str:
 )"""
 
 
-def check_overlaps(bcs, prescribed) -> None:
+def check_overlaps(bcs, prescribed, writer: str = "code_aster") -> None:
     """Raise :class:`~ada.fem.exceptions.model_definition.ConflictingBoundaryConditions` for a prescribed dof of a
     node another support holds, or another settlement's set prescribes, in the same dof.
 
     Code_Aster stops on such a dof (<ASSEMBLA_26>: held by the support's charge and by the settlement's), and merging
     them would need one value to win: the support's 0 or the settlement's value, or one settlement's over another's.
-    The model should give that node's dof one condition."""
+    The model should give that node's dof one condition. ``writer`` names the writer in the error; the CalculiX
+    writer refuses the same models (there the step's value would replace the hold without a word)."""
     from ada.fem.exceptions.model_definition import ConflictingBoundaryConditions
     from ada.fem.formats.prescribed import settlements
 
@@ -96,11 +97,16 @@ def check_overlaps(bcs, prescribed) -> None:
                 other = holders.get(key)
                 if other:
                     raise ConflictingBoundaryConditions(
-                        no.id, _DOF_NAMES[int(d) - 1], bc.name, other[0], "holds it at 0"
+                        no.id, _DOF_NAMES[int(d) - 1], bc.name, other[0], "holds it at 0", writer
                     )
                 if key in seen and seen[key][0] != bc.fem_set.name:
                     raise ConflictingBoundaryConditions(
-                        no.id, _DOF_NAMES[int(d) - 1], bc.name, seen[key][1], "prescribes it through another set"
+                        no.id,
+                        _DOF_NAMES[int(d) - 1],
+                        bc.name,
+                        seen[key][1],
+                        "prescribes it through another set",
+                        writer,
                     )
                 seen.setdefault(key, (bc.fem_set.name, bc.name))
 
