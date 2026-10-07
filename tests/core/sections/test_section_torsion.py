@@ -218,3 +218,21 @@ def test_angle_torsion_constant_against_warping_fe(dims):
     h, b, tw, tf = dims
     sec = ada.Section("L", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
     assert np.isclose(calculate_general_properties(sec).Ix, ANGLE_FE_J[dims], rtol=0.01)
+
+
+@pytest.mark.parametrize(
+    "h, w, fe_j, fe_w", [(0.2, 0.05, 7.02033e-06, 1.40833e-04), (0.05, 0.2, 7.02033e-06, 1.40833e-04)]
+)
+def test_flat_bar_torsion_against_roark_and_warping_fe(h, w, fe_j, fe_w):
+    """Rectangle b x t, b >= t: Roark's J = b t^3 (1/3 - 0.21 (t/b)(1 - t^4/(12 b^4))) =
+    7.02117e-6 for 200x50; warping FE (sectionproperties) J 7.02033e-6 and T / max|tau| =
+    1.40833e-4. adapy (GeniE's series) writes 7.02126e-6 and 1.41799e-4: 1.3e-4 and 6.9e-3 from
+    FE, hence 1e-3 and 1e-2. Main wrote 4.0936e-4 and 4.3995e-4 (x58, x3.1): a width
+    2 w h^2 / (h^2 + A^2) that only equals w for a 1 m square, the series multiplied by 3
+    instead of divided, and t^3 in the modulus. Either orientation gives the same."""
+    b, t = max(h, w), min(h, w)
+    roark = b * t**3 * (1 / 3 - 0.21 * (t / b) * (1 - t**4 / (12 * b**4)))
+    p = calculate_general_properties(ada.Section("FB", sec_type="FB", h=h, w_btn=w, w_top=w))
+    assert np.isclose(p.Ix, roark, rtol=1e-4)
+    assert np.isclose(p.Ix, fe_j, rtol=1e-3)
+    assert np.isclose(p.Wxmin, fe_w, rtol=1e-2)

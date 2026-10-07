@@ -507,7 +507,9 @@ def calc_flatbar(sec: Section) -> GeneralProperties:
     Iy = w * hz**3 / 12
     Iz = hz * w**3 / 12
 
-    bm = 2 * w * hz**2 / (hz**2 + Ax**2)
+    # Rectangle b x t (b >= t), n = b / t: J = (1 - 0.63/n + 0.052/n^5)/3 b t^3 and the torsional
+    # modulus J / (1 - 0.63/(1 + n^3)) / t, as GeniE writes them (square: 0.141 a^4, 0.208 a^3)
+    bm = w
     Wymin = Iy / max(h, d)
     Wzmin = 2 * Iz / max(w, w)
     Iyz = 0.0
@@ -518,16 +520,16 @@ def calc_flatbar(sec: Section) -> GeneralProperties:
         Wxmin = cb * hz**3
     elif hz < bm:
         cn = bm / hz
-        ca = (1 - 0.63 / cn + 0.052 / cn**5) * 3
+        ca = (1 - 0.63 / cn + 0.052 / cn**5) / 3
         cb = ca / (1 - 0.63 / (1 + cn**3))
         Ix = ca * bm * hz**3
         Wxmin = cb * bm * hz**2
     else:
         cn = hz / bm
-        ca = (1 - 0.63 / cn + 0.052 / cn**5) * 3
+        ca = (1 - 0.63 / cn + 0.052 / cn**5) / 3
         cb = ca / (1 - 0.63 / (1 + cn**3))
         Ix = ca * hz * bm**3
-        Wxmin = cb * hz * bm**3
+        Wxmin = cb * hz * bm**2
 
     Sy = (w * h**2) / 2 + (b - w / 2) * (h**2) / 3
     Sz = hz * ((w**2) / 8 + a * (w / 4 + a / 6))
