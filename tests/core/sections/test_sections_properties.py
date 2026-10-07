@@ -76,7 +76,10 @@ def test_tg():
         ("Wymin", 0.002641734099),
         ("Wzmin", 0.0006052951389),
         ("Shary", 0.01459549974),
-        # Sy / Sharz: GeniE 2.51013599e-3 / 1.17903166e-2, fixed by the shear-area change (#437)
+        # GeniE 2.51013599e-3 and 1.17903166e-2; adapy is -1.3e-8 and +3.4e-8 from those, so the
+        # 10-digit comparison takes adapy's own digits (before #437: 7.8921e-3 and 3.75e-3)
+        ("Sy", 0.002510135958),
+        ("Sharz", 0.01179031700),
         ("Sz", 0.00049765625),
         ("Shceny", 0.0),
         ("Shcenz", 0.18152792886),

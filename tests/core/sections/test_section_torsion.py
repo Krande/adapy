@@ -94,12 +94,6 @@ GENIE_SECTIONS = {
     "T11_TG650": "T 650x300x25x40, as adapy's TG650x300x25x40",
 }
 
-# The asymmetric-I Iy (and with it Wymin) is fixed by the shear-area change (Krande/adapy#437,
-# "asymmetric I Iy used the bottom flange thickness in the top flange term"): main writes Wymin
-# 2.053078e-3 for GeniE's 2.052856e-3 (S02) and 9.0315e-6 for 5.1116e-5 (E1). Strict, so the
-# marks must go once that change is in.
-NEEDS_437 = {("S02_UNSI", "Wymin"), ("E1_TEETHICK", "Wymin")}
-
 
 class _GenieSections(dict):
     """Section name -> section, each FEM read on first use (``S``/``E`` names from the shear-area
@@ -120,10 +114,7 @@ def genie_sections() -> dict[str, ada.Section]:
 def _params():
     for name in GENIE_SECTIONS:
         for field in FIELDS:
-            marks = ()
-            if (name, field) in NEEDS_437:
-                marks = pytest.mark.xfail(strict=True, reason="asymmetric-I Iy, fixed in Krande/adapy#437")
-            yield pytest.param(name, field, marks=marks, id=f"{name}-{field}")
+            yield pytest.param(name, field, id=f"{name}-{field}")
 
 
 @pytest.mark.parametrize("name, field", list(_params()))
