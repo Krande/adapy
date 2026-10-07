@@ -107,7 +107,14 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
         loads = [fe for load in lc.loads for fe in conv.load(load, lc, owner)]
         fe_loads[id(lc)] = loads
         if not loads and not conv.settles(lc):
-            report().note(STAGE, "LoadConceptCase", lc.name, "a load case with no load in it is written empty")
+            # Sestra V11.3-00 makes no result case of it and says nothing: the user's model, 10 TDLOAD with three
+            # empty, gave 7 result cases (FEM load case ids 1, 3, 4, 5, 8, 9, 10).
+            report().note(
+                STAGE,
+                "LoadConceptCase",
+                lc.name,
+                "a load case with no load in it is written empty; Sestra makes no result case of an empty load case",
+            )
         step.add_loadcase(LoadCase(lc.name, None, loads=loads))
         converted.setdefault(owner.name, []).append(lc.name)
 
