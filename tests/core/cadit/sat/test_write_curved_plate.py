@@ -500,19 +500,72 @@ class TestFlatPlatesJoinTheWeld:
 class TestRefusals:
     """Refuse rather than approximate — the caller falls back to a polygon."""
 
-    def test_a_face_with_a_hole_is_refused(self):
-        face = _square_face()
-        face.bounds.append(face.bounds[0])
-        pl = _plate(face)
-        with pytest.raises(UnsupportedCurvedFace, match="bounds"):
-            _build(pl)
-
     def test_an_unknown_surface_is_refused(self):
         face = _square_face()
         face.face_surface = geo_su.ConicalSurface(position=_plane_surface().position, radius=1.0, semi_angle=0.3)
         pl = _plate(face)
         with pytest.raises(UnsupportedCurvedFace, match="ConicalSurface"):
             _build(pl)
+
+
+def _hole_square() -> geo_su.FaceBound:
+    """A 0.5 m square hole in the unit square, wound against the outline as ACIS winds a hole."""
+    corners = [(0.25, 0.25, 0.0), (0.25, 0.75, 0.0), (0.75, 0.75, 0.0), (0.75, 0.25, 0.0)]
+    edges = [_line_edge(corners[i], corners[(i + 1) % 4]) for i in range(4)]
+    return geo_su.FaceBound(bound=geo_cu.EdgeLoop(edge_list=edges), orientation=True)
+
+
+def _hole_circle() -> geo_su.FaceBound:
+    """A round hole of radius 0.2: one closed circle edge, run backwards (t from 2 pi to 0)."""
+    centre = Point(0.5, 0.5, 0.0)
+    circle = geo_cu.Circle(geo_su.Axis2Placement3D(location=centre, axis=(0, 0, 1), ref_direction=(1, 0, 0)), 0.2)
+    p = Point(0.7, 0.5, 0.0)
+    ec = geo_cu.EdgeCurve(start=p, end=p, edge_geometry=circle, same_sense=False)
+    oe = geo_cu.OrientedEdge(start=p, end=p, edge_element=ec, orientation=True, t_start=2 * np.pi, t_end=0.0)
+    return geo_su.FaceBound(bound=geo_cu.EdgeLoop(edge_list=[oe]), orientation=True)
+
+
+class TestHoles:
+    """Every bound is a loop, chained off the face's first through ``next_loop`` (Krande/adapy#410).
+
+    Both of these used to be refused ("2 bounds; only a single outer loop is supported"), and a
+    GeniE plate with a round hole could not be written at all (an IndexError further on).
+    """
+
+    def test_a_hole_is_a_second_loop_hung_off_the_first(self):
+        face = _square_face()
+        face.bounds.append(_hole_square())
+        ents = _build(_plate(face))
+        (f,) = _by_type(ents, se.Face)
+        loops = _by_type(ents, se.Loop)
+        assert len(loops) == 2
+        outer, inner = f.loop, f.loop.next_loop
+        assert inner is not None and inner.next_loop is None and {id(outer), id(inner)} == {id(lp) for lp in loops}
+        for loop, n in ((outer, 4), (inner, 4)):
+            ring, c = [], loop.coedge
+            while id(c) not in ring:
+                ring.append(id(c))
+                assert c.loop is loop
+                c = c.next_coedge
+            assert len(ring) == n
+        assert f" ${inner.id} " in outer.to_string()
+        assert inner.bbox == [0.25, 0.25, 0, 0.75, 0.75, 0]
+
+    def test_a_round_hole_is_one_closed_edge_on_one_vertex(self):
+        face = _square_face()
+        face.bounds.append(_hole_circle())
+        ents = _build(_plate(face))
+        (f,) = _by_type(ents, se.Face)
+        inner = f.loop.next_loop
+        coedge = inner.coedge
+        assert coedge.next_coedge is coedge and coedge.prev_coedge is coedge
+        assert coedge.orientation == "reversed"
+        edge = coedge.edge
+        assert edge.vertex_start is edge.vertex_end
+        assert (edge.t_start, edge.t_end) == (0.0, 2 * np.pi)
+        # a box around the circle, not the single point its one vertex is
+        assert edge.box == inner.bbox == [0.3, 0.3, 0, 0.7, 0.7, 0]
+        assert "T 0.3 0.3 0 0.7 0.7 0" in edge.to_string()
 
     def test_a_circle_without_parameters_is_refused(self):
         """A circle passes through two points twice; the range is not derivable."""

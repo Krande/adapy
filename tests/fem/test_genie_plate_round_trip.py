@@ -7,11 +7,17 @@ exports its concept XML and prints every plate's ``area``; and it meshes the ori
 of adapy's writes. adapy's write must read in GeniE as the original does: the same plate
 elements, kinds and names over the same number of faces, the same GeniE-measured area to the
 digit GeniE prints, and the same mesh: every card identical bar the date, node coordinates to a
-micrometre -- which pins the geometry, the normals (element node order) at once.
+micrometre -- which pins the geometry, the normals (element node order) and the hole at once.
 
 GeniE's ``area`` of a curved plate is its facetted area, not the exact one: the quarter
 cylinder of radius 1 and height 2 prints 3.136548491 against pi = 3.14159265 -- 8 chords over
 90 degrees (2 * 8 * sin(pi / 32) * 2 = 3.1365485). It is therefore compared GeniE-to-GeniE.
+
+The plate with a hole is the one case whose concept read differs, by design: GeniE holds the
+hole as a ``<hole>`` concept over a disc face that its plate also names (GeniE's ``area`` of the
+plate is the whole 12 m2), and adapy reads the hole into the plate's geometry instead -- the
+face around it, with the hole as an inner loop. GeniE re-imports that as one ``flat_plate`` over
+one face whose area excludes the hole, no ``<hole>`` concept, and meshes it identically.
 """
 
 from __future__ import annotations
@@ -50,6 +56,12 @@ MODELS = {
     "plate_t_junction": [("flat_plate", "Pl1", 3)],
     "cylinder_shell": [("curved_shell", "Sh1", 1)],
     "swept_arc_shell": [("curved_shell", "Sh1", 1)],
+    "plate_with_hole": [("flat_plate", "Pl1", 2)],
+}
+
+#: what GeniE reads from adapy's write where it is not the original, with why (see the module doc)
+ADAPY_READ = {
+    "plate_with_hole": {"Pl1": ("flat_plate", 1, "11.50058847")},
 }
 
 
@@ -108,7 +120,7 @@ def test_plates_read_in_genie_as_the_original(genie93, model, tmp_path):
     original, holes = _genie_plates(genie93 / f"{model}_text.gnx", tmp_path / "genie")
     assert [(kind, name, faces) for name, (kind, faces, _area) in sorted(original.items())] == MODELS[model]
     assert all(area is not None for *_rest, area in original.values())
-    assert holes == 0
+    assert holes == (1 if model == "plate_with_hole" else 0)
 
     routes = {}
     for body in ("text", "binary"):
@@ -118,7 +130,7 @@ def test_plates_read_in_genie_as_the_original(genie93, model, tmp_path):
                 tmp_path / f"{body}_{out}" / f"{model}.gnx", binary_acis=out == "binary"
             )
     read = {route: _genie_plates(gnx, tmp_path / route.replace("->", "_")) for route, gnx in routes.items()}
-    expected = (original, 0)
+    expected = (ADAPY_READ.get(model, original), 0)
     assert read == {route: expected for route in routes}
 
     mesh_original = _genie_mesh(genie93 / f"{model}_text.gnx", tmp_path / "mesh_genie")
@@ -130,7 +142,7 @@ def test_plates_read_in_genie_as_the_original(genie93, model, tmp_path):
 def _assert_same_mesh(got: list[str], want: list[str]) -> None:
     """Every card identical, the node coordinates to a micrometre.
 
-    Measured: on the single-face twins the two FEM files are identical line for line; on
+    Measured: on the three single-face twins the two FEM files are identical line for line; on
     plate_t_junction 3 of 221 interior nodes of GeniE's free mesh move by 1.2e-7 m (the last
     printed digit) while every element, node number and boundary node is identical -- the
     smoothing feels the faces' parameterisation, which is adapy's rather than GeniE's.

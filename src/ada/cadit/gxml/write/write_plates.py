@@ -26,15 +26,25 @@ def thickness_name(t: float) -> str:
 
 
 def add_plate_sat(plate: Plate, thck_name: str, structures_elem, sw: SatWriter):
+    # A plate resolves to several faces once the imprint pass splits it at the
+    # T-junctions with its neighbours, so every name in the map gets an element
+    # (a densely stiffened panel reaches ten).
+    add_flat_plate_sat_data(
+        plate.name, thck_name, plate.material.name, plate.poly.normal, sw.face_map.get(plate.guid, []), structures_elem
+    )
+
+
+def add_flat_plate_sat_data(name: str, thck_name: str, material_name: str, normal, face_refs, structures_elem):
+    """A ``<flat_plate>`` stating its normal and naming its SAT faces."""
     structure = ET.SubElement(structures_elem, "structure")
     flat_plate = ET.SubElement(
-        structure, "flat_plate", {"name": plate.name, "thickness_ref": thck_name, "material_ref": plate.material.name}
+        structure, "flat_plate", {"name": name, "thickness_ref": thck_name, "material_ref": material_name}
     )
     local_sys = ET.SubElement(flat_plate, "local_system")
     ET.SubElement(
         local_sys,
         "vector",
-        {"x": str(plate.poly.normal[0]), "y": str(plate.poly.normal[1]), "z": str(plate.poly.normal[2]), "dir": "z"},
+        {"x": str(normal[0]), "y": str(normal[1]), "z": str(normal[2]), "dir": "z"},
     )
     ET.SubElement(flat_plate, "front")
     ET.SubElement(flat_plate, "back")
@@ -42,11 +52,33 @@ def add_plate_sat(plate: Plate, thck_name: str, structures_elem, sw: SatWriter):
     geometry = ET.SubElement(flat_plate, "geometry")
     sheet = ET.SubElement(geometry, "sheet")
     sat_reference = ET.SubElement(sheet, "sat_reference")
-    # A plate resolves to several faces once the imprint pass splits it at the
-    # T-junctions with its neighbours, so every name in the map gets an element
-    # (a densely stiffened panel reaches ten).
-    for face_ref in sw.face_map.get(plate.guid, []):
+    for face_ref in face_refs:
         ET.SubElement(sat_reference, "face", {"face_ref": face_ref})
+
+
+def planar_flat_plate_normal(plate) -> tuple[float, float, float] | None:
+    """The normal of a :class:`PlateCurved` that GeniE held as a ``flat_plate``, else ``None``.
+
+    The reader takes a flat plate as a PlateCurved when its face is not a polygon -- an edge
+    curves, or it has a hole -- and records the element it came from. Such a plate goes back
+    as a ``flat_plate`` too (a GeniE plate with a hole is one), stating the normal it had: the
+    plane's, through the face's sense and the sense flag the reader derived from that normal.
+    """
+    from ada.geom import surfaces as geo_su
+
+    props = plate.metadata.get("props", {}) if isinstance(plate.metadata, dict) else {}
+    if props.get("gxml_element") != "flat_plate" or plate.geom is None:
+        return None
+    face = plate.geom.geometry
+    if not isinstance(face, geo_su.AdvancedFace) or not isinstance(face.face_surface, geo_su.Plane):
+        return None
+    axis = np.asarray(face.face_surface.position.axis, dtype=float)
+    axis = axis / np.linalg.norm(axis)
+    if not face.same_sense:
+        axis = -axis
+    if not plate.gxml_sense_flag():
+        axis = -axis
+    return tuple(float(c) for c in axis)
 
 
 def add_plate_polygon_data(
@@ -199,7 +231,12 @@ def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):
             thickness_elem.append(tck_elem)
 
         face_refs = sw.face_map.get(plate.guid, []) if sw is not None else []
-        if face_refs:
+        flat_normal = planar_flat_plate_normal(plate) if face_refs else None
+        if flat_normal is not None:
+            add_flat_plate_sat_data(
+                plate.name, thickness[plate.t], plate.material.name, flat_normal, face_refs, structures_elem
+            )
+        elif face_refs:
             add_curved_shell_sat(plate, thickness[plate.t], structures_elem, face_refs)
         elif not add_plate_curved_polygon(plate, thickness[plate.t], structures_elem):
             # No SAT face and no usable boundary — nothing left to emit.

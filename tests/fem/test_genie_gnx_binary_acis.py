@@ -10,9 +10,8 @@ workspace and export its concept XML, and compares what GeniE read:
   ``WriteACISBinaryFile`` option adapy sets is what keeps it so: measured, without it GeniE
   re-saves text).
 
-The models are the committed GeniE V9.3 twins whose adapy read is complete (``cylinder_shell``
-reads as a flat plate, ``plate_with_hole`` cannot be written back -- reader issues independent
-of the body format, tracked separately).
+The models are the committed GeniE V9.3 twins (the plate round trips themselves -- areas,
+meshes, the hole -- are ``test_genie_plate_round_trip``).
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ TAGS = ("straight_beam", "flat_plate", "curved_shell", "loadcase_basic", "loadca
 # surface_load is not counted: adapy's reader omits, by name, the varying/component/polygon pressures
 # it cannot hold (4 of the 6 in loads_all_kinds), in text and binary alike -- not a format matter.
 TAGS += ("support_point", "point_load", "line_load")
-MODELS = ["plate", "beams_on_plate", "curved_plates_resaved", "loads_all_kinds"]
+MODELS = ["plate", "beams_on_plate", "curved_plates_resaved", "loads_all_kinds", "cylinder_shell", "plate_with_hole"]
 
 
 def _run(workdir: pathlib.Path, js: str, workspace: list[str]) -> str:

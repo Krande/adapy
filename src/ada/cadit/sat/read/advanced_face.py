@@ -75,13 +75,18 @@ def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
     reading only the face's first loop then yields an empty wire and the whole plate fails to build
     (``build_advanced_face: wire build failed``) — dropping a valid plate.
 
-    Walk the chain and take the outer boundary: the ``periphery`` loop if one is marked, else the
-    first loop that actually carries edges. Inner holes are not represented here (the downstream
-    planar/advanced-face builders take a single bound), matching the prior single-loop behaviour.
+    Walk the chain and take every loop that carries edges: the outer boundary first -- the
+    ``periphery`` loop if one is marked, else the loop whose box encloses all the others -- then
+    the holes, each as authored (ACIS runs a hole against the outer loop, which is the winding the
+    face builders expect of an inner bound). A face with one real loop is the single bound it
+    always was. Measured on a GeniE V9.3 plate with a circular hole: the face is a ``periphery``
+    loop of 4 lines plus an ``unknown`` loop of one closed NURBS edge, and reading only the first
+    dropped the hole. Several loops with none marked and none enclosing the others is refused
+    (:class:`ACISReferenceDataError`) rather than guessed.
     """
     loop_ptr = acis_record.chunks[7]
     seen: set[str] = set()
-    first_nonempty: list | None = None
+    loops: list[tuple[AcisRecord, list]] = []
 
     while loop_ptr and loop_ptr != "$-1" and loop_ptr not in seen:
         seen.add(loop_ptr)
@@ -90,14 +95,47 @@ def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
             break
         edges = list(iter_loop_coedges(loop_rec))
         if edges:
-            if first_nonempty is None:
-                first_nonempty = edges
-            # Prefer the periphery (outer) loop over any non-degenerate hole loop.
-            if len(loop_rec.chunks) > 16 and loop_rec.chunks[16] == "periphery":
-                return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True)]
+            loops.append((loop_rec, edges))
         loop_ptr = loop_rec.chunks[6]
 
-    return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(first_nonempty or []), orientation=True)]
+    if len(loops) <= 1:
+        return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(loops[0][1] if loops else []), orientation=True)]
+
+    outer = next((i for i, (rec, _e) in enumerate(loops) if _loop_kind(rec) == "periphery"), None)
+    if outer is None:
+        boxes = [_loop_box(rec, edges) for rec, edges in loops]
+        enclosing = [i for i, b in enumerate(boxes) if all(_box_encloses(b, o) for o in boxes)]
+        if len(enclosing) != 1:
+            raise ACISReferenceDataError(
+                f"face {acis_record.chunks[0]}: {len(loops)} loops, none marked periphery and none enclosing the others"
+            )
+        outer = enclosing[0]
+    ordered = [loops[outer]] + [lp for i, lp in enumerate(loops) if i != outer]
+    return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True) for _rec, edges in ordered]
+
+
+def _loop_kind(loop_rec: AcisRecord) -> str | None:
+    """``periphery`` / ``hole`` / ``unknown`` as the loop record states it, if it does."""
+    for token in loop_rec.chunks[9:]:
+        if token in ("periphery", "hole", "unknown"):
+            return token
+    return None
+
+
+def _loop_box(loop_rec: AcisRecord, edges: list) -> tuple[float, ...]:
+    """The loop's box: the record's own when it carries one (``T`` + 6 reals), else its corners'."""
+    chunks = loop_rec.chunks
+    if len(chunks) > 16 and chunks[9] == "T":
+        try:
+            return tuple(float(x) for x in chunks[10:16])
+        except ValueError:
+            pass
+    pts = [tuple(float(c) for c in p) for oe in edges for p in (oe.start, oe.end)]
+    return (*(min(p[k] for p in pts) for k in range(3)), *(max(p[k] for p in pts) for k in range(3)))
+
+
+def _box_encloses(a, b, tol: float = 1e-9) -> bool:
+    return all(a[k] <= b[k] + tol for k in range(3)) and all(a[k + 3] >= b[k + 3] - tol for k in range(3))
 
 
 class ConeRecord:

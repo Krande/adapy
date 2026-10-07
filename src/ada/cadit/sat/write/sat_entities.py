@@ -255,6 +255,9 @@ class Edge(SATEntity):
     # so pass the authored pair through rather than re-deriving it.
     t_start: float = None
     t_end: float = None
+    # The box, where the two ends do not span it: an edge running a whole closed curve
+    # starts and ends at one vertex (GeniE boxes its round hole's edge as the circle's square).
+    box: list[float] = None
 
     def to_string(self) -> str:
         attrib_ref = "-1"
@@ -265,6 +268,8 @@ class Edge(SATEntity):
         # edge running backwards along an axis.
         lo = [min(a, b) for a, b in zip(self.start_pt, self.end_pt)]
         hi = [max(a, b) for a, b in zip(self.start_pt, self.end_pt)]
+        if self.box is not None:
+            lo, hi = list(self.box[:3]), list(self.box[3:])
         bbox_str = " ".join(str(x) for x in make_ints_if_possible([*lo, *hi]))
         if self.t_start is None or self.t_end is None:
             vec = ada.Direction(self.end_pt - self.start_pt)
@@ -520,7 +525,7 @@ class IntCurve(SATEntity):
         # surface they lie on in the first slot; ours has none to name.
         return _lines(
             f"-{self.id} intcurve-curve $-1 -1 -1 $-1 {self.sense} "
-            f"{{ exactcur full {'nurbs' if weights else 'nubs'} {c.degree} open {len(c.knots)}",
+            f"{{ exactcur full {'nurbs' if weights else 'nubs'} {c.degree} {_closure(c)} {len(c.knots)}",
             knots,
             *pts,
             _num(self.fit_tolerance),
@@ -538,6 +543,22 @@ class IntCurve(SATEntity):
             "-1",
             "none F F 1 F 0 } I I #",
         )
+
+
+def _closure(c) -> str:
+    """``closed`` for a curve that ends where it starts, as GeniE marks its round hole's edge.
+
+    The reader keeps ACIS's own word as ``closed_curve``; the control points have to agree
+    too, so a curve flagged closed that does not end where it starts still goes out ``open``.
+    """
+    pts = c.control_points_list
+    if (
+        getattr(c, "closed_curve", False)
+        and len(pts) > 1
+        and all(abs(float(a) - float(b)) <= 1e-12 for a, b in zip(pts[0], pts[-1]))
+    ):
+        return "closed"
+    return "open"
 
 
 def circle_param_of(circle, point) -> float:

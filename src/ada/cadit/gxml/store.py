@@ -23,6 +23,10 @@ from ada.config import Config, logger
 #: with no ``name`` and no value (see ``read_sections.SECTIONS_PATH``).
 THICKNESSES_PATH = "./model/structure_domain/properties/thicknesses/thickness"
 
+#: The faces GeniE's ``<hole>`` concepts cut out of their plates (``<interior>``; the
+#: ``<boundary>`` names the edge around them).
+HOLE_INTERIOR_FACES_PATH = "./model/structure_domain/structures/structure/hole/interior//face"
+
 
 class GxmlStore:
     def __init__(self, xml_path: pathlib.Path):
@@ -99,6 +103,14 @@ class GxmlStore:
             res = thickn.find(".//constant_thickness")
             thick_map[thickn.attrib["name"]] = float(res.attrib["th"])
 
+        # A GeniE hole is a concept of its own over a face of the plate's sheet: the plate
+        # names the disc inside the hole as one of its faces (GeniE's own ``area`` of a 4 x 3
+        # plate with a 0.8 m round hole is 12), and the hole names that disc as its interior
+        # and the edge around it as its boundary. adapy has no hole concept, so the hole is
+        # made geometry instead: the disc is not the plate's, and the face around it keeps the
+        # hole as an inner loop.
+        hole_faces = {f.attrib["face_ref"] for f in self.xml_root.iterfind(HOLE_INTERIOR_FACES_PATH)}
+
         resolver = self.sat_factory.get_named_face_normal
         for fp in self.xml_root.iterfind(".//flat_plate"):
             yield from yield_plate_elems_to_plate(
@@ -109,6 +121,7 @@ class GxmlStore:
                 flat_fallback_d=flat_d,
                 face_normal_resolver=resolver,
                 edge_curves_d=edge_curves_d,
+                excluded_faces=hole_faces,
             )
 
         for fp in self.xml_root.iterfind(".//curved_shell"):
@@ -120,6 +133,7 @@ class GxmlStore:
                 flat_fallback_d=flat_d,
                 face_normal_resolver=resolver,
                 edge_curves_d=edge_curves_d,
+                excluded_faces=hole_faces,
             )
 
     def to_part(self, extract_joints=False) -> Part:

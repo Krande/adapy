@@ -210,3 +210,129 @@ def test_a_cone_surface_that_is_no_circular_cylinder_is_refused_by_name(fields, 
     store.add(f"-6 cone-surface $-1 -1 -1 $-1 {fields} #")
     with pytest.raises(ACISUnsupportedSurfaceType, match=why):
         get_cylindrical_surface(store.get("$6"))
+
+
+# --- a plate with a hole ------------------------------------------------------------------
+#
+# GeniE: Plate(0,0 .. 4,3) and CreateHoleFromProfile(ProfileRR(0.8, 0.8, 0.4)) at (2, 1.5): a
+# round hole of radius 0.4. GeniE's flat_plate names two faces: FACE00000002, the plate with a
+# periphery of 4 lines and a hole loop of one closed rational B-spline, and FACE00000001, the
+# disc inside -- which a <hole> concept names as its interior (GeniE's own area of the plate is
+# 12). Before: two PlateCurved (the disc and the plate, the plate without its hole loop), and
+# to_gnx raised IndexError.
+
+HOLE_AREA = 12.0 - np.pi * 0.4**2
+
+
+def _hole_plate(a):
+    (pl,) = _plates(a)
+    assert type(pl) is ada.PlateCurved and pl.name == "Pl1"
+    return pl
+
+
+@pytest.mark.parametrize("body", BODIES)
+def test_plate_with_hole_reads_as_one_plate_with_an_inner_loop(genie93, body):
+    pl = _hole_plate(ada.from_gnx(genie93 / f"plate_with_hole_{body}.gnx"))
+    face = pl.geom.geometry
+    assert type(face.face_surface).__name__ == "Plane"
+    outer, hole = face.bounds
+    assert [type(oe.edge_element.edge_geometry).__name__ for oe in outer.bound.edge_list] == ["Line"] * 4
+    (circle,) = hole.bound.edge_list
+    assert type(circle.edge_element.edge_geometry).__name__ == "RationalBSplineCurveWithKnots"
+    assert np.allclose(circle.start, circle.end) and (circle.t_start, circle.t_end) == (np.pi, 0.0)
+    assert pl.metadata["props"]["gxml_face_ref"] == "FACE00000002"
+    assert pl.metadata["props"]["gxml_element"] == "flat_plate"
+    # the hole wound against the outline: the face is valid and its area is the plate's less the disc
+    assert _occ_area(pl) == pytest.approx(HOLE_AREA, rel=1e-12)
+
+
+@pytest.mark.parametrize("body", BODIES)
+def test_plate_with_hole_writes_back_as_one_flat_plate_with_its_hole(genie93, body, tmp_path):
+    import re
+    import zipfile
+
+    from ada.cadit.sat.write import sat_entities as se
+    from ada.cadit.sat.write.writer import part_to_sat_writer
+
+    a = ada.from_gnx(genie93 / f"plate_with_hole_{body}.gnx")
+    sw = part_to_sat_writer(a)
+    (face,) = sw.get_entities_by_type(se.Face)
+    hole_loop = face.loop.next_loop
+    assert hole_loop is not None and hole_loop.next_loop is None
+    assert hole_loop.coedge.next_coedge is hole_loop.coedge
+    assert "exactcur full nurbs 2 closed 5" in sw.to_str()
+
+    gnx = a.to_gnx(tmp_path / "rt.gnx", binary_acis=body == "binary")
+    xml = zipfile.ZipFile(gnx).read("modelData.xml").decode()
+    (plate_xml,) = re.findall(r"<(?:flat_plate|curved_shell)\b.*?</(?:flat_plate|curved_shell)>", xml, re.S)
+    assert plate_xml.startswith('<flat_plate name="Pl1"')
+    assert '<vector x="0.0" y="0.0" z="1.0" dir="z" />' in plate_xml
+    assert len(re.findall(r"<face ", plate_xml)) == 1
+
+    back = _hole_plate(ada.from_gnx(gnx))
+    assert len(back.geom.geometry.bounds) == 2
+    assert _occ_area(back) == pytest.approx(HOLE_AREA, rel=1e-12)
+
+
+def test_a_loop_of_one_coedge_is_read_once(genie93, tmp_path):
+    """The hole's loop is a single coedge that is its own successor; it used to come back twice."""
+    import zipfile
+
+    from ada.cadit.sat.read.curves import iter_loop_coedges
+    from ada.cadit.sat.store import SatReaderFactory
+
+    sat = tmp_path / "body.sat"
+    sat.write_bytes(zipfile.ZipFile(genie93 / "plate_with_hole_text.gnx").read("acisGeometry.sat"))
+    factory = SatReaderFactory(sat)
+    (disc,) = [f for f in factory.iter_faces() if f.get_name() == "FACE00000001"]
+    assert len(list(iter_loop_coedges(factory.sat_store.get(disc.chunks[7])))) == 1
+
+
+def test_a_straight_edged_hole_reads_as_a_hole(genie93, tmp_path):
+    """A plane face whose loops are all straight is still not a polygon when it has a hole.
+
+    The flat path takes the periphery alone, so a square hole would have vanished. Written here
+    by adapy's own SAT writer: GeniE's round hole re-cut as a 0.8 m square hole.
+    """
+    import copy
+
+    from ada.cadit.sat.store import SatReaderFactory
+    from ada.cadit.sat.write.writer import part_to_sat_writer
+    from ada.geom import curves as geo_cu
+    from ada.geom import surfaces as geo_su
+
+    a = ada.from_gnx(genie93 / "plate_with_hole_text.gnx")
+    pl = _hole_plate(a)
+    face = pl.geom.geometry
+    corners = [(1.6, 1.1, 0.0), (1.6, 1.9, 0.0), (2.4, 1.9, 0.0), (2.4, 1.1, 0.0)]  # against the outline
+    edges = []
+    for i, p1 in enumerate(corners):
+        p2 = corners[(i + 1) % 4]
+        d = np.subtract(p2, p1)
+        line = geo_cu.Line(ada.Point(*p1), ada.Direction(*d))
+        ec = geo_cu.EdgeCurve(start=ada.Point(*p1), end=ada.Point(*p2), edge_geometry=line, same_sense=True)
+        edges.append(geo_cu.OrientedEdge(ada.Point(*p1), ada.Point(*p2), ec, True, t_start=0.0, t_end=0.8))
+    square = copy.copy(face)
+    square.bounds = [face.bounds[0], geo_su.FaceBound(bound=geo_cu.EdgeLoop(edge_list=edges), orientation=True)]
+    pl.geom.geometry = square
+
+    sat = tmp_path / "square_hole.sat"
+    sat.write_text(part_to_sat_writer(a).to_str())
+    factory = SatReaderFactory(sat)
+    (face_record,) = list(factory.iter_faces())
+    assert factory.face_has_hole(face_record) and not factory.face_has_curved_edge(face_record)
+    ((name, geom),) = list(factory.iter_curved_face())
+    assert len(geom.geometry.bounds) == 2
+
+
+@pytest.mark.parametrize("body", BODIES)
+def test_a_vertex_embedded_in_a_face_is_no_hole(genie93, body):
+    """GeniE embeds a point mass's position in the face it lies on as a loop of one curve-less edge.
+
+    That loop bounds nothing: the plate is the polygon it always was (4 of the 889 faces of a
+    250-plate workspace carry one). Twin: Plate(0,0 .. 4,3) with PointMass at (1, 1, 0).
+    """
+    a = ada.from_gnx(genie93 / f"plate_point_mass_{body}.gnx")
+    (pl,) = _plates(a)
+    assert type(pl) is ada.Plate and pl.name == "Pl1"
+    assert _outline_area(pl) == pytest.approx(12.0, rel=1e-12)

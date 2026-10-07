@@ -7,7 +7,7 @@ from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline, GeomAPI_ProjectPointOnCurv
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Elips, gp_Pnt
 from OCC.Core.TColgp import TColgp_Array1OfPnt
 from OCC.Core.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
-from OCC.Core.TopAbs import TopAbs_FORWARD
+from OCC.Core.TopAbs import TopAbs_FORWARD, TopAbs_REVERSED
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
 from ada.cad.exceptions import UnableToCreateCurveOCCGeom
@@ -73,6 +73,12 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
             return all(abs(x - y) <= tol for x, y in zip(a, b))
         except Exception:
             return False
+
+    # A closed curve built whole has no endpoints to say which way the loop runs it, so a loop
+    # running it backwards has to say so on the edge. Measured on a GeniE plate with a round
+    # hole (one closed rational B-spline, coedge reversed): built forward, the hole wound the
+    # same way as the outline, the face was invalid and its area 12.51 instead of 11.50.
+    closed_reversed = False
 
     # Check if this is an OrientedEdge with an edge_element
     if isinstance(edge, geo_cu.OrientedEdge) and hasattr(edge, "edge_element"):
@@ -165,6 +171,7 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                     # If start and end are identical, create a full-curve edge (closed loop)
                     if _points_equal(edge.start, edge.end):
                         edge_maker = BRepBuilderAPI_MakeEdge(occ_bs)
+                        closed_reversed = not bool(getattr(edge_element, "same_sense", True))
                     elif (
                         getattr(edge, "t_start", None) is not None
                         and getattr(edge, "t_end", None) is not None
@@ -313,7 +320,7 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
         raise UnableToCreateCurveOCCGeom(error_msg)
 
     occ_edge = edge_maker.Edge()
-    occ_edge.Orientation(TopAbs_FORWARD)
+    occ_edge.Orientation(TopAbs_REVERSED if closed_reversed else TopAbs_FORWARD)
 
     return occ_edge
 

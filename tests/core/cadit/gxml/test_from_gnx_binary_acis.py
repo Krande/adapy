@@ -19,10 +19,9 @@ Measured before binary bodies were read: ``from_gnx`` on a binary twin returned 
 model with every beam and *no plates*, and no error. These tests pin the opposite:
 the binary twin is the text twin's model, entity for entity, or a refusal by name.
 
-Two reader issues show up here and are independent of the body format (the text
-twin has them too, and the fingerprint comparison shows them identical in both):
-``cylinder_shell`` reads as one flat ``Plate``, ``plate_with_hole`` as two
-``PlateCurved``. They are left for their own fix.
+``cylinder_shell`` reads as one ``PlateCurved`` on its cylinder and ``plate_with_hole``
+as one ``PlateCurved`` with the hole as an inner loop (see ``test_gxml_plate_round_trip``),
+in text and binary alike.
 """
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ MODELS = {
     "plate": (0, 1),
     "beams_on_plate": (3, 1),
     "cylinder_shell": (0, 1),
-    "plate_with_hole": (0, 2),
+    "plate_with_hole": (0, 1),
     "curved_plates_resaved": (0, 9),
     "loads_all_kinds": (3, 1),
 }
