@@ -11,9 +11,15 @@ from .steps import dynamic, eigen, static
 
 
 def all_steps(assembly: Assembly) -> list:
-    """Every step the deck carries: the assembly's, then each part FEM's -- where ``Part.to_fem_obj`` puts the step
-    its concept load cases become, which this writer used to leave out."""
-    return list(assembly.fem.steps) + [s for p in assembly.get_all_subparts() for s in p.fem.steps]
+    """Every step the deck carries, in the Abaqus writer's order
+    (:func:`ada.fem.formats.abaqus.write.write_steps.abaqus_steps`): the assembly's, then each part FEM's -- where
+    ``Part.to_fem_obj`` puts the step its concept load cases become. adapy keeps no creation order across the
+    assembly and its parts, so a step added to the assembly after a part's comes first, in all three writers. This
+    writer used to leave out the part's.
+    """
+    from ada.fem.formats.abaqus.write.write_steps import abaqus_steps
+
+    return abaqus_steps(assembly)
 
 
 def result_names(steps) -> list[str]:

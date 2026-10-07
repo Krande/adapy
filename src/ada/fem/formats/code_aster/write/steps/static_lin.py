@@ -324,7 +324,7 @@ def _second_order_shell_fields(step, part, printed_layers: bool = False) -> str:
     including ``test_fem_static_cantilever``'s second-order shells, which passed only because the run's partial MED
     file existed. The stresses (``SIEF_ELGA``, ``SIGM_ELNO``, ``SIEF_ELNO``) are such fields; displacements,
     reactions and generalised forces (``EFGE``) are not. So those three are printed and the stresses are reported
-    ``omitted``.
+    ``omitted`` -- with a beam's stresses, which the same field list leaves out, named too.
     """
     from ada.fem.formats import conversion_report
     from ada.fem.shapes.definitions import ShellShapes
@@ -348,7 +348,18 @@ def _second_order_shell_fields(step, part, printed_layers: bool = False) -> str:
             "stresses on second-order shells (COQUE_3D on 7- and 9-node cells) are not printed: Code_Aster cannot "
             "write their layered fields to MED (MED2_20); displacements, reactions and generalised forces are"
         )
-    conversion_report.current().omitted(STAGE, "IMPR_RESU", step.name, reason)
+    details = {}
+    beams = [sec.elset.name for sec in part.fem.sections.lines]
+    if beams and step.field_outputs:
+        # The field list is the whole model's: the beams' stresses go with the shells'. Not kept by a print of their
+        # own restricted to the beams, as that could not be measured: a model of beams beside second-order shells
+        # meshes its beams as 3-node lines too, which POU_D_E does not take (<MODELISA6_96>, measured, 18.1.8).
+        reason += (
+            "; the beams' stresses (SIEF_ELNO, SIPO_ELNO) are not printed either -- the printed field list is the "
+            "whole model's -- and their element forces (EFGE) are"
+        )
+        details["beams"] = ", ".join(beams)
+    conversion_report.current().omitted(STAGE, "IMPR_RESU", step.name, reason, **details)
     names = ", ".join(f'"{f}"' for f in fields)
     return f", NOM_CHAM=({names},)"
 

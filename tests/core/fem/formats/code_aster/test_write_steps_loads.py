@@ -345,3 +345,57 @@ def test_second_order_shells_allow_mumps_an_error_estimate_of_1e_4(tmp_path, ord
     m = re.search(r"^result = MACRO_ELAS_MULT\((.*?)^\)", comm, re.M | re.S)
     solver = "SOLVEUR=_F(METHODE='MUMPS', RESI_RELA=1e-4)," in m[1]
     assert solver == (order == 2) and comm.count("SOLVEUR") == int(order == 2)
+
+
+@pytest.mark.parametrize("with_beam", [False, True])
+def test_stresses_left_out_beside_second_order_shells_name_the_beams_too(tmp_path, with_beam):
+    """A model with second-order shells prints DEPL, REAC_NODA and EFGE only (Code_Aster cannot write the shells'
+    layered fields to MED, <MED2_20>), and that list is the whole model's: a beam's stresses (SIEF_ELNO, SIPO_ELNO)
+    are left out with the shells'. The finding named the shells only; it now names the beams' element sets too."""
+    from ada.fem import FieldOutput
+    from ada.fem.concept.constraints import ConstraintConceptCurve
+    from ada.fem.meshing import GmshOptions
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    pl = ada.Plate("pl", [(0, 0), (L, 0), (L, 0.5), (0, 0.5)], 0.01, mat=mat)
+    p = ada.Part("P") / pl
+    if with_beam:
+        p / ada.Beam("stiff", (0, 0.25, 0), (L, 0.25, 0), "IPE300", mat)
+    a = ada.Assembly("A") / p
+    p.concept_fem.constraints.add_curve_constraint(
+        ConstraintConceptCurve("root", (0, 0, 0), (0, 0.5, 0), Dof.encastre())
+    )
+    q = (0, 0, -500.0)
+    p.concept_fem.loads.add_load_case(LoadConceptCase("LC_e", [LoadConceptLine("e", (L, 0, 0), (L, 0.5, 0), q, q)]))
+    p.fem = p.to_fem_obj(0.25, use_quads=True, options=GmshOptions(Mesh_ElementOrder=2))
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    assert (len(p.fem.sections.lines) > 0) == with_beam
+    comm, report = _comm(a, tmp_path)
+    assert 'NOM_CHAM=("DEPL", "REAC_NODA", "EFGE_ELNO", "EFGE_NOEU",)' in comm
+    (found,) = [f for f in report.findings if f.keyword == "IMPR_RESU"]
+    assert found.kind == "omitted"
+    assert ("beams' stresses (SIEF_ELNO, SIPO_ELNO)" in found.reason) == with_beam
+    assert found.details.get("beams") == (p.fem.sections.lines[0].elset.name if with_beam else None)
+
+
+def test_the_three_writers_write_the_steps_in_one_order(tmp_path):
+    """The part's concept step made first, an eigen step added to the assembly after it: every writer puts the
+    assembly's steps first, then each part's -- the order the Abaqus writer uses (``abaqus_steps``). adapy keeps no
+    creation order across the assembly and its parts, so the eigen step comes first in all three decks (the review's
+    probe ran it so in ccx and Code_Aster). Decided: kept, and the CalculiX and Code_Aster writers take the Abaqus
+    writer's list, so the three cannot drift apart."""
+    from ada.fem import StepEigen
+
+    a, p, _ = _beam()
+    a.fem.add_step(StepEigen("eig", num_eigen_modes=3))
+    order = {}
+    for fmt in ("abaqus", "calculix", "code_aster"):
+        a.to_fem(f"o_{fmt}", fmt, scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+    abq = (tmp_path / "o_abaqus" / "o_abaqus.inp").read_text()
+    order["abaqus"] = re.findall(r"step_(\w+)\.inp", abq)
+    ccx = (tmp_path / "o_calculix" / "o_calculix.inp").read_text()
+    order["calculix"] = list(dict.fromkeys(re.findall(r"^\*\* STEP: (\w+)", ccx, re.M)))
+    comm = (tmp_path / "o_code_aster" / "o_code_aster.comm").read_text()
+    marks = {"eig": comm.index("#modal analysis"), "concept_loads": comm.index("# Load cases of step concept_loads")}
+    order["code_aster"] = sorted(marks, key=marks.get)
+    assert order == {fmt: ["eig", "concept_loads"] for fmt in order}

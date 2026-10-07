@@ -307,6 +307,26 @@ def test_a_cantilever_takes_its_tip_force_tip_moment_and_lateral_acceleration(fe
         assert moment == pytest.approx((0, -1000.0 * L, 0), abs=1e-9 * 1000 * L)
 
 
+def test_a_code_aster_step_of_one_load_case_reads_back_as_case_1(require_solver, tmp_path):
+    """The clamped beam with one concept load case, a 1 kN tip force: one ``MACRO_ELAS_MULT`` case. Its fields carry
+    ``PDT = 999.999`` and ``NDT = 1`` (measured, 18.1.8), and the reader took the order number only for two cases or
+    more, so this one read back as step 999.999. Now step 1, as case 1 of several does; the tip -P L^3 / (3 EI)."""
+    require_solver("code_aster")
+    a, p, bm = _ipe300_beam()
+    p.concept_fem.constraints.add_point_constraint(
+        ConstraintConceptPoint("fix", (0, 0, 0), _dofs(("dx", "dy", "dz", "rx", "ry", "rz")))
+    )
+    p.concept_fem.loads.add_load_case(
+        LoadConceptCase("LC_F", [LoadConceptPoint("F", (L, 0, 0), (0, 0, -1000.0), (0, 0, 0))])
+    )
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    solved = _solve(a, "one", "code_aster", tmp_path)
+    assert {float(f.step) for f in solved.res.results} == {1.0}
+    ei = bm.material.model.E * bm.section.properties.Iy
+    assert solved.u(1, solved.node(L))[2] == pytest.approx(-1000.0 * L**3 / (3 * ei), rel=1e-9)
+
+
 def _two_load_beam():
     """The simply supported beam with its concept step set aside: its uniform and mid-span point loads to hand."""
     a, p, bm = _ss_beam()
