@@ -468,6 +468,38 @@ def test_a_cantilever_plate_takes_its_tip_edge_load(fem_format, require_solver, 
         assert tip == pytest.approx(-0.6018318, rel=1.5e-2), "Code_Aster on the same mesh; S4 is 1.3 % stiffer here"
 
 
+@pytest.mark.parametrize("model", ["shell", "beam"])
+def test_a_code_aster_run_of_one_element_family_ends_ok_without_alarms(model, require_solver, tmp_path):
+    """The cantilevered plate (DKT) and the cantilevered beam (POU_D_E), each step with two field outputs (the concept
+    step's and one added): ``DIAGNOSTIC JOB : OK`` and no alarm in the .mess file.
+
+    Measured, 18.1.8, before: both ended ``<A>_ALARM`` -- the shells <CALCULEL2_89> for SIPO_ELNO and SIPM_ELNO (beam
+    fields), the beams <CALCULEL2_89> for SIGM_ELNO and <ELEMENTS4_4> for SIPM_ELNO (not on a GENERALE section), and
+    both <CALCCHAMP_1> for every field asked for twice (one CALC_CHAMP per field output); 8 and 18 alarms.
+    """
+    import re
+
+    require_solver("code_aster")
+    if model == "shell":
+        a, p, pl, _ = _plate("cant")
+        p.concept_fem.constraints.add_curve_constraint(
+            ConstraintConceptCurve("root", (0, 0, 0), (0, WID, 0), _dofs(("dx", "dy", "dz", "rx", "ry", "rz")))
+        )
+        q = (0, 0, -500.0)
+        p.concept_fem.loads.add_load_case(
+            LoadConceptCase("LC_eu", [LoadConceptLine("EU", (L, 0, 0), (L, WID, 0), q, q)])
+        )
+        p.fem = p.to_fem_obj(0.125, use_quads=True)
+        p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    else:
+        a, p, bm = _cantilever()
+    assert len(p.fem.steps[0].field_outputs) == 2
+    _solve(a, "fam", "code_aster", tmp_path)
+    mess = (tmp_path / "fam" / "fam.mess").read_text(encoding="utf-8", errors="replace")
+    assert re.findall(r"DIAGNOSTIC JOB\s*:\s*(\S+)", mess) == ["OK"]
+    assert re.findall(r"<A> <(\w+)>", mess) == []
+
+
 # --- prescribed displacements -----------------------------------------------------------------------------------
 
 #: The propped cantilever's cases and the tip's value in each: a mid-span load, a settlement, both, twice the second.
