@@ -20,6 +20,7 @@ import {getColormap} from "@/utils/scene/fea/colormaps";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 
 import {evenSize, exportFileName, planExportFrames, type ExportFrame} from "./framePlan";
+import type {FrameSink} from "./frameSink";
 
 export type AnimationFormat = "mp4" | "gif";
 
@@ -37,39 +38,6 @@ export interface ExportOptions {
 /** Longest output edge per format. GIF stays smaller: it is uncompressed-ish and
  * meant for chats and slides. */
 const MAX_EDGE: Record<AnimationFormat, [number, number]> = {mp4: [1280, 720], gif: [800, 800]};
-
-interface FrameSink {
-    add(index: number): Promise<void>;
-    finish(): Promise<Blob>;
-    cancel(): Promise<void>;
-}
-
-async function createMp4Sink(canvas: HTMLCanvasElement, fps: number): Promise<FrameSink> {
-    const mb = await import("mediabunny");
-    let codec: "avc" | "hevc" | "vp9" | "av1" | null = null;
-    for (const candidate of ["avc", "hevc", "vp9", "av1"] as const) {
-        if (await mb.canEncodeVideo(candidate, {width: canvas.width, height: canvas.height})) {
-            codec = candidate;
-            break;
-        }
-    }
-    if (codec === null) {
-        throw new Error("This browser cannot encode video (no WebCodecs encoder). Export as GIF instead.");
-    }
-    const target = new mb.BufferTarget();
-    const output = new mb.Output({format: new mb.Mp4OutputFormat(), target});
-    const source = new mb.CanvasSource(canvas, {codec, quality: mb.QUALITY_HIGH});
-    output.addVideoTrack(source, {frameRate: fps});
-    await output.start();
-    return {
-        add: (index) => source.add(index / fps, 1 / fps),
-        finish: async () => {
-            await output.finalize();
-            return new Blob([target.buffer!], {type: "video/mp4"});
-        },
-        cancel: () => output.cancel(),
-    };
-}
 
 async function createGifSink(canvas: HTMLCanvasElement, fps: number): Promise<FrameSink> {
     const {GIFEncoder, quantize, applyPalette} = await import("gifenc");
@@ -239,7 +207,10 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
 
     const original = {stepIndex: anim.stepIndex, factor: anim.factor, isPlaying: anim.isPlaying};
     anim.setIsPlaying(false);
-    const sink = options.format === "mp4" ? await createMp4Sink(canvas, plan.fps) : await createGifSink(canvas, plan.fps);
+    const sink =
+        options.format === "mp4"
+            ? await (await import("./mp4Sink")).createMp4Sink(canvas, plan.fps)
+            : await createGifSink(canvas, plan.fps);
     let finished = false;
     try {
         for (let i = 0; i < plan.frames.length; i++) {
