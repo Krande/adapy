@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable
 
+from ada.fem.constraints import BC_LOAD_CASE
 from ada.fem.formats import conversion_report
 
 if TYPE_CHECKING:
@@ -83,8 +84,9 @@ def report_bcs(fems: Iterable[FEM], deck_fem: FEM | None = None) -> None:
                     "Bc",
                     bc.name,
                     "a prescribed displacement is written as BNBCD FIX code 2 plus a BNDISPL record "
-                    "in the first load case; Sesam carries a settlement as loading",
+                    "in the load case it names, else the first; Sesam carries a settlement as loading",
                     magnitudes=[m for m in bc.magnitudes],
+                    load_case=(bc.metadata or {}).get(BC_LOAD_CASE),
                 )
             if bc.amplitude is not None:
                 rep.omitted(STAGE, "Bc", bc.name, "its amplitude is not written; Sesam has no time history")

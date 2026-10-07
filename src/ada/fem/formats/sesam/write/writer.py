@@ -94,7 +94,12 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
       naming the affected nodes, because a node set cannot carry a per-DOF pattern.
     """
     from .not_held import STAGE, bc_is_held, report, report_not_held
-    from .write_bcs import bnbcd_str, prescribed_displacements, retained_dofs
+    from .write_bcs import (
+        bnbcd_str,
+        prescribed_by_case,
+        prescribed_displacements,
+        retained_dofs,
+    )
     from .write_constraints import bldep_records
     from .write_elements import elem_gen, unwritten_element_ids
     from .write_loads import step_loads_str
@@ -175,6 +180,10 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # and BNDISPL (in the load block, which is where Sesam keeps a prescribed displacement)
     # carries the value. Both cards or neither -- see write_bcs.bndispl_str.
     prescribed = prescribed_displacements(held_bcs)
+    # Per load case: a BC naming its case (BC_LOAD_CASE) has its values written into that case, one naming
+    # none into the first.
+    by_case = prescribed_by_case(held_bcs)
+    untagged = by_case.pop(None, {})
 
     # A spring's stiffness record takes a MATNO, numbered on from the materials'.
     spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
@@ -196,7 +205,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
         d.writelines(elem_gen(part.fem, thick_map, spring_matnos))
-        d.write(step_loads_str(step, ndofs, prescribed))
+        d.write(step_loads_str(step, ndofs, untagged, by_case))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
     if rounding.count:

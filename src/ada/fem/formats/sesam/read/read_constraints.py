@@ -124,6 +124,9 @@ def _is_rigid_link(d: dict, fem: FEM) -> bool:
     master = fem.nodes.from_id(str_to_int(d["master"]))
     got = {(s, m): b for s, m, b in _bldep_terms(d)}
     want = {(s, m): b for s, m, b in LinDep(master.p, slave.p).to_integer_list()}
+    # The slave rotations a coupling holds follow the master's one to one (GeniE's 12-term
+    # record for a rotation dependent link; ``write_constraints.coupling_records``).
+    want.update({(r, r): 1.0 for r in (4, 5, 6) if (r, r) in got})
     if got.keys() != want.keys():
         return False
     # GCOORD holds nine significant digits, so the lever arm read back is the written one

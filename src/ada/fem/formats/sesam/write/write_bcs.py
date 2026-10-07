@@ -277,17 +277,41 @@ def prescribed_displacements(fems: Sequence[FEM]) -> dict[int, dict[int, float]]
     how the fixed DOFs of two BCs already merge.
     """
     out: dict[int, dict[int, float]] = {}
+    for per_node in prescribed_by_case(fems).values():
+        for nid, values in per_node.items():
+            for dof, value in values.items():
+                if value != 0.0:
+                    out.setdefault(nid, {})[dof] = value
+    return out
+
+
+def prescribed_by_case(fems: Sequence[FEM]) -> dict[str | None, dict[int, dict[int, float]]]:
+    """``{load case name: {node id: {dof: value}}}`` -- :func:`prescribed_displacements` per load case.
+
+    A ``Bc`` naming its load case in ``metadata[BC_LOAD_CASE]`` goes in that case; one naming none goes under
+    ``None``, which ``write_loads.step_loads_str`` writes into the first case. GeniE gives one support a different
+    value in each load case (V8.13-02: -0.003 in dx in LC1; 0.005, -0.01, 0.001 in dx, dz, rz in LC2, one BNDISPL
+    each), which takes one ``Bc`` per case. The cases are in the order their BCs are met.
+
+    A case's zeros are kept: in LC1 above dz and rz are prescribed zero while LC2 moves them, so LC1's record says
+    so (GeniE writes them too). An untagged ``Bc``'s zero is left out, as before: a prescribed zero alone is a
+    fixed support.
+    """
+    from ada.fem.constraints import BC_LOAD_CASE
+
+    out: dict[str | None, dict[int, dict[int, float]]] = {}
     for fem in fems:
         if fem is None:
             continue
         for bc in fem.bcs:
             if bc.fem_set.type != "nset":
                 continue
+            case = (bc.metadata or {}).get(BC_LOAD_CASE)
             for dof, magnitude in zip(bc.dofs, bc.magnitudes or ()):
-                if isinstance(dof, str) or magnitude is None or float(magnitude) == 0.0:
+                if isinstance(dof, str) or magnitude is None or (case is None and float(magnitude) == 0.0):
                     continue
                 for mem in bc.fem_set.members:
-                    out.setdefault(int(mem.id), {})[int(dof)] = float(magnitude)
+                    out.setdefault(case, {}).setdefault(int(mem.id), {})[int(dof)] = float(magnitude)
     return out
 
 

@@ -39,38 +39,45 @@ def step_loads_str(
     step: Step | None,
     ndofs: NodeDofs | None = None,
     prescribed: dict[int, dict[int, float]] | None = None,
+    prescribed_cases: dict[str, dict[int, dict[int, float]]] | None = None,
 ) -> str:
     """The load block of one step: its load cases, or all its loads as one case ``LC1``.
 
     ``to_fem`` passes the part FEM's dof counts even when the step lives on the assembly,
     because that is where the nodes a load names actually live.
 
-    ``prescribed`` (``{node id: {dof: value}}``, from ``write_bcs.prescribed_displacements``)
-    are the settlements, and they are written *here* rather than with the boundary conditions
-    because in Sesam a prescribed displacement is loading: its BNDISPL record declares an LLC.
-    A model whose only loading is a settlement therefore still needs a load case -- with FIX
-    code 2 and no load case at all Sestra V11.3-00 warns "No load is specified" and writes no
-    displacement result -- so one is opened for it here.
+    ``prescribed`` (``{node id: {dof: value}}``) are the settlements of the BCs that name no
+    load case, and ``prescribed_cases`` (``{load case name: {node id: {dof: value}}}``) those
+    of the BCs that do (``write_bcs.prescribed_by_case``). They are written *here* rather than
+    with the boundary conditions because in Sesam a prescribed displacement is loading: its
+    BNDISPL record declares an LLC. A named case's values go into the step's case of that name,
+    and a case the step does not have is opened after the step's own, in the order given --
+    which is how a GeniE model, whose concept loads become no FE loads, gets its settlement
+    cases. A model whose only loading is a settlement therefore still needs a load case -- with
+    FIX code 2 and no load case at all Sestra V11.3-00 warns "No load is specified" and writes
+    no displacement result -- so one is opened for it here.
     """
     from .write_bcs import bndispl_str
 
     prescribed = prescribed or {}
+    prescribed_cases = prescribed_cases or {}
     if step is None or len(step.loads) == 0:
-        if not prescribed:
-            return ""
-        return _case_str(1, DEFAULT_CASE) + bndispl_str(prescribed, ndofs, 1)
-
-    if len(step.load_cases.keys()) > 0:
+        cases = [(DEFAULT_CASE, [])] if prescribed else []
+    elif len(step.load_cases.keys()) > 0:
         cases = [(lc.name, lc.loads or []) for lc in step.load_cases.values()]
     else:
         cases = [(DEFAULT_CASE, step.loads)]
+    names = {name for name, _ in cases}
+    cases += [(name, []) for name in prescribed_cases if name not in names]
 
     out_str = ""
     for lid, (lc_name, loads) in enumerate(cases, start=1):
         out_str += _case_str(lid, lc_name)
         out_str += case_loads_str(loads, lid, ndofs)
-        if lid == 1:
-            out_str += bndispl_str(prescribed, ndofs, lid)
+        settled = {nid: dict(values) for nid, values in prescribed.items()} if lid == 1 else {}
+        for nid, values in prescribed_cases.get(lc_name, {}).items():
+            settled.setdefault(nid, {}).update(values)
+        out_str += bndispl_str(settled, ndofs, lid)
     if prescribed and len(cases) > 1:
         # A Bc belongs to no load case, so which case a settlement acts in is not something the
         # model says. Sestra solves each case on its own, so putting it in all of them would make

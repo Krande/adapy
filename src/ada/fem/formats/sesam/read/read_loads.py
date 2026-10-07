@@ -21,8 +21,7 @@ So the reader pairs them the same way -- a value is read onto a DOF only if BNBC
 DOF prescribed, and each of the other two combinations is reported rather than guessed at.
 A prescribed displacement is *loading* in Sesam, so the record names a load case (``LLC``); an
 ada ``Bc`` belongs to no load case, so the case name is recorded in the BC's metadata under
-:data:`SESAM_LOAD_CASE` -- which is also the writer's own approximation, in reverse (it writes
-every settlement into the first case).
+:data:`SESAM_LOAD_CASE`, and the writer puts the value back into the load case of that name.
 
 **BEUSLO** (``LLC LOTYP COMPLX LAYER`` / ``ELNO NDOF INTNO SIDE`` / ``RLOAD1..RLOADn``) is a
 surface pressure, one intensity per node of the element. The sign is the whole of the direction:
@@ -50,6 +49,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
 from ada.fem import FemSet, Surface
+from ada.fem.constraints import BC_LOAD_CASE
 from ada.fem.formats import conversion_report
 from ada.fem.formats.utils import str_to_int
 from ada.fem.loads import LoadCase, LoadPressure
@@ -81,11 +81,11 @@ STAGE = "sesam reader"
 #: magnitude and a ``Load`` magnitude are single real numbers.
 NO_PHASE = 0
 
-#: ``Bc.metadata`` key holding the name of the load case a BNDISPL record was in. A ``Bc``
-#: belongs to no load case in ada, and a Sesam deck keeps a settlement in one, so the name has
-#: nowhere else to go; the writer puts every settlement in the *first* case, which is the same
-#: gap seen from the other side (``write_loads.step_loads_str``).
-SESAM_LOAD_CASE = "sesam_load_case"
+#: ``Bc.metadata`` key holding the name of the load case a BNDISPL record was in
+#: (:data:`ada.fem.constraints.BC_LOAD_CASE`). A ``Bc`` belongs to no load case in ada, and a Sesam
+#: deck keeps a settlement in one, so the name has nowhere else to go; the writer puts the value
+#: back into the case of that name (``write_loads.step_loads_str``).
+SESAM_LOAD_CASE = BC_LOAD_CASE
 
 #: The step the deck's load cases are read into. A Sesam FEM file holds no analysis step at all
 #: -- Sestra's control data is a separate ``sestra.inp``, which is not read -- so the step is
@@ -192,9 +192,9 @@ def prescribed_displacements(bulk_str: str) -> tuple[dict[int, dict[int, float]]
         per_case = by_node[nodeno]
         llc = min(per_case)
         if len(per_case) > 1:
-            # A Bc belongs to no load case, so a node prescribed differently in two of them
-            # cannot be held as two BCs either. The first case is the choice, said out loud --
-            # the mirror of the writer, which puts every settlement in the first case.
+            # This reads one Bc per node, so a node prescribed differently in two load cases
+            # keeps the first case's values, said out loud. (The writer takes one Bc per case,
+            # each naming its case in BC_LOAD_CASE; reading them back that way is not done here.)
             rep.approximated(
                 STAGE,
                 "BNDISPL",
