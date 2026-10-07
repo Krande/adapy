@@ -688,3 +688,61 @@ def test_a_tip_torque_twists_by_t_l_over_g_j(fem_format, section, require_solver
             (finding,) = omitted
             assert finding.details["torsion_constant"] == props.Ix
             assert "torsion constant" in finding.reason
+
+
+# --- a failed solve is named, not read ----------------------------------------------------------------------------
+
+
+def _raised(call):
+    """The exception ``call`` raises, whatever its type (so that a run before the runners named failures fails on the
+    assertion, with the type it raised then, and not on an import)."""
+    with pytest.raises(Exception) as info:
+        call()
+    return info.value
+
+
+@pytest.mark.parametrize("fem_format", SOLVERS)
+def test_a_mechanism_stops_the_solve_by_name(fem_format, require_solver, tmp_path):
+    """The beam held in dz only at both ends: nothing holds it along x or about its axis. Each solver stops, and the
+    runner raises ``FEASolveFailed`` with the solver's own name for it, instead of reading results.
+
+    Measured: Code_Aster stops at <FACTOR_11> ("la matrice est singulière", ``DIAGNOSTIC JOB : <S>_ERROR``) and
+    wrote no .rmed -- the run raised ``FileNotFoundError: FEM result file does not exist``; CalculiX's output stops
+    after "Factoring the system of equations", ``spooles.out`` says "matrix found to be singular", and the reader of
+    the .frd it left raised ``ReadFrdFailedException: No element information from Calculix``.
+    """
+    require_solver(fem_format)
+    a, p, bm = _ipe300_beam()
+    c = p.concept_fem.constraints
+    c.add_point_constraint(ConstraintConceptPoint("a", (0, 0, 0), _dofs(("dz",))))
+    c.add_point_constraint(ConstraintConceptPoint("b", (L, 0, 0), _dofs(("dz",))))
+    p.concept_fem.loads.add_load_case(
+        LoadConceptCase("LC", [LoadConceptPoint("P", (L / 2, 0, 0), (0, 0, -1000.0), (0, 0, 0))])
+    )
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    err = _raised(lambda: a.to_fem("mech", fem_format, scratch_dir=tmp_path, overwrite=True, execute=True))
+    assert type(err).__name__ == "FEASolveFailed", repr(err)
+    code, file = {"code_aster": ("FACTOR_11", "mech.mess"), "calculix": ("spooles_singular", "run_log.txt")}[fem_format]
+    assert (err.solver, err.code, err.file.name) == (fem_format, code, file)
+    assert err.file.exists() and "mechanism" in err.hint
+
+
+def test_a_calculix_input_error_stops_the_solve_by_name(require_solver, tmp_path):
+    """A deck whose load names a node that does not exist (written by hand into adapy's deck): ccx 2.23 prints
+    ``*ERROR reading *CLOAD: node 99999 is not defined`` and ``*ERROR in calinput: ... CalculiX stops`` and leaves a
+    .frd without results. The runner raises by the first error's keyword, with every one listed and the output saved
+    to ``run_log.txt``."""
+    from ada.fem.formats.calculix.execute import run_calculix
+
+    require_solver("calculix")
+    a, p, bm = _cantilever()
+    a.to_fem("bad", "calculix", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+    inp = tmp_path / "bad" / "bad.inp"
+    deck = inp.read_text()
+    assert deck.count("*Cload\nLC_F") == 1
+    inp.write_text(deck.replace("*Cload\nLC_F", "*Cload\n99999, 3, 1.0\nLC_F"))
+    err = _raised(lambda: run_calculix(inp, cpus=1))
+    assert type(err).__name__ == "FEASolveFailed", repr(err)
+    assert (err.code, err.codes) == ("reading_CLOAD", ("reading_CLOAD", "calinput"))
+    assert "99999 is not defined" in err.message
+    assert err.file == tmp_path / "bad" / "run_log.txt" and "99999" in err.file.read_text()
