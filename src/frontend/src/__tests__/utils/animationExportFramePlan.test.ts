@@ -74,8 +74,8 @@ test("a size past the GPU limit shrinks both sides together, staying even", () =
 
 test("stored settings are coerced onto valid presets", () => {
   assert.deepEqual(normaliseExportSettings(null), DEFAULT_EXPORT_SETTINGS);
-  const gif = normaliseExportSettings({ format: "gif", resolution: 1080 });
-  assert.equal(gif.resolution, 720); // nearest GIF preset
+  assert.equal(normaliseExportSettings({ format: "gif", resolution: 1080 }).resolution, 1080);
+  assert.equal(normaliseExportSettings({ format: "gif", resolution: 2160 }).resolution, 1080); // nearest GIF preset
   assert.equal(normaliseExportSettings({ fps: 7 }).fps, 12);
   assert.equal(normaliseExportSettings({ gizmo: false }).gizmo, false);
   assert.equal(normaliseExportSettings({}).gizmo, true); // gizmo is on by default

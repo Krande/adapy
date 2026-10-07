@@ -164,6 +164,12 @@ const AnimationExportButton: React.FC = () => {
                             ))}
                         </select>
                     </label>
+                    {settings.format === "gif" && settings.resolution >= 1080 && (
+                        <div className="text-[11px] leading-snug text-amber-300">
+                            Large GIF: each frame is a full image, so expect a big file and a slower
+                            export. MP4 is far smaller at this size.
+                        </div>
+                    )}
                     {timeHistory && (
                         <label className="flex items-center justify-between gap-2">
                             <span className="text-gray-300">Frame rate</span>

@@ -91,10 +91,12 @@ export interface ExportSettings {
     gizmo: boolean;
 }
 
-/** Short-side presets per format. GIF stays modest: every frame is a full palette image. */
+/** Short-side presets per format. GIF tops out at 1080p: every GIF frame is a
+ * full palette image (no inter-frame compression), so larger sizes mostly buy
+ * file size and encode time. */
 export const RESOLUTION_PRESETS: Record<ExportFormat, number[]> = {
     mp4: [720, 1080, 1440, 2160],
-    gif: [360, 480, 720],
+    gif: [360, 480, 720, 1080],
 };
 export const FPS_PRESETS = [6, 12, 24, 30];
 export const ASPECT_PRESETS: ExportAspect[] = ["view", "16:9", "4:3", "1:1", "9:16"];
