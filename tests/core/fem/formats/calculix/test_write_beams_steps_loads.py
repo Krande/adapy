@@ -3,6 +3,8 @@
 * A two-node beam is a ``U1`` general section ``A, Iy, 0, Iz, 1e8`` with local z: the fifth value is U1's shear
   coefficient, not the torsion constant, and the first inertia carries bending along the direction given (ccx 2.23,
   measured; the deck before deflected 11.79 m under 1 kN).
+* Every step is written, a load case as a ``*STEP`` of its own opening with ``OP=NEW``.
+* A point load is a ``*CLOAD`` on its node set; gravity on U1 beams is nodal loads.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import re
 import pytest
 
 import ada
+from ada.fem import LoadGravity, LoadPoint, StepImplicitStatic
 from ada.fem.concept.constraints import ConstraintConceptDofType as Dof
 from ada.fem.concept.constraints import ConstraintConceptPoint
 from ada.fem.concept.loads import LoadConceptCase, LoadConceptLine, LoadConceptPoint
@@ -56,3 +59,65 @@ def test_a_two_node_beam_is_a_u1_general_section_with_its_shear_coefficient_and_
     assert [float(v) for v in direction.split(",")] == pytest.approx([0.0, 0.0, 1.0]), "Iy bends along local z"
     torsion = [f for f in report.findings if f.keyword == "*BEAM SECTION" and f.kind == "approximated"]
     assert torsion and torsion[0].details["ratio"] == pytest.approx((props.Iy + props.Iz) / props.Ix)
+
+
+def test_every_step_and_every_load_case_is_a_step_of_its_own(tmp_path):
+    a, p, _ = _beam()
+    s1 = a.fem.add_step(StepImplicitStatic("first"))
+    s1.add_load(LoadPoint("p1", -100.0, p.fem.nsets["LC_p_pm"], 3))
+    s2 = a.fem.add_step(StepImplicitStatic("second"))
+    s2.add_load(LoadPoint("p2", -200.0, p.fem.nsets["LC_p_pm"], 2))
+    inp, _ = _deck(a, tmp_path)
+    steps = re.findall(r"^\*\* STEP: ([^\n]*)$", inp, re.M)
+    assert steps == ["first", "second", "concept_loads  LOAD CASE: LC_u", "concept_loads  LOAD CASE: LC_p"]
+    assert inp.count("*Step,") == 4 and inp.count("*End Step") == 4
+    blocks = inp.split("** STEP: ")[1:]
+    assert all("*Cload, OP=NEW\n*Dload, OP=NEW" in b for b in blocks), "each static step starts from no load"
+    # the second general step carries the first's load, re-listed after OP=NEW
+    assert "LC_p_pm, 3, -1.0000000000000E+02" in blocks[1] and "LC_p_pm, 2, -2.0000000000000E+02" in blocks[1]
+    assert "LC_p_pm, 2," not in blocks[0]
+    # a load case holds its own loads only
+    assert "LC_p_pm" not in blocks[2] and "LC_p_pm, 3, -1.0000000000000E+04" in blocks[3]
+
+
+def test_a_point_load_is_a_cload_on_its_node_set(tmp_path):
+    a, p, _ = _beam(cases=False)
+    fs = p.fem.add_set(ada.fem.FemSet("tip", [p.fem.nodes.get_by_volume((L, 0, 0))[0]], "nset"))
+    a.fem.add_step(StepImplicitStatic("s")).add_load(
+        ada.fem.Load("pt", "force", 1.0, fem_set=fs, dof=[10.0, 0.0, -20.0, 0.0, 5.0, 0.0])
+    )
+    inp, _ = _deck(a, tmp_path)
+    block = inp.split("Type: Concentrated force\n*Cload\n")[1].split("\n**")[0]
+    assert block.splitlines() == [
+        "tip, 1, 1.0000000000000E+01",
+        "tip, 3, -2.0000000000000E+01",
+        "tip, 5, 5.0000000000000E+00",
+    ]
+
+
+def test_gravity_on_u1_beams_is_their_weight_as_nodal_loads(tmp_path):
+    """ccx takes no body force on a U1 element; the weight rho A g goes in as Hermite-consistent nodal loads, summing
+    to the beam's weight, and no GRAV names a set with a U1 element in it."""
+    a, p, bm = _beam(cases=False)
+    a.fem.add_step(StepImplicitStatic("g")).add_load(LoadGravity("grav", -9.81))
+    inp, _ = _deck(a, tmp_path)
+    loads = inp.split("Type: Gravity\n")[1].split("\n**")[0]
+    assert "GRAV" not in loads
+    rows = re.findall(r"^(\d+), (\d), (\S+)$", loads, re.M)
+    fz = sum(float(v) for _, dof, v in rows if dof == "3")
+    props = bm.section.properties
+    assert fz == pytest.approx(-bm.material.model.rho * props.Ax * 9.81 * L, rel=1e-12)
+
+
+def test_a_line_load_on_u1_beams_has_the_hermite_end_moments(tmp_path):
+    """Uniform 1000 N/m down on 0.5 m elements: 250 N at each end and +- q h^2 / 12 = 20.83 N m about y there --
+    ``M1 = int N2 (t x q) dx`` with ``t x q = (0, +1000, 0)``, so + at the near end."""
+    a, p, _ = _beam()
+    inp, _ = _deck(a, tmp_path)
+    block = inp.split("LOAD CASE: LC_u")[1].split("*End Step")[0]
+    rows = {(int(n), int(d)): float(v) for n, d, v in re.findall(r"^(\d+), (\d), (\S+)$", block, re.M)}
+    end_a = p.fem.nodes.get_by_volume((0, 0, 0))[0].id
+    end_b = p.fem.nodes.get_by_volume((L, 0, 0))[0].id
+    assert rows[(end_a, 3)] == pytest.approx(-250.0) and rows[(end_b, 3)] == pytest.approx(-250.0)
+    assert rows[(end_a, 5)] == pytest.approx(1000.0 * 0.5**2 / 12)
+    assert rows[(end_b, 5)] == pytest.approx(-1000.0 * 0.5**2 / 12)

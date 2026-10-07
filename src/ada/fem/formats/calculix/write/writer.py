@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from itertools import groupby
 from operator import attrgetter
 from typing import TYPE_CHECKING
@@ -7,7 +8,7 @@ from typing import TYPE_CHECKING
 from ada.api.containers import Nodes
 from ada.config import logger
 from ada.core.utils import NewLine, get_current_user
-from ada.fem import Bc, FemSection, FemSet
+from ada.fem import Bc, FemSection, FemSet, Load
 from ada.fem.exceptions import IncompatibleElements
 from ada.fem.formats.abaqus.write.write_bc import abaqus_bc_type
 from ada.fem.formats.abaqus.write.write_sections import (
@@ -21,12 +22,12 @@ from ada.fem.steps import StepExplicit
 from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_constraints import constraints_str
-from .write_elements import elements_str, is_u1
-from .write_loads import STAGE, get_all_grav_loads
-from .write_steps import step_str
+from .write_elements import elements_str
+from .write_loads import STAGE
+from .write_steps import steps_str
 
 if TYPE_CHECKING:
-    from ada import Assembly
+    from ada import Assembly, Part
     from ada.fem import Interaction, Surface
 
 
@@ -38,16 +39,8 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
     p = get_fem_model_from_assembly(assembly)
-    # A step anywhere -- the assembly's, or a part's, where the concept load cases' step is -- makes it an analysis.
-    has_steps = len(assembly.fem.steps) > 0 or any(len(sp.fem.steps) > 0 for sp in assembly.get_all_subparts())
-    u1 = frozenset(el.id for el in p.fem.elements.lines if is_u1(el))
-
-    # Check if contains gravity load and create a FemSet containing all elements if so
-    all_gl = get_all_grav_loads(assembly.fem)
-    if len(all_gl) > 0 and p.fem.elsets.get("Eall", None) is None:
-        fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements.stru_elements], "elset"))
-        for grav_load in all_gl:
-            grav_load.fem_set = fs
+    steps = all_steps(assembly)
+    deck = DeckContext.of(p, steps)
 
     with open(inp_file, "w") as f:
         # Header
@@ -55,36 +48,84 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")
-        f.write(elements_str(p.fem.elements, report_locking=has_steps).strip() + "\n")
-        if u1:
+        f.write(elements_str(p.fem.elements, report_locking=len(steps) > 0).strip() + "\n")
+        if deck.u1_elements:
             f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
         f.write(elsets_str(p.fem.elsets) + "\n")
         f.write(elsets_str(assembly.fem.elsets) + "\n")
+        if deck.grav_elset_str:
+            f.write(deck.grav_elset_str + "\n")
         f.write(nsets_str(p.fem.nsets) + "\n")
         f.write(nsets_str(assembly.fem.nsets) + "\n")
         f.write(solid_sec_str(p) + "\n")
         f.write(shell_sec_str(p) + "\n")
-        f.write(beam_sec_str(p, report=has_steps) + "\n")
+        f.write(beam_sec_str(p, report=len(steps) > 0) + "\n")
 
         # Assembly Level information
-        u1_materials = {el.fem_sec.material.name for el in p.fem.elements.lines if el.id in u1}
+        u1_materials = {el.fem_sec.material.name for el in p.fem.elements.lines if el.id in deck.u1_elements}
         f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in p.materials]) + "\n")
         f.write(constraints_str(p, assembly) + "\n")
         f.write("\n".join([bc_str(x) for x in p.fem.bcs + assembly.fem.bcs]) + "\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
         # *STEP block. ``ada convert --to calculix`` produces exactly that (a conversion
         # carries geometry and mesh, not an analysis), and the abaqus writer already guards
-        # the same way; indexing ``steps[0]`` unconditionally raised IndexError.
-        if len(assembly.fem.steps) > 0:
-            f.write(step_str(assembly.fem.steps[0]))
+        # the same way.
+        if len(steps) > 0:
+            f.write(steps_str(steps, deck))
         else:
             f.write("** No steps\n")
 
-        # f.write(mass_str)
-        # f.write(surfaces_str)
-        # f.write(springs_str)
-
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
+
+
+def all_steps(assembly: Assembly) -> list:
+    """Every step the deck carries: the assembly's, then each part FEM's -- where ``Part.to_fem_obj`` puts the step
+    its concept load cases become. Only the assembly's first used to be written, so a second step and a part's step
+    were left out of the deck."""
+    return list(assembly.fem.steps) + [s for p in assembly.get_all_subparts() for s in p.fem.steps]
+
+
+#: The element set the deck's ``*DLOAD GRAV`` names: every structural element CalculiX takes a body force on.
+GRAV_ELSET = "ADA_GRAV"
+
+
+@dataclass
+class DeckContext:
+    """What the step writers need to know about the model the deck is written from."""
+
+    part: Part
+    u1_elements: frozenset = frozenset()
+    grav_elset: str | None = None
+    grav_elset_str: str = ""
+
+    @staticmethod
+    def of(part: Part, steps) -> DeckContext:
+        from ada.fem.shapes import definitions as shape_def
+
+        from .write_elements import is_u1
+
+        u1 = frozenset(el.id for el in part.fem.elements.lines if is_u1(el))
+        has_gravity = any(ld.type in (Load.TYPES.GRAVITY, Load.TYPES.ACC) for st in steps for ld in st.loads)
+        grav, grav_str = None, ""
+        if has_gravity:
+            # ccx stops at a body force on a U1 element ("*ERROR in e_c3d_u1: no body forces"), so the weight of
+            # U1 beams is written as nodal loads (write_loads.gravity_load_str) and the GRAV set holds the rest.
+            members = sorted(
+                (
+                    el
+                    for el in part.fem.elements
+                    if shape_def.is_structural(el.type) and el.fem_sec is not None and el.id not in u1
+                ),
+                key=attrgetter("id"),
+            )
+            if members:
+                if GRAV_ELSET in part.fem.elsets:
+                    raise ValueError(f"calculix writer: the model already has an element set named {GRAV_ELSET!r}")
+                grav = GRAV_ELSET
+                newline = NewLine(15)
+                ids = " ".join(f"{el.id}," + next(newline) for el in members).rstrip()[:-1]
+                grav_str = f"*Elset, elset={GRAV_ELSET}\n {ids}"
+        return DeckContext(part, u1, grav, grav_str)
 
 
 class CcxSecTypes:
@@ -314,6 +355,19 @@ def material_str(material, elastic_only: bool = False):
 
 
 def bc_str(bc: Bc) -> str:
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.abaqus.write.write_bc import is_settlement
+
+    if is_settlement(bc):
+        # The *BOUNDARY lines below carry no value, so the dofs are held at zero. A prescribed displacement belongs to
+        # a load case (or every one) and its own *STEPs, which this writer does not lay out.
+        conversion_report.current().omitted(
+            STAGE,
+            "*BOUNDARY",
+            bc.name,
+            "a prescribed displacement; its dofs are written held at zero and the values are not written",
+            values=", ".join(f"{d}={m}" for d, m in zip(bc.dofs, bc.magnitudes or ()) if m not in (None, 0, 0.0)),
+        )
     ampl_ref_str = "" if bc.amplitude is None else ", amplitude=" + bc.amplitude.name
 
     aba_type = abaqus_bc_type(bc.type)

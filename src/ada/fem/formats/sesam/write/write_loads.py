@@ -226,19 +226,10 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
 
 
 def _acceleration(load: Load) -> tuple[float, float, float]:
-    """The acceleration vector BGRAV takes.
+    """The acceleration vector BGRAV takes (:func:`ada.fem.loads.acceleration_vector`)."""
+    from ada.fem.loads import acceleration_vector
 
-    ``Load.acc_vector`` wants exactly one non-``None`` dof entry, but a load read from an
-    Abaqus deck names all three direction components (``[1, 0, 0]``), which it rejects. The
-    components scaled by the magnitude are the same vector either way.
-    """
-    if load.type == Load.TYPES.ACC:
-        try:
-            return tuple(load.acc_vector)
-        except ValueError:
-            pass
-    comps = [0.0 if d is None else float(d) for d in (list(load.dof or [0, 0, 1]) + [0, 0, 0])[:3]]
-    return tuple(load.magnitude * c for c in comps)
+    return acceleration_vector(load)
 
 
 def load_gravity(load: Load, load_id: int) -> str:

@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from ada.fem.exceptions import IncompatibleElements
+from ada.fem.exceptions.model_definition import UnsupportedLoadType
 from ada.fem.formats.abaqus.read.lexer import tokenize
 from ada.fem.formats.abaqus.write.writer import to_fem as write_abaqus
 
@@ -33,7 +34,9 @@ CALCULIX_GAPS = {
     "elements_line_explicit": (ValueError, "Calculix has no explicit step"),
     "steps_explicit": (ValueError, "Calculix has no explicit step"),
     "steps_dynamic_implicit": (ValueError, "the Calculix writer has no implicit dynamic step"),
-    "loads": (ValueError, "Calculix loads need a fem_set; gravity/acceleration fields have none"),
+    # Every step is written now, so the second step of these is reached rather than dropped without a word.
+    "steps_steady_state": (ValueError, "the Calculix writer has no steady-state dynamics step"),
+    "loads": (UnsupportedLoadType, "a pressure on shell face 0 names neither SPOS nor SNEG"),
     "read_back_deck": (IncompatibleElements, "a read deck's elements carry no FemSection, which Calculix needs"),
     "sets_empty": (ValueError, "the Calculix set writer raises on an empty set (Abaqus logs and drops it)"),
     # The Calculix writer used to drop every constraint; it now writes kinematic couplings and refuses the rest

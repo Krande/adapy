@@ -119,8 +119,11 @@ class Load(FemBase):
     def forces_global(self):
         if self.type not in (LoadTypes.FORCE,):
             return None
+        # A dof given as one int leaves the others None (``LoadPoint(..., dof=3)``): no load there. Multiplying the None
+        # raised, so every such point load failed in a writer that asks for global components.
+        dofs = [0.0 if x is None else float(x) for x in self.dof]
         if self.csys is None:
-            return [x * self.magnitude for x in self.dof]
+            return [x * self.magnitude for x in dofs]
         else:
             csys = self.csys
             if csys.coords is None:
@@ -131,7 +134,7 @@ class Load(FemBase):
 
             destination_csys = [(1, 0, 0), (0, 1, 0)]
             rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)
-            res = np.concatenate([np.dot(rmat, np.array(self.dof[:3])), np.dot(rmat, np.array(self.dof[3:]))])
+            res = np.concatenate([np.dot(rmat, np.array(dofs[:3])), np.dot(rmat, np.array(dofs[3:]))])
             return [x * self.magnitude for x in res]
 
     @property
@@ -387,6 +390,74 @@ class LoadLine(Load):
             for node, force in LoadLine.nodal_loads(seg):
                 nodal[node] = nodal.get(node, np.zeros(3)) + force
         return sorted(nodal.items(), key=lambda x: x[0].id)
+
+    @staticmethod
+    def hermite_nodal_loads(seg: LineLoadSegment) -> list[tuple[Node, np.ndarray]]:
+        """The consistent nodal forces *and moments* of one beam segment on a two-node Euler-Bernoulli element:
+        ``(node, (Fx, Fy, Fz, Mx, My, Mz))`` at each end, global components.
+
+        The transverse part of the load is shared by the element's cubic (Hermite) shape functions, the force by
+        ``N1 = 1 - 3s^2 + 2s^3`` / ``N3 = 3s^2 - 2s^3`` and the moment by ``N2 = h (s - 2s^2 + s^3)`` /
+        ``N4 = h (s^3 - s^2)`` about ``t x q`` (``t`` the element axis from end 1 to end 2); the axial part linearly,
+        as the element interpolates its axial displacement. With these loads an Euler-Bernoulli element's nodal
+        displacements are the exact ones for any load linear over the loaded stretch, which forces alone are not: a
+        simply supported 4 m beam in 0.5 m elements under a uniform load misses the end moments ``q h^2 / 12``, which
+        is ``0.8 (h / L)^2`` of the mid-span deflection. Integrated exactly (3-point Gauss; the integrand is a quartic).
+        """
+        if seg.edge is not None:
+            raise ValueError("a shell edge segment has no beam (Hermite) form")
+        a, b = seg.ends()
+        length = float(np.linalg.norm(b - a))
+        axis = (b - a) / length
+        x1, x2 = seg.l1 / length, 1.0 - seg.l2 / length
+        q1, q2 = np.asarray(seg.q1, dtype=float), np.asarray(seg.q2, dtype=float)
+        out_a, out_b = np.zeros(6), np.zeros(6)
+        span = x2 - x1
+        jac = 0.5 * span * length
+        for g, w in zip(*np.polynomial.legendre.leggauss(3)):
+            t = 0.5 * (g + 1.0)
+            s = x1 + t * span
+            q = q1 * (1 - t) + q2 * t
+            q_ax = float(np.dot(q, axis)) * axis
+            q_tr = q - q_ax
+            m = np.cross(axis, q_tr)
+            out_a[:3] += w * jac * (q_ax * (1 - s) + q_tr * (1 - 3 * s**2 + 2 * s**3))
+            out_b[:3] += w * jac * (q_ax * s + q_tr * (3 * s**2 - 2 * s**3))
+            out_a[3:] += w * jac * m * length * (s - 2 * s**2 + s**3)
+            out_b[3:] += w * jac * m * length * (s**3 - s**2)
+        return [(seg.elem.nodes[0], out_a), (seg.elem.nodes[1], out_b)]
+
+    @staticmethod
+    def summed_beam_nodal_loads(segments: Iterable[LineLoadSegment], hermite) -> list[tuple[Node, np.ndarray]]:
+        """Six-component nodal loads of ``segments``, summed per node and sorted by node id: :meth:`hermite_nodal_loads`
+        for a segment whose element ``hermite(elem)`` says is a two-node Euler-Bernoulli beam, :meth:`nodal_loads`
+        (forces, no moments) for the rest."""
+        nodal: dict = {}
+        for seg in segments:
+            if seg.edge is None and hermite(seg.elem):
+                pairs = LoadLine.hermite_nodal_loads(seg)
+            else:
+                pairs = [(n, np.concatenate([f, np.zeros(3)])) for n, f in LoadLine.nodal_loads(seg)]
+            for node, f in pairs:
+                nodal[node] = nodal.get(node, np.zeros(6)) + f
+        return sorted(nodal.items(), key=lambda x: x[0].id)
+
+
+def acceleration_vector(load: Load) -> tuple[float, float, float]:
+    """The acceleration a gravity or acceleration load applies, as a global vector.
+
+    A ``LoadGravity`` is its magnitude along its dof direction (``[0, 0, 1]`` unless given otherwise), and so is the
+    ``Load`` of type gravity a concept acceleration field becomes (``|a|`` along a unit ``dof``). ``Load.acc_vector``
+    wants exactly one non-``None`` dof entry, but a load read from an Abaqus deck names all three direction components
+    (``[1, 0, 0]``), which it rejects; the components scaled by the magnitude are the same vector either way.
+    """
+    if load.type == LoadTypes.ACC:
+        try:
+            return tuple(float(a) for a in load.acc_vector)
+        except ValueError:
+            pass
+    comps = [0.0 if d is None else float(d) for d in (list(load.dof or [0, 0, 1]) + [0, 0, 0])[:3]]
+    return tuple(float(load.magnitude) * c for c in comps)
 
 
 #: ``LoadCase.metadata`` key: the case's number in the analysis (GeniE's ``fem_loadcase_number``), which the Sesam

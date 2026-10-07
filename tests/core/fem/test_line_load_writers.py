@@ -2,12 +2,14 @@
 
 Both writers raised on one (Calculix ``ValueError: Calculix does not accept Loads without reference to a fem_set``,
 Code_Aster ``NotImplementedError: Load type "line"``), so a model with a line load in a step they write did not
-write at all. Calculix now writes every segment as the consistent nodal forces of the linear element (``*CLOAD``);
-Code_Aster writes a beam element loaded uniformly end to end as ``FORCE_POUTRE`` and the rest as ``FORCE_NODALE``,
-over mesh groups of its own. The nodal forces are :meth:`LoadLine.nodal_loads`, the conversion the Abaqus writer uses.
+write at all. Calculix writes every segment as nodal loads (``*CLOAD``); Code_Aster writes a beam element loaded
+uniformly end to end as ``FORCE_POUTRE`` and the rest as ``FORCE_NODALE``, over mesh groups of its own. On a two-node
+beam (CalculiX U1, Code_Aster POU_D_E, both Euler-Bernoulli) the nodal loads are the Hermite-consistent forces and
+moments (:meth:`LoadLine.hermite_nodal_loads`), on a shell edge the forces of the linear edge
+(:meth:`LoadLine.nodal_loads`).
 
-Code_Aster is not installed here, so nothing is solved: each deck's records are summed back into a force and a moment
-and compared with the load's own, and the concept load's closed form. The part: a 4 m beam at y = 1.5 under a
+Nothing is solved here (``tests/fem/test_calculix_code_aster_solve.py`` solves): each deck's records are summed back
+into a force and a moment and compared with the load's own, and the concept load's closed form. The part: a 4 m beam at y = 1.5 under a
 uniform (1000 N/m), a partial (1.3..2.9 m) and a linear (1000 -> 3000 N/m) load, and a 4 x 1 m plate with
 (100, 0, -500) N/m along its y = 0 edge, which has no beam.
 """
@@ -56,27 +58,34 @@ def meshed():
 
 
 def _write(meshed, fmt, case, tmp_path):
-    """Write the part with ``case``'s line load as the one load of an assembly step -- the steps these writers
-    write -- and return the deck's text, the line load and the conversion report."""
+    """Write the part with ``case``'s line load as the one load of an assembly step and return the deck's text, the
+    line load and the conversion report. Both writers write the part's own step (its concept load cases) as well; it
+    is set aside here so that the deck carries this one load."""
     a, p, loads = meshed
     load = LoadLine(f"ll_{case}", loads[case].segments)
     step = a.fem.add_step(StepImplicitStatic("s1"))
     step.add_load(load)
+    part_steps = list(p.fem.steps)
+    for s in part_steps:
+        p.fem.steps.remove(s)
     try:
         with conversion_report.collect() as report:
             a.to_fem(case, fmt, scratch_dir=tmp_path, overwrite=True)
     finally:
         a.fem.steps.remove(step)
+        p.fem.steps.extend(part_steps)
     suffix = ".inp" if fmt == "calculix" else ".comm"
     return (tmp_path / case / case).with_suffix(suffix).read_text(), load, report
 
 
 def _summed(points_forces) -> tuple[np.ndarray, np.ndarray]:
-    """The total force and its moment about the origin of ``(position, force)`` pairs."""
+    """The total force and its moment about the origin of ``(position, load)`` pairs, a load being a force or a force
+    and a nodal moment (six components)."""
     f, m = np.zeros(3), np.zeros(3)
-    for pos, force in points_forces:
-        f += force
-        m += np.cross(pos, force)
+    for pos, load in points_forces:
+        load = np.concatenate([load, np.zeros(6 - len(load))])
+        f += load[:3]
+        m += np.cross(pos, load[:3]) + load[3:]
     return f, m
 
 
@@ -91,7 +100,7 @@ def _ccx_cloads(inp: str, p) -> list[tuple[np.ndarray, np.ndarray]]:
     (block,) = re.findall(r"^\*Cload\n((?:\d+, \d, \S+\n)+)", inp, re.M)
     out = []
     for nid, dof, value in re.findall(r"^(\d+), (\d), (\S+)$", block, re.M):
-        force = np.zeros(3)
+        force = np.zeros(6)
         force[int(dof) - 1] = float(value)
         out.append((np.asarray(p.fem.nodes.from_id(int(nid)).p, dtype=float), force))
     return out
@@ -101,24 +110,50 @@ def _ccx_cloads(inp: str, p) -> list[tuple[np.ndarray, np.ndarray]]:
 def test_calculix_writes_a_line_load_as_nodal_forces_summing_to_the_load(meshed, case, tmp_path):
     inp, load, report = _write(meshed, "calculix", case, tmp_path)
     _, p, _ = meshed
-    assert "*Dload" not in inp.split("** LOADS")[1]
+    loads = inp.split("** LOADS")[1]
+    assert not re.search(r"^\*Dload$", loads, re.M), "no distributed load (the step's '*Dload, OP=NEW' only clears)"
     force, moment = _summed(_ccx_cloads(inp, p))
     want_f, want_m = _expected(load)
     assert force == pytest.approx(want_f, abs=1e-6)
     assert force == pytest.approx(np.asarray(CASES[case][1]), abs=1e-6)
     assert moment == pytest.approx(want_m, abs=1e-6)
-    (note,) = [f for f in report.findings if f.keyword == "LoadLine"]
-    assert (note.kind, note.stage, note.subject) == ("note", "calculix writer", load.name)
+    notes = [f for f in report.findings if f.keyword == "LoadLine"]
+    if case == "LC_edge":  # a shell edge: forces of the linear edge, said so
+        (note,) = notes
+        assert (note.kind, note.stage, note.subject) == ("note", "calculix writer", load.name)
+    else:  # a U1 beam: Hermite-consistent forces and moments, exact at the nodes; nothing to report
+        assert notes == []
 
 
-def test_calculix_nodal_forces_are_the_consistent_ones(meshed, tmp_path):
-    """The partial load 1.3..2.9 m on 0.5 m elements: the element 2.5..3.0 is loaded over 2.5..2.9, 400 N, which the
-    linear element's shape functions share 240 to the node at 2.5 and 160 to the node at 3.0; the node at 2.5 also
-    takes 250 from the element before it, which is loaded whole."""
+#: The Hermite-consistent loads of a uniform q over the first c of an element of length h, at its first end (force,
+#: moment), integrated by hand: F1 = q (c - c^3/h^2 + c^4/(2 h^3)), M1 = q (c^2/2 - 2 c^3/(3 h) + c^4/(4 h^2)); at its
+#: second end F2 = q c - F1, M2 = -q (c^3/(3 h) - c^4/(4 h^2)).
+def _hermite_partial(q, c, h):
+    f1 = q * (c - c**3 / h**2 + c**4 / (2 * h**3))
+    m1 = q * (c**2 / 2 - 2 * c**3 / (3 * h) + c**4 / (4 * h**2))
+    return f1, m1, q * c - f1, -q * (c**3 / (3 * h) - c**4 / (4 * h**2))
+
+
+def test_calculix_nodal_loads_are_the_hermite_ones(meshed, tmp_path):
+    """The partial load 1.3..2.9 m on 0.5 m elements, on U1 beams. The element 2.5..3.0 is loaded over 2.5..2.9
+    (c = 0.4): 246.4 N and 20.2667 N m at 2.5, 153.6 N and -17.0667 N m at 3.0; the element 2.0..2.5 is loaded whole,
+    250 N and +-20.8333 N m (q h^2 / 12) at its ends. Forces alone, as this wrote before, leave a simply supported
+    beam's mid-span short by 0.8 (h / L)^2 under a uniform load."""
     inp, _, _ = _write(meshed, "calculix", "LC_part", tmp_path)
     _, p, _ = meshed
-    by_x = {round(float(pos[0]), 6): float(f[2]) for pos, f in _ccx_cloads(inp, p)}
-    assert by_x == pytest.approx({1.0: -40.0, 1.5: -410.0, 2.0: -500.0, 2.5: -490.0, 3.0: -160.0})
+    by_x = {}
+    for pos, load in _ccx_cloads(inp, p):
+        x = round(float(pos[0]), 6)
+        by_x[x] = by_x.get(x, np.zeros(6)) + load
+    q, h = -1000.0, 0.5
+    f1, m1, f2, m2 = _hermite_partial(q, 0.4, h)
+    whole_f, whole_m = q * h / 2, q * h**2 / 12
+    # the moment of a load along -z on a beam along +x is about -y for the near end: M = (t x q) int N2 dx
+    assert by_x[2.5][2] == pytest.approx(whole_f + f1, abs=1e-9)
+    assert by_x[2.5][4] == pytest.approx(whole_m - m1, abs=1e-9)  # the whole element's end moment, then the partial one
+    assert by_x[3.0][2] == pytest.approx(f2, abs=1e-9)
+    assert by_x[3.0][4] == pytest.approx(-m2, abs=1e-9)
+    assert (f1, m1, f2, m2) == pytest.approx((-246.4, -20.266666667, -153.6, 17.066666667))
 
 
 # --- Code_Aster ------------------------------------------------------------------------------------------------------
@@ -160,16 +195,17 @@ def _aster_records(comm: str, load: LoadLine, p, groups) -> tuple[list, list]:
     assert m, f"no AFFE_CHAR_MECA for {load.name}"
     body = m[1]
     num = r"(-?[\d.eE+-]+)"
+    comps = ("FX", "FY", "FZ", "MX", "MY", "MZ")
     beam = [
         (p.fem.elements.from_id(el), np.array([float(fx), float(fy), float(fz)]))
         for name, fx, fy, fz in re.findall(rf"_F\(GROUP_MA='(\w+)', FX={num}, FY={num}, FZ={num}\)", body)
         for el in sorted(groups[name])
     ]
-    nodal = [
-        (np.asarray(p.fem.nodes.from_id(n).p, dtype=float), np.array([float(fx), float(fy), float(fz)]))
-        for name, fx, fy, fz in re.findall(rf"_F\(GROUP_NO='(\w+)', FX={num}, FY={num}, FZ={num}\)", body)
-        for n in sorted(groups[name])
-    ]
+    nodal = []
+    for name, rest in re.findall(r"_F\(GROUP_NO='(\w+)', ([^)]*)\)", body):
+        values = dict(re.findall(rf"(\w+)={num}", rest))
+        load = np.array([float(values.get(c, 0.0)) for c in comps])
+        nodal += [(np.asarray(p.fem.nodes.from_id(n).p, dtype=float), load) for n in sorted(groups[name])]
     return beam, nodal
 
 

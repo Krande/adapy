@@ -160,9 +160,9 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
 _WRITES_ASSEMBLIES = frozenset({FEATypes.ABAQUS})
 
 #: Formats whose writer writes a part FEM's own steps as well as the assembly's -- where ``Part.to_fem_obj`` puts the
-#: step its concept load cases become. The others (Calculix, Code_Aster: the assembly's steps; Usfos: no step) leave
+#: step its concept load cases become. The others (Code_Aster: the assembly's steps; Usfos: no step) leave
 #: it out, which is reported.
-_WRITES_PART_STEPS = frozenset({FEATypes.ABAQUS, FEATypes.SESAM})
+_WRITES_PART_STEPS = frozenset({FEATypes.ABAQUS, FEATypes.SESAM, FEATypes.CALCULIX})
 
 
 def write_to_fem(
