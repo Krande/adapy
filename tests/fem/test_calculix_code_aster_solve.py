@@ -38,6 +38,7 @@ from ada.fem.concept.loads import (
     LoadConceptCaseFactored,
     LoadConceptLine,
     LoadConceptPoint,
+    LoadConceptPrescribedDisplacement,
     LoadConceptSurface,
 )
 from ada.materials.metals import CarbonSteel
@@ -419,3 +420,144 @@ def test_a_cantilever_plate_takes_its_tip_edge_load(fem_format, require_solver, 
         assert tip == pytest.approx(-0.6020137, rel=4e-4), "Sestra on the same mesh"
     else:
         assert tip == pytest.approx(-0.6018318, rel=1.5e-2), "Code_Aster on the same mesh; S4 is 1.3 % stiffer here"
+
+
+# --- prescribed displacements -----------------------------------------------------------------------------------
+
+#: The propped cantilever's cases and the tip's value in each: a mid-span load, a settlement, both, twice the second.
+SETTLE_CASES = {"LC_pt": 0.0, "LC_set": -0.01, "LC_both": 0.02, "LCC": -0.02}
+
+
+def _propped_cantilever():
+    """Root clamped, the tip's dz prescribed (GeniE's ``prescribed`` support): 1 kN down at mid-span in LC_pt and
+    LC_both, the tip settling -0.01 m in LC_set and +0.02 m in LC_both, and LCC = 2 x LC_set."""
+    a, p, bm = _ipe300_beam()
+    c = p.concept_fem.constraints
+    c.add_point_constraint(ConstraintConceptPoint("root", (0, 0, 0), Dof.encastre()))
+    tip_dofs = [Dof(d, "free") for d in ("dx", "dy", "rx", "ry", "rz")] + [Dof("dz", "prescribed")]
+    sp = c.add_point_constraint(ConstraintConceptPoint("tip", (L, 0, 0), tip_dofs))
+    ld = p.concept_fem.loads
+    down = (0, 0, -1000.0)
+    ld.add_load_case(LoadConceptCase("LC_pt", [LoadConceptPoint("P", (L / 2, 0, 0), down, (0, 0, 0))], 1))
+    settle = [LoadConceptPrescribedDisplacement("PD", sp, (0, 0, SETTLE_CASES["LC_set"]))]
+    lc_set = ld.add_load_case(LoadConceptCase("LC_set", settle, 2))
+    both = [
+        LoadConceptPrescribedDisplacement("PD2", sp, (0, 0, SETTLE_CASES["LC_both"])),
+        LoadConceptPoint("P2", (L / 2, 0, 0), down, (0, 0, 0)),
+    ]
+    ld.add_load_case(LoadConceptCase("LC_both", both, 3))
+    ld.add_load_case_combination(LoadConceptCaseCombination("LCC", [LoadConceptCaseFactored(lc_set, 2.0)]))
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    return a, p, bm
+
+
+@pytest.mark.parametrize("fem_format", SOLVERS)
+def test_a_prescribed_tip_settlement_reacts_3_ei_delta_over_l_cubed(fem_format, require_solver, tmp_path):
+    """The propped cantilever, case by case: the tip lands on its value and reacts ``3 E I delta / L^3`` (plus
+    ``5 P / 16`` = 312.5 N of the mid-span load), and mid-span deflects ``delta x^2 (3L - x) / (2 L^3)`` = 0.3125
+    delta (plus ``-7 P L^3 / (768 E I)`` of the load).
+
+    Measured, Code_Aster 18.1.8: R_tip -7874.0027753 N for -0.01 m (closed form -7874.0027753), 16060.505551 N in
+    LC_both and -15748.005551 N in LCC, mid-span -3.125e-3 / 6.2152733803e-3 / -6.25e-3 m: the closed form to every
+    printed digit. Before, the support's ``DZ=0`` and every case's settlement all held the tip in ``CHAR_MECA_GLOBAL``
+    and Code_Aster stopped (<ASSEMBLA_26>, the dof "bloqué plusieurs fois"); the values were not written either.
+    ``MACRO_ELAS_MULT`` cannot take a support value per case (<ASSEMBLA_45>), so this step is one ``MECA_STATIQUE``
+    over an instant per case.
+
+    CalculiX 2.23 does not solve a prescribed displacement on a U1 beam (mid-span -0.23375 m for -0.01 m; a prescribed
+    rigid translation bent the beam), so the writer holds the dof at zero and names each settlement ``omitted``: the
+    tip stays at 0 and each case is the plain propped cantilever.
+    """
+    require_solver(fem_format)
+    from ada.fem.formats import conversion_report
+
+    with conversion_report.collect() as report:
+        a, p, bm = _propped_cantilever()
+        solved = _solve(a, "pd", fem_format, tmp_path)
+    ei = bm.material.model.E * bm.section.properties.Iy
+    w_load, r_load = -7 * 1000.0 * L**3 / (768 * ei), 5 * 1000.0 / 16
+    tip, mid = solved.node(L), solved.node(L / 2)
+    for k, (case, delta) in enumerate(SETTLE_CASES.items(), start=1):
+        loaded = case in ("LC_pt", "LC_both")
+        if fem_format == "code_aster":
+            assert solved.u(k, tip)[2] == pytest.approx(delta, abs=1e-15)
+            assert solved.u(k, mid)[2] == pytest.approx(0.3125 * delta + (w_load if loaded else 0), rel=1e-9)
+            r_tip = solved.reactions(k, [tip])[0][2]
+            assert r_tip == pytest.approx(3 * ei * delta / L**3 + (r_load if loaded else 0), rel=1e-9)
+            assert solved.reactions(k)[0][2] == pytest.approx(1000.0 if loaded else 0.0, abs=1e-6)
+        else:
+            assert solved.u(k, tip)[2] == 0.0
+            assert solved.u(k, mid)[2] == pytest.approx(w_load if loaded else 0.0, rel=FRD, abs=1e-12)
+    refused = [f for f in report.of_kind("omitted") if f.keyword == "*BOUNDARY"]
+    if fem_format == "calculix":
+        (finding,) = refused
+        assert sorted([finding.subject, *finding.other_subjects]) == ["tip_LCC", "tip_LC_both", "tip_LC_set"]
+        assert "U1 beam" in finding.reason
+    else:
+        assert not report.of_kind("omitted"), report.summary()
+
+
+def _strip_cantilever(dof: int, values: dict):
+    """The plate strip in cylindrical bending (long edges held in dy and rx), its root clamped and its tip edge's
+    ``dof`` prescribed per load case: an FE ``Bc`` per case naming it, as the concept conversion makes them."""
+    from ada.fem import Bc, FemSet, LoadCase
+    from ada.fem.constraints import BC_LOAD_CASE
+
+    a, p, pl, mat = _plate("pdstrip")
+    c = p.concept_fem.constraints
+    c.add_curve_constraint(ConstraintConceptCurve("x0", (0, 0, 0), (0, WID, 0), _dofs(("dx", "dz", "ry", "rz"))))
+    c.add_curve_constraint(ConstraintConceptCurve("y0", (0, 0, 0), (L, 0, 0), _dofs(("dy", "rx"))))
+    c.add_curve_constraint(ConstraintConceptCurve("y5", (0, WID, 0), (L, WID, 0), _dofs(("dy", "rx"))))
+    p.fem = p.to_fem_obj(0.125, use_quads=True)
+    tip = p.fem.add_set(FemSet("tip_edge", [n for n in p.fem.nodes if abs(n.x - L) < 1e-9], FemSet.TYPES.NSET))
+    p.fem.add_bc(Bc("tip_hold", tip, [dof]))
+    step = p.fem.add_step(StepImplicitStatic("settle"))
+    for name, v in values.items():
+        p.fem.add_bc(Bc(f"tip_{name}", tip, [dof], magnitudes=[v], metadata={BC_LOAD_CASE: name}))
+        step.add_loadcase(LoadCase(name, None, loads=[]))
+    # A case with no settlement and no load: CalculiX solves it as a step of its own (Code_Aster leaves it out).
+    step.add_loadcase(LoadCase("LC_none", None, loads=[]))
+    step.add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    return a, p, mat
+
+
+@pytest.mark.parametrize("fem_format", SOLVERS)
+def test_a_prescribed_plate_edge_settlement_and_rotation(fem_format, require_solver, tmp_path):
+    """The strip's tip edge settles (dz -0.01 m, then +0.02 m) or turns (ry 0.01, then -0.02 rad), case by case: the
+    root reacts ``3 D b delta / L^3`` and mid-span deflects 0.3125 delta; a turned tip makes the root react
+    ``D b theta / L`` and mid-span deflect ``-theta L / 8``.
+
+    Measured, quads at 0.125 m: Code_Aster (DKT) R = 4.5072115406 N against 4.5072115385 (+4.7e-10), mid-span
+    -3.1250000002e-3 m; M = -24.038461557 N m against 24.038461538 (+7.7e-10). CalculiX (S4, a C3D8I layer) R =
+    4.508288 N (+2.39e-4; 4.50747 at 0.0625 m, +5.7e-5) and mid-span -3.12455e-3 m (-1.44e-4); M = -24.0384 N m
+    (-2.6e-6). Before, neither writer wrote the values: CalculiX held the edge at zero, Code_Aster stopped (a dof held
+    twice).
+    """
+    require_solver(fem_format)
+    for dof, values in ((3, {"LC1": -0.01, "LC2": 0.02}), (5, {"LC1": 0.01, "LC2": -0.02})):
+        a, p, mat = _strip_cantilever(dof, values)
+        solved = _solve(a, f"pd{dof}", fem_format, tmp_path)
+        d = mat.model.E * T**3 / (12 * (1 - mat.model.v**2))
+        root = [n for n, c in solved.coords.items() if abs(c[0]) < 1e-9]
+        mid = solved.node(L / 2)
+        for k, v in enumerate(values.values(), start=1):
+            force, moment = solved.reactions(k, root)
+            w = solved.u(k, mid)[2]
+            if dof == 3:
+                closed_r, closed_w = -3 * d * WID * v / L**3, 0.3125 * v
+                if fem_format == "code_aster":
+                    assert force[2] == pytest.approx(closed_r, rel=1e-9)
+                    assert w == pytest.approx(closed_w, rel=1e-9)
+                else:
+                    assert force[2] / closed_r - 1 == pytest.approx(2.38e-4, abs=1e-5)
+                    assert w / closed_w - 1 == pytest.approx(-1.44e-4, abs=1e-5)
+            else:
+                closed_m, closed_w = -d * WID * v / L, -v * L / 8
+                assert moment[1] == pytest.approx(closed_m, rel=1e-9 if fem_format == "code_aster" else FRD)
+                assert w == pytest.approx(closed_w, rel=1e-9 if fem_format == "code_aster" else FRD)
+        if fem_format == "calculix":
+            # ccx carries a *BOUNDARY value into the next step: the case after LC2 names no settlement and must put
+            # the edge back at zero, not keep LC2's 0.02.
+            assert solved.u(3, solved.node(L))[2] == 0.0
+            assert solved.u(3, mid)[2] == 0.0

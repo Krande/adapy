@@ -18,6 +18,8 @@ class StatNonLin:
     name: str
     part: Part
     loads: list[Load]
+    #: The step's own charge of prescribed values (it replaces the one holding them at zero); empty for none.
+    prescribed: str = ""
 
     @property
     def sec_str(self):
@@ -31,13 +33,19 @@ class StatNonLin:
     def get_bc_str(self):
         from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied
 
+        from ..write_bc import PRESCRIBED_AT_ZERO
         from ..write_constraints import get_charge_names
 
         charges = get_charge_names(self.part)
         if len(charges) == 0:
             raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
-
-        return "".join(f"_F(CHARGE={name})," for name in charges)
+        if self.prescribed:
+            charges = [c for c in charges if c != PRESCRIBED_AT_ZERO]
+        out = "".join(f"_F(CHARGE={name})," for name in charges)
+        if self.prescribed:
+            # ramped with the loads
+            out += f"_F(CHARGE={self.prescribed}, FONC_MULT=bc_step),"
+        return out
 
     def loads_str(self):
         # Every load of the step; only the first used to be applied.
@@ -169,13 +177,24 @@ class ImprResu:
 
 def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "result", applied=()) -> str:
     from ada.fem.exceptions.model_definition import NoLoadsApplied
+    from ada.fem.formats.prescribed import case_values
+
+    from ..write_bc import prescribed_charge_str
+    from ..write_constraints import model_bcs
+    from ..write_loads import STAGE
 
     loads = list(applied) + [ld for ld in step.loads if all(ld is not c for c in applied)]
     load_str = "\n".join(list(map(write_load, loads)))
-    if len(loads) == 0:
+    bcs = model_bcs(part)
+    values = case_values(bcs, {step.name}, STAGE, step=step.name)
+    prescribed = ""
+    if any(v != 0.0 for v in values.values()):
+        prescribed = f"{result}_pd"
+        load_str += "\n" + prescribed_charge_str(prescribed, values, bcs)
+    if len(loads) == 0 and not prescribed:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
-    stat_non_line = StatNonLin(result, part, loads)
+    stat_non_line = StatNonLin(result, part, loads, prescribed)
     stat_non_line_str = stat_non_line.write()
     post_calc = PostCalc(stat_non_line, part)
     post_calc_str = post_calc.write()

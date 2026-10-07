@@ -40,7 +40,8 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
     p = get_fem_model_from_assembly(assembly)
     steps = all_steps(assembly)
-    deck = DeckContext.of(p, steps)
+    bcs = list(p.fem.bcs) + list(assembly.fem.bcs)
+    deck = DeckContext.of(p, steps, bcs)
 
     with open(inp_file, "w") as f:
         # Header
@@ -65,7 +66,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         u1_materials = {el.fem_sec.material.name for el in p.fem.elements.lines if el.id in deck.u1_elements}
         f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in p.materials]) + "\n")
         f.write(constraints_str(p, assembly) + "\n")
-        f.write("\n".join([bc_str(x) for x in p.fem.bcs + assembly.fem.bcs]) + "\n")
+        f.write("\n".join([bc_str(x) for x in bcs]) + "\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
         # *STEP block. ``ada convert --to calculix`` produces exactly that (a conversion
         # carries geometry and mesh, not an analysis), and the abaqus writer already guards
@@ -97,9 +98,13 @@ class DeckContext:
     u1_elements: frozenset = frozenset()
     grav_elset: str | None = None
     grav_elset_str: str = ""
+    #: The model's boundary conditions, whose prescribed displacements every static step gives a value.
+    bcs: tuple = ()
+    #: The prescribed dofs ``(set, dof)`` on nodes of U1 beams, held at zero instead (:func:`refuse_on_u1`).
+    refused: frozenset = frozenset()
 
     @staticmethod
-    def of(part: Part, steps) -> DeckContext:
+    def of(part: Part, steps, bcs=()) -> DeckContext:
         from ada.fem.shapes import definitions as shape_def
 
         from .write_elements import is_u1
@@ -125,7 +130,42 @@ class DeckContext:
                 newline = NewLine(15)
                 ids = " ".join(f"{el.id}," + next(newline) for el in members).rstrip()[:-1]
                 grav_str = f"*Elset, elset={GRAV_ELSET}\n {ids}"
-        return DeckContext(part, u1, grav, grav_str)
+        return DeckContext(part, u1, grav, grav_str, tuple(bcs), refuse_on_u1(part, u1, bcs))
+
+
+def refuse_on_u1(part: Part, u1_elements: frozenset, bcs) -> frozenset:
+    """The prescribed dofs ``(set, dof)`` on a node of a U1 beam, each such settlement reported ``omitted``: those
+    dofs are held at zero.
+
+    CalculiX 2.23 does not solve a nonzero prescribed displacement on a U1 beam. Measured on a 4 m IPE300 cantilever
+    in eight U1 elements with the tip's dz prescribed -0.01 m: mid-span -0.23375 m against the exact -0.003125 m and
+    nodal forces of 3.0e6 N against a tip reaction of 7874 N, linear in the value (-1e-4 m gave -2.3375e-3 m). The
+    same -0.01 m prescribed at both ends, a rigid translation, bent the beam to -0.1575 m at mid-span. Tying the tip
+    to a node outside the beam (``*EQUATION``) and prescribing that node gave the same numbers, and the shear
+    coefficient (1, 100, 1e4, 1e8) did not change them: ccx forms the load of a prescribed displacement from the
+    elements' internal forces, and the U1 element's are not its stiffness times its displacements (its nodal forces
+    are not reactions either: +500 and -500 N at the two 500 N supports of a simply supported beam).
+    """
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.prescribed import settlements
+
+    u1_nodes = {n.id for el in part.fem.elements.lines if el.id in u1_elements for n in el.nodes}
+    refused = set()
+    for bc in settlements(bcs):
+        on_u1 = sorted(n.id for n in bc.fem_set.members if getattr(n, "id", None) in u1_nodes)
+        if not on_u1:
+            continue
+        refused.update((bc.fem_set.name, int(d)) for d in bc.dofs if d is not None)
+        conversion_report.current().omitted(
+            STAGE,
+            "*BOUNDARY",
+            bc.name,
+            "a prescribed displacement on a node of a U1 beam, which CalculiX 2.23 does not solve (measured: a "
+            "prescribed rigid translation bent the beam); its dofs are held at zero and the values are not written",
+            nodes=on_u1[:10],
+            values=", ".join(f"{d}={m}" for d, m in zip(bc.dofs, bc.magnitudes or ()) if m not in (None, 0, 0.0)),
+        )
+    return frozenset(refused)
 
 
 class CcxSecTypes:
@@ -355,19 +395,8 @@ def material_str(material, elastic_only: bool = False):
 
 
 def bc_str(bc: Bc) -> str:
-    from ada.fem.formats import conversion_report
-    from ada.fem.formats.abaqus.write.write_bc import is_settlement
-
-    if is_settlement(bc):
-        # The *BOUNDARY lines below carry no value, so the dofs are held at zero. A prescribed displacement belongs to
-        # a load case (or every one) and its own *STEPs, which this writer does not lay out.
-        conversion_report.current().omitted(
-            STAGE,
-            "*BOUNDARY",
-            bc.name,
-            "a prescribed displacement; its dofs are written held at zero and the values are not written",
-            values=", ".join(f"{d}={m}" for d, m in zip(bc.dofs, bc.magnitudes or ()) if m not in (None, 0, 0.0)),
-        )
+    """A ``*BOUNDARY`` holding the ``Bc``'s dofs. A prescribed displacement's values go into the static steps
+    (:func:`.write_steps.prescribed_str`): model data holds its dofs, each step gives them the value of its case."""
     ampl_ref_str = "" if bc.amplitude is None else ", amplitude=" + bc.amplitude.name
 
     aba_type = abaqus_bc_type(bc.type)

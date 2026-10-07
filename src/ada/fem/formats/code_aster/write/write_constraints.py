@@ -34,14 +34,30 @@ def get_couplings(part: Part) -> list[Constraint]:
     return couplings
 
 
-def get_charge_names(part: Part) -> list[str]:
-    """The names of all mechanical loads that make up the supports of the model: boundary conditions and couplings"""
-    names = []
+def model_bcs(part: Part) -> list:
+    """The boundary conditions of the part's FEM and of its assembly's, each once."""
+    out = []
     for fem in _fems(part):
-        for bc in fem.bcs:
-            name = concept_name(bc, "bc")
-            if name not in names:
-                names.append(name)
+        out += [bc for bc in fem.bcs if all(bc is not b for b in out)]
+    return out
+
+
+def get_charge_names(part: Part) -> list[str]:
+    """The names of all mechanical loads that make up the supports of the model: boundary conditions and couplings,
+    and the charge holding the prescribed dofs at zero (:data:`.write_bc.PRESCRIBED_AT_ZERO`), which a static step
+    giving them values replaces with its own."""
+    from ada.fem.formats.prescribed import prescribed_dofs
+
+    from .write_bc import PRESCRIBED_AT_ZERO, held_dofs, prescribed_at_zero_str
+
+    bcs = model_bcs(part)
+    prescribed = prescribed_dofs(bcs)
+    names = []
+    for bc in bcs:
+        if held_dofs(bc, prescribed) and concept_name(bc, "bc") not in names:
+            names.append(concept_name(bc, "bc"))
+    if prescribed_at_zero_str(bcs):
+        names.append(PRESCRIBED_AT_ZERO)
     names += [concept_name(con, "coupling") for con in get_couplings(part)]
     return names
 

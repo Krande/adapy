@@ -139,3 +139,70 @@ def test_a_later_load_where_abaqus_would_replace_an_earlier_one_is_reported(tmp_
     _, report = _comm(a, tmp_path)
     (found,) = [f for f in report.findings if f.keyword == "Step"]
     assert (found.kind, found.subject, found.details) == ("approximated", "third", {"load": "p1"})
+
+
+def _settling_beam():
+    """The beam on a pin and a support whose dz is prescribed: -0.01 m in LC_s, a point load alone in LC_p."""
+    from ada.fem.concept.loads import LoadConceptPrescribedDisplacement
+
+    bm = ada.Beam("bm", (0, 0, 0), (L, 0, 0), "IPE300", ada.Material("S355", CarbonSteel("S355")))
+    p = ada.Part("beam") / bm
+    a = ada.Assembly("ss") / p
+    c = p.concept_fem.constraints
+    c.add_point_constraint(ConstraintConceptPoint("root", (0, 0, 0), Dof.encastre()))
+    tip = [Dof(d, "free") for d in ("dx", "dy", "rx", "ry", "rz")] + [Dof("dz", "prescribed")]
+    sp = c.add_point_constraint(ConstraintConceptPoint("tip", (L, 0, 0), tip))
+    ld = p.concept_fem.loads
+    ld.add_load_case(LoadConceptCase("LC_p", [LoadConceptPoint("pm", (2.0, 0, 0), (0, 0, -1e3), (0, 0, 0))], 1))
+    ld.add_load_case(LoadConceptCase("LC_s", [LoadConceptPrescribedDisplacement("pd", sp, (0, 0, -0.01))], 2))
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    return a, p
+
+
+def test_a_prescribed_dof_is_held_once_and_takes_its_value_case_by_case(tmp_path):
+    """The support's ``DZ=0`` and the settlement's both held the tip in ``CHAR_MECA_GLOBAL``, and Code_Aster stops
+    on a dof held twice (<ASSEMBLA_26>, measured); the value was not written at all. Now the support's charge leaves
+    the prescribed dof out, and the step -- which ``MACRO_ELAS_MULT`` cannot give a support value per case
+    (<ASSEMBLA_45>, measured) -- is one ``MECA_STATIQUE`` with an instant per case: the settlement a unit charge whose
+    ``FONC_MULT`` is 0 at instant 1 and -0.01 at instant 2, the point load's 1 then 0."""
+    a, p = _settling_beam()
+    comm, report = _comm(a, tmp_path)
+    assert not report.of_kind("omitted"), report.summary()
+    assert "\ntip = AFFE_CHAR_MECA(" not in comm, "the tip support holds dz only, which the settlement prescribes"
+    assert (
+        'result_p1 = AFFE_CHAR_MECA(\n    MODELE=model,\n    DDL_IMPO=(\n        _F(GROUP_NO="tip_set", DZ=1.0),'
+        in comm
+    )
+    assert "MACRO_ELAS_MULT" not in comm
+    assert "result_t = DEFI_LIST_REEL(VALE=(1.0, 2.0,))" in comm
+    assert "result_g1 = DEFI_FONCTION(NOM_PARA='INST', VALE=(0.0, 0.0, 1.0, 0.0, 2.0, -0.01))" in comm
+    assert "result_f1 = DEFI_FONCTION(NOM_PARA='INST', VALE=(0.0, 0.0, 1.0, 1.0, 2.0, 0.0))" in comm
+    m = re.search(r"^result = MECA_STATIQUE\((.*?)^\)", comm, re.M | re.S)
+    assert re.findall(r"_F\(CHARGE=(\w+)(?:, FONC_MULT=(\w+))?\)", m[1]) == [
+        ("bc_root", ""),
+        ("ld_LC_p_pm", "result_f1"),
+        ("result_p1", "result_g1"),
+    ], "each dof held once: the support at zero, the prescribed dz by its own charge"
+
+
+def test_a_general_step_gives_the_prescribed_dof_its_value_and_other_steps_hold_it_at_zero(tmp_path):
+    """A settlement naming no load case belongs to every static step: a general step holds the dof with a charge of
+    the value (``result_pd``) instead of the one at zero, which the eigen step keeps."""
+    from ada.fem import Bc, StepEigen
+
+    a, p, _ = _beam(cases=False)
+    p.fem.add_bc(Bc("roll_settle", p.fem.nsets["roll_set"], [3], magnitudes=[-0.02]))
+    mid = p.fem.add_set(ada.fem.FemSet("mid", [p.fem.nodes.get_by_volume((2.0, 0, 0))[0]], "nset"))
+    a.fem.add_step(StepImplicitStatic("lin")).add_load(LoadPoint("p1", -100.0, mid, 3))
+    a.fem.add_step(StepEigen("eig", num_eigen_modes=3))
+    comm, report = _comm(a, tmp_path)
+    assert not report.of_kind("omitted"), report.summary()
+    roll = re.search(r'GROUP_NO="roll_set",\n    (.*?)\n\)\nbc_roll = AFFE_CHAR_MECA', comm)
+    assert roll and "DZ" not in roll[1] and "DX=0" in roll[1], "the support leaves the prescribed dz out"
+    pd = 'result_pd = AFFE_CHAR_MECA(\n    MODELE=model,\n    DDL_IMPO=(\n        _F(GROUP_NO="roll_set", DZ=-0.02),'
+    zero = (
+        'prescribed_zero = AFFE_CHAR_MECA(\n    MODELE=model,\n    DDL_IMPO=(\n        _F(GROUP_NO="roll_set", DZ=0.0),'
+    )
+    assert pd in comm and zero in comm
+    assert _excit(comm, "result") == ["bc_pin", "bc_roll", "result_pd", "ld_p1"]
+    assert "CHARGE=(bc_pin, bc_roll, prescribed_zero,)," in comm

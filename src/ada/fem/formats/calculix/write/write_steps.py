@@ -53,10 +53,58 @@ def _outputs_str(step: Step) -> tuple[str, str]:
     return nodal_str, elem_str
 
 
-def _bcs_str(step: Step) -> str:
-    from .writer import bc_str
+def _bcs_str(step: Step, deck: DeckContext, cases: set[str] | None = None) -> str:
+    """The step's own ``Bc``s, a prescribed displacement among them with its values (it carries into later steps, as
+    in Abaqus), then -- for a static step standing for the load case names ``cases`` -- the model's prescribed
+    displacements (:func:`prescribed_str`)."""
+    from ada.fem.formats.prescribed import settlements
 
-    return "\n".join([bc_str(bc) for bc in step.bcs.values()]) if len(step.bcs) > 0 else "** No BCs"
+    from .writer import bc_str, refuse_on_u1
+
+    own = list(step.bcs.values())
+    refused = refuse_on_u1(deck.part, deck.u1_elements, own) if own else frozenset()
+    blocks = []
+    for bc in own:
+        if bc in settlements([bc]) and not any((bc.fem_set.name, d) in refused for d in bc.dofs):
+            lines = [f" {bc.fem_set.name}, {d}, {d}, {ccx_value(m)}" for d, m in zip(bc.dofs, bc.magnitudes)]
+            blocks.append(f"** Name: {bc.name} Type: prescribed displacement\n*Boundary\n" + "\n".join(lines))
+        else:
+            blocks.append(bc_str(bc))
+    if cases is not None:
+        blocks.append(prescribed_str(deck, cases, step=step.name))
+    blocks = [b for b in blocks if b]
+    return "\n".join(blocks) if blocks else "** No BCs"
+
+
+def ccx_value(m) -> str:
+    from .write_loads import ccx_number
+
+    return ccx_number(0.0 if m is None else m)
+
+
+def prescribed_str(deck: DeckContext, cases: set[str], **where) -> str:
+    """The model's prescribed displacements in a static ``*STEP`` standing for the load case names ``cases``: every
+    prescribed dof at its value in one of ``cases``, or at zero (:func:`ada.fem.formats.prescribed.case_values`).
+
+    Every static step lists every prescribed dof because ccx carries a ``*BOUNDARY`` value into the next step and a
+    step that does not name the dof would inherit the last one's. Measured, ccx 2.23, a 4 m x 0.5 m x 10 mm plate strip
+    in cylindrical bending (S4, quads at 0.125 m), root clamped, its tip edge's dz held in model data and given -0.01 m
+    and +0.02 m in two load case steps: root reaction 4.508288 N against ``3 D b delta / L^3`` = 4.507212 N (+2.4e-4)
+    and mid-span -3.12455e-3 m against -3.125e-3 m, the second step exactly -2 times the first; ry given 0.01 rad:
+    root moment 24.0384 N m against ``D b theta / L`` = 24.03846 N m. Not written on a node of a U1 beam
+    (:func:`.writer.refuse_on_u1`).
+    """
+    from ada.fem.formats.prescribed import case_values
+
+    from .write_loads import STAGE
+
+    if not deck.bcs:
+        return ""
+    values = case_values(deck.bcs, cases, STAGE, **where)
+    lines = [f" {s}, {d}, {d}, {ccx_value(v)}" for (s, d), v in values.items() if (s, d) not in deck.refused]
+    if not lines:
+        return ""
+    return "** Prescribed displacements\n*Boundary\n" + "\n".join(lines)
 
 
 def load_case_step_str(step: StepImplicitStatic, lc, deck: DeckContext) -> str:
@@ -89,7 +137,7 @@ def load_case_step_str(step: StepImplicitStatic, lc, deck: DeckContext) -> str:
 **
 ** BOUNDARY CONDITIONS
 **
-{_bcs_str(step)}
+{_bcs_str(step, deck, {lc.name})}
 **
 ** LOADS (this load case only)
 **
@@ -138,7 +186,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
 **
 ** BOUNDARY CONDITIONS
 **
-{_bcs_str(step)}
+{_bcs_str(step, deck, {step.name} if step.type == Step.TYPES.STATIC else None)}
 **
 ** LOADS
 **

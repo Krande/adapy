@@ -19,7 +19,7 @@ import ada
 from ada.api.fem_tasks import design_cantilever, mesh_cantilever
 from ada.fem import Bc, FemSet, LoadGravity
 from ada.fem.formats.code_aster.write import names
-from ada.fem.formats.code_aster.write.names import RESERVED, ConceptNames
+from ada.fem.formats.code_aster.write.names import ConceptNames, is_reserved
 
 WRITE_DIR = pathlib.Path(names.__file__).parent
 
@@ -29,9 +29,13 @@ _BINDING = re.compile(r"^([A-Za-z_]\w*)[ \t]*=[ \t]*[A-Za-z_]*[(\[]", re.M)
 #: A concept an operator creates: ``NUME_DDL=CO('dofs_eig')``.
 _CO = re.compile(r"\bCO\(\s*['\"](\w+)['\"]\s*\)")
 #: Python variables whose string value the writer binds in the file (``{output_mesh} = CREA_MAILLAGE``,
-#: ``{elset} = (...)``, ``{result} = MECA_STATIQUE``) -- assigned, given as a parameter's default or passed by keyword -- and the
-#: result name of a non-linear step (``StatNonLin("result", ...)``).
+#: ``{elset} = (...)``, ``{result} = MECA_STATIQUE``) -- assigned, given as a parameter's default or passed
+#: by keyword -- and the result name of a non-linear step (``StatNonLin("result", ...)``).
 _NAME_VARIABLES = {"output_mesh", "input_mesh", "elset", "result"}
+#: Module constants whose value is a name the file binds (``PRESCRIBED_AT_ZERO = "prescribed_zero"``).
+_NAME_CONSTANTS = {"PRESCRIBED_AT_ZERO"}
+#: What ``{result}`` stands for when an f-string is read: the result of a later step, as the deck names it.
+_RESULT = "result2"
 
 
 def _identifier(node) -> str | None:
@@ -40,12 +44,52 @@ def _identifier(node) -> str | None:
     return None
 
 
-def _bound_in(source: str) -> list[str]:
-    """Every name a writer module's source binds in the command file it writes."""
-    found = []
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            found += [m.group(1) for m in list(_BINDING.finditer(node.value)) + list(_CO.finditer(node.value))]
+def _constants(tree) -> dict[str, str]:
+    """The :data:`_NAME_CONSTANTS` a module assigns, with their values."""
+    out = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and _identifier(node.value):
+            out.update({t.id: node.value.value for t in node.targets if getattr(t, "id", None) in _NAME_CONSTANTS})
+    return out
+
+
+def _rendered(node: ast.JoinedStr, constants: dict[str, str]) -> str:
+    """An f-string as the file gets it: ``{result}`` a step's result name, a name constant its value, any
+    other expression a number (``f"{result}_p{j}"`` -> ``result2_p1``)."""
+    out = []
+    for part in node.values:
+        if isinstance(part, ast.Constant):
+            out.append(str(part.value))
+        elif isinstance(part.value, ast.Name) and part.value.id == "result":
+            out.append(_RESULT)
+        elif isinstance(part.value, ast.Name) and part.value.id in constants:
+            out.append(constants[part.value.id])
+        else:
+            out.append("1")
+    return "".join(out)
+
+
+def _in_text(text: str) -> list[str]:
+    return [m.group(1) for m in list(_BINDING.finditer(text)) + list(_CO.finditer(text))]
+
+
+def _bound_in(source: str, constants: dict[str, str] | None = None) -> list[str]:
+    """Every name a writer module's source binds in the command file it writes. ``constants``: the name
+    constants of every writer module (by default this one's)."""
+    tree = ast.parse(source)
+    own = _constants(tree)
+    constants = own if constants is None else constants
+    found = list(own.values())
+    in_fstrings = {id(v) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for v in node.values}
+    made_up = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            text = _rendered(node, constants)
+            found += _in_text(text)
+            if re.fullmatch(r"[A-Za-z_]\w*", text):
+                made_up.append((node, text))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in in_fstrings:
+            found += _in_text(node.value)
         elif isinstance(node, ast.Assign) and _identifier(node.value):
             if any(isinstance(t, ast.Name) and t.id in _NAME_VARIABLES for t in node.targets):
                 found.append(node.value.value)
@@ -60,16 +104,38 @@ def _bound_in(source: str) -> list[str]:
         elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == "StatNonLin" and node.args:
             if isinstance(node.args[0], ast.Constant):
                 found.append(node.args[0].value)
+    # A name made up from one of the file's own as it is written, and passed on to bind
+    # (``prescribed_charge_str(f"{result}_pd", ...)``, ``f"result{n}"``). An f-string that is no such name
+    # (a group name ``f"g_{digest}"``, a case name) is not one the file binds.
+    roots = set(found) | set(constants.values()) | {"result"}
+    for node, text in made_up:
+        head = node.values[0]
+        if any(_derived(part, constants) for part in node.values) or (
+            isinstance(head, ast.Constant) and str(head.value).rstrip("_") in roots
+        ):
+            found.append(text)
     return found
+
+
+def _derived(part, constants) -> bool:
+    """Whether an f-string placeholder is one of the file's own names (``{result}``, ``{SUPPORTS}``)."""
+    return (
+        isinstance(part, ast.FormattedValue)
+        and isinstance(part.value, ast.Name)
+        and (part.value.id == "result" or part.value.id in constants)
+    )
 
 
 def _bound_by_the_writer() -> dict[str, str]:
     """Every name the writer's own templates bind, with the file it is bound in."""
+    sources = {path: path.read_text(encoding="utf-8") for path in sorted(WRITE_DIR.rglob("*.py"))}
+    sources = {path: src for path, src in sources.items() if path.name != "names.py"}
+    constants = {}
+    for src in sources.values():
+        constants.update(_constants(ast.parse(src)))
     found = {}
-    for path in sorted(WRITE_DIR.rglob("*.py")):
-        if path.name == "names.py":
-            continue
-        for name in _bound_in(path.read_text(encoding="utf-8")):
+    for path, src in sources.items():
+        for name in _bound_in(src, constants):
             found.setdefault(name, path.name)
     return found
 
@@ -80,12 +146,16 @@ TEMPLATE = """stmt_bound = AFFE_MODELE(
     MAILLAGE=mesh,
 )
 co_stmt_bound = CALC(RESU=CO('co_bound'))"""
+PRESCRIBED_AT_ZERO = "constant_bound"
 
 
 def write(part, input_mesh, output_mesh: str = "default_bound", *, elset="kwonly_default_bound"):
     output_mesh = "assigned_bound"
     convert(output_mesh="keyword_bound")
     StatNonLin("statnonlin_bound")
+    charge(f"{result}_passed", f"{PRESCRIBED_AT_ZERO}_{k}")
+    out = f"""{result}_stmt = DEFI_LIST_REEL(VALE=(1.0,))
+    CHARGE={result}_used,"""
     return f"{output_mesh} = CREA_MAILLAGE("
 '''
     assert sorted(_bound_in(source)) == sorted(
@@ -93,11 +163,15 @@ def write(part, input_mesh, output_mesh: str = "default_bound", *, elset="kwonly
             "stmt_bound",
             "co_bound",
             "co_stmt_bound",
+            "constant_bound",
             "default_bound",
             "kwonly_default_bound",
             "assigned_bound",
             "keyword_bound",
             "statnonlin_bound",
+            "result2_passed",
+            "constant_bound_1",
+            "result2_stmt",
         ]
     )
 
@@ -106,8 +180,12 @@ def test_every_name_the_writer_binds_itself_is_reserved():
     bound = _bound_by_the_writer()
     # the scan sees what it is meant to see
     assert {"mesh", "model", "material", "element", "result", "dofs", "stiff", "Traction", "sh_sets"} <= set(bound)
-    unreserved = {name: where for name, where in bound.items() if name not in RESERVED}
-    assert not unreserved, f"names the command file binds itself but RESERVED does not list: {unreserved}"
+    # ... and the names a step makes up as it is written
+    assert {"result1", "result2_pd", "result2_t", "result2_f1", "result2_p1", "result2_g1", "prescribed_zero"} <= set(
+        bound
+    )
+    unreserved = {name: where for name, where in bound.items() if not is_reserved(name)}
+    assert not unreserved, f"names the command file binds itself but RESERVED(_PATTERNS) does not cover: {unreserved}"
 
 
 def _set(name="s"):
