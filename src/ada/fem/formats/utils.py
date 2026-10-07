@@ -460,6 +460,8 @@ def interpret_fem_format_from_path(fem_path: str | pathlib.Path):
         fem_type = FEATypes.CALCULIX
     elif suffix in (".rmed", ".med"):
         fem_type = FEATypes.CODE_ASTER
+    elif suffix in (".rad", ".radanim"):
+        fem_type = FEATypes.OPENCOURANT
     else:
         logger.error(f'unrecognized suffix "{suffix}"')
 
@@ -764,6 +766,7 @@ def default_fem_res_path(
         FEATypes.SESAM: (base_path.parent / f"{name}R1").with_suffix(".SIN"),
         FEATypes.USFOS: base_path.with_suffix(".fem"),
         FEATypes.XDMF: base_path.with_suffix(".xdmf"),
+        FEATypes.OPENCOURANT: base_path.with_suffix(".radanim"),
     }
 
     if fem_format is None:
@@ -782,4 +785,5 @@ def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):
         FEATypes.CALCULIX: base_path.with_suffix(".inp"),
         FEATypes.SESAM: (base_path.parent / f"{name}T1").with_suffix(".FEM"),
         FEATypes.USFOS: base_path.with_suffix(".raf"),
+        FEATypes.OPENCOURANT: base_path.parent / f"{name}_0000.rad",
     }

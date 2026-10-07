@@ -1,6 +1,7 @@
 import {create} from "zustand";
 import {persist} from "zustand/middleware";
 import type {PluginTheme} from "@/plugins/registry";
+import {isLightColor} from "@/utils/colorLuminance";
 
 // Panel theming for the menu-row info boxes (Options / Storage /
 // Selected Object / Scene / Server / WS status). The panels read
@@ -144,6 +145,11 @@ function applyPanelThemeVars(theme: PanelTheme): void {
     // the raised-surface / muted-text / semantic accents plugins need to match.
     root.setProperty("--ada-panel-surface", theme.surface);
     root.setProperty("--ada-panel-text-muted", theme.textMuted);
+    // Native form controls (a <select>'s dropdown list, number spinners) are drawn
+    // by the browser and ignore our colours; color-scheme is what they follow. Light
+    // panel text means a dark panel, so ask for dark native controls -- otherwise a
+    // dark theme gets light option text on the default white dropdown.
+    root.setProperty("--ada-panel-color-scheme", isLightColor(theme.text) ? "dark" : "light");
     root.setProperty("--ada-accent", SEMANTIC_TOKENS.accent);
     root.setProperty("--ada-pass", SEMANTIC_TOKENS.pass);
     root.setProperty("--ada-warn", SEMANTIC_TOKENS.warn);

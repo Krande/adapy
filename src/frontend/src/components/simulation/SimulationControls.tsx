@@ -44,6 +44,9 @@ import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
+import AnimationExportButton from "./AnimationExportButton";
+import DeformScaleIcon from "../icons/DeformScaleIcon";
+import {formatStepTime} from "@/utils/scene/fea/timeHistory";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {useViewerRefs, useViewerStores} from "@/state/AdaViewerContext";
 import {
@@ -57,6 +60,9 @@ import {
     type SimulationTabEntry,
 } from "@/plugins";
 import SimWindowFrame, {type SimFrameMode} from "./SimWindowFrame";
+import ColorLegend from "../viewer/ColorLegend";
+import {useColorStore} from "@/state/colorLegendStore";
+import {useIsMobile} from "@/utils/useIsMobile";
 
 export interface SimulationControlsProps {
     // The follower / new-window entry boots the frame already maximized as a
@@ -85,14 +91,22 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     // Rebuilt each render so activation + badges track live store state.
     const baseCtx = makePluginContext("", stores);
     const tabs = getSimulationTabs(baseCtx);
+    // Phones: the colour legend is a tab here rather than floating over the canvas.
+    const isMobile = useIsMobile();
+    const legendShown = useColorStore((s) => s.showLegend);
+    const legendTab = !forcedTabId && isMobile && sessionActive && legendShown;
 
     // Snap back to Animation if the active plugin tab goes away (model unloaded).
     useEffect(() => {
         if (forcedTabId) return;
+        if (activeTabState === "legend") {
+            if (!legendTab) setActiveTabState("animation");
+            return;
+        }
         if (activeTabState !== "animation" && !tabs.some((t) => t.panel.id === activeTabState)) {
             setActiveTabState("animation");
         }
-    }, [tabs, activeTabState, forcedTabId]);
+    }, [tabs, activeTabState, forcedTabId, legendTab]);
 
     const onOpenWindow = () => {
         const panelId = forcedTabId ?? (activeTab !== "animation" ? activeTab : tabs[0]?.panel.id ?? "");
@@ -112,15 +126,18 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
 
     const body = (
         <div className="flex flex-col gap-2 min-w-0">
-            {!forcedTabId && tabs.length > 0 && (
+            {!forcedTabId && (tabs.length > 0 || legendTab) && (
                 <SimTabStrip
                     tabs={tabs}
+                    legendTab={legendTab}
                     activeTab={activeTab}
                     onSelect={setActiveTabState}
                     ctxFor={(pid) => makePluginContext(pid, stores)}
                 />
             )}
-            {activePluginTab ? (
+            {legendTab && activeTab === "legend" ? (
+                <ColorLegend placement="panel" />
+            ) : activePluginTab ? (
                 <PluginTabBody
                     pluginId={activePluginTab.pluginId}
                     panel={activePluginTab.panel}
@@ -176,16 +193,20 @@ const AnimationTab: React.FC<{sessionActive: boolean; showSimData: boolean; onTo
 
 const SimTabStrip: React.FC<{
     tabs: SimulationTabEntry[];
+    legendTab: boolean;
     activeTab: string;
     onSelect: (id: string) => void;
     ctxFor: (pluginId: string) => AdaPluginContext;
-}> = ({tabs, activeTab, onSelect, ctxFor}) => (
+}> = ({tabs, legendTab, activeTab, onSelect, ctxFor}) => (
     <div
         className="flex flex-wrap gap-0.5 border-b border-white/15"
         role="tablist"
         aria-label="Simulation panel section"
     >
         <SimTabButton id="animation" label="Animation" active={activeTab === "animation"} onClick={() => onSelect("animation")} />
+        {legendTab && (
+            <SimTabButton id="legend" label="Legend" active={activeTab === "legend"} onClick={() => onSelect("legend")} />
+        )}
         {tabs.map((t) => {
             let badge: number | string | null = null;
             try {
@@ -308,6 +329,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setNodalAverage,
         beamSolidsVisible,
         setBeamSolidsVisible,
+        timeHistory,
     } = useFeaAnimationStore();
 
     const hasBeamSolids = !!(manifest?.mesh?.beam_solids_url || manifest?.mesh?.beam_solids_compact_url);
@@ -344,6 +366,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         ?? fieldName
         ?? "";
     const activeUnit = selectedResultUnit(activeField, reduction);
+    const stepValues = useMemo(() => activeField?.steps.map((s) => s.value) ?? [], [activeField]);
+    const stepTimeText = timeHistory
+        ? formatStepTime(activeField?.steps[stepIndex]?.value ?? 0, stepValues)
+        : "";
+    const timeReadoutChars = timeHistory && stepValues.length
+        ? formatStepTime(Math.max(...stepValues.map(Math.abs)), stepValues).length
+        : 0;
 
     const reductionOptions = useMemo<string[]>(() => {
         if (!activeField) return [];
@@ -401,6 +430,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const onPause = () => setIsPlaying(false);
     const onStop = () => {
         setIsPlaying(false);
+        if (timeHistory) {
+            // A player's stop: back to the first frame, deformation scale untouched.
+            resetFeaAnimationPhase();
+            onStepChange(0);
+            return;
+        }
         setFactor(lo === 0 ? 0 : 0); // both ranges include 0
         if (mesh && mesh.morphTargetInfluences) {
             mesh.morphTargetInfluences[0] = 0;
@@ -608,6 +643,26 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
+                    {/* Deformation scale: multiplier on top of the [-1..1] / [0..1] sweep
+                        (or the true-scale time history); exaggerates the morph delta.
+                        Default 1. Lives in this row so the slider row stays the
+                        slider and its readout. */}
+                    <label
+                        className="flex items-center gap-1 text-xs text-white"
+                        title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
+                    >
+                        <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
+                        <span className="text-gray-200">Scale ×</span>
+                        <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={scaleFactor}
+                            onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
+                            className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
+                            aria-label="Deformation scale"
+                        />
+                    </label>
                 </div>
             )}
             {unbakedNote && (
@@ -625,20 +680,48 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 absorbs whatever space is left after the fixed-width
                 period + scale inputs. */}
             <div className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 w-full min-w-0">
-                <div className="flex items-center gap-2 flex-1 min-w-[100px]">
-                    <input
-                        type="range"
-                        min={lo}
-                        max={hi}
-                        step={factorStep}
-                        value={factor}
-                        onChange={(e) => onFactorChange(parseFloat(e.target.value))}
-                        className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
-                    />
-                    <div className="text-white text-sm font-mono w-12 text-center">
-                        {factor.toFixed(2)}
+                {timeHistory ? (
+                    // A time history: the slider IS the timeline. Scrub it to any frame;
+                    // play moves it. Deformation stays at true scale (x below exaggerates).
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <input
+                            type="range"
+                            min={0}
+                            max={Math.max(nSteps - 1, 0)}
+                            step={1}
+                            value={stepIndex}
+                            onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
+                            className="min-w-0 flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                            title="Time"
+                            aria-label="Time"
+                        />
+                        <div
+                            className="shrink-0 whitespace-nowrap text-white text-sm font-mono tabular-nums text-right"
+                            // Wide enough for the longest time of this history, so the
+                            // readout keeps its width while it counts.
+                            style={{minWidth: `${timeReadoutChars + 3}ch`}}
+                            title="Time of the shown frame"
+                        >
+                            t = {stepTimeText} s
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <input
+                            type="range"
+                            min={lo}
+                            max={hi}
+                            step={factorStep}
+                            value={factor}
+                            onChange={(e) => onFactorChange(parseFloat(e.target.value))}
+                            className="min-w-0 flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                        />
+                        <div className="shrink-0 text-white text-sm font-mono w-12 text-center">
+                            {factor.toFixed(2)}
+                        </div>
+                    </div>
+                )}
+                {!timeHistory && (
                 <div className="text-white text-xs flex items-center gap-1">
                     T
                     <input
@@ -652,21 +735,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     />
                     s
                 </div>
-                {/* Warp-scale knob: multiplier on top of the
-                    [-1..1] / [0..1] sweep, exaggerates the
-                    morph delta. Default 1. */}
-                <div className="text-white text-xs flex items-center gap-1">
-                    ×
-                    <input
-                        type="number"
-                        min={0}
-                        step={0.1}
-                        value={scaleFactor}
-                        onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                        className="text-black w-12 @sm:w-16 px-1 rounded-sm"
-                        title="Warp scale factor — multiplier on top of the slider value (default 1)"
-                    />
-                </div>
+                )}
             </div>
 
             {/* Row 3 — Transport: play / stop / data-panel toggle +
@@ -677,7 +746,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 <button
                     className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
                     onClick={isPlaying ? onPause : onPlay}
-                    title={isPlaying ? "Pause oscillation" : "Play oscillation"}
+                    title={
+                        timeHistory
+                            ? isPlaying ? "Pause" : "Play the time history"
+                            : isPlaying ? "Pause oscillation" : "Play oscillation"
+                    }
                 >
                     <PlayPauseIcon/>
                 </button>
@@ -695,6 +768,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 >
                     <FEMDataPanelIcon/>
                 </button>
+                <AnimationExportButton/>
                 <button
                     className={
                         "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm " +
@@ -946,9 +1020,9 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         setCurrentKey(newTime);
                         seekAnimation(newTime);
                     }}
-                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                    className="min-w-0 flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
                 />
-                <div className="text-white text-sm font-mono w-12 text-center">
+                <div className="shrink-0 text-white text-sm font-mono w-12 text-center">
                     {roundedCurrentKey}
                 </div>
             </div>
