@@ -6,7 +6,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
 import type { AssetView } from "../../assets/assetView";
-import { geometryIndex, geometryMark, rollupApplies, rowHasGeometry } from "../../assets/geometryMarks";
+import { geometryIndex, geometryMark, rollupApplies, rowHasGeometry, rowLoadable } from "../../assets/geometryMarks";
 import { buildHierarchy } from "../../assets/hierarchy";
 import type { ResolutionMode, WireGeometryRollup } from "../../assets/types";
 
@@ -78,6 +78,15 @@ test("per provider: only that provider's geometry counts", () => {
   assert.equal(rowHasGeometry(v, members, "site-b"), true);
   const tree = geometryIndex(v, "tree");
   assert.equal(rowHasGeometry(v, tree, "root"), false, "a tree-only provider matches nothing");
+});
+
+test("loadable means geometry at the row or above it -- not merely somewhere below", () => {
+  const v = view({ root: { tree: "none" }, "zone-1": { meshes: "mesh" } });
+  const meshes = geometryIndex(v, "meshes");
+  assert.equal(rowLoadable(v, meshes, "zone-1"), true, "published here");
+  assert.equal(rowLoadable(v, meshes, "beam"), true, "covered from above");
+  assert.equal(rowLoadable(v, meshes, "site-a"), false, "kept by the filter, but loading it loads nothing");
+  assert.equal(rowLoadable(v, geometryIndex(v, "tree"), "zone-1"), false, "a tree-only publish loads nothing");
 });
 
 test("an unfetched branch is kept as unknown rather than hidden", () => {

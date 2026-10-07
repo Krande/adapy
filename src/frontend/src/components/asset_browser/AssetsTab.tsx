@@ -41,7 +41,7 @@ import {
     type NodeRef,
     type PreparedNode,
 } from "@/assets/delivery";
-import { geometryIndex, rowHasGeometry } from "@/assets/geometryMarks";
+import { geometryIndex, rowHasGeometry, rowLoadable } from "@/assets/geometryMarks";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
@@ -629,60 +629,156 @@ async function loadSelection(scope: string, collection: string, controls: readon
     }
 }
 
+/** How to ask one provider for geometry for some rows -- `nodeRequestsFor`, narrowed to what the set
+ *  load needs. `null` where the provider declares no node request. */
+type RequestMissing = (provider: string, ids: readonly string[]) => { blocked: string | null; run: () => Promise<boolean> } | null;
+
 /** "Load set": every member's geometry, from the providers the member chose, as ONE bulk load.
+ *
  *  The same controls a selection's load uses (`useAssetLoads`), so what loads, how it is named in
- *  the scene and how it reports a failure are the tree's own. A member with no published geometry
- *  from a provider it chose is counted, not requested -- requesting is the row's own action. */
-const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string }> = ({ view, set, scope }) => {
+ *  the scene and how it reports a failure are the tree's own.
+ *
+ *  ASKED FIRST, NOT DISCOVERED BY FAILING. Each (member, provider) pair is checked against that
+ *  provider's published geometry before anything loads. A provider that published only the TREE
+ *  has a claim on every row but nothing to load, and attempting it fails once per member. When any
+ *  pair has no geometry, the load stops at a prompt: request the missing ones (and load each as its
+ *  publish arrives), load only what is there, or cancel. */
+const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestMissing?: RequestMissing }> = ({
+    view,
+    set,
+    scope,
+    requestMissing,
+}) => {
+    const { useAssetBrowserStore } = useViewerStores();
+    const rollup = useAssetBrowserStore((s) => s.geometryRollup);
+    const [asking, setAsking] = useState(false);
     const present = set.members.filter((m) => view.hierarchy.byId.has(m.id));
     const controls = useAssetLoads(
         view,
         present.map((m) => m.id),
         scope,
     );
+    // One geometry index per provider, for every provider a member could have chosen.
+    const indexes = useMemo(
+        () => new Map(view.contentProviders.map((p) => [p, geometryIndex(view, p, rollup)] as const)),
+        [view, rollup],
+    );
+    const loadable = (id: string, provider: string) => {
+        const idx = indexes.get(provider);
+        return !!idx && rowLoadable(view, idx, id);
+    };
     const byId = new Map(present.map((m) => [m.id, m]));
     const wanted = controls.filter((c) => {
         const m = byId.get(c.rowId);
-        return !!m && loadsProvider(m, c.provider);
+        return !!m && loadsProvider(m, c.provider) && loadable(c.rowId, c.provider);
     });
     const toLoad = wanted.filter((c) => !c.loaded && !c.busy);
     const loaded = wanted.filter((c) => c.loaded);
     const busy = wanted.filter((c) => c.busy).length;
     const failed = wanted.filter((c) => !c.busy && c.error);
-    // Which (member, provider) pairs were asked for and have nothing published to load.
-    const covered = new Set(controls.map((c) => loadKey(c.rowId, c.provider)));
-    const unpublished = present.flatMap((m) =>
-        (m.providers ?? []).filter((p) => !covered.has(loadKey(m.id, p))).map((p) => `${m.label} · ${p}`),
-    );
-    const nothing = present.filter((m) => !controls.some((c) => c.rowId === m.id && loadsProvider(m, c.provider)));
+    // Every pair the set asks for that has no geometry to load, by provider.
+    const missing = new Map<string, { id: string; label: string }[]>();
+    for (const m of present) {
+        for (const p of m.providers ?? view.contentProviders) {
+            if (loadable(m.id, p)) continue;
+            const list = missing.get(p) ?? [];
+            list.push({ id: m.id, label: m.label });
+            missing.set(p, list);
+        }
+    }
+    const missingCount = [...missing.values()].reduce((n, l) => n + l.length, 0);
+    const requests = [...missing.entries()].map(([provider, rows]) => ({
+        provider,
+        rows,
+        request: requestMissing?.(provider, rows.map((r) => r.id)) ?? null,
+    }));
+    const requestable = requests.filter((r) => r.request && !r.request.blocked);
+    const requestableCount = requestable.reduce((n, r) => n + r.rows.length, 0);
+
+    const loadAvailable = () => void loadSelection(scope, view.collection, toLoad);
+    const requestAndLoad = () => {
+        setAsking(false);
+        for (const r of requestable) {
+            const keys = r.rows.map((row) => loadKey(row.id, r.provider));
+            // Loaded by whichever `useAssetLoads` sees the claim first, once the publish lands.
+            usePendingLoads.getState().add(keys);
+            void r.request!.run().then((done) => {
+                if (!done) usePendingLoads.getState().drop(keys);
+            });
+        }
+        if (toLoad.length) loadAvailable();
+    };
+
     return (
-        <div className="flex flex-wrap items-center gap-1.5">
-            <button
-                type="button"
-                className={BTN_PRIMARY}
-                disabled={!toLoad.length}
-                title={toLoad.length ? toLoad.map((c) => `${rowFacts(view, c.rowId)?.node.label ?? c.rowId} · ${c.provider}`).join("\n") : "Nothing left to load"}
-                onClick={() => void loadSelection(scope, view.collection, toLoad)}
-            >
-                {busy ? `Loading… (${busy} left)` : toLoad.length ? `Load set (${plural(toLoad.length, "model")})` : "Set loaded"}
-            </button>
-            {loaded.length > 0 && (
-                <button type="button" className={BTN_SECONDARY} onClick={() => loaded.forEach((c) => c.unload())}>
-                    Unload ({loaded.length})
-                </button>
-            )}
-            {failed.length > 0 && (
-                <span className="text-red-300" title={failed.map((c) => `${c.rowId} · ${c.provider}: ${c.error}`).join("\n")}>
-                    {failed.length} failed
-                </span>
-            )}
-            {(nothing.length > 0 || unpublished.length > 0) && (
-                <span
-                    className="text-amber-300"
-                    title={[...nothing.map((m) => `${m.label}: no geometry published at or above it`), ...unpublished.map((u) => `${u}: not published`)].join("\n")}
+        <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                    type="button"
+                    className={BTN_PRIMARY}
+                    disabled={!toLoad.length && !missingCount}
+                    title={toLoad.length ? toLoad.map((c) => `${rowFacts(view, c.rowId)?.node.label ?? c.rowId} · ${c.provider}`).join("\n") : "Nothing left to load"}
+                    onClick={() => (missingCount ? setAsking(true) : loadAvailable())}
                 >
-                    {nothing.length + unpublished.length} without geometry
-                </span>
+                    {busy ? `Loading… (${busy} left)` : toLoad.length || missingCount ? `Load set (${plural(toLoad.length + missingCount, "model")})` : "Set loaded"}
+                </button>
+                {loaded.length > 0 && (
+                    <button type="button" className={BTN_SECONDARY} onClick={() => loaded.forEach((c) => c.unload())}>
+                        Unload ({loaded.length})
+                    </button>
+                )}
+                {failed.length > 0 && (
+                    <span className="text-red-300" title={failed.map((c) => `${c.rowId} · ${c.provider}: ${c.error}`).join("\n")}>
+                        {failed.length} failed
+                    </span>
+                )}
+                {missingCount > 0 && !asking && (
+                    <span className="text-amber-300" title={requests.map((r) => `${r.provider}: ${r.rows.map((x) => x.label).join(", ")}`).join("\n")}>
+                        {missingCount} not requested yet
+                    </span>
+                )}
+            </div>
+            {asking && (
+                <div role="alertdialog" aria-label="Missing geometry" className="rounded-md border border-amber-700/70 bg-amber-950/40 p-2 space-y-1.5 text-xs">
+                    <div className="text-amber-100">
+                        {missingCount} of {toLoad.length + missingCount} have no geometry published yet:
+                    </div>
+                    <ul className="space-y-0.5">
+                        {requests.map((r) => (
+                            <li key={r.provider} className="text-gray-200" title={r.rows.map((x) => x.label).join("\n")}>
+                                <span className="font-mono">{r.provider}</span>: {r.rows.length}
+                                <span className="text-gray-400">
+                                    {" — "}
+                                    {!r.request ? "this provider cannot be asked for it" : r.request.blocked ? r.request.blocked : "can be requested"}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                    <div className="flex flex-wrap gap-1.5">
+                        <button
+                            type="button"
+                            className={BTN_PRIMARY}
+                            disabled={!requestableCount}
+                            title="Ask the providers for the missing geometry, load what is there now, and load each requested one as its publish arrives"
+                            onClick={requestAndLoad}
+                        >
+                            Request {requestableCount} and load
+                        </button>
+                        <button
+                            type="button"
+                            className={BTN_SECONDARY}
+                            disabled={!toLoad.length}
+                            onClick={() => {
+                                setAsking(false);
+                                loadAvailable();
+                            }}
+                        >
+                            Load the {toLoad.length} available
+                        </button>
+                        <button type="button" className={BTN_QUIET} onClick={() => setAsking(false)}>
+                            Cancel
+                        </button>
+                    </div>
+                </div>
             )}
         </div>
     );
@@ -1775,6 +1871,13 @@ const AssetsTab: React.FC = () => {
             });
     };
 
+    // "Load set" asking one provider for the members it has no geometry for: the same request, in
+    // the same batches and with the same progress per row, as the row's own "Request" action.
+    const requestMissing: RequestMissing = (provider, ids) => {
+        const control = nodeRequestsFor(ids).find((r) => r.provider === provider);
+        return control ? { blocked: control.blocked, run: control.run } : null;
+    };
+
     // A request publishes into this scope: re-read, then show what arrived.
     const onPublished = async (published: string) => {
         await loader.refresh(scope);
@@ -1948,7 +2051,7 @@ const AssetsTab: React.FC = () => {
                         onRemove={(id, ids) => void useTreeSetsStore.getState().removeMembers(id, ids)}
                         providers={view?.contentProviders ?? []}
                         onSetProviders={(id, choices) => void useTreeSetsStore.getState().setProviders(id, choices)}
-                        loadControl={view && activeSet ? <SetLoad view={view} set={activeSet} scope={scope} /> : null}
+                        loadControl={view && activeSet ? <SetLoad view={view} set={activeSet} scope={scope} requestMissing={requestMissing} /> : null}
                         onReveal={(id) => {
                             const open: string[] = [];
                             let p = view?.hierarchy.byId.get(id)?.parent ?? null;
@@ -1972,7 +2075,7 @@ const AssetsTab: React.FC = () => {
                             Set: {activeSet.name}
                             {(setFilter?.missing.length ?? 0) > 0 && ` · ${setFilter!.missing.length} not in tree`}
                         </button>
-                        <SetLoad view={view} set={activeSet} scope={scope} />
+                        <SetLoad view={view} set={activeSet} scope={scope} requestMissing={requestMissing} />
                     </div>
                 )}
                 <div className="px-2 pt-2 shrink-0">

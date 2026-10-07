@@ -103,6 +103,15 @@ export function rowHasGeometry(view: AssetView, idx: GeometryIndex, id: string):
   return false;
 }
 
+/** Can row `id` itself be LOADED from what `idx` covers: geometry at it, or at a row above it.
+ *  Stricter than `rowHasGeometry`, which also passes a row with geometry somewhere below it --
+ *  a filter keeps such a row, but loading it loads nothing. */
+export function rowLoadable(view: AssetView, idx: GeometryIndex, id: string): boolean {
+  if (idx.at.has(id)) return true;
+  for (const a of ancestorsOf(view.hierarchy, id)) if (idx.at.has(a)) return true;
+  return false;
+}
+
 /** The mark for row `id`, or null for a row nothing was published at, over or under. */
 export function geometryMark(view: AssetView, idx: GeometryIndex, id: string): GeometryMark | null {
   if (idx.at.has(id)) return "here";
