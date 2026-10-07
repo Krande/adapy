@@ -63,9 +63,10 @@ def _ipe300_beam(name="bm"):
 class Solved:
     """One deck solved: the result read back, and lookups by position and case."""
 
-    def __init__(self, fem_format, res):
+    def __init__(self, fem_format, res, dat=None):
         self.fem_format = fem_format
         self.res = res
+        self.dat = dat
         self.coords = {
             int(i): np.asarray(c, dtype=float) for i, c in zip(res.mesh.nodes.identifiers, res.mesh.nodes.coords)
         }
@@ -119,7 +120,7 @@ def _solve(a, name, fem_format, tmp_path) -> Solved:
         mess = (tmp_path / name / f"{name}.mess").read_text(encoding="utf-8", errors="replace")
         (verdict,) = [line for line in mess.splitlines() if "DIAGNOSTIC JOB" in line]
         assert "<S>" not in verdict and "<F>" not in verdict and "<E>" not in verdict, verdict
-    return Solved(fem_format, ada.from_fem_res(res_path))
+    return Solved(fem_format, ada.from_fem_res(res_path), res_path.with_suffix(".dat"))
 
 
 # --- the simply supported beam, seven load cases in one step ----------------------------------------------------
@@ -575,6 +576,8 @@ def test_a_prescribed_plate_edge_settlement_and_rotation(fem_format, require_sol
 #: The edge loads, down along the strip's y = 0 edge from x = 1 to x = 3 m: (q at x = 1, q at x = 3) in N/m.
 EDGE_CASES = {"LC_eu": (1000.0, 1000.0), "LC_elin": (1000.0, 3000.0)}
 EDGE_FROM, EDGE_TO = 1.0, 3.0
+#: CalculiX's support totals against statics, relative, as measured (see the test).
+EDGE_TOTALS = {(1, True): 6e-7, (2, True): 8e-7, (2, False): 1.2e-6}
 
 
 @pytest.mark.parametrize("fem_format", SOLVERS)
@@ -590,7 +593,12 @@ def test_an_edge_load_reacts_as_its_resultant_on_first_and_second_order_shells(
     it), so there was no reaction. Measured: Code_Aster to 1e-9 on all three meshes (DKT on quads; COQUE_3D on the 9-
     and 7-node cells it makes of 8- and 6-node shells: 1999.999999 N, -4000.0 N m); CalculiX S4 2000 / 4000.022 N, S8
     1999.8828 / 4000.1266 N, S6 1999.9906 / 4000.109 N, each within what six printed digits per nodal force allow
-    (``5e-6 sum |RF|``: 0.056, 1.08, 0.49 N for the uniform case), which is the tolerance here.
+    (``5e-6 sum |RF|``: 0.056, 1.08, 0.49 N for the uniform case), which is the tolerance on those sums.
+
+    CalculiX also prints each support's total (``*NODE PRINT, TOTALS=ONLY``, summed before printing), and those meet
+    statics far closer -- measured, x = 0 and x = L: S4 999.9995 / 999.9995 N and 1833.332 / 2166.666 N (-5e-7,
+    -3.1e-7), S8 999.9992 / 999.9994 and 1833.332 / 2166.665 (-7e-7, -7.7e-7), S6 999.9994 / 999.9989 and 1833.332 /
+    2166.665 (-8.5e-7, -1.1e-6) against 1000 / 1000 and 1833.333 / 2166.667 N: :data:`EDGE_TOTALS`.
     """
     from ada.fem.meshing import GmshOptions
 
@@ -623,6 +631,15 @@ def test_an_edge_load_reacts_as_its_resultant_on_first_and_second_order_shells(
         assert abs(force[2] - total) <= tol_f
         assert abs(moment[1] + total * x_c) <= tol_m
         assert abs(moment[0]) <= tol_m, "the load acts along y = 0"
+        if fem_format == "calculix":
+            # the supports' totals (*NODE PRINT, TOTALS=ONLY): x = 0 carries F (1 - x_c / L), x = L carries F x_c / L
+            from ada.fem.formats.calculix.results.read_dat import read_reaction_totals
+
+            totals = read_reaction_totals(solved.dat)
+            r0, r_l = totals[(k, "X0_SET")][2], totals[(k, "XL_SET")][2]
+            tol = EDGE_TOTALS[(order, quads)]
+            assert r0 + r_l == pytest.approx(total, rel=tol)
+            assert r_l == pytest.approx(total * x_c / L, rel=tol)
 
 
 # --- torsion ------------------------------------------------------------------------------------------------------

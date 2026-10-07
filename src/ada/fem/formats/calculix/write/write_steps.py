@@ -42,15 +42,40 @@ def _loads_str(loads, deck: DeckContext) -> str:
     return "\n".join([load_str(ld, deck) for ld in loads]) if len(loads) > 0 else "** No Loads"
 
 
-def _outputs_str(step: Step) -> tuple[str, str]:
+def _outputs_str(step: Step, deck: DeckContext | None = None) -> tuple[str, str]:
     nodal = []
     elem = []
     for fi in step.field_outputs:
         nodal += fi.nodal
         elem += fi.element
     nodal_str = "*node file\n" + ", ".join(nodal) if len(nodal) > 0 else "** No nodal output"
+    if deck is not None and "RF" in nodal and step.type == Step.TYPES.STATIC:
+        nodal_str = reaction_totals_str(deck) + nodal_str
     elem_str = "*el file\n" + ", ".join(elem) if len(elem) > 0 else "** No elem output"
     return nodal_str, elem_str
+
+
+def reaction_totals_str(deck: DeckContext) -> str:
+    """``*NODE PRINT, NSET=<set>, TOTALS=ONLY`` / ``RF`` for every support's node set: ccx writes the sum of the set's
+    external forces to the .dat file (``total force (fx,fy,fz) for set <SET>``, ``%13.6E``), read by
+    :func:`ada.fem.formats.calculix.results.read_dat.read_reaction_totals`.
+
+    The .frd prints each nodal force to six digits (``%12.5E``), and a sum over the expanded nodes of second-order
+    shells -- large opposite forces at corner and midside nodes -- kept only what those digits allow: 1999.8828 N for
+    2000 N on 8-node shells (bound 1.08 N). The totals are summed before printing: 999.9992 + 999.9994 N on the same
+    model (measured, ccx 2.23; manual 7.99). The sum is the set's *external* force -- reactions plus any load applied
+    at its nodes -- and a set on U1 beam nodes is left out (there ccx's RF are the elements' end forces, not
+    reactions).
+    """
+    sets = []
+    for bc in deck.bcs:
+        fs = bc.fem_set
+        if fs.name in sets:
+            continue
+        if any(getattr(el, "id", None) in deck.u1_elements for no in fs.members for el in getattr(no, "refs", ())):
+            continue
+        sets.append(fs.name)
+    return "".join(f"*Node print, nset={name}, totals=only\nRF\n" for name in sets)
 
 
 def _bcs_str(step: Step, deck: DeckContext, cases: set[str] | None = None) -> str:
@@ -126,7 +151,7 @@ def load_case_step_str(step: StepImplicitStatic, lc, deck: DeckContext) -> str:
                 rep.omitted(
                     STAGE, "Load", load.name, "a load of a step with load cases, in none of them", step=step.name
                 )
-    nodal_str, elem_str = _outputs_str(step)
+    nodal_str, elem_str = _outputs_str(step, deck)
     head = f"""*Step, nlgeom=NO, inc={step.total_incr}
 *Static
  {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
@@ -167,7 +192,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
         else "** No Interactions"
     )
 
-    nodal_str, elem_str = _outputs_str(step)
+    nodal_str, elem_str = _outputs_str(step, deck)
 
     step_type_map = {
         Step.TYPES.STATIC: static_step,
