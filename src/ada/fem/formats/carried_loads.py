@@ -27,8 +27,10 @@ if TYPE_CHECKING:
 def _region(load: Load) -> tuple:
     """What a later load must share with an earlier one for Abaqus to replace it: the kind and the region, and for a
     point load the dofs it loads (a *CLOAD replaces per node and dof), for gravity its direction (ccx 2.23: a second
-    step's GRAV on the same set replaced the first along the same direction and added to it along another)."""
+    step's GRAV on the same set replaced the first along the same direction and added to it along another), for a line
+    load the elements and nodes it loads (:func:`_line_targets`)."""
     from ada.fem.loads import acceleration_vector
+    from ada.fem.loads.fe_loads import LoadLine
 
     surface = getattr(load, "surface", None)
     target = surface if surface is not None else load.fem_set
@@ -40,7 +42,26 @@ def _region(load: Load) -> tuple:
         acc = acceleration_vector(load)
         norm = sum(a * a for a in acc) ** 0.5 or 1.0
         return key + (tuple(round(a / norm, 12) for a in acc),)
+    if isinstance(load, LoadLine):
+        return key + (_line_targets(load),)
     return key
+
+
+def _line_targets(load) -> frozenset:
+    """What a line load loads, as the Abaqus writer writes it (:func:`..abaqus.write.write_loads.line_load_str`):
+    ``("el", element, dof)`` for a ``*Dload PX/PY/PZ`` on a beam element it loads uniformly end to end, ``("node",
+    node, dof)`` for a consistent nodal ``*Cload`` of anything else -- Abaqus replaces a later step's load per element
+    and label, and per node and dof. A line load has no node set or surface, so it was keyed by its kind alone, and
+    every two line loads in successive general steps were reported as one replacing the other."""
+    from ada.fem.loads.fe_loads import LoadLine
+
+    out = set()
+    for seg in load.segments:
+        if seg.uniform_over_beam_element():
+            out.update(("el", seg.elem.id, d) for d, q in enumerate(seg.q1) if q != 0.0)
+        else:
+            out.update(("node", no.id, d) for no, f in LoadLine.nodal_loads(seg) for d in range(3) if f[d] != 0.0)
+    return frozenset(out)
 
 
 def _replaces(later: tuple, earlier: tuple) -> bool:

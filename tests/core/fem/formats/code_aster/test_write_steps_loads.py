@@ -170,6 +170,39 @@ def test_a_later_load_where_abaqus_would_replace_an_earlier_one_is_reported(tmp_
     assert (found.kind, found.subject, found.details) == ("approximated", "third", {"load": "p1"})
 
 
+@pytest.mark.parametrize("fem_format", ["code_aster", "calculix"])
+def test_line_loads_on_other_elements_in_later_steps_are_not_reported_as_replaced(tmp_path, fem_format):
+    """General steps, each a uniform line load on one beam element: along z on elements 1, 2, then 1 again, then
+    along y on element 1. Abaqus replaces a ``*Dload`` per element and load label, so only step 3's load replaces an
+    earlier one (step 1's); step 2's, on element 2, and step 4's, a PY where the others are PZ, add -- as they do here.
+
+    Measured before: a ``LoadLine`` has no node set or surface, so every one was keyed ``(LINE, None)`` and each
+    carried line load was reported ``approximated`` ("Abaqus replaces the earlier load") in every later step: the first
+    finding was step 2's, for an element step 1 did not load."""
+    from ada.fem import LoadLine
+    from ada.fem.loads.fe_loads import LineLoadSegment
+
+    a, p, _ = _beam(cases=False)
+    el1, el2, el3 = sorted(p.fem.elements.lines, key=lambda e: e.id)[:3]
+    q = (0.0, 0.0, -1000.0)
+    a.fem.add_step(StepImplicitStatic("first")).add_load(LoadLine("q1", [LineLoadSegment(el1, q, q)]))
+    a.fem.add_step(StepImplicitStatic("second")).add_load(LoadLine("q2", [LineLoadSegment(el2, q, q)]))
+    a.fem.add_step(StepImplicitStatic("third")).add_load(LoadLine("q3", [LineLoadSegment(el1, q, q)]))
+    qy = (0.0, -1000.0, 0.0)
+    a.fem.add_step(StepImplicitStatic("fourth")).add_load(LoadLine("q4", [LineLoadSegment(el1, qy, qy)]))
+    # A varying load is written as nodal *Cload lines: on element 2 it adds to step 2's *Dload there; on element 3,
+    # which shares a node with element 2, it replaces step 5's nodal force at that node.
+    q_hi = (0.0, 0.0, -2000.0)
+    a.fem.add_step(StepImplicitStatic("fifth")).add_load(LoadLine("q5", [LineLoadSegment(el2, q, q_hi)]))
+    assert {n.id for n in el2.nodes} & {n.id for n in el3.nodes}
+    a.fem.add_step(StepImplicitStatic("sixth")).add_load(LoadLine("q6", [LineLoadSegment(el3, q, q_hi)]))
+    with conversion_report.collect() as report:
+        a.to_fem("ll", fem_format, scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+    (found,) = [f for f in report.findings if f.keyword == "Step"]  # one finding, counted per occurrence
+    assert (found.kind, found.subject, found.details["load"]) == ("approximated", "third", "q1")
+    assert (found.count, found.other_subjects) == (2, ["sixth"])
+
+
 def _settling_beam():
     """The beam on a pin and a support whose dz is prescribed: -0.01 m in LC_s, a point load alone in LC_p."""
     from ada.fem.concept.loads import LoadConceptPrescribedDisplacement
