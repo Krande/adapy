@@ -205,6 +205,77 @@ const ErrorRow: React.FC<{
     );
 };
 
+// Every failed job in ONE toast, one error at a time, newest first.
+//
+// One toast per failure was fine for one failure. A bulk action that fails for many members -- a
+// set load, a batch request -- stacked a toast per error up the screen, each to be closed by hand.
+// Here they flip with ‹ › and the count says how many; Dismiss clears the one shown, Clear all
+// clears every one. Each keeps its own traceback and Copy button: the error that matters is
+// usually one of many that look alike.
+const ErrorStack: React.FC<{
+    jobs: ToastJob[];
+    onClear: (storeKey: string) => void;
+}> = ({jobs, onClear}) => {
+    const [index, setIndex] = useState(0);
+    if (jobs.length === 0) return null;
+    const sorted = [...jobs].sort((a, b) => b.startedAt - a.startedAt);
+    // Clamped, not reset: clearing one keeps the reader at the same place in the list.
+    const at = Math.min(index, sorted.length - 1);
+    const job = sorted[at];
+    const many = sorted.length > 1;
+    const arrow = "h-6 w-6 grid place-items-center rounded-sm text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-30";
+    return (
+        <div
+            role="alert"
+            className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700"
+        >
+            <div className="flex justify-between items-center gap-2 mb-1">
+                <span className="truncate flex-1" title={job.sourceKey}>{job.sourceKey}</span>
+                <span className="text-red-400 shrink-0">{STATUS_LABEL[job.status] || job.status}</span>
+            </div>
+            {many && (
+                <div className="flex items-center gap-1 mb-1">
+                    <button
+                        type="button"
+                        className={arrow}
+                        aria-label="Previous error"
+                        disabled={at === 0}
+                        onClick={() => setIndex(at - 1)}
+                    >
+                        ‹
+                    </button>
+                    <span className="tabular-nums text-gray-300">
+                        {at + 1} / {sorted.length}
+                    </span>
+                    <button
+                        type="button"
+                        className={arrow}
+                        aria-label="Next error"
+                        disabled={at === sorted.length - 1}
+                        onClick={() => setIndex(at + 1)}
+                    >
+                        ›
+                    </button>
+                    <button
+                        type="button"
+                        className="ml-auto bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded-sm text-[11px]"
+                        title={`Dismiss all ${sorted.length} errors`}
+                        onClick={() => sorted.forEach((j) => onClear(j.storeKey))}
+                    >
+                        Clear all
+                    </button>
+                </div>
+            )}
+            <ErrorRow
+                key={job.storeKey}
+                sourceKey={job.sourceKey}
+                message={job.error || "(no error message)"}
+                onClear={() => onClear(job.storeKey)}
+            />
+        </div>
+    );
+};
+
 // Compression-sweep toast row — same visual language as the
 // conversion toast below; rendered in the same bottom-right slot so
 // progress UX stays consistent across "convert one file" and
@@ -535,6 +606,20 @@ const UnifiedToast: React.FC<{
                     </ul>
                 </div>
             )}
+            {loadErrors.length > 1 && (
+                <div className="flex items-center pt-1 border-t border-gray-700/60 text-[11px] text-gray-400">
+                    <span className="flex-1">{loadErrors.length} failed loads</span>
+                    <button
+                        type="button"
+                        onClick={() => loadErrors.forEach((e) => onClearLoadError(e.name))}
+                        className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded-sm"
+                        title={`Dismiss all ${loadErrors.length} load errors`}
+                    >
+                        Clear all
+                    </button>
+                </div>
+            )}
+            <div className={loadErrors.length > 1 ? "max-h-48 overflow-auto space-y-1" : "space-y-1"}>
             {loadErrors.map((e) => (
                 <div
                     key={e.name}
@@ -555,6 +640,7 @@ const UnifiedToast: React.FC<{
                     </button>
                 </div>
             ))}
+            </div>
         </div>
     );
 };
@@ -763,24 +849,7 @@ const ConversionProgress = () => {
                 onRemoveQueued={removeQueued}
                 onClearLoadError={clearError}
             />
-            {errored.map((job) => (
-                <div
-                    key={job.storeKey}
-                    className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700"
-                >
-                    <div className="flex justify-between items-center mb-1">
-                        <span className="truncate flex-1">{job.sourceKey}</span>
-                        <span className="ml-2 text-red-400 shrink-0">
-                            {STATUS_LABEL[job.status] || job.status}
-                        </span>
-                    </div>
-                    <ErrorRow
-                        sourceKey={job.sourceKey}
-                        message={job.error || "(no error message)"}
-                        onClear={() => clearJob(job.storeKey)}
-                    />
-                </div>
-            ))}
+            <ErrorStack jobs={errored} onClear={clearJob}/>
         </div>
     );
 };

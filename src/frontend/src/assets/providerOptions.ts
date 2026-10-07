@@ -19,8 +19,12 @@
 
 export const PROVIDER_OPTIONS_SCHEMA = "ada.assets/provider-options@1";
 
+/** Lower case, whoever asks: the Sources tab names a collection by its key (lower case by
+ *  construction) and the request panel by the provider's own spelling ("ABC"). Taken as written,
+ *  the panel saved to one blob and every tree request read another -- and found nothing, so the
+ *  options were silently not sent. */
 export function providerOptionsKey(collection: string): string {
-  return `assets/_options/${collection}.json`;
+  return `assets/_options/${collection.toLowerCase()}.json`;
 }
 
 export type ProviderOptionValues = Readonly<Record<string, unknown>>;
@@ -29,7 +33,16 @@ export interface ProviderOptionsDoc {
   readonly schema: typeof PROVIDER_OPTIONS_SCHEMA;
   /** provider id -> option name -> value. */
   readonly providers: Readonly<Record<string, ProviderOptionValues>>;
+  /** provider id -> what its choices job last answered, and when. A CACHE: listing can mean
+   *  starting a slow source system, and the answer rarely changes, so the panel shows this at
+   *  once and "List again" refreshes it. Never what a request sends. */
+  readonly choices?: Readonly<Record<string, ListedChoices>>;
   readonly updated_at?: string;
+}
+
+export interface ListedChoices {
+  readonly listed_at: string;
+  readonly options: Readonly<Record<string, readonly OptionChoice[]>>;
 }
 
 export const EMPTY_PROVIDER_OPTIONS: ProviderOptionsDoc = { schema: PROVIDER_OPTIONS_SCHEMA, providers: {} };
@@ -71,11 +84,30 @@ export function parseProviderOptionsDoc(raw: unknown): ProviderOptionsDoc {
       if (id && isRecord(values)) providers[id] = { ...values };
     }
   }
+  const choices: Record<string, ListedChoices> = {};
+  if (isRecord(value.choices)) {
+    for (const [id, listed] of Object.entries(value.choices)) {
+      if (!id || !isRecord(listed) || typeof listed.listed_at !== "string") continue;
+      // The same reading as a job's summary: malformed entries dropped, not guessed at.
+      choices[id] = { listed_at: listed.listed_at, options: parseOptionChoices({ option_choices: listed.options }) };
+    }
+  }
   return {
     schema: PROVIDER_OPTIONS_SCHEMA,
     providers,
+    ...(Object.keys(choices).length ? { choices } : {}),
     ...(typeof value.updated_at === "string" ? { updated_at: value.updated_at } : {}),
   };
+}
+
+/** `doc` with one provider's listed choices replaced; values and other providers kept. */
+export function withListedChoices(
+  doc: ProviderOptionsDoc,
+  providerId: string,
+  options: Readonly<Record<string, readonly OptionChoice[]>>,
+  at: string,
+): ProviderOptionsDoc {
+  return { ...doc, choices: { ...(doc.choices ?? {}), [providerId]: { listed_at: at, options } } };
 }
 
 export function serialiseProviderOptionsDoc(doc: ProviderOptionsDoc): string {
@@ -97,7 +129,7 @@ export function withProviderValues(doc: ProviderOptionsDoc, providerId: string, 
   const providers = { ...doc.providers };
   if (Object.keys(kept).length) providers[providerId] = kept;
   else delete providers[providerId];
-  return { schema: PROVIDER_OPTIONS_SCHEMA, providers, updated_at: at };
+  return { ...doc, schema: PROVIDER_OPTIONS_SCHEMA, providers, updated_at: at };
 }
 
 /** What a request for `providerId` sends: its stored values for the options it declares now, set

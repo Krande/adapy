@@ -363,4 +363,11 @@ def manifest_summary(m: AssetManifest) -> dict:
         )
         if change:
             out["change"] = change
+    # `leaves` rides along so the browser can tell a claim with nothing to draw BEFORE it builds.
+    # A build over a subtree with no leaf can only fail ("names no leaf ... nothing to read"),
+    # once per load; knowing it from the index, a bulk load skips it instead. The count is the
+    # provider's own, under the key publishers already share; absent stays absent.
+    leaves = (m.counts or {}).get("leaves")
+    if isinstance(leaves, int) and not isinstance(leaves, bool):
+        out["leaves"] = leaves
     return out
