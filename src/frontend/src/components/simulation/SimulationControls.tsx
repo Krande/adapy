@@ -44,6 +44,7 @@ import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
+import AnimationExportButton from "./AnimationExportButton";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {useViewerRefs, useViewerStores} from "@/state/AdaViewerContext";
 import {
@@ -695,6 +696,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 >
                     <FEMDataPanelIcon/>
                 </button>
+                <AnimationExportButton/>
                 <button
                     className={
                         "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm " +
