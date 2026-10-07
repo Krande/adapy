@@ -308,6 +308,12 @@ class Nodes:
             else:
                 logger.error(f"'{n.id}' not found in container")
         self._nodes = list(self._idmap.values())
+        # The grid ``add`` looks for a coincident node in must lose them too: it handed a removed node back to the
+        # next ``add`` at its position, which then never reached the container -- a rigid-link master placed where
+        # ``remove_standalones`` had just taken a geometry vertex out was written to BNBCD and BLDEP but not GNODE.
+        self._grid = defaultdict(list)
+        for n in self._nodes:
+            self._add_to_grid(n)
         self.renumber()
 
     def remove_standalones(self) -> None:
