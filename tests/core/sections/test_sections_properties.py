@@ -63,25 +63,24 @@ def test_ig():
 def test_tg():
     sec = Section("MySec", from_str="TG650x300x25x40")
 
+    # GeniE V8.13-02 GBEAMG of the same T (genie_v8_13_torsion_T1.FEM, T11_TG650) agrees with each
+    # of these to < 2e-7. The list was a copy of test_ig's and was never evaluated.
     assertions = [
-        ("Ax", 0.0116),
-        ("Ix", 1.542666667e-6),
-        ("Iy", 3.279466667e-4),
-        ("Iz", 2.669666667e-5),
+        ("Ax", 0.02725),
+        ("Ix", 1.287270833e-05),
+        ("Iy", 0.001183811946),
+        ("Iz", 9.079427083e-05),
         ("Iyz", 0.0),
-        ("Wxmin", 7.713333333e-5),
-        ("Wymin", 0.001639733333),
-        ("Wzmin", 0.0002669666667),
-        ("Shary", 0.005221841891),
-        # TODO: Fix Sy calculation
-        # ("Sharz", 0.003556905278),
-        # ("Sy", 0.000922),
-        ("Sz", 0.0002045),
+        ("Wxmin", 0.0003218177083),
+        ("Wymin", 0.002641734099),
+        ("Wzmin", 0.0006052951389),
+        ("Shary", 0.01459549974),
+        # Sy / Sharz: GeniE 2.51013599e-3 / 1.17903166e-2, fixed by the shear-area change (#437)
+        ("Sz", 0.00049765625),
         ("Shceny", 0.0),
-        ("Shcenz", 0.0),
+        ("Shcenz", 0.18152792886),
     ]
-    print(sec, assertions)
-    # eval_assertions(sec, assertions)
+    eval_assertions(sec, assertions)
 
 
 def test_tubular():
