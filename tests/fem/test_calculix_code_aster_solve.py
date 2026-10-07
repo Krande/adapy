@@ -571,6 +571,79 @@ def test_a_prescribed_plate_edge_settlement_and_rotation(fem_format, require_sol
             assert solved.u(3, mid)[2] == 0.0
 
 
+def _combined_settlements(model: str):
+    """LCC = LC1 + LC2, both cases prescribing the same support, as the concept conversion makes them.
+
+    * ``beam``: the IPE300 cantilever clamped at the root, its tip a support prescribing dx, dz and rz; LC1 moves dx by
+      -0.003 and loads mid-span with 10 kN down, LC2 moves dx, dz, rz by 0.005, -0.01, 0.001 (GeniE's frames-fixture
+      values, as ``test_concept_supports_sestra`` solves them in Sestra).
+    * ``plate``: the strip cantilevered at x = 0, its tip corner (L, 0) a support prescribing dz and ry; LC1 moves dz
+      by -0.01 under 1000 Pa, LC2 moves dz by 0.02 and ry by 0.01.
+    """
+    c_tip = {"beam": ("dx", "dz", "rz"), "plate": ("dz", "ry")}[model]
+    if model == "beam":
+        a, p, bm = _ipe300_beam("lcc")
+        p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("root", (0, 0, 0), Dof.encastre()))
+        lc1_loads = [LoadConceptPoint("P", (L / 2, 0, 0), (0, 0, -10000.0), (0, 0, 0))]
+        pd1, pd2 = ((-0.003, 0, 0), (0, 0, 0)), ((0.005, 0, -0.01), (0, 0, 0.001))
+    else:
+        a, p, pl, _ = _plate("lccp")
+        p.concept_fem.constraints.add_curve_constraint(
+            ConstraintConceptCurve("root", (0, 0, 0), (0, WID, 0), Dof.encastre())
+        )
+        lc1_loads = [LoadConceptSurface("P", pl, pressure=1000.0, side="front")]
+        pd1, pd2 = ((0, 0, -0.01), (0, 0, 0)), ((0, 0, 0.02), (0, 0.01, 0))
+    tip_dofs = [Dof(d, "prescribed" if d in c_tip else "free") for d in ("dx", "dy", "dz", "rx", "ry", "rz")]
+    sp = p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("tip", (L, 0, 0), tip_dofs))
+    ld = p.concept_fem.loads
+    lc1 = ld.add_load_case(LoadConceptCase("LC1", [LoadConceptPrescribedDisplacement("PD1", sp, *pd1), *lc1_loads]))
+    lc2 = ld.add_load_case(LoadConceptCase("LC2", [LoadConceptPrescribedDisplacement("PD2", sp, *pd2)]))
+    terms = [LoadConceptCaseFactored(lc1, 1.0), LoadConceptCaseFactored(lc2, 1.0)]
+    ld.add_load_case_combination(LoadConceptCaseCombination("LCC", terms))
+    if model == "beam":
+        p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    else:
+        p.fem = p.to_fem_obj(0.125, use_quads=True)
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    return a, p
+
+
+@pytest.mark.parametrize("fem_format, model", [("code_aster", "beam"), ("code_aster", "plate"), ("calculix", "plate")])
+def test_a_combination_of_two_settlement_cases_solves_as_their_sum(fem_format, model, require_solver, tmp_path):
+    """LCC's every nodal displacement is LC1's plus LC2's, and the tip lands on the summed settlement.
+
+    The concept conversion made one scaled ``Bc`` per term, both on the tip's set and both naming LCC; these writers
+    (``ada.fem.formats.prescribed.case_values``) kept the first and reported the second ``omitted``, so LCC solved
+    with LC1's tip values. Since the conversion sums the terms into one ``Bc`` per support (#435), LCC is the sum.
+
+    Measured, Code_Aster 18.1.8: beam tip (dx, dz, rz) = (0.002, -0.01, 0.001), max |u_LCC - (u_LC1 + u_LC2)| =
+    5.2e-18 (|u| up to 0.01); plate tip (dz, ry) = (0.01, 0.01), 4.8e-16 (|u| up to 0.075). CalculiX 2.23 (S4) on the
+    plate: tip dz 0.01, 1.0e-7 (|u| up to 0.0626), inside what six printed digits allow per value. Before (one Bc per
+    term, the conversion's ``combination`` of the old #435 head), LCC's tip took LC1's values and "tip_LC2_LCC" was
+    reported omitted: Code_Aster beam tip (dx, dz, rz) = (-0.003, 0, 0), max |u_LCC - (u_LC1 + u_LC2)| = 0.01; plate
+    tip (dz, ry) = (-0.01, 0), 0.0207; CalculiX plate tip dz -0.01, 0.0225.
+    """
+    require_solver(fem_format)
+    from ada.fem.formats import conversion_report
+
+    with conversion_report.collect() as report:
+        a, p = _combined_settlements(model)
+        solved = _solve(a, f"lcc{model[0]}", fem_format, tmp_path)
+    u1, u2, uc = (solved._fields("u", k) for k in (1, 2, 3))
+    tip = uc[solved.node(L)]
+    for n in uc:
+        # Code_Aster's doubles: measured 4.8e-16 at most; CalculiX prints six digits (FRD) of each of the three values
+        bound = 1e-13 if fem_format == "code_aster" else FRD * (np.abs(uc[n]) + np.abs(u1[n]) + np.abs(u2[n]))
+        assert np.all(np.abs(uc[n] - u1[n] - u2[n]) <= bound), n
+    if model == "beam":
+        assert tip[[0, 2, 5]] == pytest.approx([0.002, -0.01, 0.001], abs=1e-15)
+    elif fem_format == "code_aster":
+        assert tip[[2, 4]] == pytest.approx([0.01, 0.01], abs=1e-15)
+    else:
+        assert tip[2] == 0.01  # CalculiX's .frd prints U only
+    assert not report.of_kind("omitted"), report.summary()
+
+
 # --- edge line loads on first- and second-order shells -----------------------------------------------------------
 
 #: The edge loads, down along the strip's y = 0 edge from x = 1 to x = 3 m: (q at x = 1, q at x = 3) in N/m.
