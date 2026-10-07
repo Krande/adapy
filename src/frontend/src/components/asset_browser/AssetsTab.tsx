@@ -78,6 +78,7 @@ import { formatRevision } from "./format";
 import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
 import ProviderOptionsPanel from "./ProviderOptionsPanel";
+import TreeOptionsPanel from "./TreeOptionsPanel";
 import TreeSetsPanel from "./TreeSetsPanel";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
@@ -1445,7 +1446,20 @@ const AssetsTab: React.FC = () => {
     const viewDoc = useAssetBrowserStore((s) => s.viewDoc);
     const showHidden = useAssetBrowserStore((s) => s.showHidden);
     const treeStyle = useAssetBrowserStore((s) => s.treeStyle);
-    const [viewOpen, setViewOpen] = useState(false);
+    // The Options panel (filter, marks, view, provider options) and which of its sections are open.
+    const [optionsOpen, setOptionsOpen] = useState(false);
+    const [openSections, setOpenSections] = useState<ReadonlySet<string>>(() => new Set(["filter", "view"]));
+    const toggleSection = (id: string) =>
+        setOpenSections((cur) => {
+            const next = new Set(cur);
+            if (!next.delete(id)) next.add(id);
+            return next;
+        });
+    /** Open the Options panel at one section -- what a chip under the search box does. */
+    const showOptions = (id: string) => {
+        setOptionsOpen(true);
+        setOpenSections((cur) => new Set([...cur, id]));
+    };
     const [viewBusy, setViewBusy] = useState(false);
     const [viewError, setViewError] = useState<string | null>(null);
 
@@ -1681,7 +1695,6 @@ const AssetsTab: React.FC = () => {
     }, [scope]);
     // The providers that declare request options for THIS collection -- matched as the provider
     // spells its collections, which need not be the key's lower case.
-    const [optionsOpen, setOptionsOpen] = useState(false);
     const collectionOptionProviders = useMemo(() => {
         const out = new Map<string, AssetRequestOptions>();
         const key = (collection ?? "").toLowerCase();
@@ -1822,81 +1835,98 @@ const AssetsTab: React.FC = () => {
                         ))}
                     </select>
                     <ModePicker mode={mode} revisions={revisions} onChange={setMode} />
-                    {(view?.contentProviders.length ?? 0) > 0 && (
-                        <select
-                            aria-label="Provider filter"
-                            className={`${CONTROL} px-2 min-w-0 max-w-[30%] truncate ${providerFilter ? "border-blue-400 text-blue-200" : ""}`}
-                            value={providerFilter}
-                            onChange={(e) => setProviderFilter(e.target.value)}
-                            title="Show only rows that are, or contain, something published by this provider"
-                        >
-                            <option value="">All providers</option>
-                            {view!.contentProviders.map((p) => (
-                                <option key={p} value={p}>
-                                    {p}
-                                </option>
-                            ))}
-                        </select>
-                    )}
-                    <TreeLegend providers={view?.contentProviders ?? []} geometryProvider={providerFilter || null} />
                     <IconButton label="Refresh — re-read the index and rebuild the tree from nothing" onClick={() => void loader.refresh(scope)}>
                         <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" />
                     </IconButton>
-                    {treeSets.length > 0 && (
-                        <select
-                            aria-label="Set"
-                            className={`${CONTROL} px-2 min-w-0 max-w-[30%] truncate ${activeSet ? "border-blue-400 text-blue-200" : ""}`}
-                            value={activeSet?.id ?? ""}
-                            onChange={(e) => useTreeSetsStore.getState().setActive(e.target.value || null)}
-                            title="Draw only the branches in this set -- just for you"
-                        >
-                            <option value="">All rows</option>
-                            {treeSets.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                    {s.name}
-                                </option>
-                            ))}
-                        </select>
-                    )}
-                    {collectionOptionProviders.size > 0 && (
-                        <IconButton
-                            label="Provider options — what every request for this collection asks its provider for"
-                            pressed={optionsOpen}
-                            onClick={() => setOptionsOpen((o) => !o)}
-                        >
-                            <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
-                        </IconButton>
-                    )}
                     <IconButton
                         label="Sets — named sets of branches the tree can be narrowed to, shared in this scope"
-                        pressed={setsOpen}
+                        pressed={setsOpen || !!activeSet}
                         onClick={() => setSetsOpen((o) => !o)}
                     >
                         <path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h6M11 11v3M9.5 12.5h3" />
                     </IconButton>
                     <IconButton
-                        label="View — where the tree starts, which top-level kinds, what is out of scope, row style"
-                        pressed={viewOpen}
-                        onClick={() => setViewOpen((o) => !o)}
+                        label="Options — provider filter, row marks and legend, how the tree is drawn, and provider options"
+                        pressed={optionsOpen}
+                        onClick={() => setOptionsOpen((o) => !o)}
                     >
                         <path d="M2 4h7M12 4h2M2 12h3M8 12h6M9 2.5v3M5 10.5v3" />
                     </IconButton>
                 </div>
-                {viewOpen && (
-                    <TreeViewPanel
-                        settings={viewSettings}
-                        hints={viewHints}
-                        topKinds={topKinds}
-                        rootKindCensus={display?.rootKindCensus ?? new Map()}
-                        busy={viewBusy}
-                        error={viewError}
-                        onChange={onViewChange}
-                        onUseProviderDefaults={onUseProviderDefaults}
-                        treeStyle={treeStyle}
-                        onTreeStyle={(s) => useAssetBrowserStore.getState().setTreeStyle(s)}
+                {optionsOpen && (
+                    <TreeOptionsPanel
+                        open={openSections}
+                        onToggle={toggleSection}
+                        sections={[
+                            ...((view?.contentProviders.length ?? 0) > 0
+                                ? [
+                                      {
+                                          id: "filter",
+                                          title: "Provider filter",
+                                          badge: providerFilter || null,
+                                          content: (
+                                              <select
+                                                  aria-label="Provider filter"
+                                                  className={`${CONTROL} w-full px-2 ${providerFilter ? "border-blue-400 text-blue-200" : ""}`}
+                                                  value={providerFilter}
+                                                  onChange={(e) => setProviderFilter(e.target.value)}
+                                                  title="Show only rows that are, or contain, something published by this provider"
+                                              >
+                                                  <option value="">All providers</option>
+                                                  {view!.contentProviders.map((p) => (
+                                                      <option key={p} value={p}>
+                                                          {p}
+                                                      </option>
+                                                  ))}
+                                              </select>
+                                          ),
+                                      },
+                                  ]
+                                : []),
+                            {
+                                id: "marks",
+                                title: "Row marks and legend",
+                                content: <TreeLegend providers={view?.contentProviders ?? []} geometryProvider={providerFilter || null} />,
+                            },
+                            {
+                                id: "view",
+                                title: "View",
+                                badge: viewSettings.rootKinds ? `top: ${[...viewSettings.rootKinds].join(", ")}` : null,
+                                content: (
+                                    <TreeViewPanel
+                                        settings={viewSettings}
+                                        hints={viewHints}
+                                        topKinds={topKinds}
+                                        rootKindCensus={display?.rootKindCensus ?? new Map()}
+                                        busy={viewBusy}
+                                        error={viewError}
+                                        onChange={onViewChange}
+                                        onUseProviderDefaults={onUseProviderDefaults}
+                                        treeStyle={treeStyle}
+                                        onTreeStyle={(s) => useAssetBrowserStore.getState().setTreeStyle(s)}
+                                    />
+                                ),
+                            },
+                            ...(collection && collectionOptionProviders.size > 0
+                                ? [
+                                      {
+                                          id: "provider-options",
+                                          title: "Provider options",
+                                          content: (
+                                              <ProviderOptionsPanel
+                                                  scope={scope}
+                                                  collection={collection}
+                                                  providers={collectionOptionProviders}
+                                                  deps={requestDeps}
+                                              />
+                                          ),
+                                      },
+                                  ]
+                                : []),
+                        ]}
                     />
                 )}
-                {!viewOpen && viewError && <Banner tone="error">{viewError}</Banner>}
+                {!(optionsOpen && openSections.has("view")) && viewError && <Banner tone="error">{viewError}</Banner>}
                 {setsOpen && (
                     <TreeSetsPanel
                         sets={treeSets}
@@ -1931,9 +1961,6 @@ const AssetsTab: React.FC = () => {
                     />
                 )}
                 {!setsOpen && setsError && <Banner tone="error">{setsError}</Banner>}
-                {optionsOpen && collection && (
-                    <ProviderOptionsPanel scope={scope} collection={collection} providers={collectionOptionProviders} deps={requestDeps} />
-                )}
                 {!setsOpen && view && activeSet && (
                     <div className="px-2 pt-2 flex items-center gap-2 text-xs shrink-0">
                         <button
@@ -1964,14 +1991,24 @@ const AssetsTab: React.FC = () => {
                         />
                     </div>
                 </div>
-                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown) && (
+                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter) && (
                     <div className="px-2 pt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400 shrink-0">
+                        {providerFilter && (
+                            <button
+                                type="button"
+                                className="rounded-full bg-blue-900/60 px-2 py-0.5 text-blue-100 hover:bg-blue-800"
+                                title="Only rows that are, or contain, geometry from this provider are drawn. Click to show every provider."
+                                onClick={() => setProviderFilter("")}
+                            >
+                                Provider: {providerFilter} ×
+                            </button>
+                        )}
                         {viewSettings.rootKinds && !display.rootFilterStoodDown && !searchActive && (
                             <button
                                 type="button"
                                 className="rounded-full bg-gray-700/70 px-2 py-0.5 text-gray-200 hover:bg-gray-600"
-                                title="Only these kinds are drawn at the top level. Change it under View."
-                                onClick={() => setViewOpen(true)}
+                                title="Only these kinds are drawn at the top level. Change it under Options ▸ View."
+                                onClick={() => showOptions("view")}
                             >
                                 Top: {[...viewSettings.rootKinds].join(", ")}
                             </button>
