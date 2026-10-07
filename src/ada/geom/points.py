@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import weakref
+from math import copysign
 from typing import Iterable
 
 import numpy as np
@@ -23,6 +24,15 @@ def _make_key_and_array(
     if precision is not None:
         arr = np.round(arr, precision)
     key = tuple(arr.tolist())  # tolist() already yields python floats (no per-element float())
+    if 0.0 in key:
+        # -0.0 == 0.0 and hashes alike, so the intern table handed a (0, 0, 1) whichever of it and (-0, -0, 1) had
+        # been interned first -- a GeniE plate's normal was written "-0.0" or "0.0" depending on which test modules
+        # ran before. A zero is stored as +0.0, whatever its sign came in as.
+        for c in key:
+            if c == 0.0 and copysign(1.0, c) < 0.0:
+                arr = arr + 0.0
+                key = tuple(arr.tolist())
+                break
     return key, arr
 
 

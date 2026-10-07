@@ -248,6 +248,11 @@ def test_plate_with_hole_reads_as_one_plate_with_an_inner_loop(genie93, body):
 
 @pytest.mark.parametrize("body", BODIES)
 def test_plate_with_hole_writes_back_as_one_flat_plate_with_its_hole(genie93, body, tmp_path):
+    """The plate's normal is written ``x="0.0" y="0.0" z="1.0"`` whatever ran before, and is checked as numbers too.
+    It came out ``x="-0.0" y="-0.0"`` when ``test_gxml_read_supports``, ``test_from_gnx_binary_acis`` or
+    ``test_concept_supports_to_fem`` ran first in the process: their ``Direction(-0, -0, 1)``, kept alive by
+    ``get_computed_placement_cached``, was handed out for this plate's ``(0, 0, 1)`` by the value interning, which took
+    -0.0 and 0.0 for one key (``tests/core/geom/test_signed_zero_keys.py`` pins that down without the order)."""
     import re
     import zipfile
 
@@ -266,6 +271,8 @@ def test_plate_with_hole_writes_back_as_one_flat_plate_with_its_hole(genie93, bo
     xml = zipfile.ZipFile(gnx).read("modelData.xml").decode()
     (plate_xml,) = re.findall(r"<(?:flat_plate|curved_shell)\b.*?</(?:flat_plate|curved_shell)>", xml, re.S)
     assert plate_xml.startswith('<flat_plate name="Pl1"')
+    (z_axis,) = re.findall(r'<vector x="(\S+)" y="(\S+)" z="(\S+)" dir="z" />', plate_xml)
+    assert np.allclose([float(c) for c in z_axis], (0.0, 0.0, 1.0), rtol=0.0, atol=0.0)
     assert '<vector x="0.0" y="0.0" z="1.0" dir="z" />' in plate_xml
     assert len(re.findall(r"<face ", plate_xml)) == 1
 
