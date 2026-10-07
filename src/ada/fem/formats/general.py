@@ -159,6 +159,11 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
 #: data), so the model is handed over as it is rather than merged into one part first.
 _WRITES_ASSEMBLIES = frozenset({FEATypes.ABAQUS})
 
+#: Formats whose writer writes a part FEM's own steps as well as the assembly's -- where ``Part.to_fem_obj`` puts the
+#: step its concept load cases become. The others (Calculix, Code_Aster: the assembly's steps; Usfos: no step) leave
+#: it out, which is reported.
+_WRITES_PART_STEPS = frozenset({FEATypes.ABAQUS, FEATypes.SESAM})
+
 
 def write_to_fem(
     assembly: Assembly,
@@ -209,6 +214,8 @@ def write_to_fem(
             write_assembly = Assembly(assembly.name, units=assembly.units)
             write_assembly.add_part(merged_part)
             write_assembly.fem.steps = assembly.fem.steps  # carry analysis steps for the writer
+        elif fem_format not in _WRITES_PART_STEPS:
+            _report_part_steps_not_written([p for p in fem_parts if p is not assembly], fem_format)
 
         fem_exporter(write_assembly, name, analysis_dir, metadata, model_data_only)
 
@@ -237,6 +244,24 @@ def _report_part_steps_not_merged(fem_parts, fem_format) -> None:
                 step.name,
                 "a step of one of several meshed parts; merging the parts into one keeps the assembly's steps only, "
                 "so this step and its loads are not written",
+                part=p.name,
+                n_loads=len(step.loads),
+            )
+
+
+def _report_part_steps_not_written(fem_parts, fem_format) -> None:
+    """A writer that writes the assembly's steps only (or none) leaves a part FEM's step out -- the step its concept
+    load cases became in ``Part.to_fem_obj`` -- and its loads with it."""
+    from ada.fem.formats import conversion_report
+
+    for p in fem_parts:
+        for step in p.fem.steps:
+            conversion_report.current().omitted(
+                f"{fem_format.value} writer",
+                "Step",
+                step.name,
+                "a step of a part's FEM; this writer writes no part's steps (at most the assembly's), so this step and "
+                "its loads are not written",
                 part=p.name,
                 n_loads=len(step.loads),
             )

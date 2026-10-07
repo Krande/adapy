@@ -449,3 +449,20 @@ def test_the_steps_of_several_meshed_parts_lost_in_the_merge_are_named(tmp_path)
         a.to_fem("two", "sesam", scratch_dir=tmp_path, overwrite=True)
     lost = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
     assert [f.kind for f in lost] == ["omitted"] and lost[0].count == 2
+
+
+@pytest.mark.parametrize("fmt", ["calculix", "code_aster", "usfos"])
+def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(tmp_path, fmt):
+    """Calculix and Code_Aster write the assembly's steps, Usfos none: the step a part's concept load cases became
+    (on the part's FEM) and its loads were left out of a one-part model without a word."""
+    from ada.fem.concept.constraints import ConstraintConceptPoint
+    from ada.fem.concept.loads import LoadConceptLine
+
+    q = (0, 0, -1000.0)
+    a, p = _beam_part("p", LoadConceptLine("u", (0, 1.5, 0), (4, 1.5, 0), q, q))
+    p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("fix", (0, 1.5, 0), []))
+    p.fem = p.to_fem_obj(0.5, "line")
+    with conversion_report.collect() as report:
+        a.to_fem("one", fmt, scratch_dir=tmp_path, overwrite=True)
+    (lost,) = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
+    assert (lost.kind, lost.stage, lost.details) == ("omitted", f"{fmt} writer", {"part": "p", "n_loads": 1})
