@@ -840,3 +840,59 @@ def test_a_thinner_coque_3d_cantilever_stops_by_name(require_solver, tmp_path):
     err = _raised(lambda: a.to_fem("thin", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True))
     assert type(err).__name__ == "FEASolveFailed", repr(err)
     assert err.code == "FACTOR_57" and "RESI_RELA" in err.message and "COQUE_3D" in err.hint
+
+
+# --- two geometrically nonlinear steps in Code_Aster ----------------------------------------------------------------
+
+
+def test_two_nlgeom_steps_are_both_solved_and_read(require_solver, tmp_path):
+    """The 10 mm strip cantilevered in cylindrical bending (4-node shells, DKT, at 0.125 m), step 1 nlgeom 500 N/m down
+    the tip edge, step 2 nlgeom 1000 N/m more (carrying step 1's load): the tips deflect ``q L^3 / (3 D)`` for 500 and
+    1500 N/m.
+
+    Measured, Code_Aster 18.1.8: the second step stopped at <MED2_4> ("Le champ 'DISP' est déjà présent dans le
+    fichier MED") -- both printed their fields as ``DISP``; before the runner named failures, step 1's fields read back
+    as the whole answer. Now the second step's fields are ``result2_DISP`` etc.
+
+    The answers are the *linear* closed form -- measured 0.5546666667195 and 1.664000000159 m, +9.53e-11 -- although
+    the tip deflects 0.55 and 1.66 m on 4 m: the step is ``STAT_NON_LINE`` with ``DEFORMATION='PETIT'`` (small displacements)
+    and the default elastic ``RELATION``. That is reported ``approximated`` for each step.
+    """
+    from ada.fem.formats import conversion_report
+
+    require_solver("code_aster")
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    pl = ada.Plate("nl", [(0, 0), (L, 0), (L, WID), (0, WID)], T, mat=mat)
+    p = ada.Part("Nl") / pl
+    a = ada.Assembly("nl_a") / p
+    c = p.concept_fem.constraints
+    c.add_curve_constraint(ConstraintConceptCurve("root", (0, 0, 0), (0, WID, 0), Dof.encastre()))
+    c.add_curve_constraint(ConstraintConceptCurve("y0", (0, 0, 0), (L, 0, 0), _dofs(("dy", "rx"))))
+    c.add_curve_constraint(ConstraintConceptCurve("y5", (0, WID, 0), (L, WID, 0), _dofs(("dy", "rx"))))
+    for name, q in (("LC_a", 500.0), ("LC_b", 1000.0)):
+        line = LoadConceptLine("E" + name, (L, 0, 0), (L, WID, 0), (0, 0, -q), (0, 0, -q))
+        p.concept_fem.loads.add_load_case(LoadConceptCase(name, [line]))
+    p.fem = p.to_fem_obj(0.125, use_quads=True)
+    (concept_step,) = p.fem.steps
+    loads = {name: lc.loads[0] for name, lc in concept_step.load_cases.items()}
+    p.fem.steps.remove(concept_step)
+    for k, name in enumerate(("LC_a", "LC_b"), start=1):
+        step = a.fem.add_step(StepImplicitStatic(f"nl{k}", nl_geom=True))
+        step.add_load(loads[name])
+    with conversion_report.collect() as report:
+        a.to_fem("nl2", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
+    from ada.fem.formats.general import FEATypes
+    from ada.fem.formats.utils import default_fem_res_path
+
+    res = ada.from_fem_res(default_fem_res_path("nl2", scratch_dir=tmp_path, fem_format=FEATypes.CODE_ASTER))
+    coords = {int(i): np.asarray(xyz) for i, xyz in zip(res.mesh.nodes.identifiers, res.mesh.nodes.coords)}
+    tip = [n for n, xyz in coords.items() if abs(xyz[0] - L) < 1e-9]
+    d = mat.model.E * T**3 / (12 * (1 - mat.model.v**2))
+    for field, q in (("DISP", 500.0), ("result2_DISP", 1500.0)):
+        (last,) = [f for f in res.results if f.name.split("[")[0] == field and abs(f.step - 1.0) < 1e-9]
+        u = {int(row[0]): row[1:] for row in np.asarray(last.values)}
+        for n in tip:
+            assert -u[n][2] == pytest.approx(q * L**3 / (3 * d), rel=2e-10)
+    (finding,) = [f for f in report.of_kind("approximated") if f.keyword == "STAT_NON_LINE"]
+    assert sorted([finding.subject, *finding.other_subjects]) == ["nl1", "nl2"]
+    assert "DEFORMATION='PETIT'" in finding.reason

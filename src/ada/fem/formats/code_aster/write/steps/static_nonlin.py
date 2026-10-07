@@ -130,24 +130,31 @@ class ImprResu:
     stat_nl: StatNonLin
     part: Part
 
+    def med(self, *names: str) -> str:
+        """The MED field names of this step's fields: as they were (``DISP``, ...) for the first result, prefixed with
+        the result's name for the next (``result2_DISP``). Every nlgeom step printed ``DISP`` and the second stopped
+        Code_Aster: "<MED2_4> Le champ 'DISP' est déjà présent dans le fichier MED" (measured, 18.1.8)."""
+        prefix = "" if self.stat_nl.name == "result" else f"{self.stat_nl.name}_"
+        return "(" + ", ".join(f'"{prefix}{n}"' for n in names) + ",)"
+
     @property
     def post_calc_include(self):
         if len(self.part.fem.sections.solids) > 0:
             return ""
 
-        return """_F(
+        return f"""_F(
             NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
-            NOM_CHAM_MED=("STRESSES_ELEM", "STRESSES_NODES"),
+            NOM_CHAM_MED={self.med("STRESSES_ELEM", "STRESSES_NODES")},
             RESULTAT=stress,
         ),
         _F(
             NOM_CHAM=("EPSI_ELNO",),
-            NOM_CHAM_MED=("STRAINS_ELEM",),
+            NOM_CHAM_MED={self.med("STRAINS_ELEM")},
             RESULTAT=strain,
         ),
         _F(
             NOM_CHAM=("EPSP_ELNO",),
-            NOM_CHAM_MED=("PLASTIC_STRAINS_ELEM",),
+            NOM_CHAM_MED={self.med("PLASTIC_STRAINS_ELEM")},
             RESULTAT=strainP,
         ),"""
 
@@ -157,10 +164,10 @@ class ImprResu:
 
         if has_shells_or_beams:
             result_nom_cham = '("DEPL", "EFGE_ELNO", "EFGE_NOEU")'
-            result_nom_cham_med = '("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")'
+            result_nom_cham_med = self.med("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")
         else:
             result_nom_cham = '("DEPL",)'
-            result_nom_cham_med = '("DISP",)'
+            result_nom_cham_med = self.med("DISP")
 
         return f"""IMPR_RESU(
     RESU=(
@@ -194,6 +201,18 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "
     if len(loads) == 0 and not prescribed:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
+    from ada.fem.formats import conversion_report
+
+    # Measured (tests/fem: two nlgeom steps, a 4 m strip whose tip deflects 0.55 and 1.66 m): the linear closed form
+    # to 1e-10 -- DEFORMATION='PETIT' is small displacements, and RELATION defaults to 'ELAS'.
+    conversion_report.current().approximated(
+        STAGE,
+        "STAT_NON_LINE",
+        step.name,
+        "a geometrically nonlinear step is solved with small displacements (DEFORMATION='PETIT') and an elastic "
+        "material (RELATION 'ELAS', the default; a TRACTION curve is written but not used): the answer is the linear "
+        "one",
+    )
     stat_non_line = StatNonLin(result, part, loads, prescribed)
     stat_non_line_str = stat_non_line.write()
     post_calc = PostCalc(stat_non_line, part)
