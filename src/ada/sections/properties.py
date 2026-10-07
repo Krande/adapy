@@ -203,6 +203,32 @@ def _t_without_bottom_flange(sec: Section) -> tuple[float, float]:
     return ty, 0.0
 
 
+def _neutral_axis_in_a_flange(sec: Section, flange: str, z, z0, z1, sy, first_moment, sharz) -> None:
+    """Say that SY/SHARZ follow GeniE rather than mechanics when the neutral axis lies in a flange.
+
+    The thin-walled formulas GeniE writes (SY with the web reaching the neutral axis, SHARZ =
+    IY TY / SY through the web) assume the axis cuts the web. When it cuts a flange GeniE keeps
+    them (measured, V8.13-02), and so does adapy, since that is what Sestra receives from a GeniE
+    model; but SY is then not the first moment at the axis and SHARZ is not a shear area of the
+    section (a T 100 high with a 300 x 50 flange on a 5 mm web: SHARZ 1.378e-3, energy-consistent
+    8.2e-3 from sectionproperties). Filed as an approximation in the conversion report (and logged) with both values."""
+    from ada.fem.formats import conversion_report
+
+    conversion_report.current().approximated(
+        "section properties",
+        "Section",
+        sec.name,
+        f"the neutral axis lies in the {flange}, outside the thin-walled shear formulas: Sy and Sharz "
+        "are GeniE's (the web taken as reaching the axis), not the first moment and shear area there",
+        neutral_axis=z,
+        flange_from=z0,
+        flange_to=z1,
+        Sy=sy,
+        first_moment_at_axis=first_moment,
+        Sharz=sharz,
+    )
+
+
 def calc_isec(sec: Section) -> GeneralProperties:
     """Calculate I/H cross section properties"""
 
@@ -257,6 +283,10 @@ def calc_isec(sec: Section) -> GeneralProperties:
     Sz = (tt * bt**2 + tb * bb**2 + hw * ty**2) / 8
     Shary = (Iz / Sz) * (tb + tt) * sfy
     Sharz = (Iy / Sy) * ty * sfz
+    if z > hz - tt:
+        _neutral_axis_in_a_flange(sec, "top flange", z, hz - tt, hz, Sy, bt * (hz - z) ** 2 / 2, Sharz)
+    elif z < tb:
+        _neutral_axis_in_a_flange(sec, "bottom flange", z, 0.0, tb, Sy, bb * z**2 / 2, Sharz)
     Shceny = 0
     Shcenz = ((hz - tt / 2) * tt * bt**3 + (tb**2) * (bb**3) / 2) / (tt * bt**3 + tb * bb**3) - z
     Cy = bb / 2
@@ -378,6 +408,8 @@ def calc_angular(sec: Section) -> GeneralProperties:
     Sz = (tz * rj**2) / 2
     Shary = (Iz * tz / Sz) * sfy
     Sharz = (Iy * ty / Sy) * sfz
+    if c_z < tz:
+        _neutral_axis_in_a_flange(sec, "flange", c_z, 0.0, tz, Sy, by * c_z**2 / 2, Sharz)
 
     if posweb:
         Iyz = -Iyz
