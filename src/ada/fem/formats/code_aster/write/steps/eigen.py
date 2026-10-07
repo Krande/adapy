@@ -9,9 +9,10 @@ if TYPE_CHECKING:
 
 
 def step_eig_str(step: StepEigen, part: Part) -> str:
-    from ..write_constraints import get_charge_names, has_cara_elem
+    from ..write_constraints import has_cara_elem, step_charges
 
-    charges = get_charge_names(part)
+    supports = step_charges(part, step)
+    charges = supports.names
     if len(charges) == 0:
         raise NotImplementedError("An eigenfrequency analysis needs at least one boundary condition")
 
@@ -43,6 +44,7 @@ modes_0 = PROJ_CHAMP(
     # <ASSEMBLA_26>), the prescribed dofs at zero and the couplings.
     charge_str = ", ".join(charges)
     return f"""
+{supports.definitions}
 #modal analysis
 ASSEMBLAGE(
     MODELE=model,

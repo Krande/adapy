@@ -49,9 +49,9 @@ def held_dofs(bc: Bc, prescribed) -> list[int]:
     return [d for d in range(1, top + 1) if d in bc.dofs and (bc.fem_set.name, d) not in prescribed]
 
 
-def supports_str(bcs, prescribed=frozenset()) -> str:
-    """The :data:`SUPPORTS` charge: one ``DDL_IMPO`` row per support, every dof it holds at 0 (see the module
-    docstring); empty when no support holds anything."""
+def supports_str(bcs, prescribed=frozenset(), name: str = SUPPORTS) -> str:
+    """The :data:`SUPPORTS` charge (or one named ``name``): one ``DDL_IMPO`` row per support, every dof it holds at 0
+    (see the module docstring); empty when no support holds anything."""
     rows = []
     for bc in bcs:
         dofs = held_dofs(bc, prescribed)
@@ -61,7 +61,7 @@ def supports_str(bcs, prescribed=frozenset()) -> str:
     if not rows:
         return ""
     body = "\n".join(rows)
-    return f"""{SUPPORTS} = AFFE_CHAR_MECA(
+    return f"""{name} = AFFE_CHAR_MECA(
     MODELE=model,
     DDL_IMPO=(
 {body}

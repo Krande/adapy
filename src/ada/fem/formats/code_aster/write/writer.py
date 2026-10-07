@@ -20,6 +20,7 @@ from .write_constraints import (
     create_ref_points_model_str,
     get_couplings,
     model_bcs,
+    step_bcs,
 )
 from .write_loads import add_line_load_groups
 from .write_materials import materials_str
@@ -98,10 +99,13 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     # list with the assembly's on every write.
     bcs = model_bcs(part)
     prescribed = prescribed_dofs(bcs)
-    check_overlaps(bcs, prescribed)
+    steps = all_steps(assembly)
+    # A step's own Bc holds in it and every later step (write_constraints.step_bcs), so the last step has them all:
+    # checked once over the model's and every step's.
+    every = step_bcs(part, steps[-1]) if steps else bcs
+    check_overlaps(every, prescribed_dofs(every))
     supports = [supports_str(bcs, prescribed), prescribed_at_zero_str(bcs)]
     bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings])
-    steps = all_steps(assembly)
     step_str = steps_str(steps, part)
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"

@@ -351,6 +351,44 @@ def test_every_step_is_written_and_the_second_carries_the_first(fem_format, requ
     assert w2 == pytest.approx(cf["LC_pmid"][0] + cf["LC_u"][0], rel=tol)
 
 
+@pytest.mark.parametrize("fem_format", SOLVERS)
+def test_a_step_support_holds_in_its_step_and_the_next(fem_format, require_solver, tmp_path):
+    """The cantilever's root held in dx, dy, dz by the model and in rx, ry, rz by step 1 (``Step.add_bc``: where the
+    Abaqus reader puts a ``*Boundary`` found inside a ``*Step``); step 1 a 1 kN tip force, step 2 a second 1 kN that
+    carries the first. Both steps are the clamped cantilever: ``w = -P L^3 / (3 EI)``, then twice that.
+
+    Measured: CalculiX wrote the step's ``*Boundary`` in its step and ccx carried it into step 2, tip -1.27000e-3 m
+    (the closed form -1.2700021e-3 to the six digits printed); Code_Aster left the step's support out of the deck
+    without a word and stopped at <FACTOR_11> (a mechanism). Now each of its steps lists the supports in force:
+    -1.2700020923796e-3 m (+4.6e-13).
+    """
+    from ada.fem import Bc, FemSet, Load
+
+    require_solver(fem_format)
+    a, p, bm = _ipe300_beam()
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    root = p.fem.add_set(FemSet("root", [n for n in p.fem.nodes if abs(n.x) < 1e-9], FemSet.TYPES.NSET))
+    tip = p.fem.add_set(FemSet("tipn", [n for n in p.fem.nodes if abs(n.x - L) < 1e-9], FemSet.TYPES.NSET))
+    p.fem.add_bc(Bc("fem_fix", root, [1, 2, 3]))
+    s1 = a.fem.add_step(StepImplicitStatic("s1"))
+    s1.add_bc(Bc("step_fix", root, [4, 5, 6]))
+    s1.add_load(Load("F1", Load.TYPES.FORCE, -1000.0, dof=3, fem_set=tip))
+    s2 = a.fem.add_step(StepImplicitStatic("s2"))
+    s2.add_load(Load("F2", Load.TYPES.FORCE, -1000.0, dof=3, fem_set=tip))
+    for s in (s1, s2):
+        s.add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    solved = _solve(a, "stepbc", fem_format, tmp_path)
+    ei = bm.material.model.E * bm.section.properties.Iy
+    tol = FRD if fem_format == "calculix" else 1e-9
+    node = solved.node(L)
+    if fem_format == "calculix":
+        w1, w2 = solved.u(1, node)[2], solved.u(2, node)[2]
+    else:
+        w1, w2 = solved.u(None, node, "result")[2], solved.u(None, node, "result2")[2]
+    assert w1 == pytest.approx(-1000.0 * L**3 / (3 * ei), rel=tol)
+    assert w2 == pytest.approx(-2000.0 * L**3 / (3 * ei), rel=tol)
+
+
 # --- plates ------------------------------------------------------------------------------------------------------
 
 

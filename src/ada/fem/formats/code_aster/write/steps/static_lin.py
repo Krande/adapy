@@ -122,7 +122,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
     ``MECA_STATIQUE`` with an instant and a ``FONC_MULT`` per case, to every printed digit.
 
     Prescribed displacements (:mod:`ada.fem.formats.prescribed`): a step that gives a prescribed dof a nonzero value
-    holds those dofs with a charge of its own instead of :data:`..write_bc.PRESCRIBED_AT_ZERO`. A general step's
+    holds those dofs with a charge of its own instead of the one holding them at zero. A general step's
     charge carries the values. ``MACRO_ELAS_MULT`` cannot vary a support from case to case: every dualised charge must
     be in ``CHAR_MECA_GLOBAL`` (measured, 18.1.8: a case's own ``DDL_IMPO`` stopped at <ASSEMBLA_45> whether or not
     the global charges also held the dof). So a step of load cases with a nonzero prescribed value in any case is
@@ -134,11 +134,12 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
     )
     from ada.fem.formats.prescribed import case_values
 
-    from ..write_bc import PRESCRIBED_AT_ZERO, prescribed_charge_str
-    from ..write_constraints import get_charge_names, has_cara_elem, model_bcs
+    from ..write_bc import prescribed_charge_str
+    from ..write_constraints import has_cara_elem, step_charges
     from ..write_loads import STAGE
 
-    bcs = model_bcs(part)
+    supports = step_charges(part, step)
+    bcs = supports.bcs
     cases = step_cases(step, applied, bcs)
     loads = _distinct([ld for _, case_loads in cases for ld in case_loads])
     if len(step.load_cases) == 0:
@@ -149,7 +150,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
     if len(loads) == 0 and not settled:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
-    charges = get_charge_names(part)
+    charges = supports.names
     if len(charges) == 0:
         raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
 
@@ -174,7 +175,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
         targets = [f"\n        NUME_ORDRE=({', '.join(str(k) for k in stress_cases)},),"]
 
     if settled:
-        charges = [c for c in charges if c != PRESCRIBED_AT_ZERO]
+        charges = [c for c in charges if c != supports.zero]
     if instants:
         solve = _instants_str(step, result, cases, values, charges, sec_str, bcs)
     elif len(step.load_cases) == 0:
@@ -214,6 +215,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
     printed = _second_order_shell_fields(step, part, printed_layers=bool(layers))
 
     return f"""
+{supports.definitions}
 {load_str}
 
 {solve}

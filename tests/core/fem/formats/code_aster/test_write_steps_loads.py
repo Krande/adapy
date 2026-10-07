@@ -90,6 +90,34 @@ def test_every_step_is_written_into_a_result_of_its_own_carrying_the_earlier_loa
     assert not [f for f in report.findings if f.keyword == "Step"]
 
 
+def test_a_step_support_holds_in_its_step_and_every_later_one(tmp_path):
+    """A ``Bc`` added to step 2 (``Step.add_bc``) holds in steps 2 and 3, as in Abaqus and CalculiX: each of those
+    steps is solved with a supports charge of its own holding the model's supports and the step's in one charge; step 1
+    keeps the model's. It was left out of the deck without a finding."""
+    from ada.fem import Bc
+
+    a, p, _ = _beam(cases=False)
+    fs = p.fem.add_set(ada.fem.FemSet("mid", [p.fem.nodes.get_by_volume((2.0, 0, 0))[0]], "nset"))
+    a.fem.add_step(StepImplicitStatic("first")).add_load(LoadPoint("p1", -100.0, fs, 3))
+    second = a.fem.add_step(StepImplicitStatic("second"))
+    second.add_bc(Bc("mid_y", fs, [2]))
+    second.add_load(LoadPoint("p2", -200.0, fs, 3))
+    a.fem.add_step(StepImplicitStatic("third")).add_load(LoadPoint("p3", -300.0, fs, 3))
+    comm, _ = _comm(a, tmp_path)
+    assert _excit(comm, "result") == ["supports", "ld_p1"]
+    assert _excit(comm, "result2") == ["supports_2", "ld_p1", "ld_p2"]
+    assert _excit(comm, "result3") == ["supports_3", "ld_p1", "ld_p2", "ld_p3"]
+    for k in (2, 3):
+        charge = re.search(rf"^supports_{k} = AFFE_CHAR_MECA\((.*?)^\)", comm, re.M | re.S)[1]
+        assert re.findall(r'_F\(GROUP_NO="(\w+)", [^)]*\),  # (\w+)', charge) == [
+            ("pin_set", "pin"),
+            ("roll_set", "roll"),
+            ("mid", "mid_y"),
+        ]
+    supports = re.search(r"^supports = AFFE_CHAR_MECA\((.*?)^\)", comm, re.M | re.S)[1]
+    assert "mid_y" not in supports
+
+
 def test_a_point_load_is_force_nodale_and_gravity_has_its_direction(tmp_path):
     a, p, _ = _beam()
     comm, _ = _comm(a, tmp_path)
