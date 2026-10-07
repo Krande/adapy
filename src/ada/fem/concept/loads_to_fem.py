@@ -23,8 +23,9 @@ case in ``tests/core/fem/test_concept_loads_to_fem.py``:
   the plate's normal takes it on its own negative face.
 * :class:`LoadConceptAccelerationField` with self-weight -> a gravity load of that acceleration (GeniE: BGRAV).
 * a :class:`LoadConceptCaseCombination` -> one more FE load case holding each of its cases' loads (and settlements)
-  times its factor and the global scale factor: exact for the linear analysis both formats run. GeniE writes no
-  record for a combination; Sestra solves this one as a case of its own.
+  times its factor and the global scale factor: exact for the linear analysis both formats run. A support prescribed
+  in several of its cases gets one value per dof, the factored sum. GeniE writes no record for a combination;
+  Sestra solves this one as a case of its own.
 
 Whatever does not become an FE load -- a polygon pressure, a rotational field, an acceleration without self-weight,
 a line partly over nothing, a point with no node -- is a named finding in :mod:`ada.fem.formats.conversion_report`
@@ -473,21 +474,32 @@ class _Converter:
                 )
                 return None
         loads = []
+        # A support prescribed in several of the combined cases is prescribed once in the combination, its value the
+        # factored sum: {set name: (set, base name, {dof: value})}. One Bc per term instead gave two values for one
+        # dof in one case, of which the Sesam writer kept the last and the Abaqus writer the first.
+        settled: dict[str, tuple] = {}
         for term in lcc.load_cases:
             factor = float(term.factor) * float(lcc.global_scale_factor)
             for fe in fe_loads[id(term.load_case)]:
                 loads.append(_scaled(fe, factor, f"{lcc.name}_{fe.name}"))
-            for bc in [b for b in self.fem.bcs if (b.metadata or {}).get(BC_LOAD_CASE) == term.load_case.name]:
-                magnitudes = [None if m is None else factor * float(m) for m in bc.magnitudes]
-                self.fem.add_bc(
-                    Bc(
-                        f"{bc.name}_{lcc.name}",
-                        bc.fem_set,
-                        list(bc.dofs),
-                        magnitudes=magnitudes,
-                        metadata={BC_LOAD_CASE: lcc.name},
-                    )
+            case = term.load_case.name
+            for bc in [b for b in self.fem.bcs if (b.metadata or {}).get(BC_LOAD_CASE) == case]:
+                base = bc.name[: -len(case) - 1] if bc.name.endswith(f"_{case}") else bc.name
+                _, _, values = settled.setdefault(bc.fem_set.name, (bc.fem_set, base, {}))
+                for dof, m in zip(bc.dofs, bc.magnitudes or [None] * len(bc.dofs)):
+                    if m is not None:
+                        values[dof] = values.get(dof, 0.0) + factor * float(m)
+        for fem_set, base, values in settled.values():
+            dofs = sorted(values)
+            self.fem.add_bc(
+                Bc(
+                    f"{base}_{lcc.name}",
+                    fem_set,
+                    dofs,
+                    magnitudes=[values[d] for d in dofs],
+                    metadata={BC_LOAD_CASE: lcc.name},
                 )
+            )
         return loads
 
 

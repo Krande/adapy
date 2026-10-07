@@ -146,3 +146,97 @@ def test_a_couplings_slave_rotations_follow_the_master(tmp_path, rotation_depend
     b = ada.from_fem(tmp_path / "rl" / "rlT1.FEM")
     (con,) = [c for p in b.get_all_parts_in_assembly() for c in p.fem.constraints.values()]
     assert list(con.dofs) == ([1, 2, 3, 4, 5, 6] if rotation_dependent else [1, 2, 3])
+
+
+# --- a combination of cases that prescribe the same support -------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def frames_combined(tmp_path_factory):
+    """GeniE's frames fixture (``Sp_presc``: dx -0.003 in LC1; dx 0.005, dz -0.01, rz 0.001 in LC2) with
+    ``LCC = LC1 + LC2`` and ``LCF = 2 LC1 + 0.5 LC2``, written to Sesam and Abaqus."""
+    import pathlib
+    import shutil
+
+    from ada.fem.concept.loads import (
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+    )
+
+    xml = pathlib.Path(__file__).resolve().parents[3] / "files" / "fem_files" / "sesam" / "genie_supports_frames.xml"
+    work = tmp_path_factory.mktemp("frames_lcc")
+    shutil.copy(xml, work / xml.name)
+    with conversion_report.collect() as report:
+        a = ada.from_genie_xml(work / xml.name)
+        (part,) = a.get_all_subparts()
+        loads = part.concept_fem.loads
+        lc1, lc2 = loads.load_cases["LC1"], loads.load_cases["LC2"]
+        for name, f1, f2 in (("LCC", 1.0, 1.0), ("LCF", 2.0, 0.5)):
+            terms = [LoadConceptCaseFactored(lc1, f1), LoadConceptCaseFactored(lc2, f2)]
+            loads.add_load_case_combination(LoadConceptCaseCombination(name, terms))
+        part.fem = part.to_fem_obj(0.5, use_quads=True)
+        a.to_fem("fr", "sesam", scratch_dir=work, overwrite=True)
+        a.to_fem("fr_abq", "abaqus", scratch_dir=work, overwrite=True)
+    (node,) = part.fem.sets.get_nset_from_name("Sp_presc_set").members
+    deck = (work / "fr" / "frT1.FEM").read_text()
+    inp = (work / "fr_abq" / "fr_abq.inp").read_text()
+    return part, node.id, deck, inp, report
+
+
+#: The factored sums on Sp_presc's dx, dz, rz: LC1 (-0.003, 0, 0), LC2 (0.005, -0.01, 0.001).
+COMBINED = {"LCC": [0.002, -0.01, 0.001], "LCF": [-0.0035, -0.005, 0.0005]}
+
+
+def test_a_combination_prescribes_its_cases_factored_sum_once(frames_combined):
+    """One ``Bc`` per support and combination, its values the factored sum. It used to be one ``Bc`` per term, and the
+    Sesam writer kept the last term's values (LCC dx 0.005, LC1's -0.003 lost, silently) and the Abaqus writer the
+    first's (LCC dx -0.003, LC2's values reported omitted)."""
+    part, _, _, _, _ = frames_combined
+    from ada.fem.constraints import BC_LOAD_CASE
+
+    for case, values in COMBINED.items():
+        (bc,) = [b for b in part.fem.bcs if (b.metadata or {}).get(BC_LOAD_CASE) == case]
+        assert (bc.name, bc.dofs) == (f"Sp_presc_{case}", [1, 3, 6])
+        assert bc.magnitudes == pytest.approx(values, rel=1e-12)
+
+
+def test_the_sesam_combination_case_holds_the_factored_sum(frames_combined):
+    _, node, deck, _, report = frames_combined
+    got = {case: values[node] for case, values in _bndispl(deck).items()}
+    assert got["LC1"] == [-0.003, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert got["LC2"] == [0.005, 0.0, -0.01, 0.0, 0.0, 0.001]
+    for case, (dx, dz, rz) in COMBINED.items():
+        assert got[case] == pytest.approx([dx, 0.0, dz, 0.0, 0.0, rz], rel=1e-12, abs=0.0)
+    assert not [f for f in report.findings if f.keyword in ("BNDISPL", "*Boundary") and f.kind == "omitted"]
+
+
+def test_the_abaqus_combination_case_holds_the_factored_sum(frames_combined):
+    """Measured with Abaqus 2025 on the Sestra tier's cantilever (``test_concept_supports_sestra``, the same values
+    on a tip support, LCC = LC1 + LC2): before, LCC's tip came out at dx -0.003, dz 0, rz 0 (LC1's) and
+    max |u_LCC - (u_LC1 + u_LC2)| = 0.01; after, dx 0.002, dz -0.01, rz 0.001 and 3.1e-10."""
+    _, _, _, inp, _ = frames_combined
+    cases = {m[1]: m[2] for m in re.finditer(r"^\*Load Case, name=(\S+)\n(.*?)^\*End Load Case", inp, re.M | re.S)}
+    for case, values in COMBINED.items():
+        got = re.findall(r"Sp_presc_set, (\d), \d, (\S+)", cases[case])
+        assert [d for d, _ in got] == ["1", "3", "6"]
+        assert [float(v) for _, v in got] == pytest.approx(values, rel=1e-12, abs=0.0)
+
+
+def test_a_second_value_for_one_dof_in_one_case_is_reported_not_overwritten(tmp_path):
+    """Two ``Bc`` prescribing the tip's dx in LC1, -0.003 and 0.004: the BNDISPL keeps the first and names the second.
+    The Sesam writer used to keep the second without a word."""
+    a, tip = _cantilever(with_steps=())
+    (p,) = a.get_all_subparts()
+    tip_set = p.fem.sets.get_nset_from_name("tip_set")
+    p.fem.add_bc(Bc("tip_LC1_again", tip_set, [1], magnitudes=[0.004], metadata={BC_LOAD_CASE: "LC1"}))
+    with conversion_report.collect() as report:
+        a.to_fem("presc", "sesam", scratch_dir=tmp_path, overwrite=True)
+    deck = (tmp_path / "presc" / "prescT1.FEM").read_text()
+    assert _bndispl(deck)["LC1"] == {tip: [-0.003, 0.0, 0.0, 0.0, 0.0, 0.0]}
+    (finding,) = [f for f in report.findings if f.keyword == "BNDISPL"]
+    assert (finding.kind, finding.subject) == ("omitted", "tip_LC1_again")
+    assert (finding.details["load_case"], finding.details["kept"], finding.details["nodes"]) == (
+        "LC1",
+        "tip_LC1",
+        [tip],
+    )

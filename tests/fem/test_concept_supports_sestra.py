@@ -105,3 +105,69 @@ def test_a_prescribed_tip_settlement_lands_and_reacts_as_computed(tmp_path):
     reactions = {int(r[0]): r[1:7] for r in fields["REACTION-FORCE"]}
     assert reactions[tip.id][2] == pytest.approx(SETTLEMENT / (bend + shear), rel=1e-6)
     assert reactions[_node_at(p.fem, 0).id][2] == pytest.approx(-SETTLEMENT / (bend + shear), rel=1e-6)
+
+
+def _combined_settlements():
+    """The cantilever clamped at the root, its tip a support prescribing dx, dz and rz: LC1 moves dx by -0.003 and
+    loads mid-span with 10 kN down; LC2 moves dx, dz, rz by 0.005, -0.01, 0.001 (GeniE's frames fixture values);
+    LCC = LC1 + LC2."""
+    from ada.fem.concept.loads import (
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+        LoadConceptPoint,
+    )
+
+    a, p, bm = _beam("lcc")
+    constraints = p.concept_fem.constraints
+    constraints.add_point_constraint(ConstraintConceptPoint("Sp_root", (0, 0, 0), Dof.encastre()))
+    kinds = {"dx": "prescribed", "dz": "prescribed", "rz": "prescribed"}
+    sp = constraints.add_point_constraint(
+        ConstraintConceptPoint(
+            "Sp_tip", (L, 0, 0), [Dof(d, kinds.get(d, "free")) for d in ("dx", "dy", "dz", "rx", "ry", "rz")]
+        )
+    )
+    loads = p.concept_fem.loads
+    lc1 = loads.add_load_case(
+        LoadConceptCase(
+            "LC1",
+            [
+                LoadConceptPrescribedDisplacement("PD1", sp, (-0.003, 0.0, 0.0)),
+                LoadConceptPoint("P", (L / 2, 0, 0), (0.0, 0.0, P), (0.0, 0.0, 0.0)),
+            ],
+        )
+    )
+    lc2 = loads.add_load_case(
+        LoadConceptCase("LC2", [LoadConceptPrescribedDisplacement("PD2", sp, (0.005, 0.0, -0.01), (0.0, 0.0, 0.001))])
+    )
+    terms = [LoadConceptCaseFactored(lc1, 1.0), LoadConceptCaseFactored(lc2, 1.0)]
+    loads.add_load_case_combination(LoadConceptCaseCombination("LCC", terms))
+    return a, p
+
+
+def test_a_combination_of_two_settlement_cases_solves_as_their_sum(tmp_path):
+    """LCC's every nodal displacement equals LC1's plus LC2's, and its tip lands on the summed settlement (dx 0.002,
+    dz -0.01, rz 0.001). Before the combination summed a support's values, the deck gave LCC LC2's tip values only
+    and Sestra V11.3 solved it with tip dx 0.005: max |u_LCC - (u_LC1 + u_LC2)| = 0.003, the lost dx. After:
+    2.3e-10 against |u| up to 0.01. The bound is a SIN's single precision at that size, 0.01 x 2^-23 = 1.2e-9."""
+    a, p = _combined_settlements()
+    p.fem = p.to_fem_obj(0.5, "line")
+    tip = _node_at(p.fem, L)
+    a.fem.add_step(StepImplicitStatic("static", total_time=1.0, init_incr=1.0, max_incr=1.0))
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    a.to_fem("lcc", "sesam", scratch_dir=tmp_path, overwrite=True, execute=True)
+    lis = (tmp_path / "lcc" / "SESTRA.LIS").read_text(errors="replace")
+    assert "Normal exit from Sestra" in lis, lis[-2000:]
+    res = read_sin_file(tmp_path / "lcc" / "lccR1.SIN")
+    ids = list(res.mesh.nodes.identifiers)
+    number = {name: i for i, name in res.sesam_case_names.items()}
+
+    def u(case):
+        (values,) = [
+            np.asarray(r.values) for r in res.results if r.name == "sesam.nodes.displacement" and r.step == number[case]
+        ]
+        return values[:, 2:]  # node id, magnitude, then ux uy uz rx ry rz
+
+    u1, u2, uc = u("LC1"), u("LC2"), u("LCC")
+    assert uc[ids.index(tip.id)][[0, 2, 5]] == pytest.approx([0.002, -0.01, 0.001], rel=1e-6)
+    assert np.abs(uc - (u1 + u2)).max() < 1.2e-9
