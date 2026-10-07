@@ -173,6 +173,25 @@ def test_an_angle_with_its_web_thicker_than_its_flange_is_calculated():
     assert calculate_general_properties(sec).Ix > 0
 
 
+def test_from_fem_reads_a_file_holding_an_angle_with_its_web_thicker_than_its_flange():
+    """The Sesam reader recomputes every angle's properties (for Cy/Cz), so the ValueError above
+    used to lose the whole model. ``ada.from_fem`` of GeniE's file now returns it, T02_ANGTW (GLSEC
+    200 x 100, web 14, flange 10) with GeniE's GBEAMG -- Ax 3.66e-3, Iy 1.52783e-5, Iz 2.22059e-6,
+    Sy 1.04739e-4, Sz 3.30089e-5, Shary 6.72724e-4, Sharz 2.04217e-3, as an independent GeniE
+    V8.13-02 run of the same LSection also wrote them -- and adapy's own calculation of it agrees."""
+    a = ada.from_fem(GENIE_FEMS[2])
+    (sec,) = [s for p in a.get_all_parts_in_assembly(include_self=True) for s in p.sections if s.name == "T02_ANGTW"]
+    assert sec.type == sec.TYPES.ANGULAR and (sec.h, sec.t_w, sec.w_btn, sec.t_fbtn) == pytest.approx(
+        (0.2, 0.014, 0.1, 0.01), rel=1e-7
+    )
+    genie = dict(Ax=3.66e-3, Iy=1.52783e-5, Iz=2.22059e-6, Sy=1.04739e-4, Sz=3.30089e-5, Shary=6.72724e-4)
+    genie["Sharz"] = 2.04217e-3
+    calc = calculate_general_properties(sec)
+    for field, value in genie.items():
+        assert np.isclose(getattr(sec.properties, field), value, rtol=5e-6), field  # GeniE, 6 digits
+        assert np.isclose(getattr(calc, field), getattr(sec.properties, field), rtol=REL), field
+
+
 @pytest.mark.parametrize(
     "h, b, tw, tf", [(0.2, 0.1, 0.01, 0.014), (0.15, 0.15, 0.012, 0.012), (0.18, 0.035, 0.01, 0.01975)]
 )
