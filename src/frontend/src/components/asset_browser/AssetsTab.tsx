@@ -676,16 +676,22 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
     const loaded = wanted.filter((c) => c.loaded);
     const busy = wanted.filter((c) => c.busy).length;
     const failed = wanted.filter((c) => !c.busy && c.error);
-    // Every pair the set asks for that has no geometry to load, by provider.
+    // Every pair the set asks for that has no geometry to load, by provider -- split into what was
+    // never requested and what WAS: the provider published that very node with nothing to load
+    // (an empty site, a kind it cannot draw). Asking again would publish the same nothing.
     const missing = new Map<string, { id: string; label: string }[]>();
+    const empty = new Map<string, { id: string; label: string }[]>();
     for (const m of present) {
         for (const p of m.providers ?? view.contentProviders) {
             if (loadable(m.id, p)) continue;
-            const list = missing.get(p) ?? [];
+            const own = view.resolution.subjects.get(m.id)?.byProvider.get(p);
+            const into = own?.manifest ? empty : missing;
+            const list = into.get(p) ?? [];
             list.push({ id: m.id, label: m.label });
-            missing.set(p, list);
+            into.set(p, list);
         }
     }
+    const emptyCount = [...empty.values()].reduce((n, l) => n + l.length, 0);
     const missingCount = [...missing.values()].reduce((n, l) => n + l.length, 0);
     const requests = [...missing.entries()].map(([provider, rows]) => ({
         provider,
@@ -736,6 +742,14 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                         {missingCount} not requested yet
                     </span>
                 )}
+                {emptyCount > 0 && (
+                    <span
+                        className="text-gray-400"
+                        title={[...empty.entries()].map(([p, rows]) => `${p}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
+                    >
+                        {emptyCount} with nothing to draw
+                    </span>
+                )}
             </div>
             {asking && (
                 <div role="alertdialog" aria-label="Missing geometry" className="rounded-md border border-amber-700/70 bg-amber-950/40 p-2 space-y-1.5 text-xs">
@@ -753,6 +767,11 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                             </li>
                         ))}
                     </ul>
+                    {emptyCount > 0 && (
+                        <div className="text-gray-400">
+                            {emptyCount} more were requested before and have nothing to draw; they are left out.
+                        </div>
+                    )}
                     <div className="flex flex-wrap gap-1.5">
                         <button
                             type="button"
