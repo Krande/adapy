@@ -4,6 +4,9 @@ import { useViewerStores } from "@/state/AdaViewerContext";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 560;
+/** Sources' first width. Its toolbar and its rows (a name, a kind, the provider marks) need
+ *  more room than the scene tree's default; each tab then keeps whatever width it is dragged to. */
+const SOURCES_DEFAULT_WIDTH = 440;
 
 // Floating left drawer that holds the selection tree. Toggled from the
 // top-bar button (Menu.tsx) and Shift+T (setupCameraControlsHandlers);
@@ -19,13 +22,28 @@ const MAX_WIDTH = 560;
 const ResizableTreeView: React.FC = () => {
     const isResizing = useRef(false);
     const [dragging, setDragging] = useState(false);
-    const { useTreeViewStore } = useViewerStores();
+    const { useTreeViewStore, useAssetBrowserStore } = useViewerStores();
     // Field by field: the whole store would re-render the drawer, and everything
     // in it, on every tree change -- selection included.
     const isTreeCollapsed = useTreeViewStore((s) => s.isTreeCollapsed);
     const setIsTreeCollapsed = useTreeViewStore((s) => s.setIsTreeCollapsed);
     const treeViewWidth = useTreeViewStore((s) => s.treeViewWidth);
     const setTreeViewWidth = useTreeViewStore((s) => s.setTreeViewWidth);
+    // A WIDTH PER TAB. `treeViewWidth` stays the one width shown (the top bar shifts by it), and a
+    // tab switch swaps in the width that tab was last left at -- Sources starting wider.
+    const tab = useAssetBrowserStore((s) => s.tab);
+    const activeTab = assetsTabAvailable() ? tab : "files";
+    const tabWidths = useRef<Record<string, number>>({ assets: SOURCES_DEFAULT_WIDTH });
+    const shownTab = useRef<string | null>(null);
+    useEffect(() => {
+        const prev = shownTab.current;
+        shownTab.current = activeTab;
+        if (prev === activeTab) return;
+        const width = useTreeViewStore.getState().treeViewWidth;
+        if (prev !== null) tabWidths.current[prev] = width;
+        const next = tabWidths.current[activeTab];
+        if (next !== undefined && next !== width) setTreeViewWidth(next);
+    }, [activeTab, setTreeViewWidth, useTreeViewStore]);
     // Mounted on the FIRST open, then kept: a viewer that never opens the drawer
     // should not pay for loading what is in it.
     const [everOpened, setEverOpened] = useState(!isTreeCollapsed);

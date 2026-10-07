@@ -137,3 +137,17 @@ def test_manifest_with_every_optional_carrier_absent_validates():
     assert back == m
     assert back.delivery == "none"
     assert json.loads(m.to_json())["schema"] == MANIFEST_SCHEMA
+
+
+def test_the_index_summary_carries_the_leaf_count_and_nothing_else_of_counts():
+    """A build claim whose subtree has no leaf can only fail; the browser reads `leaves` off the
+    index to skip it before building. The rest of `counts` stays out of the index."""
+    from ada.assets.manifest import manifest_summary
+
+    claim = BuildSpec(capability="asset-build-x", options={"k": "v"}, fingerprint_inputs=("k",))
+    empty = _minimal(delivery="build", build=claim, counts={"nodes": 9, "leaves": 0})
+    assert manifest_summary(empty)["leaves"] == 0
+    assert "nodes" not in manifest_summary(empty)
+    full = _minimal(delivery="build", build=claim, counts={"leaves": 12})
+    assert manifest_summary(full)["leaves"] == 12
+    assert "leaves" not in manifest_summary(_minimal()), "absent stays absent"

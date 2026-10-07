@@ -35,12 +35,18 @@ export interface Forest {
   /** id -> the parent a PRUNED row last had. What lets an orphan with cause
    *  `removed` say where it used to sit, after the row itself has gone. */
   readonly retired: ReadonlyMap<string, string | null>;
+  /** id -> every provider whose published tree names the row. A node's own `provider` is only
+   *  the last spine merged; this is the whole answer to "does provider X know this node?" --
+   *  what decides whether X can be ASKED for it. Two providers name one node by the same id
+   *  when they publish into one collection on one id scheme. */
+  readonly namedBy: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 export const EMPTY_FOREST: Forest = Object.freeze({
   nodes: new Map<string, AssetNode>(),
   origins: new Map<string, NodeOrigin>(),
   retired: new Map<string, string | null>(),
+  namedBy: new Map<string, ReadonlySet<string>>(),
 });
 
 /** The merged forest, or the SAME object when the slice changes nothing -- so a
@@ -56,6 +62,7 @@ export function mergeSpine(forest: Forest, incoming: readonly AssetNode[], merge
   if (!incoming.length) return forest;
   const nodes = new Map(forest.nodes);
   const origins = new Map(forest.origins);
+  const namedBy = new Map(forest.namedBy);
   let retired = forest.retired;
   const origin: NodeOrigin = { subject: merge.subject, revision: merge.revision };
 
@@ -73,6 +80,7 @@ export function mergeSpine(forest: Forest, incoming: readonly AssetNode[], merge
         next.set(id, nodes.get(id)?.parent ?? null);
         nodes.delete(id);
         origins.delete(id);
+        namedBy.delete(id);
       }
       retired = next;
     }
@@ -85,6 +93,10 @@ export function mergeSpine(forest: Forest, incoming: readonly AssetNode[], merge
     // (the same rule ./hierarchy applies to duplicate input rows).
     nodes.set(n.id, prev && n.parent === null && prev.parent !== null ? { ...n, parent: prev.parent } : n);
     origins.set(n.id, origin);
+    if (n.provider) {
+      const had = namedBy.get(n.id);
+      if (!had?.has(n.provider)) namedBy.set(n.id, new Set([...(had ?? []), n.provider]));
+    }
   }
   if (retired.size) {
     // A row that comes back is no longer retired.
@@ -96,7 +108,7 @@ export function mergeSpine(forest: Forest, incoming: readonly AssetNode[], merge
     }
     if (next) retired = next;
   }
-  return { nodes, origins, retired };
+  return { nodes, origins, retired, namedBy };
 }
 
 /** Where a ONE-LEVEL slice came from: the spine (subject @ revision) and the

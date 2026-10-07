@@ -2,6 +2,15 @@
 
 
 
+## v0.107.0 (2026-10-07)
+
+### Feature
+
+* feat(assets): Sources tab follow-ups -- one Options panel, Load set asks first, leaf counts, one error toast; retire the External models panel (#438)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`104d41a`](https://github.com/Krande/adapy/commit/104d41a01b2e8788d051fbfdf265ee4499443c8c))
+
+
 ## v0.106.0 (2026-10-07)
 
 ### Feature
