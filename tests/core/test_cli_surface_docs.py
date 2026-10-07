@@ -28,7 +28,7 @@ from ada_cli.main import _build_parser, _subparsers_action
 _REPO = pathlib.Path(__file__).parents[2]
 _PYPROJECT = _REPO / "pyproject.toml"
 _README = _REPO / "README.md"
-_DOCS_PAGE = _REPO / "docs" / "documents" / "cli.rst"
+_DOCS_PAGE = _REPO / "docs" / "documents" / "cli.md"
 
 _DISTRIBUTION = "ada-py"
 _COMMAND = "ada"
@@ -40,9 +40,9 @@ _needs_repo = pytest.mark.skipif(
     reason=f"no repo tree at {_REPO} (sdist/wheel test env) — docs/ and README.md are not packaged",
 )
 
-# A line that is nothing but a command literal: an rst section title or a definition-list term.
-# Code blocks in the page are indented, so examples never match.
-_RST_COMMAND_LINE = re.compile(r"^``(ada(?: [a-z0-9][a-z0-9-]*)+)``$", re.MULTILINE)
+# A line that is nothing but a command literal: a section heading (``## `ada convert` ``) or a
+# definition-list term. Examples in fenced code blocks are bare text, so they never match.
+_DOCS_COMMAND_LINE = re.compile(r"^(?:#+ )?`(ada(?: [a-z0-9][a-z0-9-]*)+)`$", re.MULTILINE)
 # Inline code holding a command, e.g. the README table's first column.
 _MD_COMMAND = re.compile(r"`(ada [a-z0-9][a-z0-9-]*)`")
 _MD_FENCE = re.compile(r"^```.*?^```", re.MULTILINE | re.DOTALL)
@@ -118,10 +118,10 @@ def test_no_surface_tells_you_to_run_the_distribution_name():
 @_needs_repo
 def test_docs_page_documents_every_command():
     """The docs page is the full reference, so it must cover nested subcommands too."""
-    documented = set(_RST_COMMAND_LINE.findall(_DOCS_PAGE.read_text(encoding="utf-8")))
+    documented = set(_DOCS_COMMAND_LINE.findall(_DOCS_PAGE.read_text(encoding="utf-8")))
     documented = {c[len(_COMMAND) + 1 :] for c in documented}
     real = _real_commands()
-    assert documented == real, _diff(documented, real, "docs/documents/cli.rst")
+    assert documented == real, _diff(documented, real, "docs/documents/cli.md")
 
 
 @_needs_repo
@@ -153,11 +153,11 @@ def test_docs_page_documents_every_flag_of_the_local_commands(command):
     flag on either has to turn up there. Commands are checked above; a flag is just as invisible
     when it is undocumented, and ``--log-file`` was added long after this page was written."""
     page = _DOCS_PAGE.read_text(encoding="utf-8")
-    documented = set(re.findall(r"``(--[a-z0-9][a-z0-9-]*)", page))
+    documented = set(re.findall(r"`(--[a-z0-9][a-z0-9-]*)", page))
     real = _long_options(_subparser(command))
     assert not (
         real - documented
-    ), f"ada {command} flags missing from docs/documents/cli.rst: {sorted(real - documented)}"
+    ), f"ada {command} flags missing from docs/documents/cli.md: {sorted(real - documented)}"
 
 
 def test_cli_module_docstring_lists_every_top_level_command():

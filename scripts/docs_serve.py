@@ -6,10 +6,10 @@ from starlette.responses import Response
 
 app = FastAPI()
 
-_build_dir = pathlib.Path("docs/_build/html").resolve().absolute()
+_build_dir = pathlib.Path("site").resolve().absolute()
 
 
-# serve a html directory _build/html with index.html as the default page
+# serve the built Zensical site (site/) with index.html as the default page
 # Support both GET and HEAD methods (HEAD is used by paradoc frontend for static mode detection)
 @app.api_route("/{file_path:path}", methods=["GET", "HEAD"])
 async def serve_static_files(file_path: str):

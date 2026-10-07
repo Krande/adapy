@@ -8,15 +8,13 @@ Here is a collection of useful links and information regarding the currently sup
 Code Aster is distributed as a conda-forge package and can be used together with `adapy`.
 However, it is currently only distributed for Linux on conda-forge.
 
-:::{note}
-As of today (26.11.2024), you can do `mamba install code-aster -c https://repo.prefix.dev/code-aster -c conda-forge` to install
-Code Aster for conda on Windows.
+!!! note
+    As of today (26.11.2024), you can do `mamba install code-aster -c https://repo.prefix.dev/code-aster -c conda-forge` to install
+    Code Aster for conda on Windows.
 
-::::{important}
-However, note that the prefix.dev repository for Code Aster is only temporary until 
-the necessary changes are merged into the conda-forge dependencies feedstock.
-::::
-:::
+    !!! warning "Important"
+        However, note that the prefix.dev repository for Code Aster is only temporary until
+        the necessary changes are merged into the conda-forge dependencies feedstock.
 
 Work is ongoing to add native support for Windows on conda-forge. 
 See [https://github.com/conda-forge/code-aster-feedstock/issues/65](https://github.com/conda-forge/code-aster-feedstock/issues/65) for more information.

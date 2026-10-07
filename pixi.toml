@@ -47,8 +47,16 @@ json-code-gen-py = { cmd = [
 json-code-gen-cpp = { cmd = ["python", "scripts/codegen_ada_ext_cpp.py"], cwd = "./" }
 
 [feature.docs.tasks]
-docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto -d _build/doctrees . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
+# Zensical has no notebook support, so the notebooks are executed and converted to Markdown pages
+# beside their sources first (gitignored; see scripts/docs_notebooks.py). --execute: every viewer
+# is rendered with the current viewer bundle, never one stored in a notebook's outputs.
+docs-notebooks = { cmd = "python scripts/docs_notebooks.py --execute", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
+# The site without regenerating the FEA verification report (whatever docs/_static/fea-report holds).
+docs-site = { cmd = "zensical build --clean", depends-on = ["docs-notebooks"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+docs = { depends-on = ["fea-doc", "docs-site"] }
+# Live-reloading preview. Run `pixi run -e docs docs-notebooks` once first for the notebook pages.
+docs-serve = { cmd = "zensical serve", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+serve = { cmd = "python scripts/docs_serve.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 # PYTHONUTF8: pandoc runs paradoc's Python filters as subprocesses, and on Windows they would read the
 # UTF-8 AST as cp1252 -- a byte cp1252 leaves undefined (e.g. in "ρ") then kills the export.
 fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
@@ -56,7 +64,7 @@ fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = {
 fea-doc-inspect = { cmd = "python -m paradoc.cli_app build verification --inspect --no-compile", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # The report as downloadable files, for the links on the docs page. Written to
 # docs/_static/fea-report-files/ -- beside the web bundle, not inside it: the static export
-# deletes its target folder on every build. Sphinx copies _static into the published site.
+# deletes its target folder on every build. Zensical copies docs/_static into the published site.
 fea-doc-docx = { cmd = "python -m paradoc.cli_app build verification -p docx --name fea-report --work-dir temp/fea-report-export && mkdir -p docs/_static/fea-report-files && cp temp/fea-report-export/_dist/fea-report.docx docs/_static/fea-report-files/fea-report.docx", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
 fea-doc-odt = { cmd = "python -m paradoc.cli_app build verification -p odt --name fea-report --work-dir temp/fea-report-export && mkdir -p docs/_static/fea-report-files && cp temp/fea-report-export/_dist/fea-report.odt docs/_static/fea-report-files/fea-report.odt", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
 fea-doc-pdf = { cmd ="python -m paradoc.cli_app build verification -p pdf --name fea-report --work-dir temp/fea-report-export && mkdir -p docs/_static/fea-report-files && cp temp/fea-report-export/_dist/fea-report.pdf docs/_static/fea-report-files/fea-report.pdf", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
@@ -578,10 +586,12 @@ python-flatbuffers = "==25.2.10"
 datamodel-code-generator = "==0.30.1"
 
 [feature.docs.dependencies]
-sphinx = "*"
-furo = "*"
-myst-parser = "*"
-nbsphinx = "*"
+zensical = ">=0.0.67"
+mkdocstrings-python = "*"
+# Execute the docs notebooks and convert them to Markdown (scripts/docs_notebooks.py).
+nbconvert-core = "*"
+nbclient = "*"
+ipykernel = "*"
 scipy = "*"
 fastapi = "*"  # For the API docs
 pandas = "*"

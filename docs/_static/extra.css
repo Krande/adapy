@@ -1,0 +1,15 @@
+/* Notebook 3D viewers (scripts/docs_notebooks.py): a framed, full-width box. */
+iframe.ada-viewer {
+  display: block;
+  margin: 0.5em 0 1.5em;
+  border: 1px solid var(--md-default-fg-color--lightest) !important;
+  border-radius: 4px;
+  background: var(--md-default-bg-color);
+}
+
+/* Mermaid architecture diagrams are wide; let them use the full content width and scroll
+   sideways on small screens instead of shrinking the text to nothing. */
+.md-typeset .mermaid {
+  overflow-x: auto;
+  text-align: center;
+}

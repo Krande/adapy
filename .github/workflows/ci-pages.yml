@@ -16,6 +16,8 @@ on:
       - 'v*.*.*'
     paths:
       - 'docs/**'
+      - 'zensical.toml'
+      - 'scripts/docs_notebooks.py'
       - 'verification/**'
       - 'src/ada/**'
       - 'pixi.toml'
@@ -69,7 +71,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
 
       # The report as downloadable DOCX / ODT / PDF, linked from the FEA verification docs page. They land
-      # in docs/_static/fea-report-files/, so they must exist before sphinx copies _static into the
+      # in docs/_static/fea-report-files/, so they must exist before zensical copies _static into the
       # site (and from there onto gh-pages). CI has no solvers, so every case comes from the
       # committed caches, as in the web report. continue-on-error: a failed export leaves a dead
       # download link, but must not stop the web report and the rest of the docs from publishing.
@@ -93,7 +95,7 @@ jobs:
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/_build/html/
+          publish_dir: ./site/
           # Rewrite gh-pages as a single orphan commit each publish. The site
           # is multi-MB; without this the branch history grows unbounded.
           force_orphan: true

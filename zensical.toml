@@ -1,0 +1,141 @@
+# Zensical site for adapy (https://zensical.org). Build with `pixi run -e docs docs`,
+# preview with `pixi run -e docs docs-serve`.
+#
+# Notebook pages (docs/**/*.ipynb) are not read by Zensical: scripts/docs_notebooks.py
+# executes and converts them to Markdown beside their sources first (docs-notebooks task).
+
+[project]
+site_name = "ADA - Advanced Design & Analysis"
+site_description = "A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats."
+site_author = "Kristoffer H. Andersen"
+site_url = "https://krande.github.io/adapy/"
+repo_url = "https://github.com/Krande/adapy"
+repo_name = "Krande/adapy"
+edit_uri = "edit/main/docs/"
+copyright = "&copy; Kristoffer H. Andersen"
+docs_dir = "docs"
+site_dir = "site"
+# Keep Sphinx-era URLs (documents/cli.html, _static/fea-report/index.html) working.
+use_directory_urls = false
+
+nav = [
+  { "Home" = "index.md" },
+  { "Features" = [
+    "documents/steel_detailing.md",
+    "documents/topology_engine.md",
+    "documents/dexpi.md",
+    "documents/path_to_software_agnosticism.md",
+    "documents/meshing.md",
+    "documents/cli.md",
+  ] },
+  { "Primitives" = [
+    "documents/notebooks/design/primitives/box.md",
+    "documents/notebooks/design/primitives/sphere.md",
+    "documents/notebooks/design/primitives/cylinder.md",
+    "documents/notebooks/design/primitives/cone.md",
+    "documents/notebooks/design/primitives/extrusion.md",
+    "documents/notebooks/design/primitives/revolve.md",
+    "documents/notebooks/design/primitives/sweeps.md",
+    "documents/notebooks/design/primitives/beams.md",
+    "documents/notebooks/design/primitives/plates.md",
+    "documents/notebooks/design/primitives/pipe.md",
+  ] },
+  { "Modelling" = [
+    "documents/notebooks/design/boolean_operations.md",
+    "documents/notebooks/design/parts_and_assemblies.md",
+    "documents/notebooks/design/placement.md",
+    "documents/notebooks/design/sections.md",
+  ] },
+  { "FEA" = [
+    "documents/fea/fea_software.md",
+    "documents/fea/fea_verification.md",
+  ] },
+  { "Architecture" = [
+    "documents/architecture/index.md",
+    "documents/architecture/core_model.md",
+    "documents/architecture/geometry_and_visualisation.md",
+    "documents/architecture/interop.md",
+    "documents/architecture/fea.md",
+    "documents/architecture/platform.md",
+    "documents/architecture/frontend.md",
+    "documents/architecture/docs_pipeline.md",
+  ] },
+  { "Ongoing Work" = [
+    "documents/ifc_database.md",
+  ] },
+  { "Code" = [
+    "documents/code.md",
+  ] },
+  { "Profiling" = [
+    "documents/profiling.md",
+  ] },
+]
+
+extra_css = ["_static/extra.css"]
+
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.code.copy",
+  "content.tabs.link",
+  "navigation.indexes",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.footer",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+# Setting markdown_extensions replaces Zensical's defaults, so the ones the pages use are
+# listed in full.
+[project.markdown_extensions.abbr]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.def_list]
+[project.markdown_extensions.footnotes]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.tables]
+[project.markdown_extensions.toc]
+permalink = true
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.emoji]
+emoji_index = "zensical.extensions.emoji.twemoji"
+emoji_generator = "zensical.extensions.emoji.to_svg"
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+
+# API reference (documents/code.md), the replacement for sphinx.ext.autodoc.
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+inventories = ["https://docs.python.org/3/objects.inv"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "sphinx"
+show_source = false
+show_root_heading = true
+members_order = "source"

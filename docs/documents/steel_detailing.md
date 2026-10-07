@@ -1,5 +1,4 @@
-Steel detailing as a method
-=============================
+# Steel detailing as a method
 
 You can create methods on any Part objects that you can customize to your liking. This enables you to input
 simplified concept analysis models and output fully detailed models simply by using object oriented design
@@ -13,9 +12,7 @@ through the deck plate and stringer.
 With little effort you can add reinforcements to the detail and end up with a
 flexible, robust and fabrication friendly parametric detail that you can re-use.
 
-
-.. figure:: /_static/figures/flow_auto_penetrations.png
-    :alt: Parametric penetration details
-    :align: center
-
-    Create parametric penetration details using code
+<figure markdown="span">
+  ![Parametric penetration details](../_static/figures/flow_auto_penetrations.png)
+  <figcaption>Create parametric penetration details using code</figcaption>
+</figure>

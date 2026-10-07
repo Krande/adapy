@@ -1,25 +1,26 @@
 # syntax=docker/dockerfile:1.7
 #
-# Sphinx docs site for adapy. Build stage runs the ``docs`` pixi env
-# (sphinx + furo + autodoc imports of ``ada``) and the FEA verification
-# report bundle (``fea-doc`` task → ``docs/_static/fea-report/``); runtime
-# stage serves the rendered HTML via nginx-unprivileged on :8080.
+# Zensical docs site for adapy. Build stage runs the ``docs`` pixi env:
+# the FEA verification report bundle (``fea-doc`` task →
+# ``docs/_static/fea-report/``), the executed notebooks
+# (``docs-notebooks``, scripts/docs_notebooks.py) and ``zensical build``
+# (mkdocstrings imports ``ada`` from src/); runtime stage serves ``site/``
+# via nginx-unprivileged on :8080.
 #
-# Triggered by docs/**, verification/**, pixi.toml/lock,
+# Triggered by docs/**, zensical.toml, verification/**, pixi.toml/lock,
 # this Dockerfile, or the workflow itself — see the ``docs`` filter in
 # .forgejo/workflows/build.yaml.
 
 ARG PIXI_VERSION=0.81.0
-# CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the rendered footer can
-# carry the release tag if conf.py ever wants it. Defaults to "dev" for
-# local builds.
+# CI passes --build-arg IMAGE_TAG=sha-XXXXXXX; it labels the image.
+# Defaults to "dev" for local builds.
 ARG IMAGE_TAG=dev
 
 # `docs-env` = the heavy, source-independent base: the headless-browser
 # GUI + wgpu/Vulkan apt closure plus the solved `docs` pixi env. It's
 # split into its own stage so CI can publish it as a reusable base image
 # that Dockerfile.docs-fast FROMs — a source-only docs change then skips
-# this whole stage and just re-runs fea-doc + sphinx. Building the full
+# this whole stage and just re-runs fea-doc + zensical. Building the full
 # image here still produces an identical result (the split is a no-op for
 # the final image).
 FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS docs-env
@@ -52,7 +53,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 WORKDIR /work/adapy
 
 # Solve the docs env first — fat closure (prod + desktop + fem-deps +
-# tests-core + sphinx/furo) dominates the cold build. Cache the layer
+# tests-core + zensical/mkdocstrings) dominates the cold build. Cache the layer
 # across source-only edits by COPYing manifests separately, and
 # persist the conda package cache via a BuildKit mount so the first
 # build after a base bump doesn't re-download ~500 MB of channels
@@ -129,15 +130,16 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
 #     explicit pixel height (set by Interactive3DFigure to match the
 #     poster) propagates down to the mountViewer host without
 #     collapsing through an ``auto``-height intermediate div.
-# autodoc imports ``ada`` at build time, so src/ must be present.
-# verification/ is needed by the fea-doc task that the `docs` pixi
-# task depends on. The .git directory is intentionally NOT copied —
-# every commit appends to it, so `COPY .git/` would invalidate this
-# layer (and every layer below) on every CI run, defeating the
-# per-directory cache granularity. docs/conf.py reads ADA_DOCS_RELEASE
-# / ADA_DOCS_DATE from env first; the workflow runs `git describe`
-# / `git show` in the host checkout (depth: 0 there is mandatory)
-# and passes them as build args wired into ENV below.
+# The notebooks and mkdocstrings import ``ada`` at build time, so src/
+# must be present. verification/ is needed by the fea-doc task that the
+# `docs` pixi task depends on. The .git directory is intentionally NOT
+# copied — every commit appends to it, so `COPY .git/` would invalidate
+# this layer (and every layer below) on every CI run, defeating the
+# per-directory cache granularity. The workflow runs `git describe` /
+# `git show` in the host checkout and passes ADA_DOCS_RELEASE /
+# ADA_DOCS_DATE as build args wired into ENV below (the Sphinx footer
+# used them; the Zensical theme shows the latest GitHub release instead,
+# so nothing renders them at the moment).
 # Source + doc-generation stage on top of the env base. Dockerfile.docs-fast
 # mirrors everything from here down, FROM the published docs-env base.
 FROM docs-env AS builder
@@ -148,19 +150,13 @@ ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
 COPY src/ ./src/
 COPY docs/ ./docs/
 COPY verification/ ./verification/
+COPY zensical.toml ./
+COPY scripts/docs_notebooks.py ./scripts/
 
-# Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/)
-# then sphinx, via the `depends-on` chain in pixi.toml. Cache mounts:
-#
-#   * /root/.cache/rattler — conda packages, in case fea-doc / docs
-#     trigger another solve.
-#   * /work/adapy/docs/_build/doctrees — sphinx incremental compile
-#     cache (the .doctrees pickle tree). Lets sphinx skip
-#     re-rendering unchanged pages on subsequent builds; the rendered
-#     HTML at docs/_build/html/ is NOT a cache mount because the
-#     final ``COPY --from=builder`` needs it baked into the layer.
+# Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/),
+# the notebooks and then zensical into site/, via the `depends-on` chain in
+# pixi.toml. The rattler cache mount covers a solve fea-doc / docs might trigger.
 RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
-    --mount=type=cache,target=/work/adapy/docs/_build/doctrees,sharing=locked \
     pixi run --environment docs docs
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
@@ -173,6 +169,6 @@ LABEL org.opencontainers.image.title="ada-docs" \
 # multi-MB index.html and per-(case, mode) GLBs are wire-compressed.
 COPY deploy/nginx-docs.conf /etc/nginx/conf.d/default.conf
 
-COPY --from=builder /work/adapy/docs/_build/html/ /usr/share/nginx/html/
+COPY --from=builder /work/adapy/site/ /usr/share/nginx/html/
 
 EXPOSE 8080
