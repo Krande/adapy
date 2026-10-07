@@ -855,6 +855,70 @@ def test_a_mechanism_stops_the_solve_by_name(fem_format, require_solver, tmp_pat
     assert err.file.exists() and "mechanism" in err.hint
 
 
+def _clamped_cantilever(force):
+    from ada.fem import Bc, FemSet, Load
+
+    a, p, bm = _ipe300_beam()
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    root = p.fem.add_set(FemSet("root", [n for n in p.fem.nodes if abs(n.x) < 1e-9], FemSet.TYPES.NSET))
+    tip = p.fem.add_set(FemSet("tipn", [n for n in p.fem.nodes if abs(n.x - L) < 1e-9], FemSet.TYPES.NSET))
+    p.fem.add_bc(Bc("fix", root, [1, 2, 3, 4, 5, 6]))
+    step = a.fem.add_step(StepImplicitStatic("s"))
+    step.add_load(Load("F", Load.TYPES.FORCE, force, dof=3, fem_set=tip))
+    step.add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    return a, bm
+
+
+@pytest.mark.parametrize("fem_format", SOLVERS)
+def test_an_existing_result_is_reused_only_when_its_run_finished(fem_format, require_solver, tmp_path):
+    """``to_fem(..., overwrite=False)`` returned an existing result file without looking at the run that wrote it,
+    and a failed run can leave one (Code_Aster's MED file holds what was printed before the command that stopped;
+    CalculiX's .frd its header). Here the clamped cantilever is solved under 1 kN at the tip, then the run's verdict
+    is made a failure by hand -- Code_Aster's ``DIAGNOSTIC JOB`` set to ``<S>_ERROR``, CalculiX's saved output
+    without ``Job finished`` -- and the model asked for again under 2 kN: not to be run, it is refused by name; to be
+    run, it is written and run again (tip ``-2 P L^3 / (3 EI)``), and that result, whose run finished, is reused.
+    A result whose run left no verdict (no .mess, no saved output) is refused as well.
+
+    Measured before the change: the second call returned the 1 kN result, tip -1.27e-3 m, without a word.
+    """
+    require_solver(fem_format)
+    import re
+
+    a1, bm = _clamped_cantilever(-1000.0)
+    ei = bm.material.model.E * bm.section.properties.Iy
+    tol = FRD if fem_format == "calculix" else 1e-9
+
+    def tip_w(res):
+        solved = Solved(fem_format, res)
+        return solved.u(1, solved.node(L))[2] if fem_format == "calculix" else solved.u(None, solved.node(L))[2]
+
+    first = a1.to_fem("reuse", fem_format, scratch_dir=tmp_path, overwrite=True, execute=True, exit_on_complete=False)
+    assert tip_w(first) == pytest.approx(-1000.0 * L**3 / (3 * ei), rel=tol)
+
+    verdict = tmp_path / "reuse" / ("reuse.mess" if fem_format == "code_aster" else "run_log.txt")
+    text = verdict.read_text(encoding="utf-8", errors="replace")
+    if fem_format == "code_aster":
+        failed = re.sub(r"DIAGNOSTIC JOB\s*:\s*\S+", "DIAGNOSTIC JOB : <S>_ERROR", text)
+    else:
+        failed = text.replace("Job finished", "")
+    assert failed != text
+    verdict.write_text(failed, encoding="utf-8")
+
+    a2, _ = _clamped_cantilever(-2000.0)
+    err = _raised(lambda: a2.to_fem("reuse", fem_format, scratch_dir=tmp_path, execute=False))
+    assert type(err).__name__ == "FEASolveFailed", repr(err)
+    assert (err.solver, err.file) == (fem_format, verdict)
+    second = a2.to_fem("reuse", fem_format, scratch_dir=tmp_path, execute=True, exit_on_complete=False)
+    assert tip_w(second) == pytest.approx(-2000.0 * L**3 / (3 * ei), rel=tol)
+    third = a1.to_fem("reuse", fem_format, scratch_dir=tmp_path, execute=False)
+    assert tip_w(third) == pytest.approx(-2000.0 * L**3 / (3 * ei), rel=tol), "the finished run's result, reused"
+
+    verdict.unlink()
+    err = _raised(lambda: a1.to_fem("reuse", fem_format, scratch_dir=tmp_path, execute=False))
+    assert type(err).__name__ == "FEASolveFailed", repr(err)
+    assert err.code == {"code_aster": "NO_MESS", "calculix": "NO_RUN_LOG"}[fem_format]
+
+
 def test_a_calculix_input_error_stops_the_solve_by_name(require_solver, tmp_path):
     """A deck whose load names a node that does not exist (written by hand into adapy's deck): ccx 2.23 prints
     ``*ERROR reading *CLOAD: node 99999 is not defined`` and ``*ERROR in calinput: ... CalculiX stops`` and leaves a

@@ -49,3 +49,27 @@ def execute_fem(
         f.write(out_str)
 
     return out
+
+
+def check_previous_run(name, fem_format, scratch_dir) -> None:
+    """Raise :class:`~ada.fem.exceptions.fea_execution.FEASolveFailed` unless the run that left the result of
+    ``name`` in ``scratch_dir`` says it finished: Code_Aster's verdict in the .mess file (``OK`` or ``<A>_ALARM``),
+    CalculiX's saved output (``Job finished``, no ``*ERROR``). Other formats are not checked.
+
+    A failed run can leave a result file: Code_Aster's MED file holds what was printed before the command that
+    stopped, CalculiX's .frd its header. ``Assembly.to_fem`` with ``overwrite=False`` read such a file back as the
+    answer without looking at the verdict the run was checked by (``check_code_aster_run``, ``check_calculix_run``).
+    """
+    from ada.fem.formats.general import FEATypes
+
+    inp_path = default_fem_inp_path(name, scratch_dir).get(fem_format)
+    if inp_path is None:
+        return
+    if fem_format == FEATypes.CODE_ASTER:
+        from ada.fem.formats.code_aster.execute import check_code_aster_run
+
+        check_code_aster_run(pathlib.Path(inp_path).with_suffix(".mess"))
+    elif fem_format == FEATypes.CALCULIX:
+        from ada.fem.formats.calculix.execute import check_previous_calculix_run
+
+        check_previous_calculix_run(inp_path)

@@ -62,9 +62,30 @@ def check_calculix_run(
     results, which the reader then fails on ("No element information from Calculix"). The captured output is written
     to ``log_path`` and named in the error.
     """
+    text = "".join(s for s in (out.stdout, out.stderr) if s)
+    _check_output(text, out.returncode, pathlib.Path(log_path), spooles_path, write_log=True)
+
+
+def check_previous_calculix_run(inp_path: str | os.PathLike) -> None:
+    """Raise :class:`~ada.fem.exceptions.fea_execution.FEASolveFailed` unless the saved output of the run that made
+    the result next to ``inp_path`` -- ``run_log.txt``, written by every run adapy executes -- says ``Job finished``
+    and holds no ``*ERROR`` line (:func:`check_calculix_run`); code ``NO_RUN_LOG`` when there is no such output, so
+    the run's verdict is unknown. For ``Assembly.to_fem`` before it reuses an existing result."""
     from ada.fem.exceptions.fea_execution import FEASolveFailed
 
-    text = "".join(s for s in (out.stdout, out.stderr) if s)
+    inp_path = pathlib.Path(inp_path)
+    log = inp_path.parent / "run_log.txt"
+    if not log.exists():
+        raise FEASolveFailed(
+            "calculix", "NO_RUN_LOG", log, "no saved output of the run that wrote the result: its verdict is unknown"
+        )
+    text = log.read_text(encoding="utf-8", errors="replace")
+    _check_output(text, 0, log, inp_path.parent / "spooles.out", write_log=False)
+
+
+def _check_output(text: str, returncode: int, log_path: pathlib.Path, spooles_path, write_log: bool) -> None:
+    from ada.fem.exceptions.fea_execution import FEASolveFailed
+
     errors = []
     lines = text.splitlines()
     for i, line in enumerate(lines):
@@ -79,16 +100,16 @@ def check_calculix_run(
         code = m.group(1) or ("reading_" + m.group(2).strip().replace(" ", "_") if m.group(2) else "ERROR")
         errors.append((code, " ".join(s for s in message if s)))
     finished = "Job finished" in text
-    if finished and not errors and out.returncode == 0:
+    if finished and not errors and returncode == 0:
         return
-    log_path = pathlib.Path(log_path)
-    log_path.write_text(text, encoding="utf-8")
+    if write_log:
+        log_path.write_text(text, encoding="utf-8")
     if not errors and spooles_path is not None:
         spooles = pathlib.Path(spooles_path)
         if spooles.exists() and "singular" in spooles.read_text(encoding="utf-8", errors="replace"):
             errors.append(("spooles_singular", f"{spooles.name}: matrix found to be singular"))
     if not errors:
-        errors.append(("no_job_finished", f"no 'Job finished' in the output; exit code {out.returncode}"))
+        errors.append(("no_job_finished", f"no 'Job finished' in the output; exit code {returncode}"))
     codes = list(dict.fromkeys(code for code, _ in errors))
     code, message = errors[0]
     raise FEASolveFailed("calculix", code, log_path, message, KNOWN_MESSAGES.get(code, ""), codes)
