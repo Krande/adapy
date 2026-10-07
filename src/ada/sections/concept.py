@@ -222,7 +222,12 @@ class Section(Root):
         elif self.type == BaseTypes.CIRCULAR:
             sec_str = "{}{:g}".format(self.type.value, s(self.r))
         elif self.type == BaseTypes.ANGULAR:
-            sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
+            if self.t_fbtn == self.t_w and self.w_btn == self.h:
+                sec_str = "L{:g}x{:g}".format(s(self.h), s(self.t_w))
+            elif self.t_fbtn == self.t_w:
+                sec_str = "L{:g}x{:g}x{:g}".format(s(self.h), s(self.w_btn), s(self.t_w))
+            else:  # a bulb flat (HP180x10): its flange is no plate of the web's thickness
+                sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
         elif self.type == BaseTypes.IPROFILE:
             sec_str = self._sec_str
         elif self.type == BaseTypes.TPROFILE:

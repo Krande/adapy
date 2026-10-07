@@ -175,14 +175,14 @@ def test_an_angle_with_its_web_thicker_than_its_flange_is_calculated():
 
 @pytest.mark.parametrize("dims", [(0.1, 0.1, 0.01, 0.1), (0.2, 0.01, 0.01, 0.014)], ids=["no-web", "no-flange"])
 def test_an_angle_without_a_second_leg_is_refused_by_name(dims):
-    """``L100x100x10`` is not adapy's equal-angle string (``L<h>x<t>``): it builds a 100 mm thick
-    L100, a square. Main computed numbers for it; Roark's formula divided by the absent leg's
-    length and raised ZeroDivisionError from inside whatever writer asked for the properties."""
+    """A section with no second leg -- what ``L100x100x10`` was parsed as (a 100 mm thick L100, a
+    square) until the parser learned ``L<h>x<b>x<t>``. Main computed numbers for it; Roark's formula
+    divided by the absent leg's length and raised ZeroDivisionError from inside whatever writer
+    asked for the properties."""
     h, b, tw, tf = dims
     sec = ada.Section("Lbad", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
     with pytest.raises(ValueError, match='"Lbad" is not an angle'):
         calculate_general_properties(sec)
-    assert ada.Section.from_str("L100x100x10").t_w == 0.1  # the string that met it
 
 
 def test_from_fem_reads_a_file_holding_an_angle_with_its_web_thicker_than_its_flange():

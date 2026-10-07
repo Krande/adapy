@@ -405,7 +405,7 @@ def calc_angular(sec: Section) -> GeneralProperties:
         # rectangle, not an angle, and the numbers would be the formula's, not the section's.
         raise ValueError(
             f'Section "{sec.name}" is not an angle: h {hz} must exceed the flange thickness {tz} and the '
-            f'flange width {by} the web thickness {ty} (the equal-angle string is "L<h>x<t>")'
+            f'flange width {by} the web thickness {ty} (angle strings are "L<h>x<t>" and "L<h>x<b>x<t>")'
         )
 
     sfy = 1.0
