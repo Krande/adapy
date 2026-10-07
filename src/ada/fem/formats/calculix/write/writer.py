@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import traceback
 from itertools import groupby
 from operator import attrgetter
 from typing import TYPE_CHECKING
@@ -9,6 +8,7 @@ from ada.api.containers import Nodes
 from ada.config import logger
 from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, FemSection, FemSet
+from ada.fem.exceptions import IncompatibleElements
 from ada.fem.formats.abaqus.write.write_bc import abaqus_bc_type
 from ada.fem.formats.abaqus.write.write_sections import (
     eval_general_properties,
@@ -21,8 +21,8 @@ from ada.fem.steps import StepExplicit
 from ..compatibility import check_compatibility
 from .templates import main_header_str
 from .write_constraints import constraints_str
-from .write_elements import elements_str
-from .write_loads import get_all_grav_loads
+from .write_elements import elements_str, is_u1
+from .write_loads import STAGE, get_all_grav_loads
 from .write_steps import step_str
 
 if TYPE_CHECKING:
@@ -38,6 +38,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
     p = get_fem_model_from_assembly(assembly)
+    # A step anywhere -- the assembly's, or a part's, where the concept load cases' step is -- makes it an analysis.
+    has_steps = len(assembly.fem.steps) > 0 or any(len(sp.fem.steps) > 0 for sp in assembly.get_all_subparts())
+    u1 = frozenset(el.id for el in p.fem.elements.lines if is_u1(el))
 
     # Check if contains gravity load and create a FemSet containing all elements if so
     all_gl = get_all_grav_loads(assembly.fem)
@@ -52,18 +55,20 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")
-        f.write(elements_str(p.fem.elements).strip() + "\n")
-        f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
+        f.write(elements_str(p.fem.elements, report_locking=has_steps).strip() + "\n")
+        if u1:
+            f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
         f.write(elsets_str(p.fem.elsets) + "\n")
         f.write(elsets_str(assembly.fem.elsets) + "\n")
         f.write(nsets_str(p.fem.nsets) + "\n")
         f.write(nsets_str(assembly.fem.nsets) + "\n")
         f.write(solid_sec_str(p) + "\n")
         f.write(shell_sec_str(p) + "\n")
-        f.write(beam_sec_str(p) + "\n")
+        f.write(beam_sec_str(p, report=has_steps) + "\n")
 
         # Assembly Level information
-        f.write("\n".join([material_str(mat) for mat in p.materials]) + "\n")
+        u1_materials = {el.fem_sec.material.name for el in p.fem.elements.lines if el.id in u1}
+        f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in p.materials]) + "\n")
         f.write(constraints_str(p, assembly) + "\n")
         f.write("\n".join([bc_str(x) for x in p.fem.bcs + assembly.fem.bcs]) + "\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
@@ -88,52 +93,101 @@ class CcxSecTypes:
     PIPE = "PIPE"
 
 
-def beam_str(fem_sec: FemSection):
-    top_line = f"** Section: {fem_sec.elset.name}  Profile: {fem_sec.elset.name}"
-    n1 = ", ".join(str(x) for x in fem_sec.local_y)
-    ass = fem_sec.parent.parent.get_assembly()
-    sec_str = get_section_str(fem_sec)
-    rotary_str = ""
-    if len(ass.fem.steps) > 0:
-        initial_step = ass.fem.steps[0]
-        if type(initial_step) is StepExplicit:
-            rotary_str = ", ROTARY INERTIA=ISOTROPIC"
+#: The Timoshenko shear coefficient written on every ``U1`` section: large enough that the element is
+#: Euler-Bernoulli.
+#:
+#: The fifth value of a ``U1`` general section is the shear coefficient (CalculiX 2.23 manual, 6.2.46 and 6.3.3), not
+#: the torsion constant adapy wrote there (Abaqus' ``*BEAM GENERAL SECTION`` layout). On an IPE300 that put kappa =
+#: 2.0e-7 into the shear stiffness and a simply supported 4 m beam under 1 kN at mid-span deflected 11.79 m. A
+#: realistic kappa does not give Timoshenko's answer either: measured on the same beam, U1's shear term is
+#: mesh-dependent and below Euler-Bernoulli on a coarse mesh (kappa = 1, 2 elements: 7.32e-5 m against 7.94e-5 m
+#: Euler-Bernoulli and 8.18e-5 m Timoshenko; 32 elements: 8.15e-5 m). With kappa = 1e8 the deflection is
+#: Euler-Bernoulli's to the 7 digits ccx prints, simply supported and cantilevered, at 8, 64 and 256 elements (1e10
+#: starts to lose digits to conditioning at 256). Code_Aster's POU_D_E, which adapy writes, is Euler-Bernoulli too.
+U1_SHEAR_COEFFICIENT = 1.0e8
 
-    if sec_str == CcxSecTypes.BOX:
+
+def beam_str(fem_sec: FemSection, report: bool = True):
+    """The ``*BEAM SECTION`` of a beam element set: ``SECTION=GENERAL`` on ``U1``, ``BOX`` or ``PIPE`` on ``B32R``.
+
+    A ``U1`` section is ``A, I11, I12, I22, kappa`` and a direction, where -- measured, ccx 2.23, an IPE300 4 m simply
+    supported under 1 kN at mid-span -- the first inertia carries bending *along* the direction given: with
+    ``(0, 1, 0)`` a load along z deflected the beam by ``P L^3 / (48 E I22)`` and a load along y by
+    ``P L^3 / (48 E I11)``, each to 7 digits. adapy wrote ``Iy`` first with the section's local y, so a vertical load
+    met the weak axis. ``Iy`` (bending along local z) is now written first, with local z.
+    """
+    from ada.fem.formats import conversion_report
+
+    from .write_elements import B32R, beam_element_type
+
+    top_line = f"** Section: {fem_sec.elset.name}  Profile: {fem_sec.elset.name}"
+    lines = fem_sec.elset.members
+    el_type = beam_element_type(lines[0].type, fem_sec) if lines else None
+    if el_type == B32R:
         sec = fem_sec.section
-        if sec.t_w * 2 > min(sec.w_top, sec.w_btn):
-            raise ValueError("Web thickness cannot be larger than section width")
-        return f"{top_line}\n{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}\n {n1}"
-    elif sec_str == CcxSecTypes.PIPE:
-        return f"{top_line}\n{fem_sec.section.r}, {fem_sec.section.wt}\n {n1}"
-    elif sec_str == CcxSecTypes.GENERAL:
-        gp = eval_general_properties(fem_sec.section)
-        fem_sec.material.model.plasticity_model = None
-        props = f" {gp.Ax}, {gp.Iy}, {0.0}, {gp.Iz}, {gp.Ix}\n {n1}"
-        return f"""{top_line}
-*Beam Section, elset={fem_sec.elset.name}, material={fem_sec.material.name},  section=GENERAL{rotary_str}
-{props}"""
-    else:
-        raise ValueError(f'Unsupported Section type "{sec_str}"')
+        n1 = ", ".join(str(float(x)) for x in fem_sec.local_y)
+        head = f"*Beam Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}, section="
+        if get_section_str(fem_sec) == CcxSecTypes.BOX:
+            # a along local 1 (y), b along local 2 (z); t1..t4 the walls on +1, +2, -1, -2.
+            if sec.t_w * 2 > min(sec.w_top, sec.w_btn):
+                raise ValueError("Web thickness cannot be larger than section width")
+            data = f"{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}"
+            return f"{top_line}\n{head}BOX\n{data}\n {n1}"
+        return f"{top_line}\n{head}PIPE\n{sec.r}, {sec.wt}\n {n1}"
+
+    gp = eval_general_properties(fem_sec.section)
+    if abs(gp.Iyz) > 1e-9 * (gp.Iy + gp.Iz):
+        raise IncompatibleElements(
+            f"calculix writer: section {fem_sec.section.name!r} ({fem_sec.elset.name}) has a product of inertia "
+            f"Iyz = {gp.Iyz}; a U1 general section takes principal axes only (I12 must be zero, CalculiX 2.23 "
+            f"manual 6.3.3)"
+        )
+    rep = conversion_report.current()
+    i_p = gp.Iy + gp.Iz
+    if report and abs(i_p - gp.Ix) > 1e-6 * i_p:
+        # Measured, ccx 2.23: a 4 m U1 cantilever of an IPE300 under a tip torque of 1 kN m twisted by
+        # T L / (G (Iy + Iz)) = 5.757449e-4 rad, the torsion constant being 2.0e-7 m^4 against Iy + Iz = 8.6e-5 m^4.
+        # Nothing in the section changes it: ccx refuses a Poisson ratio above 0.5, the only other way to G I_p.
+        rep.approximated(
+            STAGE,
+            "*BEAM SECTION",
+            fem_sec.elset.name,
+            "CalculiX's U1 beam takes its torsional stiffness from the polar moment Iy + Iz, not the section's "
+            "torsion constant; the beam is stiffer (or softer) in torsion by the ratio given",
+            section=fem_sec.section.name,
+            torsion_constant=gp.Ix,
+            polar_moment=i_p,
+            ratio=i_p / gp.Ix if gp.Ix else float("inf"),
+        )
+    if report:
+        rep.note(
+            STAGE,
+            "*BEAM SECTION",
+            fem_sec.elset.name,
+            "written as CalculiX U1 beams (Euler-Bernoulli, shear coefficient 1e8); ccx's nodal forces (RF) at U1 nodes "
+            "are the elements' end forces and not reactions -- measured on a simply supported beam, +500 and -500 N for "
+            "two 500 N reactions",
+            section=fem_sec.section.name,
+        )
+    n3 = ", ".join(str(float(x)) for x in fem_sec.local_z)
+    return f"""{top_line}
+*Beam Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}, section=GENERAL
+ {gp.Ax}, {gp.Iy}, 0.0, {gp.Iz}, {U1_SHEAR_COEFFICIENT}
+ {n3}"""
 
 
 def get_section_str(fem_sec: FemSection):
     from ada.sections.categories import BaseTypes
 
-    from .write_elements import must_be_converted_to_general_section
-
     sec_type = fem_sec.section.type
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
 
-    if must_be_converted_to_general_section(sec_type):
-        return CcxSecTypes.GENERAL
-    elif sec_type == BaseTypes.BOX:
+    if sec_type == BaseTypes.BOX:
         return CcxSecTypes.BOX
     elif sec_type == BaseTypes.TUBULAR:
         return CcxSecTypes.PIPE
-    else:
-        raise Exception(f'Section "{sec_type}" is not yet supported by Calculix exporter.\n{traceback.format_exc()}')
+    return CcxSecTypes.GENERAL
 
 
 def nodes_str(fem_nodes: Nodes) -> str:
@@ -206,12 +260,16 @@ def shell_sec_str(part):
     return "\n".join([shell_section_str(so) for so in shells]) if len(shells) > 0 else "** No shell sections"
 
 
-def beam_sec_str(part):
-    beam_secs = [beam_str(sec) for sec in part.fem.sections.lines]
+def beam_sec_str(part, report: bool = True):
+    beam_secs = [beam_str(sec, report) for sec in part.fem.sections.lines]
     return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
 
 
-def material_str(material):
+def material_str(material, elastic_only: bool = False):
+    """A ``*MATERIAL`` card. ``elastic_only`` for a material of U1 beams: U1 is linear elastic (CalculiX 2.23 manual
+    6.2.46) and a ``*PLASTIC`` card on it stops ccx -- measured, "*ERROR in resultsmech_u1: no anisotropic material".
+    The plasticity is then left out of the card, which every element of that material shares, and reported; the writer
+    used to set the model's own plasticity model to None for that, without a word."""
     if "aba_inp" in material.metadata.keys():
         return material.metadata["aba_inp"]
     if "rayleigh_damping" in material.metadata.keys():
@@ -223,7 +281,16 @@ def material_str(material):
     compr_str = "\n*No Compression" if no_compression is True else ""
 
     pl_str = ""
-    if material.model.plasticity_model is not None:
+    if elastic_only and material.model.plasticity_model is not None:
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().approximated(
+            STAGE,
+            "*PLASTIC",
+            material.name,
+            "the material of U1 beams, which are linear elastic in CalculiX; written elastic, for every element of it",
+        )
+    elif material.model.plasticity_model is not None:
         pl_model = material.model.plasticity_model
         if pl_model.eps_p is not None and len(pl_model.eps_p) != 0:
             pl_str = "\n*Plastic\n"

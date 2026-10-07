@@ -122,7 +122,8 @@ def is_eig_skip(
             return True
         if fem_format == FEA.SESAM:
             return True
-    if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE:
+    # CalculiX writes a two-node beam of a general section as U1 (a three-node one has no CalculiX element).
+    if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE and elem_order == 2:
         return True
     if fem_format == FEA.CODE_ASTER and geom_repr == GeomRepr.LINE and elem_order == 2:
         return True
@@ -148,7 +149,9 @@ def is_static_skip(
     fem_format = FEA.from_str(fem_format) if isinstance(fem_format, str) else fem_format
     geom_repr = GeomRepr.from_str(geom_repr) if isinstance(geom_repr, str) else geom_repr
 
-    if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE:
+    # CalculiX writes a two-node beam of a general section as U1, which is linear and small-deformation only (manual
+    # 6.2.46); a three-node one has no CalculiX element.
+    if fem_format == FEA.CALCULIX and geom_repr == GeomRepr.LINE and (nl_geom is True or elem_order == 2):
         return True
     if fem_format == FEA.CODE_ASTER:
         if geom_repr == GeomRepr.LINE and (nl_geom is True or elem_order == 2):
