@@ -11,7 +11,7 @@ from ada.config import logger
 
 from ..utils import LocalExecute, get_exe_path
 
-#: Executable names of the conda-forge ``opencourant`` package (linux-64, gfortran build).
+#: Executable names in the ``opencourant`` conda package (linux-64, gfortran build).
 STARTER_EXE = "starter_linux64_gf"
 ENGINE_EXE = "engine_linux64_gf"
 
