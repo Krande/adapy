@@ -603,7 +603,8 @@ def calc_channel(sec: Section) -> GeneralProperties:
     Sharz = (Iy / Sy) * ty * sfz
 
     if tz == ty:
-        q = ((by - ty / 2) ** 2) * ((hz - tz) ** 2) * tz / 4 * Iy
+        # web centreline to shear centre, b'^2 h'^2 tf / (4 Iy)
+        q = ((by - ty / 2) ** 2) * ((hz - tz) ** 2) * tz / (4 * Iy)
     else:
         q = ((by - ty / 2) ** 2) * tz / (2 * (by - ty / 2) * tz + (hz - tz) * ty / 3)
 

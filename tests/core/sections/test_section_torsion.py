@@ -246,3 +246,24 @@ def test_channel_torsional_modulus_is_ix_over_the_thickest_wall(tw, tf):
     sec = ada.Section("C", sec_type="UNP", h=0.2, w_btn=0.08, w_top=0.08, t_w=tw, t_fbtn=tf, t_ftop=tf)
     p = calculate_general_properties(sec)
     assert np.isclose(p.Wxmin, p.Ix / max(tw, tf), rtol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "h, b, t, fe",
+    [(0.2, 0.08, 0.008, -4.32435e-02), (0.3, 0.09, 0.01, -4.25060e-02)],
+)
+def test_channel_shear_centre_against_thin_walled_closed_form_and_warping_fe(h, b, t, fe):
+    """Thin-walled channel, web and flanges of thickness t: shear centre e = 3 b'^2 / (6 b' + h')
+    outside the web's centreline (b' = b - t/2, h' = h - t); SHCENY is that point minus the
+    centroid. 200x80x8: e = 2.6741e-2, SHCENY -4.3485e-2; adapy (and GeniE), with the exact Iy in
+    b'^2 h'^2 t / (4 Iy), -4.3433e-2; warping FE (sectionproperties) -4.3244e-2. Measured
+    spread among the three 0.56 %, hence 1 %. Main wrote -1.6744e-2, the centroid-to-web
+    distance alone: the bracket in t / 4 * Iy made the e term 1e-11 m."""
+    sec = ada.Section("C", sec_type="UNP", h=h, w_btn=b, w_top=b, t_w=t, t_fbtn=t, t_ftop=t)
+    bp, hp = b - t / 2, h - t
+    web, flange = t * (h - 2 * t), b * t
+    cy = (web * t / 2 + 2 * flange * b / 2) / (web + 2 * flange)
+    thin = t / 2 - 3 * bp**2 / (6 * bp + hp) - cy
+    p = calculate_general_properties(sec)
+    assert np.isclose(p.Shceny, thin, rtol=0.01)
+    assert np.isclose(p.Shceny, fe, rtol=0.01)
