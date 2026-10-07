@@ -173,6 +173,18 @@ def test_an_angle_with_its_web_thicker_than_its_flange_is_calculated():
     assert calculate_general_properties(sec).Ix > 0
 
 
+@pytest.mark.parametrize("dims", [(0.1, 0.1, 0.01, 0.1), (0.2, 0.01, 0.01, 0.014)], ids=["no-web", "no-flange"])
+def test_an_angle_without_a_second_leg_is_refused_by_name(dims):
+    """``L100x100x10`` is not adapy's equal-angle string (``L<h>x<t>``): it builds a 100 mm thick
+    L100, a square. Main computed numbers for it; Roark's formula divided by the absent leg's
+    length and raised ZeroDivisionError from inside whatever writer asked for the properties."""
+    h, b, tw, tf = dims
+    sec = ada.Section("Lbad", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    with pytest.raises(ValueError, match='"Lbad" is not an angle'):
+        calculate_general_properties(sec)
+    assert ada.Section.from_str("L100x100x10").t_w == 0.1  # the string that met it
+
+
 def test_from_fem_reads_a_file_holding_an_angle_with_its_web_thicker_than_its_flange():
     """The Sesam reader recomputes every angle's properties (for Cy/Cz), so the ValueError above
     used to lose the whole model. ``ada.from_fem`` of GeniE's file now returns it, T02_ANGTW (GLSEC

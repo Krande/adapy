@@ -367,6 +367,13 @@ def calc_angular(sec: Section) -> GeneralProperties:
     ty = sec.t_w
     tz = sec.t_fbtn
     by = sec.w_btn
+    if hz <= tz or by <= ty:
+        # Roark's formula divides by the shorter leg's free length; with none the section is a
+        # rectangle, not an angle, and the numbers would be the formula's, not the section's.
+        raise ValueError(
+            f'Section "{sec.name}" is not an angle: h {hz} must exceed the flange thickness {tz} and the '
+            f'flange width {by} the web thickness {ty} (the equal-angle string is "L<h>x<t>")'
+        )
 
     sfy = 1.0
     sfz = 1.0
