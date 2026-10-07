@@ -185,6 +185,12 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
     return reader
 
 
+def _make_radanim_reader(path: pathlib.Path) -> "FEAStreamReader":
+    from ada.fem.formats.opencourant.results.container import make_radanim_stream_reader
+
+    return make_radanim_stream_reader(path)
+
+
 def _ensure_builtin_stream_readers() -> None:
     if getattr(_ensure_builtin_stream_readers, "_done", False):
         return
@@ -192,6 +198,9 @@ def _ensure_builtin_stream_readers() -> None:
     _STREAM_READERS.setdefault(".rmed", _make_rmed_reader)
     _STREAM_READERS.setdefault(".sif", _make_sif_reader)
     _STREAM_READERS.setdefault(".sin", _make_sin_reader)
+    # OpenCourant explicit runs: a zip of the raw animation states (see
+    # ada.fem.formats.opencourant.results.container).
+    _STREAM_READERS.setdefault(".radanim", _make_radanim_reader)
     # Design-model FEM meshes flow through the same streaming bake (mesh + beam-solids, no
     # result fields) so FE-mesh visualisation has a single path. (.rmed keeps its native
     # results streamer above; plain .med is a mesh-only deck read via from_fem.)

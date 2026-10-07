@@ -603,6 +603,7 @@ SOURCE_FORMAT_NAMES: dict[str, str] = {
     ".zip": "Bundle (zip)",
     ".sif": "Sesam Result (sif)",
     ".sin": "Sesam Result (sin, Norsam binary)",
+    ".radanim": "OpenCourant Result (animation states)",
 }
 
 
