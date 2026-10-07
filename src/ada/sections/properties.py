@@ -134,7 +134,8 @@ def calc_box(sec: Section) -> GeneralProperties:
     ha = sec.h - (sec.t_fbtn + sec.t_ftop) / 2.0
     hb = sec.w_top - sec.t_w
 
-    Ix = 4 * (ha * hb) ** 2 / (hb / tb + hb / ty + 2 * ha / ty)
+    # Bredt, each wall at its own thickness: 4 Am^2 / (closed integral of ds / t), Am = ha hb
+    Ix = 4 * (ha * hb) ** 2 / (hb / tb + hb / tt + 2 * ha / ty)
     Iy = (by * (tb**3 + tt**3) + 2 * ty * d**3) / 12 + e * (h - a) ** 2 + f * (c - h) ** 2 + 2 * g * (b - h) ** 2
 
     Iz = ((sec.t_fbtn + sec.t_ftop) * sec.w_top**3 + 2 * d * sec.t_w**3) / 12 + (g * hb**2) / 2
