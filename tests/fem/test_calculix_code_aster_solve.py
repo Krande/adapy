@@ -623,3 +623,68 @@ def test_an_edge_load_reacts_as_its_resultant_on_first_and_second_order_shells(
         assert abs(force[2] - total) <= tol_f
         assert abs(moment[1] + total * x_c) <= tol_m
         assert abs(moment[0]) <= tol_m, "the load acts along y = 0"
+
+
+# --- torsion ------------------------------------------------------------------------------------------------------
+
+
+def _independent_torsion_constant(section: str) -> float:
+    """The St Venant torsion constant from a closed form of its own, not adapy's section properties: Bredt's
+    ``4 A_m^2 / sum(s / t)`` for the thin-walled box (wall mid-lines 0.29 x 0.19 m, all walls 10 mm), the exact
+    ``pi (D^4 - d^4) / 32`` for the tube, and for the IPE300 its catalogue value, ``It = 20.12 cm^4`` (ArcelorMittal;
+    the open thin-walled ``sum(b t^3) / 3`` without the root fillets gives 15.6 cm^4)."""
+    if section == "BG300x200x10x10":
+        a_m, s_over_t = 0.29 * 0.19, 2 * (0.29 + 0.19) / 0.01
+        return 4 * a_m**2 / s_over_t
+    if section == "OD300x10":
+        return np.pi * (0.3**4 - 0.28**4) / 32
+    return 20.12e-8
+
+
+@pytest.mark.parametrize("fem_format", SOLVERS)
+@pytest.mark.parametrize("section", ["IPE300", "BG300x200x10x10", "OD300x10"])
+def test_a_tip_torque_twists_by_t_l_over_g_j(fem_format, section, require_solver, tmp_path):
+    """A 4 m cantilever in 0.5 m two-node beams under a tip torque of 1 kN m: Code_Aster's POU_D_E twists by
+    ``T L / (G J)`` with ``J`` the section's torsion constant as written (``JX``), to 1e-9 -- IPE300 0.24460430930
+    rad, box 3.9149127591e-4, tube 2.5823438730e-4.
+
+    The reference for ``J``: adapy's ``Ix`` is what the writers carry, and it is checked here against a closed form of
+    its own (:func:`_independent_torsion_constant`): Bredt's exactly for this box (all walls equal -- with unequal
+    walls ``calc_box`` divides the top flange's width by the web's thickness), the tube's exactly, and the IPE300's
+    catalogue 20.12 cm^4 to 0.7 % (adapy 20.25 cm^4, its fillets modelled otherwise).
+
+    CalculiX's U1 beam cannot carry ``J``: it twists by ``T L / (G (Iy + Iz))`` (manual 6.2.46; measured 5.75745e-4
+    rad for the IPE300, 425 times too stiff; 2.68218e-4 for the box, 1.46 times), which is right only for the tube.
+    The writer names the torsion constant ``omitted`` for the IPE and the box, and says nothing for the tube.
+    """
+    from ada.fem.concept.loads import LoadConceptCase as Case
+    from ada.fem.formats import conversion_report
+
+    require_solver(fem_format)
+    torque = 1000.0
+    with conversion_report.collect() as report:
+        bm = ada.Beam("bm", (0, 0, 0), (L, 0, 0), section, ada.Material("S355", CarbonSteel("S355")))
+        p = ada.Part("beam") / bm
+        a = ada.Assembly("tor") / p
+        p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("fix", (0, 0, 0), Dof.encastre()))
+        p.concept_fem.loads.add_load_case(Case("LC_T", [LoadConceptPoint("T", (L, 0, 0), (0, 0, 0), (torque, 0, 0))]))
+        p.fem = p.to_fem_obj(0.5, bm_repr="line")
+        solved = _solve(a, "tor", fem_format, tmp_path)
+    props, mat = bm.section.properties, bm.material.model
+    g = mat.E / (2 * (1 + mat.v))
+    j_closed = _independent_torsion_constant(section)
+    assert props.Ix == pytest.approx(j_closed, rel=1e-12 if section != "IPE300" else 7e-3)
+    twist = solved.u(1, solved.node(L))[3]
+    omitted = [f for f in report.of_kind("omitted") if f.keyword == "*BEAM SECTION"]
+    if fem_format == "code_aster":
+        assert twist == pytest.approx(torque * L / (g * props.Ix), rel=1e-9)
+        assert not omitted
+    else:
+        assert twist == pytest.approx(torque * L / (g * (props.Iy + props.Iz)), rel=FRD)
+        if section == "OD300x10":
+            assert twist == pytest.approx(torque * L / (g * j_closed), rel=FRD)
+            assert not omitted
+        else:
+            (finding,) = omitted
+            assert finding.details["torsion_constant"] == props.Ix
+            assert "torsion constant" in finding.reason

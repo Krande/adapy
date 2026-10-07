@@ -213,6 +213,20 @@ def beam_str(fem_sec: FemSection, report: bool = True):
             if sec.t_w * 2 > min(sec.w_top, sec.w_btn):
                 raise ValueError("Web thickness cannot be larger than section width")
             data = f"{sec.w_top}, {sec.h}, {sec.t_w}, {sec.t_ftop}, {sec.t_w}, {sec.t_fbtn}"
+            # The BOX card has no torsion constant: ccx expands the beam into C3D20R bricks and the box's torsion is
+            # theirs. Measured, ccx 2.23, a 4 m cantilever of a 300 x 200 x 10 box in eight B32R elements under 1 kN m:
+            # tip twist 2.98e-4 rad (mean over the expanded section's nodes; 2.95e-4 to 3.00e-4) against
+            # T L / (G J) = 3.915e-4 with Bredt's J = 1.265e-4 m^4 -- 24 % stiffer. (A 300 x 10 tube, PIPE: 2.59e-4
+            # against 2.582e-4, within the spread of its nodes.)
+            conversion_report.current().approximated(
+                STAGE,
+                "*BEAM SECTION",
+                fem_sec.elset.name,
+                "a BOX section on B32R takes its torsional stiffness from the expanded C3D20R bricks, not the "
+                "section's torsion constant; measured on a 300 x 200 x 10 box, 24 % stiffer in torsion than G J",
+                section=sec.name,
+                torsion_constant=fem_sec.section.properties.Ix,
+            )
             return f"{top_line}\n{head}BOX\n{data}\n {n1}"
         return f"{top_line}\n{head}PIPE\n{sec.r}, {sec.wt}\n {n1}"
 
@@ -224,22 +238,7 @@ def beam_str(fem_sec: FemSection, report: bool = True):
             f"manual 6.3.3)"
         )
     rep = conversion_report.current()
-    i_p = gp.Iy + gp.Iz
-    if report and abs(i_p - gp.Ix) > 1e-6 * i_p:
-        # Measured, ccx 2.23: a 4 m U1 cantilever of an IPE300 under a tip torque of 1 kN m twisted by
-        # T L / (G (Iy + Iz)) = 5.757449e-4 rad, the torsion constant being 2.0e-7 m^4 against Iy + Iz = 8.6e-5 m^4.
-        # Nothing in the section changes it: ccx refuses a Poisson ratio above 0.5, the only other way to G I_p.
-        rep.approximated(
-            STAGE,
-            "*BEAM SECTION",
-            fem_sec.elset.name,
-            "CalculiX's U1 beam takes its torsional stiffness from the polar moment Iy + Iz, not the section's "
-            "torsion constant; the beam is stiffer (or softer) in torsion by the ratio given",
-            section=fem_sec.section.name,
-            torsion_constant=gp.Ix,
-            polar_moment=i_p,
-            ratio=i_p / gp.Ix if gp.Ix else float("inf"),
-        )
+    report_u1_torsion(fem_sec, gp)
     if report:
         rep.note(
             STAGE,
@@ -255,6 +254,42 @@ def beam_str(fem_sec: FemSection, report: bool = True):
 *Beam Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}, section=GENERAL
  {gp.Ax}, {gp.Iy}, 0.0, {gp.Iz}, {U1_SHEAR_COEFFICIENT}
  {n3}"""
+
+
+def report_u1_torsion(fem_sec: FemSection, gp) -> None:
+    """Name a U1 section whose torsion constant is not its polar moment ``Iy + Iz``: the deck cannot carry it.
+
+    CalculiX's general section is ``A, I11, I12, I22, kappa`` (2.23 manual 6.3.3) -- no torsion constant -- and the U1
+    element takes its torsional stiffness from the polar moment: "the 2nd order moment I_T, which is used in the
+    torsional stiffness, is ... assumed to be identical to the polar 2nd order moment I_p. This, however, restricts the
+    application of this element to beams with circular cross-sections" (6.2.46). Measured, ccx 2.23, a 4 m cantilever
+    in eight U1 elements under a tip torque of 1 kN m: IPE300 5.75745e-4 rad = ``T L / (G (Iy + Iz))`` against
+    ``T L / (G J)`` = 0.2446 rad (J = 2.025e-7 m^4, 425 times stiffer); a 300 x 200 x 10 box 2.68218e-4 rad against
+    3.9149e-4 (J = 1.265e-4 m^4, Bredt; 1.46 times stiffer); a 300 x 10 tube 2.58234e-4 rad = ``T L / (G J)``, its
+    ``J = Iy + Iz``. No other value written changes it: scaling the inertias and the material to restore ``G J`` needs a
+    Poisson ratio of ``(1 + nu) (Iy + Iz) / J - 1`` (551 for the IPE, 0.9 for the box), and ccx takes none above 0.5.
+
+    The section's torsion constant is ``omitted`` from the deck -- not an approximation: what is written in its place
+    is a different stiffness, wrong by the ratio given -- and reported whether or not the deck has a step. It used to be
+    an ``approximated`` finding written only with a step, so ``ada convert`` said nothing.
+    """
+    from ada.fem.formats import conversion_report
+
+    i_p = gp.Iy + gp.Iz
+    if abs(i_p - gp.Ix) <= 1e-6 * i_p:
+        return
+    conversion_report.current().omitted(
+        STAGE,
+        "*BEAM SECTION",
+        fem_sec.elset.name,
+        "the section's torsion constant: CalculiX's U1 beam has no field for it and takes its torsional stiffness from "
+        "the polar moment Iy + Iz (2.23 manual 6.2.46), so the beam is stiffer (or softer) in torsion by the ratio "
+        "given",
+        section=fem_sec.section.name,
+        torsion_constant=gp.Ix,
+        polar_moment=i_p,
+        ratio=i_p / gp.Ix if gp.Ix else float("inf"),
+    )
 
 
 def get_section_str(fem_sec: FemSection):

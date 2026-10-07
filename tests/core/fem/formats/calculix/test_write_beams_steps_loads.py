@@ -57,7 +57,7 @@ def test_a_two_node_beam_is_a_u1_general_section_with_its_shear_coefficient_and_
     assert (a_, i1, i12, i2) == pytest.approx((props.Ax, props.Iy, 0.0, props.Iz))
     assert kappa == U1_SHEAR_COEFFICIENT == 1e8, "U1's fifth value is its shear coefficient"
     assert [float(v) for v in direction.split(",")] == pytest.approx([0.0, 0.0, 1.0]), "Iy bends along local z"
-    torsion = [f for f in report.findings if f.keyword == "*BEAM SECTION" and f.kind == "approximated"]
+    torsion = [f for f in report.findings if f.keyword == "*BEAM SECTION" and f.kind == "omitted"]
     assert torsion and torsion[0].details["ratio"] == pytest.approx((props.Iy + props.Iz) / props.Ix)
 
 
@@ -169,3 +169,25 @@ def test_a_prescribed_displacement_on_a_u1_beam_is_held_at_zero_and_named(tmp_pa
     (found,) = [f for f in report.of_kind("omitted") if f.keyword == "*BOUNDARY"]
     assert found.subject == "tip_LC_s" and "U1 beam" in found.reason
     assert not re.search(r"^ tip_set, 3, 3, ", inp, re.M)
+
+
+@pytest.mark.parametrize("section, named", [("IPE300", True), ("BG300x200x10x10", True), ("OD300x10", False)])
+def test_a_u1_section_whose_torsion_constant_is_not_its_polar_moment_is_named_in_any_deck(tmp_path, section, named):
+    """U1 takes its torsional stiffness from ``Iy + Iz`` and its card has no torsion constant (CalculiX 2.23 manual
+    6.2.46, 6.3.3), so a section whose ``J`` differs is named ``omitted`` -- also in a deck with no step, which
+    ``ada convert`` writes and which used to say nothing (the finding was an ``approximated`` one, with a step only).
+    A tube's ``J`` is its polar moment, and nothing is said."""
+    bm = ada.Beam("bm", (0, 0, 0), (L, 0, 0), section, ada.Material("S355", CarbonSteel("S355")))
+    p = ada.Part("beam") / bm
+    a = ada.Assembly("ss") / p
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    inp, report = _deck(a, tmp_path)
+    assert "*Step" not in inp
+    found = [f for f in report.of_kind("omitted") if f.keyword == "*BEAM SECTION"]
+    if not named:
+        assert not found
+        return
+    (finding,) = found
+    props = bm.section.properties
+    assert finding.details["torsion_constant"] == props.Ix
+    assert finding.details["polar_moment"] == pytest.approx(props.Iy + props.Iz, rel=1e-15)
