@@ -126,6 +126,13 @@ Because each field blob is step-major with a fixed header, one step is one HTTP 
 request. Colour ranges come pre-computed from the manifest, so the legend stays fixed while
 scrubbing through steps.
 
+A `transient` result (a time history, for example an OpenCourant `.radanim`) opens on its last
+frame. The step slider becomes a timeline, and Play steps through it at true time scale
+(`utils/scene/fea/timeHistory.ts`). Step loads run one at a time, and the latest request wins.
+Any result can be exported as a video (`utils/scene/fea/animationExport/`): MP4 through
+WebCodecs and mediabunny, or GIF through gifenc. You choose resolution, aspect, frame rate, and
+whether to include the legend and orientation gizmo. The encoders load only when used.
+
 ## In-browser conversion
 
 Without a worker (or for local files), `pyodide_converter.ts` lazily starts

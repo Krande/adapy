@@ -50,12 +50,13 @@ WRITE_FORMATS: dict[str, tuple[str, ...]] = {
     "sesam": ("fem",),
     "usfos": ("fem",),
     "code_aster": ("med",),
+    "opencourant": ("rad",),
 }
 
 #: The FEM formats, i.e. the ones that go through ``Assembly.to_fem`` / ``ada.from_fem``
 #: rather than a direct writer. Pinned against the library's own maps by the contract test.
 FEM_READ_FORMATS: tuple[str, ...] = ("abaqus", "sesam", "code_aster")
-FEM_WRITE_FORMATS: tuple[str, ...] = ("abaqus", "calculix", "code_aster", "sesam", "usfos")
+FEM_WRITE_FORMATS: tuple[str, ...] = ("abaqus", "calculix", "code_aster", "sesam", "usfos", "opencourant")
 
 #: The file each FEM writer leaves in ``<scratch>/<name>/`` that *is* the deck. Everything
 #: else a writer produces is a sidecar and is moved next to the output the user named.
@@ -66,6 +67,7 @@ FEM_WRITE_PRIMARY: dict[str, str] = {
     "sesam": "{name}T{seltyp}.FEM",
     "usfos": "ufo_bulk.fem",
     "code_aster": "{name}.med",
+    "opencourant": "{name}_0000.rad",
 }
 
 
@@ -113,6 +115,7 @@ DEFAULT_WRITE_BY_EXT: dict[str, str] = {
     "inp": "abaqus",
     "fem": "sesam",
     "med": "code_aster",
+    "rad": "opencourant",
 }
 
 

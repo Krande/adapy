@@ -13,6 +13,7 @@ def postprocess(res_path: str | pathlib.Path, fem_format: FEATypes = None) -> FE
     from ada.fem.formats.calculix.config import CalculixSetup
     from ada.fem.formats.code_aster.config import CodeAsterSetup
     from ada.fem.formats.general import FEATypes
+    from ada.fem.formats.opencourant.config import OpenCourantSetup
     from ada.fem.formats.sesam.config import SesamSetup
     from ada.fem.formats.utils import interpret_fem_format_from_path
 
@@ -30,5 +31,7 @@ def postprocess(res_path: str | pathlib.Path, fem_format: FEATypes = None) -> FE
         return CalculixSetup.default_post_processor(res_path)
     elif fem_format == FEATypes.CODE_ASTER:
         return CodeAsterSetup.default_post_processor(res_path)
+    elif fem_format == FEATypes.OPENCOURANT:
+        return OpenCourantSetup.default_post_processor(res_path)
     else:
         raise NotImplementedError(f"Postprocessing for {fem_format} is not implemented.")

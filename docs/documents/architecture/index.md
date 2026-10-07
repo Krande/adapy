@@ -83,7 +83,7 @@ flowchart LR
     click BROWSER href "frontend.html" "React + three.js viewer"
     click CLI href "../cli.html" "ada convert · view · build · files · audit · serve"
     click PY href "../notebooks/design/parts_and_assemblies.html" "Start here: parts and assemblies"
-    click SOLVERS href "../fea/fea_software.html" "Code_Aster · CalculiX · Abaqus · Sesam"
+    click SOLVERS href "../fea/fea_software.html" "Code_Aster · CalculiX · OpenCourant · Abaqus · Sesam"
 ```
 
 Inside the library, `factories.py` (`from_ifc`, `from_step`, `from_fem`, `from_fem_res`, …)
@@ -134,7 +134,7 @@ flowchart LR
         CAD["CAD / BIM files<br/>IFC · STEP · SAT · Genie XML · DEXPI"]
         CODE["Python code"]
         DECK["FE decks<br/>.inp · .fem · .med"]
-        RES["FE results<br/>.rmed · .frd · .SIN · .SIF · .odb"]
+        RES["FE results<br/>.rmed · .frd · .SIN · .SIF · .odb · .radanim"]
     end
 
     subgraph mem["In memory"]

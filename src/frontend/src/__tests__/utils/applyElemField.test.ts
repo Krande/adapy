@@ -349,3 +349,37 @@ test("beam element fields color a line fallback without beam solids", () => {
   });
   assert.equal(mesh.getObjectByName("__fea_result_line_segments__"), undefined);
 });
+
+test("a one-component element field under the bake's 'scalar' reduction is painted, not zeroed", () => {
+  // Readers without presentation metadata (OpenCourant's von Mises, plastic
+  // strain, ...) bake default_view.reduction = "scalar", which is not a
+  // component name. It used to fall through to 0, painting every element at the
+  // bottom of the scale.
+  const field = makeField();
+  field.support = "element_average";
+  field.name_canonical = "Von_Mises";
+  field.components = ["Von_Mises"];
+  field.scalar_range = { Von_Mises: [0, 2] };
+  field.per_type![0].n_ips = 1;
+  field.per_type![0].element_labels = [7, 8];
+  field.per_type![0].n_elements = 2;
+  field.default_view = { reduction: "scalar", colormap: "viridis" };
+  const mesh = makeSharedMesh();
+  applyElemFieldToMesh({
+    mesh,
+    basePositions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]),
+    colorField: field,
+    perTypeStepValues: [new Float32Array([0.2, 1.8])],
+    layer: "all",
+    ipReduction: "max_abs",
+    reduction: "scalar",
+    colormap: "viridis",
+  });
+
+  const colors = mesh.geometry.getAttribute("color").array as Float32Array;
+  // element E7 (low) and E8 (high) get different colours, neither the neutral grey
+  const e7 = Array.from(colors.slice(0, 3));
+  const e8 = Array.from(colors.slice(9, 12));
+  assert.notDeepEqual(e7, e8);
+  assert.notDeepEqual(e7, [0.5, 0.5, 0.5]);
+});

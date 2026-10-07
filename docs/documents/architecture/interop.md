@@ -114,7 +114,7 @@ sequenceDiagram
 ## Finite element formats
 
 `ada/fem/formats/general.py` is the dispatcher. `FEATypes` enumerates `CODE_ASTER`,
-`CALCULIX`, `ABAQUS`, `SESAM`, `USFOS`, `GMSH` and `XDMF`. Each solver package has a
+`CALCULIX`, `ABAQUS`, `SESAM`, `USFOS`, `OPENCOURANT`, `GMSH` and `XDMF`. Each solver package has a
 `config.py` with a `FrameworkConfig` subclass naming its pre-processor (deck writer),
 executor and post-processor (results reader):
 
@@ -125,6 +125,7 @@ executor and post-processor (results reader):
 | Code_Aster | `code_aster/` | `read_fem` (`.med`) | `to_fem_code_aster` | `run_code_aster` | `read_rmed_file` |
 | Sesam | `sesam/` | `read_fem` (`.fem`) | `to_fem_sesam` | `run_sesam` | `read_sin_file` (`.SIN`; `.SIF` via `read_sif_file`) |
 | Usfos | `usfos/` | — | `to_fem_usfos` | — | — |
+| OpenCourant (explicit) | `opencourant/` | — | `to_fem` (`<name>_0000.rad` starter + `_0001.rad` engine) | `run_opencourant` (starter, then engine) | `read_opencourant_results` (`.radanim`) |
 
 Also present: `mesh_io/` (meshio bridge: `meshio_read_fem`, `meshio_to_fem`, selected with
 `FemConverters.MESHIO`), `vtu/`, `xdmf/` and `ifc/` (`to_ifc_fem`: line and shell elements into an IFC file).

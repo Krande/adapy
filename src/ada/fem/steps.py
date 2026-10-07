@@ -282,8 +282,39 @@ class StepImplicitDynamic(StepImplicitStatic):
 
 
 class StepExplicit(Step):
-    def __init__(self, name, **kwargs):
-        super(StepExplicit, self).__init__(name, Step.TYPES.EXPLICIT, **kwargs)
+    """Explicit dynamic step.
+
+    :param total_time: End time of the step.
+    :param output_interval: Time between field-output frames (animation states). ``None`` lets
+        the writer pick a default (about 50 frames over ``total_time``).
+    :param target_dt: Target stable time step for selective mass scaling. ``None`` disables
+        mass scaling, so the solver runs at the element-governed stable time step.
+    """
+
+    def __init__(
+        self,
+        name,
+        total_time: float = None,
+        output_interval: float = None,
+        target_dt: float = None,
+        nl_geom=False,
+        solver_options: StepSolverOptions = StepSolverOptions(),
+        use_default_outputs=True,
+        metadata=None,
+        parent: "FEM" = None,
+    ):
+        super(StepExplicit, self).__init__(
+            name,
+            Step.TYPES.EXPLICIT,
+            nl_geom=nl_geom,
+            total_time=total_time,
+            solver_options=solver_options,
+            use_default_outputs=use_default_outputs,
+            metadata=metadata,
+            parent=parent,
+        )
+        self.output_interval = output_interval
+        self.target_dt = target_dt
 
 
 class StepEigen(Step):

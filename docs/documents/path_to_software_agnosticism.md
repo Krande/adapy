@@ -92,6 +92,7 @@ flowchart LR
         D_CA["Code_Aster .med + .comm"]
         D_SES["Sesam .FEM"]
         D_USF["Usfos .fem"]
+        D_OC["OpenCourant .rad<br/>starter + engine"]
     end
 
     subgraph solvers["Solvers"]
@@ -100,6 +101,7 @@ flowchart LR
         S_CCX[["CalculiX"]]
         S_CA[["Code_Aster"]]
         S_SES[["Sesam / Sestra"]]
+        S_OC[["OpenCourant<br/>explicit dynamics"]]
     end
 
     subgraph results["Results"]
@@ -108,6 +110,7 @@ flowchart LR
         R_FRD[".frd"]
         R_RMED[".rmed"]
         R_SIN[".SIN / .SIF"]
+        R_ANIM[".radanim<br/>time history"]
     end
 
     RES(["FEAResult<br/>mesh + fields"])
@@ -123,15 +126,16 @@ flowchart LR
     D_CA -- "from_fem" --> FEM
     D_SES -- "from_fem" --> FEM
 
-    FEM -- "to_fem" --> D_ABA & D_CCX & D_CA & D_SES & D_USF
+    FEM -- "to_fem" --> D_ABA & D_CCX & D_CA & D_SES & D_USF & D_OC
     D_ABA --> S_ABA --> R_ODB
     D_CCX --> S_CCX --> R_FRD
     D_CA --> S_CA --> R_RMED
     D_SES --> S_SES --> R_SIN
+    D_OC --> S_OC --> R_ANIM
 
-    R_ODB & R_FRD & R_RMED & R_SIN -- "from_fem_res" --> RES
+    R_ODB & R_FRD & R_RMED & R_SIN & R_ANIM -- "from_fem_res" --> RES
     RES -- "show" --> P_SHOW
-    R_RMED & R_SIN -- "streaming bake" --> P_ART
+    R_RMED & R_SIN & R_ANIM -- "streaming bake" --> P_ART
 
     click GMSH href "architecture/fea.html#meshing-a-design-model" "Meshing a design model"
     click FEM href "architecture/fea.html#the-fe-model-adafem" "The FE model"
@@ -140,15 +144,17 @@ flowchart LR
     click D_CA href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/code_aster" "Code_Aster read/write/execute/results"
     click D_SES href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/sesam" "Sesam read/write/execute/results"
     click D_USF href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/usfos" "Usfos writer"
+    click D_OC href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/opencourant" "OpenCourant write/execute/results"
     click S_CA href "fea/fea_software.html" "Installing the solvers"
     click S_CCX href "fea/fea_software.html" "Installing the solvers"
+    click S_OC href "fea/fea_software.html#opencourant" "OpenCourant: explicit dynamics"
     click RES href "architecture/fea.html#results-adafemresults" "FEAResult"
     click P_ART href "architecture/fea.html#viewer-bake" "The streaming viewer bake"
 ```
 
 The FE model can also be filled from an existing deck (`ada.from_fem`), so one solver's
-deck becomes another's: read an Abaqus `.inp`, write a Sesam `.FEM`. Code_Aster and
-CalculiX are open source and install with pixi (see [FEA Software](fea/fea_software.md)).
+deck becomes another's: read an Abaqus `.inp`, write a Sesam `.FEM`. Code_Aster, CalculiX
+and OpenCourant (explicit dynamics) are open source (see [FEA Software](fea/fea_software.md)).
 Abaqus and Sesam need their own licences.
 
 ## One fluent operation
@@ -208,7 +214,8 @@ sequenceDiagram
 | Code_Aster | `.med`, `.rmed` | ✓ | ✓ | `from_fem` / `to_fem(…, "code_aster")` | `code_aster` |
 | Sesam | `.FEM`, `.SIF` | ✓ | ✓ | `from_fem` / `to_fem(…, "sesam")` | `sesam` |
 | Usfos | `.fem` | | ✓ | `to_fem(…, "usfos")` | `usfos` |
-| FE results | `.rmed`, `.frd`, `.SIN`, `.SIF`, `.odb` | ✓ | | `from_fem_res`, then `.show()` | — |
+| OpenCourant | `.rad` | | ✓ | `to_fem(…, "opencourant")` | `opencourant` |
+| FE results | `.rmed`, `.frd`, `.SIN`, `.SIF`, `.odb`, `.radanim` | ✓ | | `from_fem_res`, then `.show()` | — |
 
 The same conversions are available from the command line, without writing any Python:
 `ada convert model.ifc model.FEM` (see [Command line interface](cli.md)).

@@ -48,11 +48,14 @@ that file's own actions.
 ## FE results
 
 Result files open in the streaming FE viewer: a Code_Aster `.rmed` here, and Sesam
-`.SIN`/`.SIF` and FE meshes the same way. Pick the **field**, the **component** and the
-**step** (for an eigenvalue analysis, the mode and its frequency), scale the deformation, or
-let the mode oscillate. Each step is fetched on its own, so a result with hundreds of steps
-opens as fast as one with a single step. [FEA → Viewer bake](architecture/fea.md#viewer-bake)
-explains how.
+`.SIN`/`.SIF`, OpenCourant `.radanim` and FE meshes the same way. Pick the **field**, the
+**component** and the **step** (for an eigenvalue analysis, the mode and its frequency), scale
+the deformation, or let the mode oscillate. A time history, such as an
+[OpenCourant](fea/fea_software.md#opencourant) explicit run, opens on its last frame, and the
+step slider becomes a timeline that **Play** steps through at true time scale. Either kind can
+be exported as an MP4 or GIF animation. Each step is fetched on its own, so a result with
+hundreds of steps opens as fast as one with a single step.
+[FEA → Viewer bake](architecture/fea.md#viewer-bake) explains how.
 
 ![Eigenmodes of a Code_Aster result](../screenshots/ada-studio/fea-modes.png)
 

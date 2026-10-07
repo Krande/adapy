@@ -73,6 +73,7 @@ extensions, and `--from` / `--to` override that inference.
 | `sesam` | `.fem` | Default owner of `.fem`. Writes `sestra.inp` beside the deck when the model carries an analysis step. |
 | `usfos` | `.fem` | Shares `.fem` with Sesam, so it is reachable only as `--to usfos`. |
 | `code_aster` | `.med` | The output is the `.med` mesh; the `.comm` command file and two `.json` maps land beside it. |
+| `opencourant` | `.rad` | OpenCourant (OpenRadioss) starter deck `<name>_0000.rad`. The engine deck `<name>_0001.rad` is written beside it when the model carries an explicit step. Shell models only for now. |
 
 Two extensions name more than one FEM format — `.inp` is both Abaqus and
 Calculix, `.fem` is both Sesam and USFOS — so each has exactly one default

@@ -26,7 +26,7 @@ flowchart TB
         BAKE["artefact bake<br/>FEAStreamReader → bake_artefacts"]
     end
     DECKIN[(".inp / .fem / .med")]
-    RESF[(".rmed / .frd / .SIN / .SIF / .odb")]
+    RESF[(".rmed / .frd / .SIN / .SIF / .odb / .radanim")]
     VIEW(["viewer · GLB · VTU"])
 
     PART --> GMSH --> FEM
@@ -303,9 +303,10 @@ flowchart TB
     REG -- ".rmed" --> R1["RmedStreamReader"]
     REG -- ".sif" --> R2["SifStreamReader<br/>(adapter if ADA_FEA_SIF_STREAMER=0)"]
     REG -- ".sin" --> R3["FEAResultStreamAdapter(read_sin_file)<br/>SinStreamReader for steps= or ADA_FEA_SIN_STREAMER=1"]
+    REG -- ".radanim" --> R6["make_radanim_stream_reader<br/>OpenCourant time history (transient)"]
     REG -- ".inp .fem .med" --> R4["_make_fem_reader<br/>from_fem → concatenate_fem_meshes<br/>(mesh only, plus property fields)"]
     REG -- "register_stream_reader()" --> R5["plugins (e.g. .odb)"]
-    R1 & R2 & R3 & R4 & R5 --> P["FEAStreamReader protocol<br/>read_mesh_geometry · field_specs · iter_field_steps<br/>element_field_specs · iter_element_field_steps<br/>try_solid_beams · try_history_records"]
+    R1 & R2 & R3 & R4 & R5 & R6 --> P["FEAStreamReader protocol<br/>read_mesh_geometry · field_specs · iter_field_steps<br/>element_field_specs · iter_element_field_steps<br/>try_solid_beams · try_history_records"]
     P --> B["bake.bake_artefacts()"]
     B --> M["fea.mesh.glb<br/>+ edges · line_edges · elements"]
     B --> F["fea.FIELD.bin (nodal, AFBL)<br/>fea.FIELD.ETYPE.elements.bin (AFEL)<br/>step-major float32"]

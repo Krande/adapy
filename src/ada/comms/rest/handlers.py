@@ -85,6 +85,7 @@ _CONVERTABLE_AS_IFC: frozenset[str] = frozenset(
         ".sif",
         ".sin",
         ".rmed",
+        ".radanim",
     }
 )
 
