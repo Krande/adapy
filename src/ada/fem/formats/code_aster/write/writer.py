@@ -23,7 +23,7 @@ from .write_loads import add_line_load_groups
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str
-from .write_steps import create_step_str
+from .write_steps import all_steps, steps_str
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
@@ -47,7 +47,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
     # A line load is written over mesh groups of its own (Code_Aster names a group, never an element or node);
     # they exist for this deck only and are taken off the model again once it is written.
-    line_load_groups = add_line_load_groups(assembly.fem.steps, p.fem)
+    line_load_groups = add_line_load_groups(all_steps(assembly), p.fem)
     try:
         # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
         # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
@@ -98,7 +98,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     if assembly != part:
         bcs += [bc for bc in assembly.fem.bcs if not any(bc is b for b in bcs)]
     bc_str = "\n".join([create_bc_str(bc) for bc in bcs] + [create_coupling_str(con) for con in couplings])
-    step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
+    steps = all_steps(assembly)
+    step_str = steps_str(steps, part)
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
 

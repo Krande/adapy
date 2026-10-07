@@ -154,6 +154,10 @@ class MedReader:
                     t = data[key].attrs["PDT"]  # current time
                     time_steps.append(float(t))
                     names[i] = name + f"[{i:d}] - {t:g}"
+                if len(set(time_steps)) < len(time_steps):
+                    # MACRO_ELAS_MULT's load cases all carry PDT = 999.999 (measured, Code_Aster 18.1.8) and are
+                    # told apart by their order number NDT, one per case in the order given.
+                    time_steps = [int(data[key].attrs["NDT"]) for key in time_step]
 
             if name == "modes___DEPL":
                 self.is_eigen_analysis = True

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from ada.fem import Load, LoadLine, LoadPressure
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
 
@@ -16,29 +18,69 @@ if TYPE_CHECKING:
 def write_load(load: Load) -> str:
     load_str_map = {
         Load.TYPES.GRAVITY: gravity_load_str,
-        Load.TYPES.ACC: acc_load_str,
+        Load.TYPES.ACC: gravity_load_str,
         Load.TYPES.PRESSURE: pressure_load_str,
         Load.TYPES.LINE: line_load_str,
+        Load.TYPES.FORCE: point_load_str,
     }
 
     load_str_writer = load_str_map.get(load.type, None)
 
     if load_str_writer is None:
-        raise NotImplementedError(f'Load type "{load.type}"')
+        raise UnsupportedLoadType(f'code_aster writer: load {load.name!r} of type "{load.type}" has no Code_Aster form')
 
+    if getattr(load, "amplitude", None) is not None:
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().omitted(
+            STAGE, "Load", load.name, "an amplitude; this writer applies the load in full"
+        )
     return load_str_writer(load)
 
 
 def gravity_load_str(load: Load) -> str:
+    """A gravity or acceleration field as ``PESANTEUR``: the magnitude and the direction of the load's acceleration.
+
+    The direction used to be ``(0, 0, 1)`` whatever the load said, so an acceleration along x or y -- a concept
+    acceleration field becomes ``|a|`` along a unit ``dof`` -- was applied along z.
+    """
+    from ada.fem.loads import acceleration_vector
+
+    acc = np.asarray(acceleration_vector(load), dtype=float)
+    magnitude = float(np.linalg.norm(acc))
+    if magnitude == 0.0:
+        raise UnsupportedLoadType(f"code_aster writer: gravity load {load.name!r} has no acceleration")
+    direction = ", ".join(repr(float(d)) for d in acc / magnitude)
+    group = ""
+    if load.fem_set is not None:
+        group = f", GROUP_MA='{load.fem_set.name}'"
     return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
-    MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE={load.magnitude})
+    MODELE=model, PESANTEUR=_F(DIRECTION=({direction}), GRAVITE={magnitude!r}{group})
 )"""
 
 
-def acc_load_str(load: Load) -> str:
-    acc_dir_str = f"({','.join(load.acc_vector)})"
+#: Code_Aster's FORCE_NODALE components, dof 1 to 6.
+_NODAL_COMPONENTS = ("FX", "FY", "FZ", "MX", "MY", "MZ")
+
+
+def point_load_str(load: Load) -> str:
+    """A point load as ``FORCE_NODALE`` on its node group, global components, moments as ``MX``/``MY``/``MZ``.
+
+    The writer raised on every point load (``NotImplementedError: Load type "force"``). ``FORCE_NODALE`` takes a node
+    group (U4.44.01); a load given in a local system is written in global components (``Load.forces_global``).
+    """
+    from ada.fem import FemSet
+
+    fem_set = load.fem_set
+    if fem_set is None or fem_set.type != FemSet.TYPES.NSET:
+        raise UnsupportedLoadType(f"code_aster writer: point load {load.name!r} is not on a node set")
+    forces = load.forces_global
+    comps = ", ".join(f"{c}={float(f)!r}" for c, f in zip(_NODAL_COMPONENTS, forces) if f not in (None, 0, 0.0))
+    if not comps:
+        raise UnsupportedLoadType(f"code_aster writer: point load {load.name!r} has no non-zero component")
     return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
-    MODELE=model, PESANTEUR=_F(DIRECTION={acc_dir_str}, GRAVITE={load.magnitude})
+    MODELE=model,
+    FORCE_NODALE=_F(GROUP_NO='{fem_set.name}', {comps}),
 )"""
 
 
@@ -141,16 +183,22 @@ def pressure_load_str(load: LoadPressure) -> str:
 STAGE = "code_aster writer"
 
 
+def _is_beam(elem) -> bool:
+    from ada.fem.shapes.definitions import LineShapes
+
+    return elem.type == LineShapes.LINE
+
+
 def _line_load_groups(load: LoadLine):
     """The mesh groups a line load is written over: ``(elsets, nsets)``.
 
     ``elsets`` are ``(name, elements, q)``, one per distinct intensity of the beam segments that load an element
-    uniformly from end to end, for ``FORCE_POUTRE``; ``nsets`` are ``(name, nodes, force)``, one per distinct summed
-    nodal force of the other segments (:meth:`LoadLine.summed_nodal_loads`), for ``FORCE_NODALE``. Code_Aster names
-    a group, never an element or node (``FORCE_NODALE`` takes ``GROUP_NO`` only, U4.44.01), so each distinct value
-    needs one. The names are a hash of the load's name and a counter: deterministic, so the writer that adds the
-    groups to the mesh and the one that writes the ``.comm`` agree, and at most 24 characters, so the name map
-    (:mod:`.name_map`) leaves them alone.
+    uniformly from end to end, for ``FORCE_POUTRE``; ``nsets`` are ``(name, nodes, load)``, one per distinct summed
+    six-component nodal load of the other segments (:meth:`LoadLine.summed_beam_nodal_loads`: forces and moments on a
+    two-node beam, forces on a shell edge), for ``FORCE_NODALE``. Code_Aster names a group, never an element or node
+    (``FORCE_NODALE`` takes ``GROUP_NO`` only, U4.44.01), so each distinct value needs one. The names are a hash of the
+    load's name and a counter: deterministic, so the writer that adds the groups to the mesh and the one that writes
+    the ``.comm`` agree, and at most 24 characters, so the name map (:mod:`.name_map`) leaves them alone.
     """
     prefix = "L" + hashlib.sha1(load.name.encode("utf-8")).hexdigest()[:8]
     by_q: dict[tuple, list] = {}
@@ -161,7 +209,7 @@ def _line_load_groups(load: LoadLine):
         else:
             rest.append(seg)
     by_f: dict[tuple, list] = {}
-    for node, f in LoadLine.summed_nodal_loads(rest):
+    for node, f in LoadLine.summed_beam_nodal_loads(rest, _is_beam):
         by_f.setdefault(tuple(float(x) for x in f), []).append(node)
     elsets = [(f"{prefix}_e{i}", els, q) for i, (q, els) in enumerate(by_q.items(), start=1)]
     nsets = [(f"{prefix}_n{i}", nodes, f) for i, (f, nodes) in enumerate(by_f.items(), start=1)]
@@ -190,16 +238,15 @@ def add_line_load_groups(steps: list[Step], fem: FEM) -> list[FemSet]:
 
 
 def line_load_str(load: LoadLine) -> str:
-    """A distributed line load as one ``AFFE_CHAR_MECA``: ``FORCE_POUTRE`` where it is exact, nodal forces elsewhere.
+    """A distributed line load as one ``AFFE_CHAR_MECA``: ``FORCE_POUTRE`` where it is exact, nodal loads elsewhere.
 
     ``FORCE_POUTRE`` with ``FX``/``FY``/``FZ`` is a force per unit length in global components on ``POU_D_E``
     beams (U4.44.01, v14), constant over the group: exact for a beam element loaded uniformly end to end. A varying
-    or partial stretch and a shell edge load are written as ``FORCE_NODALE``, the consistent nodal forces of the
-    linear element (:meth:`LoadLine.nodal_loads`) -- the conversion the Abaqus writer uses for the same segments.
-    ``FORCE_ARETE``, Code_Aster's shell edge load, acts on segment cells along the edge, which an adapy shell mesh
-    does not have. The nodal forces are exact in the resultant and its moment, but on a ``POU_D_E`` (Euler-Bernoulli)
-    element the consistent load also has end moments, which they leave out; reported as a note. Code_Aster was not
-    available to solve the deck; what is tested is the text, against the load's resultant.
+    or partial stretch on a beam is written as ``FORCE_NODALE`` with the consistent nodal forces *and moments* of the
+    Euler-Bernoulli element (:meth:`LoadLine.hermite_nodal_loads`), which is what ``POU_D_E`` is, so its nodal
+    displacements are the exact ones; a shell edge load as the consistent nodal forces of the linear edge
+    (:meth:`LoadLine.nodal_loads`) -- ``FORCE_ARETE``, Code_Aster's shell edge load, acts on segment cells along the
+    edge, which an adapy shell mesh does not have -- exact in the resultant and its moment, reported as a note.
 
     One ``AFFE_CHAR_MECA`` for the whole load because the static step's ``EXCIT`` names a load by its name.
     """
@@ -211,16 +258,18 @@ def line_load_str(load: LoadLine) -> str:
         rows = "\n".join(f"        _F(GROUP_MA='{n}', FX={q[0]!r}, FY={q[1]!r}, FZ={q[2]!r})," for n, _, q in elsets)
         blocks.append(f"    FORCE_POUTRE=(\n{rows}\n    ),")
     if nsets:
-        rows = "\n".join(f"        _F(GROUP_NO='{n}', FX={f[0]!r}, FY={f[1]!r}, FZ={f[2]!r})," for n, _, f in nsets)
-        blocks.append(f"    FORCE_NODALE=(\n{rows}\n    ),")
-        conversion_report.current().note(
-            STAGE,
-            "LoadLine",
-            load.name,
-            "a varying or partial beam line load, or a shell edge load, is written as the consistent nodal forces of "
-            "the linear elements it acts on (FORCE_NODALE): FORCE_POUTRE is constant per element and FORCE_ARETE "
-            "needs edge cells the mesh does not have; on a POU_D_E element the end moments of the consistent load "
-            "are left out",
-            n_nodes=sum(len(nodes) for _, nodes, _ in nsets),
-        )
+        rows = []
+        for n, _, f in nsets:
+            comps = ", ".join(f"{c}={v!r}" for c, v in zip(_NODAL_COMPONENTS, f) if v != 0.0 or c == "FX")
+            rows.append(f"        _F(GROUP_NO='{n}', {comps}),")
+        blocks.append("    FORCE_NODALE=(\n{0}\n    ),".format("\n".join(rows)))
+        if any(seg.edge is not None or not _is_beam(seg.elem) for seg in load.segments):
+            conversion_report.current().note(
+                STAGE,
+                "LoadLine",
+                load.name,
+                "a shell edge load is written as the consistent nodal forces of the linear edges it acts on "
+                "(FORCE_NODALE): FORCE_ARETE needs edge cells the mesh does not have",
+                n_nodes=sum(len(nodes) for _, nodes, _ in nsets),
+            )
     return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n{1}\n)".format(concept_name(load, "load"), "\n".join(blocks))

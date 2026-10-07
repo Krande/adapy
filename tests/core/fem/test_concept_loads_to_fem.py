@@ -454,10 +454,10 @@ def test_the_steps_of_several_meshed_parts_reach_the_writer_which_names_what_it_
     assert unwritten.details == {"n_loads": 1, "n_bcs": 0}
 
 
-@pytest.mark.parametrize("fmt", ["code_aster", "usfos"])
+@pytest.mark.parametrize("fmt", ["usfos"])
 def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(tmp_path, fmt):
-    """Code_Aster writes the assembly's steps, Usfos none: the step a part's concept load cases became (on the part's
-    FEM) and its loads were left out of a one-part model without a word. (Calculix writes it now --
+    """Usfos writes no step: the step a part's concept load cases became (on the part's FEM) and its loads were left
+    out of a one-part model without a word. (Calculix and Code_Aster write it now --
     ``test_calculix_and_code_aster_write_the_part_step``.)"""
     from ada.fem.concept.constraints import ConstraintConceptPoint
     from ada.fem.concept.loads import LoadConceptLine
@@ -472,7 +472,7 @@ def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(t
     assert (lost.kind, lost.stage, lost.details) == ("omitted", f"{fmt} writer", {"part": "p", "n_loads": 1})
 
 
-@pytest.mark.parametrize("fmt", ["calculix"])
+@pytest.mark.parametrize("fmt", ["calculix", "code_aster"])
 def test_calculix_and_code_aster_write_the_part_step(tmp_path, fmt):
     """The step a part's concept load cases became is written, its load case with it, and no step is reported left
     out. Both writers wrote the assembly's steps only (Calculix its first only), so a meshed GeniE model's loads never

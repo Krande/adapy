@@ -229,7 +229,7 @@ def test_code_aster_writes_a_line_load_summing_to_the_load(meshed, case, tmp_pat
     assert {el.id for el, _ in beam} == whole
     assert (len(nodal) > 0) == (len(whole) < len(load.segments))
     notes = [f for f in report.findings if f.keyword == "LoadLine"]
-    if nodal:
+    if case == "LC_edge":  # a shell edge: forces of the linear edge, said so; a beam's nodal loads are Hermite's, exact
         (note,) = notes
         assert (note.kind, note.stage, note.subject) == ("note", "code_aster writer", load.name)
     else:
@@ -249,7 +249,7 @@ def test_code_aster_writes_each_kind_where_it_is_exact(meshed, tmp_path):
         body = comm.split(f"{concept} = AFFE_CHAR_MECA(")[1].split("\n)\n")[0]
         assert {k for k in ("FORCE_POUTRE", "FORCE_NODALE") if k in body} == kinds
         # the step loads the concept the load was written as
-        assert "EXCIT=(" in comm and f"_F(CHARGE={concept})" in comm
+        assert "EXCIT=(" in comm and f"_F(CHARGE={concept})," in comm
 
 
 def test_code_aster_takes_its_line_load_groups_off_the_model_again(meshed, tmp_path):

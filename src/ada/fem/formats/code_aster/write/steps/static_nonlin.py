@@ -39,10 +39,9 @@ class StatNonLin:
 
         return "".join(f"_F(CHARGE={name})," for name in charges)
 
-    def get_load_str(self):
-        # Every load of the step, each on the step's ramp: with the first alone the others were defined in the
-        # deck and never applied.
-        return ",".join(f"_F(CHARGE={concept_name(load, 'load')}, FONC_MULT=bc_step)" for load in self.loads)
+    def loads_str(self):
+        # Every load of the step; only the first used to be applied.
+        return "".join(f"_F(CHARGE={concept_name(ld, 'load')}, FONC_MULT=bc_step)," for ld in self.loads)
 
     def write(self):
         return f"""{self.name} = STAT_NON_LINE(
@@ -50,7 +49,7 @@ class StatNonLin:
     CHAM_MATER=material,{self.sec_str}
     COMPORTEMENT=(_F(DEFORMATION="PETIT", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=({self.get_bc_str()}{self.get_load_str()}),
+    EXCIT=({self.get_bc_str()}{self.loads_str()}),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )"""
@@ -83,7 +82,7 @@ class PostCalc:
 
         return (
             post_calc_str
-            + """
+            + f"""
 
 stress = POST_CHAMP(
     EXTR_COQUE=_F(
@@ -91,7 +90,7 @@ stress = POST_CHAMP(
         NOM_CHAM=('SIGM_ELNO', ),
         NUME_COUCHE=1
     ),
-    RESULTAT=result
+    RESULTAT={self.stat_non_line.name}
 )
 
 stress = CALC_CHAMP(
@@ -105,7 +104,7 @@ strain = POST_CHAMP(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSI_ELNO', ),
     NUME_COUCHE=1),
-    RESULTAT=result
+    RESULTAT={self.stat_non_line.name}
 )
 
 strainP = POST_CHAMP(
@@ -113,7 +112,7 @@ strainP = POST_CHAMP(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSP_ELNO', ),
     NUME_COUCHE=1),
-    RESULTAT=result
+    RESULTAT={self.stat_non_line.name}
 )"""
         )
 
@@ -168,14 +167,15 @@ class ImprResu:
 )"""
 
 
-def step_static_nonlin_str(step: StepImplicitStatic, part: Part) -> str:
+def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "result", applied=()) -> str:
     from ada.fem.exceptions.model_definition import NoLoadsApplied
 
-    load_str = "\n".join(list(map(write_load, step.loads)))
-    if len(step.loads) == 0:
+    loads = list(applied) + [ld for ld in step.loads if all(ld is not c for c in applied)]
+    load_str = "\n".join(list(map(write_load, loads)))
+    if len(loads) == 0:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
-    stat_non_line = StatNonLin("result", part, step.loads)
+    stat_non_line = StatNonLin(result, part, loads)
     stat_non_line_str = stat_non_line.write()
     post_calc = PostCalc(stat_non_line, part)
     post_calc_str = post_calc.write()

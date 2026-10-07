@@ -7,9 +7,23 @@ if TYPE_CHECKING:
 
 
 def create_bc_str(bc: Bc) -> str:
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.abaqus.write.write_bc import is_settlement
     from ada.fem.utils import is_parent_of_node_solid
 
     from .names import concept_name
+    from .write_loads import STAGE
+
+    if is_settlement(bc):
+        # DDL_IMPO below holds every dof at 0: a prescribed displacement belongs to a load case, which this writer
+        # does not lay out for supports.
+        conversion_report.current().omitted(
+            STAGE,
+            "DDL_IMPO",
+            bc.name,
+            "a prescribed displacement; its dofs are written held at zero and the values are not written",
+            values=", ".join(f"{d}={m}" for d, m in zip(bc.dofs, bc.magnitudes or ()) if m not in (None, 0, 0.0)),
+        )
 
     set_name = bc.fem_set.name
     is_solid = False

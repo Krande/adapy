@@ -29,9 +29,9 @@ _BINDING = re.compile(r"^([A-Za-z_]\w*)[ \t]*=[ \t]*[A-Za-z_]*[(\[]", re.M)
 #: A concept an operator creates: ``NUME_DDL=CO('dofs_eig')``.
 _CO = re.compile(r"\bCO\(\s*['\"](\w+)['\"]\s*\)")
 #: Python variables whose string value the writer binds in the file (``{output_mesh} = CREA_MAILLAGE``,
-#: ``{elset} = (...)``) -- assigned, given as a parameter's default or passed by keyword -- and the
+#: ``{elset} = (...)``, ``{result} = MECA_STATIQUE``) -- assigned, given as a parameter's default or passed by keyword -- and the
 #: result name of a non-linear step (``StatNonLin("result", ...)``).
-_NAME_VARIABLES = {"output_mesh", "input_mesh", "elset"}
+_NAME_VARIABLES = {"output_mesh", "input_mesh", "elset", "result"}
 
 
 def _identifier(node) -> str | None:

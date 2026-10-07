@@ -21,6 +21,7 @@ SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/static"
 @pytest.mark.parametrize("elem_order", [1, 2])
 @pytest.mark.parametrize("nl_geom", [True, False])
 def test_fem_static(
+    require_solver,
     fem_format,
     geom_repr,
     elem_order,
@@ -35,6 +36,7 @@ def test_fem_static(
     if geom_repr == "line" and use_hex_quad is True:
         return None
 
+    require_solver(fem_format)
     a = design_cantilever()
     # Static cantilever doesn't exercise reduced_integration in the
     # current test matrix; pass False to keep mesh_cantilever happy.
