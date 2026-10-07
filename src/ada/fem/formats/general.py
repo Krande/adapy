@@ -205,6 +205,7 @@ def write_to_fem(
             from ada.fem.concat import concatenate_fem_to_single_part
 
             merged_part = concatenate_fem_to_single_part(assembly)
+            _report_part_steps_not_merged(fem_parts, fem_format)
             write_assembly = Assembly(assembly.name, units=assembly.units)
             write_assembly.add_part(merged_part)
             write_assembly.fem.steps = assembly.fem.steps  # carry analysis steps for the writer
@@ -221,3 +222,21 @@ def write_to_fem(
     if out is None and res_path is None:
         logger.info("No Result file is created")
         return None
+
+
+def _report_part_steps_not_merged(fem_parts, fem_format) -> None:
+    """The merge into one part carries the assembly's steps only: a part FEM's step -- the step its concept load
+    cases became in ``Part.to_fem_obj`` -- and its loads do not reach the writer."""
+    from ada.fem.formats import conversion_report
+
+    for p in fem_parts:
+        for step in p.fem.steps:
+            conversion_report.current().omitted(
+                f"{fem_format.value} writer",
+                "Step",
+                step.name,
+                "a step of one of several meshed parts; merging the parts into one keeps the assembly's steps only, "
+                "so this step and its loads are not written",
+                part=p.name,
+                n_loads=len(step.loads),
+            )

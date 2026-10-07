@@ -390,6 +390,9 @@ def test_a_point_on_a_plate_gets_a_node_in_a_triangle_mesh(tmp_path, point):
     assert STAGE not in {f.stage for f in report.findings}
     areas = [np.linalg.norm(_shell_normal([np.asarray(n.p) for n in el.nodes])) for el in fem.elements]
     assert min(areas) > 1e-4
+    from ada.fem.conformality import check_conformal_mesh
+
+    assert check_conformal_mesh(fem) == []
 
 
 def test_a_point_on_a_plate_in_a_quad_mesh_is_said_to_have_no_node(tmp_path):
@@ -424,3 +427,25 @@ def test_a_front_pressure_pushes_into_the_plates_normal_side_whatever_the_elemen
     deck, _ = _write(a, p, tmp_path)
     normal_z = float(np.sign(pl.poly.normal[2]))
     assert resultants(deck)["LC"][0] == (0.0, 0.0, normal_z * fz)
+
+
+def test_the_steps_of_several_meshed_parts_lost_in_the_merge_are_named(tmp_path):
+    """A single-part writer gets the parts merged into one, which keeps the assembly's steps only: each part's
+    concept-load step and its loads would be gone without a word."""
+    from ada.fem.concept.loads import LoadConceptCase, LoadConceptPoint
+
+    parts = []
+    for i in (1, 2):
+        bm = ada.Beam(f"bm{i}", (0, 3 * i, 0), (4, 3 * i, 0), "IPE300")
+        p = ada.Part(f"p{i}") / bm
+        p.concept_fem.loads.add_load_case(
+            LoadConceptCase(f"LC{i}", [LoadConceptPoint("P", (2, 3 * i, 0), (0, 0, -1), (0, 0, 0))])
+        )
+        parts.append(p)
+    a = ada.Assembly("two") / parts
+    for p in parts:
+        p.fem = p.to_fem_obj(0.5, "line")
+    with conversion_report.collect() as report:
+        a.to_fem("two", "sesam", scratch_dir=tmp_path, overwrite=True)
+    lost = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
+    assert [f.kind for f in lost] == ["omitted"] and lost[0].count == 2
