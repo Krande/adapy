@@ -136,11 +136,11 @@ def test_angular():
 
     assertions = [
         ("Ax", 0.00229375),
-        ("Ix", 1.4329e-07),
+        ("Ix", 1.159557642e-07),  # Roark L-section (main: sum b t^3 / 3 = 1.4329e-7)
         ("Iy", 7.363586836e-06),
         ("Iz", 1.5937759e-07),
         ("Iyz", -5.432998978e-07),
-        # ("Wxmin", 5.870944237e-06),
+        ("Wxmin", 5.870944237e-06),  # Ix / d, d the circle inscribed in the corner
         ("Wymin", 6.865967864e-05),  # Iy / (h - z) at the centroid z (main: 3.7284e-4)
         ("Wzmin", 6.075468764e-06),
         ("Shary", 0.0004631933599),

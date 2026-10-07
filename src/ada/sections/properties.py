@@ -329,7 +329,16 @@ def calc_angular(sec: Section) -> GeneralProperties:
     rk = ri + 0.5 * ty
     rl = z - c
 
-    Ix = (1 / 3) * (by * tz**3 + (hz - tz) * ty**3)
+    # Roark's torsion constant of an L-section, as GeniE writes it: the thicker leg (length la,
+    # thickness ta) runs through the corner, the other (lc, tc) ends at it, plus the corner term
+    # alpha d^4 with d the diameter of the circle inscribed in the corner
+    if tz >= ty:
+        la, ta, lc, tc = by, tz, hz - tz, ty
+    else:
+        la, ta, lc, tc = hz, ty, by - ty, tz
+    k1 = la * ta**3 * (1 / 3 - 0.21 * (ta / la) * (1 - ta**4 / (12 * la**4)))
+    k2 = lc * tc**3 * (1 / 3 - 0.105 * (tc / lc) * (1 - tc**4 / (192 * lc**4)))
+    Ix = k1 + k2 + (tc / ta) * (0.07 + 0.076 * r / ta) * d**4
     Iyz = (rl * tz / 2) * (y**2 - rj**2) - (rk * ty / 2) * (e**2 - f**2)
 
     Wxmin = Ix / d

@@ -196,3 +196,25 @@ def test_angle_shear_centre_is_the_leg_intersection(h, b, tw, tf):
     assert np.isclose(p.Shceny, tw / 2 - cy, rtol=1e-12)
     assert np.isclose(p.Shcenz, tf / 2 - cz, rtol=1e-12)
     assert np.isclose(p.Wymin, p.Iy / max(cz, h - cz), rtol=1e-12)
+
+
+# h, b, tw, tf -> J of the solid L from a warping-function FE solution (sectionproperties 3.10.2,
+# triangles of area t_min^2 / 64; t_min^2 / 16 differs by < 1e-3)
+ANGLE_FE_J = {
+    (0.2, 0.1, 0.01, 0.014): 1.47027e-07,
+    (0.15, 0.15, 0.012, 0.012): 1.63081e-07,
+    (0.06, 0.3, 0.005, 0.04): 5.86358e-06,
+    (0.2, 0.1, 0.014, 0.01): 2.05156e-07,
+    (0.1, 0.2, 0.016, 0.008): 1.55296e-07,
+    (0.1, 0.1, 0.01, 0.01): 6.19792e-08,
+}
+
+
+@pytest.mark.parametrize("dims", list(ANGLE_FE_J), ids=[f"L{h}x{b}x{tw}x{tf}" for h, b, tw, tf in ANGLE_FE_J])
+def test_angle_torsion_constant_against_warping_fe(dims):
+    """Roark's L-section formula is within 0.93 % of the FE J for these six angles (largest:
+    60x300x5x40); 1 % is that measured spread. Main's sum of b t^3 / 3 was +0.96 % to +9.2 %
+    off (+4.4 % for L200x100x10x14)."""
+    h, b, tw, tf = dims
+    sec = ada.Section("L", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    assert np.isclose(calculate_general_properties(sec).Ix, ANGLE_FE_J[dims], rtol=0.01)
