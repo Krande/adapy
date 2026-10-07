@@ -79,7 +79,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
             <label className="flex items-center justify-between gap-2">
                 <span>Colours</span>
                 <select
-                    className="min-w-0 flex-1 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)]"
+                    className="min-w-0 flex-1 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)] [&_option]:bg-[Canvas] [&_option]:text-[CanvasText]"
                     value={colormap}
                     onChange={(e) => {
                         setColormap(e.target.value);
