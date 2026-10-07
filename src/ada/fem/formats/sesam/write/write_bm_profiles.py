@@ -29,6 +29,10 @@ def general_beam(sec: Section, sec_id) -> str:
 
 
 def angular(sec: Section, sec_id) -> str:
+    """GLSEC: HZ, TY, BY, TZ, SFY, SFZ and K = 0, the web on the negative local y side and the flange
+    towards +y (89-7012 7.3.19) -- adapy's angle outline, and the side of its SHCENY. GeniE writes
+    K = 0 with the same SHCENY. K = 1, written before, is the mirror; GeniE V8.13-02 and Sestra V11.3
+    ignore it (measured: GeniE imports it as K = 0, Sestra's displacements are bit-identical)."""
     p = sec.properties
     width = sec.w_top if sec.w_top is not None else sec.w_btn
     thickness = sec.t_ftop if sec.t_ftop is not None else sec.t_fbtn
@@ -36,7 +40,7 @@ def angular(sec: Section, sec_id) -> str:
         "GLSEC",
         [
             (sec_id, sec.h, sec.t_w, width),
-            (thickness, p.Sfy, p.Sfz, 1),
+            (thickness, p.Sfy, p.Sfz, 0),
         ],
     )
 

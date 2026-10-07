@@ -294,7 +294,8 @@ def get_box_section(match, sect_names, fem) -> Section:
 
 
 def get_angular_section(match, sect_names, fem) -> Section:
-    """GLSEC: an L -- a web and one flange (manual 7.3.19), one width and one thickness.
+    """GLSEC: an L -- a web and one flange (manual 7.3.19), one width and one thickness; K = 1
+    (mirrored) is reported, see below.
 
     adapy carries an ANGULAR section's one flange in both flange slots: ``profile_db_collect``
     fills them for every HP and ``string_to_section`` for every L, so the card's ``BY``/``TZ``
@@ -304,6 +305,19 @@ def get_angular_section(match, sect_names, fem) -> Section:
     ``w_btn``, ``t_w``, ``t_fbtn``), so this moves no property, only ``unique_props()``."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
+    if d.get("k") is not None and str_to_int(d["k"]) == 1:
+        # K = 1: web towards +y, flange towards -y, the mirror of adapy's one angle outline
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().approximated(
+            "sesam reader",
+            "GLSEC",
+            sect_names[sec_id],
+            "K = 1 (flange towards -y) is read as adapy's angle, flange towards +y, as GeniE V8.13-02 "
+            "reads it; the GBEAMG properties are kept. adapy wrote K = 1 for every angle before (its "
+            "outline was always K = 0)",
+            K=1,
+        )
     return Section(
         name=sect_names[sec_id],
         sec_id=sec_id,

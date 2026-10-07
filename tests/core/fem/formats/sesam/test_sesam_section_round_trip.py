@@ -190,3 +190,70 @@ def test_a_giorh_is_a_t_when_its_bottom_flange_is_paper_thin_and_web_wide(bb, tb
     text = write_ff("GIORH", [(1, 0.3, 0.01, 0.2), (0.015, bb, tb, 1.0), (1.0,)]) + "IEND\n"
     sec = get_isection(cards.GIORH.to_ff_re().search(text), {1: "S"}, SimpleNamespace(parent=None))
     assert sec.type == getattr(ada.Section.TYPES, expected)
+
+
+# --- M2: GLSEC web orientation K ---------------------------------------------------------------
+
+
+def _angle() -> ada.Section:
+    return ada.Section("L200", sec_type="L", h=0.2, w_btn=0.1, w_top=0.1, t_w=0.01, t_fbtn=0.014, t_ftop=0.014)
+
+
+def _glsec_k(path: pathlib.Path) -> float:
+    (rec,) = _records(path, "GLSEC")
+    return float(rec.split()[8])
+
+
+def test_an_angle_is_written_with_its_web_on_the_negative_y_side(tmp_path):
+    """GLSEC K = 0: web towards -y, flange towards +y (89-7012 7.3.19) -- adapy's outline, and the
+    side its SHCENY (-1.93252e-2 for this angle) is on. GeniE writes K = 0 with the same SHCENY
+    (S07_ANG). adapy wrote K = 1, the mirror."""
+    deck = _write(_model(_angle()), tmp_path, "l")
+    assert _glsec_k(deck) == 0.0
+    (gb,) = _records(deck, "GBEAMG")
+    assert float(gb.split()[13]) == pytest.approx(-1.93252e-2, rel=1e-5)
+
+
+def test_genie_does_not_mirror_an_angle_written_with_k_1():
+    """GeniE V8.13-02 imports GLSEC K = 1 (L_K1) exactly as K = 0 (L_K0): it writes both back with
+    K = 0, the beams' local systems unchanged, SHCENY on the web side (-1.93252e-2, -2.01493e-2) as
+    adapy calculates for the unmirrored angle. Sestra V11.3-01 gives a cantilever of L_K1's section
+    under a tip load Fy = Fz = 1 kN bit-identical displacements with K = 0 and K = 1."""
+    from ada.sections.properties import calculate_general_properties
+
+    for name, tf in (("L_K1", 0.014), ("L_K0", 0.015)):
+        sec = _sections(GENIE_IMPORT)[name]
+        ref = calculate_general_properties(
+            ada.Section("L", sec_type="L", h=0.2, w_btn=0.1, w_top=0.1, t_w=0.01, t_fbtn=tf, t_ftop=tf)
+        )
+        assert sec.properties.Shceny == pytest.approx(ref.Shceny, rel=1e-6) and ref.Shceny < 0
+    assert [float(r.split()[8]) for r in _records(GENIE_IMPORT, "GLSEC")] == [0.0, 0.0]
+
+
+def _with_k(deck: pathlib.Path, k: float) -> pathlib.Path:
+    (rec,) = _records(deck, "GLSEC")
+    fields = rec.split()
+    fields[8] = f"{k:.8E}"
+    lines = rec.splitlines()
+    lines[1] = " " * 8 + "".join(f"{x:>16}" for x in fields[5:9])
+    deck.write_text(deck.read_text().replace(rec, "\n".join(lines)))
+    return deck
+
+
+@pytest.mark.parametrize("k", [0.0, 1.0])
+def test_an_angle_read_with_k_1_is_reported(k, tmp_path):
+    """adapy has one angle outline, web towards -y. A GLSEC with K = 1 (flange towards -y) is read as
+    that outline -- as GeniE reads it -- with its GBEAMG, and an "approximated" finding names it."""
+    from ada.fem.formats import conversion_report
+
+    deck = _with_k(_write(_model(_angle()), tmp_path, "l"), k)
+    assert _glsec_k(deck) == k
+    with conversion_report.collect() as rep:
+        sec = list(_sections.__wrapped__(deck).values())[0]
+    found = [f for f in rep.findings if f.keyword == "GLSEC"]
+    assert sec.type == sec.TYPES.ANGULAR
+    if k == 0.0:
+        assert not found
+    else:
+        (f,) = found
+        assert f.kind == "approximated" and f.subject == "L200" and "K = 1" in f.reason
