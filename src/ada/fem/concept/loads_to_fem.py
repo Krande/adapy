@@ -7,7 +7,8 @@ fixture (``files/fem_files/sesam/genie_loads_all_kinds.xml`` and ``..._T1.FEM``)
 case in ``tests/core/fem/test_concept_loads_to_fem.py``:
 
 * a concept load case -> an FE :class:`~ada.fem.LoadCase` of the same name in one static step
-  (:data:`CONCEPT_STEP_NAME`), in GeniE's order (``fem_loadcase_number``). The Sesam writer writes each as a TDLOAD,
+  (:data:`CONCEPT_STEP_NAME`), in GeniE's order and carrying its number (``fem_loadcase_number``), which the Sesam
+  writer writes it under when the numbers are distinct. The Sesam writer writes each as a TDLOAD,
   the Abaqus writer as a ``*Load Case`` of a linear perturbation step. A prescribed displacement stays with its
   support (:mod:`.to_fem`), which names its load case.
 * :class:`LoadConceptPoint` -> a point force and moment on the mesh node at its position (GeniE: BNLOAD). Meshing
@@ -88,6 +89,7 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
     """Convert the concept load cases and combinations of ``part`` (and its sub-parts) into FE load cases of one
     static step on ``fem``, which ``part``'s geometry was meshed into. See the module docstring."""
     from ada.fem import LoadCase
+    from ada.fem.loads.fe_loads import LOAD_CASE_NUMBER
     from ada.fem.steps import StepImplicitStatic
 
     cases = concept_load_cases(part)
@@ -116,7 +118,7 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
                 lc.name,
                 "a load case with no load in it is written empty; Sestra makes no result case of an empty load case",
             )
-        step.add_loadcase(LoadCase(lc.name, None, loads=loads))
+        step.add_loadcase(LoadCase(lc.name, None, loads=loads, metadata={LOAD_CASE_NUMBER: lc.fem_loadcase_number}))
         converted.setdefault(owner.name, []).append(lc.name)
 
     for lcc in combinations:

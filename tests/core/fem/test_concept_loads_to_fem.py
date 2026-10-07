@@ -600,3 +600,77 @@ def test_a_combination_with_a_phase_angle_is_refused_not_written_as_static(tmp_p
     assert list(step.load_cases) == ["LC"]
     (f,) = [f for f in report.findings if f.subject == "LCC" and f.kind == "omitted"]
     assert (f.keyword, f.details) == ("LoadConceptCaseCombination", {"load_case": "LC", "phase": 90})
+
+
+# --- GeniE's load case numbers are the deck's -----------------------------------------------------------------------
+
+
+def _numbered(name, numbers):
+    from ada.fem.concept.loads import (
+        LoadConceptCase,
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+        LoadConceptPoint,
+    )
+
+    p = ada.Part(name) / ada.Beam("bm", (0, 1.5, 0), (4, 1.5, 0), "IPE300")
+    a = ada.Assembly(f"{name}_a") / p
+    cases = []
+    for i, number in enumerate(numbers, start=1):
+        load = LoadConceptPoint(f"P{i}", (i, 1.5, 0), (0, 0, -1000.0 * i), (0, 0, 0))
+        cases.append(p.concept_fem.loads.add_load_case(LoadConceptCase(f"LC{i}", [load], fem_loadcase_number=number)))
+    terms = [LoadConceptCaseFactored(lc, 1.0) for lc in cases]
+    p.concept_fem.loads.add_load_case_combination(LoadConceptCaseCombination("LCC", terms))
+    return a, p
+
+
+def _llc(deck) -> dict[str, list[int]]:
+    recs = _records(deck)
+    out = {"TDLOAD": [(int(v[1]), v[-1]) for name, v in recs if name == "TDLOAD"]}
+    out["BNLOAD"] = sorted({int(v[0]) for name, v in recs if name == "BNLOAD"})
+    return out
+
+
+def test_the_cases_are_written_under_genies_numbers_and_a_combination_after_them(tmp_path):
+    """GeniE writes TDLOAD and its load records under ``fem_loadcase_number``; Sestra V11.3 then gives each result case
+    that number as its IERES (measured on GeniE V8.13-02's own deck with cases 5 and 9: IRES 1, 2 with IERES 5, 9).
+    adapy wrote 1 and 2. A combination has no number and takes the next one up."""
+    a, p = _numbered("num", (5, 9))
+    deck, report = _write(a, p, tmp_path)
+    assert _llc(deck) == {"TDLOAD": [(5, "LC1"), (9, "LC2"), (10, "LCC")], "BNLOAD": [5, 9, 10]}
+    assert not [f for f in report.findings if f.keyword == "TDLOAD"]
+
+
+def test_cases_sharing_a_number_are_numbered_in_order_and_named(tmp_path):
+    a, p = _numbered("dup", (3, 3))
+    deck, report = _write(a, p, tmp_path)
+    assert _llc(deck) == {"TDLOAD": [(1, "LC1"), (2, "LC2"), (3, "LCC")], "BNLOAD": [1, 2, 3]}
+    (f,) = [f for f in report.findings if f.keyword == "TDLOAD"]
+    assert (f.kind, f.details["shared"]) == ("note", {3: ["LC1", "LC2"]})
+
+
+class _Sin:
+    """The records ``result_case_names`` reads, as Sestra V11.3 wrote them for GeniE's cases numbered 5 and 9."""
+
+    type_blocks = {"TDLOAD": 1, "TDRESREF": 1, "RDRESREF": 1}
+
+    def __init__(self, tdresref=True):
+        if not tdresref:
+            self.type_blocks = {"TDLOAD": 1, "RDRESREF": 1}
+
+    def iter_records(self, card):
+        return iter([[1.0, 1.0, 5.0, 0.0, 0.0, 1.0, 10.0, 5.0, 0.0], [2.0, 1.0, 9.0, 0.0, 0.0, 1.0, 10.0, 9.0, 0.0]])
+
+    def iter_text_records(self, card):
+        if card == "TDLOAD":
+            return iter([((5.0, 103.0, 0.0), "LCa"), ((9.0, 103.0, 0.0), "LCb")])
+        return iter([((1.0, 108.0, 0.0), "LCa"), ((2.0, 108.0, 0.0), "LCb")])
+
+
+@pytest.mark.parametrize("tdresref", [True, False])
+def test_a_load_case_name_goes_to_the_result_case_it_became(tdresref):
+    """TDLOAD's 5 and 9 are load case numbers; the results are IRES 1 and 2. Read as result cases they named cases 5
+    and 9, which do not exist: ``{5: LCa, 9: LCb, 1: LCa, 2: LCb}``."""
+    from ada.fem.formats.sesam.results.case_names import result_case_names
+
+    assert result_case_names(_Sin(tdresref)) == {1: "LCa", 2: "LCb"}

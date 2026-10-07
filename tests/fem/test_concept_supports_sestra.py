@@ -152,7 +152,6 @@ def test_a_combination_of_two_settlement_cases_solves_as_their_sum(tmp_path):
     a, p = _combined_settlements()
     p.fem = p.to_fem_obj(0.5, "line")
     tip = _node_at(p.fem, L)
-    a.fem.add_step(StepImplicitStatic("static", total_time=1.0, init_incr=1.0, max_incr=1.0))
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
     a.to_fem("lcc", "sesam", scratch_dir=tmp_path, overwrite=True, execute=True)
@@ -171,3 +170,23 @@ def test_a_combination_of_two_settlement_cases_solves_as_their_sum(tmp_path):
     u1, u2, uc = u("LC1"), u("LC2"), u("LCC")
     assert uc[ids.index(tip.id)][[0, 2, 5]] == pytest.approx([0.002, -0.01, 0.001], rel=1e-6)
     assert np.abs(uc - (u1 + u2)).max() < 1.2e-9
+
+
+def test_genies_load_case_numbers_are_sestras_result_case_numbers(tmp_path):
+    """The same model with LC1 and LC2 numbered 5 and 9, as GeniE numbers them: Sestra V11.3 gives the result cases
+    IERES 5, 9 and 10 (the combination, next up), as it does GeniE V8.13-02's own deck with cases 5 and 9 (IRES 1, 2;
+    IERES 5, 9). adapy's deck used to number them 1, 2, 3 whatever GeniE said. The results are still read by name."""
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    a, p = _combined_settlements()
+    cases = p.concept_fem.loads.load_cases
+    cases["LC1"].fem_loadcase_number, cases["LC2"].fem_loadcase_number = 5, 9
+    p.fem = p.to_fem_obj(0.5, "line")
+    a.to_fem("num", "sesam", scratch_dir=tmp_path, overwrite=True, execute=True)
+    lis = (tmp_path / "num" / "SESTRA.LIS").read_text(errors="replace")
+    assert "Normal exit from Sestra" in lis, lis[-2000:]
+    sin = tmp_path / "num" / "numR1.SIN"
+    ieres = {int(r[0]): int(r[2]) for r in open_sin(sin).iter_records("RDRESREF")}
+    assert ieres == {1: 5, 2: 9, 3: 10}
+    assert read_sin_file(sin).sesam_case_names == {1: "LC1", 2: "LC2", 3: "LCC"}

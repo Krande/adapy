@@ -6,6 +6,7 @@ import numpy as np
 
 from ada import FEM
 from ada.fem.loads import Load
+from ada.fem.loads.fe_loads import LOAD_CASE_NUMBER
 from ada.fem.steps import Step
 
 from .not_held import STAGE, report
@@ -72,11 +73,13 @@ def step_loads_str(
     names = {name for name, _ in cases}
     cases += [(name, []) for name in prescribed_cases if name not in names]
 
+    numbers = case_numbers(step, [name for name, _ in cases])
     out_str = ""
-    for lid, (lc_name, loads) in enumerate(cases, start=1):
+    for i, (lc_name, loads) in enumerate(cases):
+        lid = numbers[lc_name]
         out_str += _case_str(lid, lc_name)
         out_str += case_loads_str(loads, lid, ndofs)
-        settled = {nid: dict(values) for nid, values in prescribed.items()} if lid == 1 else {}
+        settled = {nid: dict(values) for nid, values in prescribed.items()} if i == 0 else {}
         for nid, values in prescribed_cases.get(lc_name, {}).items():
             settled.setdefault(nid, {}).update(values)
         out_str += bndispl_str(settled, ndofs, lid)
@@ -94,6 +97,50 @@ def step_loads_str(
             n_cases=len(cases),
         )
     return out_str
+
+
+def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
+    """``{case name: LLC}`` -- the number each load case is written under, which is the result case id Sestra gives
+    its results.
+
+    A load case carrying a number (``LoadCase.metadata[LOAD_CASE_NUMBER]``, GeniE's ``fem_loadcase_number`` set by
+    the concept conversion) is written under it, as GeniE writes TDLOAD, BNLOAD and BNDISPL, so that the result cases
+    of adapy's deck are numbered as GeniE's are: cases numbered 5 and 9 used to be written 1 and 2. A case with no
+    number (a combination, a settlement case the writer opens) takes the next number above the highest given, in
+    order. Two cases given one number cannot both have it: then every case is numbered by position, 1..n, and the
+    clash is reported by name.
+    """
+    given: dict[str, int] = {}
+    if step is not None:
+        for lc in step.load_cases.values():
+            number = (lc.metadata or {}).get(LOAD_CASE_NUMBER)
+            if lc.name in names and number is not None:
+                given[lc.name] = int(number)
+    by_number: dict[int, list[str]] = {}
+    for name, number in given.items():
+        by_number.setdefault(number, []).append(name)
+    shared = {n: sorted(v) for n, v in sorted(by_number.items()) if len(v) > 1}
+    bad = sorted(name for name, n in given.items() if n < 1)
+    if shared or bad:
+        report().note(
+            STAGE,
+            "TDLOAD",
+            step.name,
+            "the load cases' numbers are not one distinct positive number each, so the cases are numbered 1..n in "
+            "order and Sestra's result case ids are not the numbers given",
+            shared=shared,
+            not_positive=bad,
+        )
+        given = {}
+    out: dict[str, int] = {}
+    nxt = max(given.values(), default=0) + 1
+    for name in names:
+        if name in given:
+            out[name] = given[name]
+        else:
+            out[name] = nxt
+            nxt += 1
+    return out
 
 
 def _report_loads_outside_cases(step: Step) -> None:

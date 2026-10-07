@@ -389,6 +389,11 @@ class LoadLine(Load):
         return sorted(nodal.items(), key=lambda x: x[0].id)
 
 
+#: ``LoadCase.metadata`` key: the case's number in the analysis (GeniE's ``fem_loadcase_number``), which the Sesam
+#: writer writes it under (TDLOAD, BNLOAD, BNDISPL ... LLC) when the step's numbers are distinct.
+LOAD_CASE_NUMBER = "fem_loadcase_number"
+
+
 class LoadCase(FemBase):
     def __init__(
         self,
