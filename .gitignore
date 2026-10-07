@@ -6,6 +6,12 @@ dist/
 dist-embed/
 *.pyc
 docs/_build/
+# Zensical site and the notebook pages scripts/docs_notebooks.py generates
+/site/
+docs/notebooks/**/*.md
+docs/notebooks/**/*_files/
+docs/_static/notebook-viewer/
+docs/_static/viewer-figures/
 output/
 *.egg-info/
 *.pytest_cache/

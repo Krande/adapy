@@ -10,9 +10,9 @@
 // and scene-loading calls as injected dependencies (`LoadNodeDeps`), so it is
 // driven under `node --test` against fakes -- no network, no three.js. The
 // real dependencies (REST calls, `SceneHandle.loadModelFromUrl`, the global
-// job toast) are assembled by the UI layer that calls this, the same way
-// `ExternalModelsPanel` assembles a standalone plugin context rather than
-// this module importing the plugin runtime itself.
+// job toast) are assembled by the UI layer that calls this -- the Sources tab
+// assembles a standalone plugin context -- rather than this module importing
+// the plugin runtime itself.
 //
 // TWO THINGS THIS MODULE REFUSES TO DO SILENTLY, both because a wrong load is
 // worse than a slow one:

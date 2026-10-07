@@ -6,8 +6,6 @@ import { useComponentControlsStore } from "@/state/componentControlsStore";
 import { useComponentSpecsStore } from "@/state/componentSpecsStore";
 import { request_list_of_nodes } from "../utils/node_editor/handlers/request_list_of_nodes";
 import ServerInfoBox from "./server_info/ServerInfoBox";
-import ExternalModelsPanel from "./ExternalModelsPanel";
-import { useExternalModelsStore } from "@/state/externalModelsStore";
 import { runtime } from "@/runtime/config";
 import { useViewerStores } from "../state/AdaViewerContext";
 // REST-only — code-split so the embedded desktop zip stays slim.
@@ -20,7 +18,6 @@ import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
-import ExternalModelsIcon from "./icons/ExternalModelsIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import TreeViewIcon from "./icons/TreeViewIcon";
 import SceneIcon from "./icons/SceneIcon";
@@ -133,8 +130,6 @@ const Menu = () => {
     stores.useNodeEditorStore();
   const { isOptionsVisible, setIsOptionsVisible, enableNodeEditor } =
     stores.useOptionsStore(); // use the useNavBarStore function
-  const externalModelsVisible = useExternalModelsStore((s) => s.visible);
-  const toggleExternalModels = useExternalModelsStore((s) => s.toggle);
   const { showServerInfoBox, setShowServerInfoBox } =
     stores.useServerInfoStore();
   const { hasAnimation, isControlsVisible, setIsControlsVisible } =
@@ -258,21 +253,6 @@ const Menu = () => {
               <ServerIcon />
             </button>
           )}
-          {/* External models — REST-only for the same reason as Storage: the
-              catalogue is served by the REST API. Hidden entirely rather than
-              disabled when the scope has no binding would require reading the
-              setting on every scope change just to decide whether to draw a
-              button, so the button stays and the PANEL explains. */}
-          {runtime.isRestMode() && (
-            <button
-              className={navBtnClass(externalModelsVisible)}
-              onClick={toggleExternalModels}
-              title="External models"
-              aria-pressed={externalModelsVisible}
-            >
-              <ExternalModelsIcon />
-            </button>
-          )}
           <button
             className={navBtnClass(show_info_box, "", use_node_editor_only)}
             hidden={use_node_editor_only}
@@ -345,7 +325,9 @@ const Menu = () => {
           <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
           {/* UI-shell switcher — renders nothing unless this build carries an
               alternative UI (a plugin-contributed shell). See plugins/uiShells. */}
-          {!runtime.isRestMode() && (
+          {/* No connection button in a static embed (window.DEACTIVATE_WS: the docs'
+              3D figures, notebook outputs): there is no session to show or reconnect. */}
+          {!runtime.isRestMode() && !runtime.websocketDeactivated() && (
             <div className={navBtnClass(showWebsocketInfoBox)}>
               <WebsocketStatusMenu />
             </div>
@@ -378,7 +360,7 @@ const Menu = () => {
               <SceneInfoBox />
             </ErrorBoundary>
           )}
-          {showWebsocketInfoBox && <WebsocketStatusBox />}
+          {showWebsocketInfoBox && !runtime.websocketDeactivated() && <WebsocketStatusBox />}
           {isControlsVisible && <SimulationControls />}
           {componentControlsVisible && <ComponentControls />}
           {proceduralActive && <CellBuilderPanel />}
@@ -399,7 +381,6 @@ const Menu = () => {
           {/* Plugin-contributed panels (region "top-panel"). Each is wrapped in
               an ErrorBoundary inside PluginPanelRegion so a plugin crash is
               contained. Renders nothing when no plugin is active. */}
-          <ExternalModelsPanel />
           <PluginPanelRegion region="top-panel" />
         </div>
       </div>

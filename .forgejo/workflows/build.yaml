@@ -62,6 +62,9 @@ on:
       # gate should still rebuild the viewer so the new gate actually runs against one.
       - 'deploy/viewer-smoke.py'
       - 'docs/**'
+      - 'zensical.toml'
+      - 'scripts/docs_notebooks.py'
+      - 'examples/penetration_detail.py'
       - 'verification/**'
       - '.forgejo/workflows/build.yaml'
 
@@ -316,7 +319,7 @@ jobs:
             worker_full=true
           fi
 
-          # Docs image is a Sphinx static site (deploy/Dockerfile.docs)
+          # Docs image is a Zensical static site (deploy/Dockerfile.docs)
           # that also bundles the paradoc-backed FEA verification report.
           # It is by far the slowest image to build, so it is OPT-IN: a
           # ``[docs]`` marker in a commit message requests it, regardless of
@@ -346,7 +349,7 @@ jobs:
           fi
           if printf '%s' "$DOCS_MSGS" | grep -qiF '[docs]'; then
             docs=true
-            # Fast build (re-run fea-doc + sphinx on the cached env base)
+            # Fast build (re-run fea-doc + zensical on the cached env base)
             # unless the pixi env / Dockerfile / workflow changed — those
             # need a full rebuild off a fresh env base.
             if match_scope "$DOCS_CHANGED" '^pixi\.(toml|lock)$' || \
@@ -631,9 +634,9 @@ jobs:
     steps:
       - uses: https://github.com/actions/checkout@v4
         with:
-          # docs/conf.py shells out to ``git describe`` to derive the
-          # release string baked into the rendered footer. Default
-          # shallow clone has no tags, so widen the history.
+          # ``git describe`` below derives the release string passed to the
+          # docs build (ADA_DOCS_RELEASE). Default shallow clone has no
+          # tags, so widen the history.
           fetch-depth: 0
 
       - name: Login to registry
@@ -671,9 +674,9 @@ jobs:
           ADA_DOCS_DATE=$(git show -s --format=%ad --date=short)
 
           # Fast path: only the doc sources changed AND the env base
-          # exists — re-run fea-doc + sphinx on it, skipping apt + solve.
+          # exists — re-run fea-doc + zensical on it, skipping apt + solve.
           if [ "$FULL" != "true" ] && docker manifest inspect "$ENV_IMAGE" >/dev/null 2>&1; then
-            echo "Fast docs build: re-running fea-doc + sphinx on $ENV_IMAGE"
+            echo "Fast docs build: re-running fea-doc + zensical on $ENV_IMAGE"
             docker build \
               -f deploy/Dockerfile.docs-fast \
               --build-arg "IMAGE_TAG=${TAG}" \

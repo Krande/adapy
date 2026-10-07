@@ -74,6 +74,7 @@ from ada.assets.rollup import (
     listing_token,
     plan_rollup,
     rollup_body,
+    rollup_delivery,
 )
 from ada.assets.unpublish import plan_unpublish
 from ada.config import logger
@@ -274,7 +275,7 @@ async def _compute_rollup(
             m = parse_manifest(raw)
         except ManifestError:
             return None  # not content, as in the browser: a mark has to be a fact
-        return (m.provider, m.delivery)
+        return (m.provider, rollup_delivery(m))
 
     wanted = [(s.subject, r.revision) for s in subjects for r in s.revisions if r.has_manifest]
     summaries = await asyncio.gather(*(manifest(s, r) for s, r in wanted))

@@ -19,7 +19,7 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
-import {consumeDirty, requestRender, usePerfStore} from "@/state/perfStore";
+import {consumeDirty, isRenderSuspended, requestRender, usePerfStore} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
 
@@ -236,7 +236,7 @@ const ThreeCanvas: React.FC = () => {
             const perfNow = usePerfStore.getState();
             const dirty = consumeDirty();
             const shouldRender =
-                !perfNow.onDemandRender || dirty || animActive || feaPlaying;
+                !isRenderSuspended() && (!perfNow.onDemandRender || dirty || animActive || feaPlaying);
             if (shouldRender) {
                 // Admin-only render profiler — brackets the draw so it can
                 // capture CPU submission time + a GPU timer query. No-op

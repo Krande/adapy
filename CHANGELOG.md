@@ -2,6 +2,24 @@
 
 
 
+## v0.107.0 (2026-10-07)
+
+### Feature
+
+* feat(assets): Sources tab follow-ups -- one Options panel, Load set asks first, leaf counts, one error toast; retire the External models panel (#438)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`104d41a`](https://github.com/Krande/adapy/commit/104d41a01b2e8788d051fbfdf265ee4499443c8c))
+
+
+## v0.106.0 (2026-10-07)
+
+### Feature
+
+* feat: OpenCourant explicit dynamics format, time-history playback and animation export (#436)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`eb6a696`](https://github.com/Krande/adapy/commit/eb6a69636e017183ae105d120e2a9c55c9f094b9))
+
+
 ## v0.105.0 (2026-10-05)
 
 ### Feature

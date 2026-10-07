@@ -8,7 +8,9 @@ import {
   parseProviderOptionsDoc,
   providerOptionsKey,
   serialiseProviderOptionsDoc,
+  withListedChoices,
   withProviderValues,
+  type OptionChoice,
   type ProviderOptionValues,
   type ProviderOptionsDoc,
 } from "@/assets/providerOptions";
@@ -24,6 +26,22 @@ export async function readProviderOptions(scope: string, collection: string): Pr
     throw e;
   }
   return parseProviderOptionsDoc(new TextDecoder().decode(bytes));
+}
+
+/** Remember what one provider's choices job answered, in the LATEST stored document. */
+export async function saveListedChoices(
+  scope: string,
+  collection: string,
+  providerId: string,
+  options: Readonly<Record<string, readonly OptionChoice[]>>,
+): Promise<ProviderOptionsDoc> {
+  const next = withListedChoices(await readProviderOptions(scope, collection), providerId, options, new Date().toISOString());
+  await filesApi.putBlob(
+    scope as ScopeUrl,
+    providerOptionsKey(collection),
+    new Blob([serialiseProviderOptionsDoc(next)], { type: "application/json" }),
+  );
+  return next;
 }
 
 /** Replace one provider's values in the LATEST stored document; returns what was written. */
