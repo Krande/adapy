@@ -97,17 +97,20 @@ def interactions_str(step: _step_types):
 
 
 def all_bc_str(step: _step_types):
-    from .write_bc import bc_str
+    from .write_bc import bc_str, prescribed_in_step_str
 
+    # The model's prescribed displacements go into the steps: Abaqus takes no nonzero *Boundary in model data.
+    model_bcs = list(step.parent.get_all_bcs()) if getattr(step.parent, "parent", None) is not None else []
+    settled = prescribed_in_step_str(step, model_bcs)
     if len(step.bcs) == 0:
-        return "** No BCs"
+        return settled or "** No BCs"
 
     bcstr = ""
     for bcid, bc_ in step.bcs.items():
         bcstr += "\n" if "\n" not in bcstr[-2:] != "" else ""
         bcstr += bc_str(bc_, True)
 
-    return bcstr
+    return bcstr + ("\n" + settled if settled else "")
 
 
 def load_str(step: _step_types):

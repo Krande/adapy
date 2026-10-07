@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from ada.config import logger
 
 from .write_amplitudes import amplitudes_str
-from .write_bc import boundary_conditions_str
+from .write_bc import boundary_conditions_str, report_unstepped_settlements
 from .write_connectors import connector_section_str, connector_sets_str, connector_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
@@ -120,6 +120,7 @@ def to_fem(
     # Boundary Condition data
     with open(core_dir / "bc_data.inp", "w") as d:
         d.write(boundary_conditions_str(assembly))
+    report_unstepped_settlements(assembly)
 
     # Analysis steps
     for step_in in afem.steps:
