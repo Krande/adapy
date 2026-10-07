@@ -64,7 +64,10 @@ def run_code_aster(
 KNOWN_MESSAGES = {
     "FACTOR_11": "the stiffness matrix is singular: a rigid-body motion is not held (a mechanism) -- check the "
     "supports and the connections",
-    "FACTOR_57": "MUMPS's relative error after refinement exceeds RESI_RELA (1e-6): an ill-conditioned system",
+    "FACTOR_57": "MUMPS's error estimate exceeds RESI_RELA: an ill-conditioned system, typically a thin COQUE_3D "
+    "(second-order) shell, for which adapy already allows 1e-4 (the estimate measured 200 times or more the true "
+    "error); mesh it with first-order shells (DKT) or coarser, or check the answer with SOLVEUR=_F(METHODE="
+    "'MULT_FRONT') before allowing more",
     "ASSEMBLA_26": "one node's dof is held by two dualised charges (two supports or a support and a prescribed value "
     "on the same node and dof): merge them into one",
     "ASSEMBLA_45": "a load case's own support charge given beside CHAR_MECA_GLOBAL in MACRO_ELAS_MULT",

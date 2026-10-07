@@ -157,6 +157,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
 
     has_shells_or_beams = has_cara_elem(part)
     sec_str = "\n    CARA_ELEM=element," if has_shells_or_beams else ""
+    sec_str += _solver_str(part)
     # MECA_STATIQUE auto-populates SIEF_ELGA, which carries sub-points on
     # shell/beam elements (DKT, POU_D_E, ...). IMPR_RESU then needs
     # CARA_ELEM in the RESU block to print those fields to MED — without it
@@ -224,6 +225,38 @@ IMPR_RESU(
 )
 
 """
+
+
+def _solver_str(part) -> str:
+    """``SOLVEUR`` for a model with second-order shells (``COQUE_3D``): MUMPS with ``RESI_RELA=1e-4``; else nothing
+    (MUMPS, ``RESI_RELA=1e-6``).
+
+    A thin ``COQUE_3D`` shell is ill-conditioned -- its transverse shear stiffness (~ t) against its bending stiffness
+    (~ t^3) -- and MUMPS's error estimate after refinement exceeds the default 1e-6, so Code_Aster stopped at
+    <FACTOR_57>. Measured, 18.1.8, a 4 m x 0.5 m strip in cylindrical bending cantilevered under a tip edge load of
+    500 N/m, whose tip deflects ``q L^3 / (3 D) + q L / (5/6 G t)`` (Mindlin, which ``COQUE_3D`` is), relative errors:
+
+    ======================  ===========  ======================  ==========================
+    QU9 cells, size h       estimate     tip w, check off        root reaction (250 N)
+    ======================  ===========  ======================  ==========================
+    t = 10 mm, h = 0.125    2.03e-6      -9.1e-9                 -1.0e-8
+    t = 10 mm, h = 0.0625   6.88e-6      -8.3e-10                -1.0e-8
+    t = 10 mm, h = 0.03125  1.72e-5      -5.2e-9                 -3.6e-8
+    t = 2 mm, h = 0.0625    9.85e-4      +1.05e-6                +1.7e-6
+    ======================  ===========  ======================  ==========================
+
+    The estimate grows as about h^-2 t^-3 and is 200 times or more the error the answer has against the closed form;
+    MULT_FRONT and LDLT give the same answers. It is not the Lagrange multipliers (``ELIM_LAGR='NON'``: 4.53e-6;
+    supports as ``AFFE_CHAR_CINE``: 3.57e-6; default 4.25e-6, the free cantilever at 0.0625) nor the drilling
+    stiffness (``COEF_RIGI_DRZ`` 1e-3 / 1e-7: 6.17e-6 / 5.05e-6); DKT on the same mesh: 4.4e-8. So the check is kept,
+    at 1e-4 -- an answer within about 5e-7 of the exact one by the measured ratio -- and a shell thinner or finer than
+    that still stops at <FACTOR_57>, which the runner raises by name.
+    """
+    from ada.fem.shapes.definitions import ShellShapes
+
+    if not any(el.type in (ShellShapes.TRI6, ShellShapes.QUAD8) for el in part.fem.elements):
+        return ""
+    return "\n    SOLVEUR=_F(METHODE='MUMPS', RESI_RELA=1e-4),"
 
 
 def _second_order_shell_fields(step, part) -> str:

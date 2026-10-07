@@ -782,3 +782,61 @@ def test_overlapping_supports_hold_a_shared_node_once(fem_format, require_solver
         assert solved.reactions(1)[0][2] == pytest.approx(1000.0 * L * WID, rel=1e-9)
     else:
         assert w / (-5 * 1000.0 * L**4 / (384 * d)) - 1 == pytest.approx(-1.55e-3, abs=2e-5)
+
+
+# --- thin second-order shells in Code_Aster (COQUE_3D) ------------------------------------------------------------
+
+
+def _cylindrical_cantilever(name, t):
+    """The strip as a cantilever in cylindrical bending, 8-node shells at 0.0625 m: root clamped, long edges held in dy
+    and rx, 500 N/m down the tip edge."""
+    from ada.fem.meshing import GmshOptions
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    pl = ada.Plate(name, [(0, 0), (L, 0), (L, WID), (0, WID)], t, mat=mat)
+    p = ada.Part(name.capitalize()) / pl
+    a = ada.Assembly(f"{name}_a") / p
+    c = p.concept_fem.constraints
+    c.add_curve_constraint(ConstraintConceptCurve("root", (0, 0, 0), (0, WID, 0), Dof.encastre()))
+    c.add_curve_constraint(ConstraintConceptCurve("y0", (0, 0, 0), (L, 0, 0), _dofs(("dy", "rx"))))
+    c.add_curve_constraint(ConstraintConceptCurve("y5", (0, WID, 0), (L, WID, 0), _dofs(("dy", "rx"))))
+    q = (0, 0, -500.0)
+    p.concept_fem.loads.add_load_case(LoadConceptCase("LC_e", [LoadConceptLine("E", (L, 0, 0), (L, WID, 0), q, q)]))
+    p.fem = p.to_fem_obj(0.0625, use_quads=True, options=GmshOptions(Mesh_ElementOrder=2))
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    return a, mat
+
+
+def test_a_thin_coque_3d_cantilever_deflects_as_a_mindlin_plate(require_solver, tmp_path):
+    """The 10 mm strip on 8-node shells (``COQUE_3D`` on 9-node cells): the tip deflects ``q L^3 / (3 D) + q L /
+    (5/6 G t)`` = 0.554669638 m (Mindlin; the shear term 2.97e-6 m) and the root reacts 250 N and 1000 N m.
+
+    Measured, Code_Aster 18.1.8: it stopped at <FACTOR_57>, MUMPS's error estimate 6.88e-6 over RESI_RELA = 1e-6. The
+    system is ill-conditioned (thin Mindlin shell; see ``static_lin._solver_str``), the answer is not: with the check
+    off, tip -0.5546696376 m (-8.3e-10 relative), root 249.99999740 N (-1.04e-8) and 999.9999969 N m (-3.1e-9);
+    MULT_FRONT -0.5546696381 m (-3.3e-11). Written now with ``RESI_RELA=1e-4``; the tolerances are those measured.
+    """
+    require_solver("code_aster")
+    a, mat = _cylindrical_cantilever("cyl", T)
+    solved = _solve(a, "cyl", "code_aster", tmp_path)
+    e, nu = mat.model.E, mat.model.v
+    d, g = e * T**3 / (12 * (1 - nu**2)), e / (2 * (1 + nu))
+    closed = 500.0 * L**3 / (3 * d) + 500.0 * L / (5 / 6 * g * T)
+    tip = [n for n, xyz in solved.coords.items() if abs(xyz[0] - L) < 1e-9]
+    for n in tip:
+        assert -solved.u(1, n)[2] == pytest.approx(closed, rel=2e-9)
+    root = [n for n, xyz in solved.coords.items() if abs(xyz[0]) < 1e-9]
+    force, moment = solved.reactions(1, root)
+    assert force[2] == pytest.approx(250.0, rel=2e-8)
+    assert -moment[1] == pytest.approx(1000.0, rel=1e-8)
+
+
+def test_a_thinner_coque_3d_cantilever_stops_by_name(require_solver, tmp_path):
+    """The same strip 2 mm thick: MUMPS's estimate 9.85e-4 is over even 1e-4 (the answer's error with the check off:
+    +1.05e-6 on the tip deflection, +1.7e-6 on the root reaction), and the runner raises <FACTOR_57> by name with
+    what to do."""
+    require_solver("code_aster")
+    a, _ = _cylindrical_cantilever("thin", 0.002)
+    err = _raised(lambda: a.to_fem("thin", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True))
+    assert type(err).__name__ == "FEASolveFailed", repr(err)
+    assert err.code == "FACTOR_57" and "RESI_RELA" in err.message and "COQUE_3D" in err.hint

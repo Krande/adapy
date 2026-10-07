@@ -254,3 +254,26 @@ def test_a_prescribed_dof_another_condition_holds_on_the_same_node_is_refused_by
     else:
         assert (err.bc, err.other) == ("tip_extra", "tip_LC_s") and "through another set" in str(err)
     assert "ASSEMBLA_26" in str(err)
+
+
+@pytest.mark.parametrize("order", [1, 2])
+def test_second_order_shells_allow_mumps_an_error_estimate_of_1e_4(tmp_path, order):
+    """A thin COQUE_3D (second-order) shell stopped at <FACTOR_57>: MUMPS's error estimate 6.88e-6 over the default
+    1e-6, its answer within 1e-8 of the closed form (``static_lin._solver_str``). Second-order shells get
+    ``RESI_RELA=1e-4``; first-order ones (DKT, estimate 4.4e-8) keep the default."""
+    from ada.fem.concept.constraints import ConstraintConceptCurve
+    from ada.fem.meshing import GmshOptions
+
+    pl = ada.Plate("pl", [(0, 0), (L, 0), (L, 0.5), (0, 0.5)], 0.01, mat=ada.Material("S355", CarbonSteel("S355")))
+    p = ada.Part("P") / pl
+    a = ada.Assembly("A") / p
+    p.concept_fem.constraints.add_curve_constraint(
+        ConstraintConceptCurve("root", (0, 0, 0), (0, 0.5, 0), Dof.encastre())
+    )
+    q = (0, 0, -500.0)
+    p.concept_fem.loads.add_load_case(LoadConceptCase("LC_e", [LoadConceptLine("e", (L, 0, 0), (L, 0.5, 0), q, q)]))
+    p.fem = p.to_fem_obj(0.25, use_quads=True, options=GmshOptions(Mesh_ElementOrder=order))
+    comm, _ = _comm(a, tmp_path)
+    m = re.search(r"^result = MACRO_ELAS_MULT\((.*?)^\)", comm, re.M | re.S)
+    solver = "SOLVEUR=_F(METHODE='MUMPS', RESI_RELA=1e-4)," in m[1]
+    assert solver == (order == 2) and comm.count("SOLVEUR") == int(order == 2)
