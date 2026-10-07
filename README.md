@@ -8,10 +8,19 @@
 
 A python library for working with structural analysis and design. This library should be considered as experimental.
 
-The recommended way of installing ada-py is by creating a new isolated environment for the installation like so:
+The recommended way of installing ada-py is with [pixi](https://pixi.sh), in an isolated project
+environment:
 
 ```
-mamba create -n adaenv ada-py
+pixi init my-project
+cd my-project
+pixi add ada-py
+```
+
+To only use the `ada` command line tool, install it globally instead:
+
+```
+pixi global install ada-py
 ```
 
 Here are some of the goals with `ada-py`:

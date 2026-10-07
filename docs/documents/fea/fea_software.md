@@ -6,10 +6,18 @@ Here is a collection of useful links and information regarding the currently sup
 ## Code Aster
 
 Code Aster is distributed as a conda-forge package and can be used together with `adapy`.
-It is available for Linux and, since version 18.1.7, for Windows (sequential MSVC builds):
+It is available for Linux and, since version 18.1.7, for Windows (sequential MSVC builds).
+Add it to the same [pixi](https://pixi.sh) project as `adapy`, so the analyses adapy starts
+find the solver in that environment:
 
 ```bash
-mamba install -c conda-forge "code-aster>=18.1.7"
+pixi add ada-py "code-aster>=18.1.7"
+```
+
+To have Code Aster on its own, outside any project:
+
+```bash
+pixi global install "code-aster>=18.1.7"
 ```
 
 More information about Code Aster can be found on

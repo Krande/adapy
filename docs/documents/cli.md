@@ -1,13 +1,16 @@
 # Command line interface
 
 The distribution is named `ada-py`, but the console script it installs is
-`ada` — there is no `ada-py` command. Install the package, then call `ada`:
+`ada` — there is no `ada-py` command. Install the package with [pixi](https://pixi.sh),
+then call `ada`:
 
 ```bash
-mamba create -n adaenv ada-py
-conda activate adaenv
+pixi global install ada-py
 ada --help
 ```
+
+In a pixi project (`pixi add ada-py`), run it through the project environment instead:
+`pixi run ada --help`.
 
 The entry point lives in its own top-level package (`ada_cli`) so that
 `ada --help` does not import the full CAD/FEM surface. Every subcommand
