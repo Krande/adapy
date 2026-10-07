@@ -1523,7 +1523,7 @@ class Part(BackendGeom):
             add_load_concepts_to_fem,
             concept_load_points,
         )
-        from ada.fem.concept.to_fem import add_constraint_concepts_to_fem
+        from ada.fem.concept.to_fem import STAGE, add_constraint_concepts_to_fem, report
         from ada.fem.elements import Mass
         from ada.fem.meshing import GmshOptions, GmshSession
         from ada.fem.meshing.partitioning.embed_points import embed_points
@@ -1549,7 +1549,15 @@ class Part(BackendGeom):
                 elif issubclass(type(obj), Shape):
                     gs.add_obj(obj, geom_repr=shp_repr)
                 else:
-                    logger.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+                    # A finding, not a log line: GeniE's cylinder shells and plates with holes read as PlateCurved,
+                    # and a mesh without them used to say so on stderr only.
+                    report().omitted(
+                        STAGE,
+                        type(obj).__name__,
+                        obj.name,
+                        "not meshed: the mesher takes beams, flat plates and shapes and has no route for this kind "
+                        "of object, so whatever acts on it (a load, a support) acts on nothing",
+                    )
 
             if interactive is True:
                 gs.open_gui()

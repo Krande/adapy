@@ -336,3 +336,25 @@ def test_a_vertex_embedded_in_a_face_is_no_hole(genie93, body):
     (pl,) = _plates(a)
     assert type(pl) is ada.Plate and pl.name == "Pl1"
     assert _outline_area(pl) == pytest.approx(12.0, rel=1e-12)
+
+
+@pytest.mark.parametrize("model, plate", [("cylinder_shell", "Sh1"), ("plate_with_hole", "Pl1")])
+def test_a_curved_plate_left_out_of_the_mesh_is_a_finding_and_so_is_its_pressure(genie93, model, plate):
+    """The mesher has no route for a ``PlateCurved`` -- which a GeniE cylinder shell and a plate with a hole read as
+    -- and ``to_fem_obj`` said so with ``logger.error`` only: measured, ``elements: 0`` and no finding for the plate.
+    Its front pressure is refused by name too: a ``PlateCurved`` has no ``poly.normal`` to tell front from back."""
+    from ada.fem.concept.loads import LoadConceptCase, LoadConceptSurface
+    from ada.fem.formats import conversion_report
+
+    a = ada.from_gnx(genie93 / f"{model}_text.gnx")
+    (pl,) = _plates(a)
+    assert (type(pl), pl.name) == (ada.PlateCurved, plate)
+    (part,) = [p for p in a.get_all_parts_in_assembly() if pl in p.plates or pl.parent is p]
+    part.concept_fem.loads.add_load_case(LoadConceptCase("LC_p", [LoadConceptSurface("P", pl, pressure=1000.0)]))
+    with conversion_report.collect() as report:
+        fem = part.to_fem_obj(0.25)
+    assert len(fem.elements) == 0
+    omitted = {(f.keyword, f.subject): f for f in report.findings if f.kind == "omitted"}
+    assert "not meshed" in omitted[("PlateCurved", plate)].reason
+    pressure = omitted[("LoadConceptSurface", "P in load case LC_p")]
+    assert "PlateCurved" in pressure.reason and pressure.details["plate"] == plate

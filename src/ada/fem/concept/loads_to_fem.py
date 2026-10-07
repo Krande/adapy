@@ -370,6 +370,18 @@ class _Converter:
         if load.side not in ("front", "back"):
             report().omitted(STAGE, "LoadConceptSurface", subject, f"side {load.side!r} is neither front nor back")
             return []
+        if getattr(plate, "poly", None) is None:
+            # A PlateCurved (GeniE's cylinder shells, plates with holes) has no one plate normal to tell front from
+            # back by, and is not meshed (Part.to_fem_obj reports it); refused here rather than an AttributeError.
+            report().omitted(
+                STAGE,
+                "LoadConceptSurface",
+                subject,
+                f"its plate is a {type(plate).__name__}, which has no single normal to say which side is the front; "
+                "not written",
+                plate=plate.name,
+            )
+            return []
         elems = [el for el in self.fem.elements if plate in el.refs and isinstance(el.type, ShellShapes)]
         if not elems:
             report().omitted(
