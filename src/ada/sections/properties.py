@@ -221,12 +221,11 @@ def calc_isec(sec: Section) -> GeneralProperties:
     Wymin = Iy / max(hz - z, z)
     Wzmin = 2 * Iz / max(bb, bt)
 
-    # Sy should be checked. Confer older method implementation.
-    # Sy = sum(x_i * A_i)
-    # Sy = (((tt * bt) ** 2) * (hw / 2 + tt / 2)) * 2
-    Sy = Iy / (sec.w_top / 2)
-
-    # Sy = (sec.t_w*sec.h/2)(sec.h/2)
+    # Static moments and shear areas I t / S (t: the web for z, the two flanges for y) as GeniE
+    # writes them to GBEAMG. Sy is the first moment about the neutral axis of the top flange and
+    # of the web from the neutral axis up, the web taken as reaching the neutral axis even when
+    # that lies in a flange (measured, GeniE V8.13-02: a T with the axis in its flange).
+    Sy = bt * tt * (hz - tt / 2 - z) + ty * (hz - tt - z) ** 2 / 2
     Sz = (tt * bt**2 + tb * bb**2 + hw * ty**2) / 8
     Shary = (Iz / Sz) * (tb + tt) * sfy
     Sharz = (Iy / Sy) * ty * sfz

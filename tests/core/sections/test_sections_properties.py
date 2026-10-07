@@ -49,9 +49,10 @@ def test_ig():
         ("Wymin", 0.001639733333),
         ("Wzmin", 0.0002669666667),
         ("Shary", 0.005221841891),
-        # TODO: Fix Sy calculation
-        # ("Sharz", 0.003556905278),
-        # ("Sy", 0.000922),
+        # Iy tw / Sy, Sy = b tf (h - tf) / 2 + tw (h / 2 - tf)^2 / 2 = 9.22e-4 (was commented out
+        # while adapy wrote Sy = Iy / (b / 2) = 3.279e-3 and Sharz = 1.0e-3)
+        ("Sharz", 0.003556905278),
+        ("Sy", 0.000922),
         ("Sz", 0.0002045),
         ("Shceny", 0.0),
         ("Shcenz", 0.0),
