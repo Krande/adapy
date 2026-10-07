@@ -257,3 +257,89 @@ def test_code_aster_takes_its_line_load_groups_off_the_model_again(meshed, tmp_p
     before = (sorted(p.fem.elsets), sorted(p.fem.nsets))
     _write(meshed, "code_aster", "LC_part", tmp_path)
     assert (sorted(p.fem.elsets), sorted(p.fem.nsets)) == before
+
+
+# --- second-order shell edges ------------------------------------------------------------------------------------
+
+
+def _second_order_plate(quads: bool):
+    """A 4 x 1 m plate in 8-node quads (or 6-node triangles) at 0.5 m, the edge load of LC_edge along y = 0 and a
+    linear one (1000 -> 3000 N/m down) along it too."""
+    from ada.fem.meshing import GmshOptions
+
+    pl = ada.Plate.from_3d_points("pl", [(0, 0, 0), (4, 0, 0), (4, 1, 0), (0, 1, 0)], 0.01)
+    p = ada.Part("p") / pl
+    a = ada.Assembly("a") / p
+    p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("fix", (0, 1, 0), []))
+    edge, _ = CASES["LC_edge"]
+    lin = LoadConceptLine("elin", (0, 0, 0), (4, 0, 0), (0, 0, -1000.0), (0, 0, -3000.0))
+    p.concept_fem.loads.add_load_case(LoadConceptCase("LC_edge", [edge], fem_loadcase_number=1))
+    p.concept_fem.loads.add_load_case(LoadConceptCase("LC_elin", [lin], fem_loadcase_number=2))
+    with conversion_report.collect() as report:
+        p.fem = p.to_fem_obj(0.5, use_quads=quads, options=GmshOptions(Mesh_ElementOrder=2))
+    (step,) = p.fem.steps
+    return a, p, {name: lc.loads for name, lc in step.load_cases.items()}, report
+
+
+@pytest.mark.parametrize("quads", [True, False], ids=["quad8", "tri6"])
+def test_a_line_load_along_second_order_shell_edges_is_their_consistent_nodal_loads(quads):
+    """An edge load along a plate meshed in 8-node quads or 6-node triangles became no load at all -- reported
+    ``omitted``, "no beam element or shell element edge lies along it" -- because only 3- and 4-node shell edges were
+    looked at. Now each edge carries it to its three nodes: ``L q_a / 6``, ``L (q_a + q_b) / 3``, ``L q_b / 6``
+    (uniform: 1/6, 4/6, 1/6 of ``q L``), exact in the resultant and its moment."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    a, p, loads, report = _second_order_plate(quads)
+    assert {el.type for el in p.fem.elements} == {ShellShapes.QUAD8 if quads else ShellShapes.TRI6}
+    assert not report.of_kind("omitted"), report.summary()
+    for name, total, moment_y in (
+        ("LC_edge", (400, 0, -2000.0), 2000.0 * 2),
+        ("LC_elin", (0, 0, -8000.0), 8000.0 * 4 * 7 / 12),
+    ):
+        (load,) = loads[name]
+        assert isinstance(load, LoadLine) and all(s.edge is not None for s in load.segments)
+        assert len(load.segments) == 8
+        nodal = LoadLine.summed_nodal_loads(load.segments)
+        assert len(nodal) == 17, "8 edges: 9 corner nodes and 8 midside nodes"
+        force = sum((f for _, f in nodal), np.zeros(3))
+        assert force == pytest.approx(total, abs=1e-9)
+        my = sum(n.p[2] * f[0] - n.p[0] * f[2] for n, f in nodal)
+        assert my == pytest.approx(moment_y, rel=1e-12)
+
+
+def test_a_quadratic_edge_shares_a_linear_load_by_its_shape_functions():
+    """``N_a = (1 - x)(1 - 2x)``, ``N_m = 4x(1 - x)``, ``N_b = x(2x - 1)`` integrated against ``q`` linear from
+    ``q_a`` to ``q_b`` over ``L``: ``L q_a / 6``, ``L (q_a + q_b) / 3``, ``L q_b / 6``. A first-order edge keeps
+    ``L (2 q_a + q_b) / 6`` and ``L (q_a + 2 q_b) / 6``."""
+    from ada import Node
+    from ada.fem import Elem
+    from ada.fem.loads import LineLoadSegment
+    from ada.fem.shapes.definitions import ShellShapes
+
+    corners = [(0, 0, 0), (2, 0, 0), (2, 1, 0), (0, 1, 0)]
+    mids = [(1, 0, 0), (2, 0.5, 0), (1, 1, 0), (0, 0.5, 0)]
+    nodes = [Node(p, i) for i, p in enumerate(corners + mids, start=1)]
+    quad8 = Elem(1, nodes, ShellShapes.QUAD8)
+    quad4 = Elem(2, nodes[:4], ShellShapes.QUAD)
+    qa, qb = (0, 0, -1000.0), (0, 0, -3000.0)
+    pairs = LoadLine.nodal_loads(LineLoadSegment(quad8, qa, qb, edge=1))
+    assert [n.id for n, _ in pairs] == [1, 5, 2]
+    assert [f[2] for _, f in pairs] == pytest.approx([-2000 / 6, -2 * 4000 / 3, -6000 / 6], rel=1e-14)
+    uniform = LoadLine.nodal_loads(LineLoadSegment(quad8, qa, qa, edge=1))
+    assert [f[2] for _, f in uniform] == pytest.approx([-2000 / 6, -2000 * 4 / 6, -2000 / 6], rel=1e-14)
+    linear = LoadLine.nodal_loads(LineLoadSegment(quad4, qa, qb, edge=1))
+    assert [n.id for n, _ in linear] == [1, 2]
+    assert [f[2] for _, f in linear] == pytest.approx([-2 * 5000 / 6, -2 * 7000 / 6], rel=1e-14)
+
+
+def test_a_quadratic_edge_whose_midside_node_is_off_its_middle_is_refused():
+    from ada import Node
+    from ada.fem import Elem
+    from ada.fem.loads import LineLoadSegment
+    from ada.fem.shapes.definitions import ShellShapes
+
+    corners = [(0, 0, 0), (2, 0, 0), (2, 1, 0), (0, 1, 0)]
+    mids = [(1, 0.1, 0), (2, 0.5, 0), (1, 1, 0), (0, 0.5, 0)]
+    nodes = [Node(p, i) for i, p in enumerate(corners + mids, start=1)]
+    with pytest.raises(ValueError, match="midside node 5"):
+        LoadLine.nodal_loads(LineLoadSegment(Elem(1, nodes, ShellShapes.QUAD8), (0, 0, -1.0), (0, 0, -1.0), edge=1))

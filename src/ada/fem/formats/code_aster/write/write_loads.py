@@ -244,7 +244,7 @@ def line_load_str(load: LoadLine) -> str:
     beams (U4.44.01, v14), constant over the group: exact for a beam element loaded uniformly end to end. A varying
     or partial stretch on a beam is written as ``FORCE_NODALE`` with the consistent nodal forces *and moments* of the
     Euler-Bernoulli element (:meth:`LoadLine.hermite_nodal_loads`), which is what ``POU_D_E`` is, so its nodal
-    displacements are the exact ones; a shell edge load as the consistent nodal forces of the linear edge
+    displacements are the exact ones; a shell edge load as the consistent nodal forces of the (linear or quadratic) edge
     (:meth:`LoadLine.nodal_loads`) -- ``FORCE_ARETE``, Code_Aster's shell edge load, acts on segment cells along the
     edge, which an adapy shell mesh does not have -- exact in the resultant and its moment, reported as a note.
 
@@ -268,7 +268,7 @@ def line_load_str(load: LoadLine) -> str:
                 STAGE,
                 "LoadLine",
                 load.name,
-                "a shell edge load is written as the consistent nodal forces of the linear edges it acts on "
+                "a shell edge load is written as the consistent nodal forces of the edges it acts on, linear or quadratic "
                 "(FORCE_NODALE): FORCE_ARETE needs edge cells the mesh does not have",
                 n_nodes=sum(len(nodes) for _, nodes, _ in nsets),
             )

@@ -112,6 +112,13 @@ def _solve(a, name, fem_format, tmp_path) -> Solved:
 
     a.to_fem(name, fem_format, scratch_dir=tmp_path, overwrite=True, execute=True, exit_on_complete=False)
     res_path = default_fem_res_path(name, scratch_dir=tmp_path, fem_format=FEATypes.from_str(fem_format))
+    if fem_format == "code_aster":
+        # A run that stops part-way leaves a MED file holding what was printed before it stopped -- displacements and
+        # reactions, say -- and a test reading those passes on a failed run (second-order shells: <MED2_20> at the
+        # stresses, measured). Code_Aster's own verdict decides: an alarm is a run, an error is not.
+        mess = (tmp_path / name / f"{name}.mess").read_text(encoding="utf-8", errors="replace")
+        (verdict,) = [line for line in mess.splitlines() if "DIAGNOSTIC JOB" in line]
+        assert "<S>" not in verdict and "<F>" not in verdict and "<E>" not in verdict, verdict
     return Solved(fem_format, ada.from_fem_res(res_path))
 
 
@@ -561,3 +568,58 @@ def test_a_prescribed_plate_edge_settlement_and_rotation(fem_format, require_sol
             # the edge back at zero, not keep LC2's 0.02.
             assert solved.u(3, solved.node(L))[2] == 0.0
             assert solved.u(3, mid)[2] == 0.0
+
+
+# --- edge line loads on first- and second-order shells -----------------------------------------------------------
+
+#: The edge loads, down along the strip's y = 0 edge from x = 1 to x = 3 m: (q at x = 1, q at x = 3) in N/m.
+EDGE_CASES = {"LC_eu": (1000.0, 1000.0), "LC_elin": (1000.0, 3000.0)}
+EDGE_FROM, EDGE_TO = 1.0, 3.0
+
+
+@pytest.mark.parametrize("fem_format", SOLVERS)
+@pytest.mark.parametrize("order, quads", [(1, True), (2, True), (2, False)], ids=["quad4", "quad8", "tri6"])
+def test_an_edge_load_reacts_as_its_resultant_on_first_and_second_order_shells(
+    fem_format, order, quads, require_solver, tmp_path
+):
+    """The strip simply supported on its short edges (x = 0: dx, dy, dz; x = 4: dy, dz), a uniform and a linear load
+    down its y = 0 edge over 1..3 m: the reactions sum to ``F = (q1 + q2) l / 2`` and their moment about y to
+    ``-F x_c``, ``x_c = 1 + l (q1 + 2 q2) / (3 (q1 + q2))`` -- 2000 N at 2 m and 4000 N at 2.1667 m.
+
+    On 8-node quads and 6-node triangles the load became nothing (reported ``omitted``: no shell element edge along
+    it), so there was no reaction. Measured: Code_Aster to 1e-9 on all three meshes (DKT on quads; COQUE_3D on the 9-
+    and 7-node cells it makes of 8- and 6-node shells: 1999.999999 N, -4000.0 N m); CalculiX S4 2000 / 4000.022 N, S8
+    1999.8828 / 4000.1266 N, S6 1999.9906 / 4000.109 N, each within what six printed digits per nodal force allow
+    (``5e-6 sum |RF|``: 0.056, 1.08, 0.49 N for the uniform case), which is the tolerance here.
+    """
+    from ada.fem.meshing import GmshOptions
+
+    require_solver(fem_format)
+    a, p, pl, _ = _plate("edge")
+    c = p.concept_fem.constraints
+    c.add_curve_constraint(ConstraintConceptCurve("x0", (0, 0, 0), (0, WID, 0), _dofs(("dx", "dy", "dz"))))
+    c.add_curve_constraint(ConstraintConceptCurve("xL", (L, 0, 0), (L, WID, 0), _dofs(("dy", "dz"))))
+    for name, (q1, q2) in EDGE_CASES.items():
+        line = LoadConceptLine("E" + name, (EDGE_FROM, 0, 0), (EDGE_TO, 0, 0), (0, 0, -q1), (0, 0, -q2))
+        p.concept_fem.loads.add_load_case(LoadConceptCase(name, [line]))
+    p.fem = p.to_fem_obj(0.125, use_quads=quads, options=GmshOptions(Mesh_ElementOrder=order))
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    solved = _solve(a, f"edge{order}{int(quads)}", fem_format, tmp_path)
+
+    supports = [n for n, xyz in solved.coords.items() if abs(xyz[0]) < 1e-9 or abs(xyz[0] - L) < 1e-9]
+    ell = EDGE_TO - EDGE_FROM
+    for k, (q1, q2) in enumerate(EDGE_CASES.values(), start=1):
+        total = (q1 + q2) * ell / 2
+        x_c = EDGE_FROM + ell * (q1 + 2 * q2) / (3 * (q1 + q2))
+        force, moment = solved.reactions(k, supports)
+        if fem_format == "code_aster":
+            tol_f, tol_m = 1e-9 * total, 1e-9 * total * x_c
+        else:
+            rf = solved._fields("rf", k)
+            tol_f = 5e-6 * sum(abs(rf[n][2]) for n in supports)
+            tol_m = 5e-6 * sum(
+                abs(solved.coords[n][0] * rf[n][2]) + abs(solved.coords[n][2] * rf[n][0]) for n in supports
+            )
+        assert abs(force[2] - total) <= tol_f
+        assert abs(moment[1] + total * x_c) <= tol_m
+        assert abs(moment[0]) <= tol_m, "the load acts along y = 0"

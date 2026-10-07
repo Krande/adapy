@@ -245,9 +245,9 @@ def line_load_str(load: LoadLine, deck: DeckContext) -> str:
             STAGE,
             "LoadLine",
             load.name,
-            "a line load on a shell edge or an expanded beam is written as the consistent nodal forces of the linear "
-            "elements it acts on (*CLOAD): CalculiX has no line load in global components and this writer has no "
-            "shell edge form",
+            "a line load on a shell edge or an expanded beam is written as the consistent nodal forces of the elements "
+            "it acts on, linear or quadratic (*CLOAD): CalculiX has no line load in global components and this writer "
+            "has no shell edge form",
             n_nodes=len(nodal),
         )
     return "** Name: {0}   Type: Line load as nodal loads\n*Cload\n{1}".format(load.name, _cload_lines(rows))

@@ -326,6 +326,18 @@ def _corner_count(elem: Elem) -> int:
     return 3 if elem.type in (ShellShapes.TRI, ShellShapes.TRI6, ShellShapes.TRI7) else 4
 
 
+def edge_midside_node(elem: Elem, edge: int) -> Node | None:
+    """The midside node of a second-order shell element's edge ``edge`` (1-based, corner ``edge`` to the next), or
+    ``None`` for a first-order element. adapy's 6-, 7-, 8- and 9-node shells list the corners first and then one node
+    per edge in the same order (gmsh's and Abaqus' S8/STRI65 order): edge ``i`` of an ``n``-corner element has node
+    ``n + i - 1`` (0-based) in the middle."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    if elem.type not in (ShellShapes.TRI6, ShellShapes.TRI7, ShellShapes.QUAD8, ShellShapes.QUAD9):
+        return None
+    return elem.nodes[_corner_count(elem) + edge - 1]
+
+
 class LoadLine(Load):
     """A distributed line load, as the element loads it acts through (:class:`LineLoadSegment`).
 
@@ -355,27 +367,52 @@ class LoadLine(Load):
 
         This is what Abaqus 2025 itself makes of a ``*Dload PZ`` on a B31 element: measured on a 4 m B31 beam in
         eight elements, ``*Dload PZ, -1000`` and ``*Cload -250/-500`` at the nodes gave the same mid-span
-        deflection to all eight printed digits (-2.3587535E-04)."""
+        deflection to all eight printed digits (-2.3587535E-04).
+
+        On the edge of a second-order shell (6-, 7-, 8- or 9-node: :func:`edge_midside_node`) the edge interpolates
+        quadratically through its midside node, and the forces go to its three nodes with ``N_a = (1 - x)(1 - 2x)``,
+        ``N_m = 4x(1 - x)`` and ``N_b = x(2x - 1)``: a uniform ``q`` over the edge gives ``qL/6, 4qL/6, qL/6``. The two
+        end nodes alone would load the midside node with nothing, which the element does not take as the same load.
+        The midside node must lie halfway along the edge (a straight edge, as every edge a line load is put on is);
+        otherwise the shape functions above are not the element's and the segment is refused.
+        """
         a, b = seg.ends()
         length = float(np.linalg.norm(b - a))
         x1, x2 = seg.l1 / length, 1.0 - seg.l2 / length
         q1, q2 = np.asarray(seg.q1, dtype=float), np.asarray(seg.q2, dtype=float)
-        # q(x) linear from q1 at x1 to q2 at x2 (x as a fraction of L); exact Gauss over the stretch.
-        f_a, f_b = np.zeros(3), np.zeros(3)
+        mid = None if seg.edge is None else edge_midside_node(seg.elem, seg.edge)
+        if mid is None:
+
+            def shapes(x):
+                return (1 - x, x)
+
+        else:
+            off = float(np.linalg.norm(np.asarray(mid.p, dtype=float) - 0.5 * (a + b)))
+            if off > 1e-6 * length:
+                raise ValueError(
+                    f"line load on edge {seg.edge} of element {seg.elem.id}: its midside node {mid.id} is {off:.3g} "
+                    f"from the middle of the edge; the consistent nodal loads of a curved edge are not written"
+                )
+
+            def shapes(x):
+                return ((1 - x) * (1 - 2 * x), 4 * x * (1 - x), x * (2 * x - 1))
+
+        # q(x) linear from q1 at x1 to q2 at x2 (x as a fraction of L); Gauss over the stretch, exact up to a cubic.
         span = x2 - x1
-        for g, w in ((-1 / np.sqrt(3), 1.0), (1 / np.sqrt(3), 1.0)):
+        jac = 0.5 * span * length
+        forces = [np.zeros(3) for _ in shapes(0.0)]
+        for g, w in zip(*np.polynomial.legendre.leggauss(3)):
             t = 0.5 * (g + 1.0)
-            x = x1 + t * span
             q = q1 * (1 - t) + q2 * t
-            jac = 0.5 * span * length
-            f_a += w * jac * q * (1 - x)
-            f_b += w * jac * q * x
+            for f, n in zip(forces, shapes(x1 + t * span)):
+                f += w * jac * q * n
         if seg.edge is None:
-            n_a, n_b = seg.elem.nodes[0], seg.elem.nodes[1]
+            nodes = [seg.elem.nodes[0], seg.elem.nodes[1]]
         else:
             corners = _corner_count(seg.elem)
             n_a, n_b = seg.elem.nodes[seg.edge - 1], seg.elem.nodes[seg.edge % corners]
-        return [(n_a, f_a), (n_b, f_b)]
+            nodes = [n_a, n_b] if mid is None else [n_a, mid, n_b]
+        return list(zip(nodes, forces))
 
     @staticmethod
     def summed_nodal_loads(segments: Iterable[LineLoadSegment]) -> list[tuple[Node, np.ndarray]]:

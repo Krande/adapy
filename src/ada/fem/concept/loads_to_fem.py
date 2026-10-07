@@ -320,9 +320,20 @@ class _Converter:
         from ada.fem.loads.fe_loads import _corner_count
         from ada.fem.shapes.definitions import ShellShapes
 
+        # Second-order shells too: their edges run corner to corner like a first-order one's, and the midside node
+        # takes its share in the nodal loads (LoadLine.nodal_loads). Only TRI and QUAD were looked at, so a line load
+        # along a plate meshed in 6- or 8-node shells became no load, reported as lying along no element edge.
+        shells = (
+            ShellShapes.TRI,
+            ShellShapes.QUAD,
+            ShellShapes.TRI6,
+            ShellShapes.TRI7,
+            ShellShapes.QUAD8,
+            ShellShapes.QUAD9,
+        )
         edges = []
         for el in self.fem.elements:
-            if el.type not in (ShellShapes.TRI, ShellShapes.QUAD):
+            if el.type not in shells:
                 continue
             n = _corner_count(el)
             edges += [(el, i, el.nodes[i - 1], el.nodes[i % n]) for i in range(1, n + 1)]

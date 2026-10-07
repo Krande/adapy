@@ -119,7 +119,7 @@ def line_load_str(load: LoadLine) -> str:
             "LoadLine",
             load.name,
             "a varying or partial beam line load, or a shell edge load, is written as the consistent nodal forces "
-            "of the linear elements it acts on: Abaqus' beam loads are constant per element and this writer has no "
+            "of the (linear or quadratic) edges it acts on: Abaqus' beam loads are constant per element and this writer has no "
             "shell edge surface",
             n_nodes=len(nodal),
         )

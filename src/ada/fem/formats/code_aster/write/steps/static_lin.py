@@ -209,6 +209,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
 )"""
 
     field_str = create_field_output_str(step, part, result, targets)
+    printed = _second_order_shell_fields(step, part)
 
     return f"""
 {load_str}
@@ -218,11 +219,44 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
 {field_str}
 
 IMPR_RESU(
-    RESU=_F(RESULTAT={result}{resu_cara_str}),
+    RESU=_F(RESULTAT={result}{resu_cara_str}{printed}),
     UNITE=80
 )
 
 """
+
+
+def _second_order_shell_fields(step, part) -> str:
+    """``, NOM_CHAM=(...)`` for a model with second-order shells, else nothing.
+
+    adapy writes 6- and 8-node shells as ``COQUE_3D`` on the 7- and 9-node cells ``CREA_MAILLAGE`` makes of them, and
+    Code_Aster 18.1.8 cannot print a field with sub-points (layers) on those to MED: "<MED2_20> L'impression pour des
+    éléments COQUE avec l'élément support QU9 n'est pas géré" -- measured on every linear static step of such a model,
+    including ``test_fem_static_cantilever``'s second-order shells, which passed only because the run's partial MED
+    file existed. The stresses (``SIEF_ELGA``, ``SIGM_ELNO``, ``SIEF_ELNO``) are such fields; displacements,
+    reactions and generalised forces (``EFGE``) are not. So those three are printed and the stresses are reported
+    ``omitted``.
+    """
+    from ada.fem.formats import conversion_report
+    from ada.fem.shapes.definitions import ShellShapes
+
+    from ..write_loads import STAGE
+
+    second = (ShellShapes.TRI6, ShellShapes.QUAD8)
+    if not any(el.type in second for el in part.fem.elements):
+        return ""
+    fields = ["DEPL"]
+    if step.field_outputs:
+        fields += ["REAC_NODA", "EFGE_ELNO", "EFGE_NOEU"]
+    conversion_report.current().omitted(
+        STAGE,
+        "IMPR_RESU",
+        step.name,
+        "stresses on second-order shells (COQUE_3D on 7- and 9-node cells) are not printed: Code_Aster cannot write "
+        "their layered fields to MED (MED2_20); displacements, reactions and generalised forces are",
+    )
+    names = ", ".join(f'"{f}"' for f in fields)
+    return f", NOM_CHAM=({names},)"
 
 
 def _function_str(name: str, values) -> str:
