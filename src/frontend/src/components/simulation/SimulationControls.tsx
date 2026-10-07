@@ -683,7 +683,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 {timeHistory ? (
                     // A time history: the slider IS the timeline. Scrub it to any frame;
                     // play moves it. Deformation stays at true scale (x below exaggerates).
-                    <div className="flex items-center gap-2 flex-1 min-w-[100px]">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                         <input
                             type="range"
                             min={0}
@@ -691,22 +691,22 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             step={1}
                             value={stepIndex}
                             onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
-                            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                            className="min-w-0 flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
                             title="Time"
                             aria-label="Time"
                         />
                         <div
-                            className="whitespace-nowrap text-white text-sm font-mono tabular-nums text-right"
+                            className="shrink-0 whitespace-nowrap text-white text-sm font-mono tabular-nums text-right"
                             // Wide enough for the longest time of this history, so the
                             // readout keeps its width while it counts.
-                            style={{minWidth: `${timeReadoutChars + 4}ch`}}
+                            style={{minWidth: `${timeReadoutChars + 3}ch`}}
                             title="Time of the shown frame"
                         >
                             t = {stepTimeText} s
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center gap-2 flex-1 min-w-[100px]">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                         <input
                             type="range"
                             min={lo}
@@ -714,9 +714,9 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             step={factorStep}
                             value={factor}
                             onChange={(e) => onFactorChange(parseFloat(e.target.value))}
-                            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                            className="min-w-0 flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
                         />
-                        <div className="text-white text-sm font-mono w-12 text-center">
+                        <div className="shrink-0 text-white text-sm font-mono w-12 text-center">
                             {factor.toFixed(2)}
                         </div>
                     </div>
@@ -1020,9 +1020,9 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         setCurrentKey(newTime);
                         seekAnimation(newTime);
                     }}
-                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                    className="min-w-0 flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
                 />
-                <div className="text-white text-sm font-mono w-12 text-center">
+                <div className="shrink-0 text-white text-sm font-mono w-12 text-center">
                     {roundedCurrentKey}
                 </div>
             </div>
