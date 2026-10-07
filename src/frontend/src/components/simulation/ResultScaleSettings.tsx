@@ -61,7 +61,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
     const preview = contourBands([legendMin, legendMax], contour.levels ?? 10, colormap);
 
     return (
-        <div className="flex w-64 flex-col gap-2 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-0)] p-2 text-[11px] text-[var(--ada-panel-text)] shadow-lg">
+        <div className="flex w-64 flex-col gap-2 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-bg)] p-2 text-[11px] text-[var(--ada-panel-text)] shadow-lg [color-scheme:var(--ada-panel-color-scheme,normal)]">
             <div className="flex items-center justify-between">
                 <span className="font-semibold uppercase tracking-wide">Result scale</span>
                 {onClose && (
@@ -79,7 +79,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
             <label className="flex items-center justify-between gap-2">
                 <span>Colours</span>
                 <select
-                    className="min-w-0 flex-1 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-2,#fff)] px-1 py-0.5 text-[var(--ada-panel-text,#000)]"
+                    className="min-w-0 flex-1 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)]"
                     value={colormap}
                     onChange={(e) => {
                         setColormap(e.target.value);
@@ -99,7 +99,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                 <input
                     type="text"
                     inputMode="decimal"
-                    className="w-32 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-2,#fff)] px-1 py-0.5 text-[var(--ada-panel-text,#000)]"
+                    className="w-32 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)]"
                     value={maxText}
                     placeholder={String(auto[1])}
                     onChange={(e) => setMaxText(e.target.value)}
@@ -113,7 +113,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                 <input
                     type="text"
                     inputMode="decimal"
-                    className="w-32 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-2,#fff)] px-1 py-0.5 text-[var(--ada-panel-text,#000)]"
+                    className="w-32 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)]"
                     value={minText}
                     placeholder={String(auto[0])}
                     onChange={(e) => setMinText(e.target.value)}
@@ -125,7 +125,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
 
             <button
                 type="button"
-                className="self-start rounded-sm border border-[var(--ada-panel-border)] px-2 py-0.5 hover:bg-[var(--ada-surface-2)]"
+                className="self-start rounded-sm border border-[var(--ada-panel-border)] px-2 py-0.5 hover:bg-[var(--ada-panel-surface)]"
                 onClick={() => void resetContourBounds()}
                 title="Back to this field's own minimum and maximum"
             >
@@ -151,7 +151,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                         min={MIN_LEVELS}
                         max={MAX_LEVELS}
                         step={1}
-                        className="w-20 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-2,#fff)] px-1 py-0.5 text-[var(--ada-panel-text,#000)]"
+                        className="w-20 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)]"
                         value={contour.levels ?? 9}
                         onChange={(e) => void applyContourSettings({levels: Number(e.target.value)})}
                         title={`How many bands the range is cut into (${MIN_LEVELS}–${MAX_LEVELS})`}

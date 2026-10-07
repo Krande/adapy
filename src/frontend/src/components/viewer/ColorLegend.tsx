@@ -123,7 +123,7 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
                 type="button"
                 onClick={() => setExpanded(true)}
                 aria-label="Show colour legend"
-                className="w-40 select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-0)]/85 p-1.5 text-left text-[10px] leading-tight text-[var(--ada-panel-text)] shadow-lg backdrop-blur-sm"
+                className="w-40 select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-bg)] p-1.5 text-left text-[10px] leading-tight text-[var(--ada-panel-text)] shadow-lg backdrop-blur-sm"
             >
                 {sessionActive && path && <div className="truncate font-semibold">{path}</div>}
                 <div
@@ -146,7 +146,7 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
         <div
             className={
                 (inPanel ? "w-full " : "w-56 shadow-lg backdrop-blur-sm ") +
-                "select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-0)]/85 p-2 text-[11px] leading-tight text-[var(--ada-panel-text)]"
+                "select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-bg)] p-2 text-[11px] leading-tight text-[var(--ada-panel-text)]"
             }
             onClick={!inPanel && isMobile ? () => setExpanded(false) : undefined}
         >
