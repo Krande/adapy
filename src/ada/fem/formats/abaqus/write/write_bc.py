@@ -150,12 +150,42 @@ def prescribed_in_step_str(step: Step, bcs) -> str:
     return "\n".join(out)
 
 
+def prescribed_in_case_str(step: Step, case: str, bcs) -> str:
+    """The prescribed displacements of the model's ``bcs`` in load case ``case`` of a perturbation ``step``: those
+    naming that case, and those naming none. A load case inherits nothing from another, so nothing is reset."""
+    from ada.fem.formats import conversion_report
+
+    out = []
+    in_case: dict[tuple[str, int], str] = {}
+    for bc in bcs:
+        if not is_settlement(bc) or _load_case(bc) not in (None, case):
+            continue
+        clash = sorted({in_case[(bc.fem_set.name, d)] for d in bc.dofs if (bc.fem_set.name, d) in in_case})
+        if clash:
+            conversion_report.current().omitted(
+                STAGE,
+                "*Boundary",
+                bc.name,
+                "a second prescribed displacement of the same dofs in one load case; the first one's values are "
+                "written",
+                step=step.name,
+                load_case=case,
+                kept=clash,
+            )
+            continue
+        in_case.update({(bc.fem_set.name, d): bc.name for d in bc.dofs})
+        out.append(bc_str(bc, True))
+    return "\n".join(out)
+
+
 def report_unstepped_settlements(assembly: Assembly) -> None:
     """Every load case a prescribed displacement names that no static step stands for: its values are written
     nowhere, and the dofs are held at zero."""
     from ada.fem.formats import conversion_report
 
-    steps = [s for s in assembly.fem.steps if _takes_settlements(s)]
+    from .write_steps import abaqus_steps
+
+    steps = [s for s in abaqus_steps(assembly) if _takes_settlements(s)]
     stood_for = set().union(*(_step_cases(s) for s in steps)) if steps else set()
     for bc in assembly.fem.get_all_bcs():
         if not is_settlement(bc):

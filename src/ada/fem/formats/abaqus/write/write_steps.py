@@ -20,6 +20,16 @@ if TYPE_CHECKING:
 _step_types = Union[StepEigen, StepExplicit, StepImplicitStatic, StepSteadyState, StepEigenComplex]
 
 
+def abaqus_steps(assembly) -> list[Step]:
+    """The steps the deck holds: the assembly's, then each part FEM's.
+
+    A part's FEM carries the step its concept load cases became (``Part.to_fem_obj``), and the Sesam writer has
+    always taken a part's steps; this writer took the assembly's only, so a part's step -- its loads and load cases
+    with it -- was left out without a word.
+    """
+    return list(assembly.fem.steps) + [s for p in assembly.get_all_subparts() for s in p.fem.steps]
+
+
 def main_step_inp_str(step: _step_types) -> str:
     return include_str(f"core_input_files\\step_{step.name}.inp")
 
@@ -53,6 +63,9 @@ def abaqus_step_str(step: _step_types):
     if step_str_writer is None:
         raise ValueError(f"Unrecognized step type {step.type}.")
 
+    if _has_load_cases(step):
+        return load_case_step_str(step, app_str)
+
     step_input_str = step_str_writer(step)
 
     return step_inp_str.format(
@@ -60,6 +73,66 @@ def abaqus_step_str(step: _step_types):
         step_input=step_input_str,
         bcs_str=all_bc_str(step),
         load_str=load_str(step),
+        int_str=interactions_str(step),
+        restart_request_str=restart_request_str(step),
+        hist_output_str=hist_output_str(step),
+        field_output_str=field_output_str(step),
+        app_str=app_str,
+    )
+
+
+def _has_load_cases(step) -> bool:
+    return step.type == Step.TYPES.STATIC and not isinstance(step, StepEigen) and len(step.load_cases) > 0
+
+
+def load_case_step_str(step: StepImplicitStatic, app_str: str = "**") -> str:
+    """A static step holding load cases: a linear perturbation step with one ``*Load Case`` block per case.
+
+    Each Sesam load case is solved on its own, and so is each ``*Load Case`` of a perturbation step -- a general
+    static step carries its loads into the next, and writing every case's loads into one step, as this did, summed
+    them. Measured with Abaqus 2025 on a 4 m B31 beam: the model data's ``*Boundary`` holds in every load case
+    (reactions 2000 + 2000 N for 1000 N/m), a ``*Boundary`` with a value inside a load case prescribes that dof in
+    that case only even when model data holds it (the end at -0.01, a rigid-body rotation of 2.5e-3), and no case
+    inherits another's loads. A prescribed displacement goes into the case its ``Bc`` names (``BC_LOAD_CASE``), one
+    naming none into every case. The step's own boundary conditions are written in every case. A perturbation step
+    is linear: a step asking for geometric nonlinearity is reported.
+    """
+    from ada.fem.formats import conversion_report
+
+    from .write_bc import STAGE, bc_str, prescribed_in_case_str
+    from .write_loads import load_str as one_load_str
+
+    rep = conversion_report.current()
+    if step.nl_geom:
+        rep.approximated(
+            STAGE, "Step", step.name, "a step of load cases is a linear perturbation step; nlgeom is not written"
+        )
+    in_cases = {id(ld) for lc in step.load_cases.values() for ld in (lc.loads or [])}
+    for load in step.loads:
+        if id(load) not in in_cases:
+            rep.omitted(STAGE, "Load", load.name, "a load of a step with load cases, in none of them", step=step.name)
+
+    model_bcs = list(step.parent.get_all_bcs()) if getattr(step.parent, "parent", None) is not None else []
+    step_bcs = [bc_str(bc, True) for bc in step.bcs.values()]
+    cases = []
+    for lc in step.load_cases.values():
+        body = step_bcs + [prescribed_in_case_str(step, lc.name, model_bcs)]
+        body += [one_load_str(load) for load in (lc.loads or [])]
+        body = [b.strip("\n") for b in body if b]
+        cases.append(
+            render_keyword("Load Case", [("name", lc.name)])
+            + ("\n".join(body) + "\n" if body else "")
+            + render_keyword("End Load Case")
+        )
+
+    head = render_keyword(
+        "Step", [("name", step.name), ("nlgeom", "NO"), ("perturbation", None)], (), _step_banner(step)
+    ) + render_keyword("Static")
+    return step_inp_str.format(
+        name=step.name,
+        step_input=head.rstrip(),
+        bcs_str="** In the load cases",
+        load_str="".join(cases).rstrip(),
         int_str=interactions_str(step),
         restart_request_str=restart_request_str(step),
         hist_output_str=hist_output_str(step),
