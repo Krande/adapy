@@ -194,8 +194,11 @@ def calc_isec(sec: Section) -> GeneralProperties:
     # ``t_fbtn`` ``None``). Falling back to the top values
     # produces the right answer for the symmetric case and
     # avoids a ``TypeError: NoneType + float`` that previously
-    # aborted the whole solid_geom path.
-    bb = sec.w_btn if sec.w_btn is not None else bt
+    # aborted the whole solid_geom path. A T declared without them
+    # (``geom_beams`` from an IFC TShapeProfileDef) has no bottom flange:
+    # its stub is the web's own width.
+    is_t = sec.type == SectionCat.BASETYPES.TPROFILE
+    bb = sec.w_btn if sec.w_btn is not None else ty if is_t else bt
     tb = sec.t_fbtn if sec.t_fbtn is not None else tt
 
     Ax = bt * tt + ty * (hz - (tb + tt)) + bb * tb
