@@ -58,6 +58,9 @@ import {
     type SimulationTabEntry,
 } from "@/plugins";
 import SimWindowFrame, {type SimFrameMode} from "./SimWindowFrame";
+import ColorLegend from "../viewer/ColorLegend";
+import {useColorStore} from "@/state/colorLegendStore";
+import {useIsMobile} from "@/utils/useIsMobile";
 
 export interface SimulationControlsProps {
     // The follower / new-window entry boots the frame already maximized as a
@@ -86,14 +89,22 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     // Rebuilt each render so activation + badges track live store state.
     const baseCtx = makePluginContext("", stores);
     const tabs = getSimulationTabs(baseCtx);
+    // Phones: the colour legend is a tab here rather than floating over the canvas.
+    const isMobile = useIsMobile();
+    const legendShown = useColorStore((s) => s.showLegend);
+    const legendTab = !forcedTabId && isMobile && sessionActive && legendShown;
 
     // Snap back to Animation if the active plugin tab goes away (model unloaded).
     useEffect(() => {
         if (forcedTabId) return;
+        if (activeTabState === "legend") {
+            if (!legendTab) setActiveTabState("animation");
+            return;
+        }
         if (activeTabState !== "animation" && !tabs.some((t) => t.panel.id === activeTabState)) {
             setActiveTabState("animation");
         }
-    }, [tabs, activeTabState, forcedTabId]);
+    }, [tabs, activeTabState, forcedTabId, legendTab]);
 
     const onOpenWindow = () => {
         const panelId = forcedTabId ?? (activeTab !== "animation" ? activeTab : tabs[0]?.panel.id ?? "");
@@ -113,15 +124,18 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
 
     const body = (
         <div className="flex flex-col gap-2 min-w-0">
-            {!forcedTabId && tabs.length > 0 && (
+            {!forcedTabId && (tabs.length > 0 || legendTab) && (
                 <SimTabStrip
                     tabs={tabs}
+                    legendTab={legendTab}
                     activeTab={activeTab}
                     onSelect={setActiveTabState}
                     ctxFor={(pid) => makePluginContext(pid, stores)}
                 />
             )}
-            {activePluginTab ? (
+            {legendTab && activeTab === "legend" ? (
+                <ColorLegend placement="panel" />
+            ) : activePluginTab ? (
                 <PluginTabBody
                     pluginId={activePluginTab.pluginId}
                     panel={activePluginTab.panel}
@@ -177,16 +191,20 @@ const AnimationTab: React.FC<{sessionActive: boolean; showSimData: boolean; onTo
 
 const SimTabStrip: React.FC<{
     tabs: SimulationTabEntry[];
+    legendTab: boolean;
     activeTab: string;
     onSelect: (id: string) => void;
     ctxFor: (pluginId: string) => AdaPluginContext;
-}> = ({tabs, activeTab, onSelect, ctxFor}) => (
+}> = ({tabs, legendTab, activeTab, onSelect, ctxFor}) => (
     <div
         className="flex flex-wrap gap-0.5 border-b border-white/15"
         role="tablist"
         aria-label="Simulation panel section"
     >
         <SimTabButton id="animation" label="Animation" active={activeTab === "animation"} onClick={() => onSelect("animation")} />
+        {legendTab && (
+            <SimTabButton id="legend" label="Legend" active={activeTab === "legend"} onClick={() => onSelect("legend")} />
+        )}
         {tabs.map((t) => {
             let badge: number | string | null = null;
             try {
