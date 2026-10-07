@@ -2,8 +2,7 @@
 
 Two cells share one wall; a pipe routed from a pump in one cell to a tank in the other has
 to cross it. The detail function cuts a circular hole in the wall and reinforces it with a
-thin-walled sleeve. Shown on docs/documents/procedural_modelling.md (included from this
-file) and rendered for that page by scripts/ui_stories.py (story ``penetration``).
+thin-walled sleeve. Shown on docs/procedural_modelling.md, which includes the code below.
 
     python examples/penetration_detail.py     # opens the model in the viewer
 

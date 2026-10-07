@@ -3,12 +3,12 @@
 This interactive report presents the results of eigenvalue analysis verification tests across
 multiple FEA software packages supported by ADA.
 
-[Open the interactive FEA verification report :material-arrow-right:](../../_static/fea-report/index.html){ .md-button .md-button--primary }
+[Open the interactive FEA verification report :material-arrow-right:](../_static/fea-report/index.html){ .md-button .md-button--primary }
 
 Download the report:
-[PDF](../../_static/fea-report-files/fea-report.pdf){ download } ·
-[Word (DOCX)](../../_static/fea-report-files/fea-report.docx){ download } ·
-[OpenDocument (ODT)](../../_static/fea-report-files/fea-report.odt){ download }
+[PDF](../_static/fea-report-files/fea-report.pdf){ download } ·
+[Word (DOCX)](../_static/fea-report-files/fea-report.docx){ download } ·
+[OpenDocument (ODT)](../_static/fea-report-files/fea-report.odt){ download }
 
 The report is a standalone paradoc bundle with sortable tables,
 interactive 3D mode-shape viewers, and a frequency-vs-mode plot.

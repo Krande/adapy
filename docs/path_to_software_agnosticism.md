@@ -56,7 +56,7 @@ flowchart LR
     I_STEP -. "native stream (adacpp)" .-> O_GLB
     I_IFC -. "native stream (adacpp)" .-> O_GLB
 
-    click ASM href "architecture/core_model.html" "The object model every format reads into"
+    click ASM href "architecture/core_model/" "The object model every format reads into"
     click I_IFC href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/ifc" "IFC reader and writers"
     click O_IFC href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/ifc" "IFC reader and writers"
     click I_STEP href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/step" "STEP readers, writers and streams"
@@ -66,11 +66,11 @@ flowchart LR
     click O_XML href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/gxml" "Genie XML"
     click I_GNX href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/gxml" "Genie workspace"
     click O_GNX href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/gxml" "Genie workspace"
-    click I_DEX href "dexpi.html" "DEXPI: P&ID in, routed 3D model out"
-    click O_DEX href "dexpi.html" "DEXPI: P&ID in, routed 3D model out"
+    click I_DEX href "dexpi/" "DEXPI: P&ID in, routed 3D model out"
+    click O_DEX href "dexpi/" "DEXPI: P&ID in, routed 3D model out"
     click O_MAC href "https://github.com/Krande/adapy/tree/main/src/ada/cadit/e3d" "AVEVA E3D macro writer"
-    click O_GLB href "architecture/geometry_and_visualisation.html#from-model-to-glb" "Model to GLB"
-    click I_PY href "notebooks/design/parts_and_assemblies.html" "Parts and assemblies"
+    click O_GLB href "architecture/geometry_and_visualisation/#from-model-to-glb" "Model to GLB"
+    click I_PY href "notebooks/design/parts_and_assemblies/" "Parts and assemblies"
 ```
 
 ## Finite element analysis
@@ -137,24 +137,24 @@ flowchart LR
     RES -- "show" --> P_SHOW
     R_RMED & R_SIN & R_ANIM -- "streaming bake" --> P_ART
 
-    click GMSH href "architecture/fea.html#meshing-a-design-model" "Meshing a design model"
-    click FEM href "architecture/fea.html#the-fe-model-adafem" "The FE model"
+    click GMSH href "architecture/fea/#meshing-a-design-model" "Meshing a design model"
+    click FEM href "architecture/fea/#the-fe-model-adafem" "The FE model"
     click D_ABA href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/abaqus" "Abaqus read/write/execute/results"
     click D_CCX href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/calculix" "CalculiX write/execute/results"
     click D_CA href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/code_aster" "Code_Aster read/write/execute/results"
     click D_SES href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/sesam" "Sesam read/write/execute/results"
     click D_USF href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/usfos" "Usfos writer"
     click D_OC href "https://github.com/Krande/adapy/tree/main/src/ada/fem/formats/opencourant" "OpenCourant write/execute/results"
-    click S_CA href "fea/fea_software.html" "Installing the solvers"
-    click S_CCX href "fea/fea_software.html" "Installing the solvers"
-    click S_OC href "fea/fea_software.html#opencourant" "OpenCourant: explicit dynamics"
-    click RES href "architecture/fea.html#results-adafemresults" "FEAResult"
-    click P_ART href "architecture/fea.html#viewer-bake" "The streaming viewer bake"
+    click S_CA href "fea/software/" "Installing the solvers"
+    click S_CCX href "fea/software/" "Installing the solvers"
+    click S_OC href "fea/software/#opencourant" "OpenCourant: explicit dynamics"
+    click RES href "architecture/fea/#results-adafemresults" "FEAResult"
+    click P_ART href "architecture/fea/#viewer-bake" "The streaming viewer bake"
 ```
 
 The FE model can also be filled from an existing deck (`ada.from_fem`), so one solver's
 deck becomes another's: read an Abaqus `.inp`, write a Sesam `.FEM`. Code_Aster, CalculiX
-and OpenCourant (explicit dynamics) are open source (see [FEA Software](fea/fea_software.md)).
+and OpenCourant (explicit dynamics) are open source (see [FEA Software](fea/software.md)).
 Abaqus and Sesam need their own licences.
 
 ## One fluent operation

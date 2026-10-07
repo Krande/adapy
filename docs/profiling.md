@@ -1,6 +1,6 @@
 # Profiling Dashboard
 
-<link rel="stylesheet" href="../_static/profiling-app/profiling.css">
+<link rel="stylesheet" href="_static/profiling-app/profiling.css">
 <div class="profiling-dashboard">
     <div class="dashboard-header">
         <h2>📊 Profiling Dashboard</h2>
@@ -44,7 +44,7 @@
         </div>
     </div>
 </div>
-<script src="../_static/profiling-app/profiling.js"></script>
+<script src="_static/profiling-app/profiling.js"></script>
 
 ## How it Works
 

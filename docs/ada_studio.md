@@ -23,7 +23,7 @@ A model in your storage opens in the 3D view together with its object tree. Here
 file of the [topology engine's](topology_engine.md) demo structure: columns, girders,
 stiffeners and decks, organised the way the model's parts are.
 
-![An IFC model opened from storage, with its object tree](../screenshots/ada-studio/model.png)
+![An IFC model opened from storage, with its object tree](screenshots/ada-studio/model.png)
 
 ## Select and inspect
 
@@ -32,7 +32,7 @@ name and where it sits in the hierarchy. **Properties** reads its attributes fro
 file on demand, so the model you load stays lean. From the panel you can hide the member or
 everything else, and download the selection as its own file.
 
-![Selecting a member and reading its properties](../screenshots/ada-studio/select.png)
+![Selecting a member and reading its properties](screenshots/ada-studio/select.png)
 
 ## Your files
 
@@ -43,7 +43,7 @@ open it. **+** uploads files (or drop them on the panel), creates folders, and s
 procedural model, from scratch, from a template or from Excel. The **⋯** on each row holds
 that file's own actions.
 
-![Files in your storage scope](../screenshots/ada-studio/storage.png)
+![Files in your storage scope](screenshots/ada-studio/storage.png)
 
 ## FE results
 
@@ -51,13 +51,13 @@ Result files open in the streaming FE viewer: a Code_Aster `.rmed` here, and Ses
 `.SIN`/`.SIF`, OpenCourant `.radanim` and FE meshes the same way. Pick the **field**, the
 **component** and the **step** (for an eigenvalue analysis, the mode and its frequency), scale
 the deformation, or let the mode oscillate. A time history, such as an
-[OpenCourant](fea/fea_software.md#opencourant) explicit run, opens on its last frame, and the
+[OpenCourant](fea/software.md#opencourant) explicit run, opens on its last frame, and the
 step slider becomes a timeline that **Play** steps through at true time scale. Either kind can
 be exported as an MP4 or GIF animation. Each step is fetched on its own, so a result with
 hundreds of steps opens as fast as one with a single step.
 [FEA → Viewer bake](architecture/fea.md#viewer-bake) explains how.
 
-![Eigenmodes of a Code_Aster result](../screenshots/ada-studio/fea-modes.png)
+![Eigenmodes of a Code_Aster result](screenshots/ada-studio/fea-modes.png)
 
 ## Clash and joint check
 
@@ -67,7 +67,7 @@ girder, the angle between them) and marks them in 3D. Filter the groups, isolate
 which [connection rules](architecture/platform.md#clash-and-joints-adaclash) apply. Here, 12
 joints match the built-in girder-gusset rule, and **generate detail model** builds those details.
 
-![A clash check: every joint in the model, grouped by type](../screenshots/ada-studio/clash.png)
+![A clash check: every joint in the model, grouped by type](screenshots/ada-studio/clash.png)
 
 ## What else is in it
 
@@ -123,4 +123,4 @@ wiped on every run, with no login, no database and no job queue. It seeds a mode
 result, converting and baking them in-process with the same code a worker runs. A story is a
 function decorated with `@story("name", "summary")`: it opens one screen in the state a user
 would see it, and waits for it to settle. Add a story, then embed
-`../screenshots/ada-studio/<name>.png` where this page describes it.
+`screenshots/ada-studio/<name>.png` where this page describes it.

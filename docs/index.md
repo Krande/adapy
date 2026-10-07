@@ -12,9 +12,9 @@ IFC and various Finite Element formats.
 
 ## Where to start
 
-- **Modelling:** the [primitives](documents/notebooks/design/primitives/box.md) and
-  [modelling](documents/notebooks/design/parts_and_assemblies.md) notebooks. Each one has an
+- **Modelling:** the [primitives](notebooks/design/primitives/box.md) and
+  [modelling](notebooks/design/parts_and_assemblies.md) notebooks. Each one has an
   interactive 3D viewer and can be downloaded and run.
-- **Finite element analysis:** [supported solvers](documents/fea/fea_software.md) and the
-  [FEA verification report](documents/fea/fea_verification.md).
-- **How adapy is built:** the [architecture overview](documents/architecture/index.md).
+- **Finite element analysis:** [supported solvers](fea/software.md) and the
+  [FEA verification report](fea/verification.md).
+- **How adapy is built:** the [architecture overview](architecture/index.md).

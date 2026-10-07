@@ -38,7 +38,7 @@ flowchart TB
     RESF --> BAKE --> VIEW
     DECKIN --> BAKE
 
-    click PART href "core_model.html" "The object model"
+    click PART href "architecture/core_model/" "The object model"
     click CONC href "https://github.com/Krande/adapy/tree/main/src/ada/fem/concept" "ConceptFEM: concept-level loads and constraints"
     click GMSH href "https://github.com/Krande/adapy/tree/main/src/ada/fem/meshing" "GmshSession and partitioning"
     click FEM href "https://github.com/Krande/adapy/blob/main/src/ada/fem/base.py" "class FEM"
@@ -344,7 +344,7 @@ flowchart TB
 ## Verification report
 
 `verification/` is a [paradoc](https://github.com/Krande/paradoc) project that builds the
-[FEA verification report](../fea/fea_verification.md):
+[FEA verification report](../fea/verification.md):
 
 ```mermaid
 flowchart TB
@@ -360,7 +360,7 @@ flowchart TB
     click T href "https://github.com/Krande/adapy/blob/main/verification/tasks.py" "The report's task DAG"
     click CACHE href "https://github.com/Krande/adapy/tree/main/verification/.cache" "Committed Abaqus / Sesam results"
     click PD href "https://github.com/Krande/adapy/blob/main/verification/paradoc.toml" "paradoc build profiles"
-    click WEB href "../fea/fea_verification.html" "Open the report page"
+    click WEB href "fea/verification/" "Open the report page"
 ```
 
 Code_Aster and CalculiX run on every build. Abaqus and Sesam need licences, so their results

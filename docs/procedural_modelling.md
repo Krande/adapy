@@ -12,7 +12,7 @@ the wall and reinforces it with a thin-walled sleeve:
 --8<-- "examples/penetration_detail.py:model"
 ```
 
-<iframe class="ada-viewer" src="../_static/viewer-figures/penetration_detail.html" loading="lazy" style="width:100%;height:520px;border:none;" title="3D view: a pipe through the shared wall, with its sleeve"></iframe>
+<iframe class="ada-viewer" src="_static/viewer-figures/penetration_detail.html" loading="lazy" style="width:100%;height:520px;border:none;" title="3D view: a pipe through the shared wall, with its sleeve"></iframe>
 
 The shared wall, the pump and tank, the pipe and its sleeve: drag to orbit, scroll to zoom,
 click an object to inspect it. The roof deck is left out so it doesn't hide the crossing.

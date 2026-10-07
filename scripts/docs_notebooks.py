@@ -119,6 +119,8 @@ def extract_viewers(nb, files_dir: pathlib.Path) -> int:
         (files_dir / name).write_text(doc, encoding="utf-8")
         height = _HEIGHT.search(match["attrs"])
         h = f"{height[1]}px" if height else "500px"
+        # Relative to the page's source file, like a Markdown link: the site generator rewrites
+        # it for the page's URL.
         return (
             f'<iframe class="ada-viewer" src="{files_dir.name}/{name}" loading="lazy" '
             f'style="width:100%;height:{h};border:none;" title="3D viewer"></iframe>'

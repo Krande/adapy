@@ -35,7 +35,7 @@ flowchart TB
     SITE --> IMG["docs image (nginx)<br/>deploy/Dockerfile.docs"]
 
     click VER href "https://github.com/Krande/adapy/tree/main/verification" "The paradoc report project"
-    click FEADOC href "../fea/fea_verification.html" "The FEA verification report"
+    click FEADOC href "fea/verification/" "The FEA verification report"
     click NBCONV href "https://github.com/Krande/adapy/blob/main/scripts/docs_notebooks.py" "Notebook execution and conversion"
     click ZEN href "https://github.com/Krande/adapy/blob/main/zensical.toml" "Site configuration"
     click GH href "https://github.com/Krande/adapy/blob/main/.github/workflows/ci-pages.yml" "GitHub Pages workflow"
@@ -89,17 +89,27 @@ sequenceDiagram
 - **3D figures on ordinary pages** use the same viewer. `FIGURES` in the script maps a name to
   `script.py:function`, a function that returns a model. A full run renders it to
   `_static/viewer-figures/<name>.html`, and the page embeds it with
-  `<iframe class="ada-viewer" src="../_static/viewer-figures/<name>.html" loading="lazy">`.
+  `<iframe class="ada-viewer" src="_static/viewer-figures/<name>.html" loading="lazy">`
+  (from a page at the top of `docs/`).
   The procedural modelling page does this with `examples/penetration_detail.py:figure`.
   Its code block is included from the same file
   (`--8<-- "examples/penetration_detail.py:model"`), so the figure always shows the code above it.
 
 ## Configuration notes
 
-- `use_directory_urls = false` keeps the Sphinx-era URLs (`documents/cli.html`,
-  `_static/fea-report/index.html`) working for existing links.
-- Mermaid diagrams are `pymdownx.superfences` custom fences: write a ```` ```mermaid ````
+- **URLs:** pages are served as directories: `docs/cli.md` is `/cli/`, and
+  `docs/architecture/fea.md` is `/architecture/fea/`. Static files keep their paths, so
+  `/_static/fea-report/index.html` is unchanged. The Sphinx-era `documents/*.html` URLs are not
+  redirected.
+- **Relative links**, whether Markdown (`[text](other.md)`) or raw HTML (`<iframe src>`,
+  `<link href>`, `<script src>`), are written relative to the page's **source file**, and the
+  site generator rewrites them for the page's URL. From `docs/x.md` the static folder is
+  `_static/`, and from `docs/fea/x.md` it is `../_static/`. Mermaid `click` links are the
+  exception (see [Diagrams](#diagrams)).
+- **Mermaid diagrams** are `pymdownx.superfences` custom fences: write a ```` ```mermaid ````
   block. GitHub renders the same blocks when you read the Markdown in the repository.
+- **The API reference** (`code.md`) uses mkdocstrings with the Python handler
+  (`paths = ["src"]`, Sphinx-style docstrings).
 
 ## Diagrams
 
@@ -119,8 +129,8 @@ When you add a diagram:
 
 - Give boxes short ids (`FEM`, `REG`). Tracing parses edge ids of the form `L_SRC_DST_n`, and
   ids containing `_` still work.
-- Add `click` lines for boxes that correspond to a module or a page. Use relative `.html` links
-  for pages and `https://github.com/Krande/adapy/blob|tree/main/...` for code.
+- Add `click` lines for boxes that correspond to a module or a page. Write page links relative
+  to the **site root**, whatever page the diagram is on: `click FEM href "architecture/fea/#viewer-bake"`.
+  `diagrams.js` prefixes the page's own path to the root (`base` in the theme's `#__config`).
+  Code links are `https://github.com/Krande/adapy/blob|tree/main/...`.
 - Keep labels to two or three short lines. Detail belongs in the table under the diagram.
-- The API reference (`documents/code.md`) uses mkdocstrings with the Python handler
-  (`paths = ["src"]`, Sphinx-style docstrings).

@@ -50,7 +50,7 @@ flowchart TB
     G -- "serialize_geometries" --> NGEOM --> ACPP
     PROTO -- "tessellate_batch" --> BM
 
-    click OBJ href "core_model.html#geometry-on-the-object" "solid_geom() / solid_occ() on every object"
+    click OBJ href "architecture/core_model/#geometry-on-the-object" "solid_geom() / solid_occ() on every object"
     click G href "https://github.com/Krande/adapy/blob/main/src/ada/geom/core.py" "Geometry"
     click SOL href "https://github.com/Krande/adapy/blob/main/src/ada/geom/solids.py" "Solid definitions"
     click CUR href "https://github.com/Krande/adapy/blob/main/src/ada/geom/curves.py" "Curve definitions"

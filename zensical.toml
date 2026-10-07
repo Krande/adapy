@@ -15,57 +15,57 @@ edit_uri = "edit/main/docs/"
 copyright = "&copy; Kristoffer H. Andersen"
 docs_dir = "docs"
 site_dir = "site"
-# Keep Sphinx-era URLs (documents/cli.html, _static/fea-report/index.html) working.
-use_directory_urls = false
+# Pages are served as directories (docs/cli.md -> /cli/). The Sphinx-era documents/*.html
+# URLs are not redirected.
 
 nav = [
   { "Home" = "index.md" },
   { "Features" = [
-    "documents/ada_studio.md",
-    "documents/procedural_modelling.md",
-    "documents/topology_engine.md",
-    "documents/dexpi.md",
-    "documents/path_to_software_agnosticism.md",
-    "documents/meshing.md",
-    "documents/cli.md",
+    "ada_studio.md",
+    "procedural_modelling.md",
+    "topology_engine.md",
+    "dexpi.md",
+    "path_to_software_agnosticism.md",
+    "meshing.md",
+    "cli.md",
   ] },
   { "Primitives" = [
-    "documents/notebooks/design/primitives/box.md",
-    "documents/notebooks/design/primitives/sphere.md",
-    "documents/notebooks/design/primitives/cylinder.md",
-    "documents/notebooks/design/primitives/cone.md",
-    "documents/notebooks/design/primitives/extrusion.md",
-    "documents/notebooks/design/primitives/revolve.md",
-    "documents/notebooks/design/primitives/sweeps.md",
-    "documents/notebooks/design/primitives/beams.md",
-    "documents/notebooks/design/primitives/plates.md",
-    "documents/notebooks/design/primitives/pipe.md",
+    "notebooks/design/primitives/box.md",
+    "notebooks/design/primitives/sphere.md",
+    "notebooks/design/primitives/cylinder.md",
+    "notebooks/design/primitives/cone.md",
+    "notebooks/design/primitives/extrusion.md",
+    "notebooks/design/primitives/revolve.md",
+    "notebooks/design/primitives/sweeps.md",
+    "notebooks/design/primitives/beams.md",
+    "notebooks/design/primitives/plates.md",
+    "notebooks/design/primitives/pipe.md",
   ] },
   { "Modelling" = [
-    "documents/notebooks/design/boolean_operations.md",
-    "documents/notebooks/design/parts_and_assemblies.md",
-    "documents/notebooks/design/placement.md",
-    "documents/notebooks/design/sections.md",
+    "notebooks/design/boolean_operations.md",
+    "notebooks/design/parts_and_assemblies.md",
+    "notebooks/design/placement.md",
+    "notebooks/design/sections.md",
   ] },
   { "FEA" = [
-    "documents/fea/fea_software.md",
-    "documents/fea/fea_verification.md",
+    "fea/software.md",
+    "fea/verification.md",
   ] },
   { "Architecture" = [
-    "documents/architecture/index.md",
-    "documents/architecture/core_model.md",
-    "documents/architecture/geometry_and_visualisation.md",
-    "documents/architecture/interop.md",
-    "documents/architecture/fea.md",
-    "documents/architecture/platform.md",
-    "documents/architecture/frontend.md",
-    "documents/architecture/docs_pipeline.md",
+    "architecture/index.md",
+    "architecture/core_model.md",
+    "architecture/geometry_and_visualisation.md",
+    "architecture/interop.md",
+    "architecture/fea.md",
+    "architecture/platform.md",
+    "architecture/frontend.md",
+    "architecture/docs_pipeline.md",
   ] },
   { "Code" = [
-    "documents/code.md",
+    "code.md",
   ] },
   { "Profiling" = [
-    "documents/profiling.md",
+    "profiling.md",
   ] },
 ]
 
@@ -132,7 +132,7 @@ alternate_style = true
 [project.markdown_extensions.pymdownx.tasklist]
 custom_checkbox = true
 
-# API reference (documents/code.md), the replacement for sphinx.ext.autodoc.
+# API reference (code.md), the replacement for sphinx.ext.autodoc.
 [project.plugins.mkdocstrings.handlers.python]
 paths = ["src"]
 inventories = ["https://docs.python.org/3/objects.inv"]

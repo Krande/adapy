@@ -119,7 +119,7 @@ def start_server() -> tuple[subprocess.Popen, str]:
 
 def build_model(path: pathlib.Path) -> None:
     """The topology engine's demo structure: two bays of HEB columns, IPE girders and
-    stiffened decks (see docs/documents/topology_engine.md)."""
+    stiffened decks (see docs/topology_engine.md)."""
     from ada.topo_model.build import build_topo_model
 
     build_topo_model("Structure").to_ifc(path)

@@ -28,7 +28,7 @@ from ada_cli.main import _build_parser, _subparsers_action
 _REPO = pathlib.Path(__file__).parents[2]
 _PYPROJECT = _REPO / "pyproject.toml"
 _README = _REPO / "README.md"
-_DOCS_PAGE = _REPO / "docs" / "documents" / "cli.md"
+_DOCS_PAGE = _REPO / "docs" / "cli.md"
 
 _DISTRIBUTION = "ada-py"
 _COMMAND = "ada"
@@ -121,7 +121,7 @@ def test_docs_page_documents_every_command():
     documented = set(_DOCS_COMMAND_LINE.findall(_DOCS_PAGE.read_text(encoding="utf-8")))
     documented = {c[len(_COMMAND) + 1 :] for c in documented}
     real = _real_commands()
-    assert documented == real, _diff(documented, real, "docs/documents/cli.md")
+    assert documented == real, _diff(documented, real, "docs/cli.md")
 
 
 @_needs_repo
@@ -155,9 +155,7 @@ def test_docs_page_documents_every_flag_of_the_local_commands(command):
     page = _DOCS_PAGE.read_text(encoding="utf-8")
     documented = set(re.findall(r"`(--[a-z0-9][a-z0-9-]*)", page))
     real = _long_options(_subparser(command))
-    assert not (
-        real - documented
-    ), f"ada {command} flags missing from docs/documents/cli.md: {sorted(real - documented)}"
+    assert not (real - documented), f"ada {command} flags missing from docs/cli.md: {sorted(real - documented)}"
 
 
 def test_cli_module_docstring_lists_every_top_level_command():

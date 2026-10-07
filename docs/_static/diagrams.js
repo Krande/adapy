@@ -63,9 +63,32 @@
     const { svg } = await mermaid.render(id, source);
     target.innerHTML = svg;
     const el = target.querySelector("svg");
+    resolveSiteLinks(el);
     nativeTooltips(el);
     wireTracing(el);
     return el;
+  }
+
+  /* `click` links to other pages are written relative to the site root
+   * ("architecture/fea/#viewer-bake"), the same on every page however deep it is. The theme
+   * puts the page's own path to the root in #__config ("base": "../.."); prefix it here. */
+  function siteBase() {
+    try {
+      return JSON.parse(document.getElementById("__config").textContent).base || ".";
+    } catch (err) {
+      return ".";
+    }
+  }
+
+  function resolveSiteLinks(svg) {
+    if (!svg) return;
+    const base = siteBase().replace(/\/$/, "");
+    svg.querySelectorAll("a").forEach((a) => {
+      for (const attr of ["href", "xlink:href"]) {
+        const url = a.getAttribute(attr);
+        if (url && !/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(url)) a.setAttribute(attr, `${base}/${url}`);
+      }
+    });
   }
 
   function nativeTooltips(svg) {

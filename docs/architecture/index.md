@@ -70,20 +70,20 @@ flowchart LR
     FEA -- "execute_fem" --> SOLVERS
     GEOM -. "native kernel" .-> ADACPP
 
-    click MODEL href "core_model.html" "Assembly / Part tree, physical objects, sections, materials, Config"
-    click INTEROP href "interop.html" "ada.factories, ada.cadit (IFC, STEP, SAT, Genie, DEXPI) and FE formats"
-    click FEA href "fea.html" "FEM, meshing, MeshArrays, solvers, results and the viewer bake"
-    click GEOM href "geometry_and_visualisation.html" "Kernel-free ada.geom and the ada.cad backend layer"
-    click VISIT href "geometry_and_visualisation.html#from-model-to-glb" "SceneConverter: models, FE meshes and results to GLB"
-    click DOMAIN href "platform.html#domain-services" "Asset store, clash/joint detection, plugins"
-    click WS href "platform.html#desktop-websocket-server-adacommswsock" "Desktop/notebook server: FlatBuffer messages over a WebSocket"
-    click REST href "platform.html#rest-api-adacommsrest" "FastAPI service: projects, storage, assets, FEA, clash, admin"
-    click WORKER href "platform.html#jobs" "Workers pull jobs from NATS by capability"
-    click NATS href "platform.html#jobs" "WORK_QUEUE stream + KV bucket for job status and the worker registry"
-    click BROWSER href "frontend.html" "React + three.js viewer"
-    click CLI href "../cli.html" "ada convert · view · build · files · audit · serve"
-    click PY href "../notebooks/design/parts_and_assemblies.html" "Start here: parts and assemblies"
-    click SOLVERS href "../fea/fea_software.html" "Code_Aster · CalculiX · OpenCourant · Abaqus · Sesam"
+    click MODEL href "architecture/core_model/" "Assembly / Part tree, physical objects, sections, materials, Config"
+    click INTEROP href "architecture/interop/" "ada.factories, ada.cadit (IFC, STEP, SAT, Genie, DEXPI) and FE formats"
+    click FEA href "architecture/fea/" "FEM, meshing, MeshArrays, solvers, results and the viewer bake"
+    click GEOM href "architecture/geometry_and_visualisation/" "Kernel-free ada.geom and the ada.cad backend layer"
+    click VISIT href "architecture/geometry_and_visualisation/#from-model-to-glb" "SceneConverter: models, FE meshes and results to GLB"
+    click DOMAIN href "architecture/platform/#domain-services" "Asset store, clash/joint detection, plugins"
+    click WS href "architecture/platform/#desktop-websocket-server-adacommswsock" "Desktop/notebook server: FlatBuffer messages over a WebSocket"
+    click REST href "architecture/platform/#rest-api-adacommsrest" "FastAPI service: projects, storage, assets, FEA, clash, admin"
+    click WORKER href "architecture/platform/#jobs" "Workers pull jobs from NATS by capability"
+    click NATS href "architecture/platform/#jobs" "WORK_QUEUE stream + KV bucket for job status and the worker registry"
+    click BROWSER href "architecture/frontend/" "React + three.js viewer"
+    click CLI href "cli/" "ada convert · view · build · files · audit · serve"
+    click PY href "notebooks/design/parts_and_assemblies/" "Start here: parts and assemblies"
+    click SOLVERS href "fea/software/" "Code_Aster · CalculiX · OpenCourant · Abaqus · Sesam"
 ```
 
 Inside the library, `factories.py` (`from_ifc`, `from_step`, `from_fem`, `from_fem_res`, …)
@@ -163,14 +163,14 @@ flowchart LR
     RES -- "streaming bake" --> ART
     CAD -. "native streams" .-> GLB
 
-    click CAD href "interop.html#cad-bim-formats" "Readers and writers per CAD/BIM format"
-    click DECK href "interop.html#finite-element-formats" "Solver deck readers"
-    click RES href "fea.html#results-adafemresults" "Result readers produce FEAResult"
-    click ASM href "core_model.html" "The object model"
-    click FEM href "fea.html#the-fe-model-adafem" "The FE model on Part.fem"
-    click FEAR href "fea.html#results-adafemresults" "Mesh + nodal/element field data"
-    click GLB href "geometry_and_visualisation.html#from-model-to-glb" "SceneConverter → GLB with the ADA_EXT_data extension"
-    click ART href "fea.html#viewer-bake" "Streaming bake: mesh GLB, per-step field blobs, manifest"
+    click CAD href "architecture/interop/#cad-bim-formats" "Readers and writers per CAD/BIM format"
+    click DECK href "architecture/interop/#finite-element-formats" "Solver deck readers"
+    click RES href "architecture/fea/#results-adafemresults" "Result readers produce FEAResult"
+    click ASM href "architecture/core_model/" "The object model"
+    click FEM href "architecture/fea/#the-fe-model-adafem" "The FE model on Part.fem"
+    click FEAR href "architecture/fea/#results-adafemresults" "Mesh + nodal/element field data"
+    click GLB href "architecture/geometry_and_visualisation/#from-model-to-glb" "SceneConverter → GLB with the ADA_EXT_data extension"
+    click ART href "architecture/fea/#viewer-bake" "Streaming bake: mesh GLB, per-step field blobs, manifest"
 ```
 
 | From | To | Through |

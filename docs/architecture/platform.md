@@ -69,7 +69,7 @@ flowchart TB
     click S3 href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/storage.py" "obstore-backed storage"
     click PG href "https://github.com/Krande/adapy/tree/main/src/ada/comms/rest/migrations" "SQL migrations"
     click IDP href "https://github.com/Krande/adapy/blob/main/src/ada/comms/rest/auth.py" "OIDC JWT verification"
-    click BR href "frontend.html" "The viewer"
+    click BR href "architecture/frontend/" "The viewer"
 ```
 
 ## REST API (`ada.comms.rest`)
@@ -156,7 +156,7 @@ flowchart LR
     click SRV href "https://github.com/Krande/adapy/blob/main/src/ada/comms/wsock/server.py" "WebSocketAsyncServer"
     click H href "https://github.com/Krande/adapy/blob/main/src/ada/comms/msg_handling/default_on_message.py" "Message dispatch"
     click WEB href "https://github.com/Krande/adapy/blob/main/src/ada/comms/web/serve.py" "Static SPA server"
-    click FE href "frontend.html" "The viewer"
+    click FE href "architecture/frontend/" "The viewer"
 ```
 
 The messages are defined once in `src/flatbuffers/schemas/*.fbs` (root: `message.fbs`).

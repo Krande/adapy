@@ -8,8 +8,8 @@ dist-embed/
 docs/_build/
 # Zensical site and the notebook pages scripts/docs_notebooks.py generates
 /site/
-docs/documents/notebooks/**/*.md
-docs/documents/notebooks/**/*_files/
+docs/notebooks/**/*.md
+docs/notebooks/**/*_files/
 docs/_static/notebook-viewer/
 docs/_static/viewer-figures/
 output/
