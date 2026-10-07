@@ -244,14 +244,28 @@ class _SectionBuilder:
         return FemSection(name=name, sec_type=ElemType.SOLID, elset=fs, material=mat, parent=self.fem)
 
 
+#: A GIORH bottom flange this thin and reaching no further past the web is no flange (metres): the
+#: Genie XML reader's threshold (``_flange_absent``) for GeniE's paper-thin T flanges.
+_T_FLANGE_EPS = 1e-3
+
+
 def get_isection(match, sect_names, fem) -> Section:
+    """GIORH: an I, or a T when the bottom flange is GeniE's paper-thin placeholder.
+
+    GeniE has no T section: its library T (and adapy's Sesam writer) is a GIORH whose bottom flange is
+    0.001 mm thick and 0.001 mm wider than the web. Such a card is a TPROFILE, so a T comes back a T,
+    with the properties its GBEAMG has. A bottom flange as wide as the web but as thick as a flange
+    (BB = TY, TB = TT: what adapy wrote for a T before) stays an IPROFILE: that is what GeniE computes
+    from it on import (SHARY with both flanges), so its GBEAMG describes the I."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     name = sect_names[sec_id]
+    ty, bb, tb = float(d["ty"]), float(d["bb"]), float(d["tb"])
+    is_t = tb <= _T_FLANGE_EPS and bb - ty <= _T_FLANGE_EPS
     return Section(
         name=name,
         sec_id=sec_id,
-        sec_type=Section.TYPES.IPROFILE,
+        sec_type=Section.TYPES.TPROFILE if is_t else Section.TYPES.IPROFILE,
         h=float(d["hz"]),
         t_w=float(d["ty"]),
         w_top=float(d["bt"]),

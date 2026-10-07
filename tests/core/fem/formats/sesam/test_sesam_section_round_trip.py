@@ -18,7 +18,9 @@ import pytest
 import ada
 
 REF_DIR = pathlib.Path(__file__).resolve().parents[5] / "files/fem_files/sesam/section_props"
-GENIE_FEMS = sorted(REF_DIR.glob("genie_v8_13_*_T1.FEM"))
+GENIE_FEMS = [REF_DIR / f"genie_v8_13_{n}_T1.FEM" for n in ("shear_areas", "shear_areas_edge", "torsion", "review437")]
+#: GeniE V8.13-02 importing adapy_profile_cards_for_genie_import.FEM (see genie_v8_13_import.js)
+GENIE_IMPORT = REF_DIR / "genie_v8_13_import_T1.FEM"
 
 
 @functools.lru_cache(maxsize=None)
@@ -60,8 +62,8 @@ def test_a_section_read_back_from_adapys_deck_is_not_modified(sec_str, tmp_path)
 def _genie_parametric():
     for path in GENIE_FEMS:
         for name, sec in _sections(path).items():
-            # GeniE's Ts carry a 0.001 mm bottom flange, which adapy's T leaves out (Shary 6.7e-5 apart)
-            if sec.type != sec.TYPES.GENERAL and not name.startswith(("M1_", "S03_", "E1_", "T11_")):
+            # GeniE's library Ts carry a 0.001 mm bottom flange, which adapy's T leaves out (Shary 6.7e-5)
+            if sec.type != sec.TYPES.GENERAL and not name.startswith("M1_"):
                 yield pytest.param(path, name, id=f"{path.stem[13:]}-{name}")
 
 
@@ -102,3 +104,89 @@ def test_a_missing_property_is_modified():
         assert p.modified
     finally:
         p.Cz = original
+
+
+# --- M1: a T, GeniE's own T encoding ------------------------------------------------------------
+
+GENIE_T_FLANGE = 1e-6  # GeniE's library T (Libraries/tbar.xml): absent flange 0.001 mm thick, web + 0.001 mm wide
+
+
+def test_a_t_round_trips_through_adapys_sesam_writer(tmp_path):
+    """Write, read, write a TG300x200x10x15: it comes back a TPROFILE with its dimensions, unmodified,
+    and the second deck's GIORH and GBEAMG are the first's. Before: an IPROFILE whose recalculation
+    counted the stub as a flange (Shary 3.82768e-3 for the stored 1.91384e-3, Ix 4.24125e-7 for
+    4.16000e-7), modified, and the second GBEAMG had COMP = 1."""
+    first = _write(_model(ada.Section("T", from_str="TG300x200x10x15")), tmp_path, "t1")
+    back = ada.from_fem(first)
+    (sec,) = [s for p in back.get_all_parts_in_assembly(include_self=True) for s in p.sections]
+    assert sec.type == sec.TYPES.TPROFILE
+    assert (sec.h, sec.w_top, sec.t_w, sec.t_ftop) == pytest.approx((0.3, 0.2, 0.01, 0.015), rel=1e-12)
+    assert not sec.properties.modified
+    assert sec.properties.Cgz == pytest.approx(sec.properties.calc_parent_properties().Cgz, rel=1e-12)
+    second = _write(back, tmp_path, "t2")
+    assert _records(first, "GIORH") == _records(second, "GIORH")
+    assert _records(first, "GBEAMG") == _records(second, "GBEAMG")
+    assert _records(second, "GBEAMG")[0].split()[2] == "0.00000000E+00"
+
+
+def test_a_t_is_written_as_genies_own_t(tmp_path):
+    """GIORH BB = TY + 0.001 mm, TB = 0.001 mm, as GeniE writes its library Ts. adapy wrote the
+    web-wide stub (BB = TY, TB = TT), which GeniE reads as an I (next test)."""
+    deck = _write(_model(ada.Section("T", from_str="TG300x200x10x15")), tmp_path, "t")
+    _, hz, ty, bt, tt, bb, tb, sfy, sfz = (float(x) for x in _records(deck, "GIORH")[0].split()[1:])
+    assert (hz, ty, bt, tt) == pytest.approx((0.3, 0.01, 0.2, 0.015), rel=1e-12)
+    assert bb == pytest.approx(ty + GENIE_T_FLANGE, rel=1e-12) and tb == pytest.approx(GENIE_T_FLANGE, rel=1e-12)
+
+
+def _genie_import(name: str):
+    return _sections(GENIE_IMPORT)[name].properties
+
+
+def test_genie_recomputes_genies_t_encoding_as_the_t():
+    """GeniE recomputes GBEAMG from the profile card on import (it drops a GBEAMG IX x 10, under COMP
+    0 or 1). From the card in its own T encoding (T_GENIE, TG300x200x10x16) it computes adapy's T:
+    IX and WXMIN within 8.5e-7 (its web is 0.001 mm shorter), the rest within 1.3e-7, SHARY too once
+    its 0.001 mm flange (delta / t_ftop = 6.25e-5) is divided out. From the stub adapy wrote before (T_STUB, TG300x200x10x15) it computes an I:
+    SHARY 3.82768e-3, 2.000 x the T's 1.91384e-3, IX 4.24125e-7 for 4.16000e-7."""
+    from ada.sections.properties import calculate_general_properties
+
+    tee = calculate_general_properties(ada.Section("T", from_str="TG300x200x10x16"))
+    genie = _genie_import("T_GENIE")
+    for f in FIELDS + ("Shceny", "Shcenz"):
+        r = getattr(genie, f) * (0.016 / (0.016 + GENIE_T_FLANGE) if f == "Shary" else 1.0)
+        assert r == pytest.approx(getattr(tee, f), rel=1e-5, abs=1e-12), f
+    tee = calculate_general_properties(ada.Section("T", from_str="TG300x200x10x15"))
+    stub = _genie_import("T_STUB")
+    assert stub.Shary == pytest.approx(2 * tee.Shary, rel=1e-6)
+    assert stub.Ix == pytest.approx(4.24125e-7, rel=1e-6) and tee.Ix == pytest.approx(4.16e-7, rel=1e-12)
+    assert _genie_import("I_IX10").Ix == pytest.approx(2.67018e-7, rel=1e-5)
+    assert _genie_import("I_COMP1").Ix == pytest.approx(4.86626e-7, rel=1e-5)
+
+
+def test_the_reader_tells_genies_t_from_genies_stub_i():
+    """GeniE's library T (0.001 mm bottom flange) reads as a TPROFILE; an unsymmetrical I whose
+    bottom flange is a stub as wide as the web but as thick as a flange (S03_TEE, 15 mm) stays the
+    IPROFILE GeniE computes it as (Shary with both flanges)."""
+    assert {n: s.type for n, s in _sections(GENIE_FEMS[3]).items() if n.startswith("M1_")} == {
+        n: ada.Section.TYPES.TPROFILE for n in ("M1_T300", "M1_TG650", "M1_TEQ", "M1_E1T")
+    }
+    s03 = _sections(GENIE_FEMS[0])["S03_TEE"]
+    assert s03.type == s03.TYPES.IPROFILE and not s03.properties.modified
+
+
+@pytest.mark.parametrize(
+    "bb, tb, expected",
+    [(0.010001, 1e-6, "TPROFILE"), (0.01, 0.015, "IPROFILE"), (0.2, 1e-6, "IPROFILE"), (0.0105, 0.002, "IPROFILE")],
+    ids=["genie-t", "stub", "wide-paper-flange", "2mm-flange"],
+)
+def test_a_giorh_is_a_t_when_its_bottom_flange_is_paper_thin_and_web_wide(bb, tb, expected):
+    """At most 1 mm thick and at most 1 mm past the web (the Genie XML reader's thresholds)."""
+    from types import SimpleNamespace
+
+    from ada.fem.formats.sesam.read import cards
+    from ada.fem.formats.sesam.read.read_sections import get_isection
+    from ada.fem.formats.sesam.write.write_utils import write_ff
+
+    text = write_ff("GIORH", [(1, 0.3, 0.01, 0.2), (0.015, bb, tb, 1.0), (1.0,)]) + "IEND\n"
+    sec = get_isection(cards.GIORH.to_ff_re().search(text), {1: "S"}, SimpleNamespace(parent=None))
+    assert sec.type == getattr(ada.Section.TYPES, expected)

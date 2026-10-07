@@ -1,4 +1,5 @@
 from ada import Section
+from ada.base.units import Units
 from ada.sections import SectionCat
 
 from .write_utils import write_ff
@@ -79,6 +80,30 @@ def iprofile(sec: Section, sec_id) -> str:
     )
 
 
+#: GeniE's T (Libraries/tbar.xml, all 202 entries): an unsymmetrical I whose absent flange is 0.001 mm
+#: thick and 0.001 mm wider than the web, in metres.
+GENIE_T_FLANGE = 1e-6
+
+
+def tprofile(sec: Section, sec_id) -> str:
+    """A T as GeniE writes one: GIORH with the bottom flange 0.001 mm thick and 0.001 mm wider than the web.
+
+    GeniE recomputes GBEAMG from the profile card on import (measured, V8.13-02: a GBEAMG with IX x 10
+    is replaced, under COMP 0 or 1). From this card it computes the T (adapy's GBEAMG, SHARY + 6.25e-5
+    from the 0.001 mm flange); from the web-wide stub written before (BB = TY, TB = TT) it computed an
+    I: SHARY 2.000 x the T's, IX + 1.95 %. ``genie_v8_13_import_T1.FEM``, sections T_GENIE and T_STUB."""
+    p = sec.properties
+    d = GENIE_T_FLANGE * Units.get_scale_factor(Units.M, sec.units)
+    return write_ff(
+        "GIORH",
+        [
+            (sec_id, sec.h, sec.t_w, sec.w_top),
+            (sec.t_ftop, sec.t_w + d, d, p.Sfy),
+            (p.Sfz,),
+        ],
+    )
+
+
 def tubular(sec: Section, sec_id) -> str:
     p = sec.properties
     return write_ff(
@@ -116,7 +141,7 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         bt.BOX: box,
         bt.CHANNEL: channel,
         bt.IPROFILE: iprofile,
-        bt.TPROFILE: iprofile,
+        bt.TPROFILE: tprofile,
         bt.TUBULAR: tubular,
         bt.CIRCULAR: circular,
         bt.FLATBAR: flatbar,

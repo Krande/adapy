@@ -41,8 +41,13 @@ def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralP
         if p.Cgz is None:
             p.Cgz = 0.0
 
-    # Doubly symmetric sections
-    elif sec.type in {SectionCat.BASETYPES.IPROFILE, SectionCat.BASETYPES.BOX, SectionCat.BASETYPES.FLATBAR}:
+    # Doubly and mono-symmetric sections
+    elif sec.type in {
+        SectionCat.BASETYPES.IPROFILE,
+        SectionCat.BASETYPES.TPROFILE,
+        SectionCat.BASETYPES.BOX,
+        SectionCat.BASETYPES.FLATBAR,
+    }:
         calc_p = calculate_general_properties(sec)
         if p.Cy is None:
             p.Cy = calc_p.Cy
