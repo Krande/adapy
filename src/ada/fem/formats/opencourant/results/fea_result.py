@@ -184,4 +184,5 @@ def fea_result_from_frames(frames: Iterable[AnimFrame], name: str, results_file_
         results_file_path=results_file_path,
         step_name_map=step_names,
         description="OpenCourant explicit dynamics (animation states)",
+        analysis_kind="transient",
     )

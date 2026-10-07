@@ -114,6 +114,9 @@ def test_radanim_roundtrip_and_stream_specs(tmp_path):
     specs = {s.name: s for s in reader.field_specs()}
     assert specs["U"].category == "displacement"
     assert specs["U"].n_steps == 3
+    # A time history: the viewer opens on the last frame and plays through time.
+    assert {s.analysis_kind for s in reader.field_specs()} == {"transient"}
+    assert {s.analysis_kind for s in reader.element_field_specs()} == {"transient"}
     elem_specs = {(s.name, s.elem_type) for s in reader.element_field_specs()}
     assert ("Von_Mises", "triangle") in {(n, t.lower()) for n, t in elem_specs}
 

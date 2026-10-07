@@ -13,13 +13,17 @@
 
 import {useFeaAnimationStore, type FeaAnimationState} from "@/state/feaAnimationStore";
 
+import {nextTimeHistoryStep, type TimeHistoryClock} from "./timeHistory";
+
 let elapsed = 0;
+const historyClock: TimeHistoryClock = {elapsed: 0, inFlight: false};
 
 /** Reset the phase. Called when the user presses stop, or when a
  * new session loads; without this the next play would resume
  * mid-sweep with a discontinuous jump. */
 export function resetFeaAnimationPhase(): void {
     elapsed = 0;
+    historyClock.elapsed = 0;
 }
 
 /** The phase, for a host that runs several viewers off the one store and
@@ -88,6 +92,10 @@ export function stepFeaSweep(
  * subscribers every frame). */
 export function tickFeaAnimation(deltaSeconds: number): void {
     const state = useFeaAnimationStore.getState();
+    if (state.timeHistory) {
+        tickTimeHistory(deltaSeconds);
+        return;
+    }
     const stepped = stepFeaSweep(state, elapsed, deltaSeconds);
     if (stepped === null) return;
     elapsed = stepped.phase;
@@ -103,4 +111,23 @@ export function tickFeaAnimation(deltaSeconds: number): void {
     if (Math.abs(factor - lastFactor) > (hi - lo) / 240) {
         state.setFactor(factor);
     }
+}
+
+/** Play for a time-history field: step through the frames at true scale (factor 1),
+ * one frame fetch at a time, looping. Same path as dragging the step slider. */
+function tickTimeHistory(deltaSeconds: number): void {
+    const state = useFeaAnimationStore.getState();
+    if (!state.isPlaying || !state.sessionActive || !state.mesh || !state.applyStep) return;
+    const next = nextTimeHistoryStep(historyClock, deltaSeconds, state.stepIndex, state.nSteps);
+    if (next === null) return;
+    const [, hi] = state.range;
+    if (state.factor !== hi) state.setFactor(hi);
+    state.setStepIndex(next);
+    historyClock.inFlight = true;
+    state
+        .applyStep(next)
+        .catch((err) => console.warn("[fea] time-history frame failed", err))
+        .finally(() => {
+            historyClock.inFlight = false;
+        });
 }
