@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  formatStepTime,
   initialStepIndex,
   isTimeHistory,
   nextTimeHistoryStep,
+  timeDecimals,
   type TimeHistoryClock,
 } from "../../utils/scene/fea/timeHistory";
 
@@ -34,4 +36,14 @@ test("play waits while a frame is still loading", () => {
 test("a single-frame field never advances", () => {
   const clock: TimeHistoryClock = { elapsed: 0, inFlight: false };
   assert.equal(nextTimeHistoryStep(clock, 10, 0, 1), null);
+});
+
+
+test("frame times get one decimal count per history, enough to tell frames apart", () => {
+  const steps = [0, 0.0015010156, 0.003001, 0.0600000657];
+  assert.equal(timeDecimals(steps), 3);
+  assert.equal(formatStepTime(0.0600000657, steps), "0.060");
+  assert.equal(formatStepTime(0, steps), "0.000"); // same width as the rest
+  assert.equal(timeDecimals([0, 1, 2]), 0);
+  assert.equal(timeDecimals([0.5]), 3); // single frame: a sensible default
 });

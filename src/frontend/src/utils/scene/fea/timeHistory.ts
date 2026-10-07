@@ -52,3 +52,20 @@ export function nextTimeHistoryStep(
     clock.elapsed = 0;
     return (stepIndex + 1) % nSteps;
 }
+
+/** Decimals that resolve the spacing between frames: 1.5 ms apart -> 3 decimals. */
+export function timeDecimals(stepValues: number[]): number {
+    let minDelta = Infinity;
+    for (let i = 1; i < stepValues.length; i++) {
+        const d = Math.abs(stepValues[i] - stepValues[i - 1]);
+        if (d > 0 && d < minDelta) minDelta = d;
+    }
+    if (!Number.isFinite(minDelta)) return 3;
+    return Math.min(6, Math.max(0, Math.ceil(-Math.log10(minDelta))));
+}
+
+/** A frame time with a fixed number of decimals for the whole history, so the
+ * readout neither jitters in width nor shows float noise (0.0600001 -> 0.060). */
+export function formatStepTime(value: number, stepValues: number[]): string {
+    return value.toFixed(timeDecimals(stepValues));
+}

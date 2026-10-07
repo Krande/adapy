@@ -20,6 +20,7 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {setRenderSuspended} from "@/state/perfStore";
 import {getColormap} from "@/utils/scene/fea/colormaps";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
+import {formatStepTime} from "@/utils/scene/fea/timeHistory";
 
 import {
     exportFileName,
@@ -227,7 +228,9 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
         stepIndex: anim.stepIndex,
         range: anim.range,
         period: anim.period,
-        stepLabels: field?.steps.map((s) => s.label) ?? [],
+        stepLabels: anim.timeHistory
+            ? (field?.steps ?? []).map((s) => formatStepTime(s.value, field!.steps.map((x) => x.value)))
+            : (field?.steps.map((s) => s.label) ?? []),
         fps: settings.fps,
     });
     if (plan.stepsChange && !anim.applyStep) throw new Error("the result cannot change step");

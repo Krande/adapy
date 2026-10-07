@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  DEFAULT_EXPORT_SETTINGS,
   SWEEP_FRAMES,
   TIME_HISTORY_EXPORT_FPS,
   evenSize,
   exportFileName,
+  normaliseExportSettings,
   planExportFrames,
+  resolveExportSize,
 } from "../../utils/scene/fea/animationExport/framePlan";
 
 const labels = ["0", "0.0015", "0.003"];
@@ -49,11 +52,6 @@ test("video sizes are even and file names are safe", () => {
   assert.equal(exportFileName(null, null, "gif"), "animation.gif");
 });
 
-import {
-  DEFAULT_EXPORT_SETTINGS,
-  normaliseExportSettings,
-  resolveExportSize,
-} from "../../utils/scene/fea/animationExport/framePlan";
 
 test("resolution is the short side; aspect sets the long one", () => {
   assert.deepEqual(resolveExportSize({ resolution: 1080, aspect: "16:9" }, 800, 600), [1920, 1080]);

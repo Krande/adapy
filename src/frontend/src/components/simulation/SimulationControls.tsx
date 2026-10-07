@@ -45,6 +45,8 @@ import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 import AnimationExportButton from "./AnimationExportButton";
+import DeformScaleIcon from "../icons/DeformScaleIcon";
+import {formatStepTime} from "@/utils/scene/fea/timeHistory";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {useViewerRefs, useViewerStores} from "@/state/AdaViewerContext";
 import {
@@ -364,6 +366,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         ?? fieldName
         ?? "";
     const activeUnit = selectedResultUnit(activeField, reduction);
+    const stepValues = useMemo(() => activeField?.steps.map((s) => s.value) ?? [], [activeField]);
+    const stepTimeText = timeHistory
+        ? formatStepTime(activeField?.steps[stepIndex]?.value ?? 0, stepValues)
+        : "";
+    const timeReadoutChars = timeHistory && stepValues.length
+        ? formatStepTime(Math.max(...stepValues.map(Math.abs)), stepValues).length
+        : 0;
 
     const reductionOptions = useMemo<string[]>(() => {
         if (!activeField) return [];
@@ -666,8 +675,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             title="Time"
                             aria-label="Time"
                         />
-                        <div className="text-white text-sm font-mono min-w-[4.5rem] text-center" title="Time of the shown frame">
-                            t {activeField?.steps[stepIndex]?.label ?? stepIndex}
+                        <div
+                            className="whitespace-nowrap text-white text-sm font-mono tabular-nums text-right"
+                            // Wide enough for the longest time of this history, so the
+                            // readout keeps its width while it counts.
+                            style={{minWidth: `${timeReadoutChars + 4}ch`}}
+                            title="Time of the shown frame"
+                        >
+                            t = {stepTimeText} s
                         </div>
                     </div>
                 ) : (
@@ -704,18 +719,22 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 {/* Warp-scale knob: multiplier on top of the
                     [-1..1] / [0..1] sweep, exaggerates the
                     morph delta. Default 1. */}
-                <div className="text-white text-xs flex items-center gap-1">
-                    ×
+                <label
+                    className="flex items-center gap-1 text-xs text-white"
+                    title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
+                >
+                    <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
+                    <span className="text-gray-200">Scale ×</span>
                     <input
                         type="number"
                         min={0}
                         step={0.1}
                         value={scaleFactor}
                         onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                        className="text-black w-12 @sm:w-16 px-1 rounded-sm"
-                        title="Warp scale factor — multiplier on top of the slider value (default 1)"
+                        className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
+                        aria-label="Deformation scale"
                     />
-                </div>
+                </label>
             </div>
 
             {/* Row 3 — Transport: play / stop / data-panel toggle +
