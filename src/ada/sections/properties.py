@@ -145,7 +145,8 @@ def calc_box(sec: Section) -> GeneralProperties:
     Wzmin = 2 * Iz / sec.w_top
     Sy = e * (h - a) + ty * (h - tb) ** 2
     Sz = (sec.t_fbtn + sec.t_ftop) * sec.w_top**2 / 8 + g * hb / 2
-    Shary = (Iz / Sz) * 2 * sec.t_w * sfy
+    # y-shear is carried by the two flanges (the cut y = 0 crosses them), z-shear by the two webs
+    Shary = (Iz / Sz) * (tb + tt) * sfy
     Sharz = (Iy / Sy) * 2 * ty * sfz
     Shceny = 0
     Shcenz = c - h - sec.t_fbtn * ha / (sec.t_fbtn + sec.t_ftop)
@@ -205,7 +206,7 @@ def calc_isec(sec: Section) -> GeneralProperties:
 
     z = (bt * tt * a + hw * ty * b + bb * tb * c) / Ax
 
-    tra = (bt * tb**3) / 12 + bt * tt * (hz - tt / 2 - z) ** 2
+    tra = (bt * tt**3) / 12 + bt * tt * (hz - tt / 2 - z) ** 2
     trb = (ty * hw**3) / 12 + ty * hw * (tb + hw / 2 - z) ** 2
     trc = (bb * tb**3) / 12 + bb * tb * (tb / 2 - z) ** 2
 
@@ -222,12 +223,11 @@ def calc_isec(sec: Section) -> GeneralProperties:
     Wymin = Iy / max(hz - z, z)
     Wzmin = 2 * Iz / max(bb, bt)
 
-    # Sy should be checked. Confer older method implementation.
-    # Sy = sum(x_i * A_i)
-    # Sy = (((tt * bt) ** 2) * (hw / 2 + tt / 2)) * 2
-    Sy = Iy / (sec.w_top / 2)
-
-    # Sy = (sec.t_w*sec.h/2)(sec.h/2)
+    # Static moments and shear areas I t / S (t: the web for z, the two flanges for y) as GeniE
+    # writes them to GBEAMG. Sy is the first moment about the neutral axis of the top flange and
+    # of the web from the neutral axis up, the web taken as reaching the neutral axis even when
+    # that lies in a flange (measured, GeniE V8.13-02: a T with the axis in its flange).
+    Sy = bt * tt * (hz - tt / 2 - z) + ty * (hz - tt - z) ** 2 / 2
     Sz = (tt * bt**2 + tb * bb**2 + hw * ty**2) / 8
     Shary = (Iz / Sz) * (tb + tt) * sfy
     Sharz = (Iy / Sy) * ty * sfz
@@ -344,10 +344,14 @@ def calc_angular(sec: Section) -> GeneralProperties:
     Wxmin = Ix / d
     Wymin = Iy / max(z, hz - z)
     Wzmin = Iz / max(y, rj)
-    Sy = (ty * e**2) / 2
+    # Static moments and shear areas as GeniE writes them to GBEAMG: Sy is the web above the
+    # neutral axis (the web taken as reaching the axis even when that lies in the flange), and
+    # z-shear is carried by the web, y-shear by the flange. ``z`` above is not the centroid
+    # (``b`` has the wrong sign); ``c_z`` is.
+    Sy = ty * (hz - c_z) ** 2 / 2
     Sz = (tz * rj**2) / 2
     Shary = (Iz * tz / Sz) * sfy
-    Sharz = (Iy * tz / Sy) * sfz
+    Sharz = (Iy * ty / Sy) * sfz
 
     if posweb:
         Iyz = -Iyz
@@ -451,10 +455,11 @@ def calc_circular(sec: Section) -> GeneralProperties:
 
     Wxmin = Ix / sec.r
 
-    t = sec.r * 0.99
+    # The tubular formulas with the wall reaching the centre (t = r), as GeniE writes a solid
+    # round: Sy = 2 r^3 / 3, Shary = Iz 2r / Sy = 3/4 pi r^2.
+    t = sec.r
     dy = sec.r * 2
-    di = dy - 2 * t
-    Sy = (dy**3 - di**3) / 12
+    Sy = dy**3 / 12
     Sz = Sy
     Shary = (2 * Iz * t / Sy) * Sfy
     Sharz = (2 * Iy * t / Sz) * Sfz

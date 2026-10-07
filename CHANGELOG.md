@@ -2,6 +2,20 @@
 
 
 
+## v0.107.1 (2026-10-07)
+
+### Chore
+
+* chore: move the docs site to Zensical, add architecture, Ada Studio and procedural modelling pages (#439) ([`e1e4381`](https://github.com/Krande/adapy/commit/e1e4381bee44ed64cb804d3622cd464b604f97f6))
+
+### Fix
+
+* fix(sections): shear areas and static moments match GeniE (IPE300 Sharz was 4x low) (#437)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`d3337f4`](https://github.com/Krande/adapy/commit/d3337f4b32180b924c3a665ee4bd16ecb9961b25))
+
+
 ## v0.107.0 (2026-10-07)
 
 ### Feature
