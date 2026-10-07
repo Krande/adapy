@@ -60,9 +60,6 @@ nav = [
     "documents/architecture/frontend.md",
     "documents/architecture/docs_pipeline.md",
   ] },
-  { "Ongoing Work" = [
-    "documents/ifc_database.md",
-  ] },
   { "Code" = [
     "documents/code.md",
   ] },
