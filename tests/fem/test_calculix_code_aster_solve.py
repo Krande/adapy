@@ -896,3 +896,48 @@ def test_two_nlgeom_steps_are_both_solved_and_read(require_solver, tmp_path):
     (finding,) = [f for f in report.of_kind("approximated") if f.keyword == "STAT_NON_LINE"]
     assert sorted([finding.subject, *finding.other_subjects]) == ["nl1", "nl2"]
     assert "DEFORMATION='PETIT'" in finding.reason
+
+
+@pytest.mark.parametrize("quads", [True, False], ids=["quad8", "tri6"])
+def test_second_order_shell_stresses_are_printed_at_the_faces(quads, require_solver, tmp_path):
+    """The strip in cylindrical bending under 1000 Pa on 8-node quads / 6-node triangles at 0.125 m (``COQUE_3D``):
+    at mid-span the faces carry ``6 M / t^2`` = 1.2e8 Pa along the span (``M = q L^2 / 8``) and ``nu`` times that
+    across it (the plate held flat across), opposite on the two faces.
+
+    Before, no stress of a second-order shell was printed (their layered fields stop IMPR_RESU at <MED2_20>; reported
+    ``omitted``). Now each face's stress is extracted (``POST_CHAMP``/``EXTR_COQUE``, ``SIGM_NOEU``) and printed as
+    ``result__SIGM_SUP_NOEU`` / ``..._INF_...``. Measured, principal stresses at the mid-span nodes: quads +6.51e-4
+    (both; the element's own moment MYY = 2001.302 N m/m, 6 M / t^2 to 1e-11; +1.63e-4 at 0.0625 m), triangles
+    3e-5..3.7e-4 along and 8e-5..1.5e-3 across (local axes vary per triangle, so principal values are compared).
+    """
+    from ada.fem.meshing import GmshOptions
+
+    require_solver("code_aster")
+    a, p, pl, mat = _plate("sig")
+    c = p.concept_fem.constraints
+    c.add_curve_constraint(ConstraintConceptCurve("x0", (0, 0, 0), (0, WID, 0), _dofs(("dx", "dz"))))
+    c.add_curve_constraint(ConstraintConceptCurve("x4", (L, 0, 0), (L, WID, 0), _dofs(("dz",))))
+    c.add_curve_constraint(ConstraintConceptCurve("y0", (0, 0, 0), (L, 0, 0), _dofs(("dy", "rx"))))
+    c.add_curve_constraint(ConstraintConceptCurve("y5", (0, WID, 0), (L, WID, 0), _dofs(("dy", "rx"))))
+    loads = p.concept_fem.loads
+    loads.add_load_case(LoadConceptCase("LC_p", [LoadConceptSurface("P", pl, pressure=1000.0, side="front")]))
+    p.fem = p.to_fem_obj(0.125, use_quads=quads, options=GmshOptions(Mesh_ElementOrder=2))
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    solved = _solve(a, "sig", "code_aster", tmp_path)
+
+    sigma = 6 * (1000.0 * L**2 / 8) / T**2
+    nu = mat.model.v
+    faces = {}
+    for f in solved.res.results:
+        for face in ("SUP", "INF"):
+            if f.name.split("[")[0] == f"result__SIGM_{face}_NOEU":
+                faces[face] = {int(row[0]): np.asarray(row[1:], dtype=float) for row in np.asarray(f.values)}
+    assert sorted(faces) == ["INF", "SUP"]
+    mid = [n for n, xyz in solved.coords.items() if abs(xyz[0] - L / 2) < 1e-9]
+    tol_along, tol_across = (7e-4, 7e-4) if quads else (4e-4, 1.6e-3)
+    for n in mid:
+        sx, sy, _, sxy = faces["SUP"][n][:4]
+        centre, radius = (sx + sy) / 2, np.hypot((sx - sy) / 2, sxy)
+        assert abs(centre + radius) == pytest.approx(sigma, rel=tol_along)
+        assert abs(centre - radius) == pytest.approx(nu * sigma, rel=tol_across)
+        assert faces["INF"][n][:4] == pytest.approx(-faces["SUP"][n][:4], rel=1e-9, abs=1e-6 * sigma)

@@ -181,9 +181,16 @@ def test_every_name_the_writer_binds_itself_is_reserved():
     # the scan sees what it is meant to see
     assert {"mesh", "model", "material", "element", "result", "supports", "stiff", "Traction", "sh_sets"} <= set(bound)
     # ... and the names a step makes up as it is written
-    assert {"result1", "result2_pd", "result2_t", "result2_f1", "result2_p1", "result2_g1", "prescribed_zero"} <= set(
-        bound
-    )
+    assert {
+        "result1",
+        "result2_pd",
+        "result2_t",
+        "result2_f1",
+        "result2_p1",
+        "result2_g1",
+        "result2_sup",
+        "prescribed_zero",
+    } <= set(bound)
     unreserved = {name: where for name, where in bound.items() if not is_reserved(name)}
     assert not unreserved, f"names the command file binds itself but RESERVED(_PATTERNS) does not cover: {unreserved}"
 

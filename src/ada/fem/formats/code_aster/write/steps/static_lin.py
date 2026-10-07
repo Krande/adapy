@@ -210,7 +210,8 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
 )"""
 
     field_str = create_field_output_str(step, part, result, targets)
-    printed = _second_order_shell_fields(step, part)
+    layers = _second_order_shell_layers_str(step, part, result, targets)
+    printed = _second_order_shell_fields(step, part, printed_layers=bool(layers))
 
     return f"""
 {load_str}
@@ -223,8 +224,61 @@ IMPR_RESU(
     RESU=_F(RESULTAT={result}{resu_cara_str}{printed}),
     UNITE=80
 )
-
+{layers}
 """
+
+
+def _second_order_shell_layers_str(step, part, result: str, targets) -> str:
+    """The stresses of second-order shells at their top and bottom faces, printed; empty for no such shells or no
+    stresses computed.
+
+    The layered ``SIGM_ELNO`` of ``COQUE_3D`` on QU9/TR7 cells cannot be printed (<MED2_20>, see
+    :func:`_second_order_shell_fields`), but one layer's level extracted by ``POST_CHAMP``/``EXTR_COQUE`` is a field
+    without sub-points, and prints. ``NIVE_COUCHE='SUP'`` and ``'INF'`` of the one layer: the faces, where a plate's
+    bending stress is largest; ``SIGM_NOEU`` averaged at the nodes. Components in the shell's local axes. MED names
+    ``<result padded to 8 with _>SIGM_SUP_ELNO`` / ``..._NOEU``, ``...SIGM_INF_...``.
+
+    Measured, Code_Aster 18.1.8: the 10 mm strip in cylindrical bending under 1000 Pa on 8-node shells (0.125 m), at
+    mid-span the faces carry +-120078124.95 Pa along the span (6 M / t^2 with the element's own moment MYY = 2001.302
+    N m/m to 1e-11; closed form q L^2 / 8 = 2000: +6.5e-4, +1.63e-4 at 0.0625 m) and +-36023437.485 Pa across it
+    (nu times that, the plate held flat across).
+    """
+    from ada.fem.shapes.definitions import ShellShapes
+
+    if not step.field_outputs or targets == []:
+        return ""
+    if not any(el.type in (ShellShapes.TRI6, ShellShapes.QUAD8) for el in part.fem.elements):
+        return ""
+    orders = "" if targets is None else targets[0].strip()
+    prefix = result.ljust(8, "_")
+    # each face's concept, a name of the deck's own (names.RESERVED_PATTERNS)
+    layers = {"SUP": f"{result}_sup", "INF": f"{result}_inf"}
+    out = []
+    for level, name in layers.items():
+        out.append(
+            f"""{name} = POST_CHAMP(
+    RESULTAT={result},{orders}
+    GROUP_MA=sh_2nd_order_sets,
+    EXTR_COQUE=_F(NOM_CHAM=("SIGM_ELNO",), NUME_COUCHE=1, NIVE_COUCHE="{level}"),
+)
+{name} = CALC_CHAMP(reuse={name}, RESULTAT={name}, CONTRAINTE=("SIGM_NOEU",))"""
+        )
+    rows = "\n".join(
+        f"""        _F(RESULTAT={name}, NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
+           NOM_CHAM_MED=("{prefix}SIGM_{level}_ELNO", "{prefix}SIGM_{level}_NOEU")),"""
+        for level, name in layers.items()
+    )
+    return (
+        "\n".join(out)
+        + f"""
+IMPR_RESU(
+    RESU=(
+{rows}
+    ),
+    UNITE=80,
+)
+"""
+    )
 
 
 def _solver_str(part) -> str:
@@ -259,7 +313,7 @@ def _solver_str(part) -> str:
     return "\n    SOLVEUR=_F(METHODE='MUMPS', RESI_RELA=1e-4),"
 
 
-def _second_order_shell_fields(step, part) -> str:
+def _second_order_shell_fields(step, part, printed_layers: bool = False) -> str:
     """``, NOM_CHAM=(...)`` for a model with second-order shells, else nothing.
 
     adapy writes 6- and 8-node shells as ``COQUE_3D`` on the 7- and 9-node cells ``CREA_MAILLAGE`` makes of them, and
@@ -281,13 +335,18 @@ def _second_order_shell_fields(step, part) -> str:
     fields = ["DEPL"]
     if step.field_outputs:
         fields += ["REAC_NODA", "EFGE_ELNO", "EFGE_NOEU"]
-    conversion_report.current().omitted(
-        STAGE,
-        "IMPR_RESU",
-        step.name,
-        "stresses on second-order shells (COQUE_3D on 7- and 9-node cells) are not printed: Code_Aster cannot write "
-        "their layered fields to MED (MED2_20); displacements, reactions and generalised forces are",
-    )
+    if printed_layers:
+        reason = (
+            "the layered stress fields of second-order shells (COQUE_3D on 7- and 9-node cells: SIEF_ELGA, SIGM_ELNO "
+            "through the thickness) are not printed -- Code_Aster cannot write them to MED (MED2_20); the stresses at "
+            "the top and bottom faces are (SIGM_SUP_*, SIGM_INF_*, local shell axes)"
+        )
+    else:
+        reason = (
+            "stresses on second-order shells (COQUE_3D on 7- and 9-node cells) are not printed: Code_Aster cannot "
+            "write their layered fields to MED (MED2_20); displacements, reactions and generalised forces are"
+        )
+    conversion_report.current().omitted(STAGE, "IMPR_RESU", step.name, reason)
     names = ", ".join(f'"{f}"' for f in fields)
     return f", NOM_CHAM=({names},)"
 

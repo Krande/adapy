@@ -77,10 +77,11 @@ RESERVED = frozenset(
 #: The names the command file makes up as it goes: a static step's result (``result``, ``result2``, ...) and
 #: what the step binds after it -- its charge of prescribed values (``result_pd``), the instants and multiplier
 #: functions of its cases (``result_t``, ``result_f1``, ``result_g1``) and the unit charge of a prescribed dof
-#: (``result_p1``). Kept complete by the same test.
+#: (``result_p1``); and a second-order shell face's stresses (``result_sup``, ``result_inf``). Kept complete by
+#: the same test.
 RESERVED_PATTERNS = (
     re.compile(r"result\d*"),
-    re.compile(r"result\d*_(?:pd|t|f\d+|p\d+|g\d+)"),
+    re.compile(r"result\d*_(?:pd|t|f\d+|p\d+|g\d+|sup|inf)"),
 )
 
 
