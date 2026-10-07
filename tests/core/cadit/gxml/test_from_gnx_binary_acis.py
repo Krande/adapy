@@ -253,3 +253,15 @@ def test_a_truncated_body_is_refused_not_read_in_part(genie93, tmp_path):
     members[GNX_BINARY_BODY] = members[GNX_BINARY_BODY][:-40]
     with pytest.raises(ACISBinaryBodyError):
         ada.from_gnx(_repack(tmp_path / "truncated.gnx", members))
+
+
+def test_an_unknown_record_type_is_refused_not_skipped(genie93, tmp_path):
+    """A record type outside the programs (here a renamed ``vertex``) stops the read: skipping it
+    would shift every later record's index and every pointer to it."""
+    members = _members(genie93 / "plate_binary.gnx")
+    assert members[GNX_BINARY_BODY].count(b"\x0d\x06vertex") == 4
+    members[GNX_BINARY_BODY] = members[GNX_BINARY_BODY].replace(b"\x0d\x06vertex", b"\x0d\x06vortex", 1)
+    with pytest.raises(ACISBinaryBodyError) as excinfo:
+        ada.from_gnx(_repack(tmp_path / "vortex.gnx", members))
+    assert "'vortex'" in str(excinfo.value)
+    _assert_names_the_way_back(str(excinfo.value), "vortex.gnx")
