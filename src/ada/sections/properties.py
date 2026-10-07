@@ -144,7 +144,8 @@ def calc_box(sec: Section) -> GeneralProperties:
     Wzmin = 2 * Iz / sec.w_top
     Sy = e * (h - a) + ty * (h - tb) ** 2
     Sz = (sec.t_fbtn + sec.t_ftop) * sec.w_top**2 / 8 + g * hb / 2
-    Shary = (Iz / Sz) * 2 * sec.t_w * sfy
+    # y-shear is carried by the two flanges (the cut y = 0 crosses them), z-shear by the two webs
+    Shary = (Iz / Sz) * (tb + tt) * sfy
     Sharz = (Iy / Sy) * 2 * ty * sfz
     Shceny = 0
     Shcenz = c - h - sec.t_fbtn * ha / (sec.t_fbtn + sec.t_ftop)
