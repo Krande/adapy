@@ -49,9 +49,10 @@ def test_ig():
         ("Wymin", 0.001639733333),
         ("Wzmin", 0.0002669666667),
         ("Shary", 0.005221841891),
-        # TODO: Fix Sy calculation
-        # ("Sharz", 0.003556905278),
-        # ("Sy", 0.000922),
+        # Iy tw / Sy, Sy = b tf (h - tf) / 2 + tw (h / 2 - tf)^2 / 2 = 9.22e-4 (was commented out
+        # while adapy wrote Sy = Iy / (b / 2) = 3.279e-3 and Sharz = 1.0e-3)
+        ("Sharz", 0.003556905278),
+        ("Sy", 0.000922),
         ("Sz", 0.0002045),
         ("Shceny", 0.0),
         ("Shcenz", 0.0),
@@ -144,10 +145,10 @@ def test_angular():
         # ("Wymin", 6.865967864e-05),
         ("Wzmin", 6.075468764e-06),
         ("Shary", 0.0004631933599),
-        # ("Sharz", 0.001280395431),
+        ("Sharz", 0.001280395431),  # Iy tw / Sy (main: Iy tf / Sy = 6.0532e-4)
         ("Shceny", -0.003767029973),
         # ("Shcenz", -0.0628773842),
-        # ("Sy", 5.751025548e-05),
+        ("Sy", 5.751025548e-05),  # tw (h - z)^2 / 2 at the centroid z (main: 2.4025e-4)
         ("Sz", 6.795666075e-06),
     ]
 
@@ -204,12 +205,14 @@ def test_circular():
         # ("Wxmin",),
         ("Wymin", 7.8539816e-4),
         ("Wzmin", 7.8539816e-4),
-        # ("Shary",),
-        # ("Sharz",),
-        # ("Shceny",),
-        # ("Shcenz",),
-        # ("Sy",),
-        # ("Sz",),
+        # Solid round r = 0.1: Sy = 2 r^3 / 3, Shary = Iz 2r / Sy = 3/4 pi r^2, as GeniE writes it
+        # (main used a tube of wall 0.99 r: Shary 0.02332635, 1.0 % low)
+        ("Shary", 0.75 * 3.141592653589793 * 0.1**2),
+        ("Sharz", 0.75 * 3.141592653589793 * 0.1**2),
+        ("Shceny", 0.0),
+        ("Shcenz", 0.0),
+        ("Sy", 2 * 0.1**3 / 3),
+        ("Sz", 2 * 0.1**3 / 3),
     ]
 
     eval_assertions(sec, assertions)
