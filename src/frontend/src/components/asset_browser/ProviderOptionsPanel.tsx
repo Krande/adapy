@@ -9,10 +9,16 @@
 import React, { useEffect, useState } from "react";
 
 import { requestOptionChoices, type CollectionRequestDeps } from "@/assets/collectionRequest";
-import { parseOptionChoices, type OptionChoice, type ProviderOptionValues } from "@/assets/providerOptions";
+import {
+  parseOptionChoices,
+  type ListedChoices,
+  type OptionChoice,
+  type ProviderOptionValues,
+  type ProviderOptionsDoc,
+} from "@/assets/providerOptions";
 import type { PluginJobOption } from "@/components/admin/pluginOptionFields";
 import type { AssetRequestOptions } from "@/services/assetScopeCollections";
-import { readProviderOptions, saveProviderOptions } from "@/services/providerOptions";
+import { readProviderOptions, saveListedChoices, saveProviderOptions } from "@/services/providerOptions";
 
 /** One shared "nothing stored" value, so a section's draft is not reset on every render. */
 const NOTHING_SET: ProviderOptionValues = Object.freeze({});
@@ -35,11 +41,18 @@ const ProviderSection: React.FC<{
   providerId: string;
   declared: AssetRequestOptions;
   stored: ProviderOptionValues;
+  /** What the choices job answered last time, from the scope's document. */
+  cached: ListedChoices | null;
   deps: (onStage: (s: string) => void) => CollectionRequestDeps;
   onSaved: () => void;
-}> = ({ scope, collection, providerId, declared, stored, deps, onSaved }) => {
+}> = ({ scope, collection, providerId, declared, stored, cached, deps, onSaved }) => {
   const [draft, setDraft] = useState<Record<string, unknown>>({ ...stored });
-  const [choices, setChoices] = useState<Record<string, OptionChoice[]> | null>(null);
+  const [choices, setChoices] = useState<Readonly<Record<string, readonly OptionChoice[]>> | null>(cached?.options ?? null);
+  const [listedAt, setListedAt] = useState<string | null>(cached?.listed_at ?? null);
+  useEffect(() => {
+    setChoices(cached?.options ?? null);
+    setListedAt(cached?.listed_at ?? null);
+  }, [cached]);
   const [listing, setListing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +71,12 @@ const ProviderSection: React.FC<{
     setError(null);
     try {
       const summary = await requestOptionChoices(deps((s) => setListing(s)), scope, declared.choices, collection);
-      setChoices(parseOptionChoices(summary));
+      const listed = parseOptionChoices(summary);
+      setChoices(listed);
+      setListedAt(new Date().toISOString());
+      // Kept for the next visit, and for everyone in the scope. Best effort: the list is on
+      // screen either way, and a failed save only means asking again next time.
+      saveListedChoices(scope, collection, providerId, listed).catch(() => undefined);
     } catch (e) {
       setError(`Could not list the choices: ${message(e)}`);
     } finally {
@@ -180,6 +198,11 @@ const ProviderSection: React.FC<{
         </button>
       </div>
       {listing && <div className="text-gray-400">{listing}</div>}
+      {!listing && listedAt && choices && (
+        <div className="text-gray-500" title={listedAt}>
+          Choices as listed {new Date(listedAt).toLocaleString()}. List again if the source has changed.
+        </div>
+      )}
       {declared.decls.map((decl) => (
         <div key={decl.name} className="space-y-0.5">
           <div className="text-gray-300" title={decl.description}>
@@ -204,7 +227,7 @@ const ProviderOptionsPanel: React.FC<{
   providers: ReadonlyMap<string, AssetRequestOptions>;
   deps: (onStage: (s: string) => void) => CollectionRequestDeps;
 }> = ({ scope, collection, providers, deps }) => {
-  const [stored, setStored] = useState<Record<string, ProviderOptionValues> | null>(null);
+  const [doc, setDoc] = useState<ProviderOptionsDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -212,7 +235,7 @@ const ProviderOptionsPanel: React.FC<{
     let live = true;
     setError(null);
     readProviderOptions(scope, collection)
-      .then((doc) => live && setStored(doc.providers))
+      .then((read) => live && setDoc(read))
       .catch((e) => live && setError(`Could not read the provider options: ${message(e)}`));
     return () => {
       live = false;
@@ -226,7 +249,7 @@ const ProviderOptionsPanel: React.FC<{
       </div>
       {providers.size === 0 && <div className="text-gray-500">No provider declares options for this collection.</div>}
       {error && <div className="text-red-300 break-words">{error}</div>}
-      {stored &&
+      {doc &&
         [...providers.entries()]
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([providerId, declared]) => (
@@ -236,7 +259,8 @@ const ProviderOptionsPanel: React.FC<{
               collection={collection}
               providerId={providerId}
               declared={declared}
-              stored={stored[providerId] ?? NOTHING_SET}
+              stored={doc.providers[providerId] ?? NOTHING_SET}
+              cached={doc.choices?.[providerId] ?? null}
               deps={deps}
               onSaved={() => setVersion((v) => v + 1)}
             />
