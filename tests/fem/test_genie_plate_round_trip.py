@@ -154,3 +154,56 @@ def _assert_same_mesh(got: list[str], want: list[str]) -> None:
             assert gv[0] == wv[0] and max(abs(a - b) for a, b in zip(gv[1:], wv[1:])) <= 1e-6, (g, w)
         else:
             assert g == w
+
+
+def _mesh_stats(fem_lines: list[str], tmp_path: pathlib.Path, centre, radius) -> tuple[int, float, int]:
+    """(shell elements, their total area, elements centred inside the hole) of a Sesam FEM mesh."""
+    import numpy as np
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fem = tmp_path / "stats.FEM"
+    fem.write_text("\n".join(fem_lines) + "\n")
+    a = ada.from_fem(fem)
+    n = inside = 0
+    area = 0.0
+    for p in a.get_all_parts_in_assembly():
+        for el in p.fem.elements.shell:
+            xyz = np.asarray([nd.p for nd in el.nodes], dtype=float)
+            area += sum(
+                0.5 * np.linalg.norm(np.cross(xyz[i] - xyz[0], xyz[i + 1] - xyz[0])) for i in range(1, len(xyz) - 1)
+            )
+            c = xyz.mean(axis=0)
+            n += 1
+            inside += int(np.hypot(c[0] - centre[0], c[1] - centre[1]) < radius)
+    return n, area, inside
+
+
+@pytest.mark.parametrize("body", ["text", "binary"])
+def test_an_adapy_boolean_hole_reads_in_genie_as_a_hole(genie93, body, tmp_path):
+    """Krande/adapy#410: a Plate with a PrimCyl/PrimBox cut, written by adapy, is a holed plate in GeniE.
+
+    The round one is GeniE's plate_with_hole twin made in adapy (4 x 3 m, r 0.4 m at (2, 1.5)):
+    GeniE meshes it as it meshes its own -- measured 209 elements, 11.52423605 m2 at 0.25 m, none in
+    the hole -- though not node for node (GeniE's hole is a NURBS circle, adapy's an exact one).
+    """
+    square = ada.Plate("Sq", [(0, 0), (4, 0), (4, 3), (0, 3)], 0.01, origin=(0, 0, 10))
+    square.add_boolean(ada.PrimBox("hole", (1.5, 1.0, 9.5), (2.5, 2.0, 10.5)))
+    round_ = ada.Plate("Pl1", [(0, 0), (4, 0), (4, 3), (0, 3)], 0.01)
+    round_.add_boolean(ada.PrimCyl("hole", (2, 1.5, -0.5), (2, 1.5, 0.5), 0.4))
+    gnx = (ada.Assembly("A") / (ada.Part("P") / [square, round_])).to_gnx(
+        tmp_path / "holes.gnx", binary_acis=body == "binary"
+    )
+    read, holes = _genie_plates(gnx, tmp_path / "genie")
+    assert {name: kind_faces for name, (*kind_faces, _area) in read.items()} == {
+        "Sq": ["flat_plate", 1],
+        "Pl1": ["flat_plate", 1],
+    }
+    assert read["Sq"][2] == "11"
+
+    genie_mesh = _genie_mesh(genie93 / "plate_with_hole_text.gnx", tmp_path / "mesh_genie")
+    alone = ada.Assembly("A") / (ada.Part("P") / round_)
+    mesh_round = _genie_mesh(alone.to_gnx(tmp_path / "round.gnx", binary_acis=body == "binary"), tmp_path / "mesh_r")
+    n_a, area_a, in_a = _mesh_stats(mesh_round, tmp_path / "a", (2, 1.5), 0.4)
+    n_g, area_g, in_g = _mesh_stats(genie_mesh, tmp_path / "g", (2, 1.5), 0.4)
+    assert (n_a, in_a) == (n_g, in_g) == (209, 0)
+    assert area_a == pytest.approx(area_g, rel=1e-8)

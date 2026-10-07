@@ -8,7 +8,7 @@ from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Elips, gp_Pnt
 from OCC.Core.TColgp import TColgp_Array1OfPnt
 from OCC.Core.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 from OCC.Core.TopAbs import TopAbs_FORWARD, TopAbs_REVERSED
-from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
+from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire, topods
 
 from ada.cad.exceptions import UnableToCreateCurveOCCGeom
 from ada.geom import curves as geo_cu
@@ -468,6 +468,13 @@ def make_wire_from_composite_curve(cc: geo_cu.CompositeCurve) -> TopoDS_Wire:
     return wire_builder.Wire()
 
 
+def _as_run(wire: TopoDS_Wire, edge_curve) -> TopoDS_Wire:
+    """``wire`` reversed when the edge curve runs against its curve (``same_sense`` false)."""
+    if getattr(edge_curve, "same_sense", True):
+        return wire
+    return topods.Wire(wire.Reversed())
+
+
 def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
     from ada.config import logger
 
@@ -497,12 +504,17 @@ def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
                 logger.debug(f"Edge element type: {type(ee).__name__}")
                 if isinstance(ee, geo_cu.EdgeCurve):
                     geom = ee.edge_geometry
+                    # A whole circle or ellipse runs the way its loop says: against its own
+                    # parameter when the edge's sense is false -- a hole, round an outline wound
+                    # with the curve. Built forward regardless, a plate's round hole (adapy's
+                    # boolean cut, read back) wound like the outline: face invalid, area 12.50
+                    # instead of 11.50.
                     if isinstance(geom, geo_cu.Circle):
                         logger.debug("Creating full-circle wire from Circle geometry")
-                        return make_wire_from_circle(geom)
+                        return _as_run(make_wire_from_circle(geom), ee)
                     if isinstance(geom, geo_cu.Ellipse) and _pts_equal(para_edge.start, para_edge.end):
                         logger.debug("Creating full-ellipse wire from Ellipse geometry")
-                        return make_wire_from_ellipse(geom)
+                        return _as_run(make_wire_from_ellipse(geom), ee)
                     if isinstance(geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
                         # If marked closed or start==end, treat as full curve edge
                         if getattr(geom, "closed_curve", False) or _pts_equal(para_edge.start, para_edge.end):
