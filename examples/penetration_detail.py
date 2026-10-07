@@ -6,6 +6,8 @@ thin-walled sleeve. Shown on docs/documents/procedural_modelling.md (included fr
 file) and rendered for that page by scripts/ui_stories.py (story ``penetration``).
 
     python examples/penetration_detail.py     # opens the model in the viewer
+
+The docs page embeds ``figure()`` as an interactive 3D view (scripts/docs_notebooks.py).
 """
 
 # --8<-- [start:model]
@@ -45,6 +47,19 @@ result = run_design([pipe], cell_graph=builder.cell_graph, grid=grid, rules=rule
 piping = ada.Part("Piping") / result.route_geometry[pipe.name]
 a = ada.Assembly("Penetration") / [structure, ada.Part("Equipment") / [pump, tank], piping, *result.penetration_parts]
 # --8<-- [end:model]
+
+
+def figure() -> ada.Assembly:
+    """What the docs figure shows: the crossed wall, the equipment, the pipe and the detail,
+    without the roof deck in the way of the default camera."""
+    wall = result.penetrations[0].face.associated_part
+    return ada.Assembly("PenetrationDetail") / [
+        ada.Part("Wall") / list(wall.get_all_physical_objects()),
+        ada.Part("Equipment") / [pump, tank],
+        ada.Part("Piping") / result.route_geometry[pipe.name],
+        *result.penetration_parts,
+    ]
+
 
 if __name__ == "__main__":
     a.show()

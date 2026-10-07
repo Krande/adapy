@@ -11,6 +11,7 @@ docs/_build/
 docs/documents/notebooks/**/*.md
 docs/documents/notebooks/**/*_files/
 docs/_static/notebook-viewer/
+docs/_static/viewer-figures/
 output/
 *.egg-info/
 *.pytest_cache/

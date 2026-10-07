@@ -50,8 +50,6 @@ SCOPE = "user:me"
 
 MODEL = "structure.ifc"
 FEA = "cantilever_eigen.rmed"
-PENETRATION = "penetration_detail.glb"
-PENETRATION_EXAMPLE = ROOT / "examples" / "penetration_detail.py"
 FEA_SOURCE = ROOT / "files" / "fem_files" / "cantilever" / "code_aster" / "eigen_shell_cantilever_code_aster.rmed"
 
 
@@ -127,25 +125,6 @@ def build_model(path: pathlib.Path) -> None:
     build_topo_model("Structure").to_ifc(path)
 
 
-def build_penetration_figure(path: pathlib.Path) -> None:
-    """The procedural-modelling docs example, run as is, reduced to what the figure is about:
-    the crossed wall, the equipment, the pipe and the detail, without the roof in the way."""
-    import runpy
-
-    import ada
-
-    g = runpy.run_path(str(PENETRATION_EXAMPLE), run_name="ui_stories")
-    result, pipe = g["result"], g["pipe"]
-    wall = result.penetrations[0].face.associated_part
-    fig = ada.Assembly("PenetrationDetail") / [
-        ada.Part("Wall") / list(wall.get_all_physical_objects()),
-        ada.Part("Equipment") / [g["pump"], g["tank"]],
-        ada.Part("Piping") / result.route_geometry[pipe.name],
-        *result.penetration_parts,
-    ]
-    fig.to_gltf(path)
-
-
 def bake_fea(src: pathlib.Path, key: str) -> bytes:
     """The worker's FEA bake, zipped flat the way the browser bake uploads it."""
     from ada.fem.results.artefacts import bake_fea_artefacts_from_source
@@ -170,7 +149,6 @@ def seed(base_url: str) -> None:
     model = src_dir / MODEL
     build_model(model)
     shutil.copyfile(FEA_SOURCE, src_dir / FEA)
-    build_penetration_figure(src_dir / PENETRATION)
 
     with httpx.Client(base_url=f"{base_url}/api/scopes/{SCOPE}", timeout=600) as api:
 
@@ -178,7 +156,7 @@ def seed(base_url: str) -> None:
             if not resp.is_success:
                 raise RuntimeError(f"{what}: HTTP {resp.status_code} {resp.text[:300]}")
 
-        for key in (MODEL, FEA, PENETRATION):
+        for key in (MODEL, FEA):
             check(api.put(f"/blobs/{key}", content=(src_dir / key).read_bytes()), f"upload {key}")
 
         glb = result_bytes(convert(model, MODEL, "glb"))
@@ -286,13 +264,6 @@ def _fea_modes(page: Page) -> None:
     open_fea(page)
     page.get_by_title("Step 1 of", exact=False).select_option(index=2)
     settle(page, 3000)
-
-
-@story("penetration", "A pipe through a shared wall with its penetration detail (procedural modelling page)")
-def _penetration(page: Page) -> None:
-    page.goto(f"/?scope={SCOPE}&file={PENETRATION}")
-    page.locator("canvas").first.wait_for()
-    settle(page, 4000)
 
 
 @story("clash", "A clash check: every joint in the model, grouped by type")

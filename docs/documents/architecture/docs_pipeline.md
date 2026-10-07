@@ -86,6 +86,13 @@ sequenceDiagram
 - **The source notebook is published next to its page** and linked for download.
 - A cell that raises fails the build. `--no-execute` converts stored outputs only, and
   `--clean` removes everything the script generated.
+- **3D figures on ordinary pages** use the same viewer. `FIGURES` in the script maps a name to
+  `script.py:function`, a function that returns a model. A full run renders it to
+  `_static/viewer-figures/<name>.html`, and the page embeds it with
+  `<iframe class="ada-viewer" src="../_static/viewer-figures/<name>.html" loading="lazy">`.
+  The procedural modelling page does this with `examples/penetration_detail.py:figure`.
+  Its code block is included from the same file
+  (`--8<-- "examples/penetration_detail.py:model"`), so the figure always shows the code above it.
 
 ## Configuration notes
 
