@@ -3,7 +3,7 @@
 adapy stores a T in the I-section fields. ``string_to_section``, ``from_geometry`` and the IFC
 reader fill the absent bottom flange as a stub as wide as the web (``w_btn = t_w``,
 ``t_fbtn = t_ftop``); the gxml reader keeps whatever GeniE's unsymmetrical_i_section had there;
-``geom_beams`` (an IFC ``TShapeProfileDef``) leaves both ``None``.
+``geom_beams`` (an IFC ``TShapeProfileDef``) leaves both ``None``, which ``Section`` fills with the stub.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def test_a_tprofile_without_bottom_flange_slots_is_a_t():
     Cz 0.15 and Iy 1.3835e-4 -- a symmetric I. The T: Ax 5.85e-3, Cz 0.219423, Iy 5.22318e-5
     (GeniE V8.13-02, M1_T300 in genie_v8_13_review437_T1.FEM: 5.84999984e-3, 5.22318041e-5)."""
     tee = ada.Section("T", sec_type="TG", h=H, w_top=B, t_w=TW, t_ftop=TF)
-    assert tee.type == tee.TYPES.TPROFILE and tee.w_btn is None and tee.t_fbtn is None
+    assert tee.type == tee.TYPES.TPROFILE
     ax, cz, iy = _t_closed_form()
     p = calculate_general_properties(tee)
     assert np.isclose(p.Ax, ax, rtol=1e-12)
@@ -143,3 +143,40 @@ def test_a_tprofile_with_a_real_bottom_flange_is_named(ada_warnings):
     ref = calculate_general_properties(_tee(**GENIE_TEES["M1_T300"]))
     for field in FIELDS + ("Cy", "Cz"):
         assert getattr(p, field) == pytest.approx(getattr(ref, field), rel=1e-12, abs=1e-15), field
+
+
+# --- a T declared without bottom slots, through every writer -------------------------------------
+
+WRITERS = ("sesam", "usfos", "abaqus", "code_aster", "calculix", "gxml", "ifc")
+
+
+def test_a_t_declared_without_bottom_slots_gets_the_web_wide_stub():
+    """``geom_beams`` builds a T from an IFC ``TShapeProfileDef`` with ``w_btn = t_fbtn = None``.
+    The Section fills them as every other T source does (string_to_section, from_geometry, the IFC
+    reader): a stub as wide as the web and as thick as the flange, which is web."""
+    tee = ada.Section("T", sec_type="TG", h=H, w_top=B, t_w=TW, t_ftop=TF)
+    assert (tee.w_btn, tee.t_fbtn) == (TW, TF)
+    assert tee.unique_props() == ada.Section("T", from_str="TG300x200x10x15").unique_props()
+    i_beam = ada.Section("I", sec_type="IG", h=H, w_top=B, t_w=TW, t_ftop=TF)
+    assert (i_beam.w_btn, i_beam.t_fbtn) == (None, None)  # an I's bottom flange defaults elsewhere
+
+
+@pytest.mark.parametrize("fmt", WRITERS)
+def test_a_t_declared_without_bottom_slots_is_written_by_every_writer(fmt, tmp_path):
+    """Sesam (ValueError: Unknown input None), USFOS (TypeError formatting None) and Genie XML
+    (TypeError: None / 2) failed on it; Abaqus, Code_Aster, CalculiX and IFC wrote it."""
+    from ada.materials.metals import CarbonSteel
+
+    tee = ada.Section("T", sec_type="TG", h=H, w_top=B, t_w=TW, t_ftop=TF)
+    p = ada.Part("p") / ada.Beam("bm", (0, 0, 0), (1, 0, 0), tee, ada.Material("S355", CarbonSteel("S355")))
+    a = ada.Assembly("a") / p
+    p.fem = p.to_fem_obj(0.5, "line")
+    if fmt == "gxml":
+        a.to_genie_xml(tmp_path / "t.xml")
+        assert (tmp_path / "t.xml").stat().st_size > 0
+    elif fmt == "ifc":
+        a.to_ifc(tmp_path / "t.ifc", validate=False)
+        assert (tmp_path / "t.ifc").stat().st_size > 0
+    else:
+        a.to_fem("t", fmt, scratch_dir=tmp_path, overwrite=True)
+        assert any(f.is_file() and f.stat().st_size > 0 for f in (tmp_path / "t").rglob("*"))

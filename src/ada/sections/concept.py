@@ -87,6 +87,16 @@ class Section(Root):
             sec, tap = interpret_section_str(from_str, scalef, units=units)
             self.__dict__.update(sec.__dict__)
 
+        if self._type == BaseTypes.TPROFILE:
+            # A T has no bottom flange; adapy keeps one in the I-section slots as a stub as wide as
+            # the web and as thick as the flange (string_to_section, from_geometry, the IFC reader),
+            # which is web. A T declared without them (geom_beams, from an IFC TShapeProfileDef) gets
+            # the same stub, so every writer sees one T: Sesam, USFOS and Genie XML failed on None.
+            if self._w_btn is None:
+                self._w_btn = self._t_w
+            if self._t_fbtn is None:
+                self._t_fbtn = self._t_ftop
+
         self._genprops = None
         # Tracks whether `_genprops` has been passed through
         # normalize_general_properties yet. Normalization fills missing
