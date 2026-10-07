@@ -746,3 +746,39 @@ def test_a_calculix_input_error_stops_the_solve_by_name(require_solver, tmp_path
     assert (err.code, err.codes) == ("reading_CLOAD", ("reading_CLOAD", "calinput"))
     assert "99999 is not defined" in err.message
     assert err.file == tmp_path / "bad" / "run_log.txt" and "99999" in err.file.read_text()
+
+
+@pytest.mark.parametrize("fem_format", SOLVERS)
+def test_overlapping_supports_hold_a_shared_node_once(fem_format, require_solver, tmp_path):
+    """The strip under 1000 Pa with its x = 0 edge held in dx, dy and dz and its long edges in dy and rx: the corners
+    (0, 0) and (0, 0.5) are held in dy by two supports. Each end reacts ``q A / 2`` = 1000 N, mid-span deflects as the
+    strip whose supports do not overlap.
+
+    Measured: Code_Aster stopped at <ASSEMBLA_26> ("le noeud: 2 composante: DY est bloqué plusieurs fois") -- each
+    support was a charge of its own; with every support a row of one charge it gives -0.173197916686256 m (Sestra's
+    -0.1731979101896 on this mesh; the same as without the overlap) and reactions 1000 N per end, 2000 N in all
+    (1999.9999999999993). CalculiX takes the overlap as it is: -0.173065 m (S4, -0.155 % of the closed form).
+    """
+    require_solver(fem_format)
+    a, p, pl, mat = _plate("ovl")
+    c = p.concept_fem.constraints
+    c.add_curve_constraint(ConstraintConceptCurve("x0", (0, 0, 0), (0, WID, 0), _dofs(("dx", "dy", "dz"))))
+    c.add_curve_constraint(ConstraintConceptCurve("x4", (L, 0, 0), (L, WID, 0), _dofs(("dz",))))
+    c.add_curve_constraint(ConstraintConceptCurve("y0", (0, 0, 0), (L, 0, 0), _dofs(("dy", "rx"))))
+    c.add_curve_constraint(ConstraintConceptCurve("y5", (0, WID, 0), (L, WID, 0), _dofs(("dy", "rx"))))
+    loads = p.concept_fem.loads
+    loads.add_load_case(LoadConceptCase("LC_p", [LoadConceptSurface("P", pl, pressure=1000.0, side="front")]))
+    p.fem = p.to_fem_obj(0.125, use_quads=True)
+    p.fem.steps[0].add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    solved = _solve(a, "ovl", fem_format, tmp_path)
+
+    d = mat.model.E * T**3 / (12 * (1 - mat.model.v**2))
+    w = solved.u(1, solved.node(L / 2))[2]
+    if fem_format == "code_aster":
+        assert w == pytest.approx(-0.1731979101896286, rel=1e-6), "Sestra's consistent-load answer on this mesh"
+        for x in (0.0, L):
+            end = [n for n, xyz in solved.coords.items() if abs(xyz[0] - x) < 1e-9]
+            assert solved.reactions(1, end)[0][2] == pytest.approx(1000.0 * L * WID / 2, rel=1e-9)
+        assert solved.reactions(1)[0][2] == pytest.approx(1000.0 * L * WID, rel=1e-9)
+    else:
+        assert w / (-5 * 1000.0 * L**4 / (384 * d)) - 1 == pytest.approx(-1.55e-3, abs=2e-5)

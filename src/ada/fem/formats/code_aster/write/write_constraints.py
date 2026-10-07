@@ -43,19 +43,23 @@ def model_bcs(part: Part) -> list:
 
 
 def get_charge_names(part: Part) -> list[str]:
-    """The names of all mechanical loads that make up the supports of the model: boundary conditions and couplings,
-    and the charge holding the prescribed dofs at zero (:data:`.write_bc.PRESCRIBED_AT_ZERO`), which a static step
-    giving them values replaces with its own."""
+    """The names of all mechanical loads that make up the supports of the model: the one charge of every support
+    (:data:`.write_bc.SUPPORTS`), the charge holding the prescribed dofs at zero (:data:`.write_bc.PRESCRIBED_AT_ZERO`),
+    which a static step giving them values replaces with its own, and the couplings."""
     from ada.fem.formats.prescribed import prescribed_dofs
 
-    from .write_bc import PRESCRIBED_AT_ZERO, held_dofs, prescribed_at_zero_str
+    from .write_bc import (
+        PRESCRIBED_AT_ZERO,
+        SUPPORTS,
+        held_dofs,
+        prescribed_at_zero_str,
+    )
 
     bcs = model_bcs(part)
     prescribed = prescribed_dofs(bcs)
     names = []
-    for bc in bcs:
-        if held_dofs(bc, prescribed) and concept_name(bc, "bc") not in names:
-            names.append(concept_name(bc, "bc"))
+    if any(held_dofs(bc, prescribed) for bc in bcs):
+        names.append(SUPPORTS)
     if prescribed_at_zero_str(bcs):
         names.append(PRESCRIBED_AT_ZERO)
     names += [concept_name(con, "coupling") for con in get_couplings(part)]

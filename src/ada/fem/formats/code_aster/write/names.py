@@ -60,7 +60,9 @@ RESERVED = frozenset(
         "timeReel",
         "timeInst",
         "bc_step",
-        # the charge holding the prescribed dofs at zero (write_bc.PRESCRIBED_AT_ZERO)
+        # the charge holding every support (write_bc.SUPPORTS) and the one holding the prescribed dofs at
+        # zero (write_bc.PRESCRIBED_AT_ZERO)
+        "supports",
         "prescribed_zero",
         # eigen analysis
         "modes",

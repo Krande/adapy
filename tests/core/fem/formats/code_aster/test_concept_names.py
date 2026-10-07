@@ -32,8 +32,8 @@ _CO = re.compile(r"\bCO\(\s*['\"](\w+)['\"]\s*\)")
 #: ``{elset} = (...)``, ``{result} = MECA_STATIQUE``) -- assigned, given as a parameter's default or passed
 #: by keyword -- and the result name of a non-linear step (``StatNonLin("result", ...)``).
 _NAME_VARIABLES = {"output_mesh", "input_mesh", "elset", "result"}
-#: Module constants whose value is a name the file binds (``PRESCRIBED_AT_ZERO = "prescribed_zero"``).
-_NAME_CONSTANTS = {"PRESCRIBED_AT_ZERO"}
+#: Module constants whose value is a name the file binds (``SUPPORTS = "supports"``).
+_NAME_CONSTANTS = {"PRESCRIBED_AT_ZERO", "SUPPORTS"}
 #: What ``{result}`` stands for when an f-string is read: the result of a later step, as the deck names it.
 _RESULT = "result2"
 
@@ -179,7 +179,7 @@ def write(part, input_mesh, output_mesh: str = "default_bound", *, elset="kwonly
 def test_every_name_the_writer_binds_itself_is_reserved():
     bound = _bound_by_the_writer()
     # the scan sees what it is meant to see
-    assert {"mesh", "model", "material", "element", "result", "dofs", "stiff", "Traction", "sh_sets"} <= set(bound)
+    assert {"mesh", "model", "material", "element", "result", "supports", "stiff", "Traction", "sh_sets"} <= set(bound)
     # ... and the names a step makes up as it is written
     assert {"result1", "result2_pd", "result2_t", "result2_f1", "result2_p1", "result2_g1", "prescribed_zero"} <= set(
         bound
@@ -248,7 +248,8 @@ def _bindings(comm: str) -> list[str]:
     "load_name, bc_name, material_name, concept",
     [
         ("model", None, None, "ld_model"),
-        ("grav", "model", None, "bc_model"),
+        # a Bc is a row of the one supports charge, named in a comment
+        ("grav", "model", None, "supports"),
         ("grav", None, "model", "mt_model"),
         ("result", None, None, "ld_result"),
     ],
@@ -288,12 +289,13 @@ def test_writing_a_deck_leaves_the_part_s_bcs_as_they_were(tmp_path):
         a.to_fem(f"twice{i}", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=False)
     assert [bc.name for bc in p.fem.bcs] == before
     comm = (tmp_path / "twice1" / "twice1.comm").read_text(encoding="utf-8")
-    assert _bindings(comm).count("bc_asm_hold") == 1
+    assert comm.count("  # asm_hold\n") == 1
 
 
-def test_a_part_bc_and_an_assembly_bc_of_one_name_are_two_concepts(tmp_path):
+def test_a_part_bc_and_an_assembly_bc_of_one_name_are_two_supports(tmp_path):
     """Two Bcs named "Fixed" (one on the part, one on the assembly) were one concept: the second
-    definition replaced the first and the support it stood for was gone from the solve."""
+    definition replaced the first and the support it stood for was gone from the solve. Each is now a
+    row of the one ``supports`` charge."""
     a = design_cantilever()
     a = mesh_cantilever(a, geom_repr="shell", elem_order=1, use_hex_quad=True, reduced_integration=False, mesh_size=0.2)
     p = a.get_part("MyPart")
@@ -303,6 +305,7 @@ def test_a_part_bc_and_an_assembly_bc_of_one_name_are_two_concepts(tmp_path):
     step.add_load(ada.fem.LoadGravity("grav", -9.81 * 80))
     a.to_fem("two_fixed", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=False)
     comm = (tmp_path / "two_fixed" / "two_fixed.comm").read_text(encoding="utf-8")
-    bound = _bindings(comm)
-    assert bound.count("bc_Fixed") == 1 and bound.count("bc_Fixed_2") == 1
-    assert re.findall(r"CHARGE=(\w+)", comm) == ["bc_Fixed", "bc_Fixed_2", "ld_grav"]
+    supports = re.search(r"^supports = AFFE_CHAR_MECA\((.*?)^\)", comm, re.M | re.S)[1]
+    rows = re.findall(r'_F\(GROUP_NO="(\w+)", [^)]*\),  # (\w+)', supports)
+    assert rows == [(part_bc.fem_set.name, "Fixed"), ("asm_hold_set", "Fixed")]
+    assert re.findall(r"CHARGE=(\w+)", comm) == ["supports", "ld_grav"]

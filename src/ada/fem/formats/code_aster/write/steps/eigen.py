@@ -38,10 +38,9 @@ modes_0 = PROJ_CHAMP(
     RESULTAT=modes
 )"""
 
-    # `ASSEMBLAGE`'s CHARGE takes a tuple of mechanical loads, so every Bc goes in. This was one
-    # Bc only, which made a plate unanalysable: simple support plus a cylindrical-bending restraint
-    # is four disjoint node sets (they have to be disjoint -- Code_Aster refuses a dof held twice
-    # with <ASSEMBLA_26>), and there is no way to spell that as a single Bc.
+    # `ASSEMBLAGE`'s CHARGE takes a tuple of mechanical loads, so every charge goes in: the one of all
+    # supports (overlapping node sets are held once there -- two charges holding one dof stop at
+    # <ASSEMBLA_26>), the prescribed dofs at zero and the couplings.
     charge_str = ", ".join(charges)
     return f"""
 #modal analysis

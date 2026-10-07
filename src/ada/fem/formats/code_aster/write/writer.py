@@ -13,7 +13,7 @@ from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 from ..compatibility import check_compatibility
 from . import names as concept_names
 from .templates import el_convert_str, main_comm_str
-from .write_bc import create_bc_str, prescribed_at_zero_str
+from .write_bc import check_overlaps, prescribed_at_zero_str, supports_str
 from .write_constraints import (
     create_coupling_str,
     create_ref_points_mesh_str,
@@ -98,7 +98,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     # list with the assembly's on every write.
     bcs = model_bcs(part)
     prescribed = prescribed_dofs(bcs)
-    supports = [create_bc_str(bc, prescribed) for bc in bcs] + [prescribed_at_zero_str(bcs)]
+    check_overlaps(bcs, prescribed)
+    supports = [supports_str(bcs, prescribed), prescribed_at_zero_str(bcs)]
     bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings])
     steps = all_steps(assembly)
     step_str = steps_str(steps, part)

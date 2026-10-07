@@ -64,7 +64,7 @@ def test_a_step_applies_every_load_it_has(tmp_path):
     step.add_load(LoadPoint("p1", -100.0, fs, 3))
     step.add_load(LoadGravity("grav", -9.81))
     comm, _ = _comm(a, tmp_path)
-    assert _excit(comm, "result") == ["bc_pin", "bc_roll", "ld_p1", "ld_grav"]
+    assert _excit(comm, "result") == ["supports", "ld_p1", "ld_grav"]
 
 
 def test_load_cases_are_one_macro_elas_mult_with_a_case_each(tmp_path):
@@ -72,7 +72,7 @@ def test_load_cases_are_one_macro_elas_mult_with_a_case_each(tmp_path):
     comm, _ = _comm(a, tmp_path)
     m = re.search(r"^result = MACRO_ELAS_MULT\((.*?)^\)", comm, re.M | re.S)
     assert m and "MECA_STATIQUE" not in comm
-    assert re.search(r"CHAR_MECA_GLOBAL=\(bc_pin,bc_roll,\)", m[1])
+    assert re.search(r"CHAR_MECA_GLOBAL=\(supports,\)", m[1])
     cases = re.findall(r"_F\(NOM_CAS='(\w+)', CHAR_MECA=\(([^)]*)\), OPTION='SANS'\)", m[1])
     assert cases == [("LC_u", "ld_LC_u_u,"), ("LC_p", "ld_LC_p_pm,"), ("LC_g", "ld_LC_g_g,")]
 
@@ -83,8 +83,8 @@ def test_every_step_is_written_into_a_result_of_its_own_carrying_the_earlier_loa
     a.fem.add_step(StepImplicitStatic("first")).add_load(LoadPoint("p1", -100.0, fs, 3))
     a.fem.add_step(StepImplicitStatic("second")).add_load(LoadPoint("p2", -200.0, fs, 2))
     comm, report = _comm(a, tmp_path)
-    assert _excit(comm, "result") == ["bc_pin", "bc_roll", "ld_p1"]
-    assert _excit(comm, "result2") == ["bc_pin", "bc_roll", "ld_p1", "ld_p2"]
+    assert _excit(comm, "result") == ["supports", "ld_p1"]
+    assert _excit(comm, "result2") == ["supports", "ld_p1", "ld_p2"]
     assert "result3 = MACRO_ELAS_MULT(" in comm, "the part's concept step, after the assembly's"
     assert comm.count("IMPR_RESU(") == 3
     assert not [f for f in report.findings if f.keyword == "Step"]
@@ -94,7 +94,8 @@ def test_a_point_load_is_force_nodale_and_gravity_has_its_direction(tmp_path):
     a, p, _ = _beam()
     comm, _ = _comm(a, tmp_path)
     assert re.search(
-        r"ld_LC_p_pm = AFFE_CHAR_MECA\(\n    MODELE=model,\n    FORCE_NODALE=_F\(GROUP_NO='LC_p_pm', FZ=-10000.0\),", comm
+        r"ld_LC_p_pm = AFFE_CHAR_MECA\(\n    MODELE=model,\n    FORCE_NODALE=_F\(GROUP_NO='LC_p_pm', FZ=-10000.0\),",
+        comm,
     )
     assert "PESANTEUR=_F(DIRECTION=(0.0, -1.0, 0.0), GRAVITE=9.81)" in comm
 
@@ -168,7 +169,8 @@ def test_a_prescribed_dof_is_held_once_and_takes_its_value_case_by_case(tmp_path
     a, p = _settling_beam()
     comm, report = _comm(a, tmp_path)
     assert not report.of_kind("omitted"), report.summary()
-    assert "\ntip = AFFE_CHAR_MECA(" not in comm, "the tip support holds dz only, which the settlement prescribes"
+    supports = re.search(r"^supports = AFFE_CHAR_MECA\((.*?)^\)", comm, re.M | re.S)[1]
+    assert 'GROUP_NO="tip_set"' not in supports, "the tip support holds dz only, which the settlement prescribes"
     assert (
         'result_p1 = AFFE_CHAR_MECA(\n    MODELE=model,\n    DDL_IMPO=(\n        _F(GROUP_NO="tip_set", DZ=1.0),'
         in comm
@@ -179,7 +181,7 @@ def test_a_prescribed_dof_is_held_once_and_takes_its_value_case_by_case(tmp_path
     assert "result_f1 = DEFI_FONCTION(NOM_PARA='INST', VALE=(0.0, 0.0, 1.0, 1.0, 2.0, 0.0))" in comm
     m = re.search(r"^result = MECA_STATIQUE\((.*?)^\)", comm, re.M | re.S)
     assert re.findall(r"_F\(CHARGE=(\w+)(?:, FONC_MULT=(\w+))?\)", m[1]) == [
-        ("bc_root", ""),
+        ("supports", ""),
         ("ld_LC_p_pm", "result_f1"),
         ("result_p1", "result_g1"),
     ], "each dof held once: the support at zero, the prescribed dz by its own charge"
@@ -197,12 +199,58 @@ def test_a_general_step_gives_the_prescribed_dof_its_value_and_other_steps_hold_
     a.fem.add_step(StepEigen("eig", num_eigen_modes=3))
     comm, report = _comm(a, tmp_path)
     assert not report.of_kind("omitted"), report.summary()
-    roll = re.search(r'GROUP_NO="roll_set",\n    (.*?)\n\)\nbc_roll = AFFE_CHAR_MECA', comm)
-    assert roll and "DZ" not in roll[1] and "DX=0" in roll[1], "the support leaves the prescribed dz out"
+    roll = re.search(r'_F\(GROUP_NO="roll_set", (.*?)\),  # roll\n', comm)
+    assert roll and "DZ" not in roll[1] and "DX=0.0" in roll[1], "the support leaves the prescribed dz out"
     pd = 'result_pd = AFFE_CHAR_MECA(\n    MODELE=model,\n    DDL_IMPO=(\n        _F(GROUP_NO="roll_set", DZ=-0.02),'
     zero = (
         'prescribed_zero = AFFE_CHAR_MECA(\n    MODELE=model,\n    DDL_IMPO=(\n        _F(GROUP_NO="roll_set", DZ=0.0),'
     )
     assert pd in comm and zero in comm
-    assert _excit(comm, "result") == ["bc_pin", "bc_roll", "result_pd", "ld_p1"]
-    assert "CHARGE=(bc_pin, bc_roll, prescribed_zero,)," in comm
+    assert _excit(comm, "result") == ["supports", "result_pd", "ld_p1"]
+    assert "CHARGE=(supports, prescribed_zero,)," in comm
+
+
+def test_overlapping_supports_are_one_charge_each_node_held_in_the_union_of_its_dofs(tmp_path):
+    """The pin and a second support on the pin's node holding dz and ry: two charges held dz there twice and
+    Code_Aster stopped (<ASSEMBLA_26>, measured on a strip's corner). Now every support is a row of one charge,
+    ``supports``, and a dof given twice in one ``AFFE_CHAR_MECA`` is held once (measured: the strip solves, reactions
+    q A to 4e-16)."""
+    from ada.fem import Bc
+
+    a, p, _ = _beam(cases=False)
+    pin = p.fem.nsets["pin_set"]
+    p.fem.add_bc(Bc("pin_ry", p.fem.add_set(ada.fem.FemSet("pin2", list(pin.members), "nset")), [3, 5]))
+    mid = p.fem.add_set(ada.fem.FemSet("mid", [p.fem.nodes.get_by_volume((2.0, 0, 0))[0]], "nset"))
+    a.fem.add_step(StepImplicitStatic("lin")).add_load(LoadPoint("p1", -100.0, mid, 3))
+    comm, _ = _comm(a, tmp_path)
+    supports = re.search(r"^supports = AFFE_CHAR_MECA\((.*?)^\)", comm, re.M | re.S)[1]
+    assert re.findall(r'_F\(GROUP_NO="(\w+)", ([^)]*)\),  # (\w+)', supports) == [
+        ("pin_set", "DX=0.0, DY=0.0, DZ=0.0, DRX=0.0", "pin"),
+        ("roll_set", "DX=0.0, DY=0.0, DZ=0.0, DRX=0.0, DRY=0.0, DRZ=0.0", "roll"),
+        ("pin2", "DZ=0.0, DRY=0.0", "pin_ry"),
+    ]
+    assert comm.count("= AFFE_CHAR_MECA(") == 2, "the supports and the point load"
+    assert _excit(comm, "result") == ["supports", "ld_p1"]
+
+
+@pytest.mark.parametrize("other", ["support", "settlement"])
+def test_a_prescribed_dof_another_condition_holds_on_the_same_node_is_refused_by_name(tmp_path, other):
+    """The settling beam's tip (dz prescribed, -0.01 m in LC_s) also in another node set whose Bc holds dz at 0, or
+    prescribes it +0.02: one value would have to win, and as two charges Code_Aster stops (<ASSEMBLA_26>). Refused
+    at write time, naming the node, the dof and both conditions."""
+    from ada.fem import Bc
+    from ada.fem.exceptions.model_definition import ConflictingBoundaryConditions
+
+    a, p = _settling_beam()
+    tip = p.fem.nodes.get_by_volume((L, 0, 0))[0]
+    fs = p.fem.add_set(ada.fem.FemSet("tip2", [tip], "nset"))
+    p.fem.add_bc(Bc("tip_extra", fs, [3], magnitudes=[0.02] if other == "settlement" else None))
+    with pytest.raises(ConflictingBoundaryConditions) as info:
+        _comm(a, tmp_path)
+    err = info.value
+    assert (err.node, err.dof) == (tip.id, "DZ")
+    if other == "support":
+        assert (err.bc, err.other) == ("tip_LC_s", "tip_extra") and "holds it at 0" in str(err)
+    else:
+        assert (err.bc, err.other) == ("tip_extra", "tip_LC_s") and "through another set" in str(err)
+    assert "ASSEMBLA_26" in str(err)
