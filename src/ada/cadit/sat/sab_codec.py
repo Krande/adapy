@@ -29,7 +29,8 @@ point, straight-curve, ellipse-curve, plane-surface, cone-surface, intcurve-curv
 (exactcur), spline-surface (exactsur, and ``ref``), pcurve (exppc), and the
 string_attrib-name_attrib-gen-attrib, position_attrib-name_attrib-gen-attrib,
 CachedPlaneAttribute-DNV-attrib and vertedge-sys-attrib attributes -- every type
-GeniE wrote for the twins and every type adapy's own SAT writer emits. Anything else
+GeniE wrote for the twins and every type adapy's own SAT writer emits (its
+FusedFace/FusedEdge attribute classes are never instantiated). Anything else
 is refused by name (:class:`SabUnsupported`): ``rulesur`` from a skinned surface, a
 transform, an unseen subtype, attribute flag word or enum value, a periodic spline,
 a long string (tag 0x12), a kernel other than ACIS 33.0.1, a history section.
