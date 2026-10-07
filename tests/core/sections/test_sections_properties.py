@@ -205,12 +205,14 @@ def test_circular():
         # ("Wxmin",),
         ("Wymin", 7.8539816e-4),
         ("Wzmin", 7.8539816e-4),
-        # ("Shary",),
-        # ("Sharz",),
-        # ("Shceny",),
-        # ("Shcenz",),
-        # ("Sy",),
-        # ("Sz",),
+        # Solid round r = 0.1: Sy = 2 r^3 / 3, Shary = Iz 2r / Sy = 3/4 pi r^2, as GeniE writes it
+        # (main used a tube of wall 0.99 r: Shary 0.02332635, 1.0 % low)
+        ("Shary", 0.75 * 3.141592653589793 * 0.1**2),
+        ("Sharz", 0.75 * 3.141592653589793 * 0.1**2),
+        ("Shceny", 0.0),
+        ("Shcenz", 0.0),
+        ("Sy", 2 * 0.1**3 / 3),
+        ("Sz", 2 * 0.1**3 / 3),
     ]
 
     eval_assertions(sec, assertions)

@@ -450,10 +450,11 @@ def calc_circular(sec: Section) -> GeneralProperties:
 
     Wxmin = Ix / sec.r
 
-    t = sec.r * 0.99
+    # The tubular formulas with the wall reaching the centre (t = r), as GeniE writes a solid
+    # round: Sy = 2 r^3 / 3, Shary = Iz 2r / Sy = 3/4 pi r^2.
+    t = sec.r
     dy = sec.r * 2
-    di = dy - 2 * t
-    Sy = (dy**3 - di**3) / 12
+    Sy = dy**3 / 12
     Sz = Sy
     Shary = (2 * Iz * t / Sy) * Sfy
     Sharz = (2 * Iy * t / Sz) * Sfz
