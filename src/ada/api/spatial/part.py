@@ -1567,10 +1567,16 @@ class Part(BackendGeom):
             n_after = len(fem.nodes)
             logger.info(f"Removed {n_before - n_after} standalone nodes")
 
+        # The load cases are passed for their prescribed displacements -- the values of the supports' prescribed
+        # dofs -- in the order GeniE numbers them in.
+        load_cases = [
+            lc for p in self.get_all_subparts(include_self=True) for lc in p.concept_fem.loads.load_cases.values()
+        ]
         add_constraint_concepts_to_fem(
             self.concept_fem.constraints.get_part_constraint_concepts(),
             fem,
             beams=self.get_all_physical_objects(by_type=Beam),
+            load_cases=sorted(load_cases, key=lambda lc: lc.fem_loadcase_number),
         )
 
         if Config().meshing_check_hanging_nodes:
