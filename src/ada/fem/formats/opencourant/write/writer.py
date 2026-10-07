@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable
 
 from ada.config import logger
+from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.shapes.definitions import ShellShapes
 from ada.fem.steps import StepExplicit
@@ -157,7 +158,7 @@ class _StarterDeck:
         for sec in self.fem.sections:
             sec_type = str(getattr(sec.type, "value", sec.type)).lower()
             if sec_type != "shell":
-                raise NotImplementedError(f"OpenCourant writer v1 supports shell sections only (got {sec_type!r})")
+                raise IncompatibleElements(f"OpenCourant writer v1 supports shell sections only (got {sec_type!r})")
             elements = list(sec.elset.members)
             if not elements:
                 continue
@@ -360,7 +361,7 @@ def _shell_elements_str(part_id: int, elements: list[Elem]) -> str:
     trias = [el for el in elements if el.type == ShellShapes.TRI]
     other = [el for el in elements if el.type not in (ShellShapes.QUAD, ShellShapes.TRI)]
     if other:
-        raise NotImplementedError(f"part {part_id}: unsupported shell element type {other[0].type!r}")
+        raise IncompatibleElements(f"part {part_id}: unsupported shell element type {other[0].type!r}")
     out = []
     if quads:
         out.append(f"/SHELL/{part_id}")
