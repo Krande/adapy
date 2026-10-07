@@ -61,10 +61,12 @@ def step_loads_str(
 
     prescribed = prescribed or {}
     prescribed_cases = prescribed_cases or {}
-    if step is None or len(step.loads) == 0:
-        cases = [(DEFAULT_CASE, [])] if prescribed else []
-    elif len(step.load_cases.keys()) > 0:
+    if step is not None and len(step.load_cases.keys()) > 0:
+        # A load case may hold no load of its own -- a settlement case of a GeniE model -- and still be a case.
         cases = [(lc.name, lc.loads or []) for lc in step.load_cases.values()]
+        _report_loads_outside_cases(step)
+    elif step is None or len(step.loads) == 0:
+        cases = [(DEFAULT_CASE, [])] if prescribed else []
     else:
         cases = [(DEFAULT_CASE, step.loads)]
     names = {name for name, _ in cases}
@@ -92,6 +94,21 @@ def step_loads_str(
             n_cases=len(cases),
         )
     return out_str
+
+
+def _report_loads_outside_cases(step: Step) -> None:
+    """A step with load cases writes its load cases; a load of the step in none of them has no case to go in."""
+    in_cases = {id(ld) for lc in step.load_cases.values() for ld in (lc.loads or [])}
+    for load in step.loads:
+        if id(load) not in in_cases:
+            report().omitted(
+                STAGE,
+                "Load",
+                load.name,
+                "a load of a step that has load cases, in none of them; each Sesam load case is written, so it "
+                "has no case to go in",
+                step=step.name,
+            )
 
 
 def case_loads_str(loads, lid: int, ndofs: NodeDofs | None = None) -> str:
@@ -147,6 +164,10 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
             rep.approximated(STAGE, "Load", load.name, "Sestra is linear; a follower load keeps its direction")
     elif load.type == Load.TYPES.PRESSURE:
         out = load_pressure(load, lid)
+        if out == "":
+            return ""
+    elif load.type == Load.TYPES.LINE:
+        out = load_line(load, lid)
         if out == "":
             return ""
     else:
@@ -459,4 +480,63 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
             "BNLOAD",
             [(load_id, lotype, complx, 0), real_loads_1, real_loads_2],
         )
+    return out
+
+
+#: BELOAD1's LOTYP for a distributed line load on a beam (2 is GeniE's "simulated concentrated force"), and its
+#: OPT for intensities given in global components -- what GeniE V9.2-01 writes for every line load on a beam
+#: (``genie_loads_all_kinds_T1.FEM``: ``BELOAD1 4 1 0 1``).
+LINE_LOTYP = 1
+LINE_OPT_GLOBAL = 1
+
+#: BELLO2's LOTYP for a line load on a shell element edge, intensities in global components; GeniE writes 1
+#: (``BELLO2 9 1 0 0`` for 500 N/m along a plate edge).
+EDGE_LOTYP = 1
+
+
+def load_line(load, load_id: int) -> str:
+    """A distributed line load: one BELOAD1 per beam element, one BELLO2 per shell element edge.
+
+    ``BELOAD1  LLC LOTYP COMPLX OPT / ELNO L1 L2 NDOF / INTNO RLOAD1..RLOAD6`` -- GeniE's own record (SIF 7.2.7),
+    the intensities three global components at the start of the loaded stretch and three at its end, and L1, L2
+    the unloaded lengths at the element's ends. ``BELLO2  LLC LOTYP COMPLX LAYER / ELNO NDOF INTNO LINE / SIDE
+    RLOAD1..RLOAD6`` (SIF 7.2.6), as GeniE writes it for a load along a plate edge: LINE the element edge, three
+    global components at each of its two nodes.
+
+    A segment on an element BELOAD1 or BELLO2 does not hold -- a beam that is not a two-node line, a part of a
+    shell edge -- is refused by name.
+    """
+    from ada.fem.shapes.definitions import LineShapes, ShellShapes
+
+    from ..common import sesam_reverse
+
+    rep = report()
+    out = ""
+    refused: dict[str, list[str]] = {}
+    for seg in load.segments:
+        el = seg.elem
+        if el.type not in sesam_reverse:
+            refused.setdefault("an element with no Sesam element type", []).append(str(el.id))
+            continue
+        q = tuple(float(v) for v in (*seg.q1, *seg.q2))
+        if seg.edge is None:
+            if el.type != LineShapes.LINE:
+                refused.setdefault("BELOAD1 on an element that is not a two-node beam", []).append(str(el.id))
+                continue
+            out += write_ff(
+                "BELOAD1",
+                [(load_id, LINE_LOTYP, 0, LINE_OPT_GLOBAL), (el.id, seg.l1, seg.l2, 6), (0, *q[:3]), q[3:]],
+            )
+        else:
+            if el.type not in (ShellShapes.TRI, ShellShapes.QUAD) or seg.l1 != 0.0 or seg.l2 != 0.0:
+                refused.setdefault("BELLO2 on part of an edge, or of an element that is not a linear shell", []).append(
+                    str(el.id)
+                )
+                continue
+            out += write_ff(
+                "BELLO2",
+                [(load_id, EDGE_LOTYP, 0, 0), (el.id, 6, 0, seg.edge), (0, *q[:3]), q[3:]],
+            )
+    for why, ids in sorted(refused.items()):
+        rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))
     return out
