@@ -188,6 +188,9 @@ def _support_rigid_link(el: ET.Element) -> ConstraintConceptRigidLink:
         rotation_dependent = None
     elif rotations == ["dependent"] * 3:
         rotation_dependent = True
+    elif all(r in (None, "free") for r in rotations):
+        # GeniE V8.13 leaves a free slave rotation out; written "free" it says the same
+        rotation_dependent = False
     else:
         raise _Refused(
             "support_rigid_link",

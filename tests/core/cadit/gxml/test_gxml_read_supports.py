@@ -274,6 +274,13 @@ def _mixed_slave_rotations(root):
     _support(root, "Srl_rot").attrib.pop("slave_rz")
 
 
+def _free_rotations_said_dependent(root):
+    el = _support(root, "Srl_rot")
+    for dof in ("rx", "ry", "rz"):
+        el.set(f"slave_{dof}", "free")
+    el.set("rotation_dependent", "true")
+
+
 def _rotated_footprint(root):
     box = _support(root, "Srl_rot").find("region/footprint_box/local_system")
     for v in box:
@@ -326,6 +333,7 @@ REFUSALS = {
     "mixed slave rotations": (_mixed_slave_rotations, "Srl_rot", "support_rigid_link"),
     "rotated footprint box": (_rotated_footprint, "Srl_rot", "footprint_box"),
     "rotation_dependent against slave_r*": (_disagreeing_rotation_dependent, "Srl_rot", "support_rigid_link"),
+    "free slave_r* against rotation_dependent": (_free_rotations_said_dependent, "Srl_rot", "support_rigid_link"),
     "five dofs": (_five_dofs, "Sp_rot90", "boundary_conditions"),
     "spring without stiffness": (_spring_without_stiffness, "Sp_spring_rot", "boundary_condition"),
     "unknown child": (_unknown_child, "Sp_rot90", "support_point"),
@@ -473,3 +481,24 @@ def test_the_user_model_reads_its_four_rigid_link_supports():
         assert _dofs(rl) == dofs, name
         assert (rl.rotation_dependent, rl.include_all_edges) == (True, True), name
     assert not any(f.keyword.startswith("support") or f.keyword == "local_system" for f in report.findings)
+
+
+@pytest.mark.parametrize(
+    "rotations",
+    [("free", "free", "free"), ("free", None, None)],
+    ids=["all three free", "one free, two left out"],
+)
+def test_slave_rotations_written_free_are_read_as_not_linked(example_files, tmp_path, rotations):
+    """GeniE V8.13 leaves ``slave_rx|ry|rz`` out when they are free; a file that writes ``"free"`` says the same. It was
+    refused with "slave rotations neither all linked nor all free". Srl_frame, made so, reads as Srl_frame does."""
+
+    def free_rotations(root):
+        el = _support(root, "Srl_frame")
+        for dof, value in zip(("rx", "ry", "rz"), rotations):
+            if value is not None:
+                el.set(f"slave_{dof}", value)
+
+    _, part, report = _read(_edit(example_files, tmp_path, "genie_supports_frames.xml", free_rotations))
+    assert "Srl_frame" not in _findings(report)
+    rl = part.concept_fem.constraints.rigid_links["Srl_frame"]
+    assert (rl.rotation_dependent, rl.include_all_edges) == (False, True)
