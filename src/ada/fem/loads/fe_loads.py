@@ -312,6 +312,10 @@ class LineLoadSegment:
         r2 = start + 2 * (end - start) / 3 - np.asarray(about, dtype=float)
         return np.cross(r1, f1) + np.cross(r2, f2)
 
+    def uniform_over_beam_element(self) -> bool:
+        """A beam segment of one intensity from end to end: what a format's per-element beam load writes exactly."""
+        return self.edge is None and self.l1 == 0.0 and self.l2 == 0.0 and tuple(self.q1) == tuple(self.q2)
+
 
 def _corner_count(elem: Elem) -> int:
     from ada.fem.shapes.definitions import ShellShapes
@@ -369,6 +373,20 @@ class LoadLine(Load):
             corners = _corner_count(seg.elem)
             n_a, n_b = seg.elem.nodes[seg.edge - 1], seg.elem.nodes[seg.edge % corners]
         return [(n_a, f_a), (n_b, f_b)]
+
+    @staticmethod
+    def summed_nodal_loads(segments: Iterable[LineLoadSegment]) -> list[tuple[Node, np.ndarray]]:
+        """:meth:`nodal_loads` of every segment, summed per node and sorted by node id.
+
+        Summed because not every format adds two loads on one node: Abaqus 2025 does, and so does CalculiX 2.23
+        (measured: two ``*CLOAD`` lines of -500 on one node and dof moved it exactly as one of -1000 did), but
+        Code_Aster's rule for ``AFFE_CHAR_MECA`` is that of two conflicting assignments the last one wins
+        (U4.44.01, "Rules of overload and retention")."""
+        nodal: dict = {}
+        for seg in segments:
+            for node, force in LoadLine.nodal_loads(seg):
+                nodal[node] = nodal.get(node, np.zeros(3)) + force
+        return sorted(nodal.items(), key=lambda x: x[0].id)
 
 
 class LoadCase(FemBase):

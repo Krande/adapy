@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
-
 from ada.fem import Load, LoadLine, LoadPressure
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
 
@@ -96,15 +94,14 @@ def line_load_str(load: LoadLine) -> str:
 
     from .write_bc import STAGE
 
-    dload, nodal = [], {}
+    dload, rest = [], []
     for seg in load.segments:
-        uniform = seg.edge is None and seg.l1 == 0.0 and seg.l2 == 0.0 and tuple(seg.q1) == tuple(seg.q2)
-        if uniform:
+        if seg.uniform_over_beam_element():
             label = _element_label(seg.elem)
             dload += [f"{label}, {lab}, {format_number(q)}" for lab, q in zip(_BEAM_LOAD_LABELS, seg.q1) if q != 0.0]
-            continue
-        for node, force in LoadLine.nodal_loads(seg):
-            nodal[node] = nodal.get(node, np.zeros(3)) + force
+        else:
+            rest.append(seg)
+    nodal = LoadLine.summed_nodal_loads(rest)
 
     blocks = []
     if dload:
@@ -112,7 +109,7 @@ def line_load_str(load: LoadLine) -> str:
     if nodal:
         lines = [
             f" {get_instance_name(node, True)}, {dof + 1}, {format_number(float(f[dof]))}"
-            for node, f in sorted(nodal.items(), key=lambda x: x[0].id)
+            for node, f in nodal
             for dof in range(3)
             if f[dof] != 0.0
         ]
