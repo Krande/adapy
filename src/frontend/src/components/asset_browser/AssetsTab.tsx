@@ -679,19 +679,25 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
     // Every pair the set asks for that has no geometry to load, by provider -- split into what was
     // never requested and what WAS: the provider published that very node with nothing to load
     // (an empty site, a kind it cannot draw). Asking again would publish the same nothing.
+    //
+    // And a third: a provider whose published tree does not name the node at all has nothing it
+    // could be asked for -- a site one source models and another does not. Asking anyway fails
+    // once per member ("publishes no site named ..."); they are counted, not requested.
     const missing = new Map<string, { id: string; label: string }[]>();
     const empty = new Map<string, { id: string; label: string }[]>();
+    const unknown = new Map<string, { id: string; label: string }[]>();
     for (const m of present) {
         for (const p of m.providers ?? view.contentProviders) {
             if (loadable(m.id, p)) continue;
             const own = view.resolution.subjects.get(m.id)?.byProvider.get(p);
-            const into = own?.manifest ? empty : missing;
+            const into = own?.manifest ? empty : view.namedBy.get(m.id)?.has(p) ? missing : unknown;
             const list = into.get(p) ?? [];
             list.push({ id: m.id, label: m.label });
             into.set(p, list);
         }
     }
     const emptyCount = [...empty.values()].reduce((n, l) => n + l.length, 0);
+    const unknownCount = [...unknown.values()].reduce((n, l) => n + l.length, 0);
     const missingCount = [...missing.values()].reduce((n, l) => n + l.length, 0);
     const requests = [...missing.entries()].map(([provider, rows]) => ({
         provider,
@@ -750,6 +756,14 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                         {emptyCount} with nothing to draw
                     </span>
                 )}
+                {unknownCount > 0 && (
+                    <span
+                        className="text-gray-400"
+                        title={[...unknown.entries()].map(([p, rows]) => `not in ${p}'s tree: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
+                    >
+                        {unknownCount} not in that provider's tree
+                    </span>
+                )}
             </div>
             {asking && (
                 <div role="alertdialog" aria-label="Missing geometry" className="rounded-md border border-amber-700/70 bg-amber-950/40 p-2 space-y-1.5 text-xs">
@@ -770,6 +784,12 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                     {emptyCount > 0 && (
                         <div className="text-gray-400">
                             {emptyCount} more were requested before and have nothing to draw; they are left out.
+                        </div>
+                    )}
+                    {unknownCount > 0 && (
+                        <div className="text-gray-400" title={[...unknown.entries()].map(([p, rows]) => `${p}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}>
+                            {unknownCount} more are not in the chosen provider's tree at all (
+                            {[...unknown.entries()].map(([p, rows]) => `${p}: ${rows.length}`).join(", ")}); nothing can be requested for them.
                         </div>
                     )}
                     <div className="flex flex-wrap gap-1.5">
