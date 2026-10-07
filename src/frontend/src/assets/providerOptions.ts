@@ -19,8 +19,12 @@
 
 export const PROVIDER_OPTIONS_SCHEMA = "ada.assets/provider-options@1";
 
+/** Lower case, whoever asks: the Sources tab names a collection by its key (lower case by
+ *  construction) and the request panel by the provider's own spelling ("ABC"). Taken as written,
+ *  the panel saved to one blob and every tree request read another -- and found nothing, so the
+ *  options were silently not sent. */
 export function providerOptionsKey(collection: string): string {
-  return `assets/_options/${collection}.json`;
+  return `assets/_options/${collection.toLowerCase()}.json`;
 }
 
 export type ProviderOptionValues = Readonly<Record<string, unknown>>;

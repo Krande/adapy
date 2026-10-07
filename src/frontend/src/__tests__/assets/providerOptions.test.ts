@@ -19,6 +19,12 @@ test("the document lives beside the view and the sets, one per collection", () =
   assert.equal(providerOptionsKey("abc"), "assets/_options/abc.json");
 });
 
+test("the provider's spelling of a collection finds the same document as the tab's key", () => {
+  // The request panel names a collection as the provider advertises it, the Sources tab by its
+  // lower-case key; a tree request has to read what the Options panel saved.
+  assert.equal(providerOptionsKey("ABC"), providerOptionsKey("abc"));
+});
+
 test("empty reads as nothing set; an unknown schema refuses rather than being overwritten", () => {
   assert.deepEqual(parseProviderOptionsDoc(""), EMPTY_PROVIDER_OPTIONS);
   assert.deepEqual(parseProviderOptionsDoc(null), EMPTY_PROVIDER_OPTIONS);
