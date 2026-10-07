@@ -195,6 +195,9 @@ def write_to_fem(
         # assembly-level data, and merging first renamed every part and dropped what the merge
         # does not carry (assembly-level amplitudes, interactions, reference points) -- so a
         # deck read and written back came out as a different model.
+        from ada.fem.concept.loads_to_fem import report_unconverted_concept_loads
+
+        report_unconverted_concept_loads(assembly)
         write_assembly = assembly
         fem_parts = [p for p in assembly.get_all_parts_in_assembly(include_self=True) if len(p.fem.nodes) > 0]
         if len(fem_parts) > 1 and fem_format not in _WRITES_ASSEMBLIES:

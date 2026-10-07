@@ -10,8 +10,9 @@ by node position with the ``T1.FEM`` GeniE itself meshed the same model into (``
 * BNDISPL: the values per load case, by the case's name.
 
 Every place the two decks differ is listed in ``DIFFERENT`` with why, and nowhere else may they: a support the GeniE
-XML reader refuses (so adapy has nothing to mesh), a point with no node in adapy's mesh, a dependent dof, and the
-plate corners where two support curves meet (GeniE keeps one curve's codes, adapy both).
+XML reader refuses (so adapy has nothing to mesh), a dependent dof, and the plate corners where two support curves
+meet (GeniE keeps one curve's codes, adapy both). ``Sp_mid``, a support point inside a beam's span, had no node in
+adapy's mesh until meshing made support points mesh vertices; it now meets GeniE's node there.
 """
 
 from __future__ import annotations
@@ -44,7 +45,6 @@ DIFFERENT = {
     "genie_supports_all_kinds.xml": {
         (0, 8, 0): "Sp_local: refused by the reader",
         **dict.fromkeys([(0.5 * i, 11, 0) for i in range(9)], "Sc_local: refused by the reader"),
-        (1.3, 1.5, 0): "Sp_mid: no node in adapy's mesh",
         (4, 16, 0): "Sp_dep: a dependent dof, refused",
     },
     "genie_supports_rigid_link_edges.xml": {},
@@ -223,7 +223,6 @@ def test_what_is_not_meshed_is_reported_by_name(decks):
     expected = {
         "genie_supports_all_kinds.xml": {
             "Sp_dep.dx": ["omitted"],
-            "Sp_mid": ["omitted"],
             "Sp_super": ["note"],
         },
         "genie_supports_frames.xml": {"Srl_only": ["omitted"], "Sc_y_const": ["suspect"]},
