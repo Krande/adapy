@@ -698,3 +698,28 @@ def test_a_sub_parts_combination_is_converted_and_not_also_reported_unconverted(
     deck, report = _write(a, top, tmp_path)
     assert resultants(deck)["LCC"][0] == (0.0, 0.0, -2000.0)
     assert not [f for f in report.findings if f.kind == "omitted" and f.keyword.startswith("LoadConcept")]
+
+
+def test_a_point_load_at_a_rigid_link_master_is_named_as_on_a_reference_node(tmp_path):
+    """A 4 x 1 plate held at its short edges, a rigid link whose master is 1 m above the middle, and 1000 N down at the
+    master point. The master is a node of its own that no element connects; GeniE V8.13-02, meshing the same model
+    (master free, and fixed), wrote no load record for it -- LC1 empty -- so adapy writes none either. The report used
+    to say the mesh had no node there, which was not true."""
+    from ada.fem.concept.constraints import ConstraintConceptCurve
+    from ada.fem.concept.constraints import ConstraintConceptDofType as Dof
+    from ada.fem.concept.constraints import ConstraintConceptRigidLink, RigidLinkRegion
+    from ada.fem.concept.loads import LoadConceptPoint
+
+    a, p, _ = _plate_part("rlp", LoadConceptPoint("PL1", (2, 0.5, 1), (0, 0, -1000.0), (0, 0, 0)))
+    c = p.concept_fem.constraints
+    c.add_curve_constraint(ConstraintConceptCurve("Sc1", (0, 0, 0), (0, 1, 0), Dof.encastre()))
+    c.add_curve_constraint(ConstraintConceptCurve("Sc2", (4, 0, 0), (4, 1, 0), Dof.encastre()))
+    free = [Dof(d, "free") for d in ("dx", "dy", "dz", "rx", "ry", "rz")]
+    region = RigidLinkRegion((1.5, 0, -0.1), (2.5, 1, 0.1))
+    c.add_rigid_link(ConstraintConceptRigidLink("Srl", (2, 0.5, 1), region, free, rotation_dependent=False))
+    with conversion_report.collect() as report:
+        fem = p.to_fem_obj(0.5, use_quads=True)
+    (master,) = [n for n in fem.nodes if abs(n.z - 1) < 1e-9]
+    (f,) = [f for f in report.findings if f.subject == "PL1 in load case LC"]
+    assert f.kind == "omitted" and "reference node" in f.reason and f.details["nodes"] == [master.id]
+    assert fem.steps[0].load_cases["LC"].loads == []

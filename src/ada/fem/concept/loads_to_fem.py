@@ -212,6 +212,19 @@ class _Converter:
         pos = to_global_points(owner, load.position)
         found = self._nodes_at(pos)
         if not found:
+            loose = [n for n in self.fem.nodes.get_by_volume(pos, tol=self.tol) if n not in self.nodes]
+            if loose:
+                # GeniE V8.13-02 writes no load either: a point load at a rigid link's master point (master free or
+                # fixed) left its load case empty, though GeniE meshes a node there.
+                report().omitted(
+                    STAGE,
+                    "LoadConceptPoint",
+                    subject,
+                    "the only node at its position belongs to no element (a support's reference node, such as a rigid "
+                    "link's master); GeniE writes no load for such a point load either, so it acts on nothing",
+                    nodes=sorted(int(n.id) for n in loose),
+                )
+                return []
             report().omitted(
                 STAGE, "LoadConceptPoint", subject, "the mesh has no node at its position, so it acts on nothing"
             )
