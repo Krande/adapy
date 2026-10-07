@@ -587,7 +587,7 @@ def calc_channel(sec: Section) -> GeneralProperties:
 
     if tz == ty:
         Ix = ty**3 * (2 * by + a - 2.6 * ty) / 3
-        Wxmin = Ix / Iy
+        Wxmin = Ix / ty
     else:
         Ix = 1.12 * (2 * by * tz**3 + a * ty**3) / 3
         Wxmin = Ix / max(tz, ty)

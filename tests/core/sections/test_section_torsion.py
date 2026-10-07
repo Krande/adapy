@@ -236,3 +236,13 @@ def test_flat_bar_torsion_against_roark_and_warping_fe(h, w, fe_j, fe_w):
     assert np.isclose(p.Ix, roark, rtol=1e-4)
     assert np.isclose(p.Ix, fe_j, rtol=1e-3)
     assert np.isclose(p.Wxmin, fe_w, rtol=1e-2)
+
+
+@pytest.mark.parametrize("tw, tf", [(0.008, 0.008), (0.0071, 0.011)])
+def test_channel_torsional_modulus_is_ix_over_the_thickest_wall(tw, tf):
+    """Open thin-walled section: max shear stress T t_max / J, so WXMIN = J / t_max -- the form
+    adapy already used for tw != tf. For tw = tf main divided by Iy (a length^-1 off: 3.4569e-3
+    for GeniE's 6.8949e-6 on 200x80x8)."""
+    sec = ada.Section("C", sec_type="UNP", h=0.2, w_btn=0.08, w_top=0.08, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    p = calculate_general_properties(sec)
+    assert np.isclose(p.Wxmin, p.Ix / max(tw, tf), rtol=1e-12)
