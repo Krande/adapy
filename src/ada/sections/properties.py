@@ -60,7 +60,18 @@ def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralP
 
     # Unsymmetric sections
     elif sec.type in {SectionCat.BASETYPES.CHANNEL, SectionCat.BASETYPES.ANGULAR}:
-        calc_p = calculate_general_properties(sec)
+        try:
+            calc_p = calculate_general_properties(sec)
+        except ValueError as e:
+            # An "angle" with no second leg (calc_angular refuses it by name). The properties given
+            # (a file's GBEAMG) stand; only the centroid and shear centre, which they lack, stay
+            # unknown -- a reader must not lose the whole model to one section.
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().suspect(
+                "section properties", "Section", sec.name, f"{e}; Cy/Cz/Cgy/Cgz left unset", type=sec.type
+            )
+            return p
         if p.Cy is None:
             p.Cy = calc_p.Cy
         if p.Cz is None:

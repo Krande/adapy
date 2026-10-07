@@ -257,3 +257,32 @@ def test_an_angle_read_with_k_1_is_reported(k, tmp_path):
     else:
         (f,) = found
         assert f.kind == "approximated" and f.subject == "L200" and "K = 1" in f.reason
+
+
+# --- L1: a GLSEC that is not an angle ------------------------------------------------------------
+
+
+def test_a_file_with_a_glsec_that_is_not_an_angle_reads(tmp_path):
+    """GLSEC HZ 0.1, TY 0.01, BY 0.1, TZ 0.1: h <= tf, no web. adapy refuses to calculate it (Roark's
+    formula divides by the web's free length), and the Sesam reader -- which calculates every angle
+    to fill the centroid and shear-centre fields GBEAMG lacks -- lost the whole model to that
+    ValueError. Now the model reads, the section keeps its GBEAMG with Cy/Cz/Cgy/Cgz None, and a
+    "suspect" finding names it. Asking for its calculated properties still raises."""
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.sesam.write.write_utils import write_ff
+    from ada.sections.properties import calculate_general_properties
+
+    deck = _write(_model(_angle()), tmp_path, "l")
+    (rec,) = _records(deck, "GLSEC")
+    bad = write_ff("GLSEC", [(1, 0.1, 0.01, 0.1), (0.1, 1.0, 1.0, 0)]).rstrip("\n")
+    deck.write_text(deck.read_text().replace(rec, bad))
+    with conversion_report.collect() as rep:
+        (sec,) = _sections.__wrapped__(deck).values()
+    p = sec.properties
+    assert sec.type == sec.TYPES.ANGULAR and sec.h == 0.1 and sec.t_fbtn == 0.1
+    assert p.Ax == pytest.approx(3.26e-3, rel=1e-8)  # the GBEAMG written for the real angle
+    assert (p.Cy, p.Cz, p.Cgy, p.Cgz) == (None, None, None, None)
+    (f,) = [f for f in rep.findings if f.subject == "L200"]
+    assert f.kind == "suspect" and "is not an angle" in f.reason
+    with pytest.raises(ValueError, match='"L200" is not an angle'):
+        calculate_general_properties(sec)
