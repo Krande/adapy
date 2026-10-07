@@ -207,6 +207,12 @@ def calc_box(sec: Section) -> GeneralProperties:
     )
 
 
+def t_bottom_slot_area(h, w_top, t_ftop, t_w, w_btn, t_fbtn) -> tuple[float, float]:
+    """``(area the bottom-flange slots of a T hold past its web, area of the T)``. Up to 1e-6 of the
+    T's area the slots are a placeholder (GeniE's 0.001 mm flange, adapy's web-wide stub)."""
+    return max(w_btn - t_w, 0.0) * t_fbtn, w_top * t_ftop + t_w * (h - t_ftop)
+
+
 def _t_without_bottom_flange(sec: Section) -> tuple[float, float]:
     """A TPROFILE is a T: flange ``w_top`` x ``t_ftop`` on a web ``t_w`` running to the full height.
 
@@ -220,8 +226,7 @@ def _t_without_bottom_flange(sec: Section) -> tuple[float, float]:
     the web thickness, bottom thickness 0. Returns ``(bb, tb)``."""
     ty = sec.t_w
     if sec.w_btn is not None and sec.t_fbtn is not None:
-        overhang = max(sec.w_btn - ty, 0.0) * sec.t_fbtn
-        area = sec.w_top * sec.t_ftop + ty * (sec.h - sec.t_ftop)
+        overhang, area = t_bottom_slot_area(sec.h, sec.w_top, sec.t_ftop, ty, sec.w_btn, sec.t_fbtn)
         if overhang > 1e-6 * area:
             logger.warning(
                 f'Section "{sec.name}" is a TPROFILE whose bottom-flange slots ({sec.w_btn} x {sec.t_fbtn}) '

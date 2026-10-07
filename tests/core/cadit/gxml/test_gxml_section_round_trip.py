@@ -270,3 +270,68 @@ def test_a_factored_general_section_keeps_its_explicit_shear_areas(tmp_path):
     (read,) = [s for p in ada.from_genie_xml(tmp_path / "g.xml").get_all_parts_in_assembly(True) for s in p.sections]
     p = read.properties
     assert (p.Sfy, p.Sfz, p.Shary, p.Sharz) == pytest.approx((0.5, 0.8, 0.0031, 0.0042))
+
+
+# --- a T, GeniE's own T encoding ------------------------------------------------------------------
+
+GENIE_T_FLANGE = 1e-6  # GeniE's library T (Libraries/tbar.xml): bottom flange 0.001 mm thick, web + 0.001 mm wide
+
+
+def test_a_t_is_written_as_genies_own_t(tmp_path):
+    """``bfbot = tw + 0.001 mm``, ``tfbot = 0.001 mm``. adapy wrote the web-wide stub (``bfbot = tw``,
+    ``tfbot = tftop``), from which GeniE computes an I (next test)."""
+    import xml.etree.ElementTree as ET
+
+    a = ada.Assembly("rt") / (ada.Part("P") / ada.Beam("bm", (0, 0, 0), (2, 0, 0), "TG300x200x10x15"))
+    a.to_genie_xml(tmp_path / "t.xml")
+    (el,) = ET.parse(tmp_path / "t.xml").getroot().iter("unsymmetrical_i_section")
+    v = {k: float(el.get(k)) for k in ("h", "tw", "bftop", "tftop", "bfbot", "bfbot1", "tfbot")}
+    assert (v["h"], v["tw"], v["bftop"], v["tftop"]) == pytest.approx((0.3, 0.01, 0.2, 0.015), rel=1e-12)
+    assert (v["bfbot"], v["bfbot1"], v["tfbot"]) == pytest.approx(
+        (0.01 + GENIE_T_FLANGE, (0.01 + GENIE_T_FLANGE) / 2, GENIE_T_FLANGE), rel=1e-12
+    )
+
+
+def test_genie_computes_adapys_old_xml_t_as_an_i():
+    """GeniE V8.13-02 importing the TG300x200x10x15 adapy wrote before (adapy_factored_sections.xml,
+    stub bottom flange) computes SHARY 3.82768e-3, 2.000 x the T's 1.91384e-3, and IX 4.24125e-7
+    for 4.16000e-7 -- as from the same stub in a Sesam GIORH (genie_v8_13_import, T_STUB)."""
+    from ada.sections.properties import calculate_general_properties
+
+    (sec,) = [
+        s
+        for p in ada.from_fem(GENIE_REVIEW_FEM.with_name("genie_v8_13_gxml_import_T1.FEM")).get_all_parts_in_assembly(
+            True
+        )
+        for s in p.sections
+        if s.name == "TG300x200x10x15"
+    ]
+    tee = calculate_general_properties(ada.Section("T", from_str="TG300x200x10x15"))
+    assert sec.properties.Shary == pytest.approx(2 * tee.Shary, rel=1e-6)
+    assert sec.properties.Ix == pytest.approx(4.24125e-7, rel=1e-6)
+
+
+def test_genie_computes_the_xml_t_adapy_writes_as_the_t(tmp_path):
+    """GeniE V8.13-02 importing the T as adapy writes it now (adapy_t_section.xml, the same
+    attributes as this writer's -> genie_v8_13_gxml_t.js) computes the T: every GBEAMG field within
+    1.1e-6 of adapy's, SHARY once its 0.001 mm flange (delta / t_ftop = 6.7e-5) is divided out."""
+    import xml.etree.ElementTree as ET
+
+    from ada.sections.properties import calculate_general_properties
+
+    ref_xml = GENIE_REVIEW_FEM.with_name("adapy_t_section.xml")
+    (genie_in,) = ET.parse(ref_xml).getroot().iter("unsymmetrical_i_section")
+    a = ada.Assembly("rt") / (ada.Part("P") / ada.Beam("bm", (0, 0, 0), (2, 0, 0), "TG300x200x10x15"))
+    a.to_genie_xml(tmp_path / "t.xml")
+    (now,) = ET.parse(tmp_path / "t.xml").getroot().iter("unsymmetrical_i_section")
+    assert now.attrib == genie_in.attrib
+
+    (sec,) = [
+        s
+        for p in ada.from_fem(GENIE_REVIEW_FEM.with_name("genie_v8_13_gxml_t_T1.FEM")).get_all_parts_in_assembly(True)
+        for s in p.sections
+    ]
+    tee = calculate_general_properties(ada.Section("T", from_str="TG300x200x10x15"))
+    for f in ("Ax", "Ix", "Iy", "Iz", "Wxmin", "Wymin", "Wzmin", "Shary", "Sharz", "Shcenz", "Sy", "Sz"):
+        g = getattr(sec.properties, f) * (0.015 / (0.015 + GENIE_T_FLANGE) if f == "Shary" else 1.0)
+        assert g == pytest.approx(getattr(tee, f), rel=2e-6), f

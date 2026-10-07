@@ -93,7 +93,11 @@ def test_a_tprofile_is_genies_own_t(genie_tees, name):
     the equal-thickness I formula the 15 mm stub happened to trigger."""
     dims = GENIE_TEES[name]
     calc, genie = calculate_general_properties(_tee(**dims)), genie_tees[name].properties
-    assert genie_tees[name].t_fbtn == pytest.approx(GENIE_STUB, rel=1e-6)
+    from ada.fem.formats.sesam.read import cards
+
+    giorh = {round(float(m["geono"])): m for m in cards.GIORH.to_ff_re().finditer(REVIEW_FEM.read_text())}
+    assert float(giorh[genie_tees[name].id]["tb"]) == pytest.approx(GENIE_STUB, rel=1e-6)  # GeniE's T
+    assert (genie_tees[name].w_btn, genie_tees[name].t_fbtn) == pytest.approx((dims["t_w"], dims["t_ftop"]), rel=1e-7)
     bad = []
     for field in FIELDS:
         c, r = getattr(calc, field), getattr(genie, field)

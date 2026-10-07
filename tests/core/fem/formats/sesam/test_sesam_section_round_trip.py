@@ -121,6 +121,7 @@ def test_a_t_round_trips_through_adapys_sesam_writer(tmp_path):
     (sec,) = [s for p in back.get_all_parts_in_assembly(include_self=True) for s in p.sections]
     assert sec.type == sec.TYPES.TPROFILE
     assert (sec.h, sec.w_top, sec.t_w, sec.t_ftop) == pytest.approx((0.3, 0.2, 0.01, 0.015), rel=1e-12)
+    assert sec.unique_props() == ada.Section("T", from_str="TG300x200x10x15").unique_props()  # slots too
     assert not sec.properties.modified
     assert sec.properties.Cgz == pytest.approx(sec.properties.calc_parent_properties().Cgz, rel=1e-12)
     second = _write(back, tmp_path, "t2")

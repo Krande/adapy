@@ -266,18 +266,26 @@ def get_isection(match, sect_names, fem) -> Section:
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     name = sect_names[sec_id]
-    ty, bb, tb = float(d["ty"]), float(d["bb"]), float(d["tb"])
+    hz, ty, bt, tt, bb, tb = (float(d[k]) for k in ("hz", "ty", "bt", "tt", "bb", "tb"))
     is_t = tb <= _T_FLANGE_EPS and bb - ty <= _T_FLANGE_EPS
+    if is_t:
+        from ada.sections.properties import t_bottom_slot_area
+
+        overhang, area = t_bottom_slot_area(hz, bt, tt, ty, bb, tb)
+        if overhang <= 1e-6 * area:
+            # the placeholder flange, kept as adapy keeps a T's (a stub as wide as the web and as
+            # thick as the flange), so a T reads back as the T written
+            bb, tb = ty, tt
     return Section(
         name=name,
         sec_id=sec_id,
         sec_type=Section.TYPES.TPROFILE if is_t else Section.TYPES.IPROFILE,
-        h=float(d["hz"]),
-        t_w=float(d["ty"]),
-        w_top=float(d["bt"]),
-        w_btn=float(d["bb"]),
-        t_ftop=float(d["tt"]),
-        t_fbtn=float(d["tb"]),
+        h=hz,
+        t_w=ty,
+        w_top=bt,
+        w_btn=bb,
+        t_ftop=tt,
+        t_fbtn=tb,
         parent=fem.parent,
     )
 
