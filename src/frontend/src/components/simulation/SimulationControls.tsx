@@ -643,6 +643,26 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
+                    {/* Deformation scale: multiplier on top of the [-1..1] / [0..1] sweep
+                        (or the true-scale time history); exaggerates the morph delta.
+                        Default 1. Lives in this row so the slider row stays the
+                        slider and its readout. */}
+                    <label
+                        className="flex items-center gap-1 text-xs text-white"
+                        title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
+                    >
+                        <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
+                        <span className="text-gray-200">Scale ×</span>
+                        <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={scaleFactor}
+                            onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
+                            className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
+                            aria-label="Deformation scale"
+                        />
+                    </label>
                 </div>
             )}
             {unbakedNote && (
@@ -716,25 +736,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     s
                 </div>
                 )}
-                {/* Warp-scale knob: multiplier on top of the
-                    [-1..1] / [0..1] sweep, exaggerates the
-                    morph delta. Default 1. */}
-                <label
-                    className="flex items-center gap-1 text-xs text-white"
-                    title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
-                >
-                    <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
-                    <span className="text-gray-200">Scale ×</span>
-                    <input
-                        type="number"
-                        min={0}
-                        step={0.1}
-                        value={scaleFactor}
-                        onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                        className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
-                        aria-label="Deformation scale"
-                    />
-                </label>
             </div>
 
             {/* Row 3 — Transport: play / stop / data-panel toggle +
