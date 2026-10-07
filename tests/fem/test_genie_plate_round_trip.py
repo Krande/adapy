@@ -1,16 +1,17 @@
 """GeniE in the loop: a GeniE plate goes through adapy and back as the same GeniE plate.
 
 Needs GeniE V9.3 or later (``GenieRuntime.exe``, headless; the twins' binary bodies need V9.3).
-For each committed GeniE V9.3 twin, GeniE imports (``WorkspaceImporter``) the original and
+For each committed GeniE V9.3 twin GeniE imports (``WorkspaceImporter``) the original and
 adapy's writes of it -- text and binary body, read from the text and from the binary twin --
-exports its concept XML and prints every plate's ``area``. adapy's write must read in GeniE
-as the original does: the same plate elements, kinds and names, over the same number of
-faces, with the same GeniE-measured area to the digit GeniE prints.
+exports its concept XML and prints every plate's ``area``; and it meshes the original and one
+of adapy's writes. adapy's write must read in GeniE as the original does: the same plate
+elements, kinds and names over the same number of faces, the same GeniE-measured area to the
+digit GeniE prints, and the same mesh: every card identical bar the date, node coordinates to a
+micrometre -- which pins the geometry, the normals (element node order) at once.
 
 GeniE's ``area`` of a curved plate is its facetted area, not the exact one: the quarter
 cylinder of radius 1 and height 2 prints 3.136548491 against pi = 3.14159265 -- 8 chords over
-90 degrees (2 * 8 * sin(pi / 32) * 2 = 3.1365485). It is therefore compared GeniE-to-GeniE,
-which is exact, and adapy's own exact area separately.
+90 degrees (2 * 8 * sin(pi / 32) * 2 = 3.1365485). It is therefore compared GeniE-to-GeniE.
 """
 
 from __future__ import annotations
@@ -44,11 +45,11 @@ def _genie_runtime() -> str | None:
 EXE = _genie_runtime()
 pytestmark = pytest.mark.skipif(EXE is None, reason="GeniE V9.3 or later is not installed")
 
-PLATE_TAGS = ("flat_plate", "curved_shell")
-
-#: twin -> the plates GeniE holds in it, as (element, name, faces)
+#: twin -> the plates GeniE holds in the original, as (element, name, faces)
 MODELS = {
     "plate_t_junction": [("flat_plate", "Pl1", 3)],
+    "cylinder_shell": [("curved_shell", "Sh1", 1)],
+    "swept_arc_shell": [("curved_shell", "Sh1", 1)],
 }
 
 
@@ -69,18 +70,32 @@ def _run(workdir: pathlib.Path, js: str) -> str:
     return p.stdout
 
 
-def _genie_plates(gnx: pathlib.Path, workdir: pathlib.Path) -> dict[str, tuple[str, int, str]]:
-    """GeniE's reading of ``gnx``: plate name -> (element, number of faces, printed area)."""
+def _import(gnx: pathlib.Path) -> str:
+    return f'importer = WorkspaceImporter();\nimporter.DoImport("{gnx.as_posix()}");\n'
+
+
+def _genie_plates(gnx: pathlib.Path, workdir: pathlib.Path) -> tuple[dict[str, tuple[str, int, str]], int]:
+    """GeniE's reading of ``gnx``: plate name -> (element, faces, printed area), and its hole count."""
     xml = workdir / "concept.xml"
-    imp = f'importer = WorkspaceImporter();\nimporter.DoImport("{gnx.as_posix()}");\n'
-    _run(workdir / "export", imp + f'ExportConceptXml().DoExport("{xml.as_posix()}");\n')
+    _run(workdir / "export", _import(gnx) + f'ExportConceptXml().DoExport("{xml.as_posix()}");\n')
     text = xml.read_text(errors="replace")
     plates = {}
     for m in re.finditer(r'<(flat_plate|curved_shell) name="([^"]+)"(.*?)</\1>', text, re.S):
         plates[m.group(2)] = (m.group(1), len(re.findall(r"<face ", m.group(3))))
-    out = _run(workdir / "area", imp + "".join(f'print("AREA {n} " + {n}.area);\n' for n in sorted(plates)))
+    out = _run(workdir / "area", _import(gnx) + "".join(f'print("AREA {n} " + {n}.area);\n' for n in sorted(plates)))
     areas = dict(re.findall(r"->AREA (\S+) (\S+) m\^2", out))
-    return {name: (*plates[name], areas.get(name)) for name in plates}
+    return {name: (*plates[name], areas.get(name)) for name in plates}, len(re.findall(r"<hole[ >]", text))
+
+
+def _genie_mesh(gnx: pathlib.Path, workdir: pathlib.Path) -> list[str]:
+    """GeniE's 0.25 m mesh of ``gnx`` as a Sesam FEM file, without its date line."""
+    fem = workdir / "T1.FEM"
+    js = (
+        _import(gnx) + "Md = MeshDensity(0.25 m);\nMd.setDefault();\nAnalysis1 = Analysis(true);\n"
+        f'Analysis1.add(MeshActivity());\nAnalysis1.execute();\nExportMeshFem().DoExport("{fem.as_posix()}");\n'
+    )
+    _run(workdir, js)
+    return [line for line in fem.read_text().splitlines() if "DATE:" not in line]
 
 
 @pytest.fixture
@@ -90,9 +105,10 @@ def genie93(fem_files) -> pathlib.Path:
 
 @pytest.mark.parametrize("model", sorted(MODELS))
 def test_plates_read_in_genie_as_the_original(genie93, model, tmp_path):
-    original = _genie_plates(genie93 / f"{model}_text.gnx", tmp_path / "genie")
+    original, holes = _genie_plates(genie93 / f"{model}_text.gnx", tmp_path / "genie")
     assert [(kind, name, faces) for name, (kind, faces, _area) in sorted(original.items())] == MODELS[model]
     assert all(area is not None for *_rest, area in original.values())
+    assert holes == 0
 
     routes = {}
     for body in ("text", "binary"):
@@ -102,4 +118,27 @@ def test_plates_read_in_genie_as_the_original(genie93, model, tmp_path):
                 tmp_path / f"{body}_{out}" / f"{model}.gnx", binary_acis=out == "binary"
             )
     read = {route: _genie_plates(gnx, tmp_path / route.replace("->", "_")) for route, gnx in routes.items()}
-    assert read == {route: original for route in routes}
+    expected = (original, 0)
+    assert read == {route: expected for route in routes}
+
+    mesh_original = _genie_mesh(genie93 / f"{model}_text.gnx", tmp_path / "mesh_genie")
+    mesh_adapy = _genie_mesh(routes["binary->binary"], tmp_path / "mesh_adapy")
+    assert len(mesh_original) > 10
+    _assert_same_mesh(mesh_adapy, mesh_original)
+
+
+def _assert_same_mesh(got: list[str], want: list[str]) -> None:
+    """Every card identical, the node coordinates to a micrometre.
+
+    Measured: on the single-face twins the two FEM files are identical line for line; on
+    plate_t_junction 3 of 221 interior nodes of GeniE's free mesh move by 1.2e-7 m (the last
+    printed digit) while every element, node number and boundary node is identical -- the
+    smoothing feels the faces' parameterisation, which is adapy's rather than GeniE's.
+    """
+    assert len(got) == len(want)
+    for g, w in zip(got, want):
+        if g.startswith("GCOORD") and w.startswith("GCOORD"):
+            gv, wv = [float(x) for x in g.split()[1:]], [float(x) for x in w.split()[1:]]
+            assert gv[0] == wv[0] and max(abs(a - b) for a, b in zip(gv[1:], wv[1:])) <= 1e-6, (g, w)
+        else:
+            assert g == w

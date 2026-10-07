@@ -92,3 +92,121 @@ def test_t_junction_plate_writes_back_as_one_plate_over_three_faces(genie93, bod
     (rpl,) = _plates(back)
     assert rpl.name == "Pl1" and len(rpl.metadata["props"]["gxml_face_refs"]) == 3
     assert _outline_area(rpl) == pytest.approx(12.0, rel=1e-12)
+
+
+# --- a cylindrical shell (GeniE writes it on an ACIS cone-surface) -----------------------
+#
+# cylinder_shell: a quarter cylinder, radius 1 about +z, height 2 (cone-surface, cosine 1).
+# swept_arc_shell: SweepCurve of the arc (0,0,0)-(1,0.5,0)-(2,0,0) along z by 2 (cone-surface
+# about (1, -0.75), radius 1.25, cosine -1). Both read as a flat Plate on their four corners
+# before: 2.83 m2 and 4.00 m2 instead of pi and 4.64.
+
+#: the swept arc's angle, as GeniE's edges state it
+SWEPT_ANGLE = 1.8545904360032246
+
+
+def _occ_area(pl) -> float:
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.GProp import GProp_GProps
+
+    from ada.occ.geom import geom_to_occ_geom
+
+    props = GProp_GProps()
+    # adaptive integration: the default under-integrates a face bounded by a rational spline
+    brepgprop.SurfaceProperties(geom_to_occ_geom(pl.geom), props, 1e-9)
+    return props.Mass()
+
+
+def _oriented_normal(pl, point) -> np.ndarray:
+    """The plate's normal at ``point`` on its cylinder: radial, through the face sense and flag."""
+    surf = pl.geom.geometry.face_surface
+    c = np.asarray(surf.position.location, dtype=float)
+    ax = np.asarray(surf.position.axis, dtype=float)
+    d = np.asarray(point, dtype=float) - c
+    radial = d - ax * float(d @ ax)
+    radial /= np.linalg.norm(radial)
+    sign = (1 if pl.geom.geometry.same_sense else -1) * (1 if pl.gxml_sense_flag() else -1)
+    return sign * radial
+
+
+CYLINDERS = {
+    # model: (centre, radius, same_sense, area, a point on it, the normal GeniE meshes there)
+    "cylinder_shell": ((0, 0, 0), 1.0, True, np.pi, (np.sqrt(0.5), np.sqrt(0.5), 1.0), (np.sqrt(0.5), np.sqrt(0.5), 0)),
+    "swept_arc_shell": ((1, -0.75, 0), 1.25, False, 1.25 * SWEPT_ANGLE * 2, (1.0, 0.5, 1.0), (0, -1, 0)),
+}
+
+
+@pytest.mark.parametrize("body", BODIES)
+@pytest.mark.parametrize("model", sorted(CYLINDERS))
+def test_cylindrical_shell_reads_on_its_cylinder(genie93, model, body):
+    """Area exact; the normal is the one GeniE meshes with.
+
+    Measured on GeniE V9.3 meshes of the two (sense flag true, face forward): the element normals
+    point away from the axis on cylinder_shell (cosine 1) and towards it on swept_arc_shell
+    (cosine -1).
+    """
+    centre, radius, same_sense, area, point, normal = CYLINDERS[model]
+    (pl,) = _plates(ada.from_gnx(genie93 / f"{model}_{body}.gnx"))
+    assert type(pl) is ada.PlateCurved and pl.name == "Sh1"
+    surf = pl.geom.geometry.face_surface
+    assert type(surf).__name__ == "CylindricalSurface"
+    assert surf.radius == pytest.approx(radius, rel=1e-15)
+    assert np.allclose(surf.position.location, centre, atol=1e-15)
+    assert np.allclose(surf.position.axis, (0, 0, 1))
+    assert pl.geom.geometry.same_sense is same_sense
+    assert _occ_area(pl) == pytest.approx(area, rel=1e-12)
+    assert np.allclose(_oriented_normal(pl, point), normal, atol=1e-12)
+
+
+@pytest.mark.parametrize("body", BODIES)
+@pytest.mark.parametrize("model", sorted(CYLINDERS))
+def test_cylindrical_shell_writes_back_the_records_genie_wrote(genie93, model, body, tmp_path):
+    """The cone-surface goes out as GeniE wrote it, and comes back as the same shell."""
+    import re
+    import zipfile
+
+    src = genie93 / f"{model}_text.gnx"
+    a = ada.from_gnx(genie93 / f"{model}_{body}.gnx")
+    gnx = a.to_gnx(tmp_path / "rt.gnx", binary_acis=body == "binary")
+
+    def cone(text: str) -> list[float | str]:
+        (rec,) = re.findall(r"cone-surface \$-1 -1 -1 \$-1 ([^#]*)#", text)
+        return [float(x) if re.fullmatch(r"[-0-9.e]+", x) else x for x in rec.split()]
+
+    original = cone(zipfile.ZipFile(src).read("acisGeometry.sat").decode())
+    written = cone(ada.cadit.sat.write.writer.part_to_sat_writer(a).to_str())
+    assert len(written) == len(original)
+    for w, o in zip(written, original):
+        assert w == o or (isinstance(w, float) and w == pytest.approx(o, rel=1e-15, abs=1e-15))
+    assert re.findall(r"<(?:flat_plate|curved_shell)\b", zipfile.ZipFile(gnx).read("modelData.xml").decode()) == [
+        "<curved_shell"
+    ]
+
+    (back,) = _plates(ada.from_gnx(gnx))
+    (pl,) = _plates(a)
+    s_back, s_read = back.geom.geometry.face_surface, pl.geom.geometry.face_surface
+    assert s_back.radius == pytest.approx(s_read.radius, rel=1e-15)  # 1 ulp: |major| -> unit * radius -> |major|
+    for field in ("location", "axis", "ref_direction"):
+        assert np.allclose(getattr(s_back.position, field), getattr(s_read.position, field), rtol=0, atol=1e-15)
+    assert back.geom.geometry.same_sense is pl.geom.geometry.same_sense
+    assert back.gxml_sense_flag() is pl.gxml_sense_flag()
+    assert _occ_area(back) == pytest.approx(_occ_area(pl), rel=1e-12)
+
+
+@pytest.mark.parametrize(
+    "fields, why",
+    [
+        ("0 0 0 0 0 1 1 0 0 1 I I 0.5 0.8660254037844386 1 forward I I I I", "a true cone"),
+        ("0 0 0 0 0 1 1 0 0 0.5 I I 0 1 1 forward I I I I", "an elliptic cylinder"),
+        ("0 0 0 0 0 1 1 0 0 1 I I 0 1 1 reversed I I I I", "u parameter 'reversed'"),
+    ],
+)
+def test_a_cone_surface_that_is_no_circular_cylinder_is_refused_by_name(fields, why):
+    from ada.cadit.sat.exceptions import ACISUnsupportedSurfaceType
+    from ada.cadit.sat.read.advanced_face import get_cylindrical_surface
+    from ada.cadit.sat.store import SatStore
+
+    store = SatStore()
+    store.add(f"-6 cone-surface $-1 -1 -1 $-1 {fields} #")
+    with pytest.raises(ACISUnsupportedSurfaceType, match=why):
+        get_cylindrical_surface(store.get("$6"))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import ada.geom.curves as geo_cu
 import ada.geom.surfaces as geo_su
 from ada import Direction, Point
-from ada.cadit.sat.exceptions import ACISReferenceDataError
+from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedSurfaceType
 from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
 from ada.cadit.sat.read.curves import iter_loop_coedges
 from ada.cadit.sat.read.sat_entities import AcisRecord
@@ -100,6 +100,68 @@ def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
     return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(first_nonempty or []), orientation=True)]
 
 
+class ConeRecord:
+    """The fields of an ACIS ``cone-surface`` record (SAT R10 ``cone::restore_data``).
+
+    ``cone-surface $-1 -1 -1 $-1 <centre> <axis> <major> <ratio> <range> <sine> <cosine>
+    <u scale> <forward|reversed> <subset range>``: the base ellipse (centre, unit normal along
+    the cone axis, major axis whose length is the base radius, minor/major ratio, and the
+    curve's subset interval -- ``I I`` or ``F <real>`` per end), the sine and cosine of the half
+    angle, the u parameter scale, whether u is reversed, and the surface's subset intervals.
+    GeniE writes a rolled or swept cylindrical shell this way: ``cylinder_shell`` holds ``0 0 0
+    0 0 1 1 0 0 1 I I 0 1 1 forward I I I I`` (radius 1 about +z), and a circular arc swept
+    along a line ``1 -0.75 0 0 0 1 -1 0.75 0 1 I I 0 -1 1.25 forward I I I I`` (radius 1.25,
+    cosine -1).
+    """
+
+    def __init__(self, record: AcisRecord):
+        c = record.chunks
+        self.centre = tuple(float(x) for x in c[6:9])
+        self.axis = tuple(float(x) for x in c[9:12])
+        self.major = tuple(float(x) for x in c[12:15])
+        self.ratio = float(c[15])
+        i = 16
+        for _ in range(2):
+            if c[i] == "F":
+                i += 2
+            elif c[i] == "I":
+                i += 1
+            else:
+                raise ACISUnsupportedSurfaceType(f"cone-surface {c[0]}: unreadable curve interval at {c[i]!r}")
+        self.sine = float(c[i])
+        self.cosine = float(c[i + 1])
+        self.u_scale = float(c[i + 2])
+        self.u_sense = c[i + 3]
+
+
+def get_cylindrical_surface(record: AcisRecord) -> geo_su.CylindricalSurface:
+    """A circular-cylinder ``cone-surface`` as a :class:`~ada.geom.surfaces.CylindricalSurface`.
+
+    A cylinder is the cone with a zero half angle (sine 0) on a circular base (ratio 1); the
+    radius is the major axis' length and the reference direction its direction, so ``u = 0``
+    is where ACIS has it. Anything else -- a true cone, an elliptic base, a reversed u -- is
+    refused by name: no GeniE twin pins how those parameterise or which way they face.
+
+    The cosine's sign is not geometry but the side the surface faces, and is carried by
+    :func:`get_face_same_sense`.
+    """
+    cone = ConeRecord(record)
+    name = record.chunks[0]
+    if cone.sine != 0.0 or abs(cone.cosine) != 1.0:
+        raise ACISUnsupportedSurfaceType(f"cone-surface {name}: a true cone (sine {cone.sine}) is not read")
+    if cone.ratio != 1.0:
+        raise ACISUnsupportedSurfaceType(f"cone-surface {name}: an elliptic cylinder (ratio {cone.ratio}) is not read")
+    if cone.u_sense != "forward":
+        raise ACISUnsupportedSurfaceType(f"cone-surface {name}: u parameter {cone.u_sense!r} is not read")
+    major = Direction(*cone.major)
+    return geo_su.CylindricalSurface(
+        position=geo_su.Axis2Placement3D(
+            location=Point(*cone.centre), axis=Direction(*cone.axis), ref_direction=major.get_normalized()
+        ),
+        radius=float(major.get_length()),
+    )
+
+
 def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES | geo_su.Plane:
     face_surface_record = face_record.sat_store.get(face_record.chunks[10])
     if face_surface_record.type == "spline-surface":
@@ -126,6 +188,8 @@ def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES | geo
         normal = Direction(*[float(x) for x in face_surface_record.chunks[9:12]])
         ref_dir = Direction(*[float(x) for x in face_surface_record.chunks[12:15]])
         face_surface = geo_su.Plane(position=geo_su.Axis2Placement3D(location=pos, axis=normal, ref_direction=ref_dir))
+    elif face_surface_record.type == "cone-surface":
+        face_surface = get_cylindrical_surface(face_surface_record)
     else:
         raise NotImplementedError(f"Unsupported surface type: {face_surface_record.type}")
 
@@ -164,11 +228,18 @@ def get_face_same_sense(face_record: AcisRecord) -> bool:
     face_sense = face_record.chunks[11] if len(face_record.chunks) > 11 else "forward"
     surface_record = face_record.sat_store.get(face_record.chunks[10])
     # A plane-surface has no sense of its own (its normal is a vector it
-    # states outright); only a spline-surface carries one.
+    # states outright); a spline-surface carries one, and a cone-surface says it
+    # with the sign of its cosine.
     surface_sense = "forward"
     if surface_record.type == "spline-surface" and len(surface_record.chunks) > 6:
         if surface_record.chunks[6] in ("forward", "reversed"):
             surface_sense = surface_record.chunks[6]
+    elif surface_record.type == "cone-surface":
+        # A negative cosine turns the normal towards the axis. Measured on GeniE V9.3
+        # meshes of two forward faces with sense flag true: the cylinder with cosine 1
+        # meshes with its element normals pointing away from the axis (1 of 1), the
+        # swept arc with cosine -1 towards it (2 of 2).
+        surface_sense = "forward" if ConeRecord(surface_record).cosine > 0 else "reversed"
     return (face_sense == "forward") == (surface_sense == "forward")
 
 

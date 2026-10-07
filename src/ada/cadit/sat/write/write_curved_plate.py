@@ -386,6 +386,10 @@ def _surface_entity(id_gen, surface, same_sense: bool) -> tuple[se.SATEntity, st
         pos = surface.position
         record = se.PlaneSurface(id_gen.next_id(), pos.location, pos.axis, pos.ref_direction)
         return record, ("forward" if same_sense else "reversed")
+    if isinstance(surface, geo_su.CylindricalSurface):
+        # a cone-surface has a sense of its own (the cosine's sign), as a spline does
+        sense = "forward" if same_sense else "reversed"
+        return se.ConeSurface(id_gen.next_id(), surface, sense=sense), "forward"
     raise UnsupportedCurvedFace(f"no ACIS surface record for {type(surface).__name__}")
 
 

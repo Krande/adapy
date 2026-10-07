@@ -509,9 +509,9 @@ class TestRefusals:
 
     def test_an_unknown_surface_is_refused(self):
         face = _square_face()
-        face.face_surface = geo_su.CylindricalSurface(position=_plane_surface().position, radius=1.0)
+        face.face_surface = geo_su.ConicalSurface(position=_plane_surface().position, radius=1.0, semi_angle=0.3)
         pl = _plate(face)
-        with pytest.raises(UnsupportedCurvedFace, match="CylindricalSurface"):
+        with pytest.raises(UnsupportedCurvedFace, match="ConicalSurface"):
             _build(pl)
 
     def test_a_circle_without_parameters_is_refused(self):

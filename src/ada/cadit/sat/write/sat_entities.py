@@ -310,6 +310,35 @@ def _num(x: float) -> str:
     return str(int(f)) if f == int(f) and abs(f) < 1e15 else repr(f)
 
 
+@dataclass
+class ConeSurface(SATEntity):
+    """A circular cylinder -- ACIS ``cone-surface`` with a zero half angle.
+
+    Written as GeniE writes its cylindrical shells: base circle centred on the axis, major
+    axis the reference direction scaled to the radius, ratio 1, unbounded curve range, sine 0,
+    cosine +-1, u scale the radius, u forward, unbounded subset. The cosine's sign is the
+    surface's sense (negative faces the axis), so a reversed face is stated on the surface and
+    the face record stays forward -- exactly the records GeniE V9.3 wrote for ``cylinder_shell``
+    (``0 0 0 0 0 1 1 0 0 1 I I 0 1 1 forward I I I I``) and for a swept arc (``... 0 -1 1.25
+    forward ...``).
+    """
+
+    surface: object  # CylindricalSurface
+    sense: Literal["forward", "reversed"] = "forward"
+
+    def to_string(self) -> str:
+        pos = self.surface.position
+        radius = float(self.surface.radius)
+        centre = " ".join(_num(c) for c in pos.location)
+        axis = " ".join(_num(c) for c in pos.axis.get_normalized())
+        major = " ".join(_num(c * radius) for c in pos.ref_direction.get_normalized())
+        cosine = 1 if self.sense == "forward" else -1
+        return (
+            f"-{self.id} cone-surface $-1 -1 -1 $-1 {centre} {axis} {major} 1 I I 0 {cosine} {_num(radius)} "
+            f"forward I I I I #"
+        )
+
+
 def _lines(*segments: str) -> str:
     """Join a subtype body's fields the way ACIS lays one out on disk.
 

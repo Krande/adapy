@@ -423,7 +423,11 @@ class SatReaderFactory:
                     # represents it exactly and more cheaply.
                     if not self.face_has_curved_edge(face_record):
                         continue
-                elif face_surface.type != "spline-surface":
+                elif face_surface.type not in ("spline-surface", "cone-surface"):
+                    # A cone-surface is how GeniE writes a cylindrical shell. It used to
+                    # be skipped here and so read as the flat polygon of its corners: a
+                    # quarter cylinder of radius 1 and height 2 came back as a 2.83 m2
+                    # flat plate instead of a 3.14 m2 shell.
                     continue
                 attempted += 1
                 try:
