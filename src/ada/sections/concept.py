@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING
 
 from ada.base.root import Root
@@ -14,6 +14,12 @@ if TYPE_CHECKING:
     from ada.sections.profiles import SectionProfile
 
 logger = get_logger()
+
+#: Relative difference below which stored section properties count as the calculated ones
+#: (``GeneralProperties.modified``). A Sesam field carries 9 significant digits (E16.8, 5e-9); GeniE
+#: computes from single-precision dimensions, and its GBEAMG is within 1.6e-7 of adapy's calculation
+#: for every parametric section in files/fem_files/sesam/section_props (measured, GeniE V8.13-02).
+MODIFIED_RTOL = 1e-6
 
 
 class Section(Root):
@@ -455,8 +461,28 @@ class GeneralProperties:
 
     @property
     def modified(self) -> bool:
-        """Returns true if attributes are not equal to the calculated properties of the parent section"""
-        return self != self.calc_parent_properties()
+        """True if these properties are not the parent section's calculated ones (GBEAMG COMP = 1).
+
+        Equal to within :data:`MODIFIED_RTOL`: properties read from a file carry the file's precision,
+        and an exact comparison called every section read back from a Sesam deck modified. Lengths
+        (shear centre, centroid) are compared on the scale sqrt(Ax) and Iyz on sqrt(Iy Iz), where a
+        zero calculated from differences (2.8e-17 for an I's Shcenz) has no relative size."""
+        calc = self.calc_parent_properties()
+        if calc is None:
+            return True
+        scale = {f: abs(calc.Ax) ** 0.5 for f in ("Shceny", "Shcenz", "Cy", "Cz", "Cgy", "Cgz")}
+        scale["Iyz"] = abs(calc.Iy * calc.Iz) ** 0.5
+        for f in fields(self):
+            if f.name == "parent":
+                continue
+            a, b = getattr(self, f.name), getattr(calc, f.name)
+            if a is None or b is None:
+                if a is not b:
+                    return True
+                continue
+            if abs(a - b) > MODIFIED_RTOL * max(abs(a), abs(b), scale.get(f.name, 0.0)):
+                return True
+        return False
 
     def calc_parent_properties(self) -> GeneralProperties:
         """Returns calculated properties based on parent section, with this object's shear factors
