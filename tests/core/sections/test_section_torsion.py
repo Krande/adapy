@@ -176,3 +176,23 @@ def test_an_angle_with_its_web_thicker_than_its_flange_is_calculated():
     ``ada.from_fem`` fail on any Sesam file holding such an angle (GeniE writes them)."""
     sec = ada.Section("L", sec_type="L", h=0.2, w_btn=0.1, w_top=0.1, t_w=0.014, t_fbtn=0.01, t_ftop=0.01)
     assert calculate_general_properties(sec).Ix > 0
+
+
+@pytest.mark.parametrize(
+    "h, b, tw, tf", [(0.2, 0.1, 0.01, 0.014), (0.15, 0.15, 0.012, 0.012), (0.18, 0.035, 0.01, 0.01975)]
+)
+def test_angle_shear_centre_is_the_leg_intersection(h, b, tw, tf):
+    """Thin-walled angle: both legs' shear flows pass through the intersection of their
+    midlines, (tw/2, tf/2) from the heel; SHCENY/SHCENZ are that point minus the centroid, and
+    WYMIN is Iy over the larger of the centroid's distances to the heel and to the web tip.
+    Main put the centroid height at -0.04207 for L200x100x10x14 (centroid 0.06406), so SHCENZ
+    came out +4.907e-2 for -5.706e-2. Warping FE (sectionproperties) of the solid L: -5.607e-2,
+    1.7 % from the thin-walled point."""
+    sec = ada.Section("L", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    web, flange = tw * (h - tf), b * tf
+    cy = (web * tw / 2 + flange * b / 2) / (web + flange)
+    cz = (web * (tf + (h - tf) / 2) + flange * tf / 2) / (web + flange)
+    p = calculate_general_properties(sec)
+    assert np.isclose(p.Shceny, tw / 2 - cy, rtol=1e-12)
+    assert np.isclose(p.Shcenz, tf / 2 - cz, rtol=1e-12)
+    assert np.isclose(p.Wymin, p.Iy / max(cz, h - cz), rtol=1e-12)

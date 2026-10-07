@@ -315,7 +315,7 @@ def calc_angular(sec: Section) -> GeneralProperties:
     sfy = 1.0
     sfz = 1.0
     hw = hz - tz
-    b = tz - hw / 2.0
+    b = tz + hw / 2.0  # height of the web's centroid (was tz - hw / 2, which put z below the heel)
     c = tz / 2.0
     piqrt = np.arctan(1.0)
     Ax = ty * hw + by * tz + (1 - piqrt) * r**2
@@ -329,16 +329,11 @@ def calc_angular(sec: Section) -> GeneralProperties:
     rk = ri + 0.5 * ty
     rl = z - c
 
-    if tz >= ty:
-        h = hw
-    else:
-        raise ValueError("Currently not implemented this yet")
-
     Ix = (1 / 3) * (by * tz**3 + (hz - tz) * ty**3)
     Iyz = (rl * tz / 2) * (y**2 - rj**2) - (rk * ty / 2) * (e**2 - f**2)
 
     Wxmin = Ix / d
-    Wymin = Iy / max(z, hz - h)
+    Wymin = Iy / max(z, hz - z)
     Wzmin = Iz / max(y, rj)
     Sy = (ty * e**2) / 2
     Sz = (tz * rj**2) / 2
