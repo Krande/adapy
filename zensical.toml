@@ -21,7 +21,8 @@ use_directory_urls = false
 nav = [
   { "Home" = "index.md" },
   { "Features" = [
-    "documents/steel_detailing.md",
+    "documents/ada_studio.md",
+    "documents/procedural_modelling.md",
     "documents/topology_engine.md",
     "documents/dexpi.md",
     "documents/path_to_software_agnosticism.md",
