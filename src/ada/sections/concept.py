@@ -417,6 +417,8 @@ class GeneralProperties:
     Shcenz: float = None
     Sy: float = None
     Sz: float = None
+    # Sesam shear factors already included in Shary / Sharz (GBEAMG SHARY = calculated x SFY); a
+    # record of the factor applied, not a setting -- changing one does not rescale the shear area
     Sfy: float = 1
     Sfz: float = 1
     Cy: float = None
@@ -457,7 +459,8 @@ class GeneralProperties:
         return self != self.calc_parent_properties()
 
     def calc_parent_properties(self) -> GeneralProperties:
-        """Returns calculated properties based on parent section"""
+        """Returns calculated properties based on parent section, with this object's shear factors
+        (``Shary``/``Sharz`` include ``Sfy``/``Sfz``, as GBEAMG's SHARY/SHARZ include SFY/SFZ)"""
         from ada.sections.properties import calculate_general_properties
 
-        return calculate_general_properties(self.parent)
+        return calculate_general_properties(self.parent, sfy=self.Sfy, sfz=self.Sfz)

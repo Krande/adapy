@@ -80,8 +80,15 @@ def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralP
     return p
 
 
-def calculate_general_properties(section: Section) -> Union[None, GeneralProperties]:
-    """Calculations of cross section properties are based on different sources of information."""
+def calculate_general_properties(
+    section: Section, sfy: float = 1.0, sfz: float = 1.0
+) -> Union[None, GeneralProperties]:
+    """Calculations of cross section properties are based on different sources of information.
+
+    ``sfy``/``sfz`` are the Sesam shear factors (89-7012, GIORH/GBOX/GPIPE/GLSEC/GCHAN/GBARM: the
+    shear area calculated by the preprocessor is multiplied by SFY for SHARY, by SFZ for SHARZ,
+    measured so in GeniE V8.13-02). The returned ``Shary``/``Sharz`` include them, and ``Sfy``/``Sfz``
+    record them -- as a GBEAMG beside its profile card does."""
     bt = SectionCat.BASETYPES
     section_map = {
         bt.CIRCULAR: calc_circular,
@@ -104,7 +111,12 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
     if calc_func is None:
         raise Warning(f'Section type "{section.type}" is not yet supported in the cross section parameter calculations')
 
-    return calc_func(section)
+    props = calc_func(section)
+    if (sfy, sfz) != (1.0, 1.0):
+        props.Shary *= sfy
+        props.Sharz *= sfz
+        props.Sfy, props.Sfz = sfy, sfz
+    return props
 
 
 def calc_box(sec: Section) -> GeneralProperties:

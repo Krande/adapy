@@ -68,17 +68,29 @@ def get_sections(bulk_str, fem: FEM, elrefs: dict[int, dict]) -> FemSections:
     # Eccentricities
     ecc = {eccno: values for eccno, values in map(get_eccentricities, cards.re_geccen.finditer(bulk_str))}
 
+    # SFY/SFZ of each profile card, by GEONO: GBEAMG's SHARY/SHARZ already include them (89-7012;
+    # measured, GeniE V8.13-02), so they go onto the GBEAMG's properties as the factors applied.
+    shear_factors: dict[int, tuple[float, float]] = {}
+
+    def profiles(read, regex):
+        for m in regex.finditer(bulk_str):
+            d = m.groupdict()
+            shear_factors[str_to_int(d["geono"])] = tuple(
+                1.0 if d.get(k) is None else float(d[k]) for k in ("sfy", "sfz")
+            )
+            yield read(m, sect_names, fem)
+
     list_of_sections = chain(
-        (get_isection(m, sect_names, fem) for m in cards.GIORH.to_ff_re().finditer(bulk_str)),
-        (get_box_section(m, sect_names, fem) for m in cards.GBOX.to_ff_re().finditer(bulk_str)),
-        (get_tubular_section(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
-        (get_angular_section(m, sect_names, fem) for m in cards.GLSEC.to_ff_re().finditer(bulk_str)),
-        (get_channel_section(m, sect_names, fem) for m in cards.GCHAN.to_ff_re().finditer(bulk_str)),
-        (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
+        profiles(get_isection, cards.GIORH.to_ff_re()),
+        profiles(get_box_section, cards.GBOX.to_ff_re()),
+        profiles(get_tubular_section, cards.re_gpipe),
+        profiles(get_angular_section, cards.GLSEC.to_ff_re()),
+        profiles(get_channel_section, cards.GCHAN.to_ff_re()),
+        profiles(get_flatbar, cards.re_gbarm),
     )
 
     fem.parent._sections = Sections(list_of_sections, parent=fem.parent)
-    [add_general_sections(m, fem) for m in cards.re_gbeamg.finditer(bulk_str)]
+    [add_general_sections(m, fem, shear_factors) for m in cards.re_gbeamg.finditer(bulk_str)]
 
     builder = _SectionBuilder(fem, elrefs, lcsysd, hinges, ecc, thick)
     fem_sections = FemSections(builder.build(section_sets(bulk_str, fem)), fem_obj=fem)
@@ -324,9 +336,10 @@ def get_flatbar(match, sect_names, fem) -> Section:
     )
 
 
-def add_general_sections(match, fem) -> None:
+def add_general_sections(match, fem, shear_factors: dict[int, tuple[float, float]] | None = None) -> None:
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
+    sfy, sfz = (shear_factors or {}).get(sec_id, (1.0, 1.0))
     gen_props = GeneralProperties(
         Ax=float(d["area"]),
         Ix=float(d["ix"]),
@@ -342,6 +355,8 @@ def add_general_sections(match, fem) -> None:
         Shcenz=float(d["shcenz"]),
         Sy=float(d["sy"]),
         Sz=float(d["sz"]),
+        Sfy=sfy,
+        Sfz=sfz,
     )
 
     if sec_id in fem.parent.sections.id_map.keys():
