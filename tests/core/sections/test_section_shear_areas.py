@@ -56,7 +56,7 @@ FIELDS = ("Ax", "Iy", "Iz", "Sy", "Sz", "Shary", "Sharz")
 GENIE_SECTIONS = {
     "S01_IPE300": "doubly symmetric I (IPE300 without root radius)",
     "S02_UNSI": "asymmetric I, flanges 200x16 top, 300x20 bottom",
-    "S03_TEE": "T: unsymmetrical I with the bottom flange as wide as the web",
+    "S03_TEE": "unsymmetrical I with a 10 x 15 bottom flange as wide as the web",
     "S04_BOX": "box 400x300, web 12, flanges 20",
     "S05_BOXU": "box with unequal flanges, top 20, bottom 30",
     "S06_PIPE": "pipe D500 t20",
@@ -98,11 +98,18 @@ def test_the_genie_file_holds_every_section(genie_sections):
     assert set(GENIE_SECTIONS) <= set(genie_sections)
 
 
-def test_tprofile_matches_genie_tee(genie_sections):
-    """adapy's own TPROFILE (``w_btn`` = ``t_w``, as the gxml reader builds it) of GeniE's T."""
+def test_tprofile_is_s03_tee_without_its_stub_flange(genie_sections):
+    """S03_TEE is a GeniE unsymmetrical I whose bottom flange is a 10 x 15 stub as wide as the web,
+    and GeniE counts that stub as a flange in SHARY: Iz (tt + tb) / Sz = 3.82768e-3. adapy's TPROFILE
+    of the same dimensions is a T (the stub is web), so it has the same Ax, Iy, Iz, Sy, Sz and
+    Sharz and half the Shary, Iz tt / Sz = 1.91384e-3 -- what GeniE writes for its own T
+    (``test_section_tprofile.py``). Before, the TPROFILE equalled S03_TEE, doubled Shary included."""
     tee = ada.Section("T300", sec_type="TG", h=0.3, w_top=0.2, w_btn=0.01, t_w=0.01, t_ftop=0.015, t_fbtn=0.015)
     assert tee.type == tee.TYPES.TPROFILE
-    _assert_matches(calculate_general_properties(tee), genie_sections["S03_TEE"].properties)
+    s03 = genie_sections["S03_TEE"].properties
+    p = calculate_general_properties(tee)
+    _assert_matches(p, s03, fields=("Ax", "Iy", "Iz", "Sy", "Sz", "Sharz"))
+    assert np.isclose(p.Shary, s03.Shary / 2, rtol=REL)
 
 
 def test_circular_matches_genie_solid_round(genie_sections):

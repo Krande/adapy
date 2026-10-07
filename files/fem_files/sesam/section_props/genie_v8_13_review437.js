@@ -1,0 +1,56 @@
+// Krande/adapy#437 review follow-ups: Ts in GeniE's own library encoding (absent flange 0.001 mm thick,
+// web + 0.001 mm wide, as every section in GeniE's Libraries/tbar.xml), and shear factors SFY/SFZ on every
+// parametric card. One 1 m beam per section, mesh, export FEM.
+St = MaterialLinear(355e6 Pa, 7850 kg/m^3, 2.1e+11 Pa, 0.3, 1.2e-05 delC^-1, 0.03 N*s/m);
+St.setDefault();
+M1_T300 = UnsymISection(0.3 m, 0.01 m, 0.2 m, 0.1 m, 0.015 m, 0.010001 m, 0.0050005 m, 0.000001 m);
+M1_TG650 = UnsymISection(0.65 m, 0.025 m, 0.3 m, 0.15 m, 0.04 m, 0.025001 m, 0.0125005 m, 0.000001 m);
+M1_TEQ = UnsymISection(0.2 m, 0.01 m, 0.15 m, 0.075 m, 0.01 m, 0.010001 m, 0.0050005 m, 0.000001 m);
+M1_E1T = UnsymISection(0.1 m, 0.005 m, 0.3 m, 0.15 m, 0.05 m, 0.005001 m, 0.0025005 m, 0.000001 m);
+L3_I = ISection(0.3 m, 0.15 m, 0.0071 m, 0.0107 m);
+L3_I.shearFactorY = 0.5;
+L3_I.shearFactorZ = 0.8;
+L3_BOX = BoxSection(0.4 m, 0.3 m, 0.012 m, 0.02 m);
+L3_BOX.shearFactorY = 0.5;
+L3_BOX.shearFactorZ = 0.8;
+L3_ANG = LSection(0.2 m, 0.1 m, 0.01 m, 0.014 m);
+L3_ANG.shearFactorY = 0.5;
+L3_ANG.shearFactorZ = 0.8;
+L3_CHAN = ChannelSection(0.3 m, 0.1 m, 0.0071 m, 0.011 m);
+L3_CHAN.shearFactorY = 0.5;
+L3_CHAN.shearFactorZ = 0.8;
+L3_BAR = BarSection(0.2 m, 0.05 m);
+L3_BAR.shearFactorY = 0.5;
+L3_BAR.shearFactorZ = 0.8;
+L3_PIPE = PipeSection(0.5 m, 0.02 m);
+L3_PIPE.shearFactorY = 0.5;
+L3_PIPE.shearFactorZ = 0.8;
+M1_T300.setDefault();
+Bm_1 = Beam(Point(0 m, 0 m, 0 m), Point(1 m, 0 m, 0 m));
+M1_TG650.setDefault();
+Bm_2 = Beam(Point(0 m, 2 m, 0 m), Point(1 m, 2 m, 0 m));
+M1_TEQ.setDefault();
+Bm_3 = Beam(Point(0 m, 4 m, 0 m), Point(1 m, 4 m, 0 m));
+M1_E1T.setDefault();
+Bm_4 = Beam(Point(0 m, 6 m, 0 m), Point(1 m, 6 m, 0 m));
+L3_I.setDefault();
+Bm_5 = Beam(Point(0 m, 8 m, 0 m), Point(1 m, 8 m, 0 m));
+L3_BOX.setDefault();
+Bm_6 = Beam(Point(0 m, 10 m, 0 m), Point(1 m, 10 m, 0 m));
+L3_ANG.setDefault();
+Bm_7 = Beam(Point(0 m, 12 m, 0 m), Point(1 m, 12 m, 0 m));
+L3_CHAN.setDefault();
+Bm_8 = Beam(Point(0 m, 14 m, 0 m), Point(1 m, 14 m, 0 m));
+L3_BAR.setDefault();
+Bm_9 = Beam(Point(0 m, 16 m, 0 m), Point(1 m, 16 m, 0 m));
+L3_PIPE.setDefault();
+Bm_10 = Beam(Point(0 m, 18 m, 0 m), Point(1 m, 18 m, 0 m));
+Md = MeshDensity(0.5 m);
+Md.setDefault();
+Analysis1 = Analysis(true);
+Analysis1.add(MeshActivity());
+Analysis1.setActive();
+Analysis1.execute();
+GenieRules.Meshing.superElementType = 1;
+// Written with an absolute path in the probe; GeniE V8.13-02, GenieR.exe <ws> /new /com=<this file> /exit
+ExportMeshFem().DoExport("REPLACE_WITH_ABSOLUTE_DIR/genie_v8_13_review437_T1.FEM");

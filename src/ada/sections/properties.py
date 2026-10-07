@@ -179,6 +179,30 @@ def calc_box(sec: Section) -> GeneralProperties:
     )
 
 
+def _t_without_bottom_flange(sec: Section) -> tuple[float, float]:
+    """A TPROFILE is a T: flange ``w_top`` x ``t_ftop`` on a web ``t_w`` running to the full height.
+
+    adapy keeps a T in the I-section fields with a placeholder in the bottom-flange slots -- a stub
+    as wide as the web (``string_to_section``, ``from_geometry``, the IFC reader), GeniE's
+    paper-thin flange (the gxml reader), or nothing (``geom_beams``). A stub as wide as the web is
+    the web, so the geometry never depended on it, but the I formulas count it as a second flange
+    in SHARY (doubling it), in IX and in the shear centre. GeniE has no T section; its own T
+    library (Libraries/tbar.xml) writes every T as an unsymmetrical I whose absent flange is
+    0.001 mm thick and 0.001 mm wider than the web, and that is the T computed here: bottom width
+    the web thickness, bottom thickness 0. Returns ``(bb, tb)``."""
+    ty = sec.t_w
+    if sec.w_btn is not None and sec.t_fbtn is not None:
+        overhang = max(sec.w_btn - ty, 0.0) * sec.t_fbtn
+        area = sec.w_top * sec.t_ftop + ty * (sec.h - sec.t_ftop)
+        if overhang > 1e-6 * area:
+            logger.warning(
+                f'Section "{sec.name}" is a TPROFILE whose bottom-flange slots ({sec.w_btn} x {sec.t_fbtn}) '
+                f"reach {overhang:.4g} past the web; a T has no bottom flange, so its properties leave that "
+                f"area out ({overhang / area:.2%} of the T). Use an I-profile for a section with two flanges."
+            )
+    return ty, 0.0
+
+
 def calc_isec(sec: Section) -> GeneralProperties:
     """Calculate I/H cross section properties"""
 
@@ -194,12 +218,11 @@ def calc_isec(sec: Section) -> GeneralProperties:
     # ``t_fbtn`` ``None``). Falling back to the top values
     # produces the right answer for the symmetric case and
     # avoids a ``TypeError: NoneType + float`` that previously
-    # aborted the whole solid_geom path. A T declared without them
-    # (``geom_beams`` from an IFC TShapeProfileDef) has no bottom flange:
-    # its stub is the web's own width.
-    is_t = sec.type == SectionCat.BASETYPES.TPROFILE
-    bb = sec.w_btn if sec.w_btn is not None else ty if is_t else bt
+    # aborted the whole solid_geom path.
+    bb = sec.w_btn if sec.w_btn is not None else bt
     tb = sec.t_fbtn if sec.t_fbtn is not None else tt
+    if sec.type == SectionCat.BASETYPES.TPROFILE:
+        bb, tb = _t_without_bottom_flange(sec)
 
     Ax = bt * tt + ty * (hz - (tb + tt)) + bb * tb
     hw = hz - tt - tb

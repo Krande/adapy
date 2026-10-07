@@ -91,7 +91,7 @@ GENIE_SECTIONS = {
     "T07_BOXEQ": "box 300x200, all walls 10",
     "T08_BOXTW": "box 300x500, webs 30, bottom 15, top 10",
     "T10_CHEQ2": "channel 300x90, web and flanges 10",
-    "T11_TG650": "T 650x300x25x40, as adapy's TG650x300x25x40",
+    "T11_TG650": "unsymmetrical I 650 whose bottom flange is a 25 x 40 stub as wide as the web",
 }
 
 
@@ -135,13 +135,17 @@ def test_reference_file_is_genie_output():
     assert "SESAM GeniE" in head and "V8.13-02" in head
 
 
-def test_tg_string_matches_genie(genie_sections):
-    """``TG650x300x25x40`` (bottom flange collapsed to the web) against GeniE's same T."""
-    sec = ada.Section("TG", from_str="TG650x300x25x40")
-    p, g = calculate_general_properties(sec), genie_sections["T11_TG650"].properties
+def test_tg_string_matches_genie():
+    """``TG650x300x25x40`` against GeniE's own T of the same size (M1_TG650: GeniE's T library
+    encoding, the absent flange 0.001 mm thick). Tolerance as in ``test_section_tprofile.py``:
+    GeniE's web is 0.001 mm shorter, which moves Ix and Wxmin by up to 3e-6. GeniE's T11_TG650, an
+    unsymmetrical I with a 40 mm stub, is not a T: its Ix is 3.4 % higher (the stub as a flange)."""
+    a = ada.from_fem(REF_DIR / "genie_v8_13_review437_T1.FEM")
+    genie = {s.name: s for p in a.get_all_parts_in_assembly(include_self=True) for s in p.sections}
+    p, g = calculate_general_properties(ada.Section("TG", from_str="TG650x300x25x40")), genie["M1_TG650"].properties
     for field in ("Ax", "Iy", "Iz") + FIELDS:
         c, r = getattr(p, field), getattr(g, field)
-        assert np.isclose(c, r, rtol=REL, atol=ATOL), f"{field}: adapy {c:.6e} GeniE {r:.6e}"
+        assert np.isclose(c, r, rtol=1e-5, atol=ATOL), f"{field}: adapy {c:.6e} GeniE {r:.6e}"
 
 
 # --- independent of GeniE --------------------------------------------------------------------
