@@ -48,6 +48,9 @@ if TYPE_CHECKING:
 GNX_LICENSE_FILE = "GENIE"
 GNX_ASSEMBLY_TYPE = "0"
 
+#: GeniE's compatibility option for the body format, as ``modelData.xml`` names it.
+WRITE_BINARY_OPTION = "WriteACISBinaryFile"
+
 #: What GeniE writes for a workspace with no sheet geometry: the ACIS header
 #: and a single empty body. Byte-for-byte the shape of the real file's member,
 #: down to the CRLF line ends.
@@ -96,13 +99,69 @@ def _strip_embedded_sat(root: ET.Element) -> str | None:
     return "".join(sat_parts)
 
 
-def _write_workspace_zip(gnx_path: pathlib.Path, xml_text: str, sat_text: str) -> None:
+def _body_member(gnx_path: pathlib.Path, sat_text: str, binary_acis: bool) -> tuple[str, bytes | str]:
+    """The body member's name and content: the SAT text, or that text packed to SAB.
+
+    GeniE V9.3 decides the format by the member name alone (measured), so the binary body must be
+    ``acisGeometry.sab``. A body holding something the packer was not verified on is refused
+    rather than written approximately.
+    """
+    if not binary_acis:
+        return GNX_TEXT_BODY, sat_text
+    from ada.cadit.sat.sab_codec import SabUnsupported, pack
+
+    try:
+        return GNX_BINARY_BODY, pack(sat_text)
+    except SabUnsupported as e:
+        raise ACISBinaryBodyError(
+            f"{gnx_path.name}: the ACIS body cannot be written as binary SAB: {e}. "
+            f"Write the workspace with binary_acis=False (text SAT, which every GeniE version reads)."
+        ) from e
+
+
+def _set_binary_option(root: ET.Element, binary_acis: bool) -> None:
+    """Make the workspace XML say which body format it carries.
+
+    GeniE keeps the choice as ``<option value=".." option="WriteACISBinaryFile" />`` under
+    ``model/rules/compatibility/compatibility_options`` (twice in its own saves). An option
+    already there -- a GeniE export being repacked -- is set to match the body written. Where
+    there is none, one is added only for a binary body, so the text workspace is what it
+    always was.
+    """
+    model = root.find("./model")
+    if model is None:
+        return
+    value = "true" if binary_acis else "false"
+    blocks = model.findall("./rules/compatibility/compatibility_options")
+    for block in blocks:
+        options = [o for o in block.findall("option") if o.get("option") == WRITE_BINARY_OPTION]
+        for option in options:
+            option.set("value", value)
+        if not options:
+            ET.SubElement(block, "option", {"value": value, "option": WRITE_BINARY_OPTION})
+    if blocks or not binary_acis:
+        return
+    rules = model.find("./rules")
+    if rules is None:
+        rules = ET.Element("rules")
+        # GeniE's own order: units, structure_domain, utilities, rules, ...
+        after = [i for i, el in enumerate(model) if el.tag in ("units", "structure_domain", "utilities")]
+        model.insert(after[-1] + 1 if after else 0, rules)
+    compatibility = rules.find("./compatibility")
+    if compatibility is None:
+        compatibility = ET.SubElement(rules, "compatibility", {"user_defined_compatibility": "false"})
+    block = ET.SubElement(compatibility, "compatibility_options")
+    ET.SubElement(block, "option", {"value": value, "option": WRITE_BINARY_OPTION})
+
+
+def _write_workspace_zip(gnx_path: pathlib.Path, xml_text: str, sat_text: str, binary_acis: bool = False) -> None:
+    body_name, body = _body_member(gnx_path, sat_text, binary_acis)
     gnx_path.parent.mkdir(parents=True, exist_ok=True)
     now = datetime.datetime.now()
     with zipfile.ZipFile(gnx_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("lastUsedLicenseFileName.txt", GNX_LICENSE_FILE)
         z.writestr("modelData.js", _journal(now))
-        z.writestr(GNX_TEXT_BODY, sat_text)
+        z.writestr(body_name, body)
         # An empty facet cache: GeniE re-facets the body on load.
         z.writestr("acisFaceFacets.bin", b"\x00\x00\x00\x00")
         z.writestr("assemblyType.txt", GNX_ASSEMBLY_TYPE)
@@ -136,12 +195,18 @@ def write_gnx(
     part: "Part",
     gnx_file: str | pathlib.Path,
     writer_postprocessor: Callable[[ET.Element, "Part"], None] | None = None,
+    binary_acis: bool = False,
 ) -> pathlib.Path:
     """Write ``part`` as a GeniE workspace.
 
     The concept model is the same one ``to_genie_xml(embed_sat=True)`` writes;
     the ACIS body goes into its own member instead of the XML. A model with no
     sheet geometry (beams only) gets GeniE's empty-body SAT.
+
+    ``binary_acis`` writes the body as ``acisGeometry.sab`` (Standard ACIS
+    Binary, what GeniE V9.3 writes with "Write ACIS files in binary format" on)
+    and sets that option in the XML. Off by default: GeniE before V9.3 opens a
+    binary workspace as an empty model without a message (measured on V8.13-02).
     """
 
     from .write_xml import build_xml_tree
@@ -153,12 +218,15 @@ def write_gnx(
         sat_text = sw.to_str().replace("\r\n", "\n").replace("\n", "\r\n")
     else:
         sat_text = _EMPTY_SAT.format(stamp=_stamp())
+    _set_binary_option(root, binary_acis)
     xml_text = _finish_root(root, gnx_path.stem)
-    _write_workspace_zip(gnx_path, xml_text, sat_text)
+    _write_workspace_zip(gnx_path, xml_text, sat_text, binary_acis)
     return gnx_path
 
 
-def gnx_from_genie_xml(xml_file: str | pathlib.Path, gnx_file: str | pathlib.Path | None = None) -> pathlib.Path:
+def gnx_from_genie_xml(
+    xml_file: str | pathlib.Path, gnx_file: str | pathlib.Path | None = None, binary_acis: bool = False
+) -> pathlib.Path:
     """Repack a concept XML on disk into a workspace.
 
     An embedded SAT sequence (the streaming FEM-to-XML writer's output, or a
@@ -166,6 +234,8 @@ def gnx_from_genie_xml(xml_file: str | pathlib.Path, gnx_file: str | pathlib.Pat
     plain-polygon XML has no body to lift; it is written with the empty-body
     SAT and GeniE builds the ACIS from the polygons on load, exactly as it does
     when importing that XML by hand.
+
+    ``binary_acis`` as for :func:`write_gnx`.
     """
 
     xml_path = pathlib.Path(xml_file)
@@ -176,8 +246,9 @@ def gnx_from_genie_xml(xml_file: str | pathlib.Path, gnx_file: str | pathlib.Pat
         sat_text = sat_text.replace("\r\n", "\n").replace("\n", "\r\n")
     else:
         sat_text = _EMPTY_SAT.format(stamp=_stamp())
+    _set_binary_option(root, binary_acis)
     xml_text = _finish_root(root, gnx_path.stem)
-    _write_workspace_zip(gnx_path, xml_text, sat_text)
+    _write_workspace_zip(gnx_path, xml_text, sat_text, binary_acis)
     return gnx_path
 
 
