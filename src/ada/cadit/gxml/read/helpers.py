@@ -283,7 +283,7 @@ def yield_plate_elems_to_plate(
         if len(face_elems) > 1:
             face_point_sets = _collect_sat_face_point_sets(face_refs, sat_ref_d)
             if face_point_sets is not None and is_coplanar_points([p for s in face_point_sets for p in s]):
-                merged_points = merge_coplanar_loops_by_edge_cancellation(face_point_sets)
+                merged_points = merge_coplanar_loops_by_edge_cancellation(face_point_sets, split_t_junctions=True)
                 if merged_points is not None:
                     try:
                         yield _plate_from_3d_points(
