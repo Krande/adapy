@@ -88,29 +88,18 @@ def tubular(sec: Section, sec_id) -> str:
 
 
 def circular(sec: Section, sec_id) -> str:
-    """A solid bar as the thickest pipe the format will take.
+    """A solid round bar as GeniE writes one: GPIPE with inner diameter 0 and the wall the radius.
 
-    Sesam has no solid-round beam card, so GPIPE stands in with an inner diameter of
-    1% of the outer one. The wall thickness has to follow from that -- ``(dy - di) / 2
-    = 0.99 * r``. Reading it off ``sec.wt`` instead wrote a bare ``None`` into the
-    record, which ``format_data`` rejects: a CIRCULAR section is defined by its radius
-    alone and never has a wall thickness to read.
+    GeniE V8.13-02 writes ``PipeSection(D, D/2)`` so (S11_ROD in
+    ``files/fem_files/sesam/section_props/genie_v8_13_shear_areas_T1.FEM``), and Sestra V11.3 runs
+    such a deck. The GBEAMG beside it carries the disc's properties; a GPIPE with a 1 % bore, which
+    this used to write, described a tube whose shear area is 1.0 % smaller (5.83159e-3 for
+    5.89049e-3 at D100), which GeniE, recomputing from the GPIPE on import, would have used.
     """
-    from .not_held import STAGE, report
-
     p = sec.properties
-    di = (sec.r - sec.r * 0.99) * 2
-    report().approximated(
-        STAGE,
-        "Section",
-        sec.name,
-        "a solid round bar has no Sesam card: written as a tube (GPIPE) with a bore of 1% of its diameter",
-        area_change=-((di / 2) ** 2) / sec.r**2,
-        second_moment_change=-((di / 2) ** 4) / sec.r**4,
-    )
     return write_ff(
         "GPIPE",
-        [(sec_id, di, sec.r * 2, (sec.r * 2 - di) / 2), (p.Sfy, p.Sfz)],
+        [(sec_id, 0.0, sec.r * 2, sec.r), (p.Sfy, p.Sfz)],
     )
 
 

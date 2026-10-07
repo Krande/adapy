@@ -363,6 +363,12 @@ def get_tubular_section(match, sect_names, fem) -> Section:
     else:
         sec_name = sect_names[sec_id]
     t = float(d["t"]) if d["t"] is not None else (float(d["dy"]) - float(d["di"])) / 2
+    if d["di"] is not None and float(d["di"]) == 0.0:
+        # A solid round bar: GeniE writes PipeSection(D, D/2) as GPIPE with DI = 0, and so does
+        # adapy's writer for a CIRCULAR section.
+        return Section(
+            name=sec_name, sec_id=sec_id, sec_type=Section.TYPES.CIRCULAR, r=float(d["dy"]) / 2, parent=fem.parent
+        )
     return Section(
         name=sec_name,
         sec_id=sec_id,
