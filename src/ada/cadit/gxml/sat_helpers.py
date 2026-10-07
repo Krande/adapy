@@ -4,8 +4,7 @@ import zipfile
 from io import BytesIO
 
 from ada.cadit.gxml.xml_parse import read_genie_xml_root
-from ada.cadit.sat.exceptions import ACISBinaryBodyError
-from ada.cadit.sat.sab import binary_body_message, is_sab
+from ada.cadit.sat.sab import is_sab, sat_text_of_body
 
 
 def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
@@ -21,7 +20,7 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
         raise NotImplementedError(f'SAT el Tag type "{sat_el.tag}" is not yet added')
 
     if is_sab(data):
-        raise ACISBinaryBodyError(binary_body_message(f"<{sat_el.tag}>", "embedded geometry"))
+        return sat_text_of_body(data, f"<{sat_el.tag}>", "embedded geometry").replace("\r", "")
 
     byio = BytesIO(data)
     try:
@@ -34,14 +33,11 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
         raise NotImplementedError("No support for binary zip data containing multipart SAT file yet")
 
     # GeniE V9.3 embeds text here even from a workspace whose body member is
-    # binary (measured on a concept XML exported with the option on), so this is
-    # a guard, not an observed path: a binary member would otherwise read as a
-    # body with no records and the plates would vanish without a word.
+    # binary (measured on a concept XML exported with the option on), so a binary
+    # member is a seam rather than an observed file; it goes through the same door
+    # as a workspace's binary body: rendered to text, or refused by name.
     ((member, body),) = res.items()
-    if is_sab(body):
-        raise ACISBinaryBodyError(binary_body_message(f"<{sat_el.tag}>", member))
-
-    return str(res["b64temp.sat"], encoding="utf-8").replace("\r", "")
+    return sat_text_of_body(body, f"<{sat_el.tag}>", member).replace("\r", "")
 
 
 def write_xml_sat_text_to_file(xml_file, out_file):

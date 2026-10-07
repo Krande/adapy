@@ -37,12 +37,7 @@ import zipfile
 from typing import TYPE_CHECKING, Callable
 
 from ada.cadit.sat.exceptions import ACISBinaryBodyError
-from ada.cadit.sat.sab import (
-    GNX_BINARY_BODY,
-    GNX_TEXT_BODY,
-    binary_body_message,
-    is_sab,
-)
+from ada.cadit.sat.sab import GNX_BINARY_BODY, GNX_TEXT_BODY, sat_text_of_body
 
 from ..sat_helpers import xml_elem_to_sat_text
 from ..xml_parse import genie_xml_root_from_bytes, read_genie_xml_root
@@ -231,21 +226,21 @@ def _read_text_body(z: zipfile.ZipFile, names: set[str], origin: str) -> str:
     """The workspace's ACIS body as SAT text, or ``""`` when it carries none.
 
     GeniE V9.3 can write the body in binary instead (member ``acisGeometry.sab``,
-    option "Write ACIS files in binary format"). That is refused by name here,
-    before the body reaches anything that parses it: fed to the SAT reader a
-    binary body yields no records, and measured on V9.3 workspaces the result
-    was not an error but a model with every beam and no plates. Binary bytes
-    under the text member's name are refused the same way -- GeniE itself reads
-    such a member as an empty body.
+    option "Write ACIS files in binary format"). That body is rendered to the text
+    GeniE would have saved with the option off, so every reader downstream sees
+    one format; a binary body holding anything the renderer was not verified on
+    is refused by name (``ACISBinaryBodyError``). Before binary bodies were read,
+    measured on V9.3 workspaces, one fed to the SAT reader gave no error but a
+    model with every beam and no plates.
     """
-    if GNX_BINARY_BODY in names:
-        raise ACISBinaryBodyError(binary_body_message(origin, GNX_BINARY_BODY))
-    if GNX_TEXT_BODY not in names:
+    members = [m for m in (GNX_TEXT_BODY, GNX_BINARY_BODY) if m in names]
+    if not members:
         return ""
-    data = z.read(GNX_TEXT_BODY)
-    if is_sab(data):
-        raise ACISBinaryBodyError(binary_body_message(origin, GNX_TEXT_BODY))
-    return data.decode("utf-8", errors="replace")
+    if len(members) > 1:
+        # GeniE writes one or the other; which one it would read from both is not measured.
+        raise ACISBinaryBodyError(f"{origin}: carries both {GNX_TEXT_BODY} and {GNX_BINARY_BODY}; GeniE writes one")
+    (member,) = members
+    return sat_text_of_body(z.read(member), origin, member)
 
 
 def _sat_has_faces(sat_text: str) -> bool:

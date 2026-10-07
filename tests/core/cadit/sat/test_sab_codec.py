@@ -1,16 +1,17 @@
 """The SAB <-> SAT codec against GeniE V9.3 twins: the same model, saved as text and as binary.
 
-Two oracles, both exact. Rendering the binary body must give the text body's records
-token for token (numbers by value: the text writer prints ``0`` and ``2.0971012569480099``
-where the binary holds the doubles ``0.0`` and ``2.09710125694801``), and packing the text
-body must give the binary body's bytes after the header, byte for byte -- the header
-itself differs only in the save timestamp. Five models, 14 to 203 records, every record
-type adapy's writer emits among them (spline-surface/exactsur and pcurve/exppc come from
-``curved_plates_resaved``, GeniE's re-save of adapy's own curved-plate workspace).
+Two oracles, both exact. Rendering the binary body must give the text body GeniE wrote, byte for
+byte -- CRLF line ends, the line breaks inside spline data, numbers as ``%.17g`` -- bar the header's
+save timestamp; and packing the text body must give the binary body's bytes after the header, byte
+for byte, the header itself differing only in that timestamp. Six models, 14 to 203 records, every
+record type adapy's writer emits among them (spline-surface/exactsur and pcurve/exppc come from
+``curved_plates_resaved``, GeniE's re-save of adapy's own curved-plate workspace; position_attrib
+from ``loads_all_kinds``).
 """
 
 from __future__ import annotations
 
+import re
 import struct
 import zipfile
 
@@ -23,7 +24,9 @@ from ada.cadit.sat.sab_codec import (
     normalize,
     pack,
     pack_record,
+    record_words,
     render,
+    sat_text_from_sab,
     text_records,
     tokenize,
 )
@@ -35,6 +38,7 @@ MODELS = {
     "cylinder_shell": 27,
     "plate_with_hole": 40,
     "curved_plates_resaved": 203,
+    "loads_all_kinds": 69,
 }
 
 
@@ -50,6 +54,10 @@ def twins(fem_files):
         return binary, text
 
     return _load
+
+
+def _with_date(sat_text: str, date: str) -> str:
+    return re.sub(r"(\n18 SESAM - gmGeometry 14 ACIS 33\.0\.1 NT 24 ).{24}", lambda m: m.group(1) + date, sat_text)
 
 
 @pytest.mark.parametrize("model", sorted(MODELS))
@@ -80,6 +88,15 @@ def test_rendering_the_binary_body_gives_the_text_body(twins, model):
 
 
 @pytest.mark.parametrize("model", sorted(MODELS))
+def test_the_rendered_body_is_the_text_genie_wrote_byte_for_byte(twins, model):
+    """Not just the same tokens: the same file. adapy's spline readers read the subtype data line by
+    line, so the line breaks and the number forms are what makes the two reads one."""
+    binary, text = twins(model)
+    date = tokenize(binary)[0]["strings"][2]
+    assert sat_text_from_sab(binary) == _with_date(text, date)
+
+
+@pytest.mark.parametrize("model", sorted(MODELS))
 def test_packing_the_text_body_gives_the_binary_bytes(twins, model):
     binary, text = twins(model)
     packed = pack(text)
@@ -91,6 +108,13 @@ def test_packing_the_text_body_gives_the_binary_bytes(twins, model):
     assert packed[:hp].replace(date_txt.encode(), b"") == binary[:hb].replace(date_bin.encode(), b"")
 
 
+def test_a_string_is_delimited_by_its_length_not_by_spaces():
+    assert record_words("-4 x $1 @8 a b  c d #") == ["-4", "x", "$1", "@8", "a b  c d", "#"]
+
+
+# -- refused, by name ------------------------------------------------------------------
+
+
 def test_an_unseen_subtype_is_refused_by_name():
     """A skinned surface GeniE writes as ``rulesur``; adapy never writes one and no twin pins it."""
     with pytest.raises(SabUnsupported, match="rulesur"):
@@ -99,7 +123,51 @@ def test_an_unseen_subtype_is_refused_by_name():
 
 def test_an_unseen_attribute_flag_word_is_refused_by_name():
     """The 18 action ints of a generic attribute pack into one int whose layout is not decoded;
-    only the two words GeniE (and adapy's writer) use are tabled."""
+    only the three words GeniE (and adapy's writer) use are tabled."""
     rec = "-4 string_attrib-name_attrib-gen-attrib $-1 -1 $-1 $-1 $3 2 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 0 @6 dnvscp @12 FACE00000001 #"
     with pytest.raises(SabUnsupported, match="flags"):
         pack_record(rec)
+
+
+def test_a_transform_is_refused_by_name():
+    with pytest.raises(SabUnsupported, match="transform"):
+        pack_record("-1 transform $-1 -1 -1 $-1 1 0 0 0 1 0 0 0 1 0 0 0 1 no_rotate no_reflect no_shear #")
+
+
+def test_an_unseen_loop_type_is_refused_by_name():
+    """Only ``unknown`` and ``periphery`` are in a twin; the tail after a ``hole`` loop is not."""
+    with pytest.raises(SabUnsupported, match="hole"):
+        pack_record("-6 loop $-1 -1 -1 $-1 $-1 $11 $3 F hole #")
+
+
+def test_a_periodic_spline_is_refused_by_name():
+    rec = "-19 intcurve-curve $-1 -1 -1 $-1 forward { exactcur full nubs 1 periodic 2 0 1 1 1 0 0 0 1 1 1 0 } I I #"
+    with pytest.raises(SabUnsupported, match="periodic"):
+        pack_record(rec)
+
+
+@pytest.mark.parametrize(
+    "line1, line2, match",
+    [
+        ("2000 0 1 1", "18 SESAM - gmGeometry 14 ACIS 33.0.1 NT 24 Tue Oct  6 20:13:24 2026", "history"),
+        ("700 0 1 0", "18 SESAM - gmGeometry 14 ACIS 33.0.1 NT 24 Tue Oct  6 20:13:24 2026", "version 700"),
+        ("2000 0 1 0", "18 SESAM - gmGeometry 14 ACIS 34.0.1 NT 24 Tue Oct  6 20:13:24 2026", "ACIS 34.0.1"),
+    ],
+)
+def test_a_header_outside_the_measured_one_is_refused(line1, line2, match):
+    with pytest.raises(SabUnsupported, match=match):
+        pack(f"{line1}\r\n{line2}\r\n1000 9.9999999999999995e-07 1e-10\r\nEnd-of-ACIS-data ")
+
+
+def test_a_long_string_tag_is_refused_by_name(twins):
+    binary, _ = twins("plate")
+    i = header_end(binary)
+    with pytest.raises(SabUnsupported, match="0x12"):
+        tokenize(binary[:i] + bytes([0x12]) + binary[i:])
+
+
+def test_data_after_the_end_marker_is_refused(twins):
+    binary, _ = twins("plate")
+    _, records = tokenize(binary + binary[header_end(binary) :])
+    with pytest.raises(SabUnsupported, match="after End-of-ACIS-data"):
+        render(records)
