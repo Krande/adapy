@@ -345,7 +345,9 @@ const Menu = () => {
           <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
           {/* UI-shell switcher — renders nothing unless this build carries an
               alternative UI (a plugin-contributed shell). See plugins/uiShells. */}
-          {!runtime.isRestMode() && (
+          {/* No connection button in a static embed (window.DEACTIVATE_WS: the docs'
+              3D figures, notebook outputs): there is no session to show or reconnect. */}
+          {!runtime.isRestMode() && !runtime.websocketDeactivated() && (
             <div className={navBtnClass(showWebsocketInfoBox)}>
               <WebsocketStatusMenu />
             </div>
@@ -378,7 +380,7 @@ const Menu = () => {
               <SceneInfoBox />
             </ErrorBoundary>
           )}
-          {showWebsocketInfoBox && <WebsocketStatusBox />}
+          {showWebsocketInfoBox && !runtime.websocketDeactivated() && <WebsocketStatusBox />}
           {isControlsVisible && <SimulationControls />}
           {componentControlsVisible && <ComponentControls />}
           {proceduralActive && <CellBuilderPanel />}
