@@ -32,6 +32,8 @@ export interface FramePlanInput {
     range: [number, number];
     period: number;
     stepLabels: string[];
+    /** Playback rate of a time-history export; defaults to TIME_HISTORY_EXPORT_FPS. */
+    fps?: number;
 }
 
 /** Frames per second of a time-history export. */
@@ -47,7 +49,7 @@ export function planExportFrames(input: FramePlanInput): FramePlan {
             factor: hi,
             label: input.stepLabels[i] ?? String(i),
         }));
-        return {frames, fps: TIME_HISTORY_EXPORT_FPS, stepsChange: true};
+        return {frames, fps: input.fps && input.fps > 0 ? input.fps : TIME_HISTORY_EXPORT_FPS, stepsChange: true};
     }
     const mid = (lo + hi) / 2;
     const half = (hi - lo) / 2;
@@ -71,4 +73,92 @@ export function exportFileName(sourceName: string | null, fieldName: string | nu
     const base = (sourceName ?? "animation").split("/").pop()!.replace(/\.[^.]+$/, "") || "animation";
     const field = (fieldName ?? "").replace(/[^A-Za-z0-9_.-]+/g, "_");
     return `${base}${field ? `_${field}` : ""}.${ext}`;
+}
+
+// ---- export settings --------------------------------------------------------------
+
+export type ExportFormat = "mp4" | "gif";
+export type ExportAspect = "view" | "16:9" | "4:3" | "1:1" | "9:16";
+
+export interface ExportSettings {
+    format: ExportFormat;
+    /** Short side of the output in pixels (720 = "720p": 1280x720 landscape, 720x1280 portrait). */
+    resolution: number;
+    aspect: ExportAspect;
+    /** Frames per second of a time-history export (a sweep always spans one period). */
+    fps: number;
+    legend: boolean;
+    gizmo: boolean;
+}
+
+/** Short-side presets per format. GIF stays modest: every frame is a full palette image. */
+export const RESOLUTION_PRESETS: Record<ExportFormat, number[]> = {
+    mp4: [720, 1080, 1440, 2160],
+    gif: [360, 480, 720],
+};
+export const FPS_PRESETS = [6, 12, 24, 30];
+export const ASPECT_PRESETS: ExportAspect[] = ["view", "16:9", "4:3", "1:1", "9:16"];
+
+export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
+    format: "mp4",
+    resolution: 1080,
+    aspect: "view",
+    fps: TIME_HISTORY_EXPORT_FPS,
+    legend: true,
+    gizmo: true,
+};
+
+function aspectRatio(aspect: ExportAspect, viewWidth: number, viewHeight: number): number {
+    switch (aspect) {
+        case "16:9":
+            return 16 / 9;
+        case "4:3":
+            return 4 / 3;
+        case "1:1":
+            return 1;
+        case "9:16":
+            return 9 / 16;
+        default:
+            return viewWidth > 0 && viewHeight > 0 ? viewWidth / viewHeight : 16 / 9;
+    }
+}
+
+/**
+ * Output size for the settings: ``resolution`` is the short side, the aspect
+ * sets the long one, both rounded to even (H.264). If the long side would pass
+ * ``maxEdge`` (the GPU's largest drawing buffer), both shrink together so the
+ * aspect is kept.
+ */
+export function resolveExportSize(
+    settings: Pick<ExportSettings, "resolution" | "aspect">,
+    viewWidth: number,
+    viewHeight: number,
+    maxEdge = 4096,
+): [number, number] {
+    const ratio = aspectRatio(settings.aspect, viewWidth, viewHeight);
+    const short = settings.resolution;
+    let w = ratio >= 1 ? short * ratio : short;
+    let h = ratio >= 1 ? short : short / ratio;
+    const scale = Math.min(1, maxEdge / Math.max(w, h));
+    w *= scale;
+    h *= scale;
+    return evenSize(Math.round(w), Math.round(h));
+}
+
+/** Coerce stored / partial settings onto valid values for their format. */
+export function normaliseExportSettings(raw: Partial<ExportSettings> | null | undefined): ExportSettings {
+    const s = {...DEFAULT_EXPORT_SETTINGS, ...(raw ?? {})};
+    const format: ExportFormat = s.format === "gif" ? "gif" : "mp4";
+    const presets = RESOLUTION_PRESETS[format];
+    const resolution = presets.includes(s.resolution)
+        ? s.resolution
+        : presets.reduce((best, r) => (Math.abs(r - s.resolution) < Math.abs(best - s.resolution) ? r : best));
+    return {
+        format,
+        resolution,
+        aspect: ASPECT_PRESETS.includes(s.aspect) ? s.aspect : "view",
+        fps: FPS_PRESETS.includes(s.fps) ? s.fps : TIME_HISTORY_EXPORT_FPS,
+        legend: s.legend !== false,
+        gizmo: s.gizmo !== false,
+    };
 }

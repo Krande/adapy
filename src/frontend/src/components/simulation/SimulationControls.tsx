@@ -309,6 +309,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setNodalAverage,
         beamSolidsVisible,
         setBeamSolidsVisible,
+        timeHistory,
     } = useFeaAnimationStore();
 
     const hasBeamSolids = !!(manifest?.mesh?.beam_solids_url || manifest?.mesh?.beam_solids_compact_url);
@@ -402,6 +403,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const onPause = () => setIsPlaying(false);
     const onStop = () => {
         setIsPlaying(false);
+        if (timeHistory) {
+            // A player's stop: back to the first frame, deformation scale untouched.
+            resetFeaAnimationPhase();
+            onStepChange(0);
+            return;
+        }
         setFactor(lo === 0 ? 0 : 0); // both ranges include 0
         if (mesh && mesh.morphTargetInfluences) {
             mesh.morphTargetInfluences[0] = 0;
@@ -626,20 +633,42 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 absorbs whatever space is left after the fixed-width
                 period + scale inputs. */}
             <div className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 w-full min-w-0">
-                <div className="flex items-center gap-2 flex-1 min-w-[100px]">
-                    <input
-                        type="range"
-                        min={lo}
-                        max={hi}
-                        step={factorStep}
-                        value={factor}
-                        onChange={(e) => onFactorChange(parseFloat(e.target.value))}
-                        className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
-                    />
-                    <div className="text-white text-sm font-mono w-12 text-center">
-                        {factor.toFixed(2)}
+                {timeHistory ? (
+                    // A time history: the slider IS the timeline. Scrub it to any frame;
+                    // play moves it. Deformation stays at true scale (x below exaggerates).
+                    <div className="flex items-center gap-2 flex-1 min-w-[100px]">
+                        <input
+                            type="range"
+                            min={0}
+                            max={Math.max(nSteps - 1, 0)}
+                            step={1}
+                            value={stepIndex}
+                            onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
+                            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                            title="Time"
+                            aria-label="Time"
+                        />
+                        <div className="text-white text-sm font-mono min-w-[4.5rem] text-center" title="Time of the shown frame">
+                            t {activeField?.steps[stepIndex]?.label ?? stepIndex}
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="flex items-center gap-2 flex-1 min-w-[100px]">
+                        <input
+                            type="range"
+                            min={lo}
+                            max={hi}
+                            step={factorStep}
+                            value={factor}
+                            onChange={(e) => onFactorChange(parseFloat(e.target.value))}
+                            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                        />
+                        <div className="text-white text-sm font-mono w-12 text-center">
+                            {factor.toFixed(2)}
+                        </div>
+                    </div>
+                )}
+                {!timeHistory && (
                 <div className="text-white text-xs flex items-center gap-1">
                     T
                     <input
@@ -653,6 +682,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     />
                     s
                 </div>
+                )}
                 {/* Warp-scale knob: multiplier on top of the
                     [-1..1] / [0..1] sweep, exaggerates the
                     morph delta. Default 1. */}
@@ -678,7 +708,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 <button
                     className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
                     onClick={isPlaying ? onPause : onPlay}
-                    title={isPlaying ? "Pause oscillation" : "Play oscillation"}
+                    title={
+                        timeHistory
+                            ? isPlaying ? "Pause" : "Play the time history"
+                            : isPlaying ? "Pause oscillation" : "Play oscillation"
+                    }
                 >
                     <PlayPauseIcon/>
                 </button>

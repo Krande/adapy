@@ -1,13 +1,14 @@
 // Export the active FEA animation as an MP4 or a GIF.
 //
 // Deterministic, not a screen recording: every frame of the plan is applied (a
-// step fetch for a time history, a deformation factor otherwise), rendered once
-// by the viewer's own renderer and copied straight off its canvas -- so the
-// export has exactly the colours, lighting and antialiasing on screen, and
-// neither network stalls nor a slow device drop frames. A legend (field, unit,
-// colour bar, range) and the time / case label are burned into each frame,
-// since a contour animation without its scale is unreadable once it leaves the
-// viewer.
+// step fetch for a time history, a deformation factor otherwise) and rendered
+// once by the viewer's own renderer at the EXPORT resolution -- the drawing
+// buffer is resized for the duration (the on-screen canvas keeps its CSS size,
+// and the render loop is suspended so the live view never draws into it) and a
+// camera clone takes the export's aspect. Copying off the real canvas keeps the
+// colours, lighting and antialiasing on screen; a render target would not (three
+// renders those in linear colour). The legend (field, unit, time/case, colour
+// bar) and the orientation gizmo are burned in when asked for.
 //
 // The encoders are imported on demand, so they cost nothing until an export.
 
@@ -16,13 +17,22 @@ import * as THREE from "three";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
+import {setRenderSuspended} from "@/state/perfStore";
 import {getColormap} from "@/utils/scene/fea/colormaps";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 
-import {evenSize, exportFileName, planExportFrames, type ExportFrame} from "./framePlan";
+import {
+    exportFileName,
+    normaliseExportSettings,
+    planExportFrames,
+    resolveExportSize,
+    type ExportFormat,
+    type ExportFrame,
+    type ExportSettings,
+} from "./framePlan";
 import type {FrameSink} from "./frameSink";
 
-export type AnimationFormat = "mp4" | "gif";
+export type AnimationFormat = ExportFormat;
 
 export interface ExportProgress {
     done: number;
@@ -30,14 +40,10 @@ export interface ExportProgress {
 }
 
 export interface ExportOptions {
-    format: AnimationFormat;
+    settings: Partial<ExportSettings>;
     onProgress?: (p: ExportProgress) => void;
     signal?: AbortSignal;
 }
-
-/** Longest output edge per format. GIF stays smaller: it is uncompressed-ish and
- * meant for chats and slides. */
-const MAX_EDGE: Record<AnimationFormat, [number, number]> = {mp4: [1280, 720], gif: [800, 800]};
 
 async function createGifSink(canvas: HTMLCanvasElement, fps: number): Promise<FrameSink> {
     const {GIFEncoder, quantize, applyPalette} = await import("gifenc");
@@ -173,8 +179,39 @@ function download(blob: Blob, name: string) {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+/** The orientation gizmo's own canvas (an <orientation-gizmo> element), if mounted. */
+function gizmoCanvas(): HTMLCanvasElement | null {
+    return document.querySelector<HTMLCanvasElement>("orientation-gizmo canvas");
+}
+
+/** Copy the gizmo into the bottom-right corner, sized relative to the frame. */
+function drawGizmo(ctx: CanvasRenderingContext2D, w: number, h: number, gizmo: HTMLCanvasElement) {
+    if (gizmo.width === 0 || gizmo.height === 0) return;
+    const size = Math.round(Math.min(w, h) * 0.16);
+    const pad = Math.round(Math.min(w, h) * 0.02);
+    ctx.drawImage(gizmo, w - size - pad, h - size - pad, size, size);
+}
+
+/** A copy of the view camera with the export's aspect, so the live camera is untouched. */
+function exportCamera(camera: THREE.Camera, aspect: number): THREE.Camera {
+    const cam = camera.clone();
+    if (cam instanceof THREE.PerspectiveCamera) {
+        cam.aspect = aspect;
+        cam.updateProjectionMatrix();
+    } else if (cam instanceof THREE.OrthographicCamera) {
+        // Keep the vertical extent, widen / narrow the horizontal one around its centre.
+        const cx = (cam.left + cam.right) / 2;
+        const halfH = (cam.top - cam.bottom) / 2;
+        cam.left = cx - halfH * aspect;
+        cam.right = cx + halfH * aspect;
+        cam.updateProjectionMatrix();
+    }
+    return cam;
+}
+
 /** Render the planned frames of the active FEA session and download the result. */
 export async function exportFeaAnimation(options: ExportOptions): Promise<void> {
+    const settings = normaliseExportSettings(options.settings);
     const runtime = getViewerRuntime();
     const renderer = runtime.renderer.current;
     const scene = runtime.scene.current;
@@ -191,26 +228,36 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
         range: anim.range,
         period: anim.period,
         stepLabels: field?.steps.map((s) => s.label) ?? [],
+        fps: settings.fps,
     });
     if (plan.stepsChange && !anim.applyStep) throw new Error("the result cannot change step");
 
     const src = renderer.domElement;
-    const [maxW, maxH] = MAX_EDGE[options.format];
-    const fit = Math.min(maxW / src.width, maxH / src.height, 1);
-    const [w, h] = evenSize(src.width * fit, src.height * fit);
+    const viewSize = new THREE.Vector2();
+    renderer.getSize(viewSize);
+    const maxEdge = Math.min(renderer.capabilities.maxTextureSize || 4096, 8192);
+    const [w, h] = resolveExportSize(settings, viewSize.x, viewSize.y, maxEdge);
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
-    const ctx = canvas.getContext("2d", {willReadFrequently: options.format === "gif"})!;
+    const ctx = canvas.getContext("2d", {willReadFrequently: settings.format === "gif"})!;
     ctx.imageSmoothingQuality = "high";
     const bg = backgroundFill(renderer, scene);
+    const cam = exportCamera(camera, w / h);
+    const gizmo = settings.gizmo ? gizmoCanvas() : null;
 
     const original = {stepIndex: anim.stepIndex, factor: anim.factor, isPlaying: anim.isPlaying};
+    const originalPixelRatio = renderer.getPixelRatio();
     anim.setIsPlaying(false);
     const sink =
-        options.format === "mp4"
+        settings.format === "mp4"
             ? await (await import("./mp4Sink")).createMp4Sink(canvas, plan.fps)
             : await createGifSink(canvas, plan.fps);
+
+    // Own the renderer: no loop draws, drawing buffer at export size (CSS size kept).
+    setRenderSuspended(true);
+    renderer.setPixelRatio(1);
+    renderer.setSize(w, h, false);
     let finished = false;
     try {
         for (let i = 0; i < plan.frames.length; i++) {
@@ -227,21 +274,29 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
                 mesh.morphTargetInfluences[0] = frame.factor * useFeaAnimationStore.getState().scaleFactor;
             }
             runtime.updateLight.current?.();
-            // Render and copy in the same task: the drawing buffer is only
-            // guaranteed intact until the browser composites it.
-            renderer.render(scene, camera);
+            // A browser may cap the drawing buffer below what was asked for; read
+            // back what it actually holds, then render and copy in the same task
+            // (the buffer is only guaranteed intact until the browser composites).
+            const gl = renderer.getContext();
+            const bufW = gl.drawingBufferWidth;
+            const bufH = gl.drawingBufferHeight;
+            renderer.render(scene, cam);
             ctx.fillStyle = bg;
             ctx.fillRect(0, 0, w, h);
-            ctx.drawImage(src, 0, 0, w, h);
-            drawOverlay(ctx, w, h, legendInfo(), frame);
+            ctx.drawImage(src, 0, 0, bufW, bufH, 0, 0, w, h);
+            if (gizmo) drawGizmo(ctx, w, h, gizmo);
+            if (settings.legend) drawOverlay(ctx, w, h, legendInfo(), frame);
             await sink.add(i);
             options.onProgress?.({done: i + 1, total: plan.frames.length});
         }
         const blob = await sink.finish();
         finished = true;
-        download(blob, exportFileName(anim.sourceName, anim.fieldName, options.format));
+        download(blob, exportFileName(anim.sourceName, anim.fieldName, settings.format));
     } finally {
         if (!finished) await sink.cancel().catch(() => {});
+        renderer.setPixelRatio(originalPixelRatio);
+        renderer.setSize(viewSize.x, viewSize.y, false);
+        setRenderSuspended(false);
         const state = useFeaAnimationStore.getState();
         state.setFactor(original.factor);
         if (plan.stepsChange && state.stepIndex !== original.stepIndex) {

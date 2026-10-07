@@ -48,3 +48,35 @@ test("video sizes are even and file names are safe", () => {
   assert.equal(exportFileName("fem/opencourant/cell_impact.radanim", "Von Mises", "mp4"), "cell_impact_Von_Mises.mp4");
   assert.equal(exportFileName(null, null, "gif"), "animation.gif");
 });
+
+import {
+  DEFAULT_EXPORT_SETTINGS,
+  normaliseExportSettings,
+  resolveExportSize,
+} from "../../utils/scene/fea/animationExport/framePlan";
+
+test("resolution is the short side; aspect sets the long one", () => {
+  assert.deepEqual(resolveExportSize({ resolution: 1080, aspect: "16:9" }, 800, 600), [1920, 1080]);
+  assert.deepEqual(resolveExportSize({ resolution: 1080, aspect: "9:16" }, 800, 600), [1080, 1920]);
+  assert.deepEqual(resolveExportSize({ resolution: 720, aspect: "1:1" }, 800, 600), [720, 720]);
+  // "view" follows the viewport: a 4:3 view at 720p.
+  assert.deepEqual(resolveExportSize({ resolution: 720, aspect: "view" }, 800, 600), [960, 720]);
+  // a phone in portrait keeps its portrait shape
+  assert.deepEqual(resolveExportSize({ resolution: 1080, aspect: "view" }, 390, 844), [1080, 2336]);
+});
+
+test("a size past the GPU limit shrinks both sides together, staying even", () => {
+  const [w, h] = resolveExportSize({ resolution: 2160, aspect: "16:9" }, 1, 1, 2048);
+  assert.equal(w, 2048);
+  assert.equal(h % 2, 0);
+  assert.ok(Math.abs(w / h - 16 / 9) < 0.01);
+});
+
+test("stored settings are coerced onto valid presets", () => {
+  assert.deepEqual(normaliseExportSettings(null), DEFAULT_EXPORT_SETTINGS);
+  const gif = normaliseExportSettings({ format: "gif", resolution: 1080 });
+  assert.equal(gif.resolution, 720); // nearest GIF preset
+  assert.equal(normaliseExportSettings({ fps: 7 }).fps, 12);
+  assert.equal(normaliseExportSettings({ gizmo: false }).gizmo, false);
+  assert.equal(normaliseExportSettings({}).gizmo, true); // gizmo is on by default
+});
