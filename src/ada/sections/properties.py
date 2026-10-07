@@ -204,7 +204,7 @@ def calc_isec(sec: Section) -> GeneralProperties:
 
     z = (bt * tt * a + hw * ty * b + bb * tb * c) / Ax
 
-    tra = (bt * tb**3) / 12 + bt * tt * (hz - tt / 2 - z) ** 2
+    tra = (bt * tt**3) / 12 + bt * tt * (hz - tt / 2 - z) ** 2
     trb = (ty * hw**3) / 12 + ty * hw * (tb + hw / 2 - z) ** 2
     trc = (bb * tb**3) / 12 + bb * tb * (tb / 2 - z) ** 2
 
