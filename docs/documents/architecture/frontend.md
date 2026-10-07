@@ -6,8 +6,8 @@ code ships in four forms:
 | Form | Build | Where it runs |
 |---|---|---|
 | Hosted SPA | `npm run build:serve` (inside `Dockerfile.viewer`) | Served by the REST API, talks to `/api/*` |
-| Desktop viewer | served by `ada.comms.web.serve` | Talks to the local `wsock` server |
-| Notebook viewer | `npm run build` → `embed-script.cjs` inlines JS + CSS into one HTML → `ada/visit/rendering/resources/index.zip` | `obj.show()` in Jupyter, as an `<iframe srcdoc>` with the GLB inlined (`window.B64GLTF`) |
+| Local viewer | `npm run build` → `embed-script.cjs` inlines JS + CSS into one HTML → `ada/visit/rendering/resources/index.zip` | `obj.show()` from any Python script: served by `ada.comms.web.serve` and fed by the local `wsock` server, in a browser tab |
+| Inline viewer | the same `index.zip` bundle | `obj.show()` in Jupyter: an `<iframe srcdoc>` in the cell output with the GLB inlined (`window.B64GLTF`) |
 | Embeddable viewer | `vite.config.embed.ts` | `mountViewer(element, {modelBytes, camera, showControls})` → `{dispose()}`; several per page (`embed/viewerInstances.ts`), used by the paradoc FEA report |
 
 ## Structure

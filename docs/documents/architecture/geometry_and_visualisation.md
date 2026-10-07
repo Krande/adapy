@@ -126,7 +126,7 @@ Some sources never become an `Assembly`:
 
 | Renderer | Where | Used for |
 |---|---|---|
-| `RendererReact` | `visit/rendering/renderer_react.py` | `obj.show()` in Jupyter: the viewer bundle (`resources/index.zip`) with the GLB inlined, in an `<iframe srcdoc>`. |
+| `renderer_manager` | `visit/renderer_manager.py` | What `obj.show()` calls, from any script. In a plain script it starts the local `wsock` server and opens the viewer in a browser tab. In Jupyter it embeds the viewer in the cell output instead. |
+| `RendererReact` | `visit/rendering/renderer_react.py` | The viewer bundle (`resources/index.zip`): served to the browser, or inlined with the GLB in an `<iframe srcdoc>` in Jupyter. |
 | `WebSocketRenderer` | `visit/rendering/renderer_widget.py` | The viewer connected to a running `wsock` server. |
 | pygfx offscreen | `visit/rendering/render_pygfx.py`, `fea_offscreen.py` | Headless PNG posters (for example the FEA verification report's mode shapes). |
-| `renderer_manager` | `visit/renderer_manager.py` | Chooses between notebook embedding and an external viewer. |

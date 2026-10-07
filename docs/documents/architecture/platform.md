@@ -2,8 +2,8 @@
 
 The same `ada` library runs behind two server set-ups:
 
-- **Desktop / notebook:** a single-process WebSocket server (`ada.comms.wsock`) that pushes
-  scenes to a viewer as FlatBuffer messages.
+- **Local:** a single-process WebSocket server (`ada.comms.wsock`) that `obj.show()` starts
+  from any Python script, and that pushes scenes to the viewer as FlatBuffer messages.
 - **Hosted:** a FastAPI REST service (`ada.comms.rest`) with a NATS JetStream job queue, a pool
   of workers, object storage, an optional PostgreSQL database and OIDC login.
 

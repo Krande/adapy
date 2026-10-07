@@ -1,10 +1,17 @@
 # Ada Studio
 
-Ada Studio is adapy's web application. You can open CAD, BIM and FE models in the browser,
-look through them, run checks on them, and walk through FE results, without installing
-anything on the client. It is the same viewer you get from `obj.show()` in a notebook,
-backed by a server that stores your files, converts them, and runs the heavier work in
-workers.
+adapy is a library first. Everything on this page (reading and converting models, meshing,
+clash and joint checks, baking FE results) is adapy code, and the same functions are
+yours to call from a Python script, a Jupyter notebook or your own application.
+
+Ada Studio is the web application built on top of it, with adapy as its engine. You can open
+CAD, BIM and FE models in the browser, look through them, run checks on them and walk
+through FE results, with no installation on the client. A server stores your files and its
+workers run adapy to convert, bake and check them.
+
+Its viewer is not limited to the hosted application. Calling `.show()` on a model, a part or
+an FE result opens the same viewer from any script: in a browser tab served by a local
+viewer server, or inline when the call runs in Jupyter.
 
 The screenshots on this page are generated, not taken by hand: each one is a **user story**
 in [`scripts/ui_stories.py`](https://github.com/Krande/adapy/blob/main/scripts/ui_stories.py)

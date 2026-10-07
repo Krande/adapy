@@ -172,7 +172,7 @@ p.fem = p.to_fem_obj(0.1, GeomRepr.LINE)  # mesh with gmsh
 a.fem.add_step(ada.fem.StepEigen("eig", num_eigen_modes=10))
 res = a.to_fem("cantilever", "code_aster", overwrite=True, execute=True)
 
-res.show()  # the mode shapes in the viewer
+res.show()  # the mode shapes in the viewer: a browser tab from a script, inline in Jupyter
 ```
 
 ```mermaid
