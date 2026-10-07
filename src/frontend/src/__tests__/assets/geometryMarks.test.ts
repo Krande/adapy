@@ -6,7 +6,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
 import type { AssetView } from "../../assets/assetView";
-import { geometryIndex, geometryMark, rollupApplies, rowHasGeometry, rowLoadable } from "../../assets/geometryMarks";
+import { deliversGeometry, geometryIndex, geometryMark, rollupApplies, rowHasGeometry, rowLoadable } from "../../assets/geometryMarks";
 import { buildHierarchy } from "../../assets/hierarchy";
 import type { ResolutionMode, WireGeometryRollup } from "../../assets/types";
 
@@ -144,4 +144,13 @@ test("the roll-up is ignored for another collection and outside `latest`", () =>
   assert.equal(rollupApplies(rollup(), "coll", { kind: "latest" }), true);
   assert.equal(rollupApplies(null, "coll", { kind: "latest" }), false);
   assert.equal(rollupApplies(rollup(), "coll", { kind: "run", revision: "20260101T000000Z" }), false);
+});
+
+test("a build that counts no leaf delivers nothing; no count is no claim", () => {
+  assert.equal(deliversGeometry({ delivery: "build", leaves: 0 }), false, "it can only fail");
+  assert.equal(deliversGeometry({ delivery: "build", leaves: 4 }), true);
+  assert.equal(deliversGeometry({ delivery: "build" }), true);
+  assert.equal(deliversGeometry({ delivery: "mesh", leaves: null }), true);
+  assert.equal(deliversGeometry({ delivery: "none" }), false);
+  assert.equal(deliversGeometry(null), false);
 });

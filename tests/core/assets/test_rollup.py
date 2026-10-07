@@ -78,3 +78,31 @@ def test_body_lists_unplaced_and_skips_the_collection_itself():
     body = rollup_body(plan, TreePlacement(C), index_token="t")
     assert body["providers"]["p"] == {"here": [C, "s"], "below": [], "unplaced": ["s"]}
     assert body["any"]["unplaced"] == ["s"]
+
+
+def test_an_empty_build_is_the_providers_newest_word_not_a_step_aside():
+    """A build whose manifest counts no leaf can only fail. It must not mark geometry -- and must not
+    let an OLDER build of the same provider mark it either, the way a tree-only "none" does."""
+    from types import SimpleNamespace
+
+    from ada.assets.rollup import EMPTY_DELIVERY, rollup_delivery
+
+    def m(delivery, **counts):
+        return SimpleNamespace(delivery=delivery, counts=counts)
+
+    assert rollup_delivery(m("build", leaves=0)) == EMPTY_DELIVERY
+    assert rollup_delivery(m("build", leaves=3)) == "build"
+    assert rollup_delivery(m("build")) == "build", "no count is no claim about leaves"
+    assert rollup_delivery(m("none", leaves=0)) == "none"
+
+    subjects = fold_listing(
+        _keys(
+            ("s1", "20260101T000000Z", ["asset.json"]),
+            ("s1", "20260102T000000Z", ["asset.json"]),
+        )
+    ).subjects(C)
+    manifests = {
+        ("s1", "20260101T000000Z"): ("reader", "build"),
+        ("s1", "20260102T000000Z"): ("reader", EMPTY_DELIVERY),
+    }
+    assert plan_rollup(C, subjects, manifests).here == {}
