@@ -189,6 +189,45 @@ def test_read_sin_file_equals_read_sif_file():
         assert np.allclose(sn.values, sf.values, atol=0.01, equal_nan=True), f"result {sn.name!r}: SIN/SIF value drift"
 
 
+def test_derived_fields_build_their_mesh_lookups_once_for_every_step(monkeypatch):
+    """The per-element lookups (connectivity, normals, geometry) do not change from
+    step to step; a deck with a hundred result cases used to rebuild them a hundred
+    times. Two copies of the fixture's step must derive twice the fields from one
+    build, with the second step's values the same as the first's."""
+    import dataclasses
+
+    from ada.fem.formats.sesam.results import derived_fields
+    from ada.fem.formats.sesam.results.read_sif import read_sin_file
+
+    seen = {}
+    real_build = derived_fields.build_derived_fields
+
+    def capture(raw_fields, mesh, sif, *, wanted=None):
+        seen.update(raw=raw_fields, mesh=mesh, sif=sif)
+        return real_build(raw_fields, mesh, sif, wanted=wanted)
+
+    monkeypatch.setattr(derived_fields, "build_derived_fields", capture)
+    read_sin_file(SIN_PATH)
+    raws = [r for r in seen["raw"] if r.name == "STRESS"]
+    assert raws
+
+    builds = []
+    real_maps = derived_fields._element_maps
+    monkeypatch.setattr(derived_fields, "_element_maps", lambda mesh: builds.append(mesh) or real_maps(mesh))
+    one = real_build(raws, seen["mesh"], seen["sif"])
+    builds.clear()
+    later = [dataclasses.replace(r, step=int(r.step) + 1) for r in raws]
+    two = real_build(raws + later, seen["mesh"], seen["sif"])
+
+    assert len(builds) == 1
+    assert len(two) == 2 * len(one)
+    first = {(f.name, str(getattr(f, "elem_type", ""))): f for f in two if int(f.step) == int(raws[0].step)}
+    for f in two:
+        if int(f.step) != int(raws[0].step):
+            twin = first[(f.name, str(getattr(f, "elem_type", "")))]
+            assert np.array_equal(f.values, twin.values, equal_nan=True), f.name
+
+
 def test_sparse_reactions_expand_to_dense_nodes():
     from ada.fem.formats.sesam.results.read_sif import get_nodal_reactions
 

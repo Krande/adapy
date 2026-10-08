@@ -295,14 +295,27 @@ def _wants_nodal_surface(wanted: set[str] | None, attribute: str, surface: str) 
     return wanted is None or requested in wanted
 
 
-def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
+def _once(cache: dict | None, key: str, make):
+    """``make()``, or what it returned the first time for ``key`` in ``cache``.
+
+    The mesh- and model-wide lookups below do not change from one step to the
+    next; built per raw field, a deck with a hundred result cases rebuilt them a
+    hundred times (a Python pass over every element each)."""
+    if cache is None:
+        return make()
+    if key not in cache:
+        cache[key] = make()
+    return cache[key]
+
+
+def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted, cache: dict | None = None):
     surfaces = _shell_surfaces(raw)
     if surfaces is None:
         return []
     labels, bottom, top, corner_indices, result_locations = surfaces
-    nodes_by_element, normals, _ = _element_maps(mesh)
-    geometry = _geometry_by_element(mesh)
-    thickness_map = sif.get_shell_thickness_map()
+    nodes_by_element, normals, _ = _once(cache, "element_maps", lambda: _element_maps(mesh))
+    geometry = _once(cache, "geometry", lambda: _geometry_by_element(mesh))
+    thickness_map = _once(cache, "thickness", sif.get_shell_thickness_map)
     unit_factors = sif.get_unit_factors()
     thickness = np.asarray([thickness_map.get(geometry.get(int(label), -1), np.nan) for label in labels])
     arrays = _shell_position_arrays(bottom, top, corner_indices)
@@ -552,10 +565,10 @@ def _profile_extents(sif) -> dict[int, tuple[float, float]]:
     return extents
 
 
-def _beam_properties(sif, mesh, labels):
-    geometry = _geometry_by_element(mesh)
-    props = sif.get_gbeamg_map()
-    extents = _profile_extents(sif)
+def _beam_properties(sif, mesh, labels, cache: dict | None = None):
+    geometry = _once(cache, "geometry", lambda: _geometry_by_element(mesh))
+    props = _once(cache, "gbeamg", sif.get_gbeamg_map)
+    extents = _once(cache, "profile_extents", lambda: _profile_extents(sif))
     names = ("area", "ix", "iy", "iz", "wxmin", "wymin", "wzmin", "shary", "sharz")
     indices = cards.GBEAMG.get_indices_from_names(list(names))
     out = []
@@ -573,7 +586,7 @@ def _beam_properties(sif, mesh, labels):
     return out
 
 
-def _beam_fields_for_raw(raw, mesh, sif, wanted):
+def _beam_fields_for_raw(raw, mesh, sif, wanted, cache: dict | None = None):
     values = np.asarray(raw.values, dtype=float)
     labels, counts = np.unique(values[:, 0].astype(int), return_counts=True)
     if not len(labels) or len(set(counts.tolist())) != 1:
@@ -582,7 +595,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
     per_element = values.reshape(len(labels), n_ips, -1)
     labels = per_element[:, 0, 0].astype(int)
     force = per_element[:, :, 2:8]
-    properties = _beam_properties(sif, mesh, labels)
+    properties = _beam_properties(sif, mesh, labels, cache)
     unit_factors = sif.get_unit_factors()
     b_stress = np.full(force.shape[:-1] + (8,), np.nan)
     for i, prop in enumerate(properties):
@@ -690,6 +703,8 @@ def build_derived_fields(
             force_by_step[int(raw.step)].append(raw)
 
     node_ids = np.asarray(mesh.nodes.identifiers, dtype=int)
+    # Mesh- and model-wide lookups, built once for every step (see _once).
+    cache: dict = {}
     for step, shell_fields in shell_by_step.items():
         shell_attributes = ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
         if wanted is not None and not any(
@@ -700,7 +715,7 @@ def build_derived_fields(
             continue
         contrib = defaultdict(list)
         for raw in shell_fields:
-            out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib, wanted))
+            out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib, wanted, cache))
         if any(_wants(wanted, "nodes", attribute) for attribute in shell_attributes):
             out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted, sif.get_unit_factors()))
     for force_fields in force_by_step.values():
@@ -711,7 +726,7 @@ def build_derived_fields(
         ):
             continue
         for raw in force_fields:
-            out.extend(_beam_fields_for_raw(raw, mesh, sif, wanted))
+            out.extend(_beam_fields_for_raw(raw, mesh, sif, wanted, cache))
     return out
 
 
