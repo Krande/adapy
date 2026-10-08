@@ -42,6 +42,15 @@ from ..converter import (
     is_fea_artefact_source,
     is_fea_result_key,
 )
+from ..fea_case_upload import (
+    CASE_OVERLAY_NAME,
+    CaseFile,
+    CaseUploadError,
+    combination_entry,
+    parse_case_file_name,
+    validate_case_blob,
+    validate_case_overlay,
+)
 from ..job_transport import JobRequest
 from ..scope import Scope
 from .deps import (
@@ -172,6 +181,11 @@ async def api_scope_fea_artefact_upload_one(
 
     Query: ``source`` (existing source key) + ``name`` (the bare
     ``fea.*`` filename). Body: the raw file bytes.
+
+    ``name`` may also be ``cases/<n>-<recipeHash8>/fea.*``: one file of a
+    load combination the browser materialised, validated against the base
+    manifest and cached where the server's ``fea_case`` job would write it
+    (see :func:`_upload_case_file`).
     """
     source = (request.query_params.get("source") or "").strip().lstrip("/")
     if not source:
@@ -180,10 +194,17 @@ async def api_scope_fea_artefact_upload_one(
         raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source}")
 
     name = (request.query_params.get("name") or "").strip()
+    case_file = parse_case_file_name(name)
+    if case_file is not None:
+        # A load combination the browser materialised: validated against the
+        # fresh base manifest (see fea_case_upload), then cached exactly where
+        # the server's own fea_case job would have put it.
+        return await _upload_case_file(request, ctx, scope_obj, source, case_file)
     base = posixpath.basename(name)
     # Same guard as the zip route: a bare ``fea.*`` filename only — no
     # subdirs, no traversal, so a request can't escape the per-source
-    # prefix and write an arbitrary key.
+    # prefix and write an arbitrary key. (The one nested form accepted is
+    # ``cases/<n>-<hash8>/fea.*``, above.)
     if base != name or not base or base.startswith(".") or not base.startswith("fea."):
         raise HTTPException(status_code=400, detail=f"illegal artefact name: {name!r}")
 
@@ -638,6 +659,65 @@ async def api_scope_fea_case(
     return JSONResponse(
         {**job, "source_key": source_key, "case": int(entry["n"]), "case_key": case_key}, status_code=202
     )
+
+
+async def _upload_case_file(
+    request: Request,
+    ctx: RestContext,
+    scope_obj: Scope,
+    source_key: str,
+    cf: CaseFile,
+) -> JSONResponse:
+    """``POST .../fea/artefact?name=cases/<n>-<hash8>/<file>``: one file of a
+    browser-materialised load combination, into the server's case cache.
+
+    Blobs first, the overlay last (it names only blobs already stored, so a
+    reader that finds it finds a complete case). A case the cache already
+    holds fresh is not replaced (409): the server's copy, or an earlier
+    upload, wins. 404/409/422 as for ``GET .../fea/case`` and
+    :mod:`~ada.comms.rest.fea_case_upload`.
+    """
+    manifest, heads = await _fresh_base_manifest(ctx, scope_obj, source_key)
+    try:
+        entry = combination_entry(manifest, cf)
+    except CaseUploadError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    prefix = fea_case_prefix_for(source_key, cf.case_dir)
+    cached, case_head = await _cached_json(ctx, scope_obj, prefix + CASE_OVERLAY_NAME)
+    if cached is not None and fea_case_stale_reason(cached, heads["source"], case_head, heads["manifest"]) is None:
+        if (cached.get("case") or {}).get("recipe_hash") == entry["recipe_hash"]:
+            raise HTTPException(status_code=409, detail=f"case {cf.n} is already cached")
+
+    cl = request.headers.get("content-length")
+    limit = DIRECT_UPLOAD_THRESHOLD_BYTES
+    if cl is not None and cl.isdigit() and int(cl) > limit:
+        raise HTTPException(status_code=413, detail=f"case file exceeds {limit} bytes")
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty body")
+
+    try:
+        if cf.is_overlay:
+            overlay, names = validate_case_overlay(manifest, cf, entry, data)
+            for blob_name in names:
+                if not await ctx.storage.exists(scope_obj, prefix + blob_name):
+                    raise CaseUploadError(409, f"{blob_name} is not uploaded yet; send the blobs first")
+            payload = json.dumps(overlay, separators=(",", ":")).encode("utf-8")
+            encoding = "gzip"
+        else:
+            validate_case_blob(manifest, cf, data)
+            payload, encoding = data, None
+    except CaseUploadError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    key = prefix + cf.file
+    try:
+        await ctx.storage.put_bytes(scope_obj, key, payload, content_encoding=encoding)
+    except Exception as exc:
+        logger.exception("fea case upload failed for %s/%s", source_key, cf.file)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return JSONResponse({"key": key, "name": f"cases/{cf.case_dir}/{cf.file}"}, status_code=201)
 
 
 def _envelope_dir(field: str) -> str:
