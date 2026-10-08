@@ -774,7 +774,7 @@ def _author_loop(
             )
             if closed_single:
                 around = np.asarray(_curve_box_points(curve_geom, p_lo, p_hi), dtype=float)
-                edge.box = make_ints_if_possible([*around.min(axis=0), *around.max(axis=0)])
+                edge.box = [float(x) for x in (*around.min(axis=0), *around.max(axis=0))]
             weld.add_edge(key, edge, curve)
         elif t_lo is not None and edge.t_start is not None:
             # Two faces on one edge must agree on where it starts and stops;

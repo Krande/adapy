@@ -565,6 +565,9 @@ class TestHoles:
         assert (edge.t_start, edge.t_end) == (0.0, 2 * np.pi)
         # a box around the circle, not the single point its one vertex is
         assert edge.box == inner.bbox == [0.3, 0.3, 0, 0.7, 0.7, 0]
+        # floats, as Edge.box is typed: to_string makes the whole ones ints, and an int has no
+        # is_integer before Python 3.12 (the feedstock's 3.11 failed exactly here)
+        assert all(type(x) is float for x in edge.box)
         assert "T 0.3 0.3 0 0.7 0.7 0" in edge.to_string()
 
     def test_a_circle_without_parameters_is_refused(self):
