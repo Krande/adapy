@@ -7,6 +7,7 @@ import type {NodeApi} from "react-arborist";
 import {KebabMenuItem, PositionedMenu} from "@/components/common/PositionedMenu";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
+import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {
     frameSelection,
     hiddenCount,
@@ -72,6 +73,24 @@ const SceneTreeMenu: React.FC<SceneTreeMenuState & {onClose: () => void}> = ({no
             onClick: () => void copySelectionNames(useSelectedObjectStore.getState().selectedObjects),
         },
     ];
+    // Unload acts on whole models: the loaded model each selected row belongs to, each once.
+    const models = new Map<string, string>();
+    for (const n of selected) {
+        let top: NodeApi<TreeNodeData> = n;
+        while (top.level > 0 && top.parent) top = top.parent;
+        if (top.data.source_name) models.set(top.data.source_name, top.data.name);
+    }
+    items.push({
+        key: "unload",
+        label: models.size > 1 ? `Unload ${models.size} models` : "Unload model",
+        onClick: () => {
+            for (const name of models.keys()) void unload_any_source(name);
+        },
+        disabled: models.size === 0,
+        title: models.size ? [...models.values()].join("\n") : "Not part of a loaded model that can be unloaded",
+        destructive: true,
+        separatorBefore: true,
+    });
     if (node.isInternal) {
         items.push(
             {key: "expand", label: "Expand all below", onClick: () => setSubtreeOpen(node, true), separatorBefore: true},
