@@ -29,8 +29,38 @@ _BINDING = re.compile(r"^([A-Za-z_]\w*)[ \t]*=[ \t]*[A-Za-z_]*[(\[]", re.M)
 #: A concept an operator creates: ``NUME_DDL=CO('dofs_eig')``.
 _CO = re.compile(r"\bCO\(\s*['\"](\w+)['\"]\s*\)")
 #: Python variables whose string value the writer binds in the file (``{output_mesh} = CREA_MAILLAGE``,
-#: ``{elset} = (...)``), and the result name of a non-linear step (``StatNonLin("result", ...)``).
+#: ``{elset} = (...)``) -- assigned, given as a parameter's default or passed by keyword -- and the
+#: result name of a non-linear step (``StatNonLin("result", ...)``).
 _NAME_VARIABLES = {"output_mesh", "input_mesh", "elset"}
+
+
+def _identifier(node) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.fullmatch(r"[A-Za-z_]\w*", node.value):
+        return node.value
+    return None
+
+
+def _bound_in(source: str) -> list[str]:
+    """Every name a writer module's source binds in the command file it writes."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            found += [m.group(1) for m in list(_BINDING.finditer(node.value)) + list(_CO.finditer(node.value))]
+        elif isinstance(node, ast.Assign) and _identifier(node.value):
+            if any(isinstance(t, ast.Name) and t.id in _NAME_VARIABLES for t in node.targets):
+                found.append(node.value.value)
+        elif isinstance(node, ast.arguments):
+            # ``def create_ref_points_mesh_str(..., output_mesh: str = "mesh_ref")``
+            positional = node.posonlyargs + node.args
+            pairs = list(zip(positional[len(positional) - len(node.defaults) :], node.defaults))
+            pairs += [(arg, d) for arg, d in zip(node.kwonlyargs, node.kw_defaults) if d is not None]
+            found += [_identifier(d) for arg, d in pairs if arg.arg in _NAME_VARIABLES and _identifier(d)]
+        elif isinstance(node, ast.keyword) and node.arg in _NAME_VARIABLES and _identifier(node.value):
+            found.append(node.value.value)
+        elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == "StatNonLin" and node.args:
+            if isinstance(node.args[0], ast.Constant):
+                found.append(node.args[0].value)
+    return found
 
 
 def _bound_by_the_writer() -> dict[str, str]:
@@ -39,19 +69,37 @@ def _bound_by_the_writer() -> dict[str, str]:
     for path in sorted(WRITE_DIR.rglob("*.py")):
         if path.name == "names.py":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                for m in list(_BINDING.finditer(node.value)) + list(_CO.finditer(node.value)):
-                    found.setdefault(m.group(1), path.name)
-            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
-                if isinstance(node.value.value, str) and re.fullmatch(r"[A-Za-z_]\w*", node.value.value):
-                    if any(isinstance(t, ast.Name) and t.id in _NAME_VARIABLES for t in node.targets):
-                        found.setdefault(node.value.value, path.name)
-            elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == "StatNonLin" and node.args:
-                if isinstance(node.args[0], ast.Constant):
-                    found.setdefault(node.args[0].value, path.name)
+        for name in _bound_in(path.read_text(encoding="utf-8")):
+            found.setdefault(name, path.name)
     return found
+
+
+def test_the_scan_sees_every_way_a_writer_binds_a_name():
+    source = '''
+TEMPLATE = """stmt_bound = AFFE_MODELE(
+    MAILLAGE=mesh,
+)
+co_stmt_bound = CALC(RESU=CO('co_bound'))"""
+
+
+def write(part, input_mesh, output_mesh: str = "default_bound", *, elset="kwonly_default_bound"):
+    output_mesh = "assigned_bound"
+    convert(output_mesh="keyword_bound")
+    StatNonLin("statnonlin_bound")
+    return f"{output_mesh} = CREA_MAILLAGE("
+'''
+    assert sorted(_bound_in(source)) == sorted(
+        [
+            "stmt_bound",
+            "co_bound",
+            "co_stmt_bound",
+            "default_bound",
+            "kwonly_default_bound",
+            "assigned_bound",
+            "keyword_bound",
+            "statnonlin_bound",
+        ]
+    )
 
 
 def test_every_name_the_writer_binds_itself_is_reserved():
