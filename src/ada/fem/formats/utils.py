@@ -192,8 +192,13 @@ def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     if len(parts) > 1:
         # Multi-instance model -> concatenate into one FEM (renumbered ids, instance-prefixed
         # set names) so the single-part writers (Code_Aster/MED, Calculix) can emit it.
-        from ada.fem.concat import concatenate_fem_to_single_part
+        from ada.fem.concat import (
+            concatenate_fem_to_single_part,
+            refuse_assembly_data_the_merge_leaves_behind,
+        )
 
+        # The writer goes on to read the assembly's own Bcs, sets and steps from ``assembly``.
+        refuse_assembly_data_the_merge_leaves_behind(assembly)
         merged = concatenate_fem_to_single_part(assembly)
         if merged is not None:
             return merged

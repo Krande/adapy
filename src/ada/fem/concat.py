@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import logger
+from ada.fem.exceptions.model_definition import DoesNotSupportMultiPart
 from ada.fem.formats import conversion_report
 
 if TYPE_CHECKING:
@@ -218,20 +219,115 @@ def concatenate_fem_meshes(parts: "list[Part]") -> "tuple[Mesh, list[tuple[int, 
 _STAGE = "fem merge"
 
 
+def _fem_parts(assembly: "Part") -> "list[Part]":
+    return [p for p in assembly.get_all_subparts(include_self=True) if p.fem is not None and len(p.fem.nodes) > 0]
+
+
 def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
-    """Fold all FEM-bearing parts of ``assembly`` into the first one's FEM, in place.
+    """Fold all FEM-bearing parts of ``assembly`` into one standalone part's FEM.
 
     No-op (returns the single part, or None) when there is nothing to merge. Returns the part
-    that now holds the combined FEM."""
+    that holds the combined FEM: the parts' nodes, elements, sets, sections, Bcs, masses,
+    constraints, surfaces, local systems and steps, re-keyed to the merged ids and set names, and
+    the same of any part in between that holds no nodes itself.
+
+    What ``assembly.fem`` itself holds (when it has no nodes of its own) is *not* carried: a writer
+    handed the original assembly reads it from there. :func:`single_part_assembly` carries it too,
+    and is what :func:`ada.fem.formats.general.write_to_fem` hands a single-part writer."""
+    parts = _fem_parts(assembly)
+    if len(parts) <= 1:
+        return parts[0] if parts else None
+    merged_part, _ = _merge(assembly, parts, top_fem=None)
+    return merged_part
+
+
+def single_part_assembly(assembly: "Assembly") -> "Assembly":
+    """A temporary assembly holding one part: the non-destructive merge of every FEM-bearing part
+    of ``assembly``, for the writers that write one part (Sesam, Code_Aster, CalculiX, ...).
+
+    Everything the model's steps, supports, masses, constraints and surfaces name is re-keyed into
+    the merged numbering and set names -- those on the parts, and those on ``assembly.fem`` (an
+    assembly-level Bc on a part's node, a step load on a part's set). The assembly's own steps are
+    on the returned assembly's FEM, the parts' steps on the merged part's FEM: where a writer looks
+    for them on a single-part model. Anything the merge cannot re-key is refused by name
+    (:class:`DoesNotSupportMultiPart`): a deck that names a source id writes a load or a support on
+    another part's node, silently.
+
+    Returns ``assembly`` itself when at most one part has nodes."""
+    from ada import Assembly
+
+    parts = _fem_parts(assembly)
+    if len(parts) <= 1:
+        return assembly
+    write_assembly = Assembly(assembly.name, units=assembly.units)
+    merged_part, top_steps = _merge(assembly, parts, top_fem=write_assembly.fem)
+    write_assembly.add_part(merged_part)
+    write_assembly.fem.steps = top_steps
+    return write_assembly
+
+
+def refuse_assembly_data_the_merge_leaves_behind(assembly: "Assembly") -> None:
+    """For a writer that merges a multi-part model itself (:func:`get_fem_model_from_assembly`) and
+    then reads the assembly's own Bcs, sets, constraints and steps from the unmerged model: those
+    name the source parts' sets and ids, which the merge renames and shifts. Refused by name rather
+    than written onto the wrong nodes; :meth:`Assembly.to_fem` carries them
+    (:func:`single_part_assembly`)."""
+    if len(_fem_parts(assembly)) <= 1:
+        return
+    fem = assembly.fem
+    held = []
+    for label, items in (
+        ("Bc", [bc.name for bc in fem.bcs]),
+        ("constraint", list(fem.constraints)),
+        ("mass", list(fem.masses)),
+        ("surface", list(fem.surfaces)),
+        ("set", [s.name for s in fem.sets]),
+    ):
+        held += [f"{label} {name!r}" for name in items]
+    for step in fem.steps:
+        for obj in [*step.loads, *step.bcs.values(), *step.hist_outputs, *step.interactions.values()]:
+            if _names_a_set(obj):
+                held.append(f"{type(obj).__name__} {obj.name!r} of step {step.name!r}")
+    if held:
+        raise DoesNotSupportMultiPart(
+            f"the assembly {assembly.name!r} merges {len(_fem_parts(assembly))} parts into one, which renames and "
+            f"renumbers their sets and nodes, and it holds {', '.join(held)} on the parts' sets and ids. Write it "
+            "through Assembly.to_fem, which carries them into the merged numbering."
+        )
+
+
+def _names_a_set(obj) -> bool:
+    from ada.fem.sets import FemSet
+    from ada.fem.surfaces import Surface
+
+    for value in vars(obj).values():
+        values = value if isinstance(value, (list, tuple)) else [value]
+        if any(isinstance(v, (FemSet, Surface)) for v in values):
+            return True
+    return False
+
+
+def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]":
+    """The merge behind :func:`concatenate_fem_to_single_part` (``top_fem=None``: the assembly's own
+    FEM is left where it is) and :func:`single_part_assembly` (``top_fem``: the FEM that receives
+    the assembly's re-keyed steps; its other data goes onto the merged part)."""
     from ada.api.mesh.containers import ArrayElements, ArrayNodes, to_array_backed
     from ada.api.mesh.store import ElemArrayBlock, MeshArrays
     from ada.fem import FEM
     from ada.fem.containers import FemSections, FemSets
     from ada.fem.sets import FemSet, SetTypes
+    from ada.fem.surfaces import Surface
 
-    parts = [p for p in assembly.get_all_subparts(include_self=True) if p.fem is not None and len(p.fem.nodes) > 0]
-    if len(parts) <= 1:
-        return parts[0] if parts else None
+    # Parts in the tree that hold no nodes but may hold sets, Bcs or steps naming the parts'
+    # nodes and elements. The assembly itself is one only when its data is carried (``top_fem``).
+    merged_ids = {id(p) for p in parts}
+    carriers = [
+        p
+        for p in assembly.get_all_subparts(include_self=True)
+        if id(p) not in merged_ids and p.fem is not None and (top_fem is not None or p is not assembly)
+    ]
+    for p in parts + carriers:
+        _refuse_what_the_merge_does_not_carry(p, is_carrier=id(p) not in merged_ids)
 
     # Disambiguate set names with the source instance name when those are all distinct
     # (Abaqus multi-instance decks); otherwise fall back to the always-unique part name.
@@ -240,10 +336,14 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
     inames = [p.fem.instance_name for p in parts]
     use_instance = all(inames) and len(set(inames)) == len(inames)
     prefix_of = {id(p): (p.fem.instance_name if use_instance else p.name) for p in parts}
+    prefix_of.update({id(p): p.name for p in carriers})
     set_name_count: dict = {}
-    for p in parts:
+    surface_name_count: dict = {}
+    for p in parts + carriers:
         for s in p.fem.sets:
             set_name_count[s.name.lower()] = set_name_count.get(s.name.lower(), 0) + 1
+        for name in p.fem.surfaces:
+            surface_name_count[name.lower()] = surface_name_count.get(name.lower(), 0) + 1
 
     # Work on array-backed stores: a clean per-part store carries connectivity as row indices
     # plus the per-element section/elset reference lists.
@@ -364,21 +464,59 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
 
     # ── re-key dependent references by the same per-part offsets ──────────────────────────
     # Node/element sets: prefix names, offset member ids. Keep an identity map (old set -> new
-    # set) so section elsets and bc sets can be re-pointed to the merged copies. Read member ids
-    # without to_id_backed() so the source set is not mutated.
+    # set) so section elsets, bc sets and everything a step names can be re-pointed to the merged
+    # copies. Read member ids without to_id_backed() so the source set is not mutated.
     set_map: dict[int, FemSet] = {}
     merged_sets: list[FemSet] = []
+    taken_set_names: set = set()
+    part_of_fem = {id(p.fem): p for p in parts}
+    owner_of_fem = {id(p.fem): p for p in parts + carriers}
+
+    def _member_offset(m, p, s: FemSet, offsets: dict) -> int:
+        # Each member by the part that owns it: an assembly-level set holds nodes of several parts,
+        # and each part's ids moved by that part's own offset.
+        owner = part_of_fem.get(id(getattr(m, "parent", None)))
+        if owner is not None:
+            return offsets[id(owner)]
+        if id(p) in offsets:
+            return offsets[id(p)]
+        raise DoesNotSupportMultiPart(
+            f"set {s.name!r} of {p.name!r} holds {type(m).__name__} {getattr(m, 'id', m)}, which belongs to no part "
+            "of the merged model, so its id in the merged numbering is unknown"
+        )
 
     def _remap_set(p, s: FemSet) -> FemSet:
         existing = set_map.get(id(s))
         if existing is not None:
             return existing
-        off = node_off_of[id(p)] if s.type == SetTypes.NSET else el_off_of[id(p)]
+        offsets = node_off_of if s.type == SetTypes.NSET else el_off_of
         mids = s._member_ids
-        if mids is None:
-            mids = [m.id for m in s.members]
-        member_ids = [int(m) + off for m in mids]
+        if mids is not None:
+            # Ids alone: resolved in the set's own part. A set of a part with no nodes names ids of
+            # parts it cannot tell apart; that is only safe while no part was renumbered.
+            if id(p) in offsets:
+                off = offsets[id(p)]
+            elif not any(offsets.values()):
+                off = 0
+            else:
+                raise DoesNotSupportMultiPart(
+                    f"set {s.name!r} of {p.name!r} names its members by id only, and the merge renumbers the parts' "
+                    "ids, so which part each one belongs to is unknown"
+                )
+            member_ids = [int(m) + off for m in mids]
+        else:
+            member_ids = [int(m.id) + _member_offset(m, p, s, offsets) for m in s.members]
         name = s.name if set_name_count.get(s.name.lower(), 0) <= 1 else f"{prefix_of[id(p)]}_{s.name}"
+        key = (s.type, name.lower())
+        if key in taken_set_names:
+            # A set no FEM lists (reached through a step or a surface) whose name is taken.
+            name = f"{prefix_of[id(p)]}_{s.name}"
+            key = (s.type, name.lower())
+            if key in taken_set_names:
+                raise DoesNotSupportMultiPart(
+                    f"set {s.name!r} of {p.name!r}: the merged model already has a set {name!r}"
+                )
+        taken_set_names.add(key)
         if name != s.name:
             conversion_report.current().approximated(
                 _STAGE,
@@ -392,11 +530,9 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         merged_sets.append(ns)
         return ns
 
-    for p in parts:
+    for p in parts + carriers:
         for s in p.fem.sets:
             _remap_set(p, s)
-
-    part_of_fem = {id(p.fem): p for p in parts}
 
     def _node_off_for(node) -> int:
         owner = part_of_fem.get(id(getattr(node, "parent", None)))
@@ -435,8 +571,6 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
             target = merged.elements._packed_specials if is_packed else merged.elements._overflow
             target.append(ns)
 
-    merged.sets = FemSets(merged_sets, parent=merged)
-
     # Sections: shallow copy, re-point the copy's elset to the merged set + carry the material
     # (copied once and re-pointed so the source sections stay intact).
     mat_map: dict[int, object] = {}
@@ -458,24 +592,85 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
             merged_sections.append(ns)
     merged.sections = FemSections(merged_sections, fem_obj=merged)
 
-    # Boundary conditions: shallow copy + re-point the copy's set.
-    for p in parts:
+    # Surfaces: copied with their sets re-pointed, and prefixed like a set when another part
+    # has one of the same name (they are keyed by name in the merged FEM, where the second
+    # used to replace the first). Before the steps, whose pressure loads name them.
+    surface_map: dict[int, object] = {}
+
+    def _remap_surface(p, sf):
+        existing = surface_map.get(id(sf))
+        if existing is not None:
+            return existing
+        if sf.id_refs and (id(p) not in merged_ids or node_off_of[id(p)] or el_off_of[id(p)]):
+            raise DoesNotSupportMultiPart(
+                f"surface {sf.name!r} of {p.name!r} names its faces by element id, and the merge renumbers that "
+                "part's elements"
+            )
+        nsf = copy.copy(sf)
+        fs = sf.fem_set
+        if isinstance(fs, list):
+            nsf._fem_set = [_remap_set(p, x) for x in fs]
+        elif fs is not None:
+            nsf._fem_set = _remap_set(p, fs)
+        nsf._refs = []
+        if surface_name_count.get(sf.name.lower(), 0) > 1 or sf.name in merged.surfaces:
+            new_name = f"{prefix_of[id(p)]}_{sf.name}"
+            if new_name in merged.surfaces:
+                raise DoesNotSupportMultiPart(
+                    f"surface {sf.name!r} of {p.name!r}: the merged model already has a surface {new_name!r}"
+                )
+            nsf._name = new_name
+            conversion_report.current().approximated(
+                _STAGE,
+                "Surface",
+                sf.name,
+                "another part has a surface of that name; renamed in the merged FEM",
+                new_name=new_name,
+            )
+        nsf.parent = merged
+        surface_map[id(sf)] = nsf
+        merged.surfaces[nsf.name] = nsf
+        return nsf
+
+    for p in parts + carriers:
+        for surface in p.fem.surfaces.values():
+            _remap_surface(p, surface)
+
+    # Boundary conditions: shallow copy + re-point the copy's set. One FEM holds one Bc per name
+    # (``FEM.add_bc``), and a writer may name the Bc in its deck (a Code_Aster concept), where the
+    # second of two parts' "fix" replaced the first and left that part unsupported -- so a name
+    # more than one part uses is prefixed, like a set's.
+    bc_name_count: dict = {}
+    for p in parts + carriers:
+        for bc in p.fem.bcs:
+            bc_name_count[bc.name.lower()] = bc_name_count.get(bc.name.lower(), 0) + 1
+    for p in parts + carriers:
         for bc in p.fem.bcs:
             nb = copy.copy(bc)
             if getattr(nb, "fem_set", None) is not None:
                 nb.fem_set = _remap_set(p, nb.fem_set)
+            if bc_name_count[bc.name.lower()] > 1:
+                nb._name = f"{prefix_of[id(p)]}_{bc.name}"
+                conversion_report.current().approximated(
+                    _STAGE,
+                    "Bc",
+                    bc.name,
+                    "another part has a Bc of that name; renamed in the merged FEM",
+                    new_name=nb.name,
+                )
             nb.parent = merged
             merged.bcs.append(nb)
 
-    # Masses / constraints / surfaces / local coordinate systems: shallow copy across, re
-    # pointing the set references masses hold.
-    for p in parts:
+    # Masses / constraints / local coordinate systems: shallow copy across, re pointing the set
+    # references masses hold. Keyed by name in the merged FEM, so a second one of a name is
+    # refused rather than left to replace the first.
+    for p in parts + carriers:
         for name, mass in p.fem.masses.items():
             nm = copy.copy(mass)
             if getattr(nm, "elset", None) is not None:
                 nm.elset = _remap_set(p, nm.elset)
             nm.parent = merged
-            merged.masses[name] = nm
+            _put_once(merged.masses, name, nm, "mass", p)
         for name, con in p.fem.constraints.items():
             nc = copy.copy(con)
             # Re-pointed like a BC's set. A constraint kept on its source sets named the
@@ -487,6 +682,8 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
                 op = getattr(nc, attr, None)
                 if isinstance(op, FemSet):
                     setattr(nc, attr, _remap_set(p, op))
+                elif isinstance(op, Surface):
+                    setattr(nc, attr, _remap_surface(p, op))
             if nc.equation_terms is not None:
                 nc._equation_terms = tuple(
                     (
@@ -497,11 +694,155 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
                     for ref, dof, coef in nc.equation_terms
                 )
             nc.parent = merged
-            merged.constraints[name] = nc
+            _put_once(merged.constraints, name, nc, "constraint", p)
         for name, csys in p.fem.lcsys.items():
             merged.lcsys[name] = csys
-        for name, surface in p.fem.surfaces.items():
-            merged.surfaces[name] = surface
+
+    # Steps: copied with every set, surface and load they name re-pointed into the merged FEM.
+    # The steps of the parts (and of nodeless parts in between) go to the merged FEM, the
+    # assembly's own to ``top_fem``; the user's steps are not touched. A step object that names
+    # a set or surface of no merged part, or a bare node or element, is refused by name.
+    def _set_for(s, where: str):
+        mapped = set_map.get(id(s))
+        if mapped is not None:
+            return mapped
+        owner = owner_of_fem.get(id(s.parent))
+        if owner is None:
+            raise DoesNotSupportMultiPart(
+                f"{where} names set {s.name!r}, which belongs to no part of the merged model; its members "
+                "cannot be given their merged ids"
+            )
+        return _remap_set(owner, s)
+
+    def _surface_for(sf, where: str):
+        mapped = surface_map.get(id(sf))
+        if mapped is not None:
+            return mapped
+        owner = owner_of_fem.get(id(sf.parent))
+        if owner is None:
+            raise DoesNotSupportMultiPart(
+                f"{where} names surface {sf.name!r}, which belongs to no part of the merged model; its faces "
+                "cannot be given their merged ids"
+            )
+        return _remap_surface(owner, sf)
+
+    step_copies: dict[int, object] = {}
+
+    def _rekey_value(value, where: str):
+        from ada.api.nodes import Node
+        from ada.fem.common import FemBase
+        from ada.fem.elements import Elem
+        from ada.fem.surfaces import Surface
+
+        if isinstance(value, FemSet):
+            return _set_for(value, where)
+        if isinstance(value, Surface):
+            return _surface_for(value, where)
+        if isinstance(value, (Node, Elem)):
+            raise DoesNotSupportMultiPart(
+                f"{where} names {type(value).__name__} {value.id} directly; the merge renumbers the parts' ids and "
+                "re-keys only what a step names through a set or a surface"
+            )
+        if isinstance(value, FemBase):
+            return _rekey_obj(value, where)
+        if isinstance(value, list):
+            new = [_rekey_value(v, where) for v in value]
+            return value if all(a is b for a, b in zip(new, value)) else new
+        if isinstance(value, tuple):
+            new = tuple(_rekey_value(v, where) for v in value)
+            return value if all(a is b for a, b in zip(new, value)) else new
+        if isinstance(value, dict):
+            new = {k: _rekey_value(v, where) for k, v in value.items()}
+            return value if all(new[k] is v for k, v in value.items()) else new
+        return value
+
+    def _rekey_obj(obj, where: str):
+        from ada.fem.constraints import Bc
+        from ada.fem.steps import Step
+
+        done = step_copies.get(id(obj))
+        if done is not None:
+            return done
+        new = copy.copy(obj)
+        step_copies[id(obj)] = new
+        here = f"{where}, {type(obj).__name__} {getattr(obj, 'name', '')!r}"
+        for attr, value in vars(obj).items():
+            if attr in ("_parent", "_fem_obj"):
+                continue
+            nv = _rekey_value(value, here)
+            if nv is value:
+                continue
+            if attr == "_fem_set" and isinstance(new, Bc):
+                new.fem_set = nv  # keeps the set's refs
+            else:
+                setattr(new, attr, nv)
+        if isinstance(new, Step):
+            # Its loads, Bcs and outputs name the copy as their step.
+            for child in _children(new):
+                child.parent = new
+        return new
+
+    def _rekey_steps(steps, fem) -> list:
+        out = []
+        for step in steps:
+            ns = _rekey_obj(step, f"step {step.name!r}")
+            ns.parent = fem
+            out.append(ns)
+        return out
+
+    for p in assembly.get_all_subparts(include_self=True):
+        # The assembly's own steps go to ``top_fem``, or stay where the writer reads them.
+        if id(p.fem) in owner_of_fem and p is not assembly:
+            merged.steps += _rekey_steps(p.fem.steps, merged)
+    top_steps = _rekey_steps(assembly.fem.steps, top_fem) if top_fem is not None else []
+
+    # Built last: every set above, including one first reached through a step or a surface, is
+    # in it.
+    merged.sets = FemSets(merged_sets, parent=merged)
 
     logger.info(f"Concatenated {len(parts)} FEM parts into '{merged_part.name}' ({len(merged.nodes)} nodes)")
-    return merged_part
+    return merged_part, top_steps
+
+
+def _children(obj) -> list:
+    """The step objects ``obj`` holds that carry ``obj`` as their parent (a step's loads, Bcs,
+    outputs, interactions, load cases)."""
+    from ada.fem.common import FemBase
+
+    out = []
+    for attr in ("_loads", "_bcs", "_load_cases", "_interactions", "_hist_outputs", "_field_outputs"):
+        value = getattr(obj, attr, None)
+        if isinstance(value, dict):
+            value = list(value.values())
+        if isinstance(value, list):
+            out += [v for v in value if isinstance(v, FemBase)]
+    return out
+
+
+def _put_once(container: dict, name: str, obj, label: str, part) -> None:
+    if name in container:
+        raise DoesNotSupportMultiPart(
+            f"{label} {name!r} of {part.name!r}: another part has a {label} of that name, and the merged FEM keeps "
+            "one per name"
+        )
+    container[name] = obj
+
+
+def _refuse_what_the_merge_does_not_carry(p, *, is_carrier: bool) -> None:
+    """Data a merge would otherwise drop without a word."""
+    fem = p.fem
+    dropped = []
+    if fem.predefined_fields:
+        dropped += [f"predefined field {n!r}" for n in fem.predefined_fields]
+    if fem.initial_state is not None:
+        dropped.append(f"initial state {fem.initial_state.name!r}")
+    if fem.interactions:
+        dropped += [f"interaction {n!r}" for n in fem.interactions]
+    if is_carrier and (len(fem.elements) > 0 or fem.masses):
+        # Elements (point masses, springs) on a part with no nodes of its own: they name other
+        # parts' nodes, which the element merge does not re-key.
+        dropped.append(f"{len(fem.elements)} element(s) and {len(fem.masses)} mass(es) on other parts' nodes")
+    if dropped:
+        raise DoesNotSupportMultiPart(
+            f"{p.name!r} holds {', '.join(dropped)}, which merging the model into one part does not carry"
+        )

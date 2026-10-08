@@ -195,16 +195,15 @@ def write_to_fem(
         # assembly-level data, and merging first renamed every part and dropped what the merge
         # does not carry (assembly-level amplitudes, interactions, reference points) -- so a
         # deck read and written back came out as a different model.
+        #
+        # The merge carries, re-keyed into the merged ids and set names, what the model's steps,
+        # supports and the assembly's own FEM name; it refuses by name what it cannot re-key.
         write_assembly = assembly
         fem_parts = [p for p in assembly.get_all_parts_in_assembly(include_self=True) if len(p.fem.nodes) > 0]
         if len(fem_parts) > 1 and fem_format not in _WRITES_ASSEMBLIES:
-            from ada import Assembly
-            from ada.fem.concat import concatenate_fem_to_single_part
+            from ada.fem.concat import single_part_assembly
 
-            merged_part = concatenate_fem_to_single_part(assembly)
-            write_assembly = Assembly(assembly.name, units=assembly.units)
-            write_assembly.add_part(merged_part)
-            write_assembly.fem.steps = assembly.fem.steps  # carry analysis steps for the writer
+            write_assembly = single_part_assembly(assembly)
 
         fem_exporter(write_assembly, name, analysis_dir, metadata, model_data_only)
 
