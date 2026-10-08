@@ -47,6 +47,8 @@ def field_output_str(field_output: FieldOutput) -> str:
         element_str = variables("Element Output", field_output.element, [("directions", "YES")])
     else:
         element_str = "** No Element Output"
+    if len(field_output.element_nodal) > 0:
+        element_str += "\n" + variables("Element Output", field_output.element_nodal, [("position", "NODES")])
 
     if len(field_output.contact) > 0:
         contact_str = variables("Contact Output", field_output.contact)

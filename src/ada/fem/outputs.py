@@ -155,6 +155,9 @@ class FieldOutput(FemBase):
     :param int_type:
     :param metadata:
     :param parent:
+    :param element_nodal: Element variables to also report at the element nodes (extrapolated from
+        the integration points; Abaqus ``*Element Output, position=NODES``). Formats without such
+        an output ignore it.
     """
 
     TYPES_INTERVAL = IntervalTypes
@@ -173,11 +176,13 @@ class FieldOutput(FemBase):
         int_type=TYPES_INTERVAL.FREQUENCY,
         metadata=None,
         parent: "Step" = None,
+        element_nodal: list[str] = None,
     ):
         super().__init__(name, metadata, parent)
         self._nodal = FieldOutput.default_no if nodal is None else nodal
         self._element = FieldOutput.default_el if element is None else element
         self._contact = FieldOutput.default_co if contact is None else contact
+        self._element_nodal = [] if element_nodal is None else element_nodal
         self._int_value = int_value
         self._int_type = int_type
 
@@ -204,6 +209,10 @@ class FieldOutput(FemBase):
     @property
     def contact(self):
         return self._contact
+
+    @property
+    def element_nodal(self) -> list[str]:
+        return self._element_nodal
 
     @property
     def int_value(self):
