@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { requestCollection, type CollectionRequestDeps } from "@/assets/collectionRequest";
+import { providerIdTitle } from "@/assets/providerNames";
 import { requestValues } from "@/assets/providerOptions";
 import { readProviderOptions } from "@/services/providerOptions";
 import { makePluginContextStandalone } from "@/plugins";
@@ -32,6 +33,7 @@ import {
 } from "@/services/assetScopeCollections";
 import { viewerApi } from "@/services/viewerApi";
 import { useMeStore } from "@/state/meStore";
+import { useProviderName } from "@/state/providerNamesStore";
 
 import AssetFiles, { DeleteButton, formatSize } from "./AssetFiles";
 
@@ -73,6 +75,7 @@ const RequestCollection: React.FC<{
     onChanged?: () => void;
 }> = ({ scope, onPublished, onChanged }) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
+    const pn = useProviderName();
     const [providers, setProviders] = useState<AssetProviderCollections[] | null>(null);
     const [grants, setGrants] = useState<ScopeCollectionsMap>({});
     const [staged, setStaged] = useState<Staged[]>([]);
@@ -146,8 +149,8 @@ const RequestCollection: React.FC<{
                 <details>
                     <summary className="cursor-pointer text-gray-400 select-none">
                         Request from a provider
-                        <span className="ml-1 text-gray-500">
-                            · {provider.providerId}
+                        <span className="ml-1 text-gray-500" title={providerIdTitle(provider.providerId)}>
+                            · {pn(provider.providerId)}
                             {collection ? ` / ${collection}` : ""}
                         </span>
                     </summary>
@@ -165,8 +168,8 @@ const RequestCollection: React.FC<{
                                 onChange={(e) => setProviderId(e.target.value)}
                             >
                                 {providers.map((p) => (
-                                    <option key={p.providerId} value={p.providerId}>
-                                        {p.providerId}
+                                    <option key={p.providerId} value={p.providerId} title={providerIdTitle(p.providerId)}>
+                                        {pn(p.providerId)}
                                     </option>
                                 ))}
                             </select>
@@ -249,7 +252,7 @@ const RequestCollection: React.FC<{
                                         type="button"
                                         className="ml-auto h-6 px-2 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50"
                                         disabled={busy}
-                                        title={`Publish as ${providerId}`}
+                                        title={`Publish as ${pn(providerId)}\n${providerIdTitle(providerId)}`}
                                         onClick={() =>
                                             void run(async () => {
                                                 setStage(`publishing ${s.staging_id}`);

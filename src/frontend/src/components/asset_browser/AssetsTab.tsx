@@ -44,6 +44,7 @@ import {
 } from "@/assets/delivery";
 import { geometryIndex, rowHasGeometry, rowLoadable } from "@/assets/geometryMarks";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
+import { providerIdTitle } from "@/assets/providerNames";
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
 import { actionTargets } from "@/assets/treeKeys";
@@ -64,6 +65,7 @@ import { assetProviderCollections, type AssetNodeRequest, type AssetRequestOptio
 import { viewerApi } from "@/services/viewerApi";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useMeStore } from "@/state/meStore";
+import { providerName, useProviderName } from "@/state/providerNamesStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { useTreeSetsStore } from "@/state/treeSetsStore";
 import { useViewerStores } from "@/state/AdaViewerContext";
@@ -81,7 +83,7 @@ import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
 import ProviderOptionsPanel from "./ProviderOptionsPanel";
 import TreeOptionsPanel from "./TreeOptionsPanel";
-import TreeSetsPanel, { providerShort } from "./TreeSetsPanel";
+import TreeSetsPanel from "./TreeSetsPanel";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
 // Owner tag for every scene object this tab adds. A standalone plugin context
@@ -461,7 +463,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
                         const facts = rowFacts(view, id);
                         const label = facts?.node.label ?? id;
                         const several = (facts?.claims ?? []).filter((b) => b.weight !== "below").length > 1;
-                        const asset = await loadPrepared(deps(), ref, prepared ?? prepare(), several ? `${label} · ${badge.provider}` : label);
+                        const asset = await loadPrepared(deps(), ref, prepared ?? prepare(), several ? `${label} · ${providerName(badge.provider)}` : label);
                         useAssetBrowserStore.getState().endLoad(key, asset);
                         requestRender();
                     } catch (e) {
@@ -553,8 +555,8 @@ function requestLoadsFor(
                 const what =
                     ids.length === 1 ? `"${rowFacts(view, ids[0])?.node.label ?? ids[0]}"` : `these ${ids.length} nodes`;
                 const ok = window.confirm(
-                    `${what} ${ids.length === 1 ? "has" : "have"} no ${r.provider} geometry in this scope yet.\n\n` +
-                        `Request ${ids.length === 1 ? "it" : "them"} from ${r.provider} now? The geometry is fetched once, ` +
+                    `${what} ${ids.length === 1 ? "has" : "have"} no ${providerName(r.provider)} geometry in this scope yet.\n\n` +
+                        `Request ${ids.length === 1 ? "it" : "them"} from ${providerName(r.provider)} now? The geometry is fetched once, ` +
                         "published here so it is cached for everyone in the scope, and then loaded into the scene.",
                 );
                 if (!ok) return;
@@ -672,6 +674,7 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
     requestMissing,
 }) => {
     const { useAssetBrowserStore } = useViewerStores();
+    const pn = useProviderName();
     const rollup = useAssetBrowserStore((s) => s.geometryRollup);
     const [asking, setAsking] = useState(false);
     const present = set.members.filter((m) => view.hierarchy.byId.has(m.id));
@@ -758,7 +761,7 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                     type="button"
                     className={BTN_PRIMARY}
                     disabled={!toLoad.length && !missingCount}
-                    title={toLoad.length ? toLoad.map((c) => `${rowFacts(view, c.rowId)?.node.label ?? c.rowId} · ${c.provider}`).join("\n") : "Nothing left to load"}
+                    title={toLoad.length ? toLoad.map((c) => `${rowFacts(view, c.rowId)?.node.label ?? c.rowId} · ${pn(c.provider)}`).join("\n") : "Nothing left to load"}
                     onClick={() => (missingCount ? setAsking(true) : loadAvailable())}
                 >
                     {busy ? `Loading… (${busy} left)` : toLoad.length || missingCount ? `Load set (${plural(toLoad.length + missingCount, "model")})` : "Set loaded"}
@@ -769,19 +772,19 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                     </button>
                 )}
                 {failed.length > 0 && (
-                    <span className="text-red-300" title={failed.map((c) => `${c.rowId} · ${c.provider}: ${c.error}`).join("\n")}>
+                    <span className="text-red-300" title={failed.map((c) => `${c.rowId} · ${pn(c.provider)}: ${c.error}`).join("\n")}>
                         {failed.length} failed
                     </span>
                 )}
                 {missingCount > 0 && !asking && (
-                    <span className="text-amber-300" title={requests.map((r) => `${r.provider}: ${r.rows.map((x) => x.label).join(", ")}`).join("\n")}>
+                    <span className="text-amber-300" title={requests.map((r) => `${pn(r.provider)}: ${r.rows.map((x) => x.label).join(", ")}`).join("\n")}>
                         {missingCount} not requested yet
                     </span>
                 )}
                 {emptyCount > 0 && (
                     <span
                         className="text-gray-400"
-                        title={[...empty.entries()].map(([p, rows]) => `${p}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
+                        title={[...empty.entries()].map(([p, rows]) => `${pn(p)}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
                     >
                         {emptyCount} with nothing to draw
                     </span>
@@ -789,7 +792,7 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                 {unknownCount > 0 && (
                     <span
                         className="text-gray-400"
-                        title={[...unknown.entries()].map(([p, rows]) => `not in ${p}'s tree: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
+                        title={[...unknown.entries()].map(([p, rows]) => `not in ${pn(p)}'s tree: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
                     >
                         {unknownCount} not in that provider's tree
                     </span>
@@ -802,8 +805,8 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                     </div>
                     <ul className="space-y-0.5">
                         {requests.map((r) => (
-                            <li key={r.provider} className="text-gray-200" title={r.rows.map((x) => x.label).join("\n")}>
-                                <span className="font-mono">{r.provider}</span>: {r.rows.length}
+                            <li key={r.provider} className="text-gray-200" title={`${providerIdTitle(r.provider)}\n${r.rows.map((x) => x.label).join("\n")}`}>
+                                <span>{pn(r.provider)}</span>: {r.rows.length}
                                 <span className="text-gray-400">
                                     {" — "}
                                     {!r.request ? "this provider cannot be asked for it" : r.request.blocked ? r.request.blocked : "can be requested"}
@@ -817,9 +820,9 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                         </div>
                     )}
                     {unknownCount > 0 && (
-                        <div className="text-gray-400" title={[...unknown.entries()].map(([p, rows]) => `${p}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}>
+                        <div className="text-gray-400" title={[...unknown.entries()].map(([p, rows]) => `${pn(p)}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}>
                             {unknownCount} more are not in the chosen provider's tree at all (
-                            {[...unknown.entries()].map(([p, rows]) => `${p}: ${rows.length}`).join(", ")}); nothing can be requested for them.
+                            {[...unknown.entries()].map(([p, rows]) => `${pn(p)}: ${rows.length}`).join(", ")}); nothing can be requested for them.
                         </div>
                     )}
                     <div className="flex flex-wrap gap-1.5">
@@ -896,21 +899,25 @@ const LoadControls: React.FC<{
 
 /** "Load into scene" from a provider that has not published this node here yet: asks first, then
  *  requests, publishes and loads (`requestLoadsFor`). */
-const RequestLoad: React.FC<{ control: RequestLoadControl; named: boolean }> = ({ control, named }) => (
-    <button
-        type="button"
-        disabled={control.busy || !!control.blocked}
-        className={`${BTN_PRIMARY} shrink-0`}
-        title={control.blocked ?? `Not published here yet — requests it from ${control.provider} first, then loads it`}
-        onClick={control.run}
-    >
-        {control.busy ? `Requesting${named ? ` · ${control.provider}` : ""}…` : named ? `Load · ${control.provider}` : "Load into scene"}
-    </button>
-);
+const RequestLoad: React.FC<{ control: RequestLoadControl; named: boolean }> = ({ control, named }) => {
+    const name = useProviderName()(control.provider);
+    return (
+        <button
+            type="button"
+            disabled={control.busy || !!control.blocked}
+            className={`${BTN_PRIMARY} shrink-0`}
+            title={`${control.blocked ?? `Not published here yet — requests it from ${name} first, then loads it`}\n${providerIdTitle(control.provider)}`}
+            onClick={control.run}
+        >
+            {control.busy ? `Requesting${named ? ` · ${name}` : ""}…` : named ? `Load · ${name}` : "Load into scene"}
+        </button>
+    );
+};
 
 /** A selection's loads, one set of controls per provider: load what is not in the scene yet, unload
  *  what is. Each model still loads on its own -- this only starts them together. */
 const BulkLoads: React.FC<{ groups: readonly LoadGroup[]; scope: string; collection: string }> = ({ groups, scope, collection }) => {
+    const pn = useProviderName();
     const named = groups.length > 1;
     return (
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -920,18 +927,18 @@ const BulkLoads: React.FC<{ groups: readonly LoadGroup[]; scope: string; collect
                         type="button"
                         disabled={!g.toLoad.length}
                         className={`${BTN_PRIMARY} shrink-0`}
-                        title={`Load ${plural(g.toLoad.length, "model")} from ${g.provider}`}
+                        title={`Load ${plural(g.toLoad.length, "model")} from ${pn(g.provider)}\n${providerIdTitle(g.provider)}`}
                         onClick={() => void loadSelection(scope, collection, g.toLoad)}
                     >
                         {g.toLoad.length ? `Load ${g.toLoad.length}` : "All loaded"}
-                        {named ? ` · ${g.provider}` : ""}
+                        {named ? ` · ${pn(g.provider)}` : ""}
                     </button>
                     {g.busy > 0 && <span className="text-gray-400 shrink-0">loading {g.busy}…</span>}
                     {g.loaded.length > 0 && (
                         <button
                             type="button"
                             className="text-gray-300 hover:text-white shrink-0"
-                            title={`Unload the ${plural(g.loaded.length, "model")} from ${g.provider} in the scene`}
+                            title={`Unload the ${plural(g.loaded.length, "model")} from ${pn(g.provider)} in the scene`}
                             onClick={() => g.loaded.forEach((c) => c.unload())}
                         >
                             unload {g.loaded.length}
@@ -950,11 +957,12 @@ const BulkLoads: React.FC<{ groups: readonly LoadGroup[]; scope: string; collect
 
 const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ control, named }) => {
     const { badge, root } = control;
+    const name = useProviderName()(control.provider);
     const via = badge.weight === "ghost" ? ` via ${badge.at}` : "";
     if (control.loaded) {
         return (
-            <div className="flex items-center gap-2 min-w-0" title={`${control.provider}${via}`}>
-                <span className="text-green-300 truncate">Loaded{named ? ` · ${control.provider}` : via ? ` (${via.trim()})` : ""}</span>
+            <div className="flex items-center gap-2 min-w-0" title={`${name}${via}\n${providerIdTitle(control.provider)}`}>
+                <span className="text-green-300 truncate">Loaded{named ? ` · ${name}` : via ? ` (${via.trim()})` : ""}</span>
                 {control.notes.length > 0 && (
                     // Said where the model is, not left for someone to find missing in it.
                     <span className="shrink-0 text-amber-300 cursor-help" title={control.notes.join("\n")}>
@@ -982,10 +990,10 @@ const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ c
                 type="button"
                 disabled={control.busy}
                 className={`${BTN_PRIMARY} shrink-0`}
-                title={`From ${control.provider}${via} @ ${formatRevision(badge.revision)}`}
+                title={`From ${name}${via} @ ${formatRevision(badge.revision)}\n${providerIdTitle(control.provider)}`}
                 onClick={() => void control.load()}
             >
-                {control.busy ? "Loading…" : named ? `Load · ${control.provider}` : "Load into scene"}
+                {control.busy ? "Loading…" : named ? `Load · ${name}` : "Load into scene"}
             </button>
             {control.error && (
                 <span className="text-red-300 truncate" title={control.error}>
@@ -1138,6 +1146,7 @@ const RequestPicker: React.FC<{
     anchor: { x: number; y: number; above?: boolean };
     onClose: () => void;
 }> = ({ requests, anchor, onClose }) => {
+    const pn = useProviderName();
     const ref = React.useRef<HTMLDivElement>(null);
     const [picked, setPicked] = useState<ReadonlySet<string>>(
         () => new Set(requests.filter((r) => !r.blocked && !r.busy).map((r) => r.provider)),
@@ -1184,7 +1193,7 @@ const RequestPicker: React.FC<{
                     <label
                         key={r.provider}
                         className={`flex items-start gap-2 px-3 py-1.5 ${r.blocked || r.busy ? "opacity-50" : "hover:bg-gray-700 cursor-pointer"}`}
-                        title={r.blocked ?? (r.busy ? "Already requested; running" : REQUEST_TITLE)}
+                        title={`${r.blocked ?? (r.busy ? "Already requested; running" : REQUEST_TITLE)}\n${providerIdTitle(r.provider)}`}
                     >
                         <input
                             type="checkbox"
@@ -1194,7 +1203,7 @@ const RequestPicker: React.FC<{
                             onChange={() => toggle(r.provider)}
                         />
                         <span className="min-w-0">
-                            <span className="block font-medium truncate">{r.provider}</span>
+                            <span className="block font-medium truncate">{pn(r.provider)}</span>
                             <span className="block text-gray-400 truncate">{r.busy ? r.stage ?? "requesting…" : r.label}</span>
                         </span>
                     </label>
@@ -1224,6 +1233,7 @@ const RequestPicker: React.FC<{
 /** The request button and each running request's progress, for the detail's bottom row. One
  *  provider: the button asks it directly. Several: it opens the picker. */
 const RequestControls: React.FC<{ requests: readonly NodeRequestControl[] }> = ({ requests }) => {
+    const pn = useProviderName();
     const [pickerAt, setPickerAt] = useState<{ x: number; y: number; above: boolean } | null>(null);
     const single = requests.length === 1 ? requests[0] : null;
     const busy = requests.filter((r) => r.busy);
@@ -1245,13 +1255,13 @@ const RequestControls: React.FC<{ requests: readonly NodeRequestControl[] }> = (
                 {single ? (single.busy ? "Requesting…" : single.label) : "Request geometry…"}
             </button>
             {busy.length > 0 && (
-                <span className="text-gray-400 truncate" title={busy.map((r) => `${r.provider}: ${r.stage ?? "requesting"}`).join("\n")}>
-                    {busy.length === 1 ? `${busy[0].provider}: ${busy[0].stage ?? "requesting…"}` : `${busy.length} requests running`}
+                <span className="text-gray-400 truncate" title={busy.map((r) => `${pn(r.provider)}: ${r.stage ?? "requesting"}`).join("\n")}>
+                    {busy.length === 1 ? `${pn(busy[0].provider)}: ${busy[0].stage ?? "requesting…"}` : `${busy.length} requests running`}
                 </span>
             )}
             {busy.length === 0 && failed.length > 0 && (
-                <span className="text-red-300 truncate" title={failed.map((r) => `${r.provider}: ${r.error}`).join("\n")}>
-                    {failed.length === 1 && requests.length === 1 ? failed[0].error : `${failed.map((r) => r.provider).join(", ")} failed`}
+                <span className="text-red-300 truncate" title={failed.map((r) => `${pn(r.provider)}: ${r.error}`).join("\n")}>
+                    {failed.length === 1 && requests.length === 1 ? failed[0].error : `${failed.map((r) => pn(r.provider)).join(", ")} failed`}
                 </span>
             )}
             {busy.length === 0 && failed.length === 0 && requests.some((r) => r.note) && (
@@ -1259,12 +1269,12 @@ const RequestControls: React.FC<{ requests: readonly NodeRequestControl[] }> = (
                     className="text-gray-400 truncate"
                     title={requests
                         .filter((r) => r.note)
-                        .map((r) => `${r.provider}: ${r.note}`)
+                        .map((r) => `${pn(r.provider)}: ${r.note}`)
                         .join("\n")}
                 >
                     {requests
                         .filter((r) => r.note)
-                        .map((r) => (requests.length > 1 ? `${r.provider} ${r.note}` : r.note))
+                        .map((r) => (requests.length > 1 ? `${pn(r.provider)} ${r.note}` : r.note))
                         .join("; ")}
                 </span>
             )}
@@ -1294,18 +1304,19 @@ const AssetRowMenu: React.FC<{
     onClose: () => void;
 }> = ({ view, id, ids, scope, x, y, requests, onPickRequests, scopeItem, setItems, onClose }) => {
     const many = ids.length > 1;
+    const pn = useProviderName();
     const loads = useAssetLoads(view, ids, scope);
     const onDemand = requestLoadsFor(view, ids, loads, requests);
     const joints = useJointsCheck(view, id, scope);
     const items: KebabMenuItem[] = [];
     // A provider that can be asked on demand loads from here too: confirm, request, load.
     for (const r of onDemand) {
-        const from = loads.length + onDemand.length > 1 ? ` · ${r.provider}` : "";
+        const from = loads.length + onDemand.length > 1 ? ` · ${pn(r.provider)}` : "";
         items.push({
             key: `request-load:${r.provider}`,
             label: r.busy ? `Requesting…${from}` : `Load into scene${from}`,
             disabled: r.busy || !!r.blocked,
-            title: r.blocked ?? `Not published here yet — requests it from ${r.provider} first, then loads it`,
+            title: `${r.blocked ?? `Not published here yet — requests it from ${pn(r.provider)} first, then loads it`}\n${providerIdTitle(r.provider)}`,
             onClick: r.run,
         });
     }
@@ -1315,7 +1326,7 @@ const AssetRowMenu: React.FC<{
     if (many) {
         const groups = loadGroups(loads);
         for (const g of groups) {
-            const from = groups.length > 1 ? ` · ${g.provider}` : "";
+            const from = groups.length > 1 ? ` · ${pn(g.provider)}` : "";
             items.push({
                 key: `load:${g.provider}`,
                 label: g.toLoad.length ? `Load ${plural(g.toLoad.length, "model")} into scene${from}` : `All loaded${from}`,
@@ -1334,7 +1345,7 @@ const AssetRowMenu: React.FC<{
     }
     const named = loads.length > 1;
     for (const load of many ? [] : loads) {
-        const from = named ? ` · ${load.provider}` : "";
+        const from = named ? ` · ${pn(load.provider)}` : "";
         if (load.loaded) {
             items.push({ key: `reveal:${load.provider}`, label: `Reveal in Scene${from}`, disabled: !load.root, onClick: load.reveal });
             items.push({ key: `unload:${load.provider}`, label: `Unload from scene${from}`, onClick: load.unload });
@@ -1343,7 +1354,7 @@ const AssetRowMenu: React.FC<{
                 key: `load:${load.provider}`,
                 label: load.busy ? `Loading…${from}` : `Load into scene${from}`,
                 disabled: load.busy,
-                title: `From ${load.provider} @ ${formatRevision(load.badge.revision)}`,
+                title: `From ${pn(load.provider)} @ ${formatRevision(load.badge.revision)}\n${providerIdTitle(load.provider)}`,
                 onClick: () => void load.load(),
             });
         }
@@ -1396,6 +1407,7 @@ const Detail: React.FC<{
     requests: readonly NodeRequestControl[];
     actions?: React.ReactNode;
 }> = ({ view, id, ids, scope, requests, actions }) => {
+    const pn = useProviderName();
     const facts = rowFacts(view, id);
     const orphan = view.orphans.find((o) => o.id === id);
     const resolved = view.resolution.subjects.get(id);
@@ -1403,7 +1415,7 @@ const Detail: React.FC<{
     const lines: [string, React.ReactNode][] = [];
     if (facts) {
         lines.push(["Id", <span className="font-mono text-[11px]">{id}</span>]);
-        lines.push(["Provider", <span className="font-mono text-[11px]">{facts.node.provider}</span>]);
+        lines.push(["Provider", <span title={providerIdTitle(facts.node.provider)}>{pn(facts.node.provider)}</span>]);
         lines.push(["Claim", facts.node.delivery === "none" ? "none" : facts.node.delivery]);
     }
     if (resolved) lines.push(["Published", `${formatRevision(resolved.revision.revision)}${manifest ? ` · ${manifest.delivery}` : ""}`]);
@@ -1548,6 +1560,8 @@ const AssetsTab: React.FC = () => {
     const { useAssetBrowserStore, useScopeStore } = useViewerStores();
     const scope = scopeUrlPart(useScopeStore((s) => s.current));
     const loader = loaderFor(useAssetBrowserStore, assetsApi, sourceNodesApi);
+    // Display names for provider ids, in this scope; ids stay what everything keys on.
+    const pn = useProviderName();
 
     const storeScope = useAssetBrowserStore((s) => s.scope);
     const collections = useAssetBrowserStore((s) => s.collections);
@@ -1763,7 +1777,7 @@ const AssetsTab: React.FC = () => {
                                                 <button
                                                     key={p}
                                                     type="button"
-                                                    title={`${on ? "Loads" : "Does not load"} ${p}'s geometry for ${m.label} -- click to switch`}
+                                                    title={`${on ? "Loads" : "Does not load"} ${pn(p)}'s geometry for ${m.label} -- click to switch\n${providerIdTitle(p)}`}
                                                     className={`px-1 rounded-sm border text-[9px] leading-[14px] ${
                                                         on ? "bg-emerald-800/80 border-emerald-600 text-white" : "border-gray-600 text-gray-500 line-through"
                                                     }`}
@@ -1776,7 +1790,7 @@ const AssetsTab: React.FC = () => {
                                                         ]);
                                                     }}
                                                 >
-                                                    {providerShort(p)}
+                                                    {pn(p)}
                                                 </button>
                                             );
                                         })}
@@ -2118,7 +2132,7 @@ const AssetsTab: React.FC = () => {
                                       {
                                           id: "filter",
                                           title: "Provider filter",
-                                          badge: providerFilter || null,
+                                          badge: providerFilter ? pn(providerFilter) : null,
                                           content: (
                                               <select
                                                   aria-label="Provider filter"
@@ -2129,8 +2143,8 @@ const AssetsTab: React.FC = () => {
                                               >
                                                   <option value="">All providers</option>
                                                   {view!.contentProviders.map((p) => (
-                                                      <option key={p} value={p}>
-                                                          {p}
+                                                      <option key={p} value={p} title={providerIdTitle(p)}>
+                                                          {pn(p)}
                                                       </option>
                                                   ))}
                                               </select>
@@ -2252,10 +2266,10 @@ const AssetsTab: React.FC = () => {
                             <button
                                 type="button"
                                 className="rounded-full bg-blue-900/60 px-2 py-0.5 text-blue-100 hover:bg-blue-800"
-                                title="Only rows that are, or contain, geometry from this provider are drawn. Click to show every provider."
+                                title={`Only rows that are, or contain, geometry from this provider are drawn. Click to show every provider.\n${providerIdTitle(providerFilter)}`}
                                 onClick={() => setProviderFilter("")}
                             >
-                                Provider: {providerFilter} ×
+                                Provider: {pn(providerFilter)} ×
                             </button>
                         )}
                         {viewSettings.rootKinds && !display.rootFilterStoodDown && !searchActive && (
@@ -2334,7 +2348,9 @@ const AssetsTab: React.FC = () => {
                         <Banner tone="warn">{view.drift.size} subject(s) were published against an older tree than the one shown.</Banner>
                     )}
                     {view && view.providers.length > 1 && (
-                        <Banner tone="info">Mixed collection — providers: {view.providers.join(", ")}</Banner>
+                        <Banner tone="info" title={view.providers.map(providerIdTitle).join("\n")}>
+                            Mixed collection — providers: {view.providers.map(pn).join(", ")}
+                        </Banner>
                     )}
                     {summary && summary.incompleteCount > 0 && (
                         <Banner tone="warn">

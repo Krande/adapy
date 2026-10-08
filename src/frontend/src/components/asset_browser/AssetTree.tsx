@@ -42,6 +42,8 @@ import type { AssetView } from "@/assets/assetView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
 import { ancestorsOf, flattenVisible, type Hierarchy } from "@/assets/hierarchy";
 import { kindTile } from "@/assets/kindTile";
+import { providerIdTitle } from "@/assets/providerNames";
+import { useProviderName } from "@/state/providerNamesStore";
 import { isOutOfScope } from "@/assets/treeView";
 import type { AssetNode } from "@/assets/types";
 import { isSearchTerm, rowFacts, searchRows, shallowestHit, type RowBadge } from "@/assets/rowFacts";
@@ -91,7 +93,9 @@ const StateDot: React.FC<{ badge: RowBadge }> = ({ badge }) => (
 /** A node with content from several providers: one mark per provider, in the same filled / ring
  *  language as `StateDot`, tinted by provider so the marks can be told apart. The tint is hashed
  *  from the provider id (`kindTile`), so core names no provider and a provider keeps its colour. */
-const ProviderDots: React.FC<{ claims: readonly RowBadge[] }> = ({ claims }) => (
+const ProviderDots: React.FC<{ claims: readonly RowBadge[] }> = ({ claims }) => {
+    const pn = useProviderName();
+    return (
     <span className="shrink-0 flex items-center gap-0.5">
         {claims.map((c) => {
             const color = kindTile(c.provider).bg;
@@ -104,12 +108,13 @@ const ProviderDots: React.FC<{ claims: readonly RowBadge[] }> = ({ claims }) => 
                             ? { background: color }
                             : { boxShadow: `inset 0 0 0 1.5px ${color}`, opacity: c.weight === "below" ? 0.8 : 0.6 }
                     }
-                    title={`${c.provider}: ${BADGE_TITLE[c.weight]} — delivers ${DELIVERY_WORD[c.delivery] ?? c.delivery} — ${c.at} @ ${formatRevision(c.revision)}`}
+                    title={`${pn(c.provider)}: ${BADGE_TITLE[c.weight]} — delivers ${DELIVERY_WORD[c.delivery] ?? c.delivery} — ${c.at} @ ${formatRevision(c.revision)}\n${providerIdTitle(c.provider)}`}
                 />
             );
         })}
     </span>
-);
+    );
+};
 
 /** The geometry overlay's mark: green = there is something to load (filled here, ring covered from
  *  above, faint ring somewhere below); gray ring = tree only; a dotted ring = not known yet. */
@@ -140,6 +145,16 @@ const Word: React.FC<{ tone: "amber" | "gray" | "red"; title: string; children: 
         {children}
     </span>
 );
+
+/** The producing provider, by its display name; the id on hover. */
+const ProviderWord: React.FC<{ provider: string }> = ({ provider }) => {
+    const pn = useProviderName();
+    return (
+        <Word tone="gray" title={`Producing provider\n${providerIdTitle(provider)}`}>
+            {pn(provider)}
+        </Word>
+    );
+};
 
 const CHANGE_TITLE: Record<ChangeState, string> = {
     behind: "The source moved after this root was published. Re-export to catch up -- Refresh will not fix this.",
@@ -366,11 +381,7 @@ const AssetRow: React.FC<{
                     out
                 </Word>
             )}
-            {showProvider && (
-                <Word tone="gray" title="Producing provider">
-                    {node.provider}
-                </Word>
-            )}
+            {showProvider && <ProviderWord provider={node.provider} />}
             <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-gray-500">
                 {/* Not on an unexplored branch: a level below is still unfetched, so
                     the leaves held there are a floor, not a count. */}

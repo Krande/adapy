@@ -9,16 +9,13 @@
 
 import React, { useRef, useState } from "react";
 
+import { providerIdTitle } from "@/assets/providerNames";
 import { loadsProvider, type ProviderChoice, type TreeSet, type TreeSetMember } from "@/assets/treeSets";
+import { useProviderName } from "@/state/providerNamesStore";
 
 const CHIP = "h-6 px-2 rounded-full border text-[11px] disabled:opacity-50";
 const CHIP_OFF = "border-gray-600 text-gray-300 hover:bg-gray-700";
 const CHIP_ON = "bg-blue-500/25 border-blue-400 text-blue-100";
-
-/** A provider id short enough for a chip: the vendor-neutral tail, the full id on hover. */
-export function providerShort(provider: string): string {
-  return provider.replace(/^external-/, "");
-}
 
 /** The set's name while it is edited: saved on Enter or leaving the field, Escape puts it back. */
 const SetNameField: React.FC<{ name: string; disabled: boolean; onRename: (name: string) => void }> = ({ name, disabled, onRename }) => {
@@ -74,6 +71,7 @@ const TreeSetsPanel: React.FC<{
   editing: boolean;
   onEditing: (on: boolean) => void;
 }> = ({ sets, activeId, missing, selected, busy, error, onActivate, onCreate, onRename, onDelete, providers, onSetProviders, loadControl, editing, onEditing }) => {
+  const providerName = useProviderName();
   const [naming, setNaming] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const active = sets.find((s) => s.id === activeId) ?? null;
@@ -174,7 +172,7 @@ const TreeSetsPanel: React.FC<{
                     key={p}
                     type="button"
                     disabled={busy}
-                    title={`${p}: ${on ? "loaded for every member -- click to load it for none" : "not loaded for every member -- click to load it for all"}`}
+                    title={`${providerName(p)}: ${on ? "loaded for every member -- click to load it for none" : "not loaded for every member -- click to load it for all"}\n${providerIdTitle(p)}`}
                     className={`px-1.5 rounded-sm border text-[10px] disabled:opacity-50 ${
                       on ? "bg-emerald-800/80 border-emerald-600 text-white" : "border-gray-600 text-gray-500 line-through"
                     }`}
@@ -191,7 +189,7 @@ const TreeSetsPanel: React.FC<{
                       )
                     }
                   >
-                    {providerShort(p)}
+                    {providerName(p)}
                   </button>
                 );
               })}

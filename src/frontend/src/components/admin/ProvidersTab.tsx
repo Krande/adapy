@@ -17,6 +17,17 @@ import {
     withEnabled,
 } from "@/services/assetScopeCollections";
 import {fuzzyFilter} from "@/services/fuzzy";
+import {
+    MAX_PROVIDER_LABEL_LENGTH,
+    PROVIDER_LABELS_KEY,
+    ProviderAliasesMap,
+    cleanProviderLabel,
+    labelProblem,
+    parseProviderAliases,
+    serialiseProviderAliases,
+    withProviderAlias,
+} from "@/assets/providerNames";
+import {useProviderNamesStore} from "@/state/providerNamesStore";
 
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
 
@@ -61,6 +72,55 @@ interface ProviderSection {
 }
 
 const rowKey = (scope: string, provider: string) => `${provider}\u0000${scope}`;
+
+/** One scope's display name for one provider: saved on Enter or leaving the field, Escape puts it
+ *  back. Empty clears the alias, and the provider's own label (the placeholder) is shown again. */
+const AliasField: React.FC<{
+    value: string;
+    fallback: string;
+    disabled: boolean;
+    label: string;
+    onSave: (next: string) => Promise<void>;
+}> = ({value, fallback, disabled, label, onSave}) => {
+    const [draft, setDraft] = useState(value);
+    useEffect(() => setDraft(value), [value]);
+    const problem = labelProblem(draft);
+    const save = () => {
+        const next = cleanProviderLabel(draft) ?? "";
+        if (problem || next === value) {
+            if (!problem) setDraft(value);
+            return;
+        }
+        void onSave(next);
+    };
+    return (
+        <div className="space-y-0.5">
+            <input
+                type="text"
+                value={draft}
+                disabled={disabled}
+                placeholder={fallback}
+                maxLength={MAX_PROVIDER_LABEL_LENGTH + 16}
+                aria-label={label}
+                title="What this scope's viewers see for the provider. Empty: the provider's own name. The provider id itself never changes."
+                className={`w-44 rounded-sm border bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500 ${
+                    problem ? "border-red-500" : "border-gray-700"
+                }`}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={save}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    else if (e.key === "Escape") {
+                        setDraft(value);
+                        // Blurring after the reset saves nothing: the draft is the stored value again.
+                        requestAnimationFrame(() => (e.target as HTMLInputElement).blur());
+                    }
+                }}
+            />
+            {problem && <div className="text-[10px] text-red-300">{problem}</div>}
+        </div>
+    );
+};
 
 /** Where one provider's rescan is: running, or what it said when it finished. */
 interface RescanState {
@@ -138,6 +198,7 @@ const ProvidersTab: React.FC = () => {
     const [live, setLive] = useState<AssetProviderCollections[]>([]);
     const [projects, setProjects] = useState<AdminProject[]>([]);
     const [map, setMap] = useState<ScopeCollectionsMap>({});
+    const [aliases, setAliases] = useState<ProviderAliasesMap>({});
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState<string | null>(null);
     const [open, setOpen] = useState<string | null>(null);
@@ -177,14 +238,16 @@ const ProvidersTab: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const [plugins, projs, raw] = await Promise.all([
+            const [plugins, projs, raw, rawAliases] = await Promise.all([
                 viewerApi.listBackendPlugins().catch(() => ({plugins: []})),
                 viewerApi.adminListProjects().catch(() => [] as AdminProject[]),
                 viewerApi.getPublicSetting(ASSET_SCOPE_COLLECTIONS_KEY).catch(() => null),
+                viewerApi.getPublicSetting(PROVIDER_LABELS_KEY).catch(() => null),
             ]);
             setLive(assetProviderCollections(plugins.plugins ?? []));
             setProjects(projs.filter((p) => !p.archived_at));
             setMap(parseScopeCollections(raw));
+            setAliases(parseProviderAliases(rawAliases));
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         } finally {
@@ -196,12 +259,34 @@ const ProvidersTab: React.FC = () => {
         void refresh();
     }, [refresh]);
 
-    // Live providers, plus any the stored map names that no worker declares now.
+    // Live providers, plus any the stored maps name that no worker declares now.
     const sections: ProviderSection[] = useMemo(() => {
         const byId = new Map(live.map((p) => [p.providerId, p]));
-        const ids = new Set([...byId.keys(), ...storedProviders(map)]);
+        const aliased = Object.values(aliases).flatMap((row) => Object.keys(row));
+        const ids = new Set([...byId.keys(), ...storedProviders(map), ...aliased]);
         return [...ids].sort().map((providerId) => ({providerId, live: byId.get(providerId) ?? null}));
-    }, [live, map]);
+    }, [live, map, aliases]);
+
+    /** Store one scope's display name for one provider (empty clears it), applied to the STORED
+     *  value as `persist` does, so another admin's edit since this tab loaded is kept. The server
+     *  validates it again; its refusal is shown as the tab's error. */
+    const persistAlias = useCallback(async (scope: string, provider: string, label: string) => {
+        const key = rowKey(scope, provider);
+        setBusy(key);
+        setError(null);
+        try {
+            const latest = parseProviderAliases(await viewerApi.getPublicSetting(PROVIDER_LABELS_KEY).catch(() => null));
+            const next = withProviderAlias(latest, scope, provider, label);
+            await viewerApi.adminSetSetting(PROVIDER_LABELS_KEY, serialiseProviderAliases(next));
+            setAliases(next);
+            // A viewer of that scope in THIS browser sees the new name without a reload.
+            void useProviderNamesStore.getState().load(scope, true);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setBusy(null);
+        }
+    }, []);
 
     const rows: ScopeRow[] = useMemo(() => {
         const out: ScopeRow[] = [{scope: "shared", label: "Shared", hint: "everyone with access to this viewer"}];
@@ -255,6 +340,10 @@ const ProvidersTab: React.FC = () => {
                         <p>
                             Which of a provider's collections may be requested in each scope. A scope left on
                             “All collections” behaves as before; “Only ticked” with nothing ticked offers none.
+                        </p>
+                        <p>
+                            A display name renames a provider for one scope's viewers only; empty falls back to
+                            the provider's own name, then its id. The id itself never changes.
                         </p>
                         <p>
                             <span className="text-amber-300">This filters a request picker. It is not a permission</span>
@@ -323,6 +412,11 @@ const ProvidersTab: React.FC = () => {
                             )}
                             <div className="text-sm font-medium">
                                 <code>{providerId}</code>
+                                {declared?.label && (
+                                    <span className="ml-2 text-xs font-normal text-gray-300" title="The provider's own display name">
+                                        “{declared.label}”
+                                    </span>
+                                )}
                                 {declared && declared.titles.length > 0 && (
                                     <span className="ml-2 text-xs font-normal text-gray-400">
                                         {declared.titles.join(", ")}
@@ -339,6 +433,7 @@ const ProvidersTab: React.FC = () => {
                             <thead>
                                 <tr className="text-left text-xs uppercase text-gray-500">
                                     <th className="px-3 py-2 font-medium">Scope</th>
+                                    <th className="px-3 py-2 font-medium">Display name</th>
                                     <th className="px-3 py-2 font-medium">Access</th>
                                     <th className="px-3 py-2 font-medium">Collections</th>
                                 </tr>
@@ -357,6 +452,15 @@ const ProvidersTab: React.FC = () => {
                                                     {row.label}
                                                 </div>
                                                 <div className="text-xs text-gray-500">{row.hint}</div>
+                                            </td>
+                                            <td className="px-3 py-2 align-top">
+                                                <AliasField
+                                                    value={aliases[row.scope]?.[providerId] ?? ""}
+                                                    fallback={declared?.label ?? providerId}
+                                                    disabled={busy === key}
+                                                    label={`Display name of ${providerId} in ${row.label}`}
+                                                    onSave={(next) => persistAlias(row.scope, providerId, next)}
+                                                />
                                             </td>
                                             <td className="px-3 py-2 align-top">
                                                 <select

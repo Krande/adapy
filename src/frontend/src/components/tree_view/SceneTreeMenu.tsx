@@ -11,7 +11,9 @@ import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {forestNodeFor, providerAlternatives, type ProviderAlternative} from "@/assets/otherProviders";
 import {realDeliveryDeps} from "@/components/asset_browser/AssetsTab";
+import {providerIdTitle} from "@/assets/providerNames";
 import {getSingletonViewerStores} from "@/state/AdaViewerContext";
+import {providerName} from "@/state/providerNamesStore";
 import {requestRender} from "@/state/perfStore";
 import {elementPath, modelRootOf, parseAssetSourceName} from "@/utils/export/selectionExport";
 import {loadAssetNode} from "@/utils/groups/groupLoad";
@@ -133,8 +135,8 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
             alt.options.forEach((o, i) =>
                 items.push({
                     key: `load-from-${o.provider}`,
-                    label: `Load from ${o.provider}`,
-                    title: `${row.name} as ${o.provider} publishes it${o.subject !== o.node ? ` (under ${o.subject})` : ""}`,
+                    label: `Load from ${providerName(o.provider)}`,
+                    title: `${row.name} as ${providerName(o.provider)} publishes it${o.subject !== o.node ? ` (under ${o.subject})` : ""}\n${providerIdTitle(o.provider)}`,
                     onClick: () => void alt.load(o),
                     separatorBefore: i === 0,
                 }),

@@ -88,6 +88,27 @@ async def plugin_ids_gated_by_config(pool) -> set[str] | None:
     return {p.strip() for p in parsed if p and p.strip()}
 
 
+async def online_plugin_specs(ctx: RestContext) -> dict[str, dict]:
+    """The backend plugin specs online right now, keyed by slug -- what ``GET /plugins`` lists,
+    before its ``requires_admin`` gate is applied. Shared with routes that read a declaration off
+    the specs (an asset provider's display name)."""
+    from ..catalog import builtin_plugin_specs
+
+    # With no queue, plugin jobs run in THIS process (see `local_jobs`), so
+    # what it registered is online by definition — and the only source there
+    # is. Only then: behind a queue a job goes to a worker, and a spec this
+    # API happens to have imported says nothing about whether one is up. Both
+    # halves of that are the transport's to answer, so this route does not
+    # ask which one it is in.
+    return merge_catalog_specs(
+        builtin_plugin_specs(),
+        await ctx.jobs.advertised_specs("plugin_specs"),
+        project=lambda slug, spec, origin: {**spec, "slug": slug, "origin": origin, "online": True},
+        live_origin="db",
+        local_specs=ctx.jobs.local_specs(),
+    )
+
+
 @router.get("/plugins")
 async def api_plugins(request: Request, ctx: RestContext = Depends(rest_context)) -> JSONResponse:
     """Backend plugins advertised to the viewer plugin system: the union of
@@ -100,21 +121,7 @@ async def api_plugins(request: Request, ctx: RestContext = Depends(rest_context)
     self-describing contract the procedural/detailing engines use. The
     frontend build-time registry can seed off this so a runtime-only backend
     plugin still surfaces."""
-    from ..catalog import builtin_plugin_specs
-
-    # With no queue, plugin jobs run in THIS process (see `local_jobs`), so
-    # what it registered is online by definition — and the only source there
-    # is. Only then: behind a queue a job goes to a worker, and a spec this
-    # API happens to have imported says nothing about whether one is up. Both
-    # halves of that are the transport's to answer, so this route does not
-    # ask which one it is in.
-    by_slug = merge_catalog_specs(
-        builtin_plugin_specs(),
-        await ctx.jobs.advertised_specs("plugin_specs"),
-        project=lambda slug, spec, origin: {**spec, "slug": slug, "origin": origin, "online": True},
-        live_origin="db",
-        local_specs=ctx.jobs.local_specs(),
-    )
+    by_slug = await online_plugin_specs(ctx)
 
     # `requires_admin` is reported as the EFFECTIVE gate, not merely what a
     # worker declared: a deployment can gate a plugin that declared nothing
