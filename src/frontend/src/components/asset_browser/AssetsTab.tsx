@@ -1905,7 +1905,7 @@ const AssetsTab: React.FC = () => {
                     busy: running.length > 0,
                     stage: many ? (running.length ? `${running.length} of ${targets.length} running` : null) : (states[0]?.stage ?? null),
                     error: errors.length ? (many ? `${errors.length} failed:\n${errors.join("\n")}` : states[0]!.error) : null,
-                    note: notes.length ? (many ? `${notes.length} of ${targets.length} up to date` : notes[0]) : null,
+                    note: notes.length ? (many ? `${notes.length} of ${targets.length} answered without a new publish` : notes[0]) : null,
                     blocked: req.requiresAdmin && !isAdmin ? `Only an administrator can run ${req.pluginId}` : null,
                     onDemand: !!req.onDemand,
                     run: async () => {
@@ -1916,6 +1916,13 @@ const AssetsTab: React.FC = () => {
                                 patch({ busy: true, stage: null, error: null, note: null });
                                 return requestNodes(requestDeps((stage) => patch({ stage })), scope, providerId, req, collection, batch)
                                     .then((out) => {
+                                        // Nothing: the provider's source does not carry these nodes. Said as a
+                                        // note, not an error, and false so no load waits on a publish that
+                                        // will not come.
+                                        if (out.nothing) {
+                                            patch({ busy: false, stage: null, note: `nothing to load: ${out.message}` });
+                                            return false;
+                                        }
                                         // Unchanged: the provider's last publish already covers these nodes, so
                                         // nothing new was published -- the note says which one.
                                         patch({ busy: false, stage: null, note: out.unchanged ? `up to date (${out.revision})` : null });
@@ -2184,16 +2191,20 @@ const AssetsTab: React.FC = () => {
                             <button
                                 type="button"
                                 className="rounded-full bg-gray-700/70 px-2 py-0.5 text-gray-200 hover:bg-gray-600"
-                                title="Only these kinds are drawn at the top level. Change it under Options ▸ View."
+                                title={
+                                    "Only these kinds are drawn at the top level. Change it under Options ▸ View." +
+                                    (display.hiddenRoots > 0
+                                        ? `\n${display.hiddenRoots} top-level branch${display.hiddenRoots === 1 ? "" : "es"} of other kinds ${display.hiddenRoots === 1 ? "is" : "are"} not drawn.`
+                                        : "")
+                                }
                                 onClick={() => showOptions("view")}
                             >
                                 Top: {[...viewSettings.rootKinds].join(", ")}
+                                {display.hiddenRoots > 0 && <span className="text-gray-400"> · {display.hiddenRoots} hidden</span>}
                             </button>
                         )}
-                        {display.hiddenRoots > 0 && (
-                            <span title="Top-level branches of other kinds are not drawn">
-                                {display.hiddenRoots} other branch{display.hiddenRoots === 1 ? "" : "es"} hidden
-                            </span>
+                        {display.hiddenRoots > 0 && (!viewSettings.rootKinds || display.rootFilterStoodDown || searchActive) && (
+                            <span title="Top-level branches of other kinds are not drawn">{display.hiddenRoots} hidden</span>
                         )}
                         {display.rootFilterStoodDown && (
                             <span title="None of the chosen kinds is at the top, so every branch is drawn">
