@@ -31,7 +31,7 @@ the same corpus (a full ``npm ci`` tree, 10,338 files):
 
 The threshold is zero new orphans, not a count. Fourteen strings in the clean
 bundle are ASSEMBLED by the bundler and so appear nowhere in the tree verbatim;
-they are pinned by exact text in ``tools/bundle_provenance_baseline.txt``, each
+they are pinned by exact text in ``scripts/bundle_provenance_baseline.txt``, each
 with the source line it is assembled from. Pinning by text rather than by number
 keeps the gate at "nothing new" instead of letting it decay into a budget.
 
@@ -49,8 +49,8 @@ was rebuilt around one. Ignoring the overlay is worth doing, but it addresses a
 different mistake.
 
 Usage:
-    python tools/check_bundle_provenance.py
-    python tools/check_bundle_provenance.py --bundle path/to/index.zip -v
+    python scripts/check_bundle_provenance.py
+    python scripts/check_bundle_provenance.py --bundle path/to/index.zip -v
 """
 
 from __future__ import annotations

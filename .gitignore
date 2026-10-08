@@ -57,7 +57,7 @@ adacpp-src/
 # The in-repo plugins are re-included by name, so adding a genuine one here is a
 # one-line change and an overlay is not something `git add -A` can sweep up.
 #
-# NOTE this is a different mitigation from tools/check_bundle_provenance.py, not
+# NOTE this is a different mitigation from scripts/check_bundle_provenance.py, not
 # a substitute for it: in the incident that prompted both, no overlay directory
 # was ever committed — the tracked index.zip was rebuilt around one. This rule
 # would not have caught that.

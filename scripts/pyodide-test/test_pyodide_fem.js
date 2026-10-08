@@ -27,7 +27,7 @@ function resolveAdapyWheel() {
     if (!fs.existsSync(DIST_DIR)) {
         throw new Error(
             `No ${DIST_DIR}. Build the wheel first: ` +
-            `python tools/build_pyodide_adapy_wheel.py`,
+            `python scripts/build_pyodide_adapy_wheel.py`,
         );
     }
     const wheels = fs.readdirSync(DIST_DIR).filter((f) => f.endsWith(".whl")).sort();

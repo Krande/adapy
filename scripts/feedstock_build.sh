@@ -11,7 +11,7 @@
 # running the feedstock's own build-locally.py reproduces the image, the mounts, the layout and the
 # build scripts together.
 #
-# Usage: tools/feedstock_build.sh [WORKDIR]      (needs docker, git, rsync and python3 on the host)
+# Usage: scripts/feedstock_build.sh [WORKDIR]      (needs docker, git, rsync and python3 on the host)
 #   FEEDSTOCK_CONFIG   .ci_support variant to build (default: linux_64_)
 #   FEEDSTOCK_REF      feedstock branch, tag or commit to test against (default: main)
 set -euo pipefail
@@ -38,7 +38,7 @@ mkdir -p "$SRC"
 (cd "$REPO" && git ls-files -z --cached --others --exclude-standard |
     rsync -a --from0 --ignore-missing-args --files-from=- ./ "$SRC/")
 
-python3 "$REPO/tools/localise_feedstock_recipe.py" "$FEEDSTOCK/recipe/recipe.yaml" \
+python3 "$REPO/scripts/localise_feedstock_recipe.py" "$FEEDSTOCK/recipe/recipe.yaml" \
     --checkout /home/conda/feedstock_root/adapy-src --pyproject "$REPO/pyproject.toml"
 sed -n '1,25p' "$FEEDSTOCK/recipe/recipe.yaml"
 

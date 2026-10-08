@@ -20,10 +20,10 @@ import sys
 
 import pytest
 
-_TOOLS = pathlib.Path(__file__).resolve().parents[3] / "tools"
+_TOOLS = pathlib.Path(__file__).resolve().parents[3] / "scripts"
 
 # SKIPPED AT MODULE LEVEL, before the import below, because the thing it imports is
-# not in the package. The recipe ships `tests` and `files`; `tools/` is not among
+# not in the package. The recipe ships `tests` and `files`; `scripts/` is not among
 # them, so in a packaged test run this module raises ModuleNotFoundError during
 # COLLECTION -- and a `pytestmark` skip cannot help, because collection has already
 # failed by the time marks are read.
@@ -33,7 +33,7 @@ _TOOLS = pathlib.Path(__file__).resolve().parents[3] / "tools"
 # instance of it: a test about the repository, unable to run anywhere else.
 if not (_TOOLS / "localise_feedstock_recipe.py").is_file():
     pytest.skip(
-        "tests the repository's tools/, which a packaged test run does not ship",
+        "tests the repository's scripts/, which a packaged test run does not ship",
         allow_module_level=True,
     )
 

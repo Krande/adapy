@@ -61,7 +61,7 @@ def localise(recipe_text: str, checkout: str, version: str | None = None) -> str
 
     replacement = (
         "source:\n"
-        "  # Rewritten by tools/localise_feedstock_recipe.py: build THIS checkout\n"
+        "  # Rewritten by scripts/localise_feedstock_recipe.py: build THIS checkout\n"
         "  # rather than a published tarball, so packaging faults are visible before\n"
         "  # a release rather than after one.\n"
         f"  path: {checkout}\n"

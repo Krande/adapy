@@ -14,7 +14,7 @@
 // the file is far too large to commit as a fixture.
 //
 //   EIGEN_SIN=/path/to/EigenR100.SIN \
-//     node tools/pyodide-test/test_pyodide_sin_large.js
+//     node scripts/pyodide-test/test_pyodide_sin_large.js
 
 const fs = require("fs");
 const path = require("path");

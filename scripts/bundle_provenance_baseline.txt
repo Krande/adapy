@@ -1,4 +1,4 @@
-# Baselined orphans for tools/check_bundle_provenance.py.
+# Baselined orphans for scripts/check_bundle_provenance.py.
 #
 # WHAT AN ENTRY HERE MEANS
 # ------------------------
@@ -28,7 +28,7 @@
 # fragment below are not load-bearing here (they are in the source).
 #
 # Regenerate the candidate list with:
-#     python tools/check_bundle_provenance.py -v --limit 500
+#     python scripts/check_bundle_provenance.py -v --limit 500
 
 # --- JSX text nodes: written across lines, with `&amp;` for the ampersand.
 # The bundler joins the lines and decodes the entity, so the tree contains

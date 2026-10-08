@@ -223,7 +223,7 @@ jobs:
             BASE_SHA: ${{ github.event.pull_request.base.sha }}
           run: |
             CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
-            if echo "$CHANGED" | grep -qE '^(src/frontend/|src/ada/visit/rendering/resources/index\.zip$|tools/(check_bundle_provenance\.py|bundle_provenance_baseline\.txt)$)'; then
+            if echo "$CHANGED" | grep -qE '^(src/frontend/|src/ada/visit/rendering/resources/index\.zip$|scripts/(check_bundle_provenance\.py|bundle_provenance_baseline\.txt)$)'; then
               echo "run=true" >> "$GITHUB_OUTPUT"
             else
               echo "run=false" >> "$GITHUB_OUTPUT"
@@ -246,7 +246,7 @@ jobs:
 
         - name: Check bundle provenance
           if: steps.scope.outputs.run == 'true'
-          run: python3 tools/check_bundle_provenance.py -v
+          run: python3 scripts/check_bundle_provenance.py -v
 
     # The frontend has a unit-test suite (src/frontend/src/__tests__, `npm test`) and a typecheck,
     # and until this job neither ran on a pull request: the only frontend gate was the bundle
@@ -321,7 +321,7 @@ jobs:
     # test file. Both were found after the fact, by the feedstock, not by us.
     #
     # This clones the real feedstock, points its recipe at the checkout (rattler-build has no flag
-    # for that -- see tools/localise_feedstock_recipe.py) and builds. Tests run too, so the
+    # for that -- see scripts/localise_feedstock_recipe.py) and builds. Tests run too, so the
     # feedstock's own definition of what ships and what it runs is checked before a release rather
     # than after one.
     conda-package:
@@ -342,7 +342,7 @@ jobs:
             BASE_SHA: ${{ github.event.pull_request.base.sha }}
           run: |
             CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
-            if echo "$CHANGED" | grep -qE '^(pyproject\.toml$|src/ada/.*\.(sql|json|xml|zip)$|tests/|files/|scripts/|tools/localise_feedstock_recipe\.py$|tools/feedstock_build\.sh$|\.github/workflows/pr-tests\.yml$)'; then
+            if echo "$CHANGED" | grep -qE '^(pyproject\.toml$|src/ada/.*\.(sql|json|xml|zip)$|tests/|files/|scripts/|\.github/workflows/pr-tests\.yml$)'; then
               echo "run=true" >> "$GITHUB_OUTPUT"
             else
               echo "run=false" >> "$GITHUB_OUTPUT"
@@ -353,11 +353,11 @@ jobs:
         # image (linux-anvil), its mounts, and its layout -- the packaged tests run inside the
         # feedstock's git checkout, as on conda-forge. The bare-runner build ran them outside any
         # repo, where two `git grep` gates skipped and went green while conda-forge failed them
-        # (conda-forge/ada-py-feedstock#221). tools/feedstock_build.sh says why in full, and is
+        # (conda-forge/ada-py-feedstock#221). scripts/feedstock_build.sh says why in full, and is
         # the same command to run locally.
         - name: Build and test the package the way conda-forge does
           if: steps.scope.outputs.run == 'true'
-          run: tools/feedstock_build.sh "$RUNNER_TEMP/feedstock-build"
+          run: scripts/feedstock_build.sh "$RUNNER_TEMP/feedstock-build"
 
     # Build the viewer image and start the server inside it. Nothing else in this workflow can catch
     # a viewer that won't boot: lint and the test matrix run against the full src/ada tree, but the

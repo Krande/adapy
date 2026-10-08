@@ -37,8 +37,8 @@ ARG BASE_IMAGE
 FROM python:3.12-slim AS adapy-wheel
 WORKDIR /repo
 COPY src/ada/ ./src/ada/
-COPY tools/build_pyodide_adapy_wheel.py ./tools/build_pyodide_adapy_wheel.py
-RUN python tools/build_pyodide_adapy_wheel.py /out
+COPY scripts/build_pyodide_adapy_wheel.py ./scripts/build_pyodide_adapy_wheel.py
+RUN python scripts/build_pyodide_adapy_wheel.py /out
 
 # Re-declare to pull the global BASE_IMAGE into this stage's FROM.
 ARG BASE_IMAGE

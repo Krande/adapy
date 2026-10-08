@@ -1,7 +1,7 @@
 """Single-source conversion dispatch for the WASM / pyodide engine.
 
 The browser Web Worker (``src/frontend/.../pyodide_worker.js``) and the node
-sweep driver (``tools/pyodide-test/wasm_sweep_driver.js``) used to each carry
+sweep driver (``scripts/pyodide-test/wasm_sweep_driver.js``) used to each carry
 their own copy of this logic in embedded Python strings — and drifted (the same
 bugs had to be fixed in both). The conversion logic is adapy's, not the host's,
 so it lives here, shipped in the pyodide wheel. Each host now only does the

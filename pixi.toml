@@ -165,7 +165,7 @@ wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstal
 wbuild-serve = { cmd = "npm run gen:plugins && npm run build:serve", cwd = "./src/frontend", depends-on = ["winstall"] }
 # Build the pyodide ada-py wheel into the SPA's public/wheels so the dev
 # server and build serve it at /wheels/ for the in-browser FEM/SAT stacks.
-wheel-pyodide = { cmd = "python tools/build_pyodide_adapy_wheel.py src/frontend/public/wheels" }
+wheel-pyodide = { cmd = "python scripts/build_pyodide_adapy_wheel.py src/frontend/public/wheels" }
 fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
 
 json-code-gen-ts = { cmd = [
@@ -683,8 +683,8 @@ flatbuffers = "==25.2.10"
 nodejs = "*"
 
 [feature.test-pyodide.tasks]
-install-pyodide = { cmd = "npm install", cwd = "tools/pyodide-test", outputs = ["tools/pyodide-test/node_modules"] }
-test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "tools/pyodide-test", depends-on = ["install-pyodide"] }
+install-pyodide = { cmd = "npm install", cwd = "scripts/pyodide-test", outputs = ["scripts/pyodide-test/node_modules"] }
+test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "scripts/pyodide-test", depends-on = ["install-pyodide"] }
 
 [dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"

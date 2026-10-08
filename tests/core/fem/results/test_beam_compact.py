@@ -272,7 +272,7 @@ def test_reader_rejects_a_foreign_or_truncated_file(tmp_path):
 
 def test_committed_frontend_fixture_is_current():
     """The TypeScript expander is tested against a fixture this expander
-    produced. Regenerate it (``python tools/gen_beam_solids_compact_fixture.py``)
+    produced. Regenerate it (``python scripts/gen_beam_solids_compact_fixture.py``)
     whenever the format or the arithmetic changes, or the two implementations
     are being compared against a stale answer."""
 
@@ -280,7 +280,7 @@ def test_committed_frontend_fixture_is_current():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[4]
-    script = root / "tools" / "gen_beam_solids_compact_fixture.py"
+    script = root / "scripts" / "gen_beam_solids_compact_fixture.py"
     spec = importlib.util.spec_from_file_location("gen_beam_solids_compact_fixture", script)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

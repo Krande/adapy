@@ -800,7 +800,7 @@ def _resolve_driver(args: argparse.Namespace) -> str:
             print(f"error: --driver {p} does not exist", file=sys.stderr)
             sys.exit(2)
         return str(p)
-    rel = pathlib.Path("tools") / "pyodide-test" / "wasm_sweep_driver.js"
+    rel = pathlib.Path("scripts") / "pyodide-test" / "wasm_sweep_driver.js"
     cur = pathlib.Path.cwd()
     for d in [cur, *cur.parents]:
         if (d / rel).exists():
@@ -809,7 +809,7 @@ def _resolve_driver(args: argparse.Namespace) -> str:
     if fallback.exists():
         return str(fallback)
     print(
-        "error: could not find tools/pyodide-test/wasm_sweep_driver.js — run from the adapy checkout or pass --driver",
+        "error: could not find scripts/pyodide-test/wasm_sweep_driver.js — run from the adapy checkout or pass --driver",
         file=sys.stderr,
     )
     sys.exit(2)

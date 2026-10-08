@@ -60,8 +60,8 @@ FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 FROM python:3.12-slim AS adapy-wheel
 WORKDIR /repo
 COPY src/ada/ ./src/ada/
-COPY tools/build_pyodide_adapy_wheel.py ./tools/build_pyodide_adapy_wheel.py
-RUN python tools/build_pyodide_adapy_wheel.py /out
+COPY scripts/build_pyodide_adapy_wheel.py ./scripts/build_pyodide_adapy_wheel.py
+RUN python scripts/build_pyodide_adapy_wheel.py /out
 
 # Stage 1: build the SPA bundle.
 FROM node:20-slim AS frontend-build

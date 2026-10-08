@@ -28,7 +28,7 @@ Hand-builds the wheel zip with the standard library only — no
 setuptools/build needed, so it runs in any environment (CI, the Docker
 viewer build, a bare checkout).
 
-Usage:  python tools/build_pyodide_adapy_wheel.py [OUTDIR]
+Usage:  python scripts/build_pyodide_adapy_wheel.py [OUTDIR]
 Prints the built wheel path on stdout.
 """
 
