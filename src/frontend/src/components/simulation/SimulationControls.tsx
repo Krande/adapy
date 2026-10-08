@@ -722,19 +722,25 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     </div>
                 )}
                 {!timeHistory && (
-                <div className="text-white text-xs flex items-center gap-1">
-                    T
+                // The animation's period, not a scale: how long one oscillation takes. Drawn
+                // as the same field as "Scale ×" -- unstyled, the box vanished and the label
+                // read as a stray second scale control.
+                <label
+                    className="flex items-center gap-1 text-xs text-white"
+                    title="Period: seconds per oscillation when playing"
+                >
+                    <span className="text-gray-200">Period</span>
                     <input
                         type="number"
                         min={0.1}
                         step={0.1}
                         value={period}
                         onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                        className="text-black w-12 @sm:w-16 px-1 rounded-sm"
-                        title="Oscillation period (seconds)"
+                        className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
+                        aria-label="Oscillation period in seconds"
                     />
-                    s
-                </div>
+                    <span className="text-gray-400">s</span>
+                </label>
                 )}
             </div>
 
