@@ -1493,10 +1493,11 @@ const ChangedByFilter: React.FC<{ view: AssetView; selected: string | null; onSe
     const owners = changeOwners(view);
     const matches = owner ? subjectsByOwner(view, owner) : [];
     return (
-        <div className="px-1 pt-1 flex flex-wrap items-center gap-1 shrink-0">
+        // Inline in the chip row under the search box: one row for every narrowing of the view.
+        <div className="contents">
             <select
                 aria-label="Changed by"
-                className={`${CONTROL} px-2 max-w-[70%] truncate`}
+                className="h-6 rounded-full border border-gray-600 bg-gray-800 px-2 text-[11px] text-gray-200 hover:bg-gray-700 max-w-[60%] truncate"
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
             >
@@ -2151,8 +2152,9 @@ const AssetsTab: React.FC = () => {
                         />
                     </div>
                 </div>
-                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter) && (
+                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter || view?.hasChangeOwners) && (
                     <div className="px-2 pt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400 shrink-0">
+                        {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
                         {providerFilter && (
                             <button
                                 type="button"
@@ -2197,15 +2199,16 @@ const AssetsTab: React.FC = () => {
                     </div>
                 )}
                 <div className="mt-2 border-t border-gray-700/70 shrink-0" />
-                {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
 
                 <div className="shrink-0">
                     {indexError && <Banner tone="error">{indexError}</Banner>}
                     {summary?.mixed && (
-                        <Banner tone="warn" title={summary.revisions.map(formatRevision).join("\n")}>
-                            Mixed: this view spans {summary.revisions.length} publishes (
-                            {formatRevision(summary.revisions[0])} … {formatRevision(summary.revisions[summary.revisions.length - 1])}). Pick a
-                            run for a coeval view.
+                        <Banner
+                            tone="warn"
+                            title={`This view spans ${summary.revisions.length} publishes:\n${summary.revisions.map(formatRevision).join("\n")}\nPick a run (beside the collection) for a coeval view.`}
+                        >
+                            Mixed: {summary.revisions.length} publishes, {formatRevision(summary.revisions[0])} …{" "}
+                            {formatRevision(summary.revisions[summary.revisions.length - 1])}
                         </Banner>
                     )}
                     {summary?.coeval && mode.kind === "run" && (
