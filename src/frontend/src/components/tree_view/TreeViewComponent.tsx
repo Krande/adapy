@@ -127,6 +127,10 @@ const TreeViewComponent: React.FC = () => {
                 )}
             </div>
             <div
+                // No focus outlines anywhere in the tree: arborist's own focusable container takes no
+                // className, and the browser outlined it (or the cursor row) on any key, Shift alone
+                // included -- a box drawn over the selection highlight.
+                className="[&_*]:outline-none"
                 // Esc / Alt+T close the drawer while the tree has focus. Caught here, in the
                 // capture phase, and stopped: the tree consumes its own keys, and letting Alt+T go on
                 // to the viewer's global handler would reopen what this just closed.

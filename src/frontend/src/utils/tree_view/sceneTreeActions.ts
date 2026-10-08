@@ -17,6 +17,12 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {unhideAllRanges} from "@/utils/scene/visibility";
 
+/** A batched mesh, by what it can do rather than `instanceof`: a hot reload can leave the scene
+ *  holding meshes of an earlier copy of the class. */
+function isBatched(o: unknown): o is CustomBatchedMesh {
+    return !!o && typeof (o as CustomBatchedMesh).getHiddenRanges === "function" && typeof (o as CustomBatchedMesh).hideBatchDrawRange === "function";
+}
+
 /** The mesh that draws `n`'s own range, or null for a row with none (a pure level). `cache` saves
  *  the scene-graph lookup across a walk; lookups that find nothing are not cached, since the mesh
  *  may simply not have arrived yet. */
@@ -26,9 +32,17 @@ function meshOf(n: TreeNodeData, cache: Map<string, CustomBatchedMesh>): CustomB
     const hit = cache.get(key);
     if (hit) return hit;
     const found = getViewerRuntime().modelKeyMap.current?.get(n.model_key)?.getObjectByName(n.node_name);
-    if (!(found instanceof CustomBatchedMesh)) return null;
-    cache.set(key, found);
-    return found;
+    // The name can resolve to a wrapper around the mesh rather than the mesh itself (selection
+    // entries are keyed either way; see hideSelectedRanges), so look inside it too.
+    let mesh: CustomBatchedMesh | null = isBatched(found) ? found : null;
+    if (!mesh && found) {
+        found.traverse((o) => {
+            if (!mesh && isBatched(o)) mesh = o;
+        });
+    }
+    if (!mesh) return null;
+    cache.set(key, mesh);
+    return mesh;
 }
 
 /** The draw ranges under `rows` (each row's whole subtree), grouped by the mesh that draws them. A
