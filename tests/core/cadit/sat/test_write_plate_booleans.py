@@ -17,6 +17,7 @@ import pytest
 import ada
 from ada.cadit.sat.write import sat_entities as se
 from ada.cadit.sat.write.writer import part_to_sat_writer
+from ada.geom import curves as geo_cu
 
 from ..face_area import plate_area
 
@@ -129,3 +130,129 @@ def test_a_misread_winding_is_refused_not_written(monkeypatch):
     pl.add_boolean(ada.PrimCyl("hole", (2, 1.5, -0.5), (2, 1.5, 0.5), 0.4))
     with pytest.raises(pb.PlateBooleanNotAuthored, match="measures"):
         pb.plate_faces_after_booleans(pl)
+
+
+@pytest.fixture
+def use_backend(monkeypatch):
+    """Make the named backend the active one for the rest of the test."""
+    import ada.cad as cad
+
+    def use(name: str):
+        monkeypatch.setenv("ADAPY_CAD_BACKEND", name)
+        cad.reset_active_backend()
+
+    yield use
+    cad.reset_active_backend()
+
+
+def test_a_hole_through_the_outline_is_a_notch_in_it(backend, use_backend):
+    """The outline runs the hole's arc backwards: built the short way round, the face is the plate less half the disc.
+
+    Refused before on both kernels (the rebuilt face measured 12.754 against the cut's 11.749): each
+    built that arc the long way round.
+    """
+    from ada.cadit.sat.write.plate_booleans import plate_faces_after_booleans
+
+    from ..face_area import planar_face_area
+
+    use_backend("occ" if backend.name == "pythonocc-core" else "adacpp")
+    pl = _plate()
+    pl.add_boolean(ada.PrimCyl("notch", (0, 1.5, -0.5), (0, 1.5, 0.5), 0.4))
+    (face,) = plate_faces_after_booleans(pl)
+    (outline,) = face.bounds
+    kinds = [type(oe.edge_element.edge_geometry).__name__ for oe in outline.bound.edge_list]
+    assert sorted(kinds) == ["Circle"] * 2 + ["Line"] * 5  # the cylinder's seam splits its arc
+    assert planar_face_area(face) == pytest.approx(12.0 - np.pi * 0.16 / 2, rel=1e-12)
+
+
+CUTS = {
+    "box": lambda: [ada.PrimBox("h", (1.5, 1.0, -0.5), (2.5, 2.0, 0.5))],
+    "round": lambda: [ada.PrimCyl("h", (2, 1.5, -0.5), (2, 1.5, 0.5), 0.4)],
+    "two": lambda: [
+        ada.PrimCyl("a", (1, 1.5, -0.5), (1, 1.5, 0.5), 0.4),
+        ada.PrimBox("b", (2.5, 1, -0.5), (3.5, 2, 0.5)),
+    ],
+    "slot": lambda: [ada.PrimBox("s", (1.5, -1.0, -0.5), (2.5, 4.0, 0.5))],
+    "notch": lambda: [ada.PrimCyl("n", (0, 1.5, -0.5), (0, 1.5, 0.5), 0.4)],
+    "sphere": lambda: [ada.PrimSphere("s", (2, 1.5, 0.0), 0.5)],
+    "irrational": lambda: [ada.PrimCyl("h", (np.sqrt(2), np.pi / 2, -0.5), (np.sqrt(2), np.pi / 2, 0.5), 1 / 3)],
+}
+
+
+def _numbers(faces) -> list:
+    out = []
+    for f in faces:
+        p = f.face_surface.position
+        out.append(("plane", [*p.location, *p.axis, *p.ref_direction]))
+        for b in f.bounds:
+            for oe in b.bound.edge_list:
+                c = oe.edge_element.edge_geometry
+                if isinstance(c, geo_cu.Line):
+                    nums = [*c.pnt, *c.dir]
+                else:
+                    nums = [*c.position.location, *c.position.axis, *c.position.ref_direction, c.radius]
+                out.append(
+                    (type(c).__name__, oe.edge_element.same_sense, nums, [*oe.start, *oe.end, oe.t_start, oe.t_end])
+                )
+    return out
+
+
+@pytest.mark.parametrize("cut", sorted(CUTS))
+@pytest.mark.parametrize("placed", [False, True])
+def test_both_kernels_read_the_same_faces(both_backends, use_backend, cut, placed):
+    """The same loops, edges and curves from either kernel's cut, to the digits the BREP text keeps.
+
+    Curves and planes go through the text with 17 significant digits and come out bit-identical;
+    edge parameters and so the points evaluated at them with 15 (adacpp writes them so; pythonocc
+    keeps more). 15 digits of a parameter up to 2 pi, or of a coordinate up to 32 here, are within
+    5e-15 of it relative: measured, the worst difference over these cases is 3.6e-15.
+    """
+    from ada.cadit.sat.write.plate_booleans import plate_faces_after_booleans
+
+    def faces():
+        pl = _plate()
+        for prim in CUTS[cut]():
+            pl.add_boolean(prim)
+        if placed:
+            ada.Assembly("A") / (
+                ada.Part("P", placement=ada.Placement(origin=(10, 20, 30), xdir=(0, 1, 0), zdir=(1, 0, 0))) / pl
+            )
+        return _numbers(plate_faces_after_booleans(pl))
+
+    use_backend("occ")
+    occ = faces()
+    use_backend("adacpp")
+    acp = faces()
+    assert [(k[0], k[1] if len(k) > 2 else None) for k in occ] == [(k[0], k[1] if len(k) > 2 else None) for k in acp]
+    for a, b in zip(occ, acp):
+        assert a[-1 if len(a) == 2 else 2] == b[-1 if len(b) == 2 else 2]  # planes and curves: bit-identical
+        if len(a) > 2:
+            ta, tb = np.asarray(a[3], dtype=float), np.asarray(b[3], dtype=float)
+            assert np.all(np.abs(ta - tb) <= 5e-15 * np.maximum(2 * np.pi, np.abs(ta)))
+
+
+def test_a_cut_face_used_reversed_reads_as_the_same_face(monkeypatch):
+    """A face whose plane faces -z used reversed is the face whose plane faces +z: same advanced face.
+
+    The cut never hands one back so (measured: forward, plane on -z), so the reading is rewritten to
+    say the same face the other way -- plane axis flipped, used reversed.
+    """
+    import dataclasses
+
+    import ada.cadit.sat.write.plate_booleans as pb
+
+    def faces():
+        pl = _plate()
+        pl.add_boolean(ada.PrimCyl("hole", (2, 1.5, -0.5), (2, 1.5, 0.5), 0.4))
+        return _numbers(pb.plate_faces_after_booleans(pl))
+
+    as_cut = faces()
+    read = pb.bt.read_planar_face
+
+    def flipped(text):
+        f = read(text)
+        plane = dataclasses.replace(f.plane, axis=-f.plane.axis)
+        return dataclasses.replace(f, plane=plane, reversed=not f.reversed)
+
+    monkeypatch.setattr(pb.bt, "read_planar_face", flipped)
+    assert faces() == as_cut

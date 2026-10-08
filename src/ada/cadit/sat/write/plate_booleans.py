@@ -7,6 +7,12 @@ the CAD backend makes the cut, and what is left of the plate is read back as adv
 plane, the outer loop and every hole loop, each edge on the line, circle or B-spline the cut put
 there. The SAT writer then authors those like any other advanced face, holes and all.
 
+Every step goes through :mod:`ada.cad`'s backend, so this runs on adacpp and pythonocc alike
+(Krande/adapy#435 first walked the cut with pythonocc, which the default environments do not
+carry): the backend builds, places and measures the cut, and each face is read back out of the
+BREP text the backend serialises it to (:mod:`ada.cad.brep_text`) -- the one form of a shape
+both kernels write.
+
 Anything the reading cannot state exactly is refused by name (:class:`PlateBooleanNotAuthored`)
 rather than approximated: an edge on another kind of curve, a cut that leaves something other
 than plane faces, and any face whose authored area disagrees with the cut's.
@@ -19,6 +25,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 import ada
+from ada.cad import brep_text as bt
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
@@ -30,94 +37,103 @@ class PlateBooleanNotAuthored(Exception):
     """A plate's booleans cut it into something the SAT writer cannot state exactly."""
 
 
-#: How closely the faces read back from the cut must reproduce its area, relative. The
-#: comparison is exact geometry against exact geometry (the same lines, circles and splines,
-#: integrated adaptively to 1e-9), so this is a floor for the integration, not a tolerance on
-#: the shape: a hole wound the wrong way changes the area by twice the hole.
+#: How closely the faces read back from the cut must reproduce its area, relative. Both areas
+#: are the backend's, of exact geometry (the same lines, circles and splines), so this is a
+#: floor for the integration, not a tolerance on the shape: a hole wound the wrong way changes
+#: the area by twice the hole.
 AREA_REL_TOL = 1e-7
 
-
-def _area(shape) -> float:
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
-
-    props = GProp_GProps()
-    brepgprop.SurfaceProperties(shape, props, 1e-9)
-    return props.Mass()
+#: A B-spline whose end poles are closer than this is closed (``closed_curve``).
+_BSPLINE_CLOSED = 1e-7
 
 
 def _pnt(p) -> ada.Point:
-    return ada.Point(p.X(), p.Y(), p.Z())
+    return ada.Point(*(float(c) for c in p))
 
 
 def _dir(d) -> ada.Direction:
-    return ada.Direction(d.X(), d.Y(), d.Z())
+    return ada.Direction(*(float(c) for c in d))
 
 
-def _curve(adaptor, plate_name: str):
-    """The adapy curve an OCC edge runs on, in the parameterisation OCC and ACIS share."""
-    from OCC.Core.GeomAbs import GeomAbs_BSplineCurve, GeomAbs_Circle, GeomAbs_Line
-
-    kind = adaptor.GetType()
-    if kind == GeomAbs_Line:
-        line = adaptor.Line()
-        return geo_cu.Line(_pnt(line.Location()), _dir(line.Direction()))
-    if kind == GeomAbs_Circle:
-        circ = adaptor.Circle()
-        ax2 = circ.Position()
-        position = geo_su.Axis2Placement3D(
-            location=_pnt(ax2.Location()), axis=_dir(ax2.Direction()), ref_direction=_dir(ax2.XDirection())
-        )
-        return geo_cu.Circle(position, circ.Radius())
-    if kind == GeomAbs_BSplineCurve:
-        bs = adaptor.BSpline()
-        poles = [_pnt(bs.Pole(i)) for i in range(1, bs.NbPoles() + 1)]
-        knots = [bs.Knot(i) for i in range(1, bs.NbKnots() + 1)]
-        mults = [bs.Multiplicity(i) for i in range(1, bs.NbKnots() + 1)]
+def _curve(c, plate_name: str):
+    """The adapy curve an edge runs on, in the parameterisation the kernel and ACIS share."""
+    if isinstance(c, bt.Line):
+        return geo_cu.Line(_pnt(c.location), _dir(c.direction))
+    if isinstance(c, bt.Circle):
+        position = geo_su.Axis2Placement3D(location=_pnt(c.centre), axis=_dir(c.axis), ref_direction=_dir(c.x_dir))
+        return geo_cu.Circle(position, c.radius)
+    if isinstance(c, bt.BSpline):
+        if c.periodic:
+            raise PlateBooleanNotAuthored(f"plate {plate_name!r}: a boolean left an edge on a periodic B-spline")
         common = dict(
-            degree=bs.Degree(),
-            control_points_list=poles,
+            degree=c.degree,
+            control_points_list=[_pnt(p) for p in c.poles],
             curve_form=geo_cu.BSplineCurveFormEnum.UNSPECIFIED,
-            closed_curve=bool(bs.IsClosed()),
+            closed_curve=bool(np.linalg.norm(c.poles[0] - c.poles[-1]) <= _BSPLINE_CLOSED),
             self_intersect=False,
-            knot_multiplicities=mults,
-            knots=knots,
+            knot_multiplicities=list(c.multiplicities),
+            knots=list(c.knots),
             knot_spec=geo_cu.KnotType.UNSPECIFIED,
         )
-        if bs.IsRational():
-            weights = [bs.Weight(i) for i in range(1, bs.NbPoles() + 1)]
-            return geo_cu.RationalBSplineCurveWithKnots(**common, weights_data=weights)
+        if c.weights is not None:
+            return geo_cu.RationalBSplineCurveWithKnots(**common, weights_data=[float(w) for w in c.weights])
         return geo_cu.BSplineCurveWithKnots(**common)
-    raise PlateBooleanNotAuthored(f"plate {plate_name!r}: a boolean left an edge on a curve of OCC type {kind}")
+    raise PlateBooleanNotAuthored(f"plate {plate_name!r}: a boolean left an edge on a {type(c).__name__}")
 
 
-def _bound(wire, face, plate_name: str) -> geo_su.FaceBound:
-    from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
-    from OCC.Core.BRepTools import BRepTools_WireExplorer
-    from OCC.Core.TopAbs import TopAbs_REVERSED
-
+def _bound(wire: list[bt.FaceEdge], plate_name: str) -> geo_su.FaceBound:
     edges = []
-    explorer = BRepTools_WireExplorer(wire, face)
-    while explorer.More():
-        edge = explorer.Current()
-        adaptor = BRepAdaptor_Curve(edge)
-        curve = _curve(adaptor, plate_name)
-        first, last = adaptor.FirstParameter(), adaptor.LastParameter()
-        p_first, p_last = _pnt(adaptor.Value(first)), _pnt(adaptor.Value(last))
-        forward = edge.Orientation() != TopAbs_REVERSED
-        start, end = (p_first, p_last) if forward else (p_last, p_first)
-        t_start, t_end = (first, last) if forward else (last, first)
-        edge_curve = geo_cu.EdgeCurve(start=start, end=end, edge_geometry=curve, same_sense=forward)
+    for e in wire:
+        curve = _curve(e.curve, plate_name)
+        p_first, p_last = _pnt(e.curve.value(e.first)), _pnt(e.curve.value(e.last))
+        start, end = (p_first, p_last) if e.forward else (p_last, p_first)
+        t_start, t_end = (e.first, e.last) if e.forward else (e.last, e.first)
+        edge_curve = geo_cu.EdgeCurve(start=start, end=end, edge_geometry=curve, same_sense=e.forward)
         edges.append(
             geo_cu.OrientedEdge(
                 start=start, end=end, edge_element=edge_curve, orientation=True, t_start=t_start, t_end=t_end
             )
         )
-        explorer.Next()
     return geo_su.FaceBound(bound=geo_cu.EdgeLoop(edge_list=edges), orientation=True)
 
 
-def _to_global(pl: Plate, shape):
+def _outer_index(face: bt.PlanarFace) -> int:
+    """``BRepTools::OuterWire``: the first wire, displaced by any later one whose box holds its box.
+
+    The boxes are in the plane's own (u, v), as OCCT's are in the face's parameter space: a
+    line's from its ends, an arc's from its ends and the angles where u or v turns, a
+    B-spline's from 257 points along it.
+    """
+    origin = face.plane.location
+    u = face.plane.x_dir / np.linalg.norm(face.plane.x_dir)
+    v = np.cross(face.plane.axis / np.linalg.norm(face.plane.axis), u)
+
+    def box(wire):
+        pts = []
+        for e in wire:
+            lo, hi = min(e.first, e.last), max(e.first, e.last)
+            ts = [e.first, e.last]
+            if isinstance(e.curve, bt.Circle):
+                for a in (u, v):
+                    t0 = np.arctan2(e.curve.y_dir @ a, e.curve.x_dir @ a)
+                    k0 = int(np.ceil((lo - t0) / np.pi))
+                    ts += [t0 + k * np.pi for k in range(k0, k0 + 3) if t0 + k * np.pi <= hi]
+            elif isinstance(e.curve, bt.BSpline):
+                ts += list(np.linspace(lo, hi, 257))
+            pts += [e.curve.value(t) - origin for t in ts]
+        uv = np.array([(p @ u, p @ v) for p in pts])
+        return uv.min(axis=0), uv.max(axis=0)
+
+    best = 0
+    b_lo, b_hi = box(face.wires[0])
+    for k in range(1, len(face.wires)):
+        lo, hi = box(face.wires[k])
+        if np.all(lo <= b_lo) and np.all(hi >= b_hi):
+            best, b_lo, b_hi = k, lo, hi
+    return best
+
+
+def _to_global(be, pl: Plate, shape):
     """``shape`` (built in the plate's own frame, as ``shell_geom`` is) moved to global coordinates.
 
     The same placement :meth:`~ada.Plate.outline_global` pushes the outline through, taken as
@@ -128,16 +144,12 @@ def _to_global(pl: Plate, shape):
     abs_place = pl.placement.get_absolute_placement(include_rotations=True)
     if abs_place.is_identity():
         return shape
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCC.Core.gp import gp_Trsf
-
     o, ex, ey, ez = abs_place.transform_array_from_other_place(
         np.asarray([(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)], dtype=float), Placement(), ignore_translation=False
     )
-    cols = [ex - o, ey - o, ez - o]
-    trsf = gp_Trsf()
-    trsf.SetValues(*(v for r in range(3) for v in (cols[0][r], cols[1][r], cols[2][r], o[r])))
-    return BRepBuilderAPI_Transform(shape, trsf, True).Shape()
+    m = np.eye(4)
+    m[:3, 0], m[:3, 1], m[:3, 2], m[:3, 3] = ex - o, ey - o, ez - o, o
+    return be.transform(shape, m, copy=True)
 
 
 def _reversed(bound: geo_su.FaceBound) -> geo_su.FaceBound:
@@ -163,60 +175,45 @@ def plate_faces_after_booleans(pl: Plate) -> list[geo_su.AdvancedFace]:
     checked against the cut it was read from -- rebuilt from the advanced face, its area must be
     the cut's -- so a misread loop or winding is refused, not written.
     """
-    from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
-    from OCC.Core.BRepTools import breptools
-    from OCC.Core.GeomAbs import GeomAbs_Plane
-    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_WIRE
-    from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopoDS import topods
+    from ada.cad import active_backend
+    from ada.geom import Geometry
 
-    from ada.occ.geom import geom_to_occ_geom
-    from ada.occ.geom.surfaces import make_face_from_geom
-
-    cut = _to_global(pl, geom_to_occ_geom(pl.shell_geom()))
+    be = active_backend()
+    cut = _to_global(be, pl, be.build(pl.shell_geom()))
     normal = np.asarray(pl.outline_global()[1], dtype=float)
 
     faces = []
-    exp = TopExp_Explorer(cut, TopAbs_FACE)
-    while exp.More():
-        face = topods.Face(exp.Current())
-        surf = BRepAdaptor_Surface(face)
-        if surf.GetType() != GeomAbs_Plane:
-            raise PlateBooleanNotAuthored(f"plate {pl.name!r}: its booleans left a face that is not a plane")
-        pln = surf.Plane()
-        outer = breptools.OuterWire(face)
-        bounds = [_bound(outer, face, pl.name)]
-        wexp = TopExp_Explorer(face, TopAbs_WIRE)
-        while wexp.More():
-            wire = topods.Wire(wexp.Current())
-            if not wire.IsSame(outer):
-                bounds.append(_bound(wire, face, pl.name))
-            wexp.Next()
+    for handle in be.faces(cut):
+        try:
+            face = bt.read_planar_face(be.serialize(handle))
+        except bt.BrepTextUnsupported as ex:
+            raise PlateBooleanNotAuthored(f"plate {pl.name!r}: its booleans left {ex}") from ex
+        outer = _outer_index(face)
+        bounds = [_bound(face.wires[k], pl.name) for k in [outer] + [k for k in range(len(face.wires)) if k != outer]]
         # The loops run counter-clockwise about the cut face's own normal, and that normal
         # need not be the plate's: measured, the backend's face of a +z plate has its plane
         # axis on -z, FORWARD. The plate's normal is what the XML states, so the face takes
         # it, and the loops are turned round where the cut faced the other way.
-        axis = np.asarray(_dir(pln.Axis().Direction()), dtype=float)
-        if face.Orientation() == TopAbs_REVERSED:
+        axis = face.plane.axis / np.linalg.norm(face.plane.axis)
+        if face.reversed:
             axis = -axis
         if float(axis @ normal) < 0:
             bounds = [_reversed(b) for b in bounds]
         plane = geo_su.Plane(
             position=geo_su.Axis2Placement3D(
-                location=_pnt(pln.Location()),
+                location=_pnt(face.plane.location),
                 axis=ada.Direction(*normal),
-                ref_direction=_dir(pln.XAxis().Direction()),
+                ref_direction=_dir(face.plane.x_dir),
             )
         )
         advanced = geo_su.AdvancedFace(bounds=bounds, face_surface=plane, same_sense=True)
-        expected, got = _area(face), _area(make_face_from_geom(advanced))
+        expected, got = be.area(handle), be.area(be.build(Geometry(pl.guid, advanced, pl.color)))
         if not abs(got - expected) <= AREA_REL_TOL * expected:
             raise PlateBooleanNotAuthored(
                 f"plate {pl.name!r}: the face read back from its booleans' cut measures {got} against the cut's "
                 f"{expected}"
             )
         faces.append(advanced)
-        exp.Next()
     if not faces:
         raise PlateBooleanNotAuthored(f"plate {pl.name!r}: its booleans leave nothing of it")
     return faces
