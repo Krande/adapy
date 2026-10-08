@@ -106,3 +106,31 @@ def test_a_sector_whose_arc_runs_backwards(backend, ref_angle, turn):
     area, valid = _area_and_validity(backend, face)
     assert valid
     assert area == pytest.approx(r**2 * turn / 2, rel=1e-12)
+
+
+@pytest.mark.parametrize("turn", [0.5 * np.pi, 1.5 * np.pi])
+@pytest.mark.parametrize("ref_angle", [0.0, 1.1])
+def test_an_elliptic_sector_whose_arc_runs_backwards(backend, ref_angle, turn):
+    """The sector above on an ellipse (semi-axes 0.8, 0.5): area a b turn / 2.
+
+    Both kernels trimmed an open elliptic arc between its points walking the parameter up,
+    whichever way the edge ran: measured, the quarter built as three quarters (0.9425 for
+    0.3142) on adacpp and the reverse on pythonocc, whose planar builder then also rebuilt a
+    three-quarter sector from the shortest arc between its ends (0.3133).
+    """
+    a, b = 0.8, 0.5
+    ref = np.array([np.cos(ref_angle), np.sin(ref_angle), 0.0])
+    y = np.cross((0.0, 0.0, 1.0), ref)
+    ellipse = geo_cu.Ellipse(
+        geo_su.Axis2Placement3D(location=Point(0, 0, 0), axis=(0, 0, 1), ref_direction=tuple(ref)), a, b
+    )
+    t = (2 * np.pi, 2 * np.pi - turn)
+    start, end = (tuple(a * np.cos(s) * ref + b * np.sin(s) * y) for s in t)
+    loop = [_line((0, 0, 0), start), _edge(start, end, ellipse, same_sense=False, t=t), _line(end, (0, 0, 0))]
+    plane = geo_su.Plane(geo_su.Axis2Placement3D(location=Point(0, 0, 0), axis=(0, 0, -1), ref_direction=(1, 0, 0)))
+    face = geo_su.AdvancedFace(
+        bounds=[geo_su.FaceBound(geo_cu.EdgeLoop(loop), True)], face_surface=plane, same_sense=True
+    )
+    area, valid = _area_and_validity(backend, face)
+    assert valid
+    assert area == pytest.approx(a * b * turn / 2, rel=1e-12)

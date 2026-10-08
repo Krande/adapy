@@ -1160,7 +1160,11 @@ class AdacppBackend:
             pos = curve.position
             loc, axis, ref = self._xyz(pos.location), self._xyz(pos.axis), self._xyz(pos.ref_direction)
             s1, s2 = float(curve.semi_axis1), float(curve.semi_axis2)
-            if backwards:
+            # An arc run against the ellipse (t_start > t_end): the record trims between its points
+            # walking the parameter up, which is the other arc between them (measured: a quarter
+            # sector run backwards built as three quarters). About the opposite axis, up from start
+            # to end is the arc the edge runs (Krande/adapy#435).
+            if backwards or (has_trim and float(t_start) > float(t_end)):
                 axis = [-c for c in axis]
             if closed:
                 return [4.0, *loc, *axis, *ref, s1, s2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

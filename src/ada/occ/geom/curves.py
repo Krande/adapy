@@ -291,8 +291,18 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                         else gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis))
                     )
                     el = gp_Elips(ax2, float(curve_geom.semi_axis1), float(curve_geom.semi_axis2))
+                    t_start, t_end = getattr(edge, "t_start", None), getattr(edge, "t_end", None)
                     if _points_equal(edge.start, edge.end):
                         edge_maker = BRepBuilderAPI_MakeEdge(el)
+                    elif t_start is not None and t_end is not None and float(t_start) > float(t_end):
+                        # Run against the ellipse: MakeEdge(elips, p1, p2) walks the parameter UP from
+                        # p1, so it built the other arc between the same points (measured: a quarter
+                        # sector run backwards measured as three quarters, and the reverse). As for a
+                        # circle, the same arc run from start to end is the ellipse about the opposite
+                        # axis between -t_start and -t_end (Krande/adapy#435).
+                        normal = -np.asarray(pos.axis, dtype=float)
+                        el = gp_Elips(_ax2(pos, normal), float(curve_geom.semi_axis1), float(curve_geom.semi_axis2))
+                        edge_maker = BRepBuilderAPI_MakeEdge(el, -float(t_start), -float(t_end))
                     else:
                         edge_maker = BRepBuilderAPI_MakeEdge(el, point3d(edge.start), point3d(edge.end))
                 except Exception as ex:
