@@ -86,9 +86,9 @@ def test_a_hole_run_backwards_is_cut_from_the_face(backend, kind):
     """Valid, and its area is the square's less the hole's.
 
     Measured on both kernels: wound like the outline, the face is invalid (BRepCheck) and measures
-    1 + the hole. The NURBS hole's area is not compared exactly: both kernels' default
-    integration puts that plate at 0.874669 against the exact 0.874336, so there the test asks
-    only that the hole was taken away.
+    1 + the hole. The NURBS hole's area is compared to 1e-3: both kernels' default integration
+    puts that plate at 0.874669 against the exact 0.874336 (3.3e-4 over, pythonocc 7.9.3 and
+    8.0.1, ada-cpp 0.31.1), and a hole of half the radius would measure 0.9686.
     """
     make, hole_area = CURVES[kind]
     plane = geo_su.Plane(
@@ -99,7 +99,7 @@ def test_a_hole_run_backwards_is_cut_from_the_face(backend, kind):
     assert backend.is_valid(shape)
     area = backend.area(shape)
     if kind == "nurbs":
-        assert area < 1.0
+        assert area == pytest.approx(1.0 - hole_area, abs=1e-3)
     else:
         assert area == pytest.approx(1.0 - hole_area, rel=1e-12)
 
@@ -157,5 +157,8 @@ def test_a_closed_curve_run_forwards_is_left_alone(backend, kind):
     (built,) = backend.faces(shape)
     _origin, normal = backend.face_plane(built)
     assert np.allclose(normal, (0, 0, 1), rtol=0, atol=1e-15)
-    if kind != "nurbs":
+    if kind == "nurbs":
+        # the kernels' integration of the rational disc: 0.1256406 for 0.1256637 (measured, both)
+        assert backend.area(shape) == pytest.approx(disc_area, abs=1e-4)
+    else:
         assert backend.area(shape) == pytest.approx(disc_area, rel=1e-12)
