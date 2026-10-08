@@ -45,6 +45,7 @@ import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 import AnimationExportButton from "./AnimationExportButton";
+import {FIELD_CONTROL, TRANSPORT_BUTTON, TRANSPORT_BUTTON_ON} from "./controlStyles";
 import DeformScaleIcon from "../icons/DeformScaleIcon";
 import {formatStepTime} from "@/utils/scene/fea/timeHistory";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
@@ -297,10 +298,6 @@ interface ControlPanelProps {
     showSimData: boolean;
     onToggleData: () => void;
 }
-
-/** The field/step row's controls -- dropdowns and number fields alike -- share one look, so
- *  they line up at one height. */
-const FIELD_CONTROL = "text-black bg-white rounded-sm px-1 py-0.5";
 
 const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const {
@@ -561,24 +558,18 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // figure, controls cut off at its edge. Rows wrap when they must.
     return (
         <div className="@container flex flex-col gap-2 min-w-0">
-            {/* Row 1 — Field / Comp / Step selectors only. Gear
-                moved down to the transport row so this stays a
-                focused "what are you looking at" line.
-                Narrow panel: ``flex-1`` on each label distributes
-                the available width evenly between the three
-                dropdowns, ``min-w-0 truncate`` on the selects
-                lets long field names (e.g. "Contact Normal Force
-                Vector") ellipsise instead of pushing the row past
-                the panel, and the row wraps when even that is not
-                enough. ``@sm:flex-none`` reverts to natural width
-                on a wide panel so the dropdowns size to content
-                with ``justify-between`` spacing the groups. */}
+            {/* Row 1 — what you are looking at: Field / Comp / Step, packed from the left at
+                one spacing. Field and Step share the spare width (``flex-1``) -- their names
+                are the long ones -- and Comp keeps its natural width; ``min-w-0 truncate``
+                lets a long field name ellipsise rather than push the row past the panel,
+                and the row wraps when even that is not enough. (It used to spread the three
+                with ``justify-between``, which on a wide panel left wide gaps between them.) */}
             {manifest && (
-                <div className="flex flex-row flex-wrap items-center justify-between gap-x-2 gap-y-1 w-full min-w-0 text-xs text-white">
-                    <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
+                <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1 w-full min-w-0 text-xs text-white">
+                    <label className="flex items-center gap-1 min-w-0 flex-1">
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
-                            className={`${FIELD_CONTROL} min-w-0 flex-1 @sm:flex-none truncate`}
+                            className={`${FIELD_CONTROL} min-w-0 w-full truncate`}
                             value={fieldPickerValue}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -608,12 +599,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
+                        <label className="flex items-center gap-1 min-w-0 shrink-0">
                             <span className="text-gray-300 shrink-0">
                                 Comp{activeUnit ? ` [${activeUnit}]` : ""}
                             </span>
                             <select
-                                className={`${FIELD_CONTROL} min-w-0 flex-1 @sm:flex-none truncate`}
+                                className={`${FIELD_CONTROL} min-w-0 truncate`}
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -626,10 +617,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </label>
                     )}
                     {activeField && nSteps > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
+                        <label className="flex items-center gap-1 min-w-0 flex-1">
                             <span className="text-gray-300 shrink-0">Step</span>
                             <select
-                                className={`${FIELD_CONTROL} min-w-0 flex-1 @sm:flex-none @sm:max-w-40 truncate`}
+                                className={`${FIELD_CONTROL} min-w-0 w-full truncate`}
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -707,13 +698,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 )}
             </div>
 
-            {/* Row 3 — Transport: play / stop / data-panel toggle +
-                gear, all sized + placed identically so they read as
-                one group of action buttons. Gear lives right after
-                the data-panel button (no ``ml-auto`` push-to-right). */}
-            <div className="flex flex-row flex-wrap items-center gap-2 min-w-0">
+            {/* Row 3 — on the left the actions (play / stop / data panel / export / options),
+                one compact size, packed; on the right how playing is drawn (deformation
+                scale, period, beams as solid). The right group wraps under the buttons on a
+                narrow panel. */}
+            <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+                <span className="flex items-center gap-1.5">
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
+                    className={TRANSPORT_BUTTON}
                     onClick={isPlaying ? onPause : onPlay}
                     title={
                         timeHistory
@@ -724,14 +716,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     <PlayPauseIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
+                    className={TRANSPORT_BUTTON}
                     onClick={onStop}
                     title="Stop and reset deformation to 0"
                 >
                     <StopIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
+                    className={TRANSPORT_BUTTON}
                     onClick={onToggleData}
                     title="Toggle simulation data panel"
                 >
@@ -739,21 +731,23 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </button>
                 <AnimationExportButton/>
                 <button
-                    className={
-                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm " +
-                        (showOptions ? "ring-2 ring-blue-300" : "")
-                    }
+                    className={`${TRANSPORT_BUTTON} ${showOptions ? TRANSPORT_BUTTON_ON : ""}`}
                     onClick={() => setShowOptions((v) => !v)}
                     title="Visualisation options"
                     aria-pressed={showOptions}
                 >
                     <GearIcon/>
                 </button>
-                {/* Deformation scale and the animation period, side by side: the two numbers
-                    that shape what playing draws, beside the buttons that play it. Here rather
-                    than in the field row, which they made too wide; drawn as the same field as
-                    the dropdowns above. */}
-                <span className="flex items-center gap-2 text-xs text-white shrink-0">
+                </span>
+                {/* How playing is drawn: the deformation scale and the period (the two
+                    numbers that shape the animation), and beams as solid. Drawn as the same
+                    field as the dropdowns above.
+
+                    Beams as solid is here as well as in the Scene > FEM panel, through the same
+                    store flag + scene helper, so the two can never disagree: in the paradoc
+                    embed this panel is the only one there is, and a beam drawn as a line cannot
+                    show a torsion mode at all. Only offered when the bundle has beam solids. */}
+                <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white">
                     <label
                         className="flex items-center gap-1"
                         title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
@@ -785,27 +779,21 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             <span className="text-gray-400">s</span>
                         </label>
                     )}
+                    {hasBeamSolids && (
+                        <label
+                            className="flex items-center gap-1"
+                            title="Draw beam elements as their solid cross-section, which also shows twist"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={beamSolidsVisible}
+                                onChange={(e) => onToggleBeamSolids(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Beams as solid</span>
+                        </label>
+                    )}
                 </span>
             </div>
-
-            {/* Beams as solid. Here as well as in the Scene > FEM panel, and through
-                the same store flag + scene helper, so the two can never disagree: in
-                the paradoc embed this panel is the only one there is, and a beam drawn
-                as a line cannot show a torsion mode at all. Only offered when the
-                bundle has beam solids to show. */}
-            {hasBeamSolids && (
-                <label
-                    className="flex items-center gap-1 px-2 text-xs text-white"
-                    title="Draw beam elements as their solid cross-section, which also shows twist"
-                >
-                    <input
-                        type="checkbox"
-                        checked={beamSolidsVisible}
-                        onChange={(e) => onToggleBeamSolids(e.target.checked)}
-                    />
-                    <span className="text-gray-300">Beams as solid</span>
-                </label>
-            )}
 
             {showOptions && (
                 <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
@@ -997,19 +985,19 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             </select>
 
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className={TRANSPORT_BUTTON}
                 onClick={togglePlayPause}
             >
                 <PlayPauseIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className={TRANSPORT_BUTTON}
                 onClick={stopAnimation}
             >
                 <StopIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className={TRANSPORT_BUTTON}
                 onClick={onToggleData}
             >
                 <FEMDataPanelIcon/>
