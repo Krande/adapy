@@ -73,7 +73,8 @@
 //          legend itself can stop core mounting a second one, and
 //          `feaValuesForElement` for reading a picked element as numbers.
 //   1.1.0  `ExternalModelsPanel` + `useExternalModelsStore` on
-//          `@/viewer-core/scene`
+//          `@/viewer-core/scene`. Both kept, DEPRECATED: the panel is gone
+//          (the Sources tab replaces it) and the export now renders nothing.
 //
 // Out of sequence, because the list above runs newest-first and this is the
 // newest entry:

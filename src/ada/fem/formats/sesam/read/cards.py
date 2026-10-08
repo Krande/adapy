@@ -161,7 +161,7 @@ re_gbeamg = get_ff_regex(
 GIORH = DataCard("GIORH", ("geono", "hz", "ty", "bt", "tt", "bb", "tb", "sfy", "sfz", "NLOBYT|", "NLOBYB|", "NLOBZ|"))
 GBOX = DataCard("GBOX", ("geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz"))
 GPIPE = DataCard("GPIPE", ("geono", "di", "dy", "t", "sfy", "sfz"))
-GLSEC = DataCard("GLSEC", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "NLOBY|", "NLOBZ|"))
+GLSEC = DataCard("GLSEC", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "k|", "NLOBY|", "NLOBZ|"))
 GCHAN = DataCard("GCHAN", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "unused|", "k|", "NLOBY|", "NLOBZ|"))
 # Generic beam properties — area + moments of inertia only, no
 # profile geometry. The streaming bake uses these to synthesise a

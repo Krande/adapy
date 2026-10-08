@@ -509,6 +509,10 @@ class FEAResult:
     # Populated by solver readers when available (e.g. Calculix .dat,
     # Code_Aster NORM_MODE table); surfaced through get_eig_summary.
     eigen_mode_data: EigenDataSummary | None = None
+    # What the steps ARE, when the reader knows: "transient" for a time history (explicit
+    # dynamics frames -- the viewer opens on the last state and plays through time),
+    # "static" / "eigen" otherwise. None leaves the bake's step-value heuristic to decide.
+    analysis_kind: Literal["static", "eigen", "transient"] | None = None
 
     def __post_init__(self):
         if self.results is None:

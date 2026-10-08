@@ -174,6 +174,10 @@ export interface FeaAnimationState {
      * the updated stepIndex. */
     applyStep: ((stepIndex: number) => Promise<void>) | null;
 
+    /** The active field is a time history (``analysis_kind`` "transient"): play
+     * advances ``stepIndex`` through the frames instead of sweeping ``factor``. */
+    timeHistory: boolean;
+
     setSessionActive: (active: boolean) => void;
     setMesh: (mesh: THREE.Mesh | null) => void;
     setRange: (range: [number, number]) => void;
@@ -205,6 +209,7 @@ export interface FeaAnimationState {
     setNodalAverage: (smooth: boolean) => void;
     setBeamSolidsVisible: (visible: boolean) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
+    setTimeHistory: (timeHistory: boolean) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
 }
@@ -260,6 +265,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // behaviour. Users opt into the solid render via the gear panel.
     beamSolidsVisible: false,
     applyStep: null,
+    timeHistory: false,
 
     setSessionActive: (active) => set({sessionActive: active}),
     setMesh: (mesh) => set({mesh}),
@@ -291,6 +297,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
     setApplyStep: (cb) => set({applyStep: cb}),
+    setTimeHistory: (timeHistory) => set({timeHistory}),
     reset: (): void =>
         set((state) => ({
             sessionActive: false,
@@ -314,5 +321,6 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             // smooth + solid-beams once want them to stick across
             // model swaps.
             applyStep: null,
+            timeHistory: false,
         })),
 }));

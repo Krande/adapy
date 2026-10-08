@@ -2,6 +2,48 @@
 
 
 
+## v0.107.2 (2026-10-08)
+
+### Fix
+
+* fix(sections): torsion constants, torsion moduli and shear centres match GeniE (flat bar Ix was 58x high) (#440)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`f9dc389`](https://github.com/Krande/adapy/commit/f9dc3896649fa7bf247b1f3ecc41cb7131e390e4))
+
+
+## v0.107.1 (2026-10-07)
+
+### Chore
+
+* chore: move the docs site to Zensical, add architecture, Ada Studio and procedural modelling pages (#439) ([`e1e4381`](https://github.com/Krande/adapy/commit/e1e4381bee44ed64cb804d3622cd464b604f97f6))
+
+### Fix
+
+* fix(sections): shear areas and static moments match GeniE (IPE300 Sharz was 4x low) (#437)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`d3337f4`](https://github.com/Krande/adapy/commit/d3337f4b32180b924c3a665ee4bd16ecb9961b25))
+
+
+## v0.107.0 (2026-10-07)
+
+### Feature
+
+* feat(assets): Sources tab follow-ups -- one Options panel, Load set asks first, leaf counts, one error toast; retire the External models panel (#438)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`104d41a`](https://github.com/Krande/adapy/commit/104d41a01b2e8788d051fbfdf265ee4499443c8c))
+
+
+## v0.106.0 (2026-10-07)
+
+### Feature
+
+* feat: OpenCourant explicit dynamics format, time-history playback and animation export (#436)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`eb6a696`](https://github.com/Krande/adapy/commit/eb6a69636e017183ae105d120e2a9c55c9f094b9))
+
+
 ## v0.105.0 (2026-10-05)
 
 ### Feature

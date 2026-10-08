@@ -339,6 +339,9 @@ class FEAResultStreamAdapter:
         (2.3x too large on the verification plate strip) and swept through +/- as an oscillation.
         ``None`` when neither holds, which leaves the heuristic to decide as before.
         """
+        explicit = getattr(self._result, "analysis_kind", None)
+        if explicit is not None:
+            return explicit
         if any(getattr(r, "eigen_freq", None) is not None for r in results):
             return "eigen"
         if getattr(self._result, "eigen_mode_data", None) is None:
@@ -512,6 +515,7 @@ class FEAResultStreamAdapter:
                     element_node_indices=[element_nodes.get(int(label), []) for label in labels],
                     ip_layout=ip_layout,
                     category=_classify_field(name, first),
+                    analysis_kind=getattr(self._result, "analysis_kind", None),
                     support={
                         FieldPosition.ELEMENT_NODAL: "element_nodal",
                         FieldPosition.ELEMENT_AVERAGE: "element_average",

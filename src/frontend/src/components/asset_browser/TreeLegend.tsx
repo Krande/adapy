@@ -4,7 +4,7 @@
 // geometry overlay -- one answer to "can this be loaded?". Neither reads without a key: a blue dot
 // is a provider only once something says which one.
 
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 
 import {
     GEOMETRY_MARK_TITLE,
@@ -46,39 +46,13 @@ const TreeLegend: React.FC<{ providers: readonly string[]; geometryProvider?: st
     const collection = useAssetBrowserStore((s) => s.collection);
     const mode = useAssetBrowserStore((s) => s.mode);
     const geometrySource: GeometrySource = rollupApplies(geometryRollup, collection, mode) ? "server" : "client";
-    const [open, setOpen] = useState(false);
-    const ref = useRef<HTMLDivElement | null>(null);
 
-    useEffect(() => {
-        if (!open) return;
-        const onDown = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-        };
-        const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-        document.addEventListener("mousedown", onDown);
-        document.addEventListener("keydown", onKey);
-        return () => {
-            document.removeEventListener("mousedown", onDown);
-            document.removeEventListener("keydown", onKey);
-        };
-    }, [open]);
-
+    // Inline, as a section of the tab's Options panel. It was a popover on a toolbar button of its
+    // own, and the toolbar beside the collection picker ran out of width.
     return (
-        <div ref={ref} className="relative shrink-0">
-            <button
-                type="button"
-                aria-label="Legend and row marks"
-                aria-expanded={open}
-                title="Legend — what the marks mean, and what they show"
-                onClick={() => setOpen((o) => !o)}
-                className={`h-7 w-7 grid place-items-center rounded-md border text-xs ${
-                    open ? "bg-gray-600 border-gray-500 text-white" : "border-gray-700 bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700"
-                }`}
-            >
-                ●
-            </button>
-            {open && (
-                <div className="absolute right-0 top-8 z-30 w-72 rounded-md border border-gray-700 bg-gray-900 p-2.5 text-xs text-gray-200 shadow-lg space-y-2.5">
+        <div>
+            {
+                <div className="text-xs text-gray-200 space-y-2.5">
                     <div>
                         <div className="text-gray-400 mb-1">Row marks show</div>
                         <div className="flex gap-1">
@@ -174,7 +148,7 @@ const TreeLegend: React.FC<{ providers: readonly string[]; geometryProvider?: st
                         </ul>
                     )}
                 </div>
-            )}
+            }
         </div>
     );
 };

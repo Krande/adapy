@@ -39,6 +39,8 @@ from ada.assets.manifest import HIERARCHY_FILENAME
 __all__ = [
     "ROLLUP_SCHEMA",
     "LOADABLE_DELIVERIES",
+    "EMPTY_DELIVERY",
+    "rollup_delivery",
     "RollupPlan",
     "TreeDocument",
     "TreePlacement",
@@ -70,6 +72,19 @@ def listing_token(entries: Iterable, *, salt: str = "", length: int = 20) -> str
 
 #: A delivery the browser can put in the scene: a mesh to fetch, or one a provider builds on request.
 LOADABLE_DELIVERIES = frozenset({"mesh", "build"})
+
+#: A loadable delivery whose own manifest counts no leaf under it: a build there can only fail.
+#: Distinct from "none" on purpose -- "none" (a tree-only republish) steps aside for an older
+#: content revision, while this IS the provider's newest word on the subject: nothing to draw.
+EMPTY_DELIVERY = "empty"
+
+
+def rollup_delivery(m) -> str:
+    """The delivery a roll-up should read off manifest ``m``: its own, or :data:`EMPTY_DELIVERY`
+    for a loadable claim whose ``counts`` say it holds no leaf."""
+    if m.delivery in LOADABLE_DELIVERIES and (m.counts or {}).get("leaves") == 0:
+        return EMPTY_DELIVERY
+    return m.delivery
 
 
 @dataclass(frozen=True)

@@ -64,6 +64,8 @@ function summaryFromWire(m: WireManifestSummary | undefined): ManifestSummary | 
     producedAt: m.produced_at,
     hierarchyRevision: m.hierarchy_revision ?? null,
     change: changeFromWire(m.change),
+    // Absent stays absent: most providers publish no leaf count, and that says nothing.
+    ...(typeof m.leaves === "number" ? { leaves: m.leaves } : {}),
   };
 }
 

@@ -8,10 +8,19 @@
 
 A python library for working with structural analysis and design. This library should be considered as experimental.
 
-The recommended way of installing ada-py is by creating a new isolated environment for the installation like so:
+The recommended way of installing ada-py is with [pixi](https://pixi.sh), in an isolated project
+environment:
 
 ```
-mamba create -n adaenv ada-py
+pixi init my-project
+cd my-project
+pixi add ada-py
+```
+
+To only use the `ada` command line tool, install it globally instead:
+
+```
+pixi global install ada-py
 ```
 
 Here are some of the goals with `ada-py`:
@@ -35,7 +44,7 @@ ada --help
 
 | Command | What it does |
 | --- | --- |
-| `ada convert` | Convert a model between CAD/FEM formats. Reads ifc, step, xml, gnx, sat/acis and the FEM decks abaqus (`.inp`), sesam (`.fem`/`.sif`), code_aster (`.med`/`.rmed`); writes ifc, step, gltf/glb, xml, gnx and the FEM decks abaqus, calculix, sesam, usfos, code_aster. The extensions pick the formats unless `--from`/`--to` say otherwise, and `--to` is the only way to reach calculix and usfos, which share `.inp` and `.fem` with abaqus and sesam. xml and gnx are one model in two containers -- a `.gnx` is the GeniE workspace, the concept XML zipped with its ACIS body -- so there the extension decides and `--to` cannot override it. The output path is the one file you name; extra files a format needs land beside it. Local. |
+| `ada convert` | Convert a model between CAD/FEM formats. Reads ifc, step, xml, gnx, sat/acis and the FEM decks abaqus (`.inp`), sesam (`.fem`/`.sif`), code_aster (`.med`/`.rmed`); writes ifc, step, gltf/glb, xml, gnx and the FEM decks abaqus, calculix, sesam, usfos, code_aster, opencourant. The extensions pick the formats unless `--from`/`--to` say otherwise, and `--to` is the only way to reach calculix and usfos, which share `.inp` and `.fem` with abaqus and sesam. xml and gnx are one model in two containers -- a `.gnx` is the GeniE workspace, the concept XML zipped with its ACIS body -- so there the extension decides and `--to` cannot override it. The output path is the one file you name; extra files a format needs land beside it. Local. |
 | `ada view` | Open the built-in web viewer on a file, with the `react`, `pygfx` or `trimesh` renderer. Local. |
 | `ada build` | Run the entrypoints declared in an `ada_config.toml` and push the artefacts to a viewer (`run`, `upload`, `run-and-upload`). |
 | `ada files` | List, download, upload and delete blobs in a viewer scope (`list`, `download`, `upload`, `delete`). |
@@ -45,7 +54,7 @@ ada --help
 The `build`, `files` and `audit` groups talk to a hosted viewer and read their base URL and token
 from the environment (a `.env` in the working directory is picked up too; real environment variables
 win). Every command and subcommand takes `--help`, and the full reference is in
-[the docs](https://krande.github.io/adapy/documents/cli.html).
+[the docs](https://krande.github.io/adapy/cli/).
 
 ## Quick Links
 
@@ -96,7 +105,7 @@ a.to_fem('name_of_my_analysis_file_deck_directory_code_aster', 'code_aster')
 ```
 
 Current read support is: abaqus, code aster and sesam  
-Current write support is: abaqus, code aster and sesam, calculix and usfos
+Current write support is: abaqus, code aster and sesam, calculix, usfos and opencourant (explicit shell models)
 
 ### Create and execute a FEM analysis in Calculix, Code Aster and Abaqus
 

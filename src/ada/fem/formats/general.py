@@ -18,6 +18,7 @@ class FEATypes(BaseEnum):
     ABAQUS = "abaqus"
     SESAM = "sesam"
     USFOS = "usfos"
+    OPENCOURANT = "opencourant"
     GMSH = "gmsh"
 
     # formats only
@@ -76,6 +77,7 @@ def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
     from ada.fem.formats.abaqus.config import AbaqusSetup
     from ada.fem.formats.calculix.config import CalculixSetup
     from ada.fem.formats.code_aster.config import CodeAsterSetup
+    from ada.fem.formats.opencourant.config import OpenCourantSetup
     from ada.fem.formats.sesam.config import SesamSetup
     from ada.fem.formats.usfos.config import UsfosSetup
 
@@ -85,6 +87,7 @@ def get_fem_exports() -> dict[FEATypes, Callable[..., Assembly]]:
         FEATypes.CODE_ASTER: CodeAsterSetup.default_pre_processor,
         FEATypes.SESAM: SesamSetup.default_pre_processor,
         FEATypes.USFOS: UsfosSetup.default_pre_processor,
+        FEATypes.OPENCOURANT: OpenCourantSetup.default_pre_processor,
     }
 
 
@@ -92,6 +95,7 @@ def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedPro
     from .abaqus.config import AbaqusSetup
     from .calculix.config import CalculixSetup
     from .code_aster.config import CodeAsterSetup
+    from .opencourant.config import OpenCourantSetup
     from .sesam.config import SesamSetup
 
     return {
@@ -99,10 +103,16 @@ def get_fem_executable() -> dict[FEATypes, Callable[..., subprocess.CompletedPro
         FEATypes.CALCULIX: CalculixSetup.default_executor,
         FEATypes.CODE_ASTER: CodeAsterSetup.default_executor,
         FEATypes.SESAM: SesamSetup.default_executor,
+        FEATypes.OPENCOURANT: OpenCourantSetup.default_executor,
     }
 
 
-fem_solver_map = {FEATypes.SESAM: "sestra", FEATypes.CALCULIX: "ccx", FEATypes.CODE_ASTER: "run_aster"}
+fem_solver_map = {
+    FEATypes.SESAM: "sestra",
+    FEATypes.CALCULIX: "ccx",
+    FEATypes.CODE_ASTER: "run_aster",
+    FEATypes.OPENCOURANT: "starter_linux64_gf",
+}
 
 
 class FemConverters(BaseEnum):

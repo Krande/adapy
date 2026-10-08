@@ -103,7 +103,7 @@ class FieldSpec:
     category: FieldCategory = "other"
     dtype: np.dtype = np.dtype(np.float32)
     presentation: FieldPresentation | None = None
-    analysis_kind: Literal["static", "eigen"] | None = None
+    analysis_kind: Literal["static", "eigen", "transient"] | None = None
 
     @property
     def n_components(self) -> int:
@@ -164,7 +164,7 @@ class ElementFieldSpec:
     support: Literal["element_nodal", "element_average", "result_point", "line_result_point", "gauss"] = "gauss"
     dtype: np.dtype = np.dtype(np.float32)
     presentation: FieldPresentation | None = None
-    analysis_kind: Literal["static", "eigen"] | None = None
+    analysis_kind: Literal["static", "eigen", "transient"] | None = None
 
     @property
     def n_components(self) -> int:
