@@ -165,6 +165,52 @@ def test_a_hole_through_the_outline_is_a_notch_in_it(backend, use_backend):
     assert planar_face_area(face) == pytest.approx(12.0 - np.pi * 0.16 / 2, rel=1e-12)
 
 
+def test_a_cut_along_the_cylinder_seam_is_authored(backend, use_backend):
+    """A plate in y = 0 cut by a cylinder on z: the cut's edge at x = 0.5 is the cylinder's seam.
+
+    Its seam record made the reader raise a bare ``ValueError`` and the SAT writer drop the plate
+    from the body on both kernels; the plate is the strip 0.5 <= x <= 2 of it.
+    """
+    from ada.cadit.sat.write.plate_booleans import plate_faces_after_booleans
+
+    from ..face_area import planar_face_area
+
+    use_backend("occ" if backend.name == "pythonocc-core" else "adacpp")
+    pl = ada.Plate("pl", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.01, origin=(0, 0, 0.5), xdir=(1, 0, 0), normal=(0, 1, 0))
+    pl.add_boolean(ada.PrimCyl("c", (0, 0, -1), (0, 0, 1), 0.5))
+    (face,) = plate_faces_after_booleans(pl)
+    (outline,) = face.bounds
+    ends = np.array([list(oe.start) for oe in outline.bound.edge_list])
+    assert [type(oe.edge_element.edge_geometry) for oe in outline.bound.edge_list] == [geo_cu.Line] * len(ends)
+    # y on the seam is the kernel's 0.5 sin(2 pi) = -1.2e-16 (measured, both kernels)
+    assert np.allclose(ends.min(axis=0), [0.5, 0.0, -0.5], rtol=0, atol=2e-16)
+    assert np.allclose(ends.max(axis=0), [2.0, 0.0, 0.5], rtol=0, atol=2e-16)
+    assert planar_face_area(face) == pytest.approx(1.5, rel=1e-12)
+
+    a = ada.Assembly("A") / (ada.Part("P") / pl)
+    sw = part_to_sat_writer(a)
+    assert len(sw.face_map[pl.guid]) == 1 and _loops_per_face(sw) == [1]
+
+
+@pytest.mark.parametrize("error", [ValueError("could not convert"), IndexError("index 8 is out of bounds")])
+def test_a_reader_that_fails_is_a_refusal_by_name(monkeypatch, ada_log, error):
+    """Whatever the reader raises, the plate is written whole and said by name -- never dropped."""
+    import ada.cadit.sat.write.plate_booleans as pb
+
+    def fails(text):
+        raise error
+
+    monkeypatch.setattr(pb.bt, "read_planar_face", fails)
+    pl = _plate()
+    pl.add_boolean(ada.PrimCyl("hole", (2, 1.5, -0.5), (2, 1.5, 0.5), 0.4))
+    with pytest.raises(pb.PlateBooleanNotAuthored, match=re.escape(f"{type(error).__name__}: {error}")):
+        pb.plate_faces_after_booleans(pl)
+    sw = part_to_sat_writer(ada.Assembly("A") / (ada.Part("P") / pl))
+    assert _loops_per_face(sw) == [1]
+    (warning,) = [r.getMessage() for r in ada_log if "without its" in r.getMessage()]
+    assert "'pl'" in warning
+
+
 CUTS = {
     "box": lambda: [ada.PrimBox("h", (1.5, 1.0, -0.5), (2.5, 2.0, 0.5))],
     "round": lambda: [ada.PrimCyl("h", (2, 1.5, -0.5), (2, 1.5, 0.5), 0.4)],

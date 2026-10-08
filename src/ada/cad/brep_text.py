@@ -75,27 +75,51 @@ class BrepTextUnsupported(ValueError):
 
 
 class _Tokens:
+    """The text's whitespace-separated tokens. A token that is not the number a record has there,
+    or a record the text ends inside, is refused by name: the reader never raises anything else."""
+
     def __init__(self, text: str):
         self._t = text.split()
         self.i = 0
 
     def next(self) -> str:
+        if self.i >= len(self._t):
+            raise BrepTextUnsupported("the BREP text ends inside a record")
         tok = self._t[self.i]
         self.i += 1
         return tok
 
     def int(self) -> int:
-        return int(self.next())
+        tok = self.next()
+        try:
+            return int(tok)
+        except ValueError:
+            raise BrepTextUnsupported(f"{tok!r} where a number (an integer) belongs") from None
 
     def float(self) -> float:
-        return float(self.next())
+        tok = self.next()
+        try:
+            return float(tok)
+        except ValueError:
+            raise BrepTextUnsupported(f"{tok!r} where a number belongs") from None
 
     def floats(self, n: int) -> list[float]:
-        out = [float(x) for x in self._t[self.i : self.i + n]]
-        if len(out) != n:
-            raise BrepTextUnsupported("the BREP text ends inside a record")
-        self.i += n
-        return out
+        return [self.float() for _ in range(n)]
+
+    def ints(self, n: int) -> list[int]:
+        return [self.int() for _ in range(n)]
+
+    def done(self) -> bool:
+        return self.i == len(self._t)
+
+
+#: The continuities ``BRepTools_ShapeSet`` writes (``PrintRegularity``), as one token.
+_CONTINUITIES = ("C0", "G1", "C1", "G2", "C2", "C3", "CN")
+
+
+def _continuity(tok: str) -> None:
+    if tok not in _CONTINUITIES:
+        raise BrepTextUnsupported(f"an edge record with continuity {tok!r}, not one of {', '.join(_CONTINUITIES)}")
 
 
 # --- geometry ------------------------------------------------------------------------------
@@ -403,7 +427,8 @@ def read_planar_face(text: str) -> PlanarFace:
 
     Raises :class:`BrepTextUnsupported` naming what it met that it does not convert: a root
     that is not a face, a face that is not on a plane, a degenerate or internal edge, a
-    location that scales.
+    location that scales -- or a record that is not the shape OCCT writes (a token that is not
+    a number, a continuity OCCT does not write, an edge record of the wrong length).
     """
     sections = _split_sections(text)
     version = re.search(r"CASCADE Topology V(\d+)", text)
@@ -478,30 +503,45 @@ def _face_edge(edge: _TShape, forward: bool, m: np.ndarray, locs, curves, uv_poi
     if degenerated != "0":
         raise BrepTextUnsupported("a degenerate edge")
     curve = first = last = None
-    # the edge's representations, each led by its kind, the list closed by a 0
+    # The edge's representations, each led by its kind, the list closed by a 0, as
+    # BRepTools_ShapeSet writes them -- measured on OCCT 7.9.3 and 8.0.1, V1 to V3, both kernels:
+    #   1 curve location first last                            the 3D curve
+    #   2 pcurve surface location first last                  a curve on a surface
+    #   3 pcurve1 pcurve2<continuity> surface location first last
+    #                                                          on a closed surface (a seam): the
+    #                                                          continuity is glued to pcurve2 ("4CN")
+    #   4 <continuity> surface location surface location       regularity ("4 C0 1 0 2 0")
+    #   5 polygon location | 6 polygon triangulation location | 7 polygon polygon triangulation location
+    # V2 alone follows a kind 2 or 3 record with the UV points of its ends: one pair, 4 numbers.
     tk = _Tokens("\n".join(edge.lines[1:]))
     while (kind := tk.int()) != 0:
-        if kind == 1:  # the 3D curve: index, location, range
-            idx, loc = tk.int(), tk.int()
+        if kind == 1:
+            idx, loc = tk.ints(2)
             first, last = tk.floats(2)
+            if not 0 < idx < len(curves) or not 0 <= loc < len(locs):
+                raise BrepTextUnsupported(f"an edge on curve {idx} at location {loc}, which the text does not hold")
             c = curves[idx]
             if isinstance(c, _Unconverted):
                 raise BrepTextUnsupported(f"an edge on a {c.kind}")
             curve = _move(m @ locs[loc], c)
-        elif kind == 2:  # curve on surface: pcurve, surface, location, range [, uv of its ends]
-            tk.floats(5 + (4 if uv_points else 0))
-        elif kind == 3:  # seam: two pcurves, continuity, surface, location, range [, uv of its ends]
-            tk.floats(7 + (8 if uv_points else 0))
-        elif kind == 4:  # regularity: continuity, surface, location, surface, location
-            tk.floats(5)
-        elif kind == 5:  # 3D polygon, location
-            tk.floats(2)
-        elif kind == 6:  # polygon on triangulation, triangulation, location
-            tk.floats(3)
-        elif kind == 7:  # two polygons on triangulation, triangulation, location
-            tk.floats(4)
+        elif kind in (2, 3):
+            tk.int()
+            if kind == 3:
+                glued = re.fullmatch(r"(\d+)(\D*)", tk.next())
+                if glued is None:
+                    raise BrepTextUnsupported("a seam record whose second curve is not a number")
+                _continuity(glued.group(2))
+            tk.ints(2)
+            tk.floats(2 + (4 if uv_points else 0))
+        elif kind == 4:
+            _continuity(tk.next())
+            tk.ints(4)
+        elif kind in (5, 6, 7):
+            tk.ints(kind - 3)
         else:
             raise BrepTextUnsupported(f"an edge representation of BREP type {kind}")
+    if not tk.done():
+        raise BrepTextUnsupported("an edge whose representations do not end where its record does")
     if curve is None:
         raise BrepTextUnsupported("an edge with no 3D curve")
     # the edge's vertices: the forward one is where the curve starts, the reversed one where it ends

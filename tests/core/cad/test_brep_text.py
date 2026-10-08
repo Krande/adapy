@@ -7,6 +7,8 @@ located (and twice-located) shapes, holes, and the refusals.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 
@@ -104,6 +106,111 @@ def test_v2_text_reads_as_v3_does():
     assert [[(type(e.curve), e.first, e.last, e.forward) for e in w] for w in a.wires] == [
         [(type(e.curve), e.first, e.last, e.forward) for e in w] for w in b.wires
     ]
+
+
+def _edges(face: bt.PlanarFace) -> list:
+    return [[(type(e.curve), e.first, e.last, e.forward, e.start, e.end) for e in w] for w in face.wires]
+
+
+def _seam_plate() -> ada.Plate:
+    """A plate in y = 0 cut by a cylinder on z: both kernels put the seam at +x, in the plate's plane."""
+    pl = ada.Plate("pl", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.01, origin=(0, 0, 0.5), xdir=(1, 0, 0), normal=(0, 1, 0))
+    pl.add_boolean(ada.PrimCyl("c", (0, 0, -1), (0, 0, 1), 0.5))
+    return pl
+
+
+def _seam_face_text(backend) -> str:
+    (handle,) = backend.faces(backend.build(_seam_plate().shell_geom()))
+    text = backend.serialize(handle)
+    assert re.search(r"^3 +\d+ \d+CN ", text, re.M)  # the seam: a curve on a closed surface
+    return text
+
+
+def test_a_seam_edge_reads_as_its_line(backend):
+    """A seam record is ``3 pc1 pc2<continuity> surface location first last``: 6 tokens, one glued.
+
+    Read as 7 numbers it raised ``could not convert string to float: '4CN'``. The 3D curve is
+    all the reader takes from an edge, so the seam edge is a line like the others.
+    """
+    (handle,) = backend.faces(backend.build(_seam_plate().shell_geom()))
+    face = bt.read_planar_face(_seam_face_text(backend))
+    (wire,) = face.wires
+    assert all(isinstance(e.curve, bt.Line) for e in wire)
+    ours = np.array([e.curve.value(e.first if e.forward else e.last) for e in wire])
+    kernel = np.array(backend.vertex_points(handle))
+    assert len(ours) == len(kernel)
+    assert np.min(np.linalg.norm(ours[:, None, :] - kernel[None, :, :], axis=2), axis=1).max() <= 1e-15
+
+
+@pytest.mark.adacpp
+def test_a_seam_edge_reads_the_same_from_v2_text():
+    """V2 follows a seam record, like a curve-on-surface one, with one UV pair (4 numbers) -- not two."""
+    from ada.cad import select_backend
+
+    be = select_backend("adacpp")
+    (handle,) = be.faces(be.build(_seam_plate().shell_geom()))
+    v3, v2 = be.serialize(handle), be._cad.serialize_brep(handle)
+    assert "CASCADE Topology V2" in v2 and re.search(r"^3 +\d+ \d+CN ", v2, re.M)
+    assert _edges(bt.read_planar_face(v3)) == _edges(bt.read_planar_face(v2))
+
+
+def test_a_seam_edge_reads_the_same_in_every_format_version(occ_backend, tmp_path):
+    """OCCT's own writer, V1, V2 and V3: the same seam face, the same edges."""
+    from OCC.Core.BRepTools import breptools
+    from OCC.Core.TopTools import (
+        TopTools_FormatVersion_VERSION_1,
+        TopTools_FormatVersion_VERSION_2,
+        TopTools_FormatVersion_VERSION_3,
+    )
+
+    (handle,) = occ_backend.faces(occ_backend.build(_seam_plate().shell_geom()))
+    read = []
+    for k, version in enumerate(
+        (TopTools_FormatVersion_VERSION_1, TopTools_FormatVersion_VERSION_2, TopTools_FormatVersion_VERSION_3), 1
+    ):
+        path = tmp_path / f"seam_v{k}.brep"
+        breptools.Write(handle, str(path), False, False, version)
+        text = path.read_text()
+        assert f"CASCADE Topology V{k}" in text and re.search(r"^3 +\d+ \d+CN ", text, re.M)
+        read.append(_edges(bt.read_planar_face(text)))
+    assert read[0] == read[1] == read[2]
+
+
+def test_a_regularity_record_is_skipped(backend):
+    """``4 <continuity> surface location surface location``, as OCCT writes it after EncodeRegularity
+    (measured on 7.9.3 and 8.0.1: ``4 C0 1 0 2 0``). Put on the seam edge here, it reads the same."""
+    text = _seam_face_text(backend)
+    plain = bt.read_planar_face(text)
+    # after every edge's 3D curve, where OCCT puts it
+    with_reg, n = re.subn(r"^(1  \d+ \d+ \S+ \S+)$", r"\1\n4 C0 1 0 1 0", text, flags=re.M)
+    assert n == len(plain.wires[0])
+    assert _edges(bt.read_planar_face(with_reg)) == _edges(plain)
+
+
+@pytest.mark.parametrize(
+    "bad, why",
+    [
+        (r"\g<1>XY", "continuity 'XY'"),  # the seam's continuity, not one OCCT writes
+        (r"\g<1>", "continuity ''"),  # the continuity left off
+    ],
+)
+def test_a_malformed_seam_record_is_refused_by_name(backend, bad, why):
+    text = re.sub(r"^(3 +\d+ \d+)CN", bad, _seam_face_text(backend), count=1, flags=re.M)
+    with pytest.raises(bt.BrepTextUnsupported, match=re.escape(why)):
+        bt.read_planar_face(text)
+
+
+def test_a_record_longer_than_its_kind_is_refused_by_name(backend):
+    """One token too many in a regularity record would end the edge's list early and read nothing else."""
+    text = re.sub(r"^(1  \d+ \d+ \S+ \S+)$", r"\1\n4 C0 1 0 1 0 0", _seam_face_text(backend), count=1, flags=re.M)
+    with pytest.raises(bt.BrepTextUnsupported, match="do not end where its record does"):
+        bt.read_planar_face(text)
+
+
+def test_a_number_that_is_not_one_is_refused_by_name(backend):
+    text = re.sub(r"^(1  \d+ \d+ )\S+", r"\1nought", _seam_face_text(backend), count=1, flags=re.M)
+    with pytest.raises(bt.BrepTextUnsupported, match="'nought' where a number"):
+        bt.read_planar_face(text)
 
 
 def test_a_face_not_on_a_plane_is_refused_by_name(backend):

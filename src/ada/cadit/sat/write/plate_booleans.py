@@ -188,6 +188,12 @@ def plate_faces_after_booleans(pl: Plate) -> list[geo_su.AdvancedFace]:
             face = bt.read_planar_face(be.serialize(handle))
         except bt.BrepTextUnsupported as ex:
             raise PlateBooleanNotAuthored(f"plate {pl.name!r}: its booleans left {ex}") from ex
+        except (ValueError, IndexError) as ex:
+            # Text the reader did not foresee: the plate is written whole and said by name (the
+            # writer's own path for a refusal), never dropped from the body by the writer's catch-all.
+            raise PlateBooleanNotAuthored(
+                f"plate {pl.name!r}: the BREP text of its booleans' cut did not read: {type(ex).__name__}: {ex}"
+            ) from ex
         outer = _outer_index(face)
         bounds = [_bound(face.wires[k], pl.name) for k in [outer] + [k for k in range(len(face.wires)) if k != outer]]
         # The loops run counter-clockwise about the cut face's own normal, and that normal
