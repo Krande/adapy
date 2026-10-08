@@ -40,6 +40,7 @@ import {
     load_fea_streaming,
     setBeamSolidsVisible as setBeamSolidsVisibleScene,
 } from "@/utils/scene/handlers/load_fea_streaming";
+import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {followerUrl} from "@/utils/simChannel";
 import {runtime} from "@/runtime/config";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -332,12 +333,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setNodalAverage,
         beamSolidsVisible,
         setBeamSolidsVisible,
+        beamSolidsUnavailable,
         timeHistory,
         envelopeMode,
         setEnvelopeMode,
     } = useFeaAnimationStore();
 
-    const hasBeamSolids = !!(manifest?.mesh?.beam_solids_url || manifest?.mesh?.beam_solids_compact_url);
+    const beamSolidsToggle = beamSolidsToggleState(manifest, beamSolidsUnavailable);
     const onToggleBeamSolids = (next: boolean) => {
         setBeamSolidsVisible(next);
         setBeamSolidsVisibleScene(next);
@@ -848,14 +850,15 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             <span className="text-gray-300">All combinations</span>
                         </label>
                     )}
-                    {hasBeamSolids && (
+                    {beamSolidsToggle.offered && (
                         <label
-                            className="flex items-center gap-1"
-                            title="Draw beam elements as their solid cross-section, which also shows twist"
+                            className={`flex items-center gap-1${beamSolidsToggle.enabled ? "" : " opacity-50"}`}
+                            title={beamSolidsToggle.title}
                         >
                             <input
                                 type="checkbox"
-                                checked={beamSolidsVisible}
+                                checked={beamSolidsToggle.enabled && beamSolidsVisible}
+                                disabled={!beamSolidsToggle.enabled}
                                 onChange={(e) => onToggleBeamSolids(e.target.checked)}
                             />
                             <span className="text-gray-300">Beams as solid</span>

@@ -168,6 +168,15 @@ export interface FeaAnimationState {
      *  ``reset()`` so user pref sticks across scene swaps. */
     beamSolidsVisible: boolean;
 
+    /** Why the loaded result's beam solids cannot be drawn although its
+     *  manifest names them, or null when they loaded (or there are none).
+     *  Set by the loader each time it builds a session. Without it the
+     *  "Beams as solid" toggle was offered on the manifest's word alone and
+     *  flipped `visible` on a mesh that was never built — a checkbox that
+     *  did nothing, with the reason only in the console. Cleared by
+     *  ``reset()``: it is a fact about one loaded model. */
+    beamSolidsUnavailable: string | null;
+
     /** Step-change callback registered by ``load_fea_streaming``.
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
@@ -220,6 +229,7 @@ export interface FeaAnimationState {
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
     setBeamSolidsVisible: (visible: boolean) => void;
+    setBeamSolidsUnavailable: (reason: string | null) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
     setLegendScope: (scope: FeaAnimationState["legendScope"], label: string | null) => void;
@@ -278,6 +288,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // Line-only beam render by default — matches the pre-Phase-5
     // behaviour. Users opt into the solid render via the gear panel.
     beamSolidsVisible: false,
+    beamSolidsUnavailable: null,
     applyStep: null,
     timeHistory: false,
     legendScope: "all",
@@ -313,6 +324,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
+    setBeamSolidsUnavailable: (beamSolidsUnavailable) => set({beamSolidsUnavailable}),
     setApplyStep: (cb) => set({applyStep: cb}),
     setTimeHistory: (timeHistory) => set({timeHistory}),
     setLegendScope: (legendScope, legendScopeLabel) => set({legendScope, legendScopeLabel}),
@@ -339,6 +351,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             // Abaqus rainbow + warp-off + bottom-layer-max-abs +
             // smooth + solid-beams once want them to stick across
             // model swaps.
+            beamSolidsUnavailable: null,
             applyStep: null,
             timeHistory: false,
             legendScope: "all",
