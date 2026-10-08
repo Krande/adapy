@@ -702,17 +702,37 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]
     # The steps of the parts (and of nodeless parts in between) go to the merged FEM, the
     # assembly's own to ``top_fem``; the user's steps are not touched. A step object that names
     # a set or surface of no merged part, or a bare node or element, is refused by name.
+    #
+    # A set no FEM of the merge holds is still the parts' business when its members are: a load's
+    # set is never adopted by ``Step.add_load`` (the repo's own examples build loads on a fresh
+    # ``FemSet``), so it reaches the merge with no parent. Its part is read off its members, and
+    # ``_remap_set`` offsets each member by its own part, as for any carrier's set (members of
+    # several parts included); the part found here only prefixes the set's name if that clashes.
+    def _owner_of_set(s, where: str):
+        owner = owner_of_fem.get(id(s.parent))
+        if owner is not None:
+            return owner
+        if s._member_ids is not None:
+            raise DoesNotSupportMultiPart(
+                f"{where} names set {s.name!r}, which belongs to no part of the merged model and names its members "
+                "by id only, so which part each one belongs to is unknown"
+            )
+        owners = []
+        for m in s.members:
+            o = part_of_fem.get(id(getattr(m, "parent", None)))
+            if o is None:
+                raise DoesNotSupportMultiPart(
+                    f"{where} names set {s.name!r}, whose {type(m).__name__} {getattr(m, 'id', m)} belongs to no part "
+                    "of the merged model; its merged id is unknown"
+                )
+            owners.append(o)
+        return owners[0] if owners else base
+
     def _set_for(s, where: str):
         mapped = set_map.get(id(s))
         if mapped is not None:
             return mapped
-        owner = owner_of_fem.get(id(s.parent))
-        if owner is None:
-            raise DoesNotSupportMultiPart(
-                f"{where} names set {s.name!r}, which belongs to no part of the merged model; its members "
-                "cannot be given their merged ids"
-            )
-        return _remap_set(owner, s)
+        return _remap_set(_owner_of_set(s, where), s)
 
     def _surface_for(sf, where: str):
         mapped = surface_map.get(id(sf))
@@ -720,10 +740,15 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]
             return mapped
         owner = owner_of_fem.get(id(sf.parent))
         if owner is None:
-            raise DoesNotSupportMultiPart(
-                f"{where} names surface {sf.name!r}, which belongs to no part of the merged model; its faces "
-                "cannot be given their merged ids"
-            )
+            # A surface no FEM holds: the part of the sets it is made of.
+            fs = sf.fem_set
+            sets = [x for x in (fs if isinstance(fs, list) else [fs]) if x is not None]
+            if not sets:
+                raise DoesNotSupportMultiPart(
+                    f"{where} names surface {sf.name!r}, which belongs to no part of the merged model and is made of "
+                    "no set; its faces cannot be given their merged ids"
+                )
+            owner = [_owner_of_set(x, f"{where}, surface {sf.name!r}") for x in sets][0]
         return _remap_surface(owner, sf)
 
     step_copies: dict[int, object] = {}

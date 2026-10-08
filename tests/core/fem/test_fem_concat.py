@@ -84,10 +84,13 @@ NODE_SHIFT = 9
 ELEM_SHIFT = 8
 
 
-def _plate_part(name: str, x0: float) -> ada.Part:
+def _plate_part(name: str, x0: float, first_id: int = 1) -> ada.Part:
     pl = ada.Plate("pl", [(x0, 0), (x0 + 1, 0), (x0 + 1, 1), (x0, 1)], 0.01)
     p = ada.Part(name) / pl
     p.fem = pl.to_fem_obj(0.5, "shell")
+    if first_id != 1:
+        p.fem.nodes.renumber(start_id=first_id)
+        p.fem.elements.renumber(start_id=first_id)
     edge = [n for n in p.fem.nodes if abs(n.x - x0) < 1e-9]
     tip = [n for n in p.fem.nodes if abs(n.x - (x0 + 1)) < 1e-9 and abs(n.y - 1.0) < 1e-9]
     p.fem.sets.add(FemSet("edge", edge, FemSet.TYPES.NSET, parent=p.fem))
@@ -207,6 +210,88 @@ def test_a_sesam_deck_puts_the_part_b_load_on_part_b_s_node(tmp_path):
     a = _tip_load_model()
     a.to_fem("tipload", "sesam", scratch_dir=tmp_path, overwrite=True, execute=False)
     assert _bnload_nodes(tmp_path / "tipload" / "tiploadT1.FEM") == [TIP_IDS[0] + NODE_SHIFT]
+
+
+def _fresh_set_load_model(part_b_first_id: int) -> tuple[ada.Assembly, list]:
+    """A load on PartB's tip through a set no FEM holds: ``Step.add_load`` does not adopt a load's
+    set (``examples/fem/sections_and_offsets.py`` builds its loads this way)."""
+    a = ada.Assembly("A")
+    a.add_part(_plate_part("PartA", 0.0))
+    pb = a.add_part(_plate_part("PartB", 10.0, first_id=part_b_first_id))
+    tip = list(pb.fem.nsets["tip"].members)
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=100.0, total_time=100.0))
+    step.add_load(Load("f", Load.TYPES.FORCE, -1000.0, dof=3, fem_set=FemSet("fresh_tip", tip, FemSet.TYPES.NSET)))
+    assert step.loads[0].fem_set.parent is None
+    return a, tip
+
+
+@pytest.mark.parametrize("part_b_first_id, merged_tip", [(101, 104), (1, TIP_IDS[0] + NODE_SHIFT)])
+def test_a_step_load_on_a_set_no_fem_holds_lands_on_its_members_part(part_b_first_id, merged_tip, tmp_path):
+    """Measured before the fix: refused in both cases ("names set 'fresh_tip', which belongs to no
+    part of the merged model"); on main the disjoint case wrote ``BNLOAD`` on 104 (right) and the
+    colliding one on 4 (PartA's node)."""
+    a, tip = _fresh_set_load_model(part_b_first_id)
+    assert [int(n.id) for n in tip] == [TIP_IDS[0] + part_b_first_id - 1]
+
+    wa = single_part_assembly(a)
+    (load,) = wa.fem.steps[0].loads
+    assert _ids(load.fem_set) == [merged_tip]
+    assert load.fem_set.parent is _merged_part(wa).fem
+    assert load.fem_set.name == "fresh_tip"
+    # the user's set is untouched
+    assert a.fem.steps[0].loads[0].fem_set.parent is None
+    assert [int(n.id) for n in a.fem.steps[0].loads[0].fem_set.members] == [int(n.id) for n in tip]
+
+    a.to_fem("fresh", "sesam", scratch_dir=tmp_path, overwrite=True, execute=False)
+    assert _bnload_nodes(tmp_path / "fresh" / "freshT1.FEM") == [merged_tip]
+
+
+def test_a_set_no_fem_holds_is_refused_when_its_members_belong_to_no_merged_part():
+    a = _two_plates()
+    elsewhere = _plate_part("NotInTheAssembly", 20.0)
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=100.0, total_time=100.0))
+    stray = FemSet("stray_tip", list(elsewhere.fem.nsets["tip"].members), FemSet.TYPES.NSET)
+    step.add_load(Load("f", Load.TYPES.FORCE, -1000.0, dof=3, fem_set=stray))
+    with pytest.raises(DoesNotSupportMultiPart, match=r"Load 'f'.*'stray_tip'.*Node 4.*no part of the merged model"):
+        single_part_assembly(a)
+
+
+def test_a_set_no_fem_holds_given_by_ids_is_refused():
+    """Ids alone, with no FEM to resolve them in, say nothing of which part they are on."""
+    a = _two_plates()
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=100.0, total_time=100.0))
+    step.add_load(Load("f", Load.TYPES.FORCE, -1000.0, dof=3, fem_set=FemSet("by_ids", [4], FemSet.TYPES.NSET)))
+    with pytest.raises(DoesNotSupportMultiPart, match=r"Load 'f'.*'by_ids'.*by id only"):
+        single_part_assembly(a)
+
+
+def test_a_set_no_fem_holds_spanning_two_parts_is_offset_member_by_member():
+    a = _two_plates()
+    tips = [n for p in a.get_all_parts_in_assembly() for n in p.fem.nsets["tip"].members]
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=100.0, total_time=100.0))
+    step.add_load(Load("f", Load.TYPES.FORCE, -1000.0, dof=3, fem_set=FemSet("both_tips", tips, FemSet.TYPES.NSET)))
+    (load,) = single_part_assembly(a).fem.steps[0].loads
+    assert _ids(load.fem_set) == [TIP_IDS[0], TIP_IDS[0] + NODE_SHIFT]
+
+
+def test_a_surface_no_fem_holds_is_carried_by_the_part_of_its_sets():
+    a = _two_plates()
+    pb = a.get_part("PartB")
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=100.0, total_time=100.0))
+    fresh = Surface("fresh_top", Surface.TYPES.ELEMENT, pb.fem.elsets["plate"])
+    out = HistOutput("watch", [fresh], "contact", ["CSTRESS"])
+    out.parent = step
+    step.hist_outputs.append(out)
+    assert fresh.parent is None
+
+    wa = single_part_assembly(a)
+    (watch,) = [h for h in wa.fem.steps[0].hist_outputs if h.name == "watch"]
+    (surface,) = watch.fem_set
+    assert surface.name == "fresh_top"
+    assert surface.parent is _merged_part(wa).fem
+    assert surface.fem_set.name == "PartB_plate"
+    assert _ids(surface.fem_set) == [i + ELEM_SHIFT for i in range(1, ELEM_SHIFT + 1)]
+    assert fresh.parent is None and fresh.fem_set is pb.fem.elsets["plate"]
 
 
 def test_part_level_steps_reach_the_merged_fem():
