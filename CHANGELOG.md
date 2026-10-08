@@ -2,6 +2,16 @@
 
 
 
+## v0.107.3 (2026-10-08)
+
+### Fix
+
+* fix(sesam): key the results mesh by internal numbers, show external ones (#432)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`403612e`](https://github.com/Krande/adapy/commit/403612eb03b6eca170106c77e92f7b8ea7735dd6))
+
+
 ## v0.107.2 (2026-10-08)
 
 ### Fix
