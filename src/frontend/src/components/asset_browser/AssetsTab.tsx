@@ -202,20 +202,29 @@ const BTN_SECONDARY =
     "h-7 px-3 rounded-md text-xs font-medium border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50";
 const BTN_QUIET ="h-7 px-1.5 rounded-md text-xs text-gray-400 hover:text-white disabled:opacity-50";
 
-const IconButton: React.FC<{ label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode }> = ({
+/** A toolbar icon. `open`: the panel it toggles is showing -- the accent, so which panel is open
+ *  reads at a glance. `pressed`: what it controls is in effect (a set narrowing the tree) with its
+ *  panel shut -- a quieter mark. */
+const IconButton: React.FC<{ label: string; pressed?: boolean; open?: boolean; onClick: () => void; children: React.ReactNode }> = ({
     label,
     pressed,
+    open,
     onClick,
     children,
 }) => (
     <button
         type="button"
         aria-label={label}
-        aria-pressed={pressed}
+        aria-pressed={pressed || open}
+        aria-expanded={open}
         title={label}
         onClick={onClick}
-        className={`${CONTROL} w-7 shrink-0 grid place-items-center ${
-            pressed ? "bg-gray-600 border-gray-500 text-white" : "text-gray-300 hover:text-white hover:bg-gray-700"
+        className={`h-7 w-7 shrink-0 grid place-items-center rounded-md border text-xs ${
+            open
+                ? "bg-blue-500/25 border-blue-400 text-blue-100"
+                : pressed
+                  ? "bg-gray-600 border-gray-500 text-white"
+                  : "bg-gray-800 border-gray-700 text-gray-300 hover:text-white hover:bg-gray-700"
         }`}
     >
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
@@ -2015,14 +2024,15 @@ const AssetsTab: React.FC = () => {
                     </IconButton>
                     <IconButton
                         label="Sets — named sets of branches the tree can be narrowed to, shared in this scope"
-                        pressed={setsOpen || !!activeSet}
+                        open={setsOpen}
+                        pressed={!!activeSet}
                         onClick={() => setSetsOpen((o) => !o)}
                     >
                         <path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h6M11 11v3M9.5 12.5h3" />
                     </IconButton>
                     <IconButton
                         label="Options — provider filter, row marks and legend, how the tree is drawn, and provider options"
-                        pressed={optionsOpen}
+                        open={optionsOpen}
                         onClick={() => setOptionsOpen((o) => !o)}
                     >
                         <path d="M2 4h7M12 4h2M2 12h3M8 12h6M9 2.5v3M5 10.5v3" />
