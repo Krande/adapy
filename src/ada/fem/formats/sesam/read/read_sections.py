@@ -68,17 +68,35 @@ def get_sections(bulk_str, fem: FEM, elrefs: dict[int, dict]) -> FemSections:
     # Eccentricities
     ecc = {eccno: values for eccno, values in map(get_eccentricities, cards.re_geccen.finditer(bulk_str))}
 
+    # SFY/SFZ of each profile card, by GEONO: GBEAMG's SHARY/SHARZ already include them (89-7012;
+    # measured, GeniE V8.13-02), so they go onto the GBEAMG's properties as the factors applied.
+    shear_factors: dict[int, tuple[float, float]] = {}
+    profile_cards: dict[int, str] = {}
+
+    def profiles(read, regex, card):
+        for m in regex.finditer(bulk_str):
+            d = m.groupdict()
+            geono = str_to_int(d["geono"])
+            shear_factors[geono] = tuple(1.0 if d.get(k) is None else float(d[k]) for k in ("sfy", "sfz"))
+            profile_cards[geono] = card
+            yield read(m, sect_names, fem)
+
     list_of_sections = chain(
-        (get_isection(m, sect_names, fem) for m in cards.GIORH.to_ff_re().finditer(bulk_str)),
-        (get_box_section(m, sect_names, fem) for m in cards.GBOX.to_ff_re().finditer(bulk_str)),
-        (get_tubular_section(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
-        (get_angular_section(m, sect_names, fem) for m in cards.GLSEC.to_ff_re().finditer(bulk_str)),
-        (get_channel_section(m, sect_names, fem) for m in cards.GCHAN.to_ff_re().finditer(bulk_str)),
-        (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
+        profiles(get_isection, cards.GIORH.to_ff_re(), "GIORH"),
+        profiles(get_box_section, cards.GBOX.to_ff_re(), "GBOX"),
+        profiles(get_tubular_section, cards.re_gpipe, "GPIPE"),
+        profiles(get_angular_section, cards.GLSEC.to_ff_re(), "GLSEC"),
+        profiles(get_channel_section, cards.GCHAN.to_ff_re(), "GCHAN"),
+        profiles(get_flatbar, cards.re_gbarm, "GBARM"),
     )
 
     fem.parent._sections = Sections(list_of_sections, parent=fem.parent)
-    [add_general_sections(m, fem) for m in cards.re_gbeamg.finditer(bulk_str)]
+    with_gbeamg = {
+        add_general_sections(m, fem, shear_factors, profile_cards) for m in cards.re_gbeamg.finditer(bulk_str)
+    }
+    for geono, (sfy, sfz) in shear_factors.items():
+        if geono not in with_gbeamg and (sfy, sfz) != (1.0, 1.0):
+            apply_shear_factors(fem.parent.sections.get_by_id(geono), sfy, sfz)
 
     builder = _SectionBuilder(fem, elrefs, lcsysd, hinges, ecc, thick)
     fem_sections = FemSections(builder.build(section_sets(bulk_str, fem)), fem_obj=fem)
@@ -232,20 +250,42 @@ class _SectionBuilder:
         return FemSection(name=name, sec_type=ElemType.SOLID, elset=fs, material=mat, parent=self.fem)
 
 
+#: A GIORH bottom flange this thin and reaching no further past the web is no flange (metres): the
+#: Genie XML reader's threshold (``_flange_absent``) for GeniE's paper-thin T flanges.
+_T_FLANGE_EPS = 1e-3
+
+
 def get_isection(match, sect_names, fem) -> Section:
+    """GIORH: an I, or a T when the bottom flange is GeniE's paper-thin placeholder.
+
+    GeniE has no T section: its library T (and adapy's Sesam writer) is a GIORH whose bottom flange is
+    0.001 mm thick and 0.001 mm wider than the web. Such a card is a TPROFILE, so a T comes back a T,
+    with the properties its GBEAMG has. A bottom flange as wide as the web but as thick as a flange
+    (BB = TY, TB = TT: what adapy wrote for a T before) stays an IPROFILE: that is what GeniE computes
+    from it on import (SHARY with both flanges), so its GBEAMG describes the I."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     name = sect_names[sec_id]
+    hz, ty, bt, tt, bb, tb = (float(d[k]) for k in ("hz", "ty", "bt", "tt", "bb", "tb"))
+    is_t = tb <= _T_FLANGE_EPS and bb - ty <= _T_FLANGE_EPS
+    if is_t:
+        from ada.sections.properties import t_bottom_slot_area
+
+        overhang, area = t_bottom_slot_area(hz, bt, tt, ty, bb, tb)
+        if overhang <= 1e-6 * area:
+            # the placeholder flange, kept as adapy keeps a T's (a stub as wide as the web and as
+            # thick as the flange), so a T reads back as the T written
+            bb, tb = ty, tt
     return Section(
         name=name,
         sec_id=sec_id,
-        sec_type=Section.TYPES.IPROFILE,
-        h=float(d["hz"]),
-        t_w=float(d["ty"]),
-        w_top=float(d["bt"]),
-        w_btn=float(d["bb"]),
-        t_ftop=float(d["tt"]),
-        t_fbtn=float(d["tb"]),
+        sec_type=Section.TYPES.TPROFILE if is_t else Section.TYPES.IPROFILE,
+        h=hz,
+        t_w=ty,
+        w_top=bt,
+        w_btn=bb,
+        t_ftop=tt,
+        t_fbtn=tb,
         parent=fem.parent,
     )
 
@@ -268,7 +308,8 @@ def get_box_section(match, sect_names, fem) -> Section:
 
 
 def get_angular_section(match, sect_names, fem) -> Section:
-    """GLSEC: an L -- a web and one flange (manual 7.3.19), one width and one thickness.
+    """GLSEC: an L -- a web and one flange (manual 7.3.19), one width and one thickness; K = 1
+    (mirrored) is reported, see below.
 
     adapy carries an ANGULAR section's one flange in both flange slots: ``profile_db_collect``
     fills them for every HP and ``string_to_section`` for every L, so the card's ``BY``/``TZ``
@@ -278,6 +319,19 @@ def get_angular_section(match, sect_names, fem) -> Section:
     ``w_btn``, ``t_w``, ``t_fbtn``), so this moves no property, only ``unique_props()``."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
+    if d.get("k") is not None and str_to_int(d["k"]) == 1:
+        # K = 1: web towards +y, flange towards -y, the mirror of adapy's one angle outline
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().approximated(
+            "sesam reader",
+            "GLSEC",
+            sect_names[sec_id],
+            "K = 1 (flange towards -y) is read as adapy's angle, flange towards +y, as GeniE V8.13-02 "
+            "reads it; the GBEAMG properties are kept. adapy wrote K = 1 for every angle before (its "
+            "outline was always K = 0)",
+            K=1,
+        )
     return Section(
         name=sect_names[sec_id],
         sec_id=sec_id,
@@ -324,9 +378,31 @@ def get_flatbar(match, sect_names, fem) -> Section:
     )
 
 
-def add_general_sections(match, fem) -> None:
+def apply_shear_factors(sec: Section, sfy: float, sfz: float) -> None:
+    """A profile card's SFY/SFZ with no GBEAMG beside it: the section's properties are its calculated
+    ones times the factors (89-7012, SHARY = SHARY(calculated) x SFY), as GeniE computes them on
+    import. Without this the factors were dropped (Sfy 1, unfactored Shary) and written back as 1.0.
+    A section that cannot be calculated keeps no properties, and refuses by name when asked."""
+    from ada.sections.properties import calculate_general_properties
+
+    try:
+        sec._genprops = calculate_general_properties(sec, sfy=sfy, sfz=sfz)
+    except ValueError:
+        return
+    sec._genprops_normalized = False
+
+
+def add_general_sections(
+    match,
+    fem,
+    shear_factors: dict[int, tuple[float, float]] | None = None,
+    profile_cards: dict[int, str] | None = None,
+) -> int:
+    """The GBEAMG record as the properties of the section of its GEONO (a GENERAL section when no
+    profile card has that number). Returns the GEONO."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
+    sfy, sfz = (shear_factors or {}).get(sec_id, (1.0, 1.0))
     gen_props = GeneralProperties(
         Ax=float(d["area"]),
         Ix=float(d["ix"]),
@@ -342,17 +418,34 @@ def add_general_sections(match, fem) -> None:
         Shcenz=float(d["shcenz"]),
         Sy=float(d["sy"]),
         Sz=float(d["sz"]),
+        Sfy=sfy,
+        Sfz=sfz,
     )
 
     if sec_id in fem.parent.sections.id_map.keys():
         sec = fem.parent.sections.get_by_id(sec_id)
         gen_props.parent = sec
         sec._genprops = normalize_general_properties(sec, gen_props)
+        for factor, area, axis in ((sfy, gen_props.Shary, "Y"), (sfz, gen_props.Sharz, "Z")):
+            if factor == 0.0 and area != 0.0:
+                # 89-7012: SHAR(MOD) = SHAR(calculated) x SF, so SF = 0 is a zero shear area (shear
+                # deformation not included), as GeniE V8.13-02 computes it on import
+                from ada.fem.formats import conversion_report
+
+                conversion_report.current().suspect(
+                    "sesam reader",
+                    (profile_cards or {}).get(sec_id, "GBEAMG"),
+                    sec.name,
+                    f"SF{axis} = 0 makes SHAR{axis} 0 (89-7012; GeniE recomputes it so on import), but the "
+                    f"GBEAMG beside it has SHAR{axis} {area:.6g}, which Sestra uses; both are kept as read",
+                    **{f"SF{axis}": factor, f"SHAR{axis}": area},
+                )
     else:
         stype = Section.TYPES.GENERAL
         sec = Section(name=f"GB{sec_id}", sec_id=sec_id, sec_type=stype, genprops=gen_props, parent=fem.parent)
         gen_props.parent = sec
         fem.parent.sections.add(sec)
+    return sec_id
 
 
 def get_tubular_section(match, sect_names, fem) -> Section:
@@ -363,6 +456,12 @@ def get_tubular_section(match, sect_names, fem) -> Section:
     else:
         sec_name = sect_names[sec_id]
     t = float(d["t"]) if d["t"] is not None else (float(d["dy"]) - float(d["di"])) / 2
+    if d["di"] is not None and float(d["di"]) == 0.0:
+        # A solid round bar: GeniE writes PipeSection(D, D/2) as GPIPE with DI = 0, and so does
+        # adapy's writer for a CIRCULAR section.
+        return Section(
+            name=sec_name, sec_id=sec_id, sec_type=Section.TYPES.CIRCULAR, r=float(d["dy"]) / 2, parent=fem.parent
+        )
     return Section(
         name=sec_name,
         sec_id=sec_id,

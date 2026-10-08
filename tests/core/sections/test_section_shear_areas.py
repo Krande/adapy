@@ -44,6 +44,7 @@ import numpy as np
 import pytest
 
 import ada
+from ada.fem.formats import conversion_report
 from ada.sections.properties import calculate_general_properties
 
 REL = 1e-6
@@ -56,7 +57,7 @@ FIELDS = ("Ax", "Iy", "Iz", "Sy", "Sz", "Shary", "Sharz")
 GENIE_SECTIONS = {
     "S01_IPE300": "doubly symmetric I (IPE300 without root radius)",
     "S02_UNSI": "asymmetric I, flanges 200x16 top, 300x20 bottom",
-    "S03_TEE": "T: unsymmetrical I with the bottom flange as wide as the web",
+    "S03_TEE": "unsymmetrical I with a 10 x 15 bottom flange as wide as the web",
     "S04_BOX": "box 400x300, web 12, flanges 20",
     "S05_BOXU": "box with unequal flanges, top 20, bottom 30",
     "S06_PIPE": "pipe D500 t20",
@@ -98,11 +99,18 @@ def test_the_genie_file_holds_every_section(genie_sections):
     assert set(GENIE_SECTIONS) <= set(genie_sections)
 
 
-def test_tprofile_matches_genie_tee(genie_sections):
-    """adapy's own TPROFILE (``w_btn`` = ``t_w``, as the gxml reader builds it) of GeniE's T."""
+def test_tprofile_is_s03_tee_without_its_stub_flange(genie_sections):
+    """S03_TEE is a GeniE unsymmetrical I whose bottom flange is a 10 x 15 stub as wide as the web,
+    and GeniE counts that stub as a flange in SHARY: Iz (tt + tb) / Sz = 3.82768e-3. adapy's TPROFILE
+    of the same dimensions is a T (the stub is web), so it has the same Ax, Iy, Iz, Sy, Sz and
+    Sharz and half the Shary, Iz tt / Sz = 1.91384e-3 -- what GeniE writes for its own T
+    (``test_section_tprofile.py``). Before, the TPROFILE equalled S03_TEE, doubled Shary included."""
     tee = ada.Section("T300", sec_type="TG", h=0.3, w_top=0.2, w_btn=0.01, t_w=0.01, t_ftop=0.015, t_fbtn=0.015)
     assert tee.type == tee.TYPES.TPROFILE
-    _assert_matches(calculate_general_properties(tee), genie_sections["S03_TEE"].properties)
+    s03 = genie_sections["S03_TEE"].properties
+    p = calculate_general_properties(tee)
+    _assert_matches(p, s03, fields=("Ax", "Iy", "Iz", "Sy", "Sz", "Sharz"))
+    assert np.isclose(p.Shary, s03.Shary / 2, rtol=REL)
 
 
 def test_circular_matches_genie_solid_round(genie_sections):
@@ -143,6 +151,44 @@ def test_neutral_axis_in_the_flange_matches_genie(edge_sections, name, edge):
     """
     sec = edge_sections[name]
     _assert_matches(calculate_general_properties(sec), sec.properties)
+
+
+E1_FLIPPED = ada.Section(
+    "E1_FLIPPED", sec_type="IG", h=0.1, w_top=0.005, t_ftop=0.005, w_btn=0.3, t_fbtn=0.05, t_w=0.005
+)
+
+
+@pytest.mark.parametrize(
+    "name, first_moment",
+    [
+        ("E1_TEETHICK", 0.3 * (0.1 - 0.0741803) ** 2 / 2),
+        ("E2_ANGFLNA", 0.3 * 0.0202479**2 / 2),
+        ("E1_FLIPPED", 0.3 * (0.1 - 0.0741803) ** 2 / 2),
+    ],
+    ids=["T-top-flange", "angle-flange", "I-bottom-flange"],
+)
+def test_neutral_axis_in_the_flange_is_reported(edge_sections, name, first_moment, ada_warnings):
+    """Matching GeniE there is a choice, so it is said: an ``approximated`` finding in the conversion
+    report (logged as a warning) naming the section, with GeniE's Sy and Sharz beside the first
+    moment at the axis. E1: Sy 1.37568e-5 against 1.0000e-4, Sharz 1.37817e-3 where the
+    energy-consistent shear area is 8.2e-3 (sectionproperties 3.10.2); E2: 3.95057e-6 against
+    6.1497e-5 (the flange below the axis, 0.3 z^2 / 2). E1 upside down (an I with a 5 x 5 top
+    flange): the axis in the bottom flange, z = 0.1 - 0.0741803, first moment 0.3 z^2 / 2."""
+    sec = edge_sections[name] if name in edge_sections else E1_FLIPPED
+    with conversion_report.collect() as report:
+        p = calculate_general_properties(sec)
+    (finding,) = report.of_kind("approximated")
+    assert finding.subject == name and finding.keyword == "Section"
+    assert finding.details["Sy"] == p.Sy and finding.details["Sharz"] == p.Sharz
+    assert np.isclose(finding.details["first_moment_at_axis"], first_moment, rtol=1e-5)
+    assert any(name in r.getMessage() and "neutral axis" in r.getMessage() for r in ada_warnings)
+
+
+@pytest.mark.parametrize("name", ["S01_IPE300", "S02_UNSI", "S03_TEE", "S07_ANG", "S08_ANGEQ", "S12_IEQ"])
+def test_neutral_axis_in_the_web_is_not_reported(genie_sections, name, ada_warnings):
+    with conversion_report.collect() as report:
+        calculate_general_properties(genie_sections[name])
+    assert not report.findings and not ada_warnings
 
 
 @pytest.fixture(scope="module")
