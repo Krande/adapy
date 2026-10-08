@@ -2,6 +2,15 @@
 
 
 
+## v0.109.0 (2026-10-08)
+
+### Feature
+
+* feat: Abaqus results through a versioned SQLite schema, and a repo tidy-up (#441)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`a7fe091`](https://github.com/Krande/adapy/commit/a7fe091d9749328dbdbb3e2aa84328bc711d2f38))
+
+
 ## v0.108.0 (2026-10-08)
 
 ### Feature
