@@ -8,6 +8,13 @@ import {KebabMenuItem, PositionedMenu} from "@/components/common/PositionedMenu"
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
+import {forestNodeFor, providerAlternatives, type ProviderAlternative} from "@/assets/otherProviders";
+import {realDeliveryDeps} from "@/components/asset_browser/AssetsTab";
+import {getSingletonViewerStores} from "@/state/AdaViewerContext";
+import {requestRender} from "@/state/perfStore";
+import {elementPath, modelRootOf, parseAssetSourceName} from "@/utils/export/selectionExport";
+import {loadAssetNode} from "@/utils/groups/groupLoad";
+import {buildTreeIndices} from "@/utils/tree_view/treeGraph";
 import {
     frameSelection,
     hiddenCount,
@@ -19,6 +26,52 @@ import {
 } from "@/utils/tree_view/sceneTreeActions";
 
 import type {TreeNodeData} from "./CustomNode";
+
+/** "Load from <provider>" for a row of a model loaded from a provider: null for a row of anything
+ *  else (a file), else the options -- or why there are none. */
+function otherProviderLoads(row: TreeNodeData): {
+    options: ProviderAlternative[];
+    why: string;
+    load: (o: ProviderAlternative) => Promise<void>;
+} | null {
+    const stores = getSingletonViewerStores();
+    const treeData = stores.useTreeViewStore.getState().treeData;
+    if (!treeData) return null;
+    const idx = buildTreeIndices(treeData);
+    const root = modelRootOf(row, idx);
+    const ref = root?.source_name ? parseAssetSourceName(root.source_name) : null;
+    if (!root || !ref) return null;
+    const browser = stores.useAssetBrowserStore.getState();
+    const scope = browser.scope;
+    const load = async (o: ProviderAlternative) => {
+        if (!scope) return;
+        const deps = realDeliveryDeps((name) => stores.useModelState.getState().loadedSourceNames.has(name));
+        try {
+            await loadAssetNode(scope, deps, {
+                kind: "node",
+                provider: o.provider,
+                collection: ref.collection,
+                subject: o.subject,
+                revision: o.revision,
+                node: o.node !== o.subject ? o.node : null,
+            });
+            requestRender();
+        } catch (e) {
+            // Recorded on the row in the Sources tab as well (the shared load does that).
+            console.error(`Load from ${o.provider} failed:`, e);
+        }
+    };
+    if (!scope || browser.collection !== ref.collection) {
+        return { options: [], why: `Open collection ${ref.collection.toUpperCase()} in the Sources tab to find this node's other providers`, load };
+    }
+    const start = ref.node ?? ref.subject;
+    const id = row.id === root.id ? start : forestNodeFor(browser.forest, start, elementPath(row, root, idx));
+    if (!id) {
+        return { options: [], why: "This row is not in the Sources tree yet -- open its branch there first", load };
+    }
+    const options = providerAlternatives(browser.index, browser.forest, ref.collection, id, ref.provider);
+    return { options, why: `No other provider publishes geometry for ${row.name}`, load };
+}
 
 export interface SceneTreeMenuState {
     /** The row right-clicked. */
@@ -73,6 +126,30 @@ const SceneTreeMenu: React.FC<SceneTreeMenuState & {onClose: () => void}> = ({no
             onClick: () => void copySelectionNames(useSelectedObjectStore.getState().selectedObjects),
         },
     ];
+    // The same node from the other providers that publish it -- for the row right-clicked.
+    const alt = useMemo(() => otherProviderLoads(node.data), [node]);
+    if (alt) {
+        if (alt.options.length) {
+            alt.options.forEach((o, i) =>
+                items.push({
+                    key: `load-from-${o.provider}`,
+                    label: `Load from ${o.provider}`,
+                    title: `${node.data.name} as ${o.provider} publishes it${o.subject !== o.node ? ` (under ${o.subject})` : ""}`,
+                    onClick: () => void alt.load(o),
+                    separatorBefore: i === 0,
+                }),
+            );
+        } else {
+            items.push({
+                key: "load-from-none",
+                label: "Load from another provider",
+                onClick: () => undefined,
+                disabled: true,
+                title: alt.why,
+                separatorBefore: true,
+            });
+        }
+    }
     // Unload acts on whole models: the loaded model each selected row belongs to, each once.
     const models = new Map<string, string>();
     for (const n of selected) {

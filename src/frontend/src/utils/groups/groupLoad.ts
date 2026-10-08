@@ -50,7 +50,7 @@ export async function loadSavedGroup(
         const { overlay_file_in_scene } = await import("@/utils/scene/handlers/overlay_file_in_scene");
         await overlay_file_in_scene(target.source_key, undefined, { scope });
       } else {
-        await loadNode(scope, deps, target);
+        await loadAssetNode(scope, deps, target);
       }
       loaded += 1;
     } catch (e) {
@@ -65,15 +65,19 @@ export async function loadSavedGroup(
   return { loaded, already, failed, selection };
 }
 
-async function loadNode(
+/** Put one published node in the scene from `target.provider`'s claim -- shared by a group's load
+ *  and the Scene tree's "Load from <provider>", and registered with the asset browser as its own
+ *  Load is. A build that finds nothing to draw is recorded, not thrown. */
+export async function loadAssetNode(
   scope: string,
   deps: LoadNodeDeps,
   target: Extract<GroupMember["target"], { kind: "node" }>,
 ): Promise<void> {
   const node = target.node ?? target.subject;
-  // The delivery claim for the node AS PUBLISHED by the member's own provider -- the revision the
-  // group pinned, or the latest when it pinned none.
-  const wire = await assetsApi.getAssetDelivery(scope as ScopeUrl, target.provider, target.collection, node, {
+  // The delivery claim AS PUBLISHED by the target's provider -- the revision pinned, or the latest
+  // when none is. Asked of the SUBJECT, the node that owns the manifest (the route reads it by its
+  // own key); `node` scopes the build below it, as the Sources tab's own load does.
+  const wire = await assetsApi.getAssetDelivery(scope as ScopeUrl, target.provider, target.collection, target.subject, {
     ...(target.revision ? { revision: target.revision } : {}),
   });
   const claim = parseDeliveryClaim(wire);
