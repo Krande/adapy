@@ -80,6 +80,81 @@ def test_a_cylinder_shell_whose_top_arc_runs_backwards(backend, run, same_sense,
     assert area == pytest.approx(2 * turn, rel=1e-12)
 
 
+def _half_nurbs(z: float) -> geo_cu.RationalBSplineCurveWithKnots:
+    """The half circle angle 0 -> pi at height z, as GeniE writes an arc (an ``intcurve``): rational, degree 2."""
+    w = np.sqrt(0.5)
+    return geo_cu.RationalBSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[Point(1, 0, z), Point(1, 1, z), Point(0, 1, z), Point(-1, 1, z), Point(-1, 0, z)],
+        curve_form=geo_cu.BSplineCurveFormEnum.CIRCULAR_ARC,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 2, 3],
+        knots=[0.0, np.pi / 2, np.pi],
+        knot_spec=geo_cu.KnotType.UNSPECIFIED,
+        weights_data=[1.0, w, 1.0, w, 1.0],
+    )
+
+
+#: The slope of the plane the ellipse edges lie in: z = z0 + SLOPE * y.
+SLOPE = 0.75
+
+
+def _half_ellipse(z: float) -> geo_cu.Ellipse:
+    """Where the plane z = z0 + SLOPE y cuts the cylinder: angle theta at parameter theta - pi/2."""
+    k = float(np.hypot(1.0, SLOPE))
+    position = geo_su.Axis2Placement3D(
+        location=Point(0, 0, z), axis=(0, -SLOPE / k, 1 / k), ref_direction=(0, 1 / k, SLOPE / k)
+    )
+    return geo_cu.Ellipse(position, k, 1.0)
+
+
+@pytest.mark.parametrize("run", ["counter-clockwise", "clockwise"])
+@pytest.mark.parametrize("kind", ["nurbs", "ellipse"])
+def test_a_half_cylinder_bounded_by_other_curves(backend, kind, run, request):
+    """A half cylinder (angle 0 -> pi, height 2, radius 1) whose arcs are GeniE's rational B-splines or ellipses.
+
+    The direction a cylindrical loop runs was measured from its circle edges alone; a B-spline or
+    an ellipse gave its start point only, so a half turn was one step and its sign a guess -- on
+    adacpp the B-spline band built valid clockwise before that, and invalid both ways after it.
+    The region is the band whatever way round its outline runs: 2 pi, as pythonocc builds the
+    B-spline one.
+    """
+    if kind == "ellipse" and backend.name == "pythonocc-core":
+        request.applymarker(
+            pytest.mark.xfail(
+                strict=True,
+                reason="pythonocc's cylinder face from slanted ellipse edges overruns its wire and is rebuilt "
+                "from the boundary's (u, v) extent: measured 8.639 = pi x (2 + 0.75), the band's bounding "
+                "rectangle, not 2 pi",
+            )
+        )
+    if kind == "nurbs":
+        lower, upper, t = _half_nurbs(0.0), _half_nurbs(2.0), (0.0, np.pi)
+        ends = [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0)]
+    else:
+        lower, upper, t = _half_ellipse(0.0), _half_ellipse(2.0), (-np.pi / 2, np.pi / 2)
+        ends = [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0)]
+    (x0, y0, _), (x1, y1, _) = ends
+    loop = [
+        _edge((x0, y0, 0), (x1, y1, 0), lower, t=t),
+        _line((x1, y1, 0), (x1, y1, 2)),
+        _edge((x1, y1, 2), (x0, y0, 2), upper, same_sense=False, t=t[::-1]),
+        _line((x0, y0, 2), (x0, y0, 0)),
+    ]
+    if run == "clockwise":
+        loop = _reversed(loop)
+    surface = geo_su.CylindricalSurface(
+        geo_su.Axis2Placement3D(location=Point(0, 0, 0), axis=(0, 0, 1), ref_direction=(1, 0, 0)), 1.0
+    )
+    face = geo_su.AdvancedFace(
+        bounds=[geo_su.FaceBound(geo_cu.EdgeLoop(loop), True)], face_surface=surface, same_sense=True
+    )
+    area, valid = _area_and_validity(backend, face)
+    assert valid
+    assert area == pytest.approx(2 * np.pi, rel=1e-12)
+
+
 @pytest.mark.parametrize("turn", [0.5 * np.pi, 1.5 * np.pi])
 @pytest.mark.parametrize("ref_angle", [0.0, np.pi / 2, 2.5])
 def test_a_sector_whose_arc_runs_backwards(backend, ref_angle, turn):

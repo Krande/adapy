@@ -115,13 +115,18 @@ def _reversed_face_bound(fb):
     return su.FaceBound(bound=cu.EdgeLoop(edge_list=edges), orientation=fb.orientation)
 
 
-def _loop_turn_on_cylinder(fb, position) -> float:
+def _loop_turn_on_cylinder(fb, position) -> float | None:
     """Twice the signed area a loop encloses in its cylinder's (angle, height), by the shoelace.
 
     Positive where it runs counter-clockwise there (angle about the axis from the ref
     direction, height along the axis). Each arc contributes points along it, from its trims
     where it has them, so no step between points turns half a revolution. 0.0 for a loop this
     cannot follow (not an edge loop, or one built from pcurves), which leaves it as given.
+
+    ``None`` where an edge is neither a line nor a circle: a B-spline or ellipse arc can turn
+    half a revolution between its ends, and its ends alone are all this would see (a GeniE
+    half cylinder bounded by rational B-splines measured +12.57 run clockwise, 0.0 run the other
+    way). The caller then lets the kernel's own check say which way the loop builds.
     """
     import ada.geom.curves as cu
 
@@ -141,6 +146,8 @@ def _loop_turn_on_cylinder(fb, position) -> float:
         ec = getattr(oe, "edge_element", None)
         curve = ec.edge_geometry if isinstance(ec, cu.EdgeCurve) else None
         if not isinstance(curve, cu.Circle):
+            if curve is not None and not isinstance(curve, cu.Line):
+                return None
             pts.append([float(c) for c in oe.start])
             continue
         c_loc, c_axis = curve.position.location, curve.position.axis
@@ -705,6 +712,7 @@ class AdacppBackend:
                 # activates automatically once ada-cpp ships build_advanced_face_cylindrical.
                 pos = surf.position
                 bounds = list(g.bounds)
+
                 # The builder takes the loops as running clockwise in the cylinder's own
                 # (angle, height) and does not turn them round: measured on ada-cpp 0.31.1,
                 # GeniE's quarter cylinder (outline counter-clockwise there, face forward) built
@@ -712,15 +720,29 @@ class AdacppBackend:
                 # arc (clockwise there) the reverse -- whatever the face's sense. pythonocc builds
                 # both valid either way. The region is the loops', not their direction, so loops
                 # that run counter-clockwise are handed over run the other way (Krande/adapy#435).
-                if _loop_turn_on_cylinder(bounds[0], pos) > 0:
-                    bounds = [_reversed_face_bound(fb) for fb in bounds]
-                shape = self._cad.build_advanced_face_cylindrical(
-                    self._xyz(pos.location),
-                    _axis(pos.axis, (0, 0, 1)),
-                    _axis(pos.ref_direction, (1, 0, 0)),
-                    float(surf.radius),
-                    [self._encode_face_bound(fb) for fb in bounds],
-                )
+                def cylindrical(fbs):
+                    return self._cad.build_advanced_face_cylindrical(
+                        self._xyz(pos.location),
+                        _axis(pos.axis, (0, 0, 1)),
+                        _axis(pos.ref_direction, (1, 0, 0)),
+                        float(surf.radius),
+                        [self._encode_face_bound(fb) for fb in fbs],
+                    )
+
+                turn = _loop_turn_on_cylinder(bounds[0], pos)
+                if turn is None:
+                    # An edge the turn cannot follow (a B-spline or ellipse arc): built as given,
+                    # and run the other way only where the kernel calls that face invalid and
+                    # the other one valid.
+                    shape = cylindrical(bounds)
+                    if not self.is_valid(shape):
+                        other = cylindrical([_reversed_face_bound(fb) for fb in bounds])
+                        if self.is_valid(other):
+                            shape = other
+                else:
+                    if turn > 0:
+                        bounds = [_reversed_face_bound(fb) for fb in bounds]
+                    shape = cylindrical(bounds)
             elif isinstance(surf, su.ConicalSurface) and g.bounds and hasattr(self._cad, "build_advanced_face_conical"):
                 # Cone AdvancedFace (e.g. PrimCone). hasattr-guarded like the cylinder path.
                 pos = surf.position
