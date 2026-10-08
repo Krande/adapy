@@ -143,6 +143,8 @@ async def _run_fea_artefact_bake(
         await _on_progress("uploading", 0.85)
         prefix = f"_derived/{job.source_key}.fea/"
         try:
+            # Listed up front: put_path stages a gzip copy beside the manifest while it uploads,
+            # and that staging file must not be picked up as an artefact of its own.
             for produced in sorted(bake.out_dir.iterdir()):
                 if not produced.is_file():
                     continue
@@ -154,12 +156,9 @@ async def _run_fea_artefact_bake(
                 # HTTP-Range a single step out of a multi-step field blob
                 # (see the blobs route) instead of pulling every step.
                 content_encoding = "gzip" if produced.suffix.lower() == ".json" else None
-                await storage.put_bytes(
-                    scope,
-                    target_key,
-                    produced.read_bytes(),
-                    content_encoding=content_encoding,
-                )
+                # Streamed from disk: a large deck's bake runs to GBs across its blobs, and
+                # reading each whole would peak the worker at the size of the largest one.
+                await storage.put_path(scope, target_key, produced, content_encoding=content_encoding)
         except Exception as exc:
             logger.exception("worker: fea artefact upload failed for %s", job.source_key)
             trace = tb_module.format_exc()

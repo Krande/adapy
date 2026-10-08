@@ -572,7 +572,8 @@ def start_clash_check(
             # For an IFC this reads MEMBERS natively -- no ifcopenshell, no geometry -- which is
             # the whole of what a check needs; anything else falls back to the full reader.
             model = load_members_or_model(tmp, tmp.suffix.lower(), _load_with_ada)
-            source_sha256 = hashlib.sha256(tmp.read_bytes()).hexdigest()
+            with open(tmp, "rb") as fh:  # chunked: a source can be GBs
+                source_sha256 = hashlib.file_digest(fh, "sha256").hexdigest()
             register_builtin_specs()
             clash_options = ClashOptions.from_dict(options)
             if job.status != STATUS_RUNNING:
@@ -926,7 +927,8 @@ def start_export_selection(
                 return
             job.stage, job.progress = "upload", 0.9
             # Identity, not gzip: the blob GET must hand the browser a file it can save as is.
-            sync_storage.put_bytes(derived_key, out_path.read_bytes())
+            # Streamed from disk, never read whole.
+            sync_storage.put_path(derived_key, out_path)
             job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
         except Exception as exc:  # noqa: BLE001 — the export's failure is data, not ours
             if job.status != STATUS_RUNNING:
