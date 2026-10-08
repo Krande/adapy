@@ -764,7 +764,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             aria-label="Deformation scale"
                         />
                     </label>
-                    {!timeHistory && (
+                    {/* Only a mode shape has a period worth setting: it oscillates. A static
+                        load case plays as a load-up sweep at the default pace, and a time
+                        history plays its own time axis -- a "period" means nothing for either. */}
+                    {activeField?.analysis_kind === "eigen" && (
                         <label className="flex items-center gap-1" title="Period: seconds per oscillation when playing">
                             <span className="text-gray-300">T</span>
                             <input
