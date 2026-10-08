@@ -17,7 +17,7 @@ on:
     paths:
       - 'docs/**'
       - 'zensical.toml'
-      - 'scripts/docs_notebooks.py'
+      - 'scripts/docs/docs_notebooks.py'
       - 'examples/penetration_detail.py'
       - 'verification/**'
       - 'src/ada/**'

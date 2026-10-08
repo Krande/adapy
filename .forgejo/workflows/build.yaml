@@ -63,7 +63,7 @@ on:
       - 'deploy/viewer-smoke.py'
       - 'docs/**'
       - 'zensical.toml'
-      - 'scripts/docs_notebooks.py'
+      - 'scripts/docs/docs_notebooks.py'
       - 'examples/penetration_detail.py'
       - 'verification/**'
       - '.forgejo/workflows/build.yaml'

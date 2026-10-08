@@ -2,7 +2,7 @@
 
 ``ada_ext_schema.h`` (in the sibling adacpp checkout) is generated from
 ``src/gltf_extension_schema/design_and_analysis_extension.schema.json`` by
-``scripts/codegen_ada_ext_cpp.py`` (``pixi run json-code-gen-cpp``). These tests fail with an
+``scripts/codegen/codegen_ada_ext_cpp.py`` (``pixi run json-code-gen-cpp``). These tests fail with an
 actionable "regenerate" message if the schema changed without regenerating, and assert the schema
 version is stamped into the header (so producer/consumer drift is a checkable version mismatch).
 
@@ -18,7 +18,7 @@ import pathlib
 import pytest
 
 _REPO = pathlib.Path(__file__).resolve().parents[4]
-_GEN = _REPO / "scripts" / "codegen_ada_ext_cpp.py"
+_GEN = _REPO / "scripts" / "codegen" / "codegen_ada_ext_cpp.py"
 _SCHEMA = _REPO / "src" / "gltf_extension_schema" / "design_and_analysis_extension.schema.json"
 _HEADER = _REPO.parent / "adacpp" / "src" / "geom" / "neutral" / "ada_ext_schema.h"
 

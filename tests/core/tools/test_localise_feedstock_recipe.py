@@ -20,7 +20,7 @@ import sys
 
 import pytest
 
-_TOOLS = pathlib.Path(__file__).resolve().parents[3] / "scripts"
+_TOOLS = pathlib.Path(__file__).resolve().parents[3] / "scripts" / "packaging"
 
 # SKIPPED AT MODULE LEVEL, before the import below, because the thing it imports is
 # not in the package. The recipe ships `tests` and `files`; `scripts/` is not among

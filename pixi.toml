@@ -44,19 +44,19 @@ json-code-gen-py = { cmd = [
     "--output", "src/ada/extension",
     "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
 # Generate the adacpp C++ header for ADA_EXT_data from the same schema (sibling adacpp checkout).
-json-code-gen-cpp = { cmd = ["python", "scripts/codegen_ada_ext_cpp.py"], cwd = "./" }
+json-code-gen-cpp = { cmd = ["python", "scripts/codegen/codegen_ada_ext_cpp.py"], cwd = "./" }
 
 [feature.docs.tasks]
 # Zensical has no notebook support, so the notebooks are executed and converted to Markdown pages
-# beside their sources first (gitignored; see scripts/docs_notebooks.py). --execute: every viewer
+# beside their sources first (gitignored; see scripts/docs/docs_notebooks.py). --execute: every viewer
 # is rendered with the current viewer bundle, never one stored in a notebook's outputs.
-docs-notebooks = { cmd = "python scripts/docs_notebooks.py --execute", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
+docs-notebooks = { cmd = "python scripts/docs/docs_notebooks.py --execute", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
 # The site without regenerating the FEA verification report (whatever docs/_static/fea-report holds).
 docs-site = { cmd = "zensical build --clean", depends-on = ["docs-notebooks"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 docs = { depends-on = ["fea-doc", "docs-site"] }
 # Live-reloading preview. Run `pixi run -e docs docs-notebooks` once first for the notebook pages.
 docs-serve = { cmd = "zensical serve", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-serve = { cmd = "python scripts/docs_serve.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
+serve = { cmd = "python scripts/docs/docs_serve.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 # PYTHONUTF8: pandoc runs paradoc's Python filters as subprocesses, and on Windows they would read the
 # UTF-8 AST as cp1252 -- a byte cp1252 leaves undefined (e.g. in "ρ") then kills the export.
 fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
@@ -73,7 +73,7 @@ serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory doc
 [feature.tests.tasks]
 # Screenshots of Ada Studio for the docs (docs/screenshots/ada-studio/). Needs the served SPA
 # (`pixi run -e frontend wbuild-serve`) and the viewer-api env, which it starts the server from.
-ui-stories = { cmd = "python scripts/ui_stories.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
+ui-stories = { cmd = "python scripts/docs/ui_stories.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
 # `--with-deps` omitted on purpose — it shells out to `sudo apt` and
 # breaks in non-interactive shells. Run `pixi run -e tests playwright
 # install-deps chromium` once by hand if a test reports a missing lib.
@@ -107,7 +107,7 @@ pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install c
 # which skips at collection before any marker can speak. The compat leg (`test-compat`, in an env
 # carrying both kernels) runs that tree. Marked tests OUTSIDE it need no flag -- tests/conftest.py
 # deselects them wherever the kernel is absent, and runs them wherever it is present.
-test = { cmd = "bash scripts/run_test.sh", depends-on = ["pre-install", "fetch-dexpi"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test = { cmd = "bash scripts/testing/run_test.sh", depends-on = ["pre-install", "fetch-dexpi"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # The inner-loop subset: everything that needs no FEM solver and no viewer
 # stack. This WAS `test`, and it is what CI's per-PR leg runs, because the
 # FEM/e2e halves have their own jobs and running them twice buys nothing.
@@ -124,7 +124,7 @@ test-core = { cmd = "pytest tests/core --durations=0", depends-on = ["fetch-dexp
 # Idempotent: the script returns immediately when the target exists (`--force` to re-fetch), and
 # `outputs` lets pixi skip even that. CI caches the directory on the same key, so the download
 # happens about once per corpus change rather than once per job.
-fetch-dexpi = { cmd = "python scripts/fetch_dexpi_testcases.py", outputs = ["files/dexpi_files/_external"] }
+fetch-dexpi = { cmd = "python scripts/codegen/fetch_dexpi_testcases.py", outputs = ["files/dexpi_files/_external"] }
 test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
@@ -137,7 +137,7 @@ bench-cad-compare = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --
 
 [feature.fem.tasks]
 # Full non-REST suite across BOTH CAD backends, report-both. Orchestrated by
-# scripts/run_test_all.sh: it runs the ada-cpp leg (`pixi run -e tests-adacpp
+# scripts/testing/run_test_all.sh: it runs the ada-cpp leg (`pixi run -e tests-adacpp
 # test-all`) and the pythonocc leg (pytest in this fem env) independently —
 # neither aborts the other — then exits non-zero if either had failures.
 # pyocc runs the entire non-REST suite incl. the playwright frontend e2e
@@ -145,7 +145,7 @@ bench-cad-compare = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --
 # it needs the viewer-api stack (its own `test-rest` task / env).
 # A plain pixi depends-on can't do report-both (it fails fast), hence the
 # wrapper. This `test-all` is gated to the fem env by feature membership.
-test-all = { cmd = "bash scripts/run_test_all.sh", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-all = { cmd = "bash scripts/testing/run_test_all.sh", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-fem = { cmd = "pytest tests/fem --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-basic-fem = { cmd = "python basic_fem.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
 test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -161,11 +161,11 @@ winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJ
 wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
 wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
 # The code-split SPA the REST API serves (ADA_VIEWER_STATIC_PATH), as Dockerfile.viewer builds it.
-# scripts/ui_stories.py drives it for the Ada Studio docs page.
+# scripts/docs/ui_stories.py drives it for the Ada Studio docs page.
 wbuild-serve = { cmd = "npm run gen:plugins && npm run build:serve", cwd = "./src/frontend", depends-on = ["winstall"] }
 # Build the pyodide ada-py wheel into the SPA's public/wheels so the dev
 # server and build serve it at /wheels/ for the in-browser FEM/SAT stacks.
-wheel-pyodide = { cmd = "python scripts/build_pyodide_adapy_wheel.py src/frontend/public/wheels" }
+wheel-pyodide = { cmd = "python scripts/packaging/build_pyodide_adapy_wheel.py src/frontend/public/wheels" }
 fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
 
 json-code-gen-ts = { cmd = [
@@ -174,7 +174,7 @@ json-code-gen-ts = { cmd = [
     "--output","$PIXI_PROJECT_ROOT/src/frontend/src/extensions/design_and_analysis_extension.d.ts"], depends-on = ["json-code-gen-py"], env = { "npm_config_cache" = "$PIXI_PROJECT_ROOT/temp/npm_config" }, cwd="src/gltf_extension_schema/" }
 
 [feature.profile.tasks]
-benchmark-profile = { cmd = "python scripts/benchmark_profile.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+benchmark-profile = { cmd = "python scripts/profiling/benchmark_profile.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 pyprofile = { cmd = "pyinstrument -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -239,7 +239,7 @@ meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "adac
 # The service's Gherkin normative rules (buildingSMART/ifc-gherkin-rules) are a
 # git repo of behave feature files, not a pip package, and pull a heavy closure
 # (Django/pyproj/rtree/shapely); they are deliberately NOT wired here — see
-# scripts/validate_ifc.py for how to run them separately.
+# scripts/diagnostics/validate_ifc.py for how to run them separately.
 #
 # ifctester (the optional IDS pillar) is PyPI-only and NOT declared here on
 # purpose: it depends on `ifcopenshell`, and the conda-forge ifcopenshell ships
@@ -256,7 +256,7 @@ ifcopenshell = "*"
 pytest = "*"
 
 [feature.ifc-validation.tasks]
-ifc-validate = { cmd = "python scripts/validate_ifc.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+ifc-validate = { cmd = "python scripts/diagnostics/validate_ifc.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.meshio-bridge.dependencies]
 meshio = "*"
@@ -590,7 +590,7 @@ datamodel-code-generator = "==0.30.1"
 [feature.docs.dependencies]
 zensical = ">=0.0.67"
 mkdocstrings-python = "*"
-# Execute the docs notebooks and convert them to Markdown (scripts/docs_notebooks.py).
+# Execute the docs notebooks and convert them to Markdown (scripts/docs/docs_notebooks.py).
 nbconvert-core = "*"
 nbclient = "*"
 ipykernel = "*"
@@ -664,10 +664,10 @@ test-rest = { cmd = "pytest tests/comms/rest --durations=0", env = { "PYTHONPATH
 # No Postgres needed — these tests use an in-memory fake store.
 test-rest-adacpp = { cmd = "pytest tests/comms/rest -m adacpp_stream --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_CAD_BACKEND" = "adacpp" } }
 ada = { cmd = "python -m ada_cli.main", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+audit-fetch = { cmd = "python scripts/viewer/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+audit-repro = { cmd = "python scripts/viewer/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+viewer-upload = { cmd = "python scripts/viewer/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+glb-face-classify = { cmd = "python scripts/diagnostics/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 # NOTE: meshopt GLB compression (ada.visit.gltf.meshopt) no longer pulls the PyPI
 # `meshoptimizer` package — it is sdist-only (no wheels) so every viewer/worker image
@@ -683,8 +683,8 @@ flatbuffers = "==25.2.10"
 nodejs = "*"
 
 [feature.test-pyodide.tasks]
-install-pyodide = { cmd = "npm install", cwd = "scripts/pyodide-test", outputs = ["scripts/pyodide-test/node_modules"] }
-test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "scripts/pyodide-test", depends-on = ["install-pyodide"] }
+install-pyodide = { cmd = "npm install", cwd = "scripts/testing/pyodide-test", outputs = ["scripts/testing/pyodide-test/node_modules"] }
+test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "scripts/testing/pyodide-test", depends-on = ["install-pyodide"] }
 
 [dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"

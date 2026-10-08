@@ -6,7 +6,7 @@ dist/
 dist-embed/
 *.pyc
 docs/_build/
-# Zensical site and the notebook pages scripts/docs_notebooks.py generates
+# Zensical site and the notebook pages scripts/docs/docs_notebooks.py generates
 /site/
 docs/notebooks/**/*.md
 docs/notebooks/**/*_files/
@@ -34,7 +34,7 @@ node_modules/
 .pixi/
 audit_repro/
 audit_repro_*/
-# Optional full DEXPI test corpus, fetched on demand by scripts/fetch_dexpi_testcases.py.
+# Optional full DEXPI test corpus, fetched on demand by scripts/codegen/fetch_dexpi_testcases.py.
 # Never committed -- only the two curated files under files/dexpi_files/vendor/ are.
 files/dexpi_files/_external/
 # pytest-benchmark timing baselines — machine-specific, regenerate locally
@@ -57,7 +57,7 @@ adacpp-src/
 # The in-repo plugins are re-included by name, so adding a genuine one here is a
 # one-line change and an overlay is not something `git add -A` can sweep up.
 #
-# NOTE this is a different mitigation from scripts/check_bundle_provenance.py, not
+# NOTE this is a different mitigation from scripts/packaging/check_bundle_provenance.py, not
 # a substitute for it: in the incident that prompted both, no overlay directory
 # was ever committed — the tracked index.zip was rebuilt around one. This rule
 # would not have caught that.

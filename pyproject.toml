@@ -107,7 +107,7 @@ ada = [
     # passes (tests run from a checkout, where the files are simply there), and a
     # conda- or wheel-installed API cannot migrate a database at all. Confirmed by
     # building the conda-forge recipe against a checkout: 30 files here, 0 in the
-    # package. See scripts/localise_feedstock_recipe.py, which exists because of it.
+    # package. See scripts/packaging/localise_feedstock_recipe.py, which exists because of it.
     "comms/rest/migrations/*.sql"
 ]
 
@@ -144,7 +144,7 @@ profile = "black"
 src_paths = ["src"]
 skip = [".pixi", "node_modules", "temp", "examples"]
 # files/dexpi_files/_external/ is the official DEXPI corpus fetched on demand by
-# scripts/fetch_dexpi_testcases.py -- third-party CC BY 4.0 code, git-ignored and not ours to
+# scripts/codegen/fetch_dexpi_testcases.py -- third-party CC BY 4.0 code, git-ignored and not ours to
 # format. black and ruff skip it via .gitignore; isort does not read .gitignore, so it is named here.
 skip_glob = [
     "**/node_modules/**",

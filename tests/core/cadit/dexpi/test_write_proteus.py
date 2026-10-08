@@ -328,7 +328,7 @@ def test_a_from_scratch_document_names_adapy_as_its_originating_system():
 
 # -- connections carried inside an echoed subtree ------------------------------------------------
 #
-# Found by running the full official corpus (scripts/fetch_dexpi_testcases.py), which no checked-in
+# Found by running the full official corpus (scripts/codegen/fetch_dexpi_testcases.py), which no checked-in
 # fixture covered: 14 of its 220 files wrote a connection twice. Both shapes below are reduced from
 # real DEXPI 1.2 files, so the regression is pinned without needing the opt-in corpus.
 

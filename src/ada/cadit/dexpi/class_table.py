@@ -1,7 +1,7 @@
 """Lookup over the vendored DEXPI class table.
 
 ``resources/dexpi_classes.json`` is generated from the DEXPI Specification repo by
-``scripts/gen_dexpi_class_table.py`` -- see the ``_meta`` block in the JSON for the exact tag and
+``scripts/codegen/gen_dexpi_class_table.py`` -- see the ``_meta`` block in the JSON for the exact tag and
 commit. It holds one entry per class: the package it lives in, its supertypes, the RDL symbol the
 spec declared for it, and a model-scoped URI.
 

@@ -37,7 +37,7 @@ jobs:
         run: pixi run -e profile benchmark-profile
 
       - name: Process and Store Results
-        run: pixi run -e profile python scripts/store_profiling_data.py
+        run: pixi run -e profile python scripts/profiling/store_profiling_data.py
         env:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

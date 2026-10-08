@@ -1,7 +1,7 @@
 """``ada audit`` — query, fetch, and locally re-run viewer audit conversions.
 
 A read-only client over the admin audit API. It consolidates what used to be
-ad-hoc ``curl`` calls plus the ``scripts/audit_fetch.py`` / ``audit_repro.py``
+ad-hoc ``curl`` calls plus the ``scripts/viewer/audit_fetch.py`` / ``audit_repro.py``
 helpers:
 
     ada audit runs                     list recent regression-sweep runs
@@ -800,7 +800,7 @@ def _resolve_driver(args: argparse.Namespace) -> str:
             print(f"error: --driver {p} does not exist", file=sys.stderr)
             sys.exit(2)
         return str(p)
-    rel = pathlib.Path("scripts") / "pyodide-test" / "wasm_sweep_driver.js"
+    rel = pathlib.Path("scripts") / "testing" / "pyodide-test" / "wasm_sweep_driver.js"
     cur = pathlib.Path.cwd()
     for d in [cur, *cur.parents]:
         if (d / rel).exists():
@@ -809,7 +809,7 @@ def _resolve_driver(args: argparse.Namespace) -> str:
     if fallback.exists():
         return str(fallback)
     print(
-        "error: could not find scripts/pyodide-test/wasm_sweep_driver.js — run from the adapy checkout or pass --driver",
+        "error: could not find scripts/testing/pyodide-test/wasm_sweep_driver.js — run from the adapy checkout or pass --driver",
         file=sys.stderr,
     )
     sys.exit(2)

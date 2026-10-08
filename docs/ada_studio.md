@@ -14,7 +14,7 @@ an FE result opens the same viewer from any script: in a browser tab served by a
 viewer server, or inline when the call runs in Jupyter.
 
 The screenshots on this page are generated, not taken by hand: each one is a **user story**
-in [`scripts/ui_stories.py`](https://github.com/Krande/adapy/blob/main/scripts/ui_stories.py)
+in [`scripts/docs/ui_stories.py`](https://github.com/Krande/adapy/blob/main/scripts/docs/ui_stories.py)
 that drives the real application (see [Regenerating the screenshots](#regenerating-the-screenshots)).
 
 ## Open a model

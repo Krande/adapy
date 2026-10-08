@@ -13,7 +13,7 @@ schema — while a deployment running from a checkout worked perfectly.
 
 This is the cheap half of the guard, and it runs everywhere. The expensive half is
 building the conda recipe against the checkout and looking inside the artifact
-(see scripts/localise_feedstock_recipe.py); that catches the same class and more, but
+(see scripts/packaging/localise_feedstock_recipe.py); that catches the same class and more, but
 needs a build.
 """
 

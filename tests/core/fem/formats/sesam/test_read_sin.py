@@ -13,7 +13,7 @@ Covers:
 
 Fixture is the cantilever shell static analysis
 (``files/fem_files/cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN``)
-regenerable from its SIF sibling via ``scripts/regen_sin_fixtures.py``.
+regenerable from its SIF sibling via ``scripts/codegen/regen_sin_fixtures.py``.
 """
 
 from __future__ import annotations
