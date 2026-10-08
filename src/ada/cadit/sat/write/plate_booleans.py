@@ -63,8 +63,6 @@ def _curve(c, plate_name: str):
         position = geo_su.Axis2Placement3D(location=_pnt(c.centre), axis=_dir(c.axis), ref_direction=_dir(c.x_dir))
         return geo_cu.Circle(position, c.radius)
     if isinstance(c, bt.BSpline):
-        if c.periodic:
-            raise PlateBooleanNotAuthored(f"plate {plate_name!r}: a boolean left an edge on a periodic B-spline")
         common = dict(
             degree=c.degree,
             control_points_list=[_pnt(p) for p in c.poles],

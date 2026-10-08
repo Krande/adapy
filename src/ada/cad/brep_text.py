@@ -153,7 +153,6 @@ class BSpline:
     weights: np.ndarray | None
     knots: list[float]
     multiplicities: list[int]
-    periodic: bool
 
     def value(self, t: float) -> np.ndarray:
         knots = np.repeat(np.asarray(self.knots, dtype=float), np.asarray(self.multiplicities, dtype=int))
@@ -205,7 +204,11 @@ def _read_curve(tk: _Tokens):
         for _ in range(n_knots):
             knots.append(tk.float())
             mults.append(tk.int())
-        return BSpline(degree, np.array(poles), np.array(weights) if rational else None, knots, mults, bool(periodic))
+        if periodic:
+            # Its stored poles and knots wrap round, which the clamped evaluation below does not
+            # do (it ran off the knot vector): refused here, before anything evaluates it.
+            return _Unconverted("periodic B-spline curve")
+        return BSpline(degree, np.array(poles), np.array(weights) if rational else None, knots, mults)
     if kind == 8:
         tk.floats(2)
         # An edge's range is on the basis curve's parameter, so the trim adds nothing to it.
@@ -328,7 +331,7 @@ def _move(m: np.ndarray, geom):
         return Circle(_move_point(m, geom.centre), r @ geom.axis, r @ geom.x_dir, r @ geom.y_dir, geom.radius)
     if isinstance(geom, BSpline):
         poles = np.array([_move_point(m, p) for p in geom.poles])
-        return BSpline(geom.degree, poles, geom.weights, geom.knots, geom.multiplicities, geom.periodic)
+        return BSpline(geom.degree, poles, geom.weights, geom.knots, geom.multiplicities)
     if isinstance(geom, Plane):
         return Plane(_move_point(m, geom.location), r @ geom.axis, r @ geom.x_dir)
     return geom

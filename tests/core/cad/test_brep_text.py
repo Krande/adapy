@@ -240,6 +240,46 @@ def test_orientations_compose_as_topabs_does(parent, child, composed):
     assert bt._compose(parent, child) == composed
 
 
+def test_a_periodic_b_spline_edge_is_refused_by_name(backend):
+    """A periodic B-spline's stored poles and knots wrap round; evaluated as a clamped one it ran
+    off its knot vector (``IndexError`` in plate_booleans' outer-wire box). Here the sweep hole's
+    B-splines (clamped) with the periodic flag set: the layout of the record is the same."""
+    pl = ada.Plate("pl", [(0, 0), (4, 0), (4, 3), (0, 3)], 0.01)
+    path = [(2, 1.5, -1), (2.2, 1.4, -0.5), (2.5, 1.5, 0), (2.2, 1.6, 0.5), (2, 1.5, 1)]
+    pl.add_boolean(ada.PrimSweep("sw", path, [(0, 0), (0.3, 0), (0.3, 0.3), (0, 0.3)]))
+    (handle,) = backend.faces(backend.build(pl.shell_geom()))
+    text = backend.serialize(handle)
+    assert any(isinstance(e.curve, bt.BSpline) for w in bt.read_planar_face(text).wires for e in w)
+    head = re.search(r"^Curves \d+$", text, re.M).end()
+    curves, n = re.subn(r"^7 ([01]) 0 ", r"7 \1 1 ", text[head:], flags=re.M)
+    assert n > 0
+    with pytest.raises(bt.BrepTextUnsupported, match="an edge on a periodic B-spline curve"):
+        bt.read_planar_face(text[:head] + curves)
+
+
+def test_a_periodic_b_spline_outline_is_refused_by_name(occ_backend):
+    """A face on a periodic B-spline as OCCT makes one (``GeomAPI_Interpolate``, periodic)."""
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCC.Core.GeomAPI import GeomAPI_Interpolate
+    from OCC.Core.gp import gp_Pln, gp_Pnt
+    from OCC.Core.TColgp import TColgp_HArray1OfPnt
+
+    pts = TColgp_HArray1OfPnt(1, 5)
+    for i, (x, y) in enumerate([(1, 0), (0.3, 0.9), (-0.8, 0.5), (-0.6, -0.7), (0.5, -0.9)], 1):
+        pts.SetValue(i, gp_Pnt(x, y, 0))
+    interp = GeomAPI_Interpolate(pts, True, 1e-9)
+    interp.Perform()
+    assert interp.Curve().IsPeriodic()
+    wire = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(interp.Curve()).Edge()).Wire()
+    face = BRepBuilderAPI_MakeFace(gp_Pln(), wire).Face()
+    with pytest.raises(bt.BrepTextUnsupported, match="an edge on a periodic B-spline curve"):
+        bt.read_planar_face(occ_backend.serialize(face))
+
+
 def test_a_face_not_on_a_plane_is_refused_by_name(backend):
     cyl = geo_so.Cylinder(geo_su.Axis2Placement3D(location=Point(0, 0, 0)), 0.5, 1.0)
     faces = backend.faces(backend.build(Geometry(1, cyl, None)))
