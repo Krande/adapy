@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from ada.fem import StepImplicitStatic
 from ada.fem.loads import Load
 
+from ..names import concept_name
 from ..write_loads import write_load
 
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ class StatNonLin:
     CHAM_MATER=material,{self.sec_str}
     COMPORTEMENT=(_F(DEFORMATION="PETIT", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=({self.get_bc_str()}_F(CHARGE={self.load.name}, FONC_MULT=bc_step)),
+    EXCIT=({self.get_bc_str()}_F(CHARGE={concept_name(self.load, "load")}, FONC_MULT=bc_step)),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )"""

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import StepImplicitStatic
 
+from ..names import concept_name
 from ..write_loads import write_load
 from .fields import create_field_output_str
 
@@ -45,7 +46,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part) -> str:
 result = MECA_STATIQUE(
     MODELE=model,
     CHAM_MATER=material,{sec_str}
-    EXCIT=({bc_str}_F(CHARGE={load.name}))
+    EXCIT=({bc_str}_F(CHARGE={concept_name(load, "load")}))
 )
 
 {field_str}
