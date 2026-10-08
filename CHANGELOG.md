@@ -2,6 +2,15 @@
 
 
 
+## v0.108.0 (2026-10-08)
+
+### Feature
+
+* feat(viewer): model properties in their own colours, never the default result, read from the model&#39;s own scope (#433)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`b213d9e`](https://github.com/Krande/adapy/commit/b213d9ed45cf7fff334a1a2e610cd0b496dc124f))
+
+
 ## v0.107.3 (2026-10-08)
 
 ### Fix
