@@ -151,6 +151,10 @@ export function setupCameraControlsHandlers(
             void copySelectionNames(selectedObjects).then((n) => {
                 if (n === 0) console.warn("Shift+C: nothing copied");
             });
+        } else if (shift && key.startsWith("arrow") && t?.closest?.('[role="tree"]')) {
+            // Inside a tree Shift+Arrow is the tree's own: grow or shrink the selection by a row.
+            // Traversing levels as well would replace the range the tree just extended.
+            return;
         } else if (shift && key === "arrowup") {
             // Tree-level traversal from the current selection (Shift is the
             // "activate traversal" modifier). Up = parent level; Down = first

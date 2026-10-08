@@ -1,8 +1,9 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
-import {CustomNode} from './CustomNode';
-import SceneTreeRow from './SceneTreeRow';
+import {CustomNode, TreeNodeData} from './CustomNode';
+import {sceneTreeRow} from './SceneTreeRow';
+import SceneTreeMenu, {SceneTreeMenuState} from './SceneTreeMenu';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
 
@@ -13,6 +14,12 @@ const TreeViewComponent: React.FC = () => {
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
     const headerRef = useRef<HTMLDivElement | null>(null);
+    const [menu, setMenu] = useState<SceneTreeMenuState | null>(null);
+    // One row component for the tree's life: arborist re-mounts every row when it changes.
+    const Row = useMemo(
+        () => sceneTreeRow((node: NodeApi<TreeNodeData>, x, y) => setMenu({node, x, y})),
+        [],
+    );
 
     // Top level = one root per loaded model (labelled by GLB filename). The
     // store keeps them under a synthetic container; render its children.
@@ -131,7 +138,10 @@ const TreeViewComponent: React.FC = () => {
                 }}
             >
                 <Tree
-                    className={"text-white scrollbar"}
+                    // No focus ring: arborist moves DOM focus onto the cursor row, and the browser's
+                    // outline drew a box around it on top of the selection highlight.
+                    className={"text-white scrollbar outline-none"}
+                    rowClassName={"outline-none"}
                     width={"100%"}
                     height={treeHeight} // Use the dynamic height
                     selectionFollowsFocus={true}
@@ -142,8 +152,9 @@ const TreeViewComponent: React.FC = () => {
                     disableEdit={true}
                     openByDefault={false}
                     disableMultiSelection={false}
-                    // Ctrl-click adds or removes a row, as Cmd-click does (see SceneTreeRow).
-                    renderRow={SceneTreeRow}
+                    // Ctrl-click adds or removes a row, as Cmd-click does; right-click opens the row
+                    // menu (see SceneTreeRow).
+                    renderRow={Row}
                     searchTerm={searchTerm}
                     searchMatch={
                         (node, term) => {
@@ -178,6 +189,7 @@ const TreeViewComponent: React.FC = () => {
                     {CustomNode}
                 </Tree>
             </div>
+            {menu && <SceneTreeMenu {...menu} onClose={() => setMenu(null)}/>}
 
         </div>
     );

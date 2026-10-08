@@ -35,6 +35,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+import { Chevron, NodeGlyph } from "@/components/tree_view/treeGlyphs";
+
 import type { AssetView } from "@/assets/assetView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
 import { ancestorsOf, flattenVisible, type Hierarchy } from "@/assets/hierarchy";
@@ -160,27 +162,8 @@ const EvidenceMark: React.FC<{ action: ChangeAction }> = ({ action }) => (
     </span>
 );
 
-const Chevron: React.FC<{ open: boolean }> = ({ open }) => (
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="currentColor">
-        {open ? <path d="M2 3l3 4 3-4z" /> : <path d="M3 2l4 3-4 3z" />}
-    </svg>
-);
-
-// A branch or a leaf -- the `outline` style's only glyph distinction. Core cannot
+// `NodeGlyph` (a branch or a leaf) is the `outline` style's only glyph distinction. Core cannot
 // read a provider's `kind`, so the kind is printed as a code beside the label.
-// Hand-drawn SVG in `currentColor`: no icon package.
-const NodeGlyph: React.FC<{ branch: boolean }> = ({ branch }) => (
-    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0" fill="currentColor" stroke="currentColor">
-        {branch ? (
-            <path d="M1.5 3.5h4.2l1.5 1.6h7.3v8.4h-13z" fillOpacity="0.18" strokeWidth="1.2" strokeLinejoin="round" />
-        ) : (
-            <g strokeWidth="1.1" strokeLinejoin="round">
-                <path d="M8 1.8 13.6 5v6.2L8 14.4 2.4 11.2V5z" fillOpacity="0.18" />
-                <path d="M2.4 5 8 8.2 13.6 5M8 8.2v6.2" fill="none" />
-            </g>
-        )}
-    </svg>
-);
 
 // The `tiles` style's mark: the kind itself, two letters on its own colour.
 const KindTileMark: React.FC<{ kind: string }> = ({ kind }) => {
