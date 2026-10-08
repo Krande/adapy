@@ -187,7 +187,6 @@ prod = { features = ["prod", "adacpp-runtime", "desktop"], solve-group = "prod",
 lint = { features = ["lint"], no-default-feature = true }
 profile = { features = ["profile", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
-jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
 ifc-validation = { features = ["ifc-validation"], no-default-feature = true }
 tests-core = { features = ["tests-core"], no-default-feature = true }
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
@@ -229,9 +228,6 @@ viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "adacpp-run
 viewer-api-tests-adacpp = { features = ["viewer-api", "tests-core", "prod", "adacpp-runtime"], solve-group = "viewer", no-default-feature = true }
 meshio-bridge = { features = ["meshio-bridge", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
-
-[feature.jupyterlite.dependencies]
-jupyterlite-core = "*"
 
 # Official buildingSMART-aligned IFC validation, kept in a dedicated feature so
 # its closure stays out of the main envs. Covers the OFFLINE, installable parts
@@ -414,7 +410,7 @@ ADAPY_CAD_BACKEND = "adacpp"
 # by `pixi run build-dist` in the adacpp repo) so its freshly built native .so shadows the
 # conda-installed ada-cpp. Also keeps src/ on the path so `ada` resolves. Used by the
 # tests-adacpp-dev environment; only applies to commands that don't set PYTHONPATH inline
-# (run scripts directly, e.g. `pixi run -e tests-adacpp-dev python prototypes/...`).
+# (run scripts directly, e.g. `pixi run -e tests-adacpp-dev python scripts/...`).
 [feature.adacpp-dev.activation.env]
 PYTHONPATH = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../adacpp/build/dist"
 
@@ -692,8 +688,3 @@ test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "tools/pyodide-test
 
 [dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
-
-[feature.jupyterlite.tasks]
-jl-init = { cmd = "jupyter lite init", cwd = "./src/jupyterlite" }
-jl-build = { cmd = "jupyter lite build --output-dir=dist", cwd = "./src/jupyterlite" }
-jl-serve = { cmd = "jupyter lite serve --output-dir=dist --port=8899", cwd = "./src/jupyterlite" }
