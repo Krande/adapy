@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCC.Core.Geom import Geom_BSplineCurve
@@ -54,6 +55,20 @@ def segments_to_edges(
     segments: list[geo_cu.Edge | geo_cu.ArcLine],
 ) -> list[TopoDS_Edge]:
     return [make_edge_from_line(seg) for seg in segments]
+
+
+def _ax2(position, normal) -> gp_Ax2:
+    """The circle's frame about ``normal``, its parameter measured from ``position.ref_direction``.
+
+    ``gp_Ax2(P, N)`` alone picks an X direction of its own, which moves every trim off the
+    points it names unless the ref direction happens to be that one.
+    """
+    ref = getattr(position, "ref_direction", None)
+    if ref is None:
+        return gp_Ax2(gp_Pnt(*position.location), gp_Dir(*normal))
+    x = np.asarray(ref, dtype=float)
+    x = x - normal * float(x @ normal) / float(normal @ normal)
+    return gp_Ax2(gp_Pnt(*position.location), gp_Dir(*normal), gp_Dir(*x))
 
 
 def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
@@ -131,12 +146,18 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                     t_start = getattr(edge, "t_start", None)
                     t_end = getattr(edge, "t_end", None)
                     if t_start is not None and t_end is not None:
-                        # SAT params are canonical w.r.t. the UNREVERSED curve.
-                        circle_fwd = gp_Circ(
-                            gp_Ax2(gp_Pnt(*curve_geom.position.location), gp_Dir(*curve_geom.position.axis)),
-                            curve_geom.radius,
-                        )
-                        edge_maker = BRepBuilderAPI_MakeEdge(circle_fwd, float(t_start), float(t_end))
+                        # SAT params are canonical w.r.t. the UNREVERSED curve, measured from its
+                        # ref_direction. An edge run against the circle has t_start > t_end, and
+                        # MakeEdge(circ, p1, p2) on a periodic curve takes p1 > p2 the LONG way
+                        # round (measured: (2 pi, 3 pi/2) -> range (0, 3 pi/2)). The same arc,
+                        # run from start to end, is the circle about the opposite axis between
+                        # -t_start and -t_end (Krande/adapy#435).
+                        t_start, t_end = float(t_start), float(t_end)
+                        normal = np.asarray(curve_geom.position.axis, dtype=float)
+                        if t_start > t_end:
+                            normal, t_start, t_end = -normal, -t_start, -t_end
+                        circle_fwd = gp_Circ(_ax2(curve_geom.position, normal), curve_geom.radius)
+                        edge_maker = BRepBuilderAPI_MakeEdge(circle_fwd, t_start, t_end)
                     else:
                         edge_maker = BRepBuilderAPI_MakeEdge(circle, point3d(arc_start), point3d(arc_end))
             elif isinstance(curve_geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):

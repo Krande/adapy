@@ -84,6 +84,20 @@ def _circle_param(pt, loc, axis, ref) -> float:
     return math.atan2(sum(d[i] * perp[i] for i in range(3)), sum(d[i] * r0[i] for i in range(3)))
 
 
+def _circle_point(loc, axis, ref, r: float, t: float) -> list[float]:
+    """The point at parameter ``t`` on the circle :func:`_circle_param` measures (its inverse)."""
+    ax = [float(x) for x in axis]
+    an = math.sqrt(sum(c * c for c in ax)) or 1.0
+    ax = [c / an for c in ax]
+    r0 = [float(x) for x in ref]
+    dp = sum(r0[i] * ax[i] for i in range(3))
+    r0 = [r0[i] - dp * ax[i] for i in range(3)]
+    rn = math.sqrt(sum(c * c for c in r0)) or 1.0
+    r0 = [c / rn for c in r0]
+    perp = [ax[1] * r0[2] - ax[2] * r0[1], ax[2] * r0[0] - ax[0] * r0[2], ax[0] * r0[1] - ax[1] * r0[0]]
+    return [float(loc[i]) + r * (math.cos(t) * r0[i] + math.sin(t) * perp[i]) for i in range(3)]
+
+
 class Containment(Enum):
     """Backend-neutral result of a point-in-solid classification.
 
@@ -1050,7 +1064,15 @@ class AdacppBackend:
                 # Full circle: anchor the edge vertex at the start point so a seam connects there.
                 return [2.0, *loc, *axis, *ref, r, *start]
             if has_trim:
-                return [5.0, *loc, *axis, *ref, r, float(t_start), float(t_end)]
+                t0, t1 = float(t_start), float(t_end)
+                if t0 > t1:
+                    # Run against the circle: the record's trim is taken increasing on a periodic
+                    # curve, so (pi/2, 0) went the long way round (measured: GeniE's quarter
+                    # cylinder built invalid at 3 pi). The arc through its middle runs start to
+                    # end (Krande/adapy#435).
+                    mid = _circle_point(loc, axis, ref, r, 0.5 * (t0 + t1))
+                    return [1.0, *start, *mid, *end]
+                return [5.0, *loc, *axis, *ref, r, t0, t1]
             # No explicit trim: recover the arc's angular extent from the endpoints (CCW from
             # start to end, matching OccBackend's two-point arc). WITHOUT this the arc collapsed
             # to a chord ([0, start, end]) → the face lost the surface and BRepMesh tessellated it
