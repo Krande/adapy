@@ -171,9 +171,10 @@ class SinReader(SifReader):
 
         ``self.nodes`` / ``self.node_ids`` are kept as raw record
         arrays for compatibility with :meth:`Sif2Mesh.get_sif_mesh`'s
-        slicing (`sif.nodes[:, 1:]` for xyz, `sif.node_ids[:, 0]` for
-        identifiers). ``self.elements`` is reshaped to the same
-        ``(eltyp, elno, nids_list)`` triple :meth:`SifReader.read_gelmnts`
+        slicing (`sif.nodes[:, 0]` for the internal node numbers,
+        `sif.nodes[:, 1:]` for xyz, `sif.node_ids` for the external
+        numbers). ``self.elements`` is reshaped to the same
+        ``(eltyp, elno, nids_list, elnox)`` tuple :meth:`SifReader.read_gelmnts`
         emits — without it, Sif2Mesh would group elements by ``elnox``
         and dereference the wrong fields as element type.
         """
@@ -198,23 +199,21 @@ class SinReader(SifReader):
         gcoord_rows = _records_for(self.sin, cards.GCOORD)
         if gcoord_rows:
             self.nodes = np.array(gcoord_rows, dtype=float)
-        # GNODE records: SifReader truncates to [nodex, nodeno] —
-        # the get_sif_mesh path reads `node_ids[:, 0]` as the
-        # identifier column, so keeping the same width here means
-        # the array indexing stays valid.
+        # GNODE records: SifReader truncates to [nodex, nodeno] (external,
+        # internal), and so does this.
         gnode_rows = _records_for(self.sin, cards.GNODE)
         if gnode_rows:
             self.node_ids = np.array([row[:2] for row in gnode_rows], dtype=float)
-        # GELMNT1 records: reshape to (eltyp, elno, nids) — the
+        # GELMNT1 records: reshape to (eltyp, elno, nids, elnox) — the
         # ``cards.GELMNT1`` field order is (elnox, elno, eltyp,
         # eltyad, nids…), so eltyp is at index 2 and the node-ref
         # list starts at index 4.
-        elno_idx, eltyp_idx, nids_idx = cards.GELMNT1.get_indices_from_names(
-            ["elno", "eltyp", "nids"],
+        elnox_idx, elno_idx, eltyp_idx, nids_idx = cards.GELMNT1.get_indices_from_names(
+            ["elnox", "elno", "eltyp", "nids"],
         )
         gelmnt_rows = _records_for(self.sin, cards.GELMNT1)
         if gelmnt_rows:
-            self.elements = [(row[eltyp_idx], row[elno_idx], row[nids_idx:]) for row in gelmnt_rows]
+            self.elements = [(row[eltyp_idx], row[elno_idx], row[nids_idx:], row[elnox_idx]) for row in gelmnt_rows]
         gelref_rows = _records_for(self.sin, cards.GELREF1)
         if gelref_rows:
             self._gelref1 = gelref_rows
