@@ -88,9 +88,29 @@ def test_fixtures_have_the_current_schema(results_dir, name):
     create_schema(fresh)
     fixture = sqlite3.connect(results_dir / f"{name}.sqlite")
     assert check_schema_version(fixture) == SCHEMA_VERSION
-    assert _layout(fixture) == _layout(
-        fresh
-    ), "regenerate the fixtures (scripts/codegen/gen_abaqus_results_fixtures.py)"
+    regenerate = "regenerate the fixtures (scripts/codegen/gen_abaqus_results_fixtures.py)"
+    assert _layout(fixture) == _layout(fresh), regenerate
+    lax = [
+        t
+        for t, strict in fixture.execute("SELECT name, strict FROM pragma_table_list WHERE schema = 'main'")
+        if not strict and not t.startswith("sqlite_")
+    ]
+    assert not lax, f"not STRICT: {lax}; {regenerate}"
+
+
+def test_strict_tables_refuse_mistyped_values():
+    conn = sqlite3.connect(":memory:")
+    create_schema(conn)
+    with pytest.raises(sqlite3.IntegrityError, match="cannot store TEXT value in INTEGER column"):
+        conn.execute("INSERT INTO Points (InstanceID, ID, X, Y, Z) VALUES (1, 'node 1', 0, 0, 0)")
+
+
+def test_older_versions_are_read():
+    conn = sqlite3.connect(":memory:")
+    create_schema(conn)
+    for version in (0, 1):  # v0: written before versioning; v1: the same columns, untyped
+        conn.execute(f"PRAGMA user_version = {version}")
+        assert check_schema_version(conn) == version
 
 
 def test_components_are_in_abaqus_order():

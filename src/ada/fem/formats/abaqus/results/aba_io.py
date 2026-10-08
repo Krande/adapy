@@ -46,14 +46,20 @@ class OdbExporter(object):
         self.set_id = 0
         self.step_id = 0
         self.section_points_seen = set()
+        self._sql = {}  # (table, columns) -> INSERT statement
 
-    def insert(self, table, row):
-        self.conn.execute('INSERT INTO "%s" VALUES (%s)' % (table, ", ".join("?" * len(row))), row)
+    def insert(self, table, **row):
+        # By column name: the schema fixes the columns, not their order.
+        sql = self._sql.get((table, tuple(row)))
+        if sql is None:
+            sql = 'INSERT INTO "%s" (%s) VALUES (%s)' % (table, ", ".join(row), ", ".join("?" * len(row)))
+            self._sql[(table, tuple(row))] = sql
+        self.conn.execute(sql, tuple(row.values()))
 
     def field_var(self, name, description):
         if name not in self.field_var_map:
             self.field_var_map[name] = self.field_var_id
-            self.insert("FieldVars", (self.field_var_id, name, description))
+            self.insert("FieldVars", FieldID=self.field_var_id, Name=name, Description=description)
             self.field_var_id += 1
         return self.field_var_map[name]
 
@@ -82,7 +88,7 @@ class OdbExporter(object):
         index = {}
         for row, (label, xyz) in enumerate(nodes):
             xyz = (list(xyz) + [0.0, 0.0, 0.0])[:3]
-            self.insert("Points", (inst_id, label, xyz[0], xyz[1], xyz[2]))
+            self.insert("Points", InstanceID=inst_id, ID=label, X=xyz[0], Y=xyz[1], Z=xyz[2])
             index[label] = row
         self.point_index[inst_id] = index
         self.n_points[inst_id] = len(nodes)
@@ -101,9 +107,9 @@ class OdbExporter(object):
             self.elem_conn[inst_id][label] = conn
             self.elem_n_nodes[inst_id][el_type] = max(self.elem_n_nodes[inst_id].get(el_type, 0), len(conn))
             n_ips = ips.get((name, el_type), 1)
-            self.insert("ElementInfo", (inst_id, label, el_type, n_ips))
+            self.insert("ElementInfo", InstanceID=inst_id, ElemID=label, Type=el_type, IntPoints=n_ips)
             for seq, node in enumerate(conn):
-                self.insert("ElementConnectivity", (inst_id, label, node, seq))
+                self.insert("ElementConnectivity", InstanceID=inst_id, ElemID=label, PointID=node, Seq=seq)
             count = self.elem_count[inst_id].get(el_type, 0)
             self.elem_index[inst_id].setdefault(el_type, {})[label] = count
             self.elem_count[inst_id][el_type] = count + 1
@@ -112,11 +118,11 @@ class OdbExporter(object):
 
         for set_name, elem_set in obj.elementSets.items():
             for label in _labels(elem_set.elements):
-                self.insert("ElementSets", (self.set_id, set_name, inst_id, label))
+                self.insert("ElementSets", SetID=self.set_id, Name=set_name, InstanceID=inst_id, ElemID=label)
                 self.set_id += 1
         for set_name, node_set in obj.nodeSets.items():
             for label in _labels(node_set.nodes):
-                self.insert("PointSets", (self.set_id, set_name, inst_id, label))
+                self.insert("PointSets", SetID=self.set_id, Name=set_name, InstanceID=inst_id, PointID=label)
                 self.set_id += 1
 
     # ----- results --------------------------------------------------------
@@ -140,23 +146,28 @@ class OdbExporter(object):
                         raise RuntimeError("history sample of size %d, expected (time, value)" % len(sample))
                     self.insert(
                         "HistOutput",
-                        (
-                            region_name,
-                            str(point.position),
-                            inst_id,
-                            elem_label,
-                            node_label,
-                            self.step_id,
-                            var_id,
-                            float(sample[0]),
-                            float(sample[1]),
-                        ),
+                        Region=region_name,
+                        ResType=str(point.position),
+                        InstanceID=inst_id,
+                        ElemID=elem_label,
+                        PointID=node_label,
+                        StepID=self.step_id,
+                        FieldVarID=var_id,
+                        Frame=float(sample[0]),
+                        Value=float(sample[1]),
                     )
 
     def write_fields(self, step):
         for frame_index, frame in enumerate(step.frames):
             frame_value = float(frame.frameValue)
-            self.insert("Frames", (self.step_id, frame_index, int(frame.frameId), frame_value, frame.description))
+            self.insert(
+                "Frames",
+                StepID=self.step_id,
+                FrameID=frame_index,
+                Increment=int(frame.frameId),
+                FrameValue=frame_value,
+                Description=frame.description,
+            )
             nodal, nodal_imag, elem, elem_imag = {}, {}, {}, {}
             for field in frame.fieldOutputs.values():
                 for comp in field.componentLabels:
@@ -168,15 +179,39 @@ class OdbExporter(object):
                             self.scatter(block, var_id, res_pos, nodal, nodal_imag, elem, elem_imag)
                         self.section_points(loc, blocks, res_pos)
             for (inst_id, var_id), vec in nodal.items():
-                self.insert("FieldNodes", (inst_id, self.step_id, var_id, frame_value, 0, vec.tobytes()))
+                self.insert(
+                    "FieldNodes",
+                    InstanceID=inst_id,
+                    StepID=self.step_id,
+                    FieldVarID=var_id,
+                    Frame=frame_value,
+                    IsImaginary=0,
+                    Data=vec.tobytes(),
+                )
             for (inst_id, var_id), vec in nodal_imag.items():
-                self.insert("FieldNodes", (inst_id, self.step_id, var_id, frame_value, 1, vec.tobytes()))
+                self.insert(
+                    "FieldNodes",
+                    InstanceID=inst_id,
+                    StepID=self.step_id,
+                    FieldVarID=var_id,
+                    Frame=frame_value,
+                    IsImaginary=1,
+                    Data=vec.tobytes(),
+                )
             for imag, buffers in ((0, elem), (1, elem_imag)):
                 for (inst_id, var_id, res_pos, el_type), vec in buffers.items():
                     n_ips = self.slots_per_element(inst_id, el_type, res_pos)
                     self.insert(
                         "FieldElem",
-                        (inst_id, self.step_id, var_id, res_pos, el_type, n_ips, frame_value, imag, vec.tobytes()),
+                        InstanceID=inst_id,
+                        StepID=self.step_id,
+                        FieldVarID=var_id,
+                        Location=res_pos,
+                        ElemType=el_type,
+                        NIPs=n_ips,
+                        Frame=frame_value,
+                        IsImaginary=imag,
+                        Data=vec.tobytes(),
                     )
 
     def scatter(self, block, var_id, res_pos, nodal, nodal_imag, elem, elem_imag):
@@ -257,27 +292,46 @@ class OdbExporter(object):
                 if key in self.section_points_seen:
                     continue
                 self.section_points_seen.add(key)
-                self.insert("SectionPoints", (inst_id, el_type, res_pos, int(sp.number), sp.description))
+                self.insert(
+                    "SectionPoints",
+                    InstanceID=inst_id,
+                    ElemType=el_type,
+                    Position=res_pos,
+                    PointNumber=int(sp.number),
+                    Description=sp.description,
+                )
 
     # ----- driver ---------------------------------------------------------
 
     def export(self, odb_path):
-        self.insert("metadata", (os.path.splitext(os.path.basename(odb_path))[0], getpass.getuser(), odb_path))
+        self.insert(
+            "metadata",
+            project=os.path.splitext(os.path.basename(odb_path))[0],
+            user=getpass.getuser(),
+            filename=odb_path,
+        )
         ips = self.integration_points()
         assembly = self.odb.rootAssembly
-        self.insert("ModelInstances", (0, ASSEMBLY))
+        self.insert("ModelInstances", ID=0, Name=ASSEMBLY)
         self.write_instance(0, ASSEMBLY, assembly, ips)
         inst_id = 1
         for name, inst in assembly.instances.items():
             self.instance_map[inst.name] = inst_id
-            self.insert("ModelInstances", (inst_id, name))
+            self.insert("ModelInstances", ID=inst_id, Name=name)
             self.write_instance(inst_id, inst.name, inst, ips)
             inst_id += 1
         self.conn.commit()
         logger.info("exported the mesh of %d instance(s)", inst_id - 1)
 
         for step in self.odb.steps.values():
-            self.insert("Steps", (self.step_id, step.name, step.description, str(step.domain), step.procedure))
+            self.insert(
+                "Steps",
+                ID=self.step_id,
+                Name=step.name,
+                Description=step.description,
+                DomainType=str(step.domain),
+                Procedure=step.procedure,
+            )
             self.write_history(step)
             self.write_fields(step)
             self.conn.commit()  # one transaction per step bounds the WAL on large ODBs
