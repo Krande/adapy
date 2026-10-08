@@ -98,6 +98,15 @@ def test_fixtures_have_the_current_schema(results_dir, name):
     assert not lax, f"not STRICT: {lax}; {regenerate}"
 
 
+@pytest.mark.parametrize("name", ["beam", "shell", "solid"])
+def test_fixtures_carry_no_machine_details(results_dir, name):
+    """The generator scrubs who exported a fixture and where its ODB was (scrub() in the script)."""
+    raw = (results_dir / f"{name}.sqlite").read_bytes()
+    ((project, user, filename),) = sqlite3.connect(results_dir / f"{name}.sqlite").execute("SELECT * FROM metadata")
+    assert (project, user, filename) == (name, "", f"{name}.odb")
+    assert b"Users" not in raw and b"AppData" not in raw, "regenerate the fixture: a path survives in the file"
+
+
 def test_strict_tables_refuse_mistyped_values():
     conn = sqlite3.connect(":memory:")
     create_schema(conn)

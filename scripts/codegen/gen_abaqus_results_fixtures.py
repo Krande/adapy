@@ -19,6 +19,7 @@ import argparse
 import os
 import pathlib
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -183,7 +184,26 @@ def generate(name: str, workdir: pathlib.Path) -> pathlib.Path:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / f"{name}.sqlite"
     shutil.copyfile(db, out)
+    scrub(out)
     return out
+
+
+def scrub(db: pathlib.Path) -> None:
+    """Drop what the export records about the machine that made it: the user and the ODB's path.
+
+    VACUUM so the replaced values do not linger in free pages of a file that gets committed.
+    """
+    conn = sqlite3.connect(db)
+    try:
+        for (filename,) in conn.execute("SELECT filename FROM metadata").fetchall():
+            conn.execute(
+                "UPDATE metadata SET user = '', filename = ? WHERE filename = ?",
+                (pathlib.PureWindowsPath(filename).name, filename),
+            )
+        conn.commit()
+        conn.execute("VACUUM")
+    finally:
+        conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:
