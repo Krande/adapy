@@ -298,6 +298,10 @@ interface ControlPanelProps {
     onToggleData: () => void;
 }
 
+/** The field/step row's controls -- dropdowns and number fields alike -- share one look, so
+ *  they line up at one height. */
+const FIELD_CONTROL = "text-black bg-white rounded-sm px-1 py-0.5";
+
 const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const {
         mesh,
@@ -574,7 +578,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
-                            className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none truncate"
+                            className={`${FIELD_CONTROL} min-w-0 flex-1 @sm:flex-none truncate`}
                             value={fieldPickerValue}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -609,7 +613,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 Comp{activeUnit ? ` [${activeUnit}]` : ""}
                             </span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none truncate"
+                                className={`${FIELD_CONTROL} min-w-0 flex-1 @sm:flex-none truncate`}
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -625,7 +629,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
                             <span className="text-gray-300 shrink-0">Step</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none @sm:max-w-40 truncate"
+                                className={`${FIELD_CONTROL} min-w-0 flex-1 @sm:flex-none @sm:max-w-40 truncate`}
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -643,26 +647,43 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
-                    {/* Deformation scale: multiplier on top of the [-1..1] / [0..1] sweep
-                        (or the true-scale time history); exaggerates the morph delta.
-                        Default 1. Lives in this row so the slider row stays the
-                        slider and its readout. */}
-                    <label
-                        className="flex items-center gap-1 text-xs text-white"
-                        title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
-                    >
-                        <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
-                        <span className="text-gray-200">Scale ×</span>
-                        <input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={scaleFactor}
-                            onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                            className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
-                            aria-label="Deformation scale"
-                        />
-                    </label>
+                    {/* Deformation scale and the animation period, side by side: the two
+                        numbers that shape what playing draws. In this row so the slider
+                        row stays the slider and its readout; drawn as the same field as
+                        the dropdowns beside them. */}
+                    <span className="flex items-center gap-2 shrink-0">
+                        <label
+                            className="flex items-center gap-1"
+                            title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
+                        >
+                            <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
+                            <span className="text-gray-300">Scale ×</span>
+                            <input
+                                type="number"
+                                min={0}
+                                step={0.1}
+                                value={scaleFactor}
+                                onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
+                                className={`${FIELD_CONTROL} w-14 font-mono tabular-nums`}
+                                aria-label="Deformation scale"
+                            />
+                        </label>
+                        {!timeHistory && (
+                            <label className="flex items-center gap-1" title="Period: seconds per oscillation when playing">
+                                <span className="text-gray-300">T</span>
+                                <input
+                                    type="number"
+                                    min={0.1}
+                                    step={0.1}
+                                    value={period}
+                                    onChange={(e) => setPeriod(parseFloat(e.target.value))}
+                                    className={`${FIELD_CONTROL} w-12 font-mono tabular-nums`}
+                                    aria-label="Oscillation period in seconds"
+                                />
+                                <span className="text-gray-400">s</span>
+                            </label>
+                        )}
+                    </span>
                 </div>
             )}
             {unbakedNote && (
@@ -720,27 +741,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             {factor.toFixed(2)}
                         </div>
                     </div>
-                )}
-                {!timeHistory && (
-                // The animation's period, not a scale: how long one oscillation takes. Drawn
-                // as the same field as "Scale ×" -- unstyled, the box vanished and the label
-                // read as a stray second scale control.
-                <label
-                    className="flex items-center gap-1 text-xs text-white"
-                    title="Period: seconds per oscillation when playing"
-                >
-                    <span className="text-gray-200">Period</span>
-                    <input
-                        type="number"
-                        min={0.1}
-                        step={0.1}
-                        value={period}
-                        onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                        className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
-                        aria-label="Oscillation period in seconds"
-                    />
-                    <span className="text-gray-400">s</span>
-                </label>
                 )}
             </div>
 
