@@ -84,6 +84,31 @@ def test_beam_stress_and_opposite_modulus_match_reference_row():
     )
 
 
+def test_beam_stress_per_element_matches_one_element_at_a_time():
+    from ada.fem.formats.sesam.results.derived_values import (
+        BEAM_STRESS_DENOMINATORS,
+        beam_stress_per_element,
+    )
+
+    rng = np.random.default_rng(7)
+    forces = rng.normal(size=(5, 3, 6)) * 1e3
+    den = rng.uniform(1e-6, 1e-2, size=(5, len(BEAM_STRESS_DENOMINATORS)))
+    den[1, 0] = 0.0  # no area: NaN, as beam_stress gives
+    den[2, 6] = np.nan  # no opposite-side modulus
+    den[3] = np.nan  # no section at all
+    got = beam_stress_per_element(forces, den)
+    assert got.shape == (5, 3, 8)
+    for i in range(5):
+        want = beam_stress(forces[i], **dict(zip(BEAM_STRESS_DENOMINATORS, den[i])))
+        assert np.array_equal(got[i], want, equal_nan=True), i
+    assert np.isnan(got[1]).all() and np.isnan(got[2]).all() and np.isnan(got[3]).all()
+    # One element-average point per element: (n, 1, 6) works the same.
+    avg = forces[:, :1, :]
+    assert np.array_equal(
+        beam_stress_per_element(avg, den)[0], beam_stress(avg[0], **dict(zip(BEAM_STRESS_DENOMINATORS, den[0])))
+    )
+
+
 def test_component_units_preserve_mixed_dimensions():
     si = (1.0, 1.0, 1.0)
 

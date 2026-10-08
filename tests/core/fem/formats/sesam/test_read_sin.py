@@ -193,7 +193,10 @@ def test_derived_fields_build_their_mesh_lookups_once_for_every_step(monkeypatch
     """The per-element lookups (connectivity, normals, geometry) do not change from
     step to step; a deck with a hundred result cases used to rebuild them a hundred
     times. Two copies of the fixture's step must derive twice the fields from one
-    build, with the second step's values the same as the first's."""
+    build, with the second step's values the same as the first's; a streaming read,
+    deriving one step per call over the same reader and mesh, reuses that build;
+    another mesh gets its own."""
+    import copy
     import dataclasses
 
     from ada.fem.formats.sesam.results import derived_fields
@@ -214,12 +217,15 @@ def test_derived_fields_build_their_mesh_lookups_once_for_every_step(monkeypatch
     builds = []
     real_maps = derived_fields._element_maps
     monkeypatch.setattr(derived_fields, "_element_maps", lambda mesh: builds.append(mesh) or real_maps(mesh))
-    one = real_build(raws, seen["mesh"], seen["sif"])
-    builds.clear()
+    vars(seen["sif"]).pop("_derived_lookups", None)
     later = [dataclasses.replace(r, step=int(r.step) + 1) for r in raws]
     two = real_build(raws + later, seen["mesh"], seen["sif"])
-
     assert len(builds) == 1
+    one = real_build(raws, seen["mesh"], seen["sif"])
+    assert len(builds) == 1
+    real_build(raws, copy.copy(seen["mesh"]), seen["sif"])
+    assert len(builds) == 2
+
     assert len(two) == 2 * len(one)
     first = {(f.name, str(getattr(f, "elem_type", ""))): f for f in two if int(f.step) == int(raws[0].step)}
     for f in two:

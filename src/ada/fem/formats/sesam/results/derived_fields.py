@@ -19,12 +19,13 @@ import numpy as np
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.derived_values import (
     B_STRESS_COMPONENTS,
+    BEAM_STRESS_DENOMINATORS,
     D_STRESS_COMPONENTS,
     G_FORCE_COMPONENTS,
     G_STRESS_COMPONENTS,
     P_STRESS_COMPONENTS,
     R_STRESS_COMPONENTS,
-    beam_stress,
+    beam_stress_per_element,
     decompose_shell,
     general_stress,
     membrane_principal,
@@ -308,6 +309,24 @@ def _once(cache: dict | None, key: str, make):
     return cache[key]
 
 
+def _lookup_cache(mesh, sif) -> dict:
+    """The :func:`_once` cache for ``mesh`` and the reader ``sif`` it was read with.
+
+    Kept on the reader: a streaming read (one result case at a time) keeps one
+    reader and one mesh and derives every case over them, so this is what spares
+    each case rebuilding the lookups -- and it goes when the reader goes, rather
+    than riding along on the mesh of the result. A different mesh starts a fresh
+    cache; a reader that takes no attributes gets one per call."""
+    cache = getattr(sif, "_derived_lookups", None)
+    if cache is None or cache.get("mesh") is not mesh:
+        cache = {"mesh": mesh}
+        try:
+            sif._derived_lookups = cache
+        except AttributeError:
+            pass
+    return cache
+
+
 def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted, cache: dict | None = None):
     surfaces = _shell_surfaces(raw)
     if surfaces is None:
@@ -586,6 +605,23 @@ def _beam_properties(sif, mesh, labels, cache: dict | None = None):
     return out
 
 
+def _beam_denominators(properties) -> np.ndarray:
+    """``(n, 8)`` :data:`BEAM_STRESS_DENOMINATORS` per element; NaN where it has no section.
+
+    A missing opposite-side modulus falls back to the primary one, as
+    :func:`beam_stress` does for ``wymin2=None`` / ``wzmin2=None``."""
+    out = np.full((len(properties), len(BEAM_STRESS_DENOMINATORS)), np.nan)
+    fallback = {"wymin2": "wymin", "wzmin2": "wzmin"}
+    for i, prop in enumerate(properties):
+        if prop is None:
+            continue
+        out[i] = [
+            prop[fallback[name]] if name in fallback and prop.get(name) is None else prop[name]
+            for name in BEAM_STRESS_DENOMINATORS
+        ]
+    return out
+
+
 def _beam_fields_for_raw(raw, mesh, sif, wanted, cache: dict | None = None):
     values = np.asarray(raw.values, dtype=float)
     labels, counts = np.unique(values[:, 0].astype(int), return_counts=True)
@@ -595,15 +631,13 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted, cache: dict | None = None):
     per_element = values.reshape(len(labels), n_ips, -1)
     labels = per_element[:, 0, 0].astype(int)
     force = per_element[:, :, 2:8]
-    properties = _beam_properties(sif, mesh, labels, cache)
+    denominators = _once(
+        cache,
+        ("beam_denominators", labels.tobytes()),
+        lambda: _beam_denominators(_beam_properties(sif, mesh, labels, cache)),
+    )
     unit_factors = sif.get_unit_factors()
-    b_stress = np.full(force.shape[:-1] + (8,), np.nan)
-    for i, prop in enumerate(properties):
-        if prop is not None:
-            b_stress[i] = beam_stress(
-                force[i],
-                **{k: prop[k] for k in ("area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2")},
-            )
+    b_stress = beam_stress_per_element(force, denominators)
 
     position_indices = {
         "resultpoints": np.arange(n_ips),
@@ -644,13 +678,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted, cache: dict | None = None):
                 )
             )
     force_avg = force[:, (0, n_ips - 1), :].mean(axis=1, keepdims=True)
-    b_avg = np.full(force_avg.shape[:-1] + (8,), np.nan)
-    for i, prop in enumerate(properties):
-        if prop is not None:
-            b_avg[i] = beam_stress(
-                force_avg[i],
-                **{k: prop[k] for k in ("area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2")},
-            )
+    b_avg = beam_stress_per_element(force_avg, denominators)
     if _wants(wanted, "element_average", "G-FORCE"):
         out.append(
             _element_field(
@@ -703,8 +731,10 @@ def build_derived_fields(
             force_by_step[int(raw.step)].append(raw)
 
     node_ids = np.asarray(mesh.nodes.identifiers, dtype=int)
-    # Mesh- and model-wide lookups, built once for every step (see _once).
-    cache: dict = {}
+    # Mesh- and model-wide lookups, built once for every step (see _once) --
+    # and, kept on the reader, once for a streaming read that derives one step
+    # at a time over the same mesh.
+    cache = _lookup_cache(mesh, sif)
     for step, shell_fields in shell_by_step.items():
         shell_attributes = ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
         if wanted is not None and not any(
