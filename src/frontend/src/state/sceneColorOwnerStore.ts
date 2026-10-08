@@ -97,6 +97,14 @@ export interface SceneColorOwnerState {
   markPainted: (owner: string) => void;
 
   /**
+   * The owner on top took its own painting off: it now has painted nothing,
+   * exactly as on a fresh entry, so leaving it parks nothing and re-entering it
+   * suspends. Returns whether `owner` was on top (and so whether the caller
+   * should suspend the colouring). Never applies to `results`.
+   */
+  unmarkPainted: (owner: string) => boolean;
+
+  /**
    * The owner a load requested now should be tagged with: the owning mode on
    * top when the load repaints the source already on screen, `results` in
    * every other case (no owning mode, or a different or first source). Taken
@@ -214,6 +222,14 @@ export const useSceneColorOwnerStore = create<SceneColorOwnerState>((set, get) =
     const top = stack[stack.length - 1];
     if (top.id !== owner || top.painted) return;
     set({ stack: [...stack.slice(0, -1), { ...top, painted: true }] });
+  },
+
+  unmarkPainted: (owner) => {
+    const { stack } = get();
+    const top = stack[stack.length - 1];
+    if (top.id !== owner || top.id === RESULTS_OWNER) return false;
+    set({ stack: [...stack.slice(0, -1), { ...top, painted: false, view: null }] });
+    return true;
   },
 
   requestingOwner: (source) => {

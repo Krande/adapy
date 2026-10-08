@@ -38,6 +38,7 @@ import type {FeaManifestField, FeaManifestFieldPerType, FeaScalarRange} from "@/
 import {getColormap} from "./colormaps";
 import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
 import {recordValueByRange, type ValueByRange} from "./visibleValues";
+import {categoryCodes, distinctValues, isPropertyField, propertyColormap} from "./propertyColors";
 import {
     ensureElementLocalVertices,
     expandSourceTriples,
@@ -249,9 +250,15 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         displacementScale = 1,
         colormap: colormapName,
         contour,
-        nodalAverage = false,
+        nodalAverage: nodalAverageArg = false,
         lineFallback = true,
     } = args;
+    // A model property is not a result: it is drawn in its own scheme over its own
+    // range (propertyColors.ts), never averaged across element boundaries - the
+    // mean of two material ids is a third material - and the result scale's bands
+    // and pinned ends do not apply to it.
+    const property = isPropertyField(colorField);
+    const nodalAverage = nodalAverageArg && !property;
 
     clearResultPointMarkers(mesh);
     clearResultLineSegments(mesh);
@@ -267,7 +274,21 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         );
     }
 
-    const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
+    const [rangeMin, rangeMax] = property
+        ? pickRange(colorField, reduction)
+        : resolveContourRange(pickRange(colorField, reduction), contour);
+    // A numeric property is coloured by rank among the values it carries, so the
+    // painter needs them before it paints: one pass over the step views, which for
+    // a property are one value per element.
+    const levels =
+        property && categoryCodes(colorField).length === 0
+            ? distinctValues((function* () {
+                  for (const view of perTypeStepValues) yield* view;
+              })())
+            : null;
+    const colormap =
+        propertyColormap(colorField, [rangeMin, rangeMax], levels) ??
+        bandedColormap(getColormap(colormapName), contour?.levels ?? null);
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
     const renderToSource = nodalAverage
@@ -287,7 +308,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const out_colors = new Float32Array(n_render_points * 3);
     for (let i = 0; i < out_colors.length; i++) out_colors[i] = 0.5;
 
-    const [rangeMin, rangeMax] = resolveContourRange(pickRange(colorField, reduction), contour);
     const valueByRange: ValueByRange = new Map();
     const range = rangeMax - rangeMin;
     const scaleColor = range > 0 ? 1 / range : 0;

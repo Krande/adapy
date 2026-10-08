@@ -177,6 +177,20 @@ export function noteOwnerPainted(owner?: string): void {
 }
 
 /**
+ * The owning mode on top takes its own painting off - a property painter's
+ * "colour by: none". The colouring is suspended (no field colours, no legend),
+ * and the mode counts as having painted nothing, so leaving it parks nothing
+ * and coming back finds the model unpainted, as on a first entry. Without this
+ * the only way to un-paint was the user's result-colour toggle, which then
+ * stayed off in Results. Tagged with the active owner unless one is named; a
+ * no-op when that owner is not on top, and under `results`.
+ */
+export function releaseOwnerPainting(owner?: string): void {
+  const store = useSceneColorOwnerStore.getState();
+  if (store.unmarkPainted(owner ?? store.activeOwner())) suspend();
+}
+
+/**
  * The owner a load of `source` requested right now belongs to. The loader
  * takes this when a load is requested and hands it back to
  * `noteFieldSourceLoaded` when the load lands, so the tag survives a mode

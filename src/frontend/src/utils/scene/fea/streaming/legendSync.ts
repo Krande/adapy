@@ -19,6 +19,7 @@ import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {resolveContourRange} from "../contourScale";
+import {isPropertyField} from "../propertyColors";
 import {isTimeHistory} from "../timeHistory";
 import {selectedResultRange} from "../resultUnits";
 import {autoWarpScale} from "../warpScale";
@@ -93,9 +94,10 @@ export function syncResultSession(args: {
         // Through the same resolver the kernels used: a pinned range the legend
         // does not know about is a legend that disagrees with the picture beside
         // it, which is worse than no legend at all.
+        // A property ignores the result scale's pinned ends, as its painter does.
         const [legendMin, legendMax] = resolveContourRange(
             selectedResultRange(field, reduction ?? "magnitude"),
-            useFeaAnimationStore.getState().contour,
+            isPropertyField(field) ? null : useFeaAnimationStore.getState().contour,
         );
         const legendStore = useColorStore.getState();
         legendStore.setMin(legendMin);
