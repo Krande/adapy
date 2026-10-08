@@ -47,7 +47,7 @@ import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphan
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
 import { actionTargets } from "@/assets/treeKeys";
-import { bothKeep, loadsProvider, membersForIds, treeSetFilter, type TreeSet } from "@/assets/treeSets";
+import { bothKeep, loadsProvider, membersForIds, setMembership, treeSetFilter, type TreeSet } from "@/assets/treeSets";
 import { beginBulkLoad, endBulkLoad } from "@/utils/scene/loadingView";
 import type { ResolutionMode, WireNodeAttributes } from "@/assets/types";
 import PositionedMenu, { type KebabMenuItem } from "@/components/common/PositionedMenu";
@@ -74,13 +74,14 @@ import { scopeUrlPart } from "@/state/scopeStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { selectTreeNode } from "@/utils/tree_view/treeNavigation";
 
-import AssetTree from "./AssetTree";
+import AssetTree, { type SetEditing } from "./AssetTree";
+import { ancestorsOf } from "@/assets/hierarchy";
 import { formatRevision } from "./format";
 import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
 import ProviderOptionsPanel from "./ProviderOptionsPanel";
 import TreeOptionsPanel from "./TreeOptionsPanel";
-import TreeSetsPanel from "./TreeSetsPanel";
+import TreeSetsPanel, { providerShort } from "./TreeSetsPanel";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
 // Owner tag for every scene object this tab adds. A standalone plugin context
@@ -1705,17 +1706,86 @@ const AssetsTab: React.FC = () => {
     }, [scope, collection, storeScope]);
     const activeSet: TreeSet | null = treeSets.find((s) => s.id === activeSetId) ?? null;
     const setFilter = useMemo(() => (view && activeSet ? treeSetFilter(activeSet, view.hierarchy) : null), [view, activeSet]);
+    // Editing the active set's members in the tree ("Edit" in the Sets panel): the set's narrowing
+    // is lifted so non-members can be ticked in, and every row shows where it stands.
+    const [editingSetRaw, setEditingSet] = useState(false);
+    const editingSet = editingSetRaw && setsOpen && !!activeSet;
+    useEffect(() => setEditingSet(false), [activeSetId]);
+    const membership = useMemo(
+        () => (editingSet && view && activeSet ? setMembership(activeSet, view.hierarchy) : null),
+        [editingSet, view, activeSet],
+    );
     const display = useMemo(
         () =>
             view
                 ? displayHierarchy(view.hierarchy, viewSettings, {
                       searchActive,
                       showHidden,
-                      keep: bothKeep(keepForProvider, setFilter?.keep),
+                      keep: bothKeep(keepForProvider, editingSet ? undefined : setFilter?.keep),
                   })
                 : null,
-        [view, viewSettings, searchActive, showHidden, keepForProvider, setFilter],
+        [view, viewSettings, searchActive, showHidden, keepForProvider, setFilter, editingSet],
     );
+    const setEditing: SetEditing | null =
+        editingSet && membership && activeSet && view
+            ? {
+                  name: activeSet.name,
+                  state: membership,
+                  onToggle: (id) => {
+                      const sets = useTreeSetsStore.getState();
+                      const state = membership(id);
+                      if (state === "covered") return;
+                      if (state === "member") {
+                          void sets.removeMembers(activeSet.id, [id]);
+                          return;
+                      }
+                      // Adding a branch takes in the members below it: they would only be covered twice.
+                      const under = activeSet.members
+                          .filter((m) => m.id !== id && (m.path.includes(id) || ancestorsOf(view.hierarchy, m.id).includes(id)))
+                          .map((m) => m.id);
+                      void (async () => {
+                          if (under.length) await sets.removeMembers(activeSet.id, under);
+                          await sets.addMembers(activeSet.id, membersForIds([id], view.hierarchy));
+                      })();
+                  },
+                  // A member's own provider choice, on its row; shown only where there is a choice.
+                  trailing:
+                      view.contentProviders.length > 1
+                          ? (id) => {
+                                const m = activeSet.members.find((x) => x.id === id);
+                                if (!m) return null;
+                                const providers = view.contentProviders;
+                                return (
+                                    <span className="flex items-center gap-0.5 shrink-0">
+                                        {providers.map((p) => {
+                                            const on = loadsProvider(m, p);
+                                            return (
+                                                <button
+                                                    key={p}
+                                                    type="button"
+                                                    title={`${on ? "Loads" : "Does not load"} ${p}'s geometry for ${m.label} -- click to switch`}
+                                                    className={`px-1 rounded-sm border text-[9px] leading-[14px] ${
+                                                        on ? "bg-emerald-800/80 border-emerald-600 text-white" : "border-gray-600 text-gray-500 line-through"
+                                                    }`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const own = new Set(m.providers ?? providers);
+                                                        if (!own.delete(p)) own.add(p);
+                                                        void useTreeSetsStore.getState().setProviders(activeSet.id, [
+                                                            { memberId: id, providers: providers.every((q) => own.has(q)) ? null : [...own].sort() },
+                                                        ]);
+                                                    }}
+                                                >
+                                                    {providerShort(p)}
+                                                </button>
+                                            );
+                                        })}
+                                    </span>
+                                );
+                            }
+                          : undefined,
+              }
+            : null;
     const topKinds = useMemo(
         () => (view ? [...new Set(view.hierarchy.roots.map((id) => view.hierarchy.byId.get(id)?.data.kind ?? ""))] : []),
         [view],
@@ -2129,20 +2199,11 @@ const AssetsTab: React.FC = () => {
                         }
                         onRename={(id, name) => void useTreeSetsStore.getState().rename(id, name)}
                         onDelete={(id) => void useTreeSetsStore.getState().remove(id)}
-                        onAdd={(id, members) => void useTreeSetsStore.getState().addMembers(id, members)}
-                        onRemove={(id, ids) => void useTreeSetsStore.getState().removeMembers(id, ids)}
                         providers={view?.contentProviders ?? []}
                         onSetProviders={(id, choices) => void useTreeSetsStore.getState().setProviders(id, choices)}
                         loadControl={view && activeSet ? <SetLoad view={view} set={activeSet} scope={scope} requestMissing={requestMissing} /> : null}
-                        onReveal={(id) => {
-                            const open: string[] = [];
-                            let p = view?.hierarchy.byId.get(id)?.parent ?? null;
-                            while (p) {
-                                open.push(p);
-                                p = view?.hierarchy.byId.get(p)?.parent ?? null;
-                            }
-                            useAssetBrowserStore.getState().revealRow(id, open);
-                        }}
+                        editing={editingSet}
+                        onEditing={setEditingSet}
                     />
                 )}
                 {!setsOpen && setsError && <Banner tone="error">{setsError}</Banner>}
@@ -2303,6 +2364,7 @@ const AssetsTab: React.FC = () => {
                             showHidden={showHidden}
                             onRetryLevel={(req) => void loader.loadLevel(scope, req)}
                             onRowContextMenu={(id, x, y) => setRowMenu({ id, x, y })}
+                            editing={setEditing}
                         />
                     )}
                 </div>

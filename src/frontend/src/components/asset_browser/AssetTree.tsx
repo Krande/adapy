@@ -36,6 +36,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { Chevron, NodeGlyph } from "@/components/tree_view/treeGlyphs";
+import type { SetMembership } from "@/assets/treeSets";
 
 import type { AssetView } from "@/assets/assetView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
@@ -179,6 +180,50 @@ const KindTileMark: React.FC<{ kind: string }> = ({ kind }) => {
     );
 };
 
+/** Editing a set in the tree itself (the Sets panel open on a set): each row shows whether it is a
+ *  member and toggles it, instead of a second list of the same rows in the panel. */
+export interface SetEditing {
+    name: string;
+    state: (id: string) => SetMembership;
+    onToggle: (id: string) => void;
+    /** Extra marks on a member row -- whose geometry it loads. */
+    trailing?: (id: string) => React.ReactNode;
+}
+
+const MEMBER_COLUMN = 18;
+
+const MEMBER_TITLE: Record<NonNullable<SetMembership> | "none", (set: string) => string> = {
+    member: (s) => `In "${s}" -- click to take it out`,
+    covered: (s) => `In "${s}" through a branch above it`,
+    contains: (s) => `Holds members of "${s}" below -- click to add the whole branch`,
+    none: (s) => `Not in "${s}" -- click to add it (and everything under it)`,
+};
+
+const MemberBox: React.FC<{ state: SetMembership; setName: string; onToggle: () => void }> = ({ state, setName, onToggle }) => (
+    <button
+        type="button"
+        role="checkbox"
+        aria-checked={state === "member" || state === "covered" ? true : state === "contains" ? "mixed" : false}
+        disabled={state === "covered"}
+        title={MEMBER_TITLE[state ?? "none"](setName)}
+        onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+        }}
+        className={`absolute left-1 top-1/2 -translate-y-1/2 w-3 h-3 rounded-[3px] border grid place-items-center text-[9px] leading-none ${
+            state === "member"
+                ? "bg-emerald-500 border-emerald-400 text-gray-950"
+                : state === "covered"
+                  ? "border-emerald-600/70 text-emerald-400/70 cursor-default"
+                  : state === "contains"
+                    ? "border-emerald-500 text-emerald-300 hover:bg-emerald-500/20"
+                    : "border-gray-500 hover:border-emerald-400"
+        }`}
+    >
+        {state === "member" || state === "covered" ? "✓" : state === "contains" ? "–" : ""}
+    </button>
+);
+
 const AssetRow: React.FC<{
     view: AssetView;
     id: string;
@@ -202,9 +247,12 @@ const AssetRow: React.FC<{
     onSelect: (how: SelectHow) => void;
     onRetry: () => void;
     onContextMenu: (x: number, y: number) => void;
-}> = ({ view, id, depth, hasChildren, expanded, selected, focused, spine, showProvider, outOfScope, treeStyle, marks, geoIdx, onToggle, onSelect, onRetry, onContextMenu }) => {
+    /** While a set is being edited: this row's standing in it, and the controls for it. */
+    editing?: SetEditing | null;
+}> = ({ view, id, depth, hasChildren, expanded, selected, focused, spine, showProvider, outOfScope, treeStyle, marks, geoIdx, onToggle, onSelect, onRetry, onContextMenu, editing }) => {
     const facts = rowFacts(view, id);
     if (!facts) return null;
+    const membership = editing ? editing.state(id) : null;
     const { node } = facts;
     const reasons = [
         facts.dimmed ? "nothing at or below this node to deliver" : null,
@@ -214,7 +262,10 @@ const AssetRow: React.FC<{
     ].filter(Boolean);
     const title = reasons.length ? `${node.label} — ${reasons.join("; ")}` : node.label;
     const branch = hasChildren || spine.deadEnd || !node.leaf;
-    const indent = 4 + depth * INDENT;
+    // The membership column, when a set is edited, sits left of everything and shifts the rest.
+    const column = editing ? MEMBER_COLUMN : 0;
+    const indent = 4 + column + depth * INDENT;
+    const tint = selected ? "" : membership === "member" ? "bg-emerald-500/15" : membership === "covered" ? "bg-emerald-500/[0.07]" : "";
     return (
         <div
             role="treeitem"
@@ -233,10 +284,11 @@ const AssetRow: React.FC<{
             }}
             className={`relative flex items-center gap-1.5 h-full pr-2 cursor-pointer rounded whitespace-nowrap text-[13px] ${
                 selected ? "bg-blue-500/20 text-white" : "text-gray-200 hover:bg-white/5"
-            } ${focused ? "shadow-[inset_2px_0_0_var(--color-blue-400)]" : ""} ${outOfScope ? "opacity-45" : facts.dimmed ? "opacity-60" : ""}`}
+            } ${tint} ${focused ? "shadow-[inset_2px_0_0_var(--color-blue-400)]" : ""} ${outOfScope ? "opacity-45" : facts.dimmed ? "opacity-60" : ""}`}
             style={{ paddingLeft: indent }}
             title={title}
         >
+            {editing && <MemberBox state={membership} setName={editing.name} onToggle={() => editing.onToggle(id)} />}
             {/* One guide per ancestor level. Drawn per row because the list is flat:
                 virtualisation leaves no nested container to border. */}
             {Array.from({ length: depth }, (_, d) => (
@@ -244,7 +296,7 @@ const AssetRow: React.FC<{
                     key={d}
                     aria-hidden="true"
                     className="absolute top-0 bottom-0 w-px bg-gray-700/70"
-                    style={{ left: 4 + d * INDENT + GUIDE_AT }}
+                    style={{ left: 4 + column + d * INDENT + GUIDE_AT }}
                 />
             ))}
             <span
@@ -276,6 +328,7 @@ const AssetRow: React.FC<{
             {treeStyle === "outline" && node.kind && (
                 <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-gray-400">{node.kind}</span>
             )}
+            {membership === "member" && editing?.trailing?.(id)}
             {facts.evidenceMark && <EvidenceMark action={facts.evidenceMark} />}
             {facts.changeState === "behind" && (
                 <Word tone="red" title={CHANGE_TITLE.behind}>
@@ -356,7 +409,9 @@ const AssetTree: React.FC<{
      *  provider: marking every row with another provider's geometry under a filter that says "show
      *  me this provider" reads as this provider having it. */
     geometryProvider?: string | null;
-}> = ({ view, display, outOfScope, showHidden, onRetryLevel, onRowContextMenu, geometryProvider }) => {
+    /** A set being edited in the tree: a membership column on every row. */
+    editing?: SetEditing | null;
+}> = ({ view, display, outOfScope, showHidden, onRetryLevel, onRowContextMenu, geometryProvider, editing }) => {
     const { useAssetBrowserStore } = useViewerStores();
     const expanded = useAssetBrowserStore((s) => s.expanded);
     const selected = useAssetBrowserStore((s) => s.selected);
@@ -541,6 +596,7 @@ const AssetTree: React.FC<{
                                 onSelect={(how) => chooseRow(row.id, how)}
                                 onRetry={() => level && onRetryLevel(level)}
                                 onContextMenu={(x, y) => onRowContextMenu(row.id, x, y)}
+                                editing={editing}
                             />
                         </div>
                     );
