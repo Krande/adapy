@@ -265,6 +265,36 @@ const ModePicker: React.FC<{ mode: ResolutionMode; revisions: readonly string[];
     );
 };
 
+/** Published subjects not placed yet because their branches are unopened: a neutral chip, with
+ *  the action that turns "not placed yet" into a real answer. One level per unopened hierarchy,
+ *  never a whole one -- once every hierarchy is open, what is still unplaced sits under a branch
+ *  nobody has expanded, and expanding it is how it is placed. */
+const PendingChip: React.FC<{ pending: readonly string[]; unmergedSpines: number; loadingSpines: boolean; onPlace: () => void }> = ({
+    pending,
+    unmergedSpines,
+    loadingSpines,
+    onPlace,
+}) => (
+    <span
+        className="inline-flex items-center gap-1 rounded-full bg-gray-700/70 px-2 py-0.5 text-gray-200"
+        data-testid="asset-pending"
+        title={`${pending.length} published subject(s) not placed yet -- their branches are unopened:\n${pending.join("\n")}`}
+    >
+        {pending.length} not placed
+        {unmergedSpines > 0 && (
+            <button
+                type="button"
+                className="text-blue-300 hover:text-white disabled:text-gray-500"
+                disabled={loadingSpines}
+                onClick={onPlace}
+                title={`Open the first level of the ${unmergedSpines} unopened published hierarch${unmergedSpines === 1 ? "y" : "ies"} to place them`}
+            >
+                · {loadingSpines ? "placing…" : "place"}
+            </button>
+        )}
+    </span>
+);
+
 /** Published subjects no loaded tree places, under the collection root.
  *  Collapsed to one line by default: the full sentence is on the entry's title
  *  and in the detail block when selected, so a long list cannot push the tree
@@ -279,32 +309,9 @@ const Orphans: React.FC<{
     onPlace: () => void;
 }> = ({ orphans, pending, unmergedSpines, loadingSpines, selected, onSelect, onPlace }) => {
     const [open, setOpen] = React.useState(false);
-    if (pending.length) {
-        // Not orphans yet: their branches are unopened. Neutral colour, and the
-        // action that turns "not placed yet" into a real answer.
-        return (
-            <div className="border-t border-gray-700 text-xs shrink-0 flex items-center px-2 py-0.5 text-gray-300" data-testid="asset-pending">
-                <span className="min-w-0 truncate" title={pending.join("\n")}>
-                    {pending.length} published subject(s) not placed yet — their branches are unopened
-                </span>
-                {/* One level per unopened hierarchy, never a whole one. Once every
-                    hierarchy is open, what is still unplaced sits under a branch
-                    nobody has expanded, and expanding it is how it is placed. */}
-                {unmergedSpines > 0 && (
-                    <button
-                        type="button"
-                        className="ml-auto shrink-0 pl-2 text-blue-300 hover:text-white disabled:text-gray-500"
-                        disabled={loadingSpines}
-                        onClick={onPlace}
-                        title={`Open the first level of the ${unmergedSpines} unopened published hierarch${unmergedSpines === 1 ? "y" : "ies"} to place them`}
-                    >
-                        {loadingSpines ? "placing…" : "place"}
-                    </button>
-                )}
-            </div>
-        );
-    }
-    if (!orphans.length) return null;
+    // Not orphans yet while some are pending: their branches are unopened. That is a chip in the
+    // row under the search box (`PendingChip`), not a footer.
+    if (pending.length || !orphans.length) return null;
     const ahead = orphans.filter((o) => o.cause === "ahead").length;
     const removed = orphans.length - ahead;
     return (
@@ -2152,9 +2159,17 @@ const AssetsTab: React.FC = () => {
                         />
                     </div>
                 </div>
-                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter || view?.hasChangeOwners) && (
+                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter || view?.hasChangeOwners || (view?.pending.length ?? 0) > 0) && (
                     <div className="px-2 pt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400 shrink-0">
                         {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
+                        {view && view.pending.length > 0 && (
+                            <PendingChip
+                                pending={view.pending}
+                                unmergedSpines={view.unmergedSpines.length}
+                                loadingSpines={levelLoading.size > 0}
+                                onPlace={() => void loader.loadLevels(scope, view.unmergedSpines)}
+                            />
+                        )}
                         {providerFilter && (
                             <button
                                 type="button"
