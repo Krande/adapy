@@ -109,6 +109,73 @@ def test_beam_stress_per_element_matches_one_element_at_a_time():
     )
 
 
+def _nodal_shell_average_one_node_at_a_time(rows_by_node, node_ids):
+    """The per-node formulation of the nodal shell average, as a reference."""
+    bottom = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
+    top = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
+    thickness = np.full(len(node_ids), np.nan)
+    cos_limit = np.cos(np.deg2rad(5.0))
+    for ni, node_id in enumerate(node_ids):
+        rows = rows_by_node.get(int(node_id), ())
+        if len(rows) < 2:
+            continue
+        ref_t, ref_n = rows[0][2], rows[0][3]
+        eligible = [
+            row
+            for row in rows
+            if np.isfinite(row[2])
+            and np.isfinite(ref_t)
+            and abs(row[2] - ref_t) <= 0.1 * max(abs(ref_t), 1e-30)
+            and np.all(np.isfinite(row[3]))
+            and np.all(np.isfinite(ref_n))
+            and float(np.dot(row[3], ref_n)) >= cos_limit
+        ]
+        if len(eligible) != len(rows) or len(eligible) < 2:
+            continue
+        bottom[ni] = np.mean([row[0] for row in eligible], axis=0)
+        top[ni] = np.mean([row[1] for row in eligible], axis=0)
+        thickness[ni] = float(np.mean([row[2] for row in eligible]))
+    return bottom, top, thickness
+
+
+def test_nodal_shell_average_matches_the_per_node_formulation():
+    from collections import defaultdict
+
+    from ada.fem.formats.sesam.results.derived_fields import _ShellNodalContributions
+
+    rng = np.random.default_rng(3)
+    up = np.array([0.0, 0.0, 1.0])
+    contributions = _ShellNodalContributions()
+    rows_by_node = defaultdict(list)
+    # Two raw fields' worth of 4-node shells over nodes 1..30; node 30 is shared by
+    # eighteen elements (np.mean's pairwise range), node 7 sees a thicker plate,
+    # node 9 a tilted one, node 11 an element without a normal.
+    for _ in range(2):
+        n = 12
+        refs = rng.integers(1, 30, size=(n, 4))
+        refs[3:, 0] = 30
+        thickness = np.full(n, 0.02)
+        normals = np.tile(up, (n, 1))
+        refs[0, 1], thickness[0] = 7, 0.05
+        refs[1, 1], normals[1] = 9, [0.0, 0.5, 0.866]
+        refs[2, 1], normals[2] = 11, np.nan
+        bottom = rng.normal(size=(n, 4, 3)).astype(np.float32) * 1e6
+        top = rng.normal(size=(n, 4, 3)).astype(np.float32) * 1e6
+        contributions.add(refs, bottom, top, thickness, normals)
+        for e in range(n):
+            for c in range(4):
+                rows_by_node[int(refs[e, c])].append((bottom[e, c], top[e, c], float(thickness[e]), normals[e]))
+
+    node_ids = np.array([30, 3, 7, 9, 11, 99, *range(1, 30)])
+    got = contributions.average(node_ids)
+    want = _nodal_shell_average_one_node_at_a_time(rows_by_node, node_ids)
+    for g, w in zip(got, want):
+        assert g.dtype == w.dtype
+        assert np.array_equal(g, w, equal_nan=True)
+    assert np.isfinite(got[2][0])  # node 30, eighteen contributors
+    assert np.isnan(got[2][5])  # node 99, none
+
+
 def test_component_units_preserve_mixed_dimensions():
     si = (1.0, 1.0, 1.0)
 
