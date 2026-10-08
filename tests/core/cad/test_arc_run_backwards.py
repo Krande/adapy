@@ -41,6 +41,45 @@ def _area_and_validity(backend, face):
     return backend.area(shape), backend.is_valid(shape)
 
 
+def _reversed(loop):
+    return [
+        _edge(oe.end, oe.start, oe.edge_element.edge_geometry, not oe.edge_element.same_sense, (oe.t_end, oe.t_start))
+        for oe in reversed(loop)
+    ]
+
+
+@pytest.mark.parametrize("turn", [0.5 * np.pi, 1.5 * np.pi])
+@pytest.mark.parametrize("same_sense", [True, False])
+@pytest.mark.parametrize("run", ["as GeniE wrote it", "the other way"])
+def test_a_cylinder_shell_whose_top_arc_runs_backwards(backend, run, same_sense, turn):
+    """GeniE's ``cylinder_shell`` as the reader gives it: radius 1 about +z, height 2, and a 3/4 turn of it.
+
+    Either way round and either face sense, the face is the quarter. Measured on ada-cpp 0.31.1:
+    its cylinder builder takes the loop as running clockwise in (angle, height) and does not
+    turn it round -- this outline, counter-clockwise there, built invalid at -pi once its arc
+    went the short way; pythonocc builds it valid whichever way it runs.
+    """
+    a0, a1 = np.pi / 2, np.pi / 2 + turn  # the three-quarter shell runs through the angle +-pi
+    p0, p1 = (np.cos(a0), np.sin(a0)), (np.cos(a1), np.sin(a1))
+    loop = [
+        _edge((*p0, 0), (*p1, 0), _circle(0.0), t=(a0, a1)),
+        _line((*p1, 0), (*p1, 2)),
+        _edge((*p1, 2), (*p0, 2), _circle(2.0), same_sense=False, t=(a1, a0)),
+        _line((*p0, 2), (*p0, 0)),
+    ]
+    if run == "the other way":
+        loop = _reversed(loop)
+    surface = geo_su.CylindricalSurface(
+        geo_su.Axis2Placement3D(location=Point(0, 0, 0), axis=(0, 0, 1), ref_direction=(1, 0, 0)), 1.0
+    )
+    face = geo_su.AdvancedFace(
+        bounds=[geo_su.FaceBound(geo_cu.EdgeLoop(loop), True)], face_surface=surface, same_sense=same_sense
+    )
+    area, valid = _area_and_validity(backend, face)
+    assert valid
+    assert area == pytest.approx(2 * turn, rel=1e-12)
+
+
 @pytest.mark.parametrize("turn", [0.5 * np.pi, 1.5 * np.pi])
 @pytest.mark.parametrize("ref_angle", [0.0, np.pi / 2, 2.5])
 def test_a_sector_whose_arc_runs_backwards(backend, ref_angle, turn):

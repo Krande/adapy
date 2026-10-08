@@ -98,6 +98,65 @@ def _circle_point(loc, axis, ref, r: float, t: float) -> list[float]:
     return [float(loc[i]) + r * (math.cos(t) * r0[i] + math.sin(t) * perp[i]) for i in range(3)]
 
 
+def _reversed_face_bound(fb):
+    """The same loop run the other way: edges in reverse order, each from its end to its start."""
+    import ada.geom.curves as cu
+    import ada.geom.surfaces as su
+
+    edges = []
+    for oe in reversed(fb.bound.edge_list):
+        ec = oe.edge_element
+        flipped = cu.EdgeCurve(start=oe.end, end=oe.start, edge_geometry=ec.edge_geometry, same_sense=not ec.same_sense)
+        edges.append(
+            cu.OrientedEdge(
+                start=oe.end, end=oe.start, edge_element=flipped, orientation=True, t_start=oe.t_end, t_end=oe.t_start
+            )
+        )
+    return su.FaceBound(bound=cu.EdgeLoop(edge_list=edges), orientation=fb.orientation)
+
+
+def _loop_turn_on_cylinder(fb, position) -> float:
+    """Twice the signed area a loop encloses in its cylinder's (angle, height), by the shoelace.
+
+    Positive where it runs counter-clockwise there (angle about the axis from the ref
+    direction, height along the axis). Each arc contributes points along it, from its trims
+    where it has them, so no step between points turns half a revolution. 0.0 for a loop this
+    cannot follow (not an edge loop of curve edges), which leaves it as given.
+    """
+    import ada.geom.curves as cu
+
+    if not isinstance(fb.bound, cu.EdgeLoop):
+        return 0.0
+    loc = [float(c) for c in position.location]
+    axis = [float(c) for c in (position.axis if position.axis is not None else (0, 0, 1))]
+    ref = [float(c) for c in (position.ref_direction if position.ref_direction is not None else (1, 0, 0))]
+    an = math.sqrt(sum(c * c for c in axis)) or 1.0
+    axis = [c / an for c in axis]
+    pts = []
+    for oe in fb.bound.edge_list:
+        ec = getattr(oe, "edge_element", None)
+        curve = ec.edge_geometry if isinstance(ec, cu.EdgeCurve) else None
+        if not isinstance(curve, cu.Circle):
+            pts.append([float(c) for c in oe.start])
+            continue
+        c_loc, c_axis = curve.position.location, curve.position.axis
+        c_ref = curve.position.ref_direction if curve.position.ref_direction is not None else (1, 0, 0)
+        t0, t1 = getattr(oe, "t_start", None), getattr(oe, "t_end", None)
+        if t0 is None or t1 is None:
+            t0, t1 = _circle_param(oe.start, c_loc, c_axis, c_ref), _circle_param(oe.end, c_loc, c_axis, c_ref)
+            while t1 <= t0 + 1e-12:
+                t1 += 2.0 * math.pi
+        pts += [_circle_point(c_loc, c_axis, c_ref, float(curve.radius), t0 + (t1 - t0) * k / 16) for k in range(16)]
+    uv, prev = [], None
+    for p in pts:
+        a = _circle_param(p, loc, axis, ref)
+        if prev is not None:
+            a = prev + (a - prev + math.pi) % (2.0 * math.pi) - math.pi
+        prev = a
+        uv.append((a, sum((p[i] - loc[i]) * axis[i] for i in range(3))))
+    return sum(uv[i][0] * uv[(i + 1) % len(uv)][1] - uv[(i + 1) % len(uv)][0] * uv[i][1] for i in range(len(uv)))
+
+
 class Containment(Enum):
     """Backend-neutral result of a point-in-solid classification.
 
@@ -641,12 +700,22 @@ class AdacppBackend:
                 # below (callers tessellating tubes use ADAPY_CAD_BACKEND=occ); it
                 # activates automatically once ada-cpp ships build_advanced_face_cylindrical.
                 pos = surf.position
+                bounds = list(g.bounds)
+                # The builder takes the loops as running clockwise in the cylinder's own
+                # (angle, height) and does not turn them round: measured on ada-cpp 0.31.1,
+                # GeniE's quarter cylinder (outline counter-clockwise there, face forward) built
+                # invalid at -pi, the same loops run the other way valid at +pi, and GeniE's swept
+                # arc (clockwise there) the reverse -- whatever the face's sense. pythonocc builds
+                # both valid either way. The region is the loops', not their direction, so loops
+                # that run counter-clockwise are handed over run the other way (Krande/adapy#435).
+                if _loop_turn_on_cylinder(bounds[0], pos) > 0:
+                    bounds = [_reversed_face_bound(fb) for fb in bounds]
                 shape = self._cad.build_advanced_face_cylindrical(
                     self._xyz(pos.location),
                     _axis(pos.axis, (0, 0, 1)),
                     _axis(pos.ref_direction, (1, 0, 0)),
                     float(surf.radius),
-                    [self._encode_face_bound(fb) for fb in g.bounds],
+                    [self._encode_face_bound(fb) for fb in bounds],
                 )
             elif isinstance(surf, su.ConicalSurface) and g.bounds and hasattr(self._cad, "build_advanced_face_conical"):
                 # Cone AdvancedFace (e.g. PrimCone). hasattr-guarded like the cylinder path.
