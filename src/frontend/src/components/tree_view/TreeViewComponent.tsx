@@ -83,21 +83,38 @@ const TreeViewComponent: React.FC = () => {
 
     return (
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
-            <div ref={headerRef} className={"w-full pr-1 pt-1"}>
-                <div className="flex items-center gap-1">
-                    <input
-                        className={"flex-1 min-w-0 bg-gray-600 text-white rounded-sm pl-1"}
-                        placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search here"}
-                        onInput={
-                        (event) => {
-                            useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
-                        }
-                    }/>
+            <div ref={headerRef} className={"w-full pr-1 pt-2 pb-1"}>
+                {/* The same controls as the Sources tab's: one height, one border, one radius. */}
+                <div className="flex items-center gap-1.5">
+                    <div className="h-7 flex-1 min-w-0 flex items-center gap-2 px-2 rounded-md border border-gray-700 bg-gray-800 focus-within:border-gray-500">
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="text-gray-400 shrink-0">
+                            <circle cx="7" cy="7" r="4.5" />
+                            <path d="M10.5 10.5 14 14" />
+                        </svg>
+                        <input
+                            aria-label="Search the scene"
+                            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-gray-100 placeholder:text-gray-500"
+                            placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search names"}
+                            value={searchTerm ?? ""}
+                            onChange={(event) => useTreeViewStore.getState().setSearchTerm(event.target.value)}
+                        />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                className="shrink-0 text-gray-400 hover:text-white"
+                                aria-label="Clear search"
+                                title="Clear search"
+                                onClick={() => useTreeViewStore.getState().setSearchTerm("")}
+                            >
+                                ×
+                            </button>
+                        )}
+                    </div>
                     {/* What each loaded model's root row is called: its top-level name, or the
                         unique id it was loaded under. */}
                     <button
                         type="button"
-                        className="shrink-0 rounded-sm border border-gray-600 px-1.5 text-[11px] leading-5 text-gray-300 hover:bg-gray-700"
+                        className="h-7 shrink-0 rounded-md border border-gray-700 bg-gray-800 px-2 text-xs text-gray-300 hover:bg-gray-700 hover:text-white"
                         title={
                             rootLabelMode === "name"
                                 ? "Model roots show their top-level name. Click to show the unique id each was loaded under."
@@ -109,9 +126,9 @@ const TreeViewComponent: React.FC = () => {
                     </button>
                 </div>
                 {scopeNodeId && (
-                    <div className="mt-1 flex items-center">
+                    <div className="mt-1.5 flex items-center">
                         <span
-                            className="inline-flex items-center max-w-full text-xs bg-blue-700 text-white rounded-full px-2 py-0.5"
+                            className="inline-flex items-center max-w-full text-[11px] bg-blue-900/60 text-blue-100 rounded-full px-2 py-0.5"
                             title={`Search scoped to ${scopeNodeName ?? "selection"}`}
                         >
                             <span className="truncate">scope: {scopeNodeName ?? "selection"}</span>
