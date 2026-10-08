@@ -98,7 +98,7 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
 
 
 def _cover_wires(sw: SatWriter) -> None:
-    """Widen the body/lump/shell box over the beam wires the shell carries.
+    """Widen the body/lump/shell box over the beam wires the shell carries, and its faces' loops.
 
     The box starts as the plates' extent, but the imprint also hangs every beam whose
     axis lies on no plate off this shell as a wire. GeniE treats the boxes as a bound
@@ -111,14 +111,19 @@ def _cover_wires(sw: SatWriter) -> None:
     (Fz -10000 N / My 500 N m, -4000 N, -8000 N); widening any one of them alone does not.
     """
     wires = sw.get_entities_by_type(se.Wire)
-    if not wires or sw.body is None:
+    # The plates' extent is their outlines' -- a curved plate's, its boundary nodes' -- and an
+    # arc bulges past its ends: GeniE's swept arc reaches y = 0.5 where its nodes are at y = 0.
+    # Every loop's box holds its arcs (``_edge_box_points``), so the body's is widened over them
+    # too; Abaqus/CAE trusts it (findAt at the apex found no face before).
+    loops = sw.get_entities_by_type(se.Loop)
+    if not (wires or loops) or sw.body is None:
         return
 
     import numpy as np
 
     from ada.cadit.sat.utils import make_ints_if_possible
 
-    boxes = np.asarray([sw.bbox] + [w.bbox for w in wires], dtype=float)
+    boxes = np.asarray([sw.bbox] + [w.bbox for w in wires] + [lp.bbox for lp in loops], dtype=float)
     sw.bbox = make_ints_if_possible([*boxes[:, :3].min(axis=0), *boxes[:, 3:].max(axis=0)])
     for entity in (sw.body, sw.lump, sw.shell):
         entity.bbox = list(sw.bbox)

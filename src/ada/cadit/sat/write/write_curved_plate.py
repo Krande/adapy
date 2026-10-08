@@ -685,24 +685,37 @@ def _is_closed_curve_loop(edge_list) -> bool:
     )
 
 
-def _curve_box_points(curve, p_lo, p_hi) -> list[np.ndarray]:
-    """Points whose box encloses an edge: its ends, plus what bounds the curve between them.
+def _edge_box_points(curve, p_lo, p_hi, t_lo=None, t_hi=None) -> list[np.ndarray]:
+    """Points whose box is an edge's: its ends, and where its curve turns between them.
 
-    A B-spline lies in the hull of its control points; a circle in its plane spans
-    ``r * sqrt(1 - n_k**2)`` either side of its centre along axis ``k`` (an ellipse is boxed as
-    the circle of its larger semi-axis). Loose for an arc, but a box only has to enclose -- and
-    the ends alone say nothing about a closed curve, whose two ends are one point.
+    An arc bulges past its two ends -- GeniE's swept arc reaches y = 0.5 between ends at y = 0 --
+    and a closed curve's two ends are one point. On a circle or ellipse
+    ``p(t) = c + a cos(t) x + b sin(t) y``, each coordinate turns where
+    ``t = atan2(b y_k, a x_k) + m pi``; those inside the edge's range ``[t_lo, t_hi]`` are added,
+    which makes the box exact. Without a range the whole curve is boxed. A B-spline lies in the
+    hull of its control points, which encloses it (loosely).
     """
     pts = [np.asarray(p_lo, dtype=float), np.asarray(p_hi, dtype=float)]
     if isinstance(curve, geo_cu.BSplineCurveWithKnots):
         pts += [np.asarray(cp, dtype=float)[:3] for cp in curve.control_points_list]
     elif isinstance(curve, (geo_cu.Circle, geo_cu.Ellipse)):
-        r = float(curve.radius) if isinstance(curve, geo_cu.Circle) else max(curve.semi_axis1, curve.semi_axis2)
+        a, b = (
+            (curve.radius, curve.radius) if isinstance(curve, geo_cu.Circle) else (curve.semi_axis1, curve.semi_axis2)
+        )
         c = np.asarray(curve.position.location, dtype=float)
-        n = np.asarray(curve.position.axis, dtype=float)
-        n = n / np.linalg.norm(n)
-        half = r * np.sqrt(np.clip(1.0 - n * n, 0.0, 1.0))
-        pts += [c - half, c + half]
+        z = np.asarray(curve.position.axis, dtype=float)
+        z = z / np.linalg.norm(z)
+        x = np.asarray(curve.position.ref_direction, dtype=float)
+        x = x - z * float(x @ z)
+        x = x / np.linalg.norm(x)
+        y = np.cross(z, x)
+        lo, hi = (0.0, 2 * np.pi) if t_lo is None or t_hi is None else (float(t_lo), float(t_hi))
+        for k in range(3):
+            t0 = float(np.arctan2(b * y[k], a * x[k]))
+            for m in range(int(np.floor((lo - t0) / np.pi)), int(np.ceil((hi - t0) / np.pi))):
+                t = t0 + m * np.pi
+                if lo <= t <= hi:
+                    pts.append(c + a * np.cos(t) * x + b * np.sin(t) * y)
     return pts
 
 
@@ -772,8 +785,8 @@ def _author_loop(
                 t_start=t_lo,
                 t_end=t_hi,
             )
-            if closed_single:
-                around = np.asarray(_curve_box_points(curve_geom, p_lo, p_hi), dtype=float)
+            if not isinstance(curve_geom, geo_cu.Line):
+                around = np.asarray(_edge_box_points(curve_geom, p_lo, p_hi, t_lo, t_hi), dtype=float)
                 edge.box = [float(x) for x in (*around.min(axis=0), *around.max(axis=0))]
             weld.add_edge(key, edge, curve)
         elif t_lo is not None and edge.t_start is not None:
@@ -786,13 +799,8 @@ def _author_loop(
         for v in (edge.vertex_start, edge.vertex_end):
             if v.edge is None:
                 v.edge = edge
-        # the box of a loop is its vertices' (as it always was), except round a closed curve,
-        # whose one vertex encloses nothing
-        box_points += (
-            _curve_box_points(curve_geom, p_lo, p_hi)
-            if closed_single
-            else [np.asarray(p_lo, dtype=float), np.asarray(p_hi, dtype=float)]
-        )
+        # the box of a loop holds its edges, arcs and all -- not just its vertices
+        box_points += _edge_box_points(curve_geom, p_lo, p_hi, t_lo, t_hi)
 
         # Which way this loop runs the edge, asked of the edge rather than of
         # our own parameters: a neighbour may have built it, and the sense has

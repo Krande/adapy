@@ -183,6 +183,66 @@ def test_cylindrical_shell_writes_back_the_records_genie_wrote(genie93, model, b
     assert plate_area(back) == pytest.approx(plate_area(pl), rel=1e-12)
 
 
+def _box(record: str) -> np.ndarray:
+    """The ``T x0 y0 z0 x1 y1 z1`` box a SAT record states."""
+    import re
+
+    (nums,) = re.findall(r" T ((?:\S+ ){5}\S+)", record)
+    return np.asarray([float(x) for x in nums.split()]).reshape(2, 3)
+
+
+def _edge_points(oe, n: int = 65) -> np.ndarray:
+    curve = oe.edge_element.edge_geometry
+    if type(curve).__name__ == "Line":
+        return np.asarray([oe.start, oe.end], dtype=float)
+    pos = curve.position
+    c, z, x = (np.asarray(v, dtype=float) for v in (pos.location, pos.axis, pos.ref_direction))
+    y = np.cross(z, x)
+    ts = np.linspace(oe.t_start, oe.t_end, n)
+    return np.asarray([c + curve.radius * (np.cos(t) * x + np.sin(t) * y) for t in ts])
+
+
+@pytest.mark.parametrize("model", sorted(CYLINDERS))
+def test_every_box_the_sat_states_holds_what_it_bounds(genie93, model):
+    """An arc bulges past its two ends: its edge's box, its loop's and the body's must hold the bulge.
+
+    They were the vertices' boxes: on the swept arc, y in +-1.7e-16 where the shell reaches
+    y = 0.5. Abaqus/CAE trusts them -- measured by the aispy agent with CAE 2025: ``findAt``
+    at the shell's apex (1, 0.5, 1) found no face in adapy's SAT, one in GeniE's (which states
+    no boxes) and one in adapy's with the boxes taken out.
+    """
+    from ada.cadit.sat.write import sat_entities as se
+    from ada.cadit.sat.write.writer import part_to_sat_writer
+
+    _centre, _radius, _sense, _area, point, _normal = CYLINDERS[model]
+    a = ada.from_gnx(genie93 / f"{model}_text.gnx")
+    (pl,) = _plates(a)
+    sw = part_to_sat_writer(a)
+    (edge_list,) = [b.bound.edge_list for b in pl.geom.geometry.bounds]
+    pts = np.concatenate([_edge_points(oe) for oe in edge_list] + [np.asarray([point], dtype=float)])
+
+    def holds(box, p):
+        return bool(np.all(p >= box[0] - 1e-12) and np.all(p <= box[1] + 1e-12))
+
+    edges = sw.get_entities_by_type(se.Edge)
+    for oe in edge_list:
+        on = _edge_points(oe)
+        (edge,) = [
+            e
+            for e in edges
+            if np.allclose(
+                sorted(map(tuple, [e.start_pt, e.end_pt])), sorted(map(tuple, [oe.start, oe.end])), atol=1e-9
+            )
+        ]
+        assert all(holds(_box(edge.to_string()), p) for p in on)
+        # and no more than that: 4097 points along the edge reach within 3e-8 of its true extent
+        dense = _edge_points(oe, 4097)
+        assert np.allclose(_box(edge.to_string()), [dense.min(axis=0), dense.max(axis=0)], rtol=0, atol=1e-7)
+    (loop,) = sw.get_entities_by_type(se.Loop)
+    for entity in [loop] + [sw.body, sw.lump, sw.shell]:
+        assert all(holds(_box(entity.to_string()), p) for p in pts), type(entity).__name__
+
+
 @pytest.mark.parametrize(
     "fields, why",
     [
