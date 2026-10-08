@@ -18,6 +18,8 @@ import ada
 from ada.cadit.sat.write import sat_entities as se
 from ada.cadit.sat.write.writer import part_to_sat_writer
 
+from ..face_area import plate_area
+
 
 @pytest.fixture
 def ada_log():
@@ -33,17 +35,6 @@ def ada_log():
 
 def _plate(name="pl", origin=(0, 0, 0)) -> ada.Plate:
     return ada.Plate(name, [(0, 0), (4, 0), (4, 3), (0, 3)], 0.01, origin=origin)
-
-
-def _area(pl) -> float:
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
-
-    from ada.occ.geom import geom_to_occ_geom
-
-    props = GProp_GProps()
-    brepgprop.SurfaceProperties(geom_to_occ_geom(pl.geom), props, 1e-9)
-    return props.Mass()
 
 
 def _loops_per_face(sw) -> list[int]:
@@ -80,8 +71,8 @@ def test_holes_survive_a_genie_workspace(tmp_path, body):
     assert sorted(plates) == ["round", "square"]
     for p in plates.values():
         assert type(p) is ada.PlateCurved and len(p.geom.geometry.bounds) == 2
-    assert _area(plates["square"]) == pytest.approx(11.0, rel=1e-12)
-    assert _area(plates["round"]) == pytest.approx(12.0 - np.pi * 0.16, rel=1e-12)
+    assert plate_area(plates["square"]) == pytest.approx(11.0, rel=1e-12)
+    assert plate_area(plates["round"]) == pytest.approx(12.0 - np.pi * 0.16, rel=1e-12)
 
 
 def test_the_hole_follows_the_part_placement():

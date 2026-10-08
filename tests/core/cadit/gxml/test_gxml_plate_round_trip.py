@@ -19,6 +19,8 @@ import pytest
 import ada
 from ada.core.vector_utils import merge_coplanar_loops_by_edge_cancellation
 
+from ..face_area import plate_area
+
 BODIES = ("text", "binary")
 
 
@@ -105,18 +107,6 @@ def test_t_junction_plate_writes_back_as_one_plate_over_three_faces(genie93, bod
 SWEPT_ANGLE = 1.8545904360032246
 
 
-def _occ_area(pl) -> float:
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
-
-    from ada.occ.geom import geom_to_occ_geom
-
-    props = GProp_GProps()
-    # adaptive integration: the default under-integrates a face bounded by a rational spline
-    brepgprop.SurfaceProperties(geom_to_occ_geom(pl.geom), props, 1e-9)
-    return props.Mass()
-
-
 def _oriented_normal(pl, point) -> np.ndarray:
     """The plate's normal at ``point`` on its cylinder: radial, through the face sense and flag."""
     surf = pl.geom.geometry.face_surface
@@ -154,7 +144,7 @@ def test_cylindrical_shell_reads_on_its_cylinder(genie93, model, body):
     assert np.allclose(surf.position.location, centre, atol=1e-15)
     assert np.allclose(surf.position.axis, (0, 0, 1))
     assert pl.geom.geometry.same_sense is same_sense
-    assert _occ_area(pl) == pytest.approx(area, rel=1e-12)
+    assert plate_area(pl) == pytest.approx(area, rel=1e-12)
     assert np.allclose(_oriented_normal(pl, point), normal, atol=1e-12)
 
 
@@ -190,7 +180,7 @@ def test_cylindrical_shell_writes_back_the_records_genie_wrote(genie93, model, b
         assert np.allclose(getattr(s_back.position, field), getattr(s_read.position, field), rtol=0, atol=1e-15)
     assert back.geom.geometry.same_sense is pl.geom.geometry.same_sense
     assert back.gxml_sense_flag() is pl.gxml_sense_flag()
-    assert _occ_area(back) == pytest.approx(_occ_area(pl), rel=1e-12)
+    assert plate_area(back) == pytest.approx(plate_area(pl), rel=1e-12)
 
 
 @pytest.mark.parametrize(
@@ -243,7 +233,7 @@ def test_plate_with_hole_reads_as_one_plate_with_an_inner_loop(genie93, body):
     assert pl.metadata["props"]["gxml_face_ref"] == "FACE00000002"
     assert pl.metadata["props"]["gxml_element"] == "flat_plate"
     # the hole wound against the outline: the face is valid and its area is the plate's less the disc
-    assert _occ_area(pl) == pytest.approx(HOLE_AREA, rel=1e-12)
+    assert plate_area(pl) == pytest.approx(HOLE_AREA, rel=1e-12)
 
 
 @pytest.mark.parametrize("body", BODIES)
@@ -278,7 +268,7 @@ def test_plate_with_hole_writes_back_as_one_flat_plate_with_its_hole(genie93, bo
 
     back = _hole_plate(ada.from_gnx(gnx))
     assert len(back.geom.geometry.bounds) == 2
-    assert _occ_area(back) == pytest.approx(HOLE_AREA, rel=1e-12)
+    assert plate_area(back) == pytest.approx(HOLE_AREA, rel=1e-12)
 
 
 def test_a_loop_of_one_coedge_is_read_once(genie93, tmp_path):
