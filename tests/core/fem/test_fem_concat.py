@@ -8,11 +8,23 @@ import re
 import pytest
 
 import ada
-from ada.fem import Bc, FemSet, Load, StepImplicitStatic, Surface
+from ada.fem import (
+    Bc,
+    Constraint,
+    FemSet,
+    Interaction,
+    InteractionProperty,
+    Load,
+    Mass,
+    PredefinedField,
+    StepImplicitStatic,
+    Surface,
+)
 from ada.fem.concat import concatenate_fem_to_single_part, single_part_assembly
 from ada.fem.exceptions.model_definition import DoesNotSupportMultiPart
 from ada.fem.formats import conversion_report
 from ada.fem.formats.utils import get_fem_model_from_assembly
+from ada.fem.interactions import ContactTypes
 from ada.fem.loads import LoadPressure
 from ada.fem.outputs import HistOutput
 from ada.materials.metals import CarbonSteel
@@ -336,6 +348,75 @@ def test_a_step_object_the_merge_cannot_re_key_is_refused_by_name():
     step.hist_outputs.append(out)
     with pytest.raises(DoesNotSupportMultiPart, match=r"step 's'.*'watch'.*'tip'"):
         single_part_assembly(a)
+
+
+def _velocity(fem) -> PredefinedField:
+    return PredefinedField("vel", PredefinedField.TYPES.VELOCITY, fem.nsets["tip"], dofs=[3], magnitude=[1.0])
+
+
+def _contact(a: ada.Assembly) -> Interaction:
+    pa, pb = a.get_part("PartA"), a.get_part("PartB")
+    return Interaction(
+        "contact",
+        ContactTypes.SURFACE,
+        pa.fem.surfaces["top"],
+        pb.fem.surfaces["top"],
+        InteractionProperty("ip"),
+    )
+
+
+def _mass_on_a_part_with_no_nodes() -> ada.Assembly:
+    """PartB inside a part "Mid" that has no nodes of its own and holds a point mass on PartB's tip."""
+    a = ada.Assembly("A")
+    a.add_part(_plate_part("PartA", 0.0))
+    mid = a.add_part(ada.Part("Mid"))
+    pb = mid.add_part(_plate_part("PartB", 10.0))
+    mid.fem.add_mass(Mass("m1", list(pb.fem.nsets["tip"].members), 10.0))
+    return a
+
+
+@pytest.mark.parametrize("what", ["predefined_field", "initial_state", "interaction"])
+def test_what_the_merge_does_not_carry_is_refused_by_name(what):
+    """The merge carries none of these; before the refusal it dropped them without a word."""
+    a = _two_plates()
+    pb = a.get_part("PartB")
+    if what == "predefined_field":
+        pb.fem.add_predefined_field(_velocity(pb.fem))
+        match = r"'PartB' holds predefined field 'vel'"
+    elif what == "initial_state":
+        pb.fem.initial_state = PredefinedField(
+            "ist", PredefinedField.TYPES.INITIAL_STATE, initial_state_file="x.odb", initial_state_part=pb
+        )
+        match = r"'PartB' holds initial state 'ist'"
+    else:
+        a.fem.add_interaction(_contact(a))
+        match = r"'A' holds interaction 'contact'"
+    with pytest.raises(DoesNotSupportMultiPart, match=match):
+        single_part_assembly(a)
+
+
+def test_an_element_on_a_part_with_no_nodes_is_refused_by_name():
+    a = _mass_on_a_part_with_no_nodes()
+    with pytest.raises(
+        DoesNotSupportMultiPart, match=r"'Mid' holds 1 element\(s\) and 0 mass\(es\) on other parts' nodes"
+    ):
+        single_part_assembly(a)
+
+
+def test_a_tie_between_two_parts_surfaces_names_the_merged_surfaces():
+    """A constraint whose operands are surfaces: each re-pointed at its part's merged surface."""
+    a = _two_plates()
+    pa, pb = a.get_part("PartA"), a.get_part("PartB")
+    a.fem.add_constraint(Constraint("tie", Constraint.TYPES.TIE, pa.fem.surfaces["top"], pb.fem.surfaces["top"]))
+
+    merged = _merged_part(single_part_assembly(a))
+    tie = merged.fem.constraints["tie"]
+    assert (tie.m_set.name, tie.s_set.name) == ("PartA_top", "PartB_top")
+    assert tie.m_set is merged.fem.surfaces["PartA_top"] and tie.s_set is merged.fem.surfaces["PartB_top"]
+    assert _ids(tie.s_set.fem_set) == [i + ELEM_SHIFT for i in range(1, ELEM_SHIFT + 1)]
+    # the user's constraint is untouched
+    assert a.fem.constraints["tie"].m_set is pa.fem.surfaces["top"]
+    assert a.fem.constraints["tie"].s_set is pb.fem.surfaces["top"]
 
 
 def test_the_writers_own_merge_refuses_what_it_would_write_un_re_keyed():
