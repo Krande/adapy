@@ -121,11 +121,15 @@ def _loop_turn_on_cylinder(fb, position) -> float:
     Positive where it runs counter-clockwise there (angle about the axis from the ref
     direction, height along the axis). Each arc contributes points along it, from its trims
     where it has them, so no step between points turns half a revolution. 0.0 for a loop this
-    cannot follow (not an edge loop of curve edges), which leaves it as given.
+    cannot follow (not an edge loop, or one built from pcurves), which leaves it as given.
     """
     import ada.geom.curves as cu
 
     if not isinstance(fb.bound, cu.EdgeLoop):
+        return 0.0
+    if any(getattr(oe, "pcurve", None) is not None for oe in fb.bound.edge_list):
+        # Built from its pcurves (kind-6 records), not the 3D edges this follows -- and the IFC
+        # tube those come from builds as given (tests/core/fem/test_mesh_faces.py).
         return 0.0
     loc = [float(c) for c in position.location]
     axis = [float(c) for c in (position.axis if position.axis is not None else (0, 0, 1))]
