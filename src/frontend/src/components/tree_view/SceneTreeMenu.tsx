@@ -1,9 +1,10 @@
-// The Scene tree's right-click menu: visibility, framing and copying for the selected rows, and
-// expanding or collapsing the row it was opened on.
+// The Scene's right-click menu -- opened on a tree row or on an object in the 3D view: visibility,
+// framing, copying, other providers and unloading for the selection, and expanding or collapsing
+// the row it was opened on (when opened in the tree).
 
 import React, {useMemo} from "react";
-import type {NodeApi} from "react-arborist";
 
+import {useSceneMenuStore, type SceneMenuState} from "@/state/sceneMenuStore";
 import {KebabMenuItem, PositionedMenu} from "@/components/common/PositionedMenu";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
@@ -73,19 +74,18 @@ function otherProviderLoads(row: TreeNodeData): {
     return { options, why: `No other provider publishes geometry for ${row.name}`, load };
 }
 
-export interface SceneTreeMenuState {
-    /** The row right-clicked. */
-    node: NodeApi<TreeNodeData>;
-    x: number;
-    y: number;
-}
+/** The menu, wherever it was opened: rendered once (beside the viewer) from `useSceneMenuStore`. */
+export const SceneMenuHost: React.FC = () => {
+    const menu = useSceneMenuStore((s) => s.menu);
+    const close = useSceneMenuStore((s) => s.close);
+    return menu ? <SceneTreeMenu {...menu} onClose={close}/> : null;
+};
 
-const SceneTreeMenu: React.FC<SceneTreeMenuState & {onClose: () => void}> = ({node, x, y, onClose}) => {
+const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, rows: selection, node, x, y, onClose}) => {
     // The right-click made the row part of the selection, so the selection is what the menu acts on.
-    const selected = node.tree.selectedNodes.length ? node.tree.selectedNodes : [node];
-    const rows = selected.map((n) => n.data);
-    const {hidden, total} = useMemo(() => hiddenCount(rows), [selected]); // eslint-disable-line react-hooks/exhaustive-deps
-    const what = selected.length === 1 ? "" : ` ${selected.length} rows`;
+    const rows = selection.length ? selection : [row];
+    const {hidden, total} = useMemo(() => hiddenCount(rows), [selection]); // eslint-disable-line react-hooks/exhaustive-deps
+    const what = rows.length === 1 ? "" : ` ${rows.length} rows`;
     const noGeometry = total === 0 ? "Nothing under the selection is drawn in the scene" : undefined;
 
     const items: KebabMenuItem[] = [
@@ -127,14 +127,14 @@ const SceneTreeMenu: React.FC<SceneTreeMenuState & {onClose: () => void}> = ({no
         },
     ];
     // The same node from the other providers that publish it -- for the row right-clicked.
-    const alt = useMemo(() => otherProviderLoads(node.data), [node]);
+    const alt = useMemo(() => otherProviderLoads(row), [row]);
     if (alt) {
         if (alt.options.length) {
             alt.options.forEach((o, i) =>
                 items.push({
                     key: `load-from-${o.provider}`,
                     label: `Load from ${o.provider}`,
-                    title: `${node.data.name} as ${o.provider} publishes it${o.subject !== o.node ? ` (under ${o.subject})` : ""}`,
+                    title: `${row.name} as ${o.provider} publishes it${o.subject !== o.node ? ` (under ${o.subject})` : ""}`,
                     onClick: () => void alt.load(o),
                     separatorBefore: i === 0,
                 }),
@@ -151,12 +151,17 @@ const SceneTreeMenu: React.FC<SceneTreeMenuState & {onClose: () => void}> = ({no
         }
     }
     // Unload acts on whole models: the loaded model each selected row belongs to, each once.
-    const models = new Map<string, string>();
-    for (const n of selected) {
-        let top: NodeApi<TreeNodeData> = n;
-        while (top.level > 0 && top.parent) top = top.parent;
-        if (top.data.source_name) models.set(top.data.source_name, top.data.name);
-    }
+    const models = useMemo(() => {
+        const out = new Map<string, string>();
+        const treeData = getSingletonViewerStores().useTreeViewStore.getState().treeData;
+        if (!treeData) return out;
+        const idx = buildTreeIndices(treeData);
+        for (const r of rows) {
+            const top = modelRootOf(r, idx);
+            if (top?.source_name) out.set(top.source_name, top.name);
+        }
+        return out;
+    }, [selection]); // eslint-disable-line react-hooks/exhaustive-deps
     items.push({
         key: "unload",
         label: models.size > 1 ? `Unload ${models.size} models` : "Unload model",
@@ -168,14 +173,14 @@ const SceneTreeMenu: React.FC<SceneTreeMenuState & {onClose: () => void}> = ({no
         destructive: true,
         separatorBefore: true,
     });
-    if (node.isInternal) {
+    if (node?.isInternal) {
         items.push(
             {key: "expand", label: "Expand all below", onClick: () => setSubtreeOpen(node, true), separatorBefore: true},
             {key: "collapse", label: "Collapse all below", onClick: () => setSubtreeOpen(node, false)},
         );
     }
 
-    return <PositionedMenu items={items} anchor={{kind: "point", x, y}} onClose={onClose} header={node.data.name}/>;
+    return <PositionedMenu items={items} anchor={{kind: "point", x, y}} onClose={onClose} header={row.name}/>;
 };
 
 export default SceneTreeMenu;

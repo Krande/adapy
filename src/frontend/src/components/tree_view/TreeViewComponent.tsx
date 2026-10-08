@@ -3,7 +3,7 @@ import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode, TreeNodeData} from './CustomNode';
 import {sceneTreeRow} from './SceneTreeRow';
-import SceneTreeMenu, {SceneTreeMenuState} from './SceneTreeMenu';
+import {useSceneMenuStore} from '@/state/sceneMenuStore';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
 
@@ -14,10 +14,18 @@ const TreeViewComponent: React.FC = () => {
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
     const headerRef = useRef<HTMLDivElement | null>(null);
-    const [menu, setMenu] = useState<SceneTreeMenuState | null>(null);
     // One row component for the tree's life: arborist re-mounts every row when it changes.
     const Row = useMemo(
-        () => sceneTreeRow((node: NodeApi<TreeNodeData>, x, y) => setMenu({node, x, y})),
+        () =>
+            sceneTreeRow((node: NodeApi<TreeNodeData>, x, y) =>
+                useSceneMenuStore.getState().open({
+                    row: node.data,
+                    rows: (node.tree.selectedNodes.length ? node.tree.selectedNodes : [node]).map((n) => n.data),
+                    node,
+                    x,
+                    y,
+                }),
+            ),
         [],
     );
 
@@ -210,7 +218,6 @@ const TreeViewComponent: React.FC = () => {
                     {CustomNode}
                 </Tree>
             </div>
-            {menu && <SceneTreeMenu {...menu} onClose={() => setMenu(null)}/>}
 
         </div>
     );
