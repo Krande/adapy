@@ -3,7 +3,7 @@
 # Zensical docs site for adapy. Build stage runs the ``docs`` pixi env:
 # the FEA verification report bundle (``fea-doc`` task →
 # ``docs/_static/fea-report/``), the executed notebooks
-# (``docs-notebooks``, scripts/docs_notebooks.py) and ``zensical build``
+# (``docs-notebooks``, scripts/docs/docs_notebooks.py) and ``zensical build``
 # (mkdocstrings imports ``ada`` from src/); runtime stage serves ``site/``
 # via nginx-unprivileged on :8080.
 #
@@ -151,7 +151,7 @@ COPY src/ ./src/
 COPY docs/ ./docs/
 COPY verification/ ./verification/
 COPY zensical.toml ./
-COPY scripts/docs_notebooks.py ./scripts/
+COPY scripts/docs/docs_notebooks.py ./scripts/docs/
 # Included into the procedural-modelling page and rendered as its 3D figure.
 COPY examples/penetration_detail.py ./examples/
 

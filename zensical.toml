@@ -1,7 +1,7 @@
 # Zensical site for adapy (https://zensical.org). Build with `pixi run -e docs docs`,
 # preview with `pixi run -e docs docs-serve`.
 #
-# Notebook pages (docs/**/*.ipynb) are not read by Zensical: scripts/docs_notebooks.py
+# Notebook pages (docs/**/*.ipynb) are not read by Zensical: scripts/docs/docs_notebooks.py
 # executes and converts them to Markdown beside their sources first (docs-notebooks task).
 
 [project]

@@ -1,5 +1,5 @@
 """adapy-written IFC must pass schema + EXPRESS where-rule validation (the offline pillars of the
-official buildingSMART validation service — see scripts/validate_ifc.py / the ifc-validate task).
+official buildingSMART validation service — see scripts/diagnostics/validate_ifc.py / the ifc-validate task).
 
 Guards two writer bugs the validator caught:
 * a beam used to get TWO IfcRelAssociatesMaterial (the bare per-material rel on top of its

@@ -1,6 +1,6 @@
 """Anti-drift: the checked-in example fixtures equal a fresh generation.
 
-``scripts/gen_dexpi_examples.py`` builds each example once, in Python, and writes it through both
+``scripts/codegen/gen_dexpi_examples.py`` builds each example once, in Python, and writes it through both
 writers. Hand-editing one of the checked-in files, or changing a writer without regenerating, would
 leave the fixture and the generator disagreeing silently -- exactly the kind of drift
 ``test_ada_ext_header_matches_schema`` guards against for the STEP codegen header. This is the same
@@ -16,7 +16,7 @@ import pathlib
 import pytest
 
 _REPO = pathlib.Path(__file__).resolve().parents[4]
-_GENERATOR = _REPO / "scripts" / "gen_dexpi_examples.py"
+_GENERATOR = _REPO / "scripts" / "codegen" / "gen_dexpi_examples.py"
 
 # A REPO LINT, NOT A PACKAGE TEST, so it is skipped where there is no repo.
 #
@@ -32,7 +32,7 @@ _GENERATOR = _REPO / "scripts" / "gen_dexpi_examples.py"
 # reason, and it cannot catch drift that has not happened yet.
 #
 # Keyed on the repository root looking like a checkout rather than on the generator
-# being absent: if `scripts/gen_dexpi_examples.py` goes missing from a real
+# being absent: if `scripts/codegen/gen_dexpi_examples.py` goes missing from a real
 # checkout, that IS drift, and this must fail loudly rather than quietly skip.
 #
 # The feedstock already carries the same judgement for another test, as a
@@ -62,8 +62,8 @@ def test_every_checked_in_fixture_matches_a_fresh_generation(example_files):
     for name, expected_text in fresh.items():
         actual = (dexpi_files / name).read_text(encoding="utf-8")
         assert actual == expected_text, (
-            f"{name} is stale versus scripts/gen_dexpi_examples.py -- "
-            "run `python scripts/gen_dexpi_examples.py` and commit the result"
+            f"{name} is stale versus scripts/codegen/gen_dexpi_examples.py -- "
+            "run `python scripts/codegen/gen_dexpi_examples.py` and commit the result"
         )
 
 

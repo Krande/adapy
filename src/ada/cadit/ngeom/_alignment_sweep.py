@@ -5,7 +5,8 @@ whose base is a CompositeCurve of CurveSegments with Line/Circle/Clothoid parent
 the NGEOM ``FIXED_REF_SWEPT_SOLID`` record, a list of per-station frames ``(origin, dir_x, dir_y)``
 where a profile point ``(u, v)`` maps to ``origin + u*dir_x + v*dir_y``.
 
-The math (validated to ~1e-7 vs the ifcopenshell oracle in prototypes/ngeom_compare/align_*.py):
+The math (validated once to ~1e-7 vs the ifcopenshell oracle; oracle values are pinned in
+tests/core/cadit/ifc/read/test_read_alignment.py):
 horizontal line/clothoid(Fresnel)/arc segments with the CurveSegment rigid transform, composed with
 the vertical gradient z(s), then a fixed-reference frame (no Frenet roll). No OCC.
 

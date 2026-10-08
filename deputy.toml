@@ -23,15 +23,11 @@ version_toml = ["pyproject.toml:project.version"]
 
 # The frontend package version, kept in lockstep with the python one.
 #
-# NOTE the quotes around "version": the pattern semantic-release builds is
-# `<variable>\s*[:=]\s*"<semver>"`, so the bare token `version` matches TOML
-# (`version = "..."`) but NOT JSON, where the key is followed by a closing
-# quote before the colon. The quoted form is what matches `"version": "..."`.
-#
-# src/frontend/package-lock.json is deliberately NOT listed here. Its version
-# appears once per dependency -- this pattern matches it 471 times across 230
-# distinct versions -- and semantic-release replaces every match, so adding it
-# would rewrite the whole dependency tree to the project version. The lock's
-# own version field needs `npm install --package-lock-only` (or `npm version`),
-# not a regex; it is stale today and tracked separately.
-version_variables = ['src/frontend/package.json:"version"']
+# version_json is deputy's JSON-aware bump (deputy >= 0.5.0): it parses the
+# file and writes only the package's own version -- the root "version" and, in
+# the lock, packages[""].version -- never a dependency's. semantic-release's
+# regex-based version_variables can't be used for the lock: its pattern matches
+# every dependency's "version" too (471 matches in this lock) and replaces them
+# all. Both files are staged into the release commit, and a missing or
+# malformed file aborts the release instead of letting the lock drift.
+version_json = ["src/frontend/package.json", "src/frontend/package-lock.json"]

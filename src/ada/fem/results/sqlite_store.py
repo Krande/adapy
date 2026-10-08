@@ -1,9 +1,10 @@
 import pathlib
 import sqlite3
 
-from ada.config import logger
+import numpy as np
 
-_RESULTS_SCHEMA_PATH = pathlib.Path(__file__).parent / "resources/results.sql"
+from ada.config import logger
+from ada.fem.results.sqlite_schema import create_schema
 
 
 class SQLiteFEAStore:
@@ -27,6 +28,7 @@ class SQLiteFEAStore:
                 self.conn.executescript("DELETE FROM FieldVars;")
                 self.conn.executescript("DELETE FROM ModelInstances;")
                 self.conn.executescript("DELETE FROM Steps;")
+                self.conn.executescript("DELETE FROM Frames;")
                 self.conn.executescript("DELETE FROM FieldVars;")
                 self.conn.executescript("DELETE FROM Points;")
                 self.conn.executescript("DELETE FROM ElementConnectivity;")
@@ -40,9 +42,7 @@ class SQLiteFEAStore:
         self.conn.close()
 
     def _init_db(self):
-        with open(_RESULTS_SCHEMA_PATH, "r") as f:
-            schema = f.read()
-        self.conn.executescript(schema)
+        create_schema(self.conn)
 
     def insert_table(self, table_name: str, data: list[tuple]):
         if not data:
@@ -135,76 +135,52 @@ class SQLiteFEAStore:
             return df
         return results
 
-    def get_field_elem_data(self, name, step_id=None, instance_id=None, elem_id=None, int_point=None):
-        """This returns a join from the FieldVars table and the FieldElem tables."""
-        base_query = """SELECT mi.Name,
-                             fe.ElemID,
-                            st.Name,
-                            fv.Name,
-                            fe.IntPt,
-                            fe.Frame,
-                            fe.Value
-                            FROM FieldVars as fv
-                              INNER JOIN FieldElem fe ON fv.FieldID = fe.FieldVarID
-                              INNER JOIN ModelInstances as mi on fe.InstanceID = mi.ID
-                              INNER JOIN Steps as st on fe.StepID = st.ID
-    
-                            WHERE fv.Name = ?"""
+    def get_field_elem_data(self, name, step_id=None, instance_id=None, location=None):
+        """Element field blobs of the component ``name``.
 
+        Rows of ``(instance, element type, step, component, location, n_ips, frame, values)``:
+        ``values`` is ``n_elements x n_ips`` in ElementInfo order (by ID within the type).
+        """
+        query = """SELECT mi.Name, fe.ElemType, st.Name, fv.Name, fe.Location, fe.NIPs, fe.Frame, fe.Data
+                   FROM FieldVars as fv
+                     INNER JOIN FieldElem fe ON fv.FieldID = fe.FieldVarID
+                     INNER JOIN ModelInstances as mi on fe.InstanceID = mi.ID
+                     INNER JOIN Steps as st on fe.StepID = st.ID
+                   WHERE fv.Name = ? AND fe.IsImaginary = 0"""
         params = [name]
+        for column, value in (("fe.StepID", step_id), ("fe.InstanceID", instance_id), ("fe.Location", location)):
+            if value is not None:
+                query += f" AND {column} = ?"
+                params.append(value)
 
-        if step_id is not None:
-            base_query += " AND fe.StepID = ?"
-            params.append(step_id)
+        rows = []
+        for inst, el_type, step, var, loc, n_ips, frame, data in self.cursor.execute(query, params).fetchall():
+            values = np.frombuffer(data, dtype="<f4").reshape(-1, max(int(n_ips or 1), 1))
+            rows.append((inst, el_type, step, var, loc, n_ips, frame, values))
+        return rows
 
-        if instance_id is not None:
-            base_query += " AND fe.InstanceID = ?"
-            params.append(instance_id)
+    def get_field_nodal_data(self, name, step_id=None, instance_id=None):
+        """Nodal field blobs of the component ``name``.
 
-        if elem_id is not None:
-            base_query += " AND fe.ElemID = ?"
-            params.append(elem_id)
-
-        if int_point is not None:
-            base_query += " AND fe.IntPt = ?"
-            params.append(int_point)
-
-        self.cursor.execute(base_query, params)
-        results = self.cursor.fetchall()
-        return results
-
-    def get_field_nodal_data(self, name, step_id=None, instance_id=None, point_id=None):
-        """This returns a join from the FieldVars table and the FieldNodes tables."""
-        base_query = """SELECT mi.Name,
-                           fn.PointID,
-                           st.Name,
-                           fv.Name,
-                           fn.Frame,
-                           fn.Value
-                        FROM FieldVars as fv
-                             INNER JOIN FieldNodes fn ON fv.FieldID = fn.FieldVarID
-                             INNER JOIN ModelInstances as mi on fn.InstanceID = mi.ID
-                             INNER JOIN Steps as st on fn.StepID = st.ID
-
-                        WHERE fv.Name = ?"""
-
+        Rows of ``(instance, step, component, frame, values)``: ``values`` holds one value per
+        point of the instance, in Points order (by ID).
+        """
+        query = """SELECT mi.Name, st.Name, fv.Name, fn.Frame, fn.Data
+                   FROM FieldVars as fv
+                     INNER JOIN FieldNodes fn ON fv.FieldID = fn.FieldVarID
+                     INNER JOIN ModelInstances as mi on fn.InstanceID = mi.ID
+                     INNER JOIN Steps as st on fn.StepID = st.ID
+                   WHERE fv.Name = ? AND fn.IsImaginary = 0"""
         params = [name]
+        for column, value in (("fn.StepID", step_id), ("fn.InstanceID", instance_id)):
+            if value is not None:
+                query += f" AND {column} = ?"
+                params.append(value)
 
-        if step_id is not None:
-            base_query += " AND fn.StepID = ?"
-            params.append(step_id)
-
-        if instance_id is not None:
-            base_query += " AND fn.InstanceID = ?"
-            params.append(instance_id)
-
-        if point_id is not None:
-            base_query += " AND fn.PointID = ?"
-            params.append(point_id)
-
-        self.cursor.execute(base_query, params)
-        results = self.cursor.fetchall()
-        return results
+        return [
+            (inst, step, var, frame, np.frombuffer(data, dtype="<f4"))
+            for inst, step, var, frame, data in self.cursor.execute(query, params).fetchall()
+        ]
 
     def __repr__(self):
         return f"SQLiteFEAStore({self.db_file})"

@@ -79,7 +79,7 @@ jobs:
         run: pixi run -e profile benchmark-profile
 
       - name: Process Results
-        run: pixi run -e profile python scripts/process_benchmark_results.py
+        run: pixi run -e profile python scripts/profiling/process_benchmark_results.py
         env:
           GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
 

@@ -20,7 +20,7 @@ Copyright DEXPI e.V. (https://dexpi.org/).
 
 dexpi_classes.json is a derived work: the class names, package paths, supertypes
 and RDL references of the Plant and Core models, extracted from the
-Specification's model sources by scripts/gen_dexpi_class_table.py. The
+Specification's model sources by scripts/codegen/gen_dexpi_class_table.py. The
 descriptions, diagrams and prose of the specification are not included.
 
 --------------------------------------------------------------------------------

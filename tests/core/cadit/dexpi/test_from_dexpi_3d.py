@@ -201,7 +201,7 @@ def test_bounds_too_small_is_a_build_gap_not_a_read_one(tmp_path):
 # -- what the wider official corpus insisted on ---------------------------------------------------
 #
 # Running ada.from_dexpi over all 220 files of the official TrainingTestCases (see
-# scripts/fetch_dexpi_testcases.py) raised ValueError on 72 of them. Both causes are reduced to
+# scripts/codegen/fetch_dexpi_testcases.py) raised ValueError on 72 of them. Both causes are reduced to
 # inline fixtures here, so CI holds them without the git-ignored corpus.
 
 LEGACY_CLASSED_PID = """<?xml version="1.0" encoding="utf-8"?>

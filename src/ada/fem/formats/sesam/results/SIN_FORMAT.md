@@ -202,16 +202,16 @@ ASCII payload following the same per-type block header convention.
    `FieldArtefactMeta` shape `read_sif.py` already produces.
 6. Add a checked-in tiny `STATIC_SHELL_CANTILEVER_SESAMR1.SIN`
    (regenerable from the corresponding SIF via the `dnv-sifio`
-   round-trip in `scripts/regen_sin_fixtures.py`) so the reader has
+   round-trip in `scripts/codegen/regen_sin_fixtures.py`) so the reader has
    a stable test fixture.
 
 ## Tooling
 
-* `scripts/sin_probe.py` (this repo) — dump the file structure of any
+* `scripts/diagnostics/sin_probe.py` (this repo) — dump the file structure of any
   SIN: header records, per-type blocks with NFIELD / count / pointer
   table sample. Used to validate decode hypotheses against
   `dnv-sifio`-generated SINs.
-* `scripts/regen_sin_fixtures.py` — runs in an *isolated* env with
+* `scripts/codegen/regen_sin_fixtures.py` — runs in an *isolated* env with
   `dnv-sifio` installed and re-generates the SIN test fixtures from
   the existing SIF files in `files/fem_files/cantilever/sesam/`. Not
   a runtime dep of adapy; only invoked by maintainers when test

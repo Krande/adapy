@@ -2,7 +2,7 @@
 // NB: the stylesheet is imported by index.tsx (the entry), not here. This module is
 // the built-in UI shell and is lazy-loaded, so a CSS import here reaches only builds
 // where this shell is the active one.
-import React, {useEffect, Suspense} from 'react'
+import React, {Suspense} from 'react'
 import CanvasWrapper from './components/viewer/CanvasWrapper';
 import Menu from './components/Menu';
 import {runtime} from "@/runtime/config";
@@ -118,23 +118,6 @@ function App() {
 function AppBody() {
     const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     useUrlParamLoad();
-    useEffect(() => {
-        // Check if running inside a Jupyter Notebook
-        if (runtime.inJupyter()) {
-            const widgetManager = runtime.jupyter().notebook.kernel.comm_manager;
-
-            // Find the Jupyter widget
-            widgetManager.register_target("ReactViewerWidget", function (comm: any) {
-                comm.on_msg((msg: any) => {
-                    console.log("Message from Python:", msg.content.data);
-                    // Handle incoming messages
-                });
-
-                // Example: Send a message to Python
-                comm.send({data: "Hello from React!"});
-            });
-        }
-    }, []);
 
     const tree = (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>

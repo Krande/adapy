@@ -170,12 +170,14 @@ _COMPARISON_SPECS = [
 # keeps the side effect alongside the @task declarations.
 try:
     from ada.fem.formats.abaqus.config import AbaqusSetup as _AbaqusSetup
-    from ada.fem.formats.abaqus.post_processing import get_abaodb_exe as _get_abaodb_exe
     from ada.fem.formats.abaqus.post_processing import (
         post_processing_abaqus as _post_processing_abaqus,
     )
+    from ada.fem.formats.abaqus.results.read_odb import (
+        odb_exporter_available as _odb_exporter_available,
+    )
 
-    if _get_abaodb_exe() is not None:
+    if _odb_exporter_available():
         _AbaqusSetup.set_default_post_processor(_post_processing_abaqus)
 except Exception as _exc:  # noqa: BLE001
     logger.warning(f"abaqus post-processor wiring skipped: {_exc}")

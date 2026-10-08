@@ -120,7 +120,7 @@ executor and post-processor (results reader):
 
 | Solver | Package | Read deck | Write deck | Execute | Read results |
 |---|---|---|---|---|---|
-| Abaqus | `abaqus/` | `read_fem` (`.inp`) | `to_fem_abaqus` | `run_abaqus` (with FlexNet token gate) | `read_odb_pckle_file` |
+| Abaqus | `abaqus/` | `read_fem` (`.inp`) | `to_fem_abaqus` | `run_abaqus` (with FlexNet token gate) | `read_odb` (`.odb` → results SQLite, pluggable exporter) |
 | CalculiX | `calculix/` | — | `calculix_to_fem` | `run_calculix` | `read_from_frd_file_proto` |
 | Code_Aster | `code_aster/` | `read_fem` (`.med`) | `to_fem_code_aster` | `run_code_aster` | `read_rmed_file` |
 | Sesam | `sesam/` | `read_fem` (`.fem`) | `to_fem_sesam` | `run_sesam` | `read_sin_file` (`.SIN`; `.SIF` via `read_sif_file`) |

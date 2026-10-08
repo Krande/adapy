@@ -41,7 +41,6 @@ export interface ConversionOption {
 //   - embedded index.html           : WEBSOCKET_ID, WEBSOCKET_PORT, B64GLTF,
 //                                     NODE_EDITOR_ONLY, DEACTIVATE_WS,
 //                                     UNIQUE_VERSION_ID, TARGET_INSTANCE_ID
-//   - host page (Jupyter)           : Jupyter
 //
 // Read everything through `runtime.*` so we can change the source of
 // truth (env, query string, postMessage, etc.) in one place.
@@ -128,7 +127,6 @@ declare global {
         NODE_EDITOR_ONLY?: boolean;
         DEACTIVATE_WS?: boolean;
         B64GLTF?: string;
-        Jupyter?: unknown;
     }
 }
 
@@ -218,8 +216,6 @@ export const runtime = {
     adapyVersion: (): string => (w().ADAPY_VERSION || "").trim(),
     frontendSha: (): string => (w().FRONTEND_SHA || "").trim(),
     nodeEditorOnly: (): boolean => Boolean(w().NODE_EDITOR_ONLY),
-    inJupyter: (): boolean => Boolean(w().Jupyter),
-    jupyter: (): any => w().Jupyter,
 
     // True when this tab was opened as a local file (assembly.show()'s plain
     // file:// path). Every `file:` document is its own unique browser origin, so
