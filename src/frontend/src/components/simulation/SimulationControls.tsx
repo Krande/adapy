@@ -17,7 +17,7 @@
 // cycle anyway (per the FEA workflow); the GLTF-clip path stays
 // as a fallback for non-FEA models.
 
-import React, {useEffect, useMemo, useState} from "react";
+import React, {useEffect, useMemo, useState, useSyncExternalStore} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -28,6 +28,8 @@ import ResultScaleSettings from "./ResultScaleSettings";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {unbakedStepsNote} from "@/utils/scene/fea/bakedSteps";
+import {caseStatusText, hasLazyCases, mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
+import {caseStatus, caseStatusVersion, subscribeCaseStatus} from "@/services/fea/feaCaseResolver";
 import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 import {
@@ -331,6 +333,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         beamSolidsVisible,
         setBeamSolidsVisible,
         timeHistory,
+        envelopeMode,
+        setEnvelopeMode,
     } = useFeaAnimationStore();
 
     const hasBeamSolids = !!(manifest?.mesh?.beam_solids_url || manifest?.mesh?.beam_solids_compact_url);
@@ -387,9 +391,26 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         () => buildFeaResultHierarchy(manifest?.fields ?? []),
         [manifest],
     );
+    // The step list: stored steps, then (bake_version 4) the load combinations
+    // the bake left to compute on request, each with its status.
+    const lazyCases = hasLazyCases(manifest);
+    const stepSlots = useMemo(() => mergeCaseSteps(manifest, activeField), [manifest, activeField]);
+    const caseStatusTick = useSyncExternalStore(subscribeCaseStatus, caseStatusVersion, caseStatusVersion);
+    const slotStatus = useMemo(() => {
+        void caseStatusTick;
+        const out = new Map<number, string>();
+        if (!sourceName) return out;
+        for (const s of stepSlots) {
+            if (s.kind !== "combination" || !s.recipeHash) continue;
+            out.set(s.slot, caseStatusText(caseStatus(sourceName, {n: s.value, recipe_hash: s.recipeHash})));
+        }
+        return out;
+    }, [stepSlots, sourceName, caseStatusTick]);
+    const activeSlot = stepSlots[stepIndex];
     // A bake of chosen steps (or of the model only) leaves cases out, and the
-    // pickers below cannot list what is not there: say so, once.
-    const unbakedNote = useMemo(() => unbakedStepsNote(manifest), [manifest]);
+    // pickers below cannot list what is not there: say so, once. A bake that
+    // offers its combinations on request lists them instead, so it needs no note.
+    const unbakedNote = useMemo(() => (lazyCases ? null : unbakedStepsNote(manifest)), [manifest, lazyCases]);
 
     // Element-field path: expose Surface/layer and IP reduction pickers when
     // the active field has per_type buckets. Exact selectable surfaces omit
@@ -517,6 +538,23 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         });
     };
 
+    // Scale over every load combination (the envelope) vs the shown case.
+    // Repaints the current step; the loader falls back to the case's own range,
+    // labelled as such, when the server offers no envelope.
+    const onEnvelopeToggle = (next: boolean) => {
+        setEnvelopeMode(next);
+        if (!sourceName || !manifest || !fieldName) return;
+        void load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName,
+            stepIndex,
+            reduction,
+            displacementScale: morphInfluence,
+            colormap,
+        });
+    };
+
     const onNodalAverageToggle = (next: boolean) => {
         setNodalAverage(next);
         if (!sourceName || !manifest || !fieldName) return;
@@ -630,14 +668,29 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                     names its cases, and "lcc2" identifies a load
                                     combination in a way "10" never will -- the
                                     Capacity mode's run list has always shown them. */}
-                                {activeField.steps.map((s) => (
-                                    <option key={s.i} value={s.i}>
-                                        {s.i + 1}/{nSteps} · {s.name ?? s.label}
+                                {/* Stored steps, then the load combinations computed on
+                                    request (their status after the name). */}
+                                {stepSlots.map((s) => (
+                                    <option
+                                        key={s.slot}
+                                        value={s.slot}
+                                        title={s.makeup ? `${s.name ?? s.label} = ${s.makeup}` : undefined}
+                                    >
+                                        {s.slot + 1}/{nSteps} · {s.name ?? s.label}
+                                        {s.kind === "combination" ? ` (${slotStatus.get(s.slot) ?? "computed on request"})` : ""}
                                     </option>
                                 ))}
                             </select>
                         </label>
                     )}
+                </div>
+            )}
+            {activeSlot?.kind === "combination" && (
+                <div className="text-xs text-gray-300 min-w-0 break-words" data-testid="fea-case-makeup">
+                    Load combination {activeSlot.name ?? activeSlot.label}
+                    {activeSlot.makeup ? ` = ${activeSlot.makeup}` : ""}
+                    {" · "}
+                    {slotStatus.get(activeSlot.slot) ?? "computed on request"}
                 </div>
             )}
             {unbakedNote && (
@@ -780,6 +833,19 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 aria-label="Oscillation period in seconds"
                             />
                             <span className="text-gray-400">s</span>
+                        </label>
+                    )}
+                    {lazyCases && (
+                        <label
+                            className="flex items-center gap-1"
+                            title="Colour scale over every load combination (the envelope) instead of the shown case"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={envelopeMode}
+                                onChange={(e) => onEnvelopeToggle(e.target.checked)}
+                            />
+                            <span className="text-gray-300">All combinations</span>
                         </label>
                     )}
                     {hasBeamSolids && (

@@ -7,7 +7,14 @@
 // and tried to parse the queued-job payload as a manifest; this
 // module exists in part so that bug class can't recur.
 
-import type {ConvertResponse, FeaManifest, ResultMeta, ScopeUrl} from "./viewerApi";
+import type {
+    ConvertResponse,
+    FeaCaseOverlay,
+    FeaEnvelope,
+    FeaManifest,
+    ResultMeta,
+    ScopeUrl,
+} from "./viewerApi";
 
 /** Minimal fetch surface used by the helpers. Tests pass a stub
  * conforming to this shape; production passes a wrapped fetch that
@@ -29,7 +36,7 @@ class ApiError extends Error {
     }
 }
 
-interface PollDeps {
+export interface PollDeps {
     fetcher: Fetcher;
     convertStatus: StatusFn;
     apiBase: string;
@@ -211,6 +218,36 @@ export async function fetchFeaManifest(deps: PollDeps): Promise<FeaManifest> {
         () =>
             `${deps.apiBase}/scopes/${encodeURIComponent(deps.scope)}` +
             `/fea/manifest?key=${encodeURIComponent(deps.sourceKey)}`,
+    );
+}
+
+/** One materialised load combination: ``GET .../fea/case`` -- 200 overlay, or
+ * 202 + the same poll as the manifest, then re-GET. 404 (unknown case) and 409
+ * (base bake missing or stale: re-fetch the manifest) surface as ApiError with
+ * that status. */
+export async function fetchFeaCase(
+    deps: PollDeps & {caseN: number; field?: string},
+): Promise<FeaCaseOverlay> {
+    return pollEnqueueGet<FeaCaseOverlay>(
+        deps,
+        `feaCase(${deps.sourceKey}, ${deps.caseN})`,
+        () =>
+            `${deps.apiBase}/scopes/${encodeURIComponent(deps.scope)}` +
+            `/fea/case?key=${encodeURIComponent(deps.sourceKey)}&case=${encodeURIComponent(String(deps.caseN))}` +
+            (deps.field ? `&field=${encodeURIComponent(deps.field)}` : ""),
+    );
+}
+
+/** One field's range over every load combination (``GET .../fea/envelope``),
+ * same 200 / 202+poll contract. Optional on the server: callers treat any
+ * failure as "no envelope". */
+export async function fetchFeaEnvelope(deps: PollDeps & {field: string}): Promise<FeaEnvelope> {
+    return pollEnqueueGet<FeaEnvelope>(
+        deps,
+        `feaEnvelope(${deps.sourceKey}, ${deps.field})`,
+        () =>
+            `${deps.apiBase}/scopes/${encodeURIComponent(deps.scope)}` +
+            `/fea/envelope?key=${encodeURIComponent(deps.sourceKey)}&field=${encodeURIComponent(deps.field)}`,
     );
 }
 

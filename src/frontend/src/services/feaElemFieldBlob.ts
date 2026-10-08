@@ -19,6 +19,7 @@
 
 import {disableFeaRange, feaRangeSupported} from "./fea/feaFetcher";
 import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
+import {blobStepIndex, type FeaStepRef} from "./fea/feaStepRef";
 import type {FeaManifestFieldPerType} from "./viewerApi";
 
 const ELEM_FIELD_MAGIC = 0x4c454641; // "AFEL" little-endian
@@ -116,9 +117,11 @@ export async function fetchElemFieldStep(
     rangeFetcher: FeaRangeFetcher,
     fetcher: FeaFetcher,
     bucket: FeaManifestFieldPerType,
-    stepIndex: number,
+    step: number | FeaStepRef,
     cacheKey: string,
 ): Promise<Float32Array> {
+    // Number = stored index; ``{case}`` = step 0 of a case-view bucket.
+    const stepIndex = blobStepIndex(step);
     const blob = bucket.blob;
     const fullKey = `${cacheKey}::${blob.url}`;
 

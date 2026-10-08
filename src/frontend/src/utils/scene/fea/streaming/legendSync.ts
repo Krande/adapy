@@ -37,8 +37,18 @@ export function syncResultSession(args: {
     stepIndex: number;
     /** The sweep slider's own position, only when the caller is moving it. */
     sliderFactor: number | undefined;
+    /** The field whose ``scalar_range`` was painted with, when it is not
+     *  ``field`` itself: a load combination's view (its own range) or the
+     *  field with the envelope's range. Defaults to ``field``. */
+    rangeField?: FeaManifestField | null;
+    /** Slots the step picker offers (stored steps + combinations). Defaults
+     *  to the field's own step count. */
+    nSlots?: number;
+    /** What the range is measured over, for the legend to say. */
+    legendScope?: {scope: "all" | "stored" | "case" | "envelope"; label: string | null};
 }): void {
     const {mesh, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor} = args;
+    const rangeField = args.rangeField ?? field;
     // Register the session with the animation store so
     // SimulationControls renders the deformation-scale slider /
     // play / stop instead of the GLTF-clip controls. Range follows
@@ -60,7 +70,8 @@ export function syncResultSession(args: {
         // moved the indicator on every component change.
         if (sliderFactor !== undefined) animStore.setFactor(sliderFactor);
         animStore.setStepIndex(stepIndex);
-        animStore.setNSteps(field.n_steps);
+        animStore.setNSteps(args.nSlots ?? field.n_steps);
+        animStore.setLegendScope(args.legendScope?.scope ?? "all", args.legendScope?.label ?? null);
         // A deformation scale the model can be seen at. Derived from the
         // displacement field and the model size, and only ever applied while the
         // user has not set a scale of their own.
@@ -96,7 +107,7 @@ export function syncResultSession(args: {
         // it, which is worse than no legend at all.
         // A property ignores the result scale's pinned ends, as its painter does.
         const [legendMin, legendMax] = resolveContourRange(
-            selectedResultRange(field, reduction ?? "magnitude"),
+            selectedResultRange(rangeField, reduction ?? "magnitude"),
             isPropertyField(field) ? null : useFeaAnimationStore.getState().contour,
         );
         const legendStore = useColorStore.getState();

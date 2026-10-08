@@ -16,6 +16,7 @@
 
 import {disableFeaRange, feaRangeSupported} from "./fea/feaFetcher";
 import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
+import {blobStepIndex, type FeaStepRef} from "./fea/feaStepRef";
 import type {FeaManifestField, ScopeUrl} from "./viewerApi";
 
 const BLOB_MAGIC = 0x4c424641; // "AFBL" little-endian
@@ -120,9 +121,13 @@ export async function fetchFieldStep(
     rangeFetcher: FeaRangeFetcher,
     fetcher: FeaFetcher,
     field: FeaManifestField,
-    stepIndex: number,
+    step: number | FeaStepRef,
     cacheKey: string,
 ): Promise<Float32Array> {
+    // A plain number is a stored index, as it always was. A ``{case}`` ref
+    // reads step 0 of the case's single-step blob, so ``field`` must be the
+    // case view (services/fea/feaStepRef.ts ``caseFieldView``).
+    const stepIndex = blobStepIndex(step);
     if (!field.blob) {
         throw new Error(
             `fetchFieldStep: field ${field.name_canonical} has no blob ` +

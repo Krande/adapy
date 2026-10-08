@@ -85,6 +85,12 @@ export type {
   FeaHistoryStep,
   FeaHistorySeries,
   FeaManifestHistory,
+  FeaDerivedComponent,
+  FeaCombinationStep,
+  FeaLazyCases,
+  FeaCaseField,
+  FeaCaseOverlay,
+  FeaEnvelope,
 } from "./api/fea";
 export type {
   ComponentSpecRoleSchema,

@@ -24,6 +24,8 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import {fieldAtStep} from "@/services/fea/feaCaseResolver";
+import {mergeCaseSteps, slotRef} from "@/utils/scene/fea/caseSteps";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
 import type {
@@ -134,7 +136,8 @@ const FeaTableHeader: React.FC<{
     stepIndex: number;
     reduction: string;
 }> = ({manifest, sourceName, field, stepIndex, reduction}) => {
-    const stepLabel = field.steps[stepIndex]?.label ?? `${stepIndex + 1}`;
+    const slot = mergeCaseSteps(manifest, field)[stepIndex];
+    const stepLabel = slot ? (slot.name ? `${slot.label} · ${slot.name}` : slot.label) : `${stepIndex + 1}`;
     return (
         <div className="text-xs text-gray-700 mb-2 space-y-0.5">
             <div className="font-mono truncate" title={sourceName}>
@@ -202,7 +205,17 @@ const FeaNodalTable: React.FC<{
         // convention; the helper returns the whole-blob fetcher (fallback),
         // the range fetcher, and a stable (scope, source) cache key.
         const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(scopeUrl, sourceName);
-        fetchFieldStep(rangeFetcher, fetcher, field, stepIndex, cacheKey)
+        // A load-combination slot reads the materialised case (feaCaseResolver).
+        const manifest = useFeaAnimationStore.getState().manifest;
+        const ref = slotRef(manifest, field, stepIndex);
+        const read = manifest
+            ? fieldAtStep(manifest, field, ref, {scope: scopeUrl, sourceKey: sourceName})
+            : Promise.resolve({field, step: stepIndex});
+        read
+            .then((at) => {
+                if (!at) throw new Error("this load combination does not carry the field");
+                return fetchFieldStep(rangeFetcher, fetcher, at.field, at.step, cacheKey);
+            })
             .then((sv) => {
                 if (cancelled) return;
                 setStepValues(sv);

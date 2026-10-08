@@ -5,7 +5,7 @@
 import { runtime } from "@/runtime/config";
 
 import type { FemConcepts } from "@/extensions/design_and_analysis_extension";
-import { fetchFeaManifest, fetchResultMeta } from "@/services/feaManifestPoll";
+import { fetchFeaCase, fetchFeaManifest, fetchResultMeta } from "@/services/feaManifestPoll";
 import { authedFetch, authHeader, jsonOrThrow, type ScopeUrl } from "./client";
 import { conversionApi } from "./conversion";
 
@@ -172,6 +172,103 @@ export interface FeaManifestField {
     layer?: string;
     ip_reduction?: string;
   };
+  /** bake_version 4+: components a load combination superposes term by term
+   *  (sum of coefficient x stored-case value). Absent: the field is not
+   *  combinable client-side (property fields, unknown semantics). */
+  linear_components?: string[];
+  /** bake_version 4+: components re-derived from the superposed linear ones by
+   *  a named derivation op (see the backend's artefacts/combine.py). ``field``
+   *  names another field the args come from; absent means this field. */
+  derived_components?: Record<string, FeaDerivedComponent>;
+}
+
+/** One derived (non-linear) component of a field: ``op(args...)``. */
+export interface FeaDerivedComponent {
+  op: string;
+  args: string[];
+  field?: string;
+}
+
+/** A load combination the base bake did NOT store (bake_version 4+): a recipe
+ *  over stored cases, materialised on request (``GET .../fea/case``). */
+export interface FeaCombinationStep {
+  /** The deck's result-case number. */
+  n: number;
+  name?: string;
+  /** Human-readable recipe, e.g. ``1.2·dead + 1.1·live``. */
+  makeup?: string;
+  /** Whether the COMBINED case is complex (presented as its real part). */
+  complex: boolean;
+  /** ``[basic case n, factor, phase in radians]`` in file order. */
+  terms: [number, number, number][];
+  /** Per term ``[float32(F cos phi), float32(F sin phi)]`` -- the exact
+   *  coefficients every engine applies, so none recomputes a cosine. */
+  coefficients: [number, number][];
+  /** True when the case cannot be superposed from the baked strides (a
+   *  complex basic case at a non-zero phase): only the server's raw path can
+   *  build it. */
+  needs_raw: boolean;
+  raw_reason?: string;
+  /** sha256 of the recipe (64 hex); the case cache key is ``<n>-<hash[:8]>``. */
+  recipe_hash: string;
+}
+
+export interface FeaLazyCases {
+  version: number;
+  /** The server materialises cases on request (``GET .../fea/case``). */
+  server: boolean;
+  /** Combinations without ``needs_raw`` can be superposed from base strides. */
+  client_tier_a: boolean;
+  /** Prefix of the case tree under the bake's directory (``cases/``). */
+  cases_prefix?: string;
+}
+
+/** One field of a materialised case: single-step blobs relative to the
+ *  overlay's ``prefix``, and this case's own range. */
+export interface FeaCaseField {
+  name_canonical: string;
+  components?: string[];
+  n_steps: number;
+  steps: FeaManifestStep[];
+  scalar_range: FeaScalarRange;
+  blob?: FeaManifestField["blob"];
+  per_type?: Array<{
+    elem_type: string;
+    n_elements?: number;
+    n_ips?: number;
+    blob: FeaManifestFieldPerType["blob"];
+    scalar_range: FeaScalarRange;
+  }>;
+}
+
+/** ``GET .../fea/case`` 200 body: a materialised load combination. */
+export interface FeaCaseOverlay {
+  version: number;
+  kind: "fea_case";
+  bake_version?: number;
+  src?: string;
+  /** Storage key prefix of the case's blobs:
+   *  ``_derived/<src>.fea/cases/<n>-<hash8>/``. */
+  prefix: string;
+  case: {
+    n: number;
+    name?: string;
+    complex?: boolean;
+    terms?: [number, number, number][];
+    coefficients?: [number, number][];
+    recipe_hash: string;
+  };
+  producer?: { engine: string; version?: string; tier?: "A" | "raw" | string };
+  fields: FeaCaseField[];
+}
+
+/** ``GET .../fea/envelope`` 200 body: one field's range over every combination. */
+export interface FeaEnvelope {
+  version: number;
+  kind: "fea_envelope";
+  field: string;
+  cases: number[];
+  scalar_range: FeaScalarRange;
 }
 
 export interface FeaManifest {
@@ -285,7 +382,13 @@ export interface FeaManifest {
   legacy_glb?: { url_template: string };
   /** Every result case the source offers, stored or combined; not narrowed by a
    *  bake of chosen steps (see ``baked_steps``). */
-  result_cases?: { n: number; name?: string; makeup?: string }[];
+  result_cases?: { n: number; name?: string; combination?: boolean; makeup?: string }[];
+  /** bake_version 4+: the load combinations this bake did not store, each
+   *  materialised on request. Absent on older bakes and on decks without
+   *  unstored combinations. */
+  combination_steps?: FeaCombinationStep[];
+  /** bake_version 4+: what can materialise ``combination_steps``. */
+  lazy_cases?: FeaLazyCases;
   /** The step values a bake of chosen steps holds; absent for a bake of every
    *  step. Empty: the model only, with no result field. */
   baked_steps?: number[];
@@ -486,6 +589,37 @@ export const feaApi = {
       apiBase: runtime.apiBase(),
       scope,
       sourceKey,
+      signal: opts?.signal,
+      onProgress: opts?.onProgress,
+    });
+  },
+
+  /** One materialised load combination (``GET .../fea/case``): 200 overlay,
+   * or 202 + poll like the manifest. Prefer ``resolveCase`` in
+   * services/fea/feaCaseResolver.ts, which caches and dedupes. */
+  async feaCase(
+    scope: ScopeUrl,
+    sourceKey: string,
+    caseN: number,
+    opts?: {
+      field?: string;
+      onProgress?: (info: {
+        jobId: string;
+        stage: string;
+        progress: number;
+        status: "queued" | "running" | "done";
+      }) => void;
+      signal?: AbortSignal;
+    },
+  ): Promise<FeaCaseOverlay> {
+    return fetchFeaCase({
+      fetcher: authedFetch,
+      convertStatus: (jobId) => conversionApi.convertStatus(jobId),
+      apiBase: runtime.apiBase(),
+      scope,
+      sourceKey,
+      caseN,
+      field: opts?.field,
       signal: opts?.signal,
       onProgress: opts?.onProgress,
     });

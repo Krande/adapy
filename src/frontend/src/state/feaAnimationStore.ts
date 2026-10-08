@@ -178,6 +178,18 @@ export interface FeaAnimationState {
      * advances ``stepIndex`` through the frames instead of sweeping ``factor``. */
     timeHistory: boolean;
 
+    /** What the colour scale is currently measured over (see
+     * utils/scene/fea/caseSteps.ts ``legendScopeFor``): every step ("all", a
+     * bake without load combinations), the stored cases, the shown combination
+     * alone, or every combination (the envelope). Set by the loader with each
+     * paint; the legend prints ``legendScopeLabel``. */
+    legendScope: "all" | "stored" | "case" | "envelope";
+    legendScopeLabel: string | null;
+
+    /** User preference: measure the scale over all combinations (the
+     * envelope) where the server offers one. Kept across ``reset()``. */
+    envelopeMode: boolean;
+
     setSessionActive: (active: boolean) => void;
     setMesh: (mesh: THREE.Mesh | null) => void;
     setRange: (range: [number, number]) => void;
@@ -210,6 +222,8 @@ export interface FeaAnimationState {
     setBeamSolidsVisible: (visible: boolean) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
+    setLegendScope: (scope: FeaAnimationState["legendScope"], label: string | null) => void;
+    setEnvelopeMode: (on: boolean) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
 }
@@ -266,6 +280,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     beamSolidsVisible: false,
     applyStep: null,
     timeHistory: false,
+    legendScope: "all",
+    legendScopeLabel: null,
+    envelopeMode: false,
 
     setSessionActive: (active) => set({sessionActive: active}),
     setMesh: (mesh) => set({mesh}),
@@ -298,6 +315,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
     setApplyStep: (cb) => set({applyStep: cb}),
     setTimeHistory: (timeHistory) => set({timeHistory}),
+    setLegendScope: (legendScope, legendScopeLabel) => set({legendScope, legendScopeLabel}),
+    setEnvelopeMode: (envelopeMode) => set({envelopeMode}),
     reset: (): void =>
         set((state) => ({
             sessionActive: false,
@@ -322,5 +341,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             // model swaps.
             applyStep: null,
             timeHistory: false,
+            legendScope: "all",
+            legendScopeLabel: null,
         })),
 }));
