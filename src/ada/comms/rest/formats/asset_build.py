@@ -23,12 +23,15 @@ import json
 import threading
 import time
 import traceback as tb_module
+from datetime import datetime, timezone
 
 import asyncpg
 
 from ada.assets.build import (
     BuildError,
+    BuildProvenance,
     BuildSummary,
+    NothingToBuild,
     parse_build_summary,
     validate_build_summary,
 )
@@ -127,6 +130,11 @@ async def _run_asset_build(
     try:
         await queue.update(job_id, stage="build", progress=0.10)
         result = await loop.run_in_executor(None, _invoke)
+    except NothingToBuild as exc:
+        # An answer, not a failure: stored where the GLB would have gone, so a repeat reads it
+        # instead of building again, and recorded as skipped -- never as an error a bot files.
+        await _store_empty(job, request, opts, storage, scope, queue, db_pool, started_at, str(exc))
+        return
     except Exception as exc:
         if cancel_event.is_set():
             logger.info("worker: asset_build %s cancelled by user mid-run", job_id)
@@ -184,6 +192,51 @@ async def _run_asset_build(
         time.monotonic() - started_at,
     )
     await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+async def _store_empty(
+    job: Job,
+    request: BuildRequest,
+    opts: dict,
+    storage: "Storage",
+    scope,
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+    reason: str,
+) -> None:
+    """Finish a build whose builder found nothing to draw: an ``empty`` summary at the derived key,
+    the job done, the audit row skipped with the reason."""
+    job_id = job.job_id
+    summary = BuildSummary(
+        ok=False,
+        glb_key="",
+        provenance=BuildProvenance(
+            provider=request.provider,
+            collection=request.collection,
+            subject=request.subject,
+            revision=request.revision,
+            node=request.node,
+            fingerprint=request.fingerprint,
+            built_at=datetime.now(timezone.utc).isoformat(),
+            hierarchy_source=request.hierarchy_source,
+            provider_version=opts.get("provider_version"),
+        ),
+        error=reason,
+        empty=True,
+    )
+    try:
+        await storage.put_bytes(
+            scope, job.derived_key, json.dumps(summary.to_dict()).encode("utf-8"), content_encoding="gzip"
+        )
+    except Exception as exc:
+        logger.exception("worker: asset_build empty summary upload failed for job %s", job_id)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+        return
+    logger.info("worker: asset_build %s has nothing to draw: %s", job_id, reason)
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="empty", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "skipped", reason, started_at)
 
 
 class AssetBuildHandler(SyntheticFormatHandler):

@@ -35,6 +35,7 @@ import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionR
 import {
     assetSourceName,
     loadPrepared,
+    NothingToDraw,
     parseDeliveryClaim,
     prepareNode,
     type LoadNodeDeps,
@@ -355,6 +356,8 @@ interface AssetLoadControl {
     root: TreeNodeData | null;
     busy: boolean;
     error: string | null;
+    /** The build's answer was "nothing to draw" (the reason), so there is nothing to load. */
+    empty: string | null;
     /** What the build said it could not draw, once loaded: members of the node's source that are
      *  not in the model, and why -- the build summary's `warnings`. Empty when it drew them all. */
     notes: readonly string[];
@@ -384,6 +387,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
     const { useAssetBrowserStore, useModelState, useTreeViewStore } = useViewerStores();
     const loadBusy = useAssetBrowserStore((s) => s.loadBusy);
     const loadErrors = useAssetBrowserStore((s) => s.loadErrors);
+    const loadEmpty = useAssetBrowserStore((s) => s.loadEmpty);
     const loaded = useAssetBrowserStore((s) => s.loaded);
     const liveSourceNames = useModelState((s) => s.loadedSourceNames);
     const treeData = useTreeViewStore((s) => s.treeData);
@@ -426,6 +430,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
             root,
             busy: loadBusy.has(key),
             error: loadErrors.get(key) ?? null,
+            empty: loadEmpty.get(key) ?? null,
             notes: asset?.warnings ?? [],
             // The work lives in the store, not in the caller: a context menu closes
             // the moment its item is clicked, and the load must outlive it.
@@ -443,7 +448,8 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
                         useAssetBrowserStore.getState().endLoad(key, asset);
                         requestRender();
                     } catch (e) {
-                        useAssetBrowserStore.getState().failLoad(key, e instanceof Error ? e.message : String(e));
+                        if (e instanceof NothingToDraw) useAssetBrowserStore.getState().emptyLoad(key, e.message);
+                        else useAssetBrowserStore.getState().failLoad(key, e instanceof Error ? e.message : String(e));
                     }
                 })();
             },
@@ -584,7 +590,7 @@ function loadGroups(controls: readonly AssetLoadControl[]): LoadGroup[] {
         const g = by.get(c.provider) ?? { provider: c.provider, toLoad: [], loaded: [], busy: 0, failed: [] };
         if (c.loaded) g.loaded.push(c);
         else if (c.busy) g.busy += 1;
-        else g.toLoad.push(c);
+        else if (!c.empty) g.toLoad.push(c);
         if (!c.busy && c.error) g.failed.push(c);
         by.set(c.provider, g);
     }
@@ -667,10 +673,13 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
         return !!idx && rowLoadable(view, idx, id);
     };
     const byId = new Map(present.map((m) => [m.id, m]));
-    const wanted = controls.filter((c) => {
+    const chosen = controls.filter((c) => {
         const m = byId.get(c.rowId);
         return !!m && loadsProvider(m, c.provider) && loadable(c.rowId, c.provider);
     });
+    // A build that answered "nothing to draw" is counted with the empty ones below, not loaded again.
+    const wanted = chosen.filter((c) => !c.empty);
+    const drewNothing = chosen.filter((c) => c.empty);
     const toLoad = wanted.filter((c) => !c.loaded && !c.busy);
     const loaded = wanted.filter((c) => c.loaded);
     const busy = wanted.filter((c) => c.busy).length;
@@ -694,6 +703,11 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
             list.push({ id: m.id, label: m.label });
             into.set(p, list);
         }
+    }
+    for (const c of drewNothing) {
+        const list = empty.get(c.provider) ?? [];
+        list.push({ id: c.rowId, label: byId.get(c.rowId)?.label ?? c.rowId });
+        empty.set(c.provider, list);
     }
     const emptyCount = [...empty.values()].reduce((n, l) => n + l.length, 0);
     const unknownCount = [...unknown.values()].reduce((n, l) => n + l.length, 0);
@@ -959,6 +973,11 @@ const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ c
             {control.error && (
                 <span className="text-red-300 truncate" title={control.error}>
                     {control.error}
+                </span>
+            )}
+            {control.empty && !control.error && (
+                <span className="text-gray-400 truncate cursor-help" title={control.empty}>
+                    nothing to draw
                 </span>
             )}
         </div>

@@ -6,7 +6,7 @@
 // One load per SOURCE, not per member: several members commonly live in one published node or one
 // file, and loading it once is what makes the group's members appear together.
 
-import { loadPrepared, parseDeliveryClaim, prepareNode, type LoadNodeDeps, type NodeRef } from "@/assets/delivery";
+import { loadPrepared, NothingToDraw, parseDeliveryClaim, prepareNode, type LoadNodeDeps, type NodeRef } from "@/assets/delivery";
 import { assetsApi } from "@/services/api/assets";
 import type { ScopeUrl } from "@/services/api/client";
 import { getSingletonViewerStores } from "@/state/AdaViewerContext";
@@ -93,6 +93,11 @@ async function loadNode(
     const asset = await loadPrepared(deps, ref, prepareNode(deps, scope, ref, claim), node);
     store.getState().endLoad(key, asset);
   } catch (e) {
+    // A member whose build found nothing to draw is an answer, not a failure of the group's load.
+    if (e instanceof NothingToDraw) {
+      store.getState().emptyLoad(key, e.message);
+      return;
+    }
     store.getState().failLoad(key, reasonFor(e));
     throw e;
   }
