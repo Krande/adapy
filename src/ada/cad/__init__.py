@@ -1026,10 +1026,20 @@ class AdacppBackend:
 
         ee = getattr(oe, "edge_element", None)
         curve = ee.edge_geometry if isinstance(ee, cu.EdgeCurve) else None
+        # A closed curve built whole has no endpoints to say which way its loop runs it, so the
+        # edge's sense has to (as OccBackend's make_edge_from_edge reads it): a round hole is the
+        # curve run backwards. The record has no orientation field, so a backwards run is
+        # encoded as the same point set parameterised the other way -- a circle or ellipse about
+        # the opposite axis, a B-spline with its poles and knots reversed. Encoded forward, a
+        # hole wound like its outline and the face measured the outline plus the hole
+        # (Krande/adapy#435).
+        backwards = closed and not bool(getattr(ee, "same_sense", True))
 
         if isinstance(curve, cu.Circle):
             pos = curve.position
             loc, axis = self._xyz(pos.location), self._xyz(pos.axis)
+            if backwards:
+                axis = [-c for c in axis]
             # ref_direction is the circle's angular origin (param 0). It MUST be carried so the
             # arc/closed-circle vertices land where the adjacent edges (e.g. a cylinder/torus
             # seam line) attach — without it adacpp placed them at OCC's default x-axis and the
@@ -1055,6 +1065,8 @@ class AdacppBackend:
             pos = curve.position
             loc, axis, ref = self._xyz(pos.location), self._xyz(pos.axis), self._xyz(pos.ref_direction)
             s1, s2 = float(curve.semi_axis1), float(curve.semi_axis2)
+            if backwards:
+                axis = [-c for c in axis]
             if closed:
                 return [4.0, *loc, *axis, *ref, s1, s2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             return [4.0, *loc, *axis, *ref, s1, s2, 1.0, *start, *end]
@@ -1063,6 +1075,11 @@ class AdacppBackend:
             knots = [float(k) for k in curve.knots]
             mults = [float(m) for m in curve.knot_multiplicities]
             rational = isinstance(curve, cu.RationalBSplineCurveWithKnots)
+            weights = [float(w) for w in curve.weights_data] if rational else []
+            if backwards:
+                # t -> (first + last) - t: the same curve, run from its end to its start
+                poles, weights, mults = poles[::-1], weights[::-1], mults[::-1]
+                knots = [knots[0] + knots[-1] - k for k in reversed(knots)]
             rec = [
                 3.0,
                 float(curve.degree),
@@ -1081,7 +1098,7 @@ class AdacppBackend:
                 rec += p
             rec += [float(len(knots)), *knots, *mults]
             if rational:
-                rec += [float(w) for w in curve.weights_data]
+                rec += weights
             return rec
         # Line, no geometry, or unsupported → straight segment.
         return [0.0, *start, *end]
