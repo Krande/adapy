@@ -33,14 +33,13 @@ class OdbExporter(object):
         self.odb = odb
         self.conn = conn
         self.instance_map = {}  # instance name -> InstanceID
-        self.point_index = {}  # inst -> {node label: row in the instance's sorted Points}
-        self.n_points = {}  # inst -> number of points
-        self.elem_index = {}  # inst -> {type: {label: row within the type}}
-        self.elem_count = {}  # inst -> {type: count}
+        # Label -> row lookups are numpy searchsorted over sorted label arrays, done per bulk-data
+        # block: a per-value Python loop was most of an export's time on a large mesh.
+        self.node_labels = {}  # inst -> sorted node labels (row = position, as in Points)
+        self.elem_labels = {}  # inst -> {type: sorted element labels (row within the type)}
+        self.elem_conn = {}  # inst -> {type: (n_elements, nodes per element) node labels, by row}
         self.elem_ips = {}  # inst -> {type: integration points per element}
         self.label_to_type = {}  # inst -> {label: type}
-        self.elem_conn = {}  # inst -> {label: node labels}
-        self.elem_n_nodes = {}  # inst -> {type: nodes per element}
         self.field_var_map = {}  # component / history output name -> FieldID
         self.field_var_id = 0
         self.set_id = 0
@@ -48,13 +47,20 @@ class OdbExporter(object):
         self.section_points_seen = set()
         self._sql = {}  # (table, columns) -> INSERT statement
 
-    def insert(self, table, **row):
+    def _insert_sql(self, table, columns):
         # By column name: the schema fixes the columns, not their order.
-        sql = self._sql.get((table, tuple(row)))
+        sql = self._sql.get((table, columns))
         if sql is None:
-            sql = 'INSERT INTO "%s" (%s) VALUES (%s)' % (table, ", ".join(row), ", ".join("?" * len(row)))
-            self._sql[(table, tuple(row))] = sql
-        self.conn.execute(sql, tuple(row.values()))
+            sql = 'INSERT INTO "%s" (%s) VALUES (%s)' % (table, ", ".join(columns), ", ".join("?" * len(columns)))
+            self._sql[(table, columns)] = sql
+        return sql
+
+    def insert(self, table, **row):
+        self.conn.execute(self._insert_sql(table, tuple(row)), tuple(row.values()))
+
+    def insert_many(self, table, columns, rows):
+        """Insert an iterable of row tuples (values in the order of ``columns``)."""
+        self.conn.executemany(self._insert_sql(table, tuple(columns)), rows)
 
     def field_var(self, name, description):
         if name not in self.field_var_map:
@@ -68,10 +74,10 @@ class OdbExporter(object):
     def integration_points(self):
         """(instance name, element type) -> integration points per element, from the field output."""
         ips = {}
-        for step in self.odb.steps.values():
+        for step in _values(self.odb.steps):
             if len(step.frames) == 0:
                 continue
-            for field in step.frames[-1].fieldOutputs.values():
+            for field in _values(step.frames[-1].fieldOutputs):
                 for loc in field.locations:
                     if loc.position != INTEGRATION_POINT or not field.componentLabels:
                         continue
@@ -85,50 +91,63 @@ class OdbExporter(object):
 
     def write_instance(self, inst_id, name, obj, ips):
         nodes = sorted(((int(n.label), [float(c) for c in n.coordinates]) for n in obj.nodes), key=lambda n: n[0])
-        index = {}
-        for row, (label, xyz) in enumerate(nodes):
-            xyz = (list(xyz) + [0.0, 0.0, 0.0])[:3]
-            self.insert("Points", InstanceID=inst_id, ID=label, X=xyz[0], Y=xyz[1], Z=xyz[2])
-            index[label] = row
-        self.point_index[inst_id] = index
-        self.n_points[inst_id] = len(nodes)
-
-        elems = sorted(
-            ((str(e.type), int(e.label), [int(c) for c in e.connectivity]) for e in obj.elements),
-            key=lambda e: (e[0], e[1]),
+        self.insert_many(
+            "Points",
+            ("InstanceID", "ID", "X", "Y", "Z"),
+            ((inst_id, label, *(list(xyz) + [0.0, 0.0, 0.0])[:3]) for label, xyz in nodes),
         )
-        self.elem_index[inst_id] = {}
-        self.elem_count[inst_id] = {}
+        self.node_labels[inst_id] = np.array([label for label, _ in nodes], dtype=np.int64)
+        del nodes
+
+        by_type = {}
+        for e in obj.elements:
+            by_type.setdefault(str(e.type), []).append((int(e.label), [int(c) for c in e.connectivity]))
+        self.elem_labels[inst_id] = {}
+        self.elem_conn[inst_id] = {}
         self.elem_ips[inst_id] = {}
         self.label_to_type[inst_id] = {}
-        self.elem_conn[inst_id] = {}
-        self.elem_n_nodes[inst_id] = {}
-        for el_type, label, conn in elems:
-            self.elem_conn[inst_id][label] = conn
-            self.elem_n_nodes[inst_id][el_type] = max(self.elem_n_nodes[inst_id].get(el_type, 0), len(conn))
+        for el_type in sorted(by_type):
+            elems = sorted(by_type.pop(el_type))
             n_ips = ips.get((name, el_type), 1)
-            self.insert("ElementInfo", InstanceID=inst_id, ElemID=label, Type=el_type, IntPoints=n_ips)
-            for seq, node in enumerate(conn):
-                self.insert("ElementConnectivity", InstanceID=inst_id, ElemID=label, PointID=node, Seq=seq)
-            count = self.elem_count[inst_id].get(el_type, 0)
-            self.elem_index[inst_id].setdefault(el_type, {})[label] = count
-            self.elem_count[inst_id][el_type] = count + 1
+            n_nodes = max(len(conn) for _, conn in elems)
+            self.insert_many(
+                "ElementInfo",
+                ("InstanceID", "ElemID", "Type", "IntPoints"),
+                ((inst_id, label, el_type, n_ips) for label, _ in elems),
+            )
+            self.insert_many(
+                "ElementConnectivity",
+                ("InstanceID", "ElemID", "PointID", "Seq"),
+                ((inst_id, label, node, seq) for label, conn in elems for seq, node in enumerate(conn)),
+            )
+            self.elem_labels[inst_id][el_type] = np.array([label for label, _ in elems], dtype=np.int64)
+            self.elem_conn[inst_id][el_type] = np.array(
+                [conn + [-1] * (n_nodes - len(conn)) for _, conn in elems], dtype=np.int64
+            ).reshape(len(elems), n_nodes)
             self.elem_ips[inst_id][el_type] = n_ips
-            self.label_to_type[inst_id][label] = el_type
+            self.label_to_type[inst_id].update((label, el_type) for label, _ in elems)
 
-        for set_name, elem_set in obj.elementSets.items():
-            for label in _labels(elem_set.elements):
-                self.insert("ElementSets", SetID=self.set_id, Name=set_name, InstanceID=inst_id, ElemID=label)
-                self.set_id += 1
-        for set_name, node_set in obj.nodeSets.items():
-            for label in _labels(node_set.nodes):
-                self.insert("PointSets", SetID=self.set_id, Name=set_name, InstanceID=inst_id, PointID=label)
-                self.set_id += 1
+        for set_name, elem_set in _items(obj.elementSets):
+            labels = _labels(elem_set.elements)
+            self.insert_many(
+                "ElementSets",
+                ("SetID", "Name", "InstanceID", "ElemID"),
+                ((self.set_id + i, set_name, inst_id, label) for i, label in enumerate(labels)),
+            )
+            self.set_id += len(labels)
+        for set_name, node_set in _items(obj.nodeSets):
+            labels = _labels(node_set.nodes)
+            self.insert_many(
+                "PointSets",
+                ("SetID", "Name", "InstanceID", "PointID"),
+                ((self.set_id + i, set_name, inst_id, label) for i, label in enumerate(labels)),
+            )
+            self.set_id += len(labels)
 
     # ----- results --------------------------------------------------------
 
     def write_history(self, step):
-        for region_name, region in step.historyRegions.items():
+        for region_name, region in _items(step.historyRegions):
             point = region.point
             node_label = int(point.node.label) if point.node is not None else -1
             elem_label = int(point.element.label) if point.element is not None else -1
@@ -139,23 +158,32 @@ class OdbExporter(object):
             else:
                 inst_name = point.element.instanceName
             inst_id = self.instance_map.get(inst_name, 0)
-            for output_name, output in region.historyOutputs.items():
+            # Once per region, not once per sample: every ODB API attribute read is a call into
+            # the API, and a region has a sample per increment.
+            res_type = str(point.position)
+            for output_name, output in _items(region.historyOutputs):
                 var_id = self.field_var(output_name, output.description)
-                for sample in output.data:
-                    if len(sample) != 2:
-                        raise RuntimeError("history sample of size %d, expected (time, value)" % len(sample))
-                    self.insert(
-                        "HistOutput",
-                        Region=region_name,
-                        ResType=str(point.position),
-                        InstanceID=inst_id,
-                        ElemID=elem_label,
-                        PointID=node_label,
-                        StepID=self.step_id,
-                        FieldVarID=var_id,
-                        Frame=float(sample[0]),
-                        Value=float(sample[1]),
-                    )
+                data = output.data
+                if any(len(sample) != 2 for sample in data):
+                    raise RuntimeError("history output %s: samples are not (time, value) pairs" % output_name)
+                self.insert_many(
+                    "HistOutput",
+                    ("Region", "ResType", "InstanceID", "ElemID", "PointID", "StepID", "FieldVarID", "Frame", "Value"),
+                    (
+                        (
+                            region_name,
+                            res_type,
+                            inst_id,
+                            elem_label,
+                            node_label,
+                            self.step_id,
+                            var_id,
+                            float(t),
+                            float(v),
+                        )
+                        for t, v in data
+                    ),
+                )
 
     def write_fields(self, step):
         for frame_index, frame in enumerate(step.frames):
@@ -169,7 +197,7 @@ class OdbExporter(object):
                 Description=frame.description,
             )
             nodal, nodal_imag, elem, elem_imag = {}, {}, {}, {}
-            for field in frame.fieldOutputs.values():
+            for field in _values(frame.fieldOutputs):
                 for comp in field.componentLabels:
                     var_id = self.field_var(comp, field.description)
                     for loc in field.locations:
@@ -224,15 +252,14 @@ class OdbExporter(object):
         # Nodal blocks carry node labels only; element-nodal ones carry both (each value's element
         # and the element node it sits at), and no integration points.
         if block.nodeLabels is not None and block.elementLabels is None:
-            index = self.point_index.get(inst_id, {})
-            rows = np.array([index.get(int(label), -1) for label in block.nodeLabels], dtype=np.int64)
+            labels = self.node_labels.get(inst_id, _NO_LABELS)
+            rows = _rows(labels, block.nodeLabels)
             keep = rows >= 0  # values for nodes outside the instance's mesh are dropped
             key = (inst_id, var_id)
-            n = self.n_points.get(inst_id, 0)
             for buffers, values in ((nodal, real), (nodal_imag, imag)):
                 if values is None:
                     continue
-                vec = buffers.setdefault(key, np.zeros(n, dtype="<f4"))
+                vec = buffers.setdefault(key, np.zeros(len(labels), dtype="<f4"))
                 vec[rows[keep]] = values[keep]
             return
 
@@ -241,17 +268,14 @@ class OdbExporter(object):
         el_type = self.label_to_type.get(inst_id, {}).get(int(block.elementLabels[0]))
         if el_type is None:
             return
-        index = self.elem_index[inst_id][el_type]
-        n_elem = self.elem_count[inst_id][el_type]
+        n_elem = len(self.elem_labels[inst_id][el_type])
         n_ips = self.slots_per_element(inst_id, el_type, res_pos)
-        rows = np.array([index.get(int(label), -1) for label in block.elementLabels], dtype=np.int64)
+        rows = _rows(self.elem_labels[inst_id][el_type], block.elementLabels)
         if res_pos == "ELEMENT_NODAL" and block.nodeLabels is not None:
             # slot = the node's place in the element's connectivity
-            conn = self.elem_conn[inst_id]
-            ip = np.array(
-                [_position(conn.get(int(e), ()), int(n)) for e, n in zip(block.elementLabels, block.nodeLabels)],
-                dtype=np.int64,
-            )
+            conn = self.elem_conn[inst_id][el_type][np.maximum(rows, 0)]
+            match = conn == np.asarray(block.nodeLabels, dtype=np.int64)[:, None]
+            ip = np.where(match.any(axis=1), match.argmax(axis=1), -1)
             rows[ip < 0] = -1
             ip = np.maximum(ip, 0)
         elif block.integrationPoints is not None and len(block.integrationPoints) == len(rows):
@@ -270,7 +294,8 @@ class OdbExporter(object):
     def slots_per_element(self, inst_id, el_type, res_pos):
         """An element blob's values per element: its nodes (ELEMENT_NODAL), else its integration points."""
         if res_pos == "ELEMENT_NODAL":
-            return self.elem_n_nodes[inst_id].get(el_type) or 1
+            conn = self.elem_conn[inst_id].get(el_type)
+            return conn.shape[1] if conn is not None and conn.shape[1] else 1
         return self.elem_ips[inst_id].get(el_type) or 1
 
     def section_points(self, loc, blocks, res_pos):
@@ -315,7 +340,7 @@ class OdbExporter(object):
         self.insert("ModelInstances", ID=0, Name=ASSEMBLY)
         self.write_instance(0, ASSEMBLY, assembly, ips)
         inst_id = 1
-        for name, inst in assembly.instances.items():
+        for name, inst in _items(assembly.instances):
             self.instance_map[inst.name] = inst_id
             self.insert("ModelInstances", ID=inst_id, Name=name)
             self.write_instance(inst_id, inst.name, inst, ips)
@@ -323,7 +348,7 @@ class OdbExporter(object):
         self.conn.commit()
         logger.info("exported the mesh of %d instance(s)", inst_id - 1)
 
-        for step in self.odb.steps.values():
+        for step in _values(self.odb.steps):
             self.insert(
                 "Steps",
                 ID=self.step_id,
@@ -339,11 +364,58 @@ class OdbExporter(object):
             self.step_id += 1
 
 
-def _position(conn, node):
-    try:
-        return list(conn).index(node)
-    except ValueError:
-        return -1
+def _items(repository):
+    """``(key, value)`` pairs of an ODB repository, one at a time.
+
+    Lazily, so a large repository (one history region per output point) is never held whole:
+    each value is fetched, used and released before the next.
+    """
+    for key in repository.keys():
+        yield key, repository[key]
+
+
+def _values(repository):
+    for _, value in _items(repository):
+        yield value
+
+
+_NO_LABELS = np.zeros(0, dtype=np.int64)
+
+
+_LOOKUP_TABLES = {}  # id(sorted labels) -> (sorted labels, label -> row table)
+
+
+def _lookup_table(sorted_labels):
+    """A label -> row array when labels are dense enough (at most 4 slots per label), else None.
+
+    Abaqus labels are usually close to 1..N, where indexing a table beats a binary search.
+    """
+    key = id(sorted_labels)
+    hit = _LOOKUP_TABLES.get(key)
+    if hit is not None and hit[0] is sorted_labels:
+        return hit[1]
+    table = None
+    if len(sorted_labels) and sorted_labels[0] >= 0 and sorted_labels[-1] < 4 * len(sorted_labels) + 1024:
+        table = np.full(int(sorted_labels[-1]) + 1, -1, dtype=np.int64)
+        table[sorted_labels] = np.arange(len(sorted_labels), dtype=np.int64)
+    _LOOKUP_TABLES[key] = (sorted_labels, table)
+    return table
+
+
+def _rows(sorted_labels, labels):
+    """Each label's row in ``sorted_labels`` (its position), -1 where it is not there."""
+    labels = np.asarray(labels, dtype=np.int64)
+    if len(sorted_labels) == 0:
+        return np.full(len(labels), -1, dtype=np.int64)
+    table = _lookup_table(sorted_labels)
+    if table is not None:
+        inside = (labels >= 0) & (labels < len(table))
+        rows = np.full(len(labels), -1, dtype=np.int64)
+        rows[inside] = table[labels[inside]]
+        return rows
+    rows = np.minimum(np.searchsorted(sorted_labels, labels), len(sorted_labels) - 1)
+    rows[sorted_labels[rows] != labels] = -1
+    return rows
 
 
 def _labels(members):
