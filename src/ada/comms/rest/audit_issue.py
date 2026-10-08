@@ -4,8 +4,9 @@ the admin audit-panel design notes).
 Two responsibilities, both deterministic and free of I/O:
 
 * :func:`fingerprint` — collapse a job failure to a 16-char hex
-  identifier that survives transient noise (tempfile paths, line
-  numbers, timestamps, hex blobs). Failures with the same root
+  identifier that survives transient noise (file paths and storage
+  keys, line numbers, counts and ids, timestamps, UUIDs, hex blobs).
+  Failures with the same root
   cause collapse to the same fingerprint across audit runs, which
   is what powers the dedup logic in the issue-bot ("does an
   ``audit-fp:<hash>`` label already exist? then comment instead of
@@ -39,10 +40,24 @@ _VOLATILE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # ISO-8601 / RFC-3339 timestamps. Catches things like
     # "2026-05-27T14:23:11.918432+00:00" or "2026-05-27 14:23:11".
     (re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:?\d{2}|Z)?"), "<ts>"),
+    # Compact ISO-8601 basic-format timestamps ("20260101T000000Z"),
+    # the shape storage keys and run directories tend to carry.
+    (re.compile(r"\b\d{8}T\d{4,6}(?:\.\d+)?Z?\b"), "<ts>"),
     # Bare ISO dates (without a time component).
     (re.compile(r"\d{4}-\d{2}-\d{2}"), "<date>"),
+    # UUIDs with dashes, before the hex-run rule eats their 8- and
+    # 12-char groups and leaves the 4-char ones behind.
+    (re.compile(r"\b[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\b"), "<uuid>"),
     # /tmp/<anything> and /var/folders/<anything> (macOS tempdir).
     (re.compile(r"/(?:tmp|var/folders)/[^\s'\"<>]+"), "/tmp/<x>"),
+    # A quoted path or storage key ('a/b.db', "C:\\x\\y.step"): any
+    # quoted run without whitespace that holds a path separator. What
+    # *which* file failed is the row's business, not the failure's —
+    # the same root cause hits many files.
+    (re.compile(r"(['\"])[^'\"\s]*[/\\][^'\"\s]*\1"), "'<path>'"),
+    # An unquoted path: a token with two or more separators (so prose
+    # like "N/A" or "application/json" survives).
+    (re.compile(r"(?:[A-Za-z]:)?[\w.\-~]*(?:[/\\][\w.\-~]+){2,}"), "<path>"),
     # Long hex runs — UUIDs without dashes, sha256 digests, etc.
     # 8+ hex chars in a row catches all of those without eating
     # short error codes like "0xFF".
@@ -56,6 +71,11 @@ _VOLATILE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r":\d+"), ":<n>"),
     # Memory addresses (``0x7f3e9a8b6c00``).
     (re.compile(r"\b0x[0-9a-fA-F]+\b"), "<addr>"),
+    # Free-standing numbers — counts, ids, sizes ("none of the 8
+    # items", "node '123-4'"). Digits glued to letters or underscores
+    # are part of an identifier ("float64", "ifc4x3", "sha256") and
+    # stay. Runs last so every rule above sees the raw digits.
+    (re.compile(r"(?<![\w.])\d+(?:\.\d+)*(?![\w.]*[A-Za-z_])"), "<n>"),
 )
 
 

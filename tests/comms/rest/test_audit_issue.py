@@ -124,6 +124,63 @@ def test_strip_volatile_does_not_eat_short_codes():
     assert "abc1234ff5678" not in out
 
 
+def _fp_msg(msg: str) -> str:
+    """Fingerprint a failure the way a raised exception lands in a row: the message,
+    and the traceback whose last line is ``<ExcType>: <message>``."""
+    return fingerprint(
+        source_ext=".json",
+        target_format="asset_build",
+        error_msg=msg,
+        traceback=f'Traceback (most recent call last):\n  File "x.py", line 3, in f\npkg.mod.SomeError: {msg}',
+    )
+
+
+def test_fingerprint_folds_storage_paths_and_counts():
+    """One root cause raised against many files / with many counts is one fingerprint:
+    the quoted storage key, its timestamp directory and the count all vary per row."""
+    variants = [
+        "none of the 8 items this index names has data in 'assets/demo/123-4/20260101T000000Z/model.db' -- refusing",
+        "none of the 3 items this index names has data in 'assets/demo/123-4/20260101T000000Z/model.db' -- refusing",
+        "none of the 324 items this index names has data in 'assets/other/987-65/20261231T235959Z/model.db' -- refusing",
+        'none of the 1 items this index names has data in "C:\\data\\run\\model.db" -- refusing',
+    ]
+    assert len({_fp_msg(v) for v in variants}) == 1
+
+
+def test_fingerprint_folds_quoted_names_with_separators_and_numeric_ids():
+    variants = [
+        "no entry named '/A-100-DEMO' in catalog 'demo' -- nothing to stage for node '123-1'",
+        "no entry named '/B200-OTHER_X' in catalog 'demo' -- nothing to stage for node '456-337'",
+    ]
+    assert len({_fp_msg(v) for v in variants}) == 1
+
+
+def test_fingerprint_keeps_quoted_words_and_identifiers_apart():
+    """Normalisation must not erase what distinguishes two failures: a quoted name
+    without a path separator, and digits glued to an identifier, both stay."""
+    assert _fp_msg("unknown entity 'Beam'") != _fp_msg("unknown entity 'Plate'")
+    assert _fp_msg("unsupported dtype float64") != _fp_msg("unsupported dtype float32")
+    assert _fp_msg("missing 'demo' catalog") != _fp_msg("missing 'other' catalog")
+
+
+def test_strip_volatile_rules():
+    assert strip_volatile("run 20260101T000000Z done") == "run <ts> done"
+    assert strip_volatile("job 123e4567-e89b-12d3-a456-426614174000 lost") == "job <uuid> lost"
+    assert strip_volatile("read 'a/b/c.db' and x\\y\\z.step") == "read '<path>' and <path>"
+    assert strip_volatile("got 12 of 3.5 for item 7-1") == "got <n> of <n> for item <n>-<n>"
+    # prose with a single separator, and identifiers with digits, are not volatile
+    assert strip_volatile("N/A as application/json via sha256 in ifc4x3") == (
+        "N/A as application/json via sha256 in ifc4x3"
+    )
+
+
+def test_fingerprint_unchanged_for_messages_without_volatile_parts():
+    """A message with nothing volatile in it normalises to itself, so its fingerprint
+    is the one the issue tracker already has a label for."""
+    msg = "UnsupportedFormat: no reader registered for this extension"
+    assert strip_volatile(msg) == msg
+
+
 # ── sanitize_corpus_key ─────────────────────────────────────────────
 
 
