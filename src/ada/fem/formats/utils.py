@@ -122,7 +122,8 @@ class LocalExecute:
     @property
     def execute_dir(self):
         """Where ``run.bat``/``stop.bat`` are written (``<fea_execute_dir>/<analysis name>`` when the setting is
-        given). The solver itself always runs in :attr:`analysis_dir`, the deck's folder."""
+        given; a relative setting resolves against the process's working directory). The solver itself always
+        runs in :attr:`analysis_dir`, the deck's folder."""
         if Config().fea_execute_dir is None:
             return self.analysis_dir
         else:

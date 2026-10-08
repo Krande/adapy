@@ -237,6 +237,8 @@ class Config:
             "fea",
             [
                 # Where run.bat/stop.bat are written, one folder per analysis; the solver runs in the deck's folder.
+                # A relative path (ADA_FEA_EXECUTE_DIR=exec) resolves against the process's working directory,
+                # as a relative scratch_dir does.
                 ConfigEntry("execute_dir", pathlib.Path, None, False),
                 ConfigEntry(
                     "fem_exe_paths", dict, dict(abaqus=None, ccx=None, sestra=None, usfos=None, code_aster=None)
