@@ -1167,7 +1167,11 @@ class SinStreamReader:
     ) -> None:
         from ada.fem.formats.sesam.results.sin_reader import SinFile
 
-        self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
+        if isinstance(source, SinFile):
+            self.sin = source
+        else:
+            # With a selection, skip decoding the default entry on the way.
+            self.sin = SinFile(source=source, _decode_default=super_element is None)
         if super_element is not None:
             self.sin.select_super_element(super_element)
         self._combinations = read_result_combination_terms(self.sin)

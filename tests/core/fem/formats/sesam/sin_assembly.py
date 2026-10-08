@@ -38,6 +38,22 @@ SLOT = 8
 
 IDENTITY_4X4 = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
 
+#: The second superelement's placement, as a matrix written row by row: a
+#: quarter turn about z, then a move by (10, 20, 30). Not symmetric, so a reader
+#: that mixes up rows and columns gets a different matrix.
+PLACEMENT_ROWS = (
+    (0.0, -1.0, 0.0, 10.0),
+    (1.0, 0.0, 0.0, 20.0),
+    (0.0, 0.0, 1.0, 30.0),
+    (0.0, 0.0, 0.0, 1.0),
+)
+
+
+def column_major(rows: Sequence[Sequence[float]]) -> tuple[float, ...]:
+    """The 16 values of a 4x4 matrix in HSUPTRAN's order: T(1,1), T(2,1),
+    T(3,1), T(4,1), T(1,2), ... (column by column)."""
+    return tuple(float(rows[r][c]) for c in range(4) for r in range(4))
+
 
 class SinBuffer:
     """A growing SIN image: type blocks, PTABs and the header area."""
@@ -165,6 +181,7 @@ def write_assembly_sin(
     source: pathlib.Path = SIN_PATH,
     *,
     seltyps: tuple[int, int] = (10, 11),
+    instances: tuple[int, int] = (1, 1),
     top_seltyp: int = 100,
     drop_blocks_in_second: Iterable[str] = ("RVSTRESS",),
 ) -> pathlib.Path:
@@ -172,8 +189,9 @@ def write_assembly_sin(
 
     Entry 1 is the top level (type ``top_seltyp``, level 2) holding only
     HIERARCH, HSUPSTAT and HSUPTRAN. Entries 2 and 3 are copies of ``source``'s
-    single superelement as types ``seltyps[0]`` and ``seltyps[1]``, instance 1,
-    level 1; the second without the blocks in ``drop_blocks_in_second``.
+    single superelement as types ``seltyps[0]`` and ``seltyps[1]`` (instances
+    ``instances``), level 1; the second without the blocks in
+    ``drop_blocks_in_second`` and placed by :data:`PLACEMENT_ROWS`.
     """
     from ada.fem.formats.sesam.results.sin_reader import open_sin
 
@@ -197,8 +215,8 @@ def write_assembly_sin(
             "HIERARCH",
             [
                 (1, top_seltyp, 1, 2, 0, 0, 2, 2, 3),
-                (2, first_sub, 1, 1, 2, 1, 0),
-                (3, second_sub, 1, 1, 3, 1, 0),
+                (2, first_sub, instances[0], 1, 2, 1, 0),
+                (3, second_sub, instances[1], 1, 3, 1, 0),
             ],
         ),
         image.write_block(
@@ -209,7 +227,7 @@ def write_assembly_sin(
                 (second_sub, 0, 0, 0, n_elements, 0, 0, -1),
             ],
         ),
-        image.write_block("HSUPTRAN", [(2, *IDENTITY_4X4), (3, *IDENTITY_4X4)]),
+        image.write_block("HSUPTRAN", [(2, *IDENTITY_4X4), (3, *column_major(PLACEMENT_ROWS))]),
     ]
     ptabs = [(1, image.write_ptab(top_blocks))]
 
@@ -244,6 +262,45 @@ def write_header_only_sin(out: pathlib.Path, *, allocated: int = 8) -> pathlib.P
     ptab2 = image.write_ptab(mesh, allocated=allocated)
     image.pad_to(SLOT)
     # A NORSAM record to open the header area (its fields are not read).
+    norsam = SinBuffer(40)
+    norsam._preamble(0, "NORSAM")
+    image.write_header(bytes(norsam.buf), [(1, ptab1), (2, ptab2)])
+    return image.write_bytes(pathlib.Path(out))
+
+
+def write_stub_tie_sin(out: pathlib.Path, *, ident: bool = True) -> pathlib.Path:
+    """Two RESULTS entries and no hierarchy, the shape of a multi-superelement
+    eigen deck whose first entry is summary-only: entry 1 lists GNODE, GCOORD,
+    GELMNT1, GELREF1 and RVNODDIS as empty stubs (no records) in a PTAB of six
+    slots; entry 2 lists GNODE, GELMNT1 and RVNODDIS with one record each in a
+    PTAB of eight. Both entries carry an IDENT of type 1 unless ``ident`` is
+    False. By block names alone entry 1 ties or wins; it has no element."""
+    image = SinBuffer(PAGE)
+    image.pad_to(PAGE)
+
+    def stub(name: str, record: Sequence[float], type_flag: int = 1) -> int:
+        at = image.write_block(name, [record], type_flag=type_flag)
+        image.u32(at + 4 + NAME_LEN + 6 * SLOT + 4, 0)  # the only pointer: empty
+        return at
+
+    summary = [
+        stub("GNODE", (1, 1, 6, 123456)),
+        stub("GCOORD", (1, 0.0, 0.0, 0.0)),
+        stub("GELMNT1", (1, 1, 15, 0, 1, 1)),
+        stub("GELREF1", (1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
+        stub("RVNODDIS", (1, 1, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 2),
+    ]
+    dense = [
+        image.write_block("GNODE", [(1, 1, 6, 123456)]),
+        image.write_block("GELMNT1", [(1, 1, 15, 0, 1, 1)]),
+        image.write_block("RVNODDIS", [(1, 1, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)], type_flag=2),
+    ]
+    if ident:
+        summary.append(image.write_block("IDENT", [(1, 1, 3, 0)], type_flag=31))
+        dense.append(image.write_block("IDENT", [(1, 1, 3, 0)], type_flag=31))
+    ptab1 = image.write_ptab(summary, allocated=6)
+    ptab2 = image.write_ptab(dense, allocated=8)
+    image.pad_to(SLOT)
     norsam = SinBuffer(40)
     norsam._preamble(0, "NORSAM")
     image.write_header(bytes(norsam.buf), [(1, ptab1), (2, ptab2)])

@@ -18,7 +18,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from .sin_assembly import SIN_PATH, write_assembly_sin, write_header_only_sin
+from .sin_assembly import (
+    PLACEMENT_ROWS,
+    SIN_PATH,
+    write_assembly_sin,
+    write_header_only_sin,
+    write_stub_tie_sin,
+)
 
 LABELS = ["R100", "SEL10.IND1", "SEL11.IND1"]
 
@@ -84,8 +90,65 @@ def test_hierarchy_lists_every_superelement(assembly):
     assert top.block_names == {"HIERARCH", "HSUPSTAT", "HSUPTRAN"}
     assert (first.element_count, first.node_count) == (360, 403)
     assert (top.element_count, top.node_count) == (0, 0)
-    identity = tuple(np.eye(4).ravel().tolist())
-    assert first.transform == second.transform == identity
+    assert first.transform == tuple(np.eye(4).ravel().tolist())
+
+
+def test_placement_is_a_row_major_matrix(assembly):
+    """HSUPTRAN stores the 4x4 matrix column by column; the row reads it as a
+    row-major matrix, so the translation is its last column."""
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    with open_sin(assembly) as sf:
+        second = sf.hierarchy()[2]
+    matrix = np.reshape(second.transform, (4, 4))
+    assert np.array_equal(matrix, np.array(PLACEMENT_ROWS))
+    assert np.array_equal(matrix @ [1.0, 0.0, 0.0, 1.0], [10.0, 21.0, 30.0, 1.0])
+
+
+def test_default_pick_skips_an_entry_of_empty_stubs(tmp_path):
+    """A summary-only entry listing GELMNT1 and RVNODDIS without records, in a
+    PTAB listing more blocks than the dense entry's: still the dense entry
+    is opened, and the file is not an assembly."""
+    from ada.fem.formats.sesam.results.read_sin import read_sin_metadata
+    from ada.fem.formats.sesam.results.sin_reader import SuperElementError, open_sin
+
+    path = write_stub_tie_sin(tmp_path / "STUBS.SIN")
+    with open_sin(path) as sf:
+        assert sf._active_iref == 2
+        assert sf.get_count("GELMNT1") == 1
+        rows = sf.hierarchy()
+        assert not sf.is_assembly() and sf.selected is None
+        # Both entries say type 1: the labels still differ, and the type alone
+        # names the one with elements.
+        assert [(r.label, r.iref, r.has_mesh) for r in rows] == [("SEL1.IND1", 1, False), ("SEL1.IND2", 2, True)]
+        assert sf.resolve_super_element(1).iref == 2
+        with pytest.raises(SuperElementError, match="SEL1.IND1 has no elements"):
+            sf.resolve_super_element("SEL1.IND1")
+    meta = read_sin_metadata(path)
+    assert meta.super_element is None and meta.element_count == 1
+
+
+def test_entries_without_ident_are_listed_by_iref_and_not_an_assembly(tmp_path):
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    with open_sin(write_stub_tie_sin(tmp_path / "NOIDENT.SIN", ident=False)) as sf:
+        assert sf._active_iref == 2
+        assert [r.label for r in sf.hierarchy()] == ["SEL1.IND1", "SEL2.IND1"]
+        assert not sf.is_assembly() and sf.selected is None
+
+
+def test_repeated_instances_map_to_their_own_entries(tmp_path):
+    """Two instances of one type, each with its own RESULTS entry: every
+    instance gets an entry of that type in turn, and no label repeats."""
+    from ada.fem.formats.sesam.results.sin_reader import SuperElementError, open_sin
+
+    path = write_assembly_sin(tmp_path / "REPEAT.SIN", seltyps=(10, 10), instances=(1, 2))
+    with open_sin(path) as sf:
+        rows = sf.hierarchy()
+        assert [(r.label, r.iref) for r in rows] == [("R100", 1), ("SEL10.IND1", 2), ("SEL10.IND2", 3)]
+        assert sf.resolve_super_element("SEL10.IND2").iref == 3
+        with pytest.raises(SuperElementError, match="has 2 instances"):
+            sf.resolve_super_element(10)
 
 
 def test_a_single_superelement_sin_is_not_an_assembly():
