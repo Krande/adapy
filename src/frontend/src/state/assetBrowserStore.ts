@@ -162,6 +162,9 @@ export interface AssetBrowserState {
   loadBusy: ReadonlySet<string>;
   /** ROW id -> why its last load attempt failed. Cleared on the next attempt. */
   loadErrors: ReadonlyMap<string, string>;
+  /** ROW id -> why its build found nothing to draw (`NothingToDraw`). An answer, not an error:
+   *  the row is not offered for loading again, and nothing reports it as failed. */
+  loadEmpty: ReadonlyMap<string, string>;
 
   setTab: (tab: AssetBrowserTab) => void;
   setScope: (scope: string | null) => void;
@@ -222,6 +225,8 @@ export interface AssetBrowserState {
    *  finishing must not duplicate the entry). */
   endLoad: (id: string, asset: LoadedAsset) => void;
   failLoad: (id: string, error: string) => void;
+  /** A load for `id` ended in "nothing to draw" -- `reason` is the builder's own. */
+  emptyLoad: (id: string, reason: string) => void;
   clearLoadError: (id: string) => void;
   /** Drop every `loaded` entry whose source name the scene no longer holds --
    *  what keeps this mirror honest against an unload that happened anywhere
@@ -295,6 +300,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   loaded: EMPTY_LOADED_ASSETS,
   loadBusy: EMPTY_SET,
   loadErrors: EMPTY_ERRORS,
+  loadEmpty: EMPTY_ERRORS,
 
   setTab: (tab) => set({ tab }),
   setScope: (scope) => set({ scope }),
@@ -441,6 +447,14 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       errors.set(id, error);
       return { loadBusy: busy, loadErrors: errors };
     }),
+  emptyLoad: (id, reason) =>
+    set((s) => {
+      const busy = new Set(s.loadBusy);
+      busy.delete(id);
+      const empty = new Map(s.loadEmpty);
+      empty.set(id, reason);
+      return { loadBusy: busy, loadEmpty: empty };
+    }),
   clearLoadError: (id) =>
     set((s) => {
       if (!s.loadErrors.has(id)) return s;
@@ -484,5 +498,6 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       // own model-clear reconciles separately, not a fact about this forest.
       loadBusy: EMPTY_SET,
       loadErrors: EMPTY_ERRORS,
+      loadEmpty: EMPTY_ERRORS,
     })),
 }));

@@ -8,9 +8,13 @@ ADA_TEST_POSTGRES_URL is set.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
+
+import pytest
 
 from ada.comms.rest import audit_issue
 from ada.comms.rest.audit_issue import (
+    LocalIssueClaims,
     comment_body,
     fingerprint,
     fingerprint_job,
@@ -25,6 +29,14 @@ from ada.comms.rest.audit_issue import (
     strip_volatile,
     sync_run_issues,
 )
+from ada.comms.rest.issue_client import IssueClientError
+
+
+@pytest.fixture(autouse=True)
+def _fresh_local_claims(monkeypatch):
+    """The in-process claims are module state; each test starts with none."""
+    monkeypatch.setattr(audit_issue, "_LOCAL_CLAIMS", LocalIssueClaims())
+
 
 # ── fingerprint ─────────────────────────────────────────────────────
 
@@ -124,6 +136,63 @@ def test_strip_volatile_does_not_eat_short_codes():
     assert "abc1234ff5678" not in out
 
 
+def _fp_msg(msg: str) -> str:
+    """Fingerprint a failure the way a raised exception lands in a row: the message,
+    and the traceback whose last line is ``<ExcType>: <message>``."""
+    return fingerprint(
+        source_ext=".json",
+        target_format="asset_build",
+        error_msg=msg,
+        traceback=f'Traceback (most recent call last):\n  File "x.py", line 3, in f\npkg.mod.SomeError: {msg}',
+    )
+
+
+def test_fingerprint_folds_storage_paths_and_counts():
+    """One root cause raised against many files / with many counts is one fingerprint:
+    the quoted storage key, its timestamp directory and the count all vary per row."""
+    variants = [
+        "none of the 8 items this index names has data in 'assets/demo/123-4/20260101T000000Z/model.db' -- refusing",
+        "none of the 3 items this index names has data in 'assets/demo/123-4/20260101T000000Z/model.db' -- refusing",
+        "none of the 324 items this index names has data in 'assets/other/987-65/20261231T235959Z/model.db' -- refusing",
+        'none of the 1 items this index names has data in "C:\\data\\run\\model.db" -- refusing',
+    ]
+    assert len({_fp_msg(v) for v in variants}) == 1
+
+
+def test_fingerprint_folds_quoted_names_with_separators_and_numeric_ids():
+    variants = [
+        "no entry named '/A-100-DEMO' in catalog 'demo' -- nothing to stage for node '123-1'",
+        "no entry named '/B200-OTHER_X' in catalog 'demo' -- nothing to stage for node '456-337'",
+    ]
+    assert len({_fp_msg(v) for v in variants}) == 1
+
+
+def test_fingerprint_keeps_quoted_words_and_identifiers_apart():
+    """Normalisation must not erase what distinguishes two failures: a quoted name
+    without a path separator, and digits glued to an identifier, both stay."""
+    assert _fp_msg("unknown entity 'Beam'") != _fp_msg("unknown entity 'Plate'")
+    assert _fp_msg("unsupported dtype float64") != _fp_msg("unsupported dtype float32")
+    assert _fp_msg("missing 'demo' catalog") != _fp_msg("missing 'other' catalog")
+
+
+def test_strip_volatile_rules():
+    assert strip_volatile("run 20260101T000000Z done") == "run <ts> done"
+    assert strip_volatile("job 123e4567-e89b-12d3-a456-426614174000 lost") == "job <uuid> lost"
+    assert strip_volatile("read 'a/b/c.db' and x\\y\\z.step") == "read '<path>' and <path>"
+    assert strip_volatile("got 12 of 3.5 for item 7-1") == "got <n> of <n> for item <n>-<n>"
+    # prose with a single separator, and identifiers with digits, are not volatile
+    assert strip_volatile("N/A as application/json via sha256 in ifc4x3") == (
+        "N/A as application/json via sha256 in ifc4x3"
+    )
+
+
+def test_fingerprint_unchanged_for_messages_without_volatile_parts():
+    """A message with nothing volatile in it normalises to itself, so its fingerprint
+    is the one the issue tracker already has a label for."""
+    msg = "UnsupportedFormat: no reader registered for this extension"
+    assert strip_volatile(msg) == msg
+
+
 # ── sanitize_corpus_key ─────────────────────────────────────────────
 
 
@@ -209,26 +278,45 @@ class _StubClient:
     "this label already has an open issue" so the comment path is
     exercised."""
 
-    def __init__(self, existing: dict | None = None):
+    def __init__(self, existing: dict | None = None, *, first_number: int = 1):
         self.existing = existing or {}  # label -> [IssueRef-like dict]
         self.created: list[dict] = []
         self.commented: list[tuple[int, str]] = []
         self.updated: list[tuple[int, str]] = []
         self.states: list[tuple[int, str]] = []
+        self.searches = 0
+        self._next = first_number
+        # Issues the bot created are readable by number but -- like a lagging forge
+        # search -- never show up in list_issues_by_label.
+        self._by_number: dict[int, dict] = {}
 
     async def list_issues_by_label(self, label: str, *, state: str = "open"):
-        rows = [r for r in self.existing.get(label, []) if r.get("state", "open") == state]
-        return [_FakeIssue(**r) for r in rows]
+        self.searches += 1
+        rows = [r for r in self.existing.get(label, []) if self._state(r) == state]
+        return [_FakeIssue(**{**r, "state": self._state(r)}) for r in rows]
+
+    def _state(self, r: dict) -> str:
+        changed = [s for n, s in self.states if n == r["number"]]
+        return changed[-1] if changed else r.get("state", "open")
 
     async def find_issue_by_title(self, title: str):
         return None  # dashboard rebuild is exercised separately
 
+    async def get_issue(self, number: int):
+        rows = [r for rs in self.existing.values() for r in rs if r["number"] == number]
+        r = rows[0] if rows else self._by_number.get(number)
+        if r is None:
+            raise IssueClientError(f"GET {number} → 404", status=404)
+        return _FakeIssue(**{**r, "state": self._state(r)})
+
     async def create_issue(self, *, title: str, body: str, labels):
+        await asyncio.sleep(0)  # a real create yields; lets a concurrent sync interleave
         rec = {"title": title, "body": body, "labels": list(labels)}
         self.created.append(rec)
-        return _FakeIssue(
-            number=len(self.created), title=title, body=body, html_url=None, labels=list(labels), state="open"
-        )
+        number = self._next
+        self._next += 1
+        self._by_number[number] = {"number": number, "title": title, "labels": list(labels)}
+        return _FakeIssue(number=number, title=title, body=body, html_url=None, labels=list(labels), state="open")
 
     async def comment_issue(self, number: int, *, body: str):
         self.commented.append((number, body))
@@ -496,6 +584,150 @@ def test_sync_leaves_skip_fps_alone():
     )
     assert summary["opened"] == 1
     assert [c["labels"][1] for c in client.created] == [fp_label(_fp_of("b.step", "ifc", "other"))]
+
+
+# ── single-flight issue creation ───────────────────────────────────
+
+
+class _DurableClaims:
+    """A claim store that says it is durable (as the database one is), kept in memory."""
+
+    durable = True
+
+    def __init__(self, numbers: dict[str, int] | None = None):
+        self.numbers = dict(numbers or {})
+        self._local = LocalIssueClaims()
+
+    @asynccontextmanager
+    async def hold(self, fp):
+        async with self._local.hold(fp):
+            yield _MemHeld(self.numbers, fp)
+
+
+class _MemHeld:
+    def __init__(self, numbers, fp):
+        self._numbers = numbers
+        self._fp = fp
+
+    async def get(self):
+        return self._numbers.get(self._fp)
+
+    async def record(self, number):
+        self._numbers[self._fp] = number
+
+    async def forget(self):
+        self._numbers.pop(self._fp, None)
+
+
+def _sync(client, *jobs, run_id="r", claims=None):
+    return sync_run_issues(client, run={"id": run_id, "started_at": None}, failed_jobs=list(jobs), claims=claims)
+
+
+def test_concurrent_syncs_of_one_fingerprint_open_one_issue():
+    """Two syncs racing on one fingerprint, against a forge whose search never shows the
+    fresh issue: the second waits for the first, then comments on the issue it opened."""
+    client = _StubClient()
+
+    async def both():
+        return await asyncio.gather(
+            _sync(client, _job("a.step", "glb"), run_id="r1"), _sync(client, _job("b.step", "glb"), run_id="r2")
+        )
+
+    s1, s2 = asyncio.run(both())
+    assert len(client.created) == 1
+    assert s1["opened"] + s2["opened"] == 1 and s1["commented"] + s2["commented"] == 1
+    assert [n for n, _ in client.commented] == [1]
+
+
+def test_back_to_back_syncs_use_the_claim_not_the_lagging_search():
+    client = _StubClient()
+
+    async def twice():
+        await _sync(client, _job("a.step", "glb"))
+        searches = client.searches
+        summary = await _sync(client, _job("a.step", "glb"))
+        return summary, client.searches - searches
+
+    summary, searches = asyncio.run(twice())
+    assert len(client.created) == 1 and summary["commented"] == 1
+    assert searches == 0, "a claimed fingerprint goes straight to its issue"
+
+
+def test_a_claimed_closed_issue_is_reopened():
+    client = _StubClient()
+    fp = _fp_of()
+    claims = _DurableClaims()
+
+    async def go():
+        await _sync(client, _job("a.step", "glb"), claims=claims)
+        await client.set_issue_state(claims.numbers[fp], state="closed")  # a recheck closed it
+        return await _sync(client, _job("a.step", "glb"), claims=claims)
+
+    summary = asyncio.run(go())
+    assert summary["reopened"] == 1 and len(client.created) == 1
+    assert client.states[-1] == (1, "open")
+
+
+def test_a_stale_claim_falls_back_to_the_search():
+    """A claimed issue that is gone (or lost its label) is forgotten; the search decides."""
+    label = fp_label(_fp_of())
+    client = _StubClient(existing={label: [{"number": 4, "title": "t", "labels": [label]}]})
+    claims = _DurableClaims({_fp_of(): 99})
+    summary = asyncio.run(_sync(client, _job("a.step", "glb"), claims=claims))
+    assert summary["commented"] == 1 and client.commented[0][0] == 4
+    assert claims.numbers[_fp_of()] == 4
+
+
+def test_existing_duplicates_fold_into_the_oldest():
+    label = fp_label(_fp_of())
+    client = _StubClient(existing={label: [{"number": n, "title": "t", "labels": [label]} for n in (9, 3, 6)]})
+    claims = _DurableClaims()
+    summary = asyncio.run(_sync(client, _job("a.step", "glb"), claims=claims))
+    assert sorted(client.states) == [(6, "closed"), (9, "closed")]
+    dup_comments = {n: body for n, body in client.commented if n != 3}
+    assert set(dup_comments) == {6, 9} and all("#3" in b for b in dup_comments.values())
+    assert summary["commented"] == 1 and client.commented[-1][0] == 3
+    assert claims.numbers[_fp_of()] == 3
+
+
+def test_without_a_durable_store_a_duplicate_made_elsewhere_is_closed_after_create():
+    """Another process opened the fingerprint moments ago and the search had not caught up:
+    after creating, the re-search shows both, and the newer one is closed."""
+    label = fp_label(_fp_of())
+
+    class _CatchesUp(_StubClient):
+        async def list_issues_by_label(self, label_, *, state="open"):
+            if self.created and state == "open":
+                return [
+                    _FakeIssue(number=2, title="t", labels=[label]),
+                    _FakeIssue(number=5, title="t", labels=[label]),
+                ]
+            return await super().list_issues_by_label(label_, state=state)
+
+    client = _CatchesUp(first_number=5)
+    asyncio.run(_sync(client, _job("a.step", "glb")))
+    assert client.states == [(5, "closed")]
+    assert [n for n, _ in client.commented] == [5] and "#2" in client.commented[0][1]
+    assert audit_issue._LOCAL_CLAIMS._numbers[_fp_of()] == 2, "the claim points at the kept issue"
+
+
+def test_a_durable_store_skips_the_post_create_search():
+    client = _StubClient()
+    asyncio.run(_sync(client, _job("a.step", "glb"), claims=_DurableClaims()))
+    assert client.searches == 2  # open + closed before creating, nothing after
+
+
+def test_local_claims_drop_idle_locks():
+    claims = LocalIssueClaims()
+
+    async def go():
+        async with claims.hold("fp1") as held:
+            await held.record(7)
+        async with claims.hold("fp1") as held:
+            return await held.get()
+
+    assert asyncio.run(go()) == 7
+    assert claims._locks == {}
 
 
 # ── recheck: which cells ───────────────────────────────────────────

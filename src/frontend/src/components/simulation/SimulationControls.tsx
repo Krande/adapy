@@ -17,7 +17,7 @@
 // cycle anyway (per the FEA workflow); the GLTF-clip path stays
 // as a fallback for non-FEA models.
 
-import React, {useEffect, useMemo, useState} from "react";
+import React, {useEffect, useMemo, useState, useSyncExternalStore} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -28,6 +28,8 @@ import ResultScaleSettings from "./ResultScaleSettings";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {unbakedStepsNote} from "@/utils/scene/fea/bakedSteps";
+import {caseStatusText, hasLazyCases, mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
+import {caseStatus, caseStatusVersion, subscribeCaseStatus} from "@/services/fea/feaCaseResolver";
 import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 import {
@@ -38,6 +40,7 @@ import {
     load_fea_streaming,
     setBeamSolidsVisible as setBeamSolidsVisibleScene,
 } from "@/utils/scene/handlers/load_fea_streaming";
+import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {followerUrl} from "@/utils/simChannel";
 import {runtime} from "@/runtime/config";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -45,6 +48,7 @@ import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 import AnimationExportButton from "./AnimationExportButton";
+import {FIELD_CONTROL, TRANSPORT_BUTTON, TRANSPORT_BUTTON_ON} from "./controlStyles";
 import DeformScaleIcon from "../icons/DeformScaleIcon";
 import {formatStepTime} from "@/utils/scene/fea/timeHistory";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
@@ -329,10 +333,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setNodalAverage,
         beamSolidsVisible,
         setBeamSolidsVisible,
+        beamSolidsUnavailable,
         timeHistory,
+        envelopeMode,
+        setEnvelopeMode,
     } = useFeaAnimationStore();
 
-    const hasBeamSolids = !!(manifest?.mesh?.beam_solids_url || manifest?.mesh?.beam_solids_compact_url);
+    const beamSolidsToggle = beamSolidsToggleState(manifest, beamSolidsUnavailable);
     const onToggleBeamSolids = (next: boolean) => {
         setBeamSolidsVisible(next);
         setBeamSolidsVisibleScene(next);
@@ -386,9 +393,26 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         () => buildFeaResultHierarchy(manifest?.fields ?? []),
         [manifest],
     );
+    // The step list: stored steps, then (bake_version 4) the load combinations
+    // the bake left to compute on request, each with its status.
+    const lazyCases = hasLazyCases(manifest);
+    const stepSlots = useMemo(() => mergeCaseSteps(manifest, activeField), [manifest, activeField]);
+    const caseStatusTick = useSyncExternalStore(subscribeCaseStatus, caseStatusVersion, caseStatusVersion);
+    const slotStatus = useMemo(() => {
+        void caseStatusTick;
+        const out = new Map<number, string>();
+        if (!sourceName) return out;
+        for (const s of stepSlots) {
+            if (s.kind !== "combination" || !s.recipeHash) continue;
+            out.set(s.slot, caseStatusText(caseStatus(sourceName, {n: s.value, recipe_hash: s.recipeHash})));
+        }
+        return out;
+    }, [stepSlots, sourceName, caseStatusTick]);
+    const activeSlot = stepSlots[stepIndex];
     // A bake of chosen steps (or of the model only) leaves cases out, and the
-    // pickers below cannot list what is not there: say so, once.
-    const unbakedNote = useMemo(() => unbakedStepsNote(manifest), [manifest]);
+    // pickers below cannot list what is not there: say so, once. A bake that
+    // offers its combinations on request lists them instead, so it needs no note.
+    const unbakedNote = useMemo(() => (lazyCases ? null : unbakedStepsNote(manifest)), [manifest, lazyCases]);
 
     // Element-field path: expose Surface/layer and IP reduction pickers when
     // the active field has per_type buckets. Exact selectable surfaces omit
@@ -516,6 +540,23 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         });
     };
 
+    // Scale over every load combination (the envelope) vs the shown case.
+    // Repaints the current step; the loader falls back to the case's own range,
+    // labelled as such, when the server offers no envelope.
+    const onEnvelopeToggle = (next: boolean) => {
+        setEnvelopeMode(next);
+        if (!sourceName || !manifest || !fieldName) return;
+        void load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName,
+            stepIndex,
+            reduction,
+            displacementScale: morphInfluence,
+            colormap,
+        });
+    };
+
     const onNodalAverageToggle = (next: boolean) => {
         setNodalAverage(next);
         if (!sourceName || !manifest || !fieldName) return;
@@ -557,24 +598,18 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // figure, controls cut off at its edge. Rows wrap when they must.
     return (
         <div className="@container flex flex-col gap-2 min-w-0">
-            {/* Row 1 — Field / Comp / Step selectors only. Gear
-                moved down to the transport row so this stays a
-                focused "what are you looking at" line.
-                Narrow panel: ``flex-1`` on each label distributes
-                the available width evenly between the three
-                dropdowns, ``min-w-0 truncate`` on the selects
-                lets long field names (e.g. "Contact Normal Force
-                Vector") ellipsise instead of pushing the row past
-                the panel, and the row wraps when even that is not
-                enough. ``@sm:flex-none`` reverts to natural width
-                on a wide panel so the dropdowns size to content
-                with ``justify-between`` spacing the groups. */}
+            {/* Row 1 — what you are looking at: Field / Comp / Step, packed from the left at
+                one spacing. Field and Step share the spare width (``flex-1``) -- their names
+                are the long ones -- and Comp keeps its natural width; ``min-w-0 truncate``
+                lets a long field name ellipsise rather than push the row past the panel,
+                and the row wraps when even that is not enough. (It used to spread the three
+                with ``justify-between``, which on a wide panel left wide gaps between them.) */}
             {manifest && (
-                <div className="flex flex-row flex-wrap items-center justify-between gap-x-2 gap-y-1 w-full min-w-0 text-xs text-white">
-                    <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
+                <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1 w-full min-w-0 text-xs text-white">
+                    <label className="flex items-center gap-1 min-w-0 flex-1">
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
-                            className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none truncate"
+                            className={`${FIELD_CONTROL} min-w-0 w-full truncate`}
                             value={fieldPickerValue}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -604,12 +639,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
+                        <label className="flex items-center gap-1 min-w-0 shrink-0">
                             <span className="text-gray-300 shrink-0">
                                 Comp{activeUnit ? ` [${activeUnit}]` : ""}
                             </span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none truncate"
+                                className={`${FIELD_CONTROL} min-w-0 truncate`}
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -622,10 +657,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </label>
                     )}
                     {activeField && nSteps > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 @sm:flex-none">
+                        <label className="flex items-center gap-1 min-w-0 flex-1">
                             <span className="text-gray-300 shrink-0">Step</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 @sm:flex-none @sm:max-w-40 truncate"
+                                className={`${FIELD_CONTROL} min-w-0 w-full truncate`}
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -635,34 +670,29 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                     names its cases, and "lcc2" identifies a load
                                     combination in a way "10" never will -- the
                                     Capacity mode's run list has always shown them. */}
-                                {activeField.steps.map((s) => (
-                                    <option key={s.i} value={s.i}>
-                                        {s.i + 1}/{nSteps} · {s.name ?? s.label}
+                                {/* Stored steps, then the load combinations computed on
+                                    request (their status after the name). */}
+                                {stepSlots.map((s) => (
+                                    <option
+                                        key={s.slot}
+                                        value={s.slot}
+                                        title={s.makeup ? `${s.name ?? s.label} = ${s.makeup}` : undefined}
+                                    >
+                                        {s.slot + 1}/{nSteps} · {s.name ?? s.label}
+                                        {s.kind === "combination" ? ` (${slotStatus.get(s.slot) ?? "computed on request"})` : ""}
                                     </option>
                                 ))}
                             </select>
                         </label>
                     )}
-                    {/* Deformation scale: multiplier on top of the [-1..1] / [0..1] sweep
-                        (or the true-scale time history); exaggerates the morph delta.
-                        Default 1. Lives in this row so the slider row stays the
-                        slider and its readout. */}
-                    <label
-                        className="flex items-center gap-1 text-xs text-white"
-                        title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
-                    >
-                        <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
-                        <span className="text-gray-200">Scale ×</span>
-                        <input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={scaleFactor}
-                            onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                            className="w-12 @sm:w-16 rounded-sm border border-gray-400 bg-white px-1 font-mono tabular-nums text-black"
-                            aria-label="Deformation scale"
-                        />
-                    </label>
+                </div>
+            )}
+            {activeSlot?.kind === "combination" && (
+                <div className="text-xs text-gray-300 min-w-0 break-words" data-testid="fea-case-makeup">
+                    Load combination {activeSlot.name ?? activeSlot.label}
+                    {activeSlot.makeup ? ` = ${activeSlot.makeup}` : ""}
+                    {" · "}
+                    {slotStatus.get(activeSlot.slot) ?? "computed on request"}
                 </div>
             )}
             {unbakedNote && (
@@ -721,30 +751,16 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </div>
                     </div>
                 )}
-                {!timeHistory && (
-                <div className="text-white text-xs flex items-center gap-1">
-                    T
-                    <input
-                        type="number"
-                        min={0.1}
-                        step={0.1}
-                        value={period}
-                        onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                        className="text-black w-12 @sm:w-16 px-1 rounded-sm"
-                        title="Oscillation period (seconds)"
-                    />
-                    s
-                </div>
-                )}
             </div>
 
-            {/* Row 3 — Transport: play / stop / data-panel toggle +
-                gear, all sized + placed identically so they read as
-                one group of action buttons. Gear lives right after
-                the data-panel button (no ``ml-auto`` push-to-right). */}
-            <div className="flex flex-row flex-wrap items-center gap-2 min-w-0">
+            {/* Row 3 — on the left the actions (play / stop / data panel / export / options),
+                one compact size, packed; on the right how playing is drawn (deformation
+                scale, period, beams as solid). The right group wraps under the buttons on a
+                narrow panel. */}
+            <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+                <span className="flex items-center gap-1.5">
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
+                    className={TRANSPORT_BUTTON}
                     onClick={isPlaying ? onPause : onPlay}
                     title={
                         timeHistory
@@ -755,14 +771,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     <PlayPauseIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
+                    className={TRANSPORT_BUTTON}
                     onClick={onStop}
                     title="Stop and reset deformation to 0"
                 >
                     <StopIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm"
+                    className={TRANSPORT_BUTTON}
                     onClick={onToggleData}
                     title="Toggle simulation data panel"
                 >
@@ -770,36 +786,86 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </button>
                 <AnimationExportButton/>
                 <button
-                    className={
-                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm " +
-                        (showOptions ? "ring-2 ring-blue-300" : "")
-                    }
+                    className={`${TRANSPORT_BUTTON} ${showOptions ? TRANSPORT_BUTTON_ON : ""}`}
                     onClick={() => setShowOptions((v) => !v)}
                     title="Visualisation options"
                     aria-pressed={showOptions}
                 >
                     <GearIcon/>
                 </button>
-            </div>
+                </span>
+                {/* How playing is drawn: the deformation scale and the period (the two
+                    numbers that shape the animation), and beams as solid. Drawn as the same
+                    field as the dropdowns above.
 
-            {/* Beams as solid. Here as well as in the Scene > FEM panel, and through
-                the same store flag + scene helper, so the two can never disagree: in
-                the paradoc embed this panel is the only one there is, and a beam drawn
-                as a line cannot show a torsion mode at all. Only offered when the
-                bundle has beam solids to show. */}
-            {hasBeamSolids && (
-                <label
-                    className="flex items-center gap-1 px-2 text-xs text-white"
-                    title="Draw beam elements as their solid cross-section, which also shows twist"
-                >
-                    <input
-                        type="checkbox"
-                        checked={beamSolidsVisible}
-                        onChange={(e) => onToggleBeamSolids(e.target.checked)}
-                    />
-                    <span className="text-gray-300">Beams as solid</span>
-                </label>
-            )}
+                    Beams as solid is here as well as in the Scene > FEM panel, through the same
+                    store flag + scene helper, so the two can never disagree: in the paradoc
+                    embed this panel is the only one there is, and a beam drawn as a line cannot
+                    show a torsion mode at all. Only offered when the bundle has beam solids. */}
+                <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white">
+                    <label
+                        className="flex items-center gap-1"
+                        title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
+                    >
+                        <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
+                        <span className="text-gray-300">Scale ×</span>
+                        <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={scaleFactor}
+                            onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
+                            className={`${FIELD_CONTROL} w-14 font-mono tabular-nums`}
+                            aria-label="Deformation scale"
+                        />
+                    </label>
+                    {/* Only a mode shape has a period worth setting: it oscillates. A static
+                        load case plays as a load-up sweep at the default pace, and a time
+                        history plays its own time axis -- a "period" means nothing for either. */}
+                    {activeField?.analysis_kind === "eigen" && (
+                        <label className="flex items-center gap-1" title="Period: seconds per oscillation when playing">
+                            <span className="text-gray-300">T</span>
+                            <input
+                                type="number"
+                                min={0.1}
+                                step={0.1}
+                                value={period}
+                                onChange={(e) => setPeriod(parseFloat(e.target.value))}
+                                className={`${FIELD_CONTROL} w-12 font-mono tabular-nums`}
+                                aria-label="Oscillation period in seconds"
+                            />
+                            <span className="text-gray-400">s</span>
+                        </label>
+                    )}
+                    {lazyCases && (
+                        <label
+                            className="flex items-center gap-1"
+                            title="Colour scale over every load combination (the envelope) instead of the shown case"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={envelopeMode}
+                                onChange={(e) => onEnvelopeToggle(e.target.checked)}
+                            />
+                            <span className="text-gray-300">All combinations</span>
+                        </label>
+                    )}
+                    {beamSolidsToggle.offered && (
+                        <label
+                            className={`flex items-center gap-1${beamSolidsToggle.enabled ? "" : " opacity-50"}`}
+                            title={beamSolidsToggle.title}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={beamSolidsToggle.enabled && beamSolidsVisible}
+                                disabled={!beamSolidsToggle.enabled}
+                                onChange={(e) => onToggleBeamSolids(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Beams as solid</span>
+                        </label>
+                    )}
+                </span>
+            </div>
 
             {showOptions && (
                 <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
@@ -991,19 +1057,19 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             </select>
 
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className={TRANSPORT_BUTTON}
                 onClick={togglePlayPause}
             >
                 <PlayPauseIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className={TRANSPORT_BUTTON}
                 onClick={stopAnimation}
             >
                 <StopIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className={TRANSPORT_BUTTON}
                 onClick={onToggleData}
             >
                 <FEMDataPanelIcon/>

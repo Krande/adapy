@@ -36,6 +36,14 @@ export const assetsApi = {
     return (await jsonOrThrow<{ providers: WireProvider[] }>(r, `listAssetProviders(${scope})`)).providers;
   },
 
+  /** The scope's provider display names, resolved by the server (admin alias > provider label);
+   *  a provider with none is absent. The other half of the `listAssetProviders` answer. */
+  async getProviderLabels(scope: ScopeUrl): Promise<Record<string, unknown>> {
+    const r = await authedFetch(`${base(scope)}/providers`);
+    const body = await jsonOrThrow<{ provider_labels?: Record<string, unknown> }>(r, `getProviderLabels(${scope})`);
+    return body.provider_labels ?? {};
+  },
+
   /** The server-folded index. With `collection`, one bounded listing of that
    *  collection plus the per-revision manifest summaries the badges read;
    *  without, the whole `assets/` prefix (collections only -- used to pick one). */

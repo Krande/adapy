@@ -311,6 +311,53 @@ export function treeSetFilter<T>(set: TreeSet, h: Hierarchy<T>): TreeSetFilter {
   };
 }
 
+/** Where a row stands in a set, for marking membership in the tree while the set is edited:
+ *  - `member`    it is one;
+ *  - `covered`   a member above it already holds it (removing it alone is not possible);
+ *  - `contains`  members sit somewhere below it;
+ *  - null        none of these. */
+export type SetMembership = "member" | "covered" | "contains" | null;
+
+export function setMembership<T>(set: TreeSet, h: Hierarchy<T>): (id: string) => SetMembership {
+  const members = new Set(set.members.map((m) => m.id));
+  const above = new Set<string>();
+  for (const m of set.members) {
+    for (const p of m.path) above.add(p);
+    let parent = h.byId.get(m.id)?.parent ?? null;
+    let guard = 0;
+    while (parent && guard++ < 10_000) {
+      above.add(parent);
+      parent = h.byId.get(parent)?.parent ?? null;
+    }
+  }
+  const covered = new Map<string, boolean>();
+  const isCovered = (id: string): boolean => {
+    // Strictly below a member: walk the parents, memoised along the way.
+    const trail: string[] = [];
+    let cur: string | null = h.byId.get(id)?.parent ?? null;
+    let answer = false;
+    let guard = 0;
+    while (cur && guard++ < 10_000) {
+      const known = covered.get(cur);
+      if (known !== undefined) {
+        answer = known;
+        break;
+      }
+      if (members.has(cur)) {
+        answer = true;
+        break;
+      }
+      trail.push(cur);
+      cur = h.byId.get(cur)?.parent ?? null;
+    }
+    // `trail` holds ancestors; each is covered iff something above IT is a member, which is
+    // `answer` for all of them except where a member sits between -- handled by stopping there.
+    for (const t of trail) covered.set(t, answer && !members.has(t));
+    return answer;
+  };
+  return (id) => (members.has(id) ? "member" : isCovered(id) ? "covered" : above.has(id) ? "contains" : null);
+}
+
 /** Both filters, when both are on. */
 export function bothKeep(
   a: ((id: string) => boolean) | undefined,

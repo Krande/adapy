@@ -17,9 +17,11 @@ from ada.assets.build import (
     BuildError,
     BuildProvenance,
     BuildSummary,
+    NothingToBuild,
     build_fingerprint,
     derived_asset_key,
     derived_asset_prefix,
+    parse_build_summary,
     patch_glb_provenance,
     read_glb_provenance,
     validate_build_summary,
@@ -298,5 +300,20 @@ def test_validate_build_summary_refuses_a_glb_key_outside_the_composed_prefix():
 def test_validate_build_summary_refuses_ok_false():
     provenance = _provenance()
     summary = BuildSummary(ok=False, glb_key="", provenance=provenance, error="builder exploded")
-    with pytest.raises(BuildError, match="builder exploded"):
+    with pytest.raises(BuildError, match="builder exploded") as exc:
         _validate(summary)
+    assert not isinstance(exc.value, NothingToBuild), "a failure must not read as an empty answer"
+
+
+def test_an_empty_summary_round_trips_and_validates_as_nothing_to_build():
+    """``empty`` is the stored "nothing to draw" answer: written only when set, read back, and
+    answered with ``NothingToBuild`` -- a ``BuildError``, so a caller that knows nothing of it
+    still refuses to load a GLB that is not there."""
+    summary = BuildSummary(ok=False, glb_key="", provenance=_provenance(), error="no drawable element", empty=True)
+    doc = summary.to_dict()
+    assert doc["empty"] is True
+    assert "empty" not in _valid_summary().to_dict(), "absent unless set"
+    back = parse_build_summary(summary.to_json())
+    assert back.empty and back.error == "no drawable element"
+    with pytest.raises(NothingToBuild, match="no drawable element"):
+        _validate(back)

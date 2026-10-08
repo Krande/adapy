@@ -123,7 +123,8 @@ async def _run_clash_check(
         # disk -- the route that enqueued this job priced its derived key off a cheap key/e_tag
         # token instead (see routes/clash_check.py) precisely so it never has to fetch the whole
         # source just to answer a POST.
-        source_sha256 = hashlib.sha256(src_path.read_bytes()).hexdigest()
+        with open(src_path, "rb") as fh:  # chunked: a source can be GBs
+            source_sha256 = hashlib.file_digest(fh, "sha256").hexdigest()
         progress("clash", 0.55)
         result = run_clash_check(
             model,

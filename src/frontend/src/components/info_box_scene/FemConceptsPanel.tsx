@@ -26,6 +26,8 @@ const FemConceptsPanel = () => {
     // loaded mesh's solid-beam child via the scene helper, mirroring SimulationControls.
     const beamSolidsVisible = useFeaAnimationStore((s) => s.beamSolidsVisible);
     const setBeamSolidsVisible = useFeaAnimationStore((s) => s.setBeamSolidsVisible);
+    // Set when the loaded result names beam solids the viewer could not build.
+    const beamSolidsUnavailable = useFeaAnimationStore((s) => s.beamSolidsUnavailable);
     const onToggleBeamsSolid = (next: boolean) => {
         setBeamSolidsVisible(next);
         setBeamSolidsVisibleScene(next);
@@ -60,8 +62,18 @@ const FemConceptsPanel = () => {
                 <span>Boundary conditions</span>
                 <span className="ml-auto text-xs opacity-70">{bcs.length}</span>
             </label>
-            <label className="flex items-center gap-2 mb-2" title="Render beam (line) elements as their solid cross-section geometry">
-                <input type="checkbox" checked={beamSolidsVisible} onChange={(e) => onToggleBeamsSolid(e.target.checked)} />
+            <label
+                className={`flex items-center gap-2 mb-2${beamSolidsUnavailable ? " opacity-50" : ""}`}
+                title={beamSolidsUnavailable
+                    ? `Beam solids are not available: ${beamSolidsUnavailable}`
+                    : "Render beam (line) elements as their solid cross-section geometry"}
+            >
+                <input
+                    type="checkbox"
+                    checked={!beamSolidsUnavailable && beamSolidsVisible}
+                    disabled={!!beamSolidsUnavailable}
+                    onChange={(e) => onToggleBeamsSolid(e.target.checked)}
+                />
                 <span>Beams as solid</span>
             </label>
 

@@ -82,7 +82,8 @@ async def _export_and_upload(job: Job, ctx: JobContext, produce: Callable[[objec
 
         try:
             await ctx.queue.update(job.job_id, stage="upload", progress=0.9)
-            await ctx.storage.put_bytes(ctx.scope, job.derived_key, out_path.read_bytes())
+            # Streamed from disk: an export of a whole subject can be as large as its source.
+            await ctx.storage.put_path(ctx.scope, job.derived_key, out_path)
         except Exception as exc:
             logger.exception("worker: %s upload failed for job %s", job.target_format, job.job_id)
             await _fail(job, ctx, "upload", str(exc), tb_module.format_exc())

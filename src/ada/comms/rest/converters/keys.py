@@ -165,7 +165,7 @@ _FEA_ARTEFACT_SUFFIX = ".fea/"
 # labels, ...) instead of serving its old artefacts forever. A pinned copy of
 # ``ada.fem.results.artefacts.FEA_BAKE_VERSION`` — the slim API container
 # cannot import ada.fem — kept equal by a test.
-EXPECTED_FEA_BAKE_VERSION = 3
+EXPECTED_FEA_BAKE_VERSION = 4
 
 
 def fea_manifest_stale_reason(
@@ -218,6 +218,50 @@ def fea_manifest_stale_reason(
             # inconclusive, same posture as a missing timestamp.
             pass
     return None
+
+
+def fea_case_stale_reason(
+    case: dict,
+    source_head: dict | None,
+    case_head: dict | None,
+    manifest_head: dict | None,
+) -> str | None:
+    """Why a cached materialised load-combination case should be rebuilt, or ``None``.
+
+    The manifest's rule (:func:`fea_manifest_stale_reason`) on the case's own
+    ``bake_version`` and timestamp, plus one more: a case older than the base
+    manifest was superposed from a previous base bake, whose strides may no
+    longer be what the manifest describes. Inconclusive timestamps do not churn.
+    """
+    reason = fea_manifest_stale_reason(case, source_head, case_head)
+    if reason is not None:
+        return reason
+
+    def _ts(head: dict | None):
+        raw = (head or {}).get("last_modified")
+        if not raw:
+            return None
+        from datetime import datetime
+
+        try:
+            return datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+
+    case_ts, man_ts = _ts(case_head), _ts(manifest_head)
+    if case_ts is not None and man_ts is not None:
+        try:
+            if man_ts > case_ts:
+                return "base bake newer than case"
+        except TypeError:
+            pass
+    return None
+
+
+def fea_case_prefix_for(source_key: str, case_dir: str) -> str:
+    """Storage prefix of one materialised load-combination case:
+    ``_derived/<src>.fea/cases/<n>-<recipeHash8>/`` (see artefacts/combine.py)."""
+    return f"{fea_artefact_prefix_for(source_key)}cases/{case_dir}/"
 
 
 def fea_artefact_prefix_for(source_key: str) -> str:

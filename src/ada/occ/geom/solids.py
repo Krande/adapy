@@ -241,17 +241,12 @@ def _swept_area_profile_is_2d(profile) -> bool:
     :class:`PrimSweep` instead bakes the profile's orientation into 3D boundary points (len 3,
     e.g. the section rotated into the YZ plane) — those are already placed in space, so they
     must be swept as authored (PipeShell), not reframed. Reframing a pre-oriented 3D profile
-    double-orients it and yields a torn, non-watertight shell."""
-    outer = getattr(profile, "outer_curve", None)
-    if outer is None:
-        return False
-    segs = getattr(outer, "segments", None)
-    if segs:
-        return all(len(getattr(s, "start", ())) == 2 for s in segs)
-    pts = getattr(outer, "points", None)
-    if pts:
-        return all(len(p) == 2 for p in pts)
-    return False
+    double-orients it and yields a torn, non-watertight shell.
+
+    A centred ``Circle`` outline (a tube or a round bar) is a flat section too."""
+    from ada.geom.sweep_frames import swept_area_is_planar_2d
+
+    return swept_area_is_planar_2d(profile)
 
 
 def _make_fixed_ref_pipeshell_shape(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Shape:
@@ -319,26 +314,11 @@ def _decimate_stations(origins, dir_x, dir_y, profile_char: float) -> list[int]:
     degenerates) OR the tangent has turned past ``angle_tol`` since the last kept station. The
     angle guard means a bend is always sampled (curved fillets survive any ``eps``); the
     distance guard removes the near-coincident arc samples that make ThruSections raise
-    StdFail_NotDone. The endpoints are always kept."""
-    import numpy as np
+    StdFail_NotDone. The endpoints are always kept. Shared with the adacpp builder
+    (``ada.geom.sweep_frames.decimate_stations``)."""
+    from ada.geom.sweep_frames import decimate_stations
 
-    n = len(origins)
-    if n <= 2:
-        return list(range(n))
-    eps = max(1e-6, 0.05 * profile_char)
-    cos_tol = math.cos(math.radians(8.0))
-    tang = np.cross(dir_x, dir_y)
-    tn = np.linalg.norm(tang, axis=1, keepdims=True)
-    tang = tang / np.where(tn < 1e-12, 1.0, tn)
-
-    keep = [0]
-    for i in range(1, n - 1):
-        far = float(np.linalg.norm(origins[i] - origins[keep[-1]])) > eps
-        turned = float(np.dot(tang[i], tang[keep[-1]])) < cos_tol
-        if far or turned:
-            keep.append(i)
-    keep.append(n - 1)
-    return keep
+    return decimate_stations(origins, dir_x, dir_y, profile_char)
 
 
 def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Shape:
@@ -386,10 +366,14 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     if len(origins) < 2:
         raise NotImplementedError("FixedReferenceSweptAreaSolid: general directrix has < 2 stations")
 
+    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCC.Core.BRepTools import breptools
+
     profile_face = make_profile_from_geom(frs.swept_area)
-    # Outer wire of the profile; swept as a filled section (voids do not affect the swept
-    # extents/orientation and are not carried by ThruSections here).
-    profile_wire = list(TopologyExplorer(profile_face).wires())[0]
+    # The outer wire is lofted into the solid; every other wire is a void (a tube's bore, a box
+    # section's inside), lofted through the same stations and cut out below.
+    profile_wire = breptools.OuterWire(topods.Face(profile_face))
+    void_wires = [w for w in TopologyExplorer(profile_face).wires() if not w.IsSame(profile_wire)]
 
     # The shared sampler tessellates every arc of the directrix into many closely-spaced
     # stations (a tight fillet becomes dozens of points ~1 profile-thickness apart). Feeding
@@ -405,20 +389,33 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     # fillets stay curved and cannot collapse to a chord), while the distance guard drops the
     # redundant near-coincident arc samples that break the loft. The retained sections are the
     # same frames the stream path uses, so the swept extent/orientation is identical.
-    keep = _decimate_stations(origins, dir_x, dir_y, _profile_char_len(profile_wire))
+    char_len = _profile_char_len(profile_wire)
+    keep = _decimate_stations(origins, dir_x, dir_y, char_len)
+    stations = (origins[keep], dir_x[keep], dir_y[keep])
 
     # Loft the profile through a copy placed at every kept station. Placing local +z along the
     # station normal (dir_x x dir_y) and local +x along dir_x makes the gp_Ax3-derived local +y
     # come out as dir_y (up) — so local (u, v) -> u*dir_x + v*dir_y, matching the stream path.
-    thru = BRepOffsetAPI_ThruSections(True, True)  # isSolid=True (cap ends), isRuled=True
-    for i in keep:
-        normal = np.cross(dir_x[i], dir_y[i])
-        section = transform_shape_to_pos(profile_wire, Point(*origins[i]), Direction(*normal), Direction(*dir_x[i]))
-        thru.AddWire(topods.Wire(section))
-    thru.Build()
-    if not thru.IsDone():
-        raise NotImplementedError(
-            "FixedReferenceSweptAreaSolid: ruled loft could not build a valid solid "
-            f"from {len(keep)} sections (general directrix)"
-        )
-    return thru.Shape()
+    def loft(wire, o, dx, dy):
+        thru = BRepOffsetAPI_ThruSections(True, True)  # isSolid=True (cap ends), isRuled=True
+        for i in range(len(o)):
+            normal = np.cross(dx[i], dy[i])
+            section = transform_shape_to_pos(wire, Point(*o[i]), Direction(*normal), Direction(*dx[i]))
+            thru.AddWire(topods.Wire(section))
+        thru.Build()
+        if not thru.IsDone():
+            raise NotImplementedError(
+                "FixedReferenceSweptAreaSolid: ruled loft could not build a valid solid "
+                f"from {len(o)} sections (general directrix)"
+            )
+        return thru.Shape()
+
+    shape = loft(profile_wire, *stations)
+    if void_wires:
+        from ada.geom.sweep_frames import extend_stations
+
+        # Void cutters run past both ends so their caps are not coplanar with the solid's.
+        cut_stations = extend_stations(*stations, 0.05 * char_len)
+        for wire in void_wires:
+            shape = BRepAlgoAPI_Cut(shape, loft(wire, *cut_stations)).Shape()
+    return shape

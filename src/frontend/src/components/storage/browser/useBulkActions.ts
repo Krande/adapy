@@ -4,7 +4,6 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {previewKeyList} from "@/utils/storage/fileTree";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
-import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {canOpenInScene} from "@/utils/scene/fileKinds";
 import type {useStorageMutations} from "../useStorageMutations";
@@ -121,11 +120,9 @@ export function useBulkActions(p: {
         setBulkBusy("unload");
         try {
             for (const f of targets) {
-                try {
-                    unload_source_from_scene(f.name);
-                } catch (err) {
-                    console.error("unload-selected failed", f.name, err);
-                }
+                // A plain overlay unloads synchronously inside the call; a streaming result's
+                // teardown finishes on its own.
+                unload_any_source(f.name).catch((err) => console.error("unload-selected failed", f.name, err));
             }
         } finally {
             setBulkBusy(null);

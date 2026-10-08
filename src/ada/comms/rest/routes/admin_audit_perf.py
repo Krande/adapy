@@ -80,6 +80,16 @@ async def load_issue_target_config(pool) -> dict | None:
     }
 
 
+def _issue_claims(pool, cfg: dict):
+    """The database-backed fingerprint claims for the configured forge repo, so syncs on
+    every replica and worker open one issue per fingerprint. ``None`` without a pool: the
+    sync falls back to this process's in-memory claims."""
+    if pool is None:
+        return None
+    base = cfg.get("base_url") or ""
+    return db_module.PgIssueClaims(pool, target=f"{cfg['kind']}:{base}:{cfg['repo']}")
+
+
 async def run_issue_bot_for(pool, run: dict) -> None:
     """Sync one finished audit run against the configured forge.
 
@@ -148,6 +158,7 @@ async def run_issue_bot_for(pool, run: dict) -> None:
                 run=run,
                 failed_jobs=failed,
                 skip_fps={rc["fp"] for rc in rechecks},
+                claims=_issue_claims(pool, cfg),
             )
         except Exception as exc:
             logger.exception("issue-bot: sync_run_issues failed")
@@ -260,6 +271,7 @@ async def run_issue_bot_for_conversion(pool, row: dict) -> None:
             run=run_wrapper,
             failed_jobs=[row],
             source_label="user conversion",
+            claims=_issue_claims(pool, cfg),
         )
     except Exception as exc:
         logger.exception(

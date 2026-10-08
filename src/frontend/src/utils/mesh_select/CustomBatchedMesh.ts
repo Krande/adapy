@@ -5,6 +5,7 @@ import {buildEdgeGeometryAsync, buildEdgeGeometryWithRangeIds, makeEdgeShaderMat
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {clipWithModel} from "@/utils/scene/section_clipping";
 import {coalescedGroups} from "./groupRuns";
+import {useVisibilityStore} from "@/state/visibilityStore";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -22,6 +23,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
      *  GpuMeshPicker) cheaply detect that they need to re-sync the
      *  hidden set without exposing its identity. */
     public hiddenChangeCounter = 0;
+
+    private markHiddenChanged(): void {
+        this.hiddenChangeCounter++;
+        useVisibilityStore.getState().bump();
+    }
 
     /** Lazy cache of drawRanges sorted by start offset, stored as
      *  parallel arrays so we walk by index (no per-entry object
@@ -751,7 +757,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         for (const id of rangeIds) {
             this.hiddenRanges.add(id);
         }
-        this.hiddenChangeCounter++;
+        this.markHiddenChanged();
 
         // 2) Rebuild all groups just once
         this.updateGroups();
@@ -765,6 +771,27 @@ export class CustomBatchedMesh extends THREE.Mesh {
                 if (idx !== undefined) {
                     data[idx] = 0;
                 }
+            }
+            tex.needsUpdate = true;
+        }
+    }
+
+    /** The inverse of ``hideBatchDrawRange``: show these draw ranges again, leaving every other
+     *  hidden range hidden. */
+    public unhideBatchDrawRange(rangeIds: Iterable<string>): void {
+        const shown: string[] = [];
+        for (const id of rangeIds) {
+            if (this.hiddenRanges.delete(id)) shown.push(id);
+        }
+        if (shown.length === 0) return;
+        this.markHiddenChanged();
+        this.updateGroups();
+        if (this.edgeMaterial && this.rangeIdToIndex) {
+            const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
+            const data = tex.image.data as Uint8Array;
+            for (const id of shown) {
+                const idx = this.rangeIdToIndex.get(id);
+                if (idx !== undefined) data[idx] = 255;
             }
             tex.needsUpdate = true;
         }
@@ -789,7 +816,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         for (const id of this.drawRanges.keys()) {
             if (!keep.has(id)) this.hiddenRanges.add(id);
         }
-        this.hiddenChangeCounter++;
+        this.markHiddenChanged();
         this.updateGroups();
         if (this.edgeMaterial && this.rangeIdToIndex) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
@@ -831,7 +858,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
     public unhideAllDrawRanges() {
         this.hiddenRanges.clear();
-        this.hiddenChangeCounter++;
+        this.markHiddenChanged();
         this.updateGroups();
         if (this.edgeMaterial) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;

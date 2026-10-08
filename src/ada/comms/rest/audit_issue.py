@@ -4,8 +4,9 @@ the admin audit-panel design notes).
 Two responsibilities, both deterministic and free of I/O:
 
 * :func:`fingerprint` — collapse a job failure to a 16-char hex
-  identifier that survives transient noise (tempfile paths, line
-  numbers, timestamps, hex blobs). Failures with the same root
+  identifier that survives transient noise (file paths and storage
+  keys, line numbers, counts and ids, timestamps, UUIDs, hex blobs).
+  Failures with the same root
   cause collapse to the same fingerprint across audit runs, which
   is what powers the dedup logic in the issue-bot ("does an
   ``audit-fp:<hash>`` label already exist? then comment instead of
@@ -24,8 +25,13 @@ unit-shaped.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
+from contextlib import asynccontextmanager
+from typing import AsyncContextManager, AsyncIterator, Protocol
+
+from .issue_client import IssueClientError
 
 # Volatile substring patterns. Each pattern is applied with a fixed
 # replacement so two failures that differ only in those substrings
@@ -39,10 +45,24 @@ _VOLATILE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # ISO-8601 / RFC-3339 timestamps. Catches things like
     # "2026-05-27T14:23:11.918432+00:00" or "2026-05-27 14:23:11".
     (re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:?\d{2}|Z)?"), "<ts>"),
+    # Compact ISO-8601 basic-format timestamps ("20260101T000000Z"),
+    # the shape storage keys and run directories tend to carry.
+    (re.compile(r"\b\d{8}T\d{4,6}(?:\.\d+)?Z?\b"), "<ts>"),
     # Bare ISO dates (without a time component).
     (re.compile(r"\d{4}-\d{2}-\d{2}"), "<date>"),
+    # UUIDs with dashes, before the hex-run rule eats their 8- and
+    # 12-char groups and leaves the 4-char ones behind.
+    (re.compile(r"\b[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\b"), "<uuid>"),
     # /tmp/<anything> and /var/folders/<anything> (macOS tempdir).
     (re.compile(r"/(?:tmp|var/folders)/[^\s'\"<>]+"), "/tmp/<x>"),
+    # A quoted path or storage key ('a/b.db', "C:\\x\\y.step"): any
+    # quoted run without whitespace that holds a path separator. What
+    # *which* file failed is the row's business, not the failure's —
+    # the same root cause hits many files.
+    (re.compile(r"(['\"])[^'\"\s]*[/\\][^'\"\s]*\1"), "'<path>'"),
+    # An unquoted path: a token with two or more separators (so prose
+    # like "N/A" or "application/json" survives).
+    (re.compile(r"(?:[A-Za-z]:)?[\w.\-~]*(?:[/\\][\w.\-~]+){2,}"), "<path>"),
     # Long hex runs — UUIDs without dashes, sha256 digests, etc.
     # 8+ hex chars in a row catches all of those without eating
     # short error codes like "0xFF".
@@ -56,6 +76,11 @@ _VOLATILE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r":\d+"), ":<n>"),
     # Memory addresses (``0x7f3e9a8b6c00``).
     (re.compile(r"\b0x[0-9a-fA-F]+\b"), "<addr>"),
+    # Free-standing numbers — counts, ids, sizes ("none of the 8
+    # items", "node '123-4'"). Digits glued to letters or underscores
+    # are part of an identifier ("float64", "ifc4x3", "sha256") and
+    # stay. Runs last so every rule above sees the raw digits.
+    (re.compile(r"(?<![\w.])\d+(?:\.\d+)*(?![\w.]*[A-Za-z_])"), "<n>"),
 )
 
 
@@ -352,6 +377,113 @@ def fp_label(fp: str) -> str:
     return f"audit-fp:{fp}"
 
 
+# ── Single-flight issue creation ───────────────────────────────────
+#
+# Finding "the issue for this fingerprint" by label search and creating one when the search
+# comes back empty is a check-then-act race: two syncs of the same fingerprint (an audit
+# run's pass and a user conversion's, or two API replicas) can both search, both see
+# nothing, and both create. The forge's label search also lags a fresh issue by seconds,
+# so even one-at-a-time syncs can miss the issue the previous one just opened.
+#
+# A claim store closes both holes. ``hold(fp)`` serialises every sync of one fingerprint,
+# and inside it the store remembers which issue the fingerprint was given, so the next
+# sync goes straight to that issue instead of asking the lagging search.
+
+
+class HeldClaim(Protocol):
+    """The claim on one fingerprint while :meth:`IssueClaims.hold` is held."""
+
+    async def get(self) -> int | None: ...
+
+    async def record(self, number: int) -> None: ...
+
+    async def forget(self) -> None: ...
+
+
+class IssueClaims(Protocol):
+    """Where fingerprint → issue number lives, and the lock that makes one fingerprint's
+    sync single-flight. ``durable`` is True when both hold across processes (a database);
+    a non-durable store only serialises syncs in this process, so the sync also tidies up
+    after a duplicate it could not prevent."""
+
+    durable: bool
+
+    def hold(self, fp: str) -> AsyncContextManager[HeldClaim]: ...
+
+
+class _LocalHeld:
+    def __init__(self, store: dict[str, int], fp: str):
+        self._store = store
+        self._fp = fp
+
+    async def get(self) -> int | None:
+        return self._store.get(self._fp)
+
+    async def record(self, number: int) -> None:
+        self._store[self._fp] = number
+
+    async def forget(self) -> None:
+        self._store.pop(self._fp, None)
+
+
+class LocalIssueClaims:
+    """In-process claims: an ``asyncio.Lock`` per fingerprint and a dict of fingerprint →
+    issue number. Serialises syncs inside one process only, so it is the fallback for a
+    caller with no database; a lock is dropped once nobody holds or waits on it."""
+
+    durable = False
+
+    def __init__(self) -> None:
+        self._numbers: dict[str, int] = {}
+        self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
+
+    @asynccontextmanager
+    async def hold(self, fp: str) -> AsyncIterator[_LocalHeld]:
+        lock, users = self._locks.get(fp) or (asyncio.Lock(), 0)
+        self._locks[fp] = (lock, users + 1)
+        try:
+            async with lock:
+                yield _LocalHeld(self._numbers, fp)
+        finally:
+            lock, users = self._locks[fp]
+            if users <= 1:
+                del self._locks[fp]
+            else:
+                self._locks[fp] = (lock, users - 1)
+
+
+# The fallback shared by every sync in this process that was not handed a store.
+_LOCAL_CLAIMS = LocalIssueClaims()
+
+
+async def _issue_by_number(client, number: int, label: str):
+    """The claimed issue, or ``None`` when it is gone (deleted, transferred) or no longer
+    carries the fingerprint's label -- the claim is stale then, and the caller forgets it."""
+    try:
+        issue = await client.get_issue(number)
+    except IssueClientError as exc:
+        if exc.status in (404, 410):
+            return None
+        raise
+    return issue if label in (issue.labels or []) else None
+
+
+async def _close_duplicates(client, issues: list, keep: int) -> int:
+    """Close every issue in ``issues`` but ``keep`` as a duplicate of it, with a comment
+    pointing there. Returns how many were closed."""
+    closed = 0
+    for issue in issues:
+        if issue.number == keep:
+            continue
+        await client.comment_issue(
+            issue.number,
+            body=f"Duplicate of #{keep}, which tracks this fingerprint. Closing this one.",
+        )
+        await client.set_issue_state(issue.number, state="closed")
+        closed += 1
+    return closed
+
+
 async def sync_run_issues(
     client,
     *,
@@ -359,6 +491,7 @@ async def sync_run_issues(
     failed_jobs: list[dict],
     source_label: str = "audit run",
     skip_fps: frozenset[str] | set[str] = frozenset(),
+    claims: IssueClaims | None = None,
 ) -> dict:
     """Sync one audit-run's failures against the configured forge.
 
@@ -378,6 +511,10 @@ async def sync_run_issues(
 
     A fingerprint whose issue was CLOSED (by a recheck, or by hand) and that fails again is
     reopened with a comment saying so, rather than opened as a duplicate issue.
+
+    ``claims`` makes each fingerprint's sync single-flight and remembers which issue it
+    went to (see :class:`IssueClaims`); a caller with a database passes the database-backed
+    store, every other caller shares this process's :class:`LocalIssueClaims`.
 
     The client conforms to :class:`ada.comms.rest.issue_client.GitForgeClient`.
     Errors on individual issues are caught + counted; one broken cell
@@ -408,59 +545,21 @@ async def sync_run_issues(
             "traceback": job.get("traceback"),
         }
 
+    store = claims if claims is not None else _LOCAL_CLAIMS
     for fp, ctx in seen_fps.items():
         label = fp_label(fp)
         try:
-            existing = await client.list_issues_by_label(label, state="open")
-        except Exception as exc:  # IssueClientError or transport
-            errors.append(f"lookup {fp}: {exc}")
-            continue
-        try:
-            closed = [] if existing else await client.list_issues_by_label(label, state="closed")
-            if existing or closed:
-                issue = (existing or closed)[0]
-                body = comment_body(
-                    fp=fp,
-                    run_id=run["id"],
-                    sanitized_source=ctx["sanitized_source"],
-                    run_started_at=run.get("started_at"),
-                    source_label=source_label,
-                )
-                if existing:
-                    commented += 1
-                else:
-                    await client.set_issue_state(issue.number, state="open")
-                    body = "**Reopened: this fingerprint failed again after the issue was closed.**\n\n" + body
-                    reopened += 1
-                await client.comment_issue(issue.number, body=body)
-            else:
-                await client.create_issue(
-                    title=issue_title(
-                        source_ext=ctx["source_ext"],
-                        target_format=ctx["target_format"],
-                        fp=fp,
-                    ),
-                    body=issue_body(
-                        fp=fp,
-                        source_ext=ctx["source_ext"],
-                        target_format=ctx["target_format"],
-                        sanitized_source=ctx["sanitized_source"],
-                        error_msg=ctx["error"],
-                        traceback=ctx["traceback"],
-                        run_id=run["id"],
-                        run_started_at=run.get("started_at"),
-                        source_label=source_label,
-                    ),
-                    labels=[
-                        _AUDIT_LABEL,
-                        label,
-                        f"target:{ctx['target_format']}",
-                    ],
-                )
-                opened += 1
-        except Exception as exc:
+            async with store.hold(fp) as held:
+                outcome = await _sync_one(client, held, store, fp, label, ctx, run, source_label)
+        except Exception as exc:  # IssueClientError, transport, or the claim store
             errors.append(f"sync {fp}: {exc}")
             continue
+        if outcome == "opened":
+            opened += 1
+        elif outcome == "reopened":
+            reopened += 1
+        else:
+            commented += 1
 
     return {
         "opened": opened,
@@ -469,6 +568,82 @@ async def sync_run_issues(
         "errors": errors,
         "unique_failures": len(seen_fps),
     }
+
+
+async def _sync_one(client, held: HeldClaim, store: IssueClaims, fp, label, ctx, run, source_label) -> str:
+    """Comment on, reopen or open the issue for one fingerprint, with its claim held.
+    Returns ``"commented"``, ``"reopened"`` or ``"opened"``.
+
+    The claimed issue number is asked first; the forge's label search only when there is
+    no claim (or a stale one), and a new issue only when the search finds none either.
+    Whatever issue the fingerprint lands on is recorded, so the next sync skips the search.
+    """
+    issue = None
+    number = await held.get()
+    if number is not None:
+        issue = await _issue_by_number(client, number, label)
+        if issue is None:
+            await held.forget()
+    if issue is None:
+        existing = await client.list_issues_by_label(label, state="open")
+        if len(existing) > 1:
+            # Duplicates from before this fingerprint had a claim: keep the oldest.
+            keep = min(i.number for i in existing)
+            await _close_duplicates(client, existing, keep)
+            existing = [i for i in existing if i.number == keep]
+        found = existing or await client.list_issues_by_label(label, state="closed")
+        issue = min(found, key=lambda i: i.number) if found else None
+
+    if issue is not None:
+        await held.record(issue.number)
+        body = comment_body(
+            fp=fp,
+            run_id=run["id"],
+            sanitized_source=ctx["sanitized_source"],
+            run_started_at=run.get("started_at"),
+            source_label=source_label,
+        )
+        outcome = "commented"
+        if (issue.state or "open") != "open":
+            await client.set_issue_state(issue.number, state="open")
+            body = "**Reopened: this fingerprint failed again after the issue was closed.**\n\n" + body
+            outcome = "reopened"
+        await client.comment_issue(issue.number, body=body)
+        return outcome
+
+    created = await client.create_issue(
+        title=issue_title(
+            source_ext=ctx["source_ext"],
+            target_format=ctx["target_format"],
+            fp=fp,
+        ),
+        body=issue_body(
+            fp=fp,
+            source_ext=ctx["source_ext"],
+            target_format=ctx["target_format"],
+            sanitized_source=ctx["sanitized_source"],
+            error_msg=ctx["error"],
+            traceback=ctx["traceback"],
+            run_id=run["id"],
+            run_started_at=run.get("started_at"),
+            source_label=source_label,
+        ),
+        labels=[
+            _AUDIT_LABEL,
+            label,
+            f"target:{ctx['target_format']}",
+        ],
+    )
+    keep = created.number
+    if not store.durable:
+        # The lock only covered this process: another one may have opened the same
+        # fingerprint meanwhile. Whatever the search shows now, the oldest issue wins.
+        now_open = await client.list_issues_by_label(label, state="open")
+        if len(now_open) > 1:
+            keep = min(i.number for i in now_open)
+            await _close_duplicates(client, now_open, keep)
+    await held.record(keep)
+    return "opened"
 
 
 async def rebuild_dashboard_issue(

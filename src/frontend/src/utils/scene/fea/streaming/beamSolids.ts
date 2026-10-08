@@ -41,6 +41,7 @@ import {fetchBeamSolidsWarp, type ParsedBeamSolidsWarp} from "@/services/feaBeam
 import {fetchMeshElements, type MeshElementEntry} from "@/services/feaMeshElements";
 import type {FeaManifest} from "@/services/viewerApi";
 import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {usePerfStore} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
@@ -48,6 +49,7 @@ import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batc
 // instantiated unless a manifest actually carries a compact artefact.
 import BeamSolidsExpandWorker from "./beamSolidsExpand.worker.ts?worker&inline";
 import type {BeamSolidsExpandWorkerAPI} from "./beamSolidsExpand.worker";
+import {BEAM_SOLIDS_PERF_OPT_OUT, describeBeamSolidsFailure} from "./beamSolidsToggle";
 import {findFirstMesh, snapshotBasePositions} from "./sceneMesh";
 
 export interface LoadedBeamSolids {
@@ -71,12 +73,17 @@ export async function tryLoadBeamSolids(
 ): Promise<LoadedBeamSolids | null> {
     const compactUrl = manifest.mesh.beam_solids_compact_url;
     const beamGlbUrl = manifest.mesh.beam_solids_url;
+    // Every way out of here that builds nothing says why, so the toggle the
+    // manifest offers can show it is inert instead of silently doing nothing.
+    const setUnavailable = useFeaAnimationStore.getState().setBeamSolidsUnavailable;
+    setUnavailable(null);
     if (!compactUrl && !beamGlbUrl) return null;
     // Perf-store opt-out: when the user wants to A/B against the
     // line-element fallback we skip the fetch + parsing entirely.
     // Toggled live via the Performance panel; takes effect on the
     // next FEA stream load.
     if (usePerfStore.getState().hideBeamSolids) {
+        setUnavailable(BEAM_SOLIDS_PERF_OPT_OUT);
         return null;
     }
 
@@ -84,7 +91,10 @@ export async function tryLoadBeamSolids(
         const built = compactUrl
             ? await buildFromCompact(fetcher, compactUrl, mainPositions)
             : await buildFromGlb(fetcher, beamGlbUrl as string, manifest);
-        if (!built) return null;
+        if (!built) {
+            setUnavailable("the artefact holds no beam geometry");
+            return null;
+        }
         const {mesh: beamMesh, entries, warp} = built;
 
         // Build the draw-range Map keyed by ``E${label}`` so the AFEL
@@ -177,6 +187,7 @@ export async function tryLoadBeamSolids(
         // missing/corrupt artefact doesn't block rendering of the main mesh.
         // eslint-disable-next-line no-console
         console.warn("[fea-streaming] failed to load beam-solid mesh:", err);
+        setUnavailable(describeBeamSolidsFailure(err));
         return null;
     }
 }

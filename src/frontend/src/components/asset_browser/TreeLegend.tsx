@@ -14,7 +14,9 @@ import {
     type GeometrySource,
 } from "@/assets/geometryMarks";
 import { kindTile } from "@/assets/kindTile";
+import { providerIdTitle } from "@/assets/providerNames";
 import { useViewerStores } from "@/state/AdaViewerContext";
+import { useProviderName } from "@/state/providerNamesStore";
 import type { AssetTreeMarks } from "@/state/assetBrowserStore";
 
 import { GeometryDot } from "./AssetTree";
@@ -41,6 +43,7 @@ const TreeLegend: React.FC<{ providers: readonly string[]; geometryProvider?: st
     geometryProvider,
 }) => {
     const { useAssetBrowserStore } = useViewerStores();
+    const pn = useProviderName();
     const marks = useAssetBrowserStore((s) => s.treeMarks);
     const geometryRollup = useAssetBrowserStore((s) => s.geometryRollup);
     const collection = useAssetBrowserStore((s) => s.collection);
@@ -83,7 +86,7 @@ const TreeLegend: React.FC<{ providers: readonly string[]; geometryProvider?: st
                                         {providers.map((p) => (
                                             <li key={p} className="flex items-center gap-2">
                                                 <Dot color={kindTile(p).bg} shape="solid" />
-                                                <span className="font-mono">{p}</span>
+                                                <span title={providerIdTitle(p)}>{pn(p)}</span>
                                             </li>
                                         ))}
                                     </ul>
@@ -113,7 +116,9 @@ const TreeLegend: React.FC<{ providers: readonly string[]; geometryProvider?: st
                         <div className="text-gray-400">
                             Geometry from{" "}
                             {geometryProvider ? (
-                                <span className="font-mono text-gray-200">{geometryProvider}</span>
+                                <span className="text-gray-200" title={providerIdTitle(geometryProvider)}>
+                            {pn(geometryProvider)}
+                        </span>
                             ) : (
                                 "any provider"
                             )}

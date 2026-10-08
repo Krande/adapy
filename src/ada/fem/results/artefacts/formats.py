@@ -29,12 +29,17 @@ MANIFEST_VERSION = 2
 #   2  semantic Sesam hierarchy, derived fields, units, surfaces
 #   3  model-property fields (thickness/material/section with value_labels)
 #      and mesh node_labels
+#   4  lazy load combinations: a deck whose combinations are not stored bakes
+#      its stored cases only and lists the combinations as
+#      ``combination_steps`` (materialised on request, see combine.py); every
+#      field says which components superpose (``linear_components``) and how
+#      the others are derived (``derived_components``)
 #
 # The REST API compares this against ``bake_version`` in a cached manifest —
 # via its own pinned copy (EXPECTED_FEA_BAKE_VERSION in comms/rest/converter),
 # because the slim API container cannot import ada.fem. A test asserts the two
 # stay equal.
-FEA_BAKE_VERSION = 3
+FEA_BAKE_VERSION = 4
 
 
 # Element-field blob format (AFEL). Same fixed-header pattern as
