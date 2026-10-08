@@ -318,9 +318,9 @@ class SinReader(SifReader):
                 rows = basic_tables[int(basic_step)]
             else:
                 # Raw: the combination needs a complex case's real AND imaginary words.
-                rec = self._read_result_card(card, step=int(basic_step), raw=True)
+                rec = self._read_result_card(card, step=int(basic_step), raw=True, ragged=True)
                 rows = None if rec is None else rec[1]
-                if rows is not None and not isinstance(rows, np.ndarray) and len(rows) > 1:
+                if isinstance(rows, list) and len(rows) > 1:
                     rows = _RaggedRows.from_rows(rows, value_start)
                 if basic_tables is not None:
                     basic_tables[int(basic_step)] = rows
@@ -409,13 +409,17 @@ class SinReader(SifReader):
                 name, existing = self.results[at]
                 self.results[at] = (name, _concat_rv_tables(existing, tables))
 
-    def _read_result_card(self, card, step, *, raw: bool = False):
+    def _read_result_card(self, card, step, *, raw: bool = False, ragged: bool = False):
         """Read one result card → ``(name, rows)`` (or None if the block
         is absent), step-filtered for RV* cards.
 
         Complex result cases' RV* rows are presented at :attr:`complex_phase`
         (one word per component, like a real case) unless ``raw`` — the
         combination path needs their real and imaginary words.
+
+        ``ragged`` (with ``raw``; the superposition's read): an RV* table of
+        varying width comes back as :class:`_RaggedRows`, gathered as arrays,
+        rather than as a list of rows.
 
         SifReader keeps the first record as the type-block "super-header"
         (`[-ndim, ndim, dim0, …]`) and consumers do ``records[1:]`` to skip
@@ -443,8 +447,14 @@ class SinReader(SifReader):
             rows = np.vstack((sh, arr)) if arr.shape[0] else sh
         else:
             elements = getattr(self, "_forces_elements", None) if card.name == cards.RVFORCES.name else None
-            rows = _records_for(self.sin, card, step=step, elements=elements)
-            rows = [super_header, *rows]
+            rows = None
+            if ragged and raw and card.name in _RV_TYPE_NAMES:
+                gathered = self.sin.gather_ragged_records(card.name, where_first_word=wfw, where_second_word=elements)
+                if gathered is not None:
+                    rows = _RaggedRows.from_records(super_header, *gathered, int(_RV_VALUE_START[card.name]))
+            if rows is None:
+                rows = _records_for(self.sin, card, step=step, elements=elements)
+                rows = [super_header, *rows]
         # The card's record bytes are now copied into ``rows`` — drop the
         # mmap pages so the next (often equally large) RV* table doesn't
         # stack its resident pages on top of this one's.
@@ -977,6 +987,24 @@ class _RaggedRows:
             itertools.chain.from_iterable(r[value_start:] for r in data), dtype=np.float64, count=int(lengths.sum())
         ).astype(np.float32)
         return cls(list(rows[0]), heads, lengths, values)
+
+    @classmethod
+    def from_records(cls, header: list, n_data: np.ndarray, words: np.ndarray, value_start: int):
+        """From :meth:`SinFile.gather_ragged_records`' arrays: the rows
+        :func:`_records_for` would build (``[NFIELD, *data]``), without building
+        them. ``None`` when a record is too short to hold the header words."""
+        n_data = np.asarray(n_data, dtype=np.int64)
+        lengths = n_data + 1 - value_start
+        if np.any(lengths < 0):
+            return None
+        n = len(n_data)
+        n_head = value_start - 1  # header words after NFIELD
+        offsets = np.cumsum(n_data) - n_data
+        within = np.arange(int(n_data.sum()), dtype=np.int64) - np.repeat(offsets, n_data)
+        heads = np.empty((n, value_start), dtype=np.float64)
+        heads[:, 0] = n_data + 1
+        heads[:, 1:] = words[within < n_head].reshape(n, n_head)
+        return cls(list(header), heads, lengths, np.asarray(words[within >= n_head], dtype=np.float32))
 
     def to_rows(self) -> list:
         offsets = np.concatenate(([0], np.cumsum(self.lengths))).tolist()

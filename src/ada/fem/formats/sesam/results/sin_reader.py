@@ -1189,6 +1189,44 @@ class SinFile:
                     continue
             yield struct.unpack(f"<{n_data}f", src.read(data_byte, n_data * 4))
 
+    def gather_ragged_records(
+        self,
+        name: str,
+        *,
+        where_first_word: int | None = None,
+        where_second_word: set[int] | None = None,
+    ):
+        """:meth:`iter_records`' records as arrays, for tables of varying width.
+
+        Returns ``(n_data, words)``: each yielded record's count of data words,
+        and all of their data words back to back as float32, in the order
+        :meth:`iter_records` yields them -- the same filters, the same records
+        skipped as malformed. ``None`` when the type is absent. One gather for
+        the whole selection instead of a read and an unpack per record.
+        """
+        import numpy as np
+
+        block = self.type_blocks.get(name)
+        if block is None:
+            return None
+        src = self.source
+        file_end = src.size()
+        ptrs = np.asarray(block.pointer_table, dtype=np.int64)
+        if where_first_word is not None or where_second_word is not None:
+            ptrs = _prefilter_pointers(src, ptrs, file_end, where_first_word, where_second_word)
+        # iter_records' per-record checks, in its order.
+        ptrs = ptrs[(ptrs != 0) & (ptrs >= 1) & ((ptrs - 1) * 4 + 4 <= file_end)]
+        n_data = src.gather_f32(ptrs - 1).astype(np.int64) - 1 if ptrs.size else np.empty(0, dtype=np.int64)
+        keep = (n_data > 0) & (ptrs * 4 + n_data * 4 <= file_end)
+        ptrs, n_data = ptrs[keep], n_data[keep]
+        total = int(n_data.sum())
+        if not total:
+            return n_data, np.empty(0, dtype=np.float32)
+        offsets = np.cumsum(n_data) - n_data
+        within = np.arange(total, dtype=np.int64) - np.repeat(offsets, n_data)
+        words = src.gather_f32(np.repeat(ptrs, n_data) + within)
+        return n_data, np.asarray(words, dtype=np.float32)
+
     def iter_text_records(self, name: str) -> Iterator[tuple[tuple[float, ...], str]]:
         """Yield ``(numeric_prefix, text)`` per record for text-typed
         data (``TDMATER``, ``TDRESREF``, ``TDSECT``, …).

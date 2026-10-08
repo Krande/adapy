@@ -329,12 +329,17 @@ def _stub_reader(tables, complex_cases):
     reader._static_results = []
     reader._complex_cases = frozenset(complex_cases)
 
-    def read(card, step, *, raw=False):
+    def read(card, step, *, raw=False, ragged=False):
         if card.name != "RVNODDIS" or step not in tables:
             return None
         rows = tables[step].copy()
         if not raw:
             rows = _present_complex_rows(card, rows, reader._complex_cases & {step}, reader.complex_phase)
+        elif ragged and isinstance(rows, list):
+            # What the real reader hands the superposition for a per-record table.
+            from ada.fem.formats.sesam.results.read_sin import _RaggedRows
+
+            rows = _RaggedRows.from_rows(rows, 5)
         return (card.name, rows)
 
     reader._read_result_card = read
@@ -434,6 +439,23 @@ def test_filtered_iter_records_yields_what_filtering_every_record_yields():
     got = list(SinFile.iter_records(fake, "RVFORCES", where_second_word={12}))
     assert got == [r for r in everything if len(r) >= 2 and int(r[1]) == 12]
 
+    # The array form yields the same records, and makes the same _RaggedRows.
+    from ada.fem.formats.sesam.results.read_sin import _RaggedRows
+
+    for first in (None, 1, 2, 3):
+        for second in (None, {10}, {11, 12}):
+            records = list(SinFile.iter_records(fake, "RVFORCES", where_first_word=first, where_second_word=second))
+            n_data, words = SinFile.gather_ragged_records(
+                fake, "RVFORCES", where_first_word=first, where_second_word=second
+            )
+            assert n_data.tolist() == [len(r) for r in records]
+            assert words.tolist() == [x for r in records for x in r]
+            rows = [[9.0], *[[float(len(r) + 1), *r] for r in records if len(r) + 1 >= 5]]
+            if len(rows) == len(records) + 1:
+                ragged = _RaggedRows.from_records([9.0], n_data, words, 5)
+                listed = _RaggedRows.from_rows(rows, 5)
+                assert ragged.to_rows() == listed.to_rows() == rows
+
 
 @pytest.mark.parametrize("per_record", [False, True], ids=["vectorised", "per-record"])
 def test_unstored_combinations_read_each_basic_case_once_and_match_one_by_one(per_record):
@@ -450,9 +472,9 @@ def test_unstored_combinations_read_each_basic_case_once_and_match_one_by_one(pe
     calls = []
     read = reader._read_result_card
 
-    def counting(card, step, *, raw=False):
+    def counting(card, step, *, raw=False, ragged=False):
         calls.append((card.name, step))
-        return read(card, step, raw=raw)
+        return read(card, step, raw=raw, ragged=ragged)
 
     reader._read_result_card = counting
     reader._combination_terms = recipes
