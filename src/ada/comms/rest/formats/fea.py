@@ -60,9 +60,9 @@ async def _run_fea_artefact_bake(
     # Admin "Stream SIN FEA bake" toggle (app_settings ``fea_sin_streamer``).
     # The bake runs in-process on an executor thread, so we drive the
     # reader choice through the same ADA_* env-var seam the convert path
-    # uses; _make_sin_reader reads it. Default (unset/empty) keeps adapy's
-    # full-materialise reader. Set fresh per job so toggling takes effect
-    # without a worker restart.
+    # uses; _make_sin_reader reads it. Default (unset/empty) lets adapy pick:
+    # full-materialise, or the streaming reader for a deck too large for it.
+    # Set fresh per job so toggling takes effect without a worker restart.
     if db_pool is not None:
         try:
             sin_stream = await db_module.get_setting(db_pool, "fea_sin_streamer")

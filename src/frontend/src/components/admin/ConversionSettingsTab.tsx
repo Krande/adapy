@@ -64,9 +64,11 @@ const ROWS: SettingRow[] = [
         description:
             "Bake Sesam .sin FEA results with the memory-bounded per-step streaming reader " +
             "instead of materialising the whole multi-step result. ~1.7x slower, but peak RSS " +
-            "stays flat in step count — use it for many-mode / large decks that OOM the worker. " +
+            "stays flat in step count — for many-mode / large decks that OOM the worker. " +
             "On this path step labels fall back to the mode index (no SESTRA.LIS eigen-frequency " +
-            "enrichment). Off → adapy's default full-materialise reader.",
+            "enrichment). Unset → adapy streams a deck whose result tables (load combinations " +
+            "included) are too large to materialise, and materialises the rest. On → always " +
+            "stream. Off → always materialise.",
         codeDefault: false,
     },
     {
