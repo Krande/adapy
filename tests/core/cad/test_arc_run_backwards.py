@@ -1,4 +1,4 @@
-"""An arc whose edge runs against its circle is the short arc between its trims, on either kernel.
+"""An arc whose edge runs against its circle is the arc from t_start down to t_end, on either kernel.
 
 An edge on a circle carries its trims on the circle's own parameter, ``t_start`` where the loop
 enters it and ``t_end`` where it leaves; run against the circle (``same_sense`` false) the first
@@ -57,7 +57,7 @@ def test_a_cylinder_shell_whose_top_arc_runs_backwards(backend, run, same_sense,
     Either way round and either face sense, the face is the quarter. Measured on ada-cpp 0.31.1:
     its cylinder builder takes the loop as running clockwise in (angle, height) and does not
     turn it round -- this outline, counter-clockwise there, built invalid at -pi once its arc
-    went the short way; pythonocc builds it valid whichever way it runs.
+    was built from t_start down to t_end; pythonocc builds it valid whichever way it runs.
     """
     a0, a1 = np.pi / 2, np.pi / 2 + turn  # the three-quarter shell runs through the angle +-pi
     p0, p1 = (np.cos(a0), np.sin(a0)), (np.cos(a1), np.sin(a1))

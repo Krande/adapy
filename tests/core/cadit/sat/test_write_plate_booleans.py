@@ -146,7 +146,7 @@ def use_backend(monkeypatch):
 
 
 def test_a_hole_through_the_outline_is_a_notch_in_it(backend, use_backend):
-    """The outline runs the hole's arc backwards: built the short way round, the face is the plate less half the disc.
+    """The outline runs the hole's arc backwards: built from t_start down to t_end, the plate less half the disc.
 
     Refused before on both kernels (the rebuilt face measured 12.754 against the cut's 11.749): each
     built that arc the long way round.
