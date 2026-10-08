@@ -2,6 +2,16 @@
 
 
 
+## v0.107.2 (2026-10-08)
+
+### Fix
+
+* fix(sections): torsion constants, torsion moduli and shear centres match GeniE (flat bar Ix was 58x high) (#440)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`f9dc389`](https://github.com/Krande/adapy/commit/f9dc3896649fa7bf247b1f3ecc41cb7131e390e4))
+
+
 ## v0.107.1 (2026-10-07)
 
 ### Chore
