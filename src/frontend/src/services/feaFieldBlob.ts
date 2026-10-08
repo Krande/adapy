@@ -14,7 +14,7 @@
 // Per-step labels and time/freq values live in the manifest, not
 // the blob.
 
-import {disableFeaRange, feaRangeSupported} from "./fea/feaFetcher";
+import {disableFeaRange, feaRangeSupported, localFeaRoute} from "./fea/feaFetcher";
 import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
 import {blobStepIndex, type FeaStepRef} from "./fea/feaStepRef";
 import type {FeaManifestField, ScopeUrl} from "./viewerApi";
@@ -255,11 +255,24 @@ export function makeViewerApiFetcher(
     const cleanSrc = sourceKey.replace(/^\/+/, "");
     const prefix = `_derived/${cleanSrc}.fea/`;
     const cacheKey = `${scope}::${prefix}`;
+    // A path the browser's FEA store answers (a load combination materialised
+    // in the browser, see services/fea/feaFetcher.ts local routes) is read
+    // from there first; anything it does not hold goes to the server.
     const fetcher: FeaFetcher = async (filename: string) => {
+        const local = localFeaRoute(scope, cleanSrc, filename);
+        if (local) {
+            const buf = await local(filename).catch(() => null);
+            if (buf) return buf;
+        }
         const {viewerApi} = await import("./viewerApi");
         return viewerApi.getBlob(scope, `${prefix}${filename.replace(/^\/+/, "")}`);
     };
     const rangeFetcher: FeaRangeFetcher = async (filename, start, end) => {
+        const local = localFeaRoute(scope, cleanSrc, filename);
+        if (local) {
+            const buf = await local(filename, {start, end}).catch(() => null);
+            if (buf) return {buf, ranged: true};
+        }
         const {viewerApi} = await import("./viewerApi");
         return viewerApi.getBlobRange(scope, `${prefix}${filename.replace(/^\/+/, "")}`, start, end);
     };

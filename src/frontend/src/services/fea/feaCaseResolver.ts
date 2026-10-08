@@ -11,15 +11,15 @@
 // case's overlay -- single-step blobs under ``cases/<n>-<hash8>/`` and the
 // case's own ranges -- through a ``CaseEngine``:
 //
-//   * ``serverCaseEngine``: the REST route. Implemented.
-//   * a "local" engine (P2): superpose the baked strides in a worker (WASM
-//     kernel + OPFS store) and hand back an overlay of the same shape, its
-//     blobs served by an OPFS fetcher. Not implemented; ``chooseCaseEngine``
-//     is the seam -- it returns the server engine today, and is where the
-//     policy (manifest ``lazy_cases.client_tier_a``, the case's ``needs_raw``,
-//     storage quota, a per-scope setting) will pick the local one. Everything
-//     above this module consumes ``CaseResolution`` and does not care which
-//     engine produced it.
+//   * ``serverCaseEngine``: the REST route.
+//   * the "local" engine (feaLocalEngine.ts): superpose the baked strides in
+//     a worker (adacpp_fea wasm kernel + OPFS store) and hand back an overlay
+//     of the same shape, its blobs served by an OPFS fetcher route.
+//     ``chooseCaseEngine`` picks it for a recipe the browser may superpose;
+//     it then decides per case (policy setting, capability probe, quota,
+//     device memory -- feaEngineChoice.ts) and falls back to the server on
+//     any failure. Everything above this module consumes ``CaseResolution``
+//     and does not care which engine produced it (``engine`` says).
 //
 // Resolutions are cached per (source, case, recipe hash) for the page's
 // life, and concurrent requests for the same case share one request. Every
@@ -35,6 +35,7 @@ import type {
     ScopeUrl,
 } from "../viewerApi";
 import type {Fetcher, PollDeps, StatusFn} from "../feaManifestPoll";
+import type {LocalEngine} from "./feaLocalEngine";
 import {caseFieldView, caseRelativePrefix, isCaseRef, type FeaStepRef} from "./feaStepRef";
 
 export type CaseStatus = "on-request" | "computing" | "ready" | "error";
@@ -77,7 +78,7 @@ export interface CaseEngine {
     resolve(
         req: CaseRequest,
         onStatus: (info: CaseStatusInfo) => void,
-    ): Promise<{overlay: FeaCaseOverlay; computed: boolean}>;
+    ): Promise<{overlay: FeaCaseOverlay; computed: boolean; engine?: "server" | "local"}>;
 }
 
 export interface ServerEngineDeps {
@@ -139,17 +140,57 @@ export function serverCaseEngine(deps?: ServerEngineDeps): CaseEngine {
 }
 
 let _serverEngine: CaseEngine | null = null;
+let _localEngine: Promise<LocalEngine | null> | null = null;
 
-/** The engine a case is materialised with. The P2 seam: today always the
- *  server; the local engine slots in here behind a capability + policy check
- *  (``manifest.lazy_cases.client_tier_a && !step.needs_raw && <quota/setting>``),
- *  with the server as the fallback for anything it cannot take. */
-export function chooseCaseEngine(
-    _manifest: FeaManifest,
-    _step: FeaCombinationStep,
-): CaseEngine {
+function serverEngine(): CaseEngine {
     if (!_serverEngine) _serverEngine = serverCaseEngine();
     return _serverEngine;
+}
+
+/** The browser engine (services/fea/feaLocalEngine.ts) with its real wiring,
+ *  created on first use; null where it cannot exist (no Worker: node, SSR). */
+function localEngine(): Promise<LocalEngine | null> {
+    if (!_localEngine) {
+        _localEngine = (async () => {
+            if (typeof Worker === "undefined") return null;
+            try {
+                const {defaultLocalEngineDeps, makeLocalCaseEngine} = await import("./feaLocalEngine");
+                return makeLocalCaseEngine(await defaultLocalEngineDeps(serverEngine()));
+            } catch (err) {
+                console.warn("[fea] browser case engine unavailable", err);
+                return null;
+            }
+        })();
+    }
+    return _localEngine;
+}
+
+/** Use ``engine`` as the browser engine (tests; null = none; undefined =
+ *  back to the default wiring). */
+export function setLocalCaseEngine(engine: LocalEngine | null | undefined): void {
+    _localEngine = engine === undefined ? null : Promise.resolve(engine);
+}
+
+/** A case the manifest says the browser may superpose (``client_tier_a``, no
+ *  ``needs_raw``) goes to the local engine, which decides per case (policy,
+ *  capability probe, quota, device memory -- feaEngineChoice.ts) and falls back
+ *  to the server on any failure; every other case goes to the server. */
+const autoEngine: CaseEngine = {
+    kind: "local",
+    async resolve(req, onStatus) {
+        const local = await localEngine();
+        if (!local) return {...(await serverEngine().resolve(req, onStatus)), engine: "server"};
+        return local.resolve(req, onStatus);
+    },
+};
+
+/** The engine a case is materialised with: the server, or (for a recipe the
+ *  browser may superpose, where a Worker exists) the local engine, which
+ *  itself falls back to the server. */
+export function chooseCaseEngine(manifest: FeaManifest, step: FeaCombinationStep): CaseEngine {
+    if (!manifest.lazy_cases?.client_tier_a || step.needs_raw) return serverEngine();
+    if (typeof Worker === "undefined" && !_localEngine) return serverEngine();
+    return autoEngine;
 }
 
 // ── cache + status ─────────────────────────────────────────────────────────
@@ -254,7 +295,7 @@ export async function resolveCase(
         setStatus(key, {status: "computing", stage: "requesting"});
         shared = (async () => {
             try {
-                const {overlay, computed} = await engine.resolve(
+                const {overlay, computed, engine: produced} = await engine.resolve(
                     {scope: source.scope, sourceKey: source.sourceKey, manifest, step, field: opts.field},
                     (info) => {
                         setStatus(key, info);
@@ -267,7 +308,7 @@ export async function resolveCase(
                 const resolution: CaseResolution = {
                     overlay,
                     relPrefix: caseRelativePrefix(overlay, source.sourceKey, manifest),
-                    engine: engine.kind,
+                    engine: produced ?? engine.kind,
                     computed,
                 };
                 RESOLVED.set(key, resolution);
@@ -332,6 +373,15 @@ export function resolveEnvelope(
     let p = ENVELOPES.get(key);
     if (!p) {
         p = (async () => {
+            // The browser engine first, when the bake allows it and no server
+            // deps were injected (tests); it answers null to leave it to the server.
+            if (!deps && manifest.lazy_cases?.client_tier_a) {
+                const local = await localEngine();
+                const env = await local
+                    ?.envelope({scope: source.scope, sourceKey: source.sourceKey, manifest, field: fieldName})
+                    .catch(() => null);
+                if (env) return env;
+            }
             try {
                 const d = deps ?? (await defaultServerDeps());
                 const {fetchFeaEnvelope} = await import("../feaManifestPoll");

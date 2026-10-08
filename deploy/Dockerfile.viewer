@@ -144,6 +144,15 @@ RUN set -eu; \
         done; \
     done
 
+# OPTIONAL modules: the frontend degrades without them, so their absence is reported, not fatal.
+# adacpp_fea (load combinations computed in the browser; services/fea/feaLocalEngine.ts) -- without
+# it every combination is materialised by the server, as before. Move it to the list above once the
+# ADACPP_BASE_IMAGE pin is a release that ships it.
+RUN for m in adacpp_fea; do \
+        if [ -f "/build/dist/wasm/$m.js" ] && [ -f "/build/dist/wasm/$m.wasm" ]; then continue; fi; \
+        echo "NOTE: optional wasm module $m is not in the adacpp base image; the viewer runs without it." >&2; \
+    done
+
 # A module can be PRESENT and still lack the verb the frontend calls on it. `scanMembers` and
 # `clashJoints` were added to adacpp_ifc_glb in 0.30, to a module that has shipped since 0.25 — so
 # the loop above passes on an older base and the Clashes panel then calls `undefined` in a browser
