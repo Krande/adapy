@@ -371,7 +371,11 @@ def _read_tshapes(lines: list[str]) -> list[_TShape]:
 
 
 def _compose(parent: str, child: str) -> str:
-    """``TopAbs::Compose``: a reversed parent reverses a forward or reversed child."""
+    """``TopAbs::Compose`` (the table in ``TopAbs.hxx``): a forward parent keeps the child's flag,
+    a reversed one reverses a forward or reversed child, and an internal or external parent is
+    the result whatever the child."""
+    if parent in "ie":
+        return parent
     if parent == "-" and child in "+-":
         return "+" if child == "-" else "-"
     return child
@@ -485,6 +489,9 @@ def read_planar_face(text: str) -> PlanarFace:
         if wire.kind != "Wi":
             raise BrepTextUnsupported(f"a face whose child is a {wire.kind!r}, not a wire")
         w_orient = _compose(root_orient, w_orient)
+        if w_orient not in "+-":
+            # an imprint (a line drawn on the face), not a bound of it
+            raise BrepTextUnsupported("an internal or external wire in a face")
         w_m = face_m @ locs[w_loc]
         edges = []
         for e_orient, e_ref, e_loc in wire.children:

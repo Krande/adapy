@@ -213,6 +213,33 @@ def test_a_number_that_is_not_one_is_refused_by_name(backend):
         bt.read_planar_face(text)
 
 
+@pytest.mark.parametrize("flag", ["i", "e"])
+def test_an_internal_or_external_wire_is_refused_by_name(backend, flag):
+    """``TopAbs::Compose``: an INTERNAL or EXTERNAL wire makes every edge in it so, whatever their own
+    flags. Read with the edges' flags it was a bound -- an imprinted line taken for a hole."""
+    pl = ada.Plate("pl", [(0, 0), (4, 0), (4, 3), (0, 3)], 0.01)
+    pl.add_boolean(ada.PrimCyl("hole", (2, 1.5, -0.5), (2, 1.5, 0.5), 0.4))
+    (handle,) = backend.faces(backend.build(pl.shell_geom()))
+    lines = backend.serialize(handle).splitlines()
+    k = max(i for i, ln in enumerate(lines) if ln.rstrip().endswith("*"))  # the root face's wires
+    wires = lines[k].split()
+    assert len(wires) == 5 and wires[2][0] in "+-"  # two wires (ref, location each) and the end
+    wires[2] = flag + wires[2][1:]
+    lines[k] = " ".join(wires)
+    with pytest.raises(bt.BrepTextUnsupported, match="an internal or external wire"):
+        bt.read_planar_face("\n".join(lines) + "\n")
+
+
+@pytest.mark.parametrize(
+    "parent, child, composed",
+    [(p, c, {"+": c, "-": {"+": "-", "-": "+"}.get(c, c)}.get(p, p)) for p in "+-ie" for c in "+-ie"],
+)
+def test_orientations_compose_as_topabs_does(parent, child, composed):
+    """TopAbs.hxx's table: a forward parent keeps the child's flag, a reversed one reverses + and -,
+    an internal or external parent is the result whatever the child."""
+    assert bt._compose(parent, child) == composed
+
+
 def test_a_face_not_on_a_plane_is_refused_by_name(backend):
     cyl = geo_so.Cylinder(geo_su.Axis2Placement3D(location=Point(0, 0, 0)), 0.5, 1.0)
     faces = backend.faces(backend.build(Geometry(1, cyl, None)))
