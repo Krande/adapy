@@ -36,8 +36,26 @@ def interpret_section_props(name, sec_prop, parent: Part) -> Section:
 
     section = sec_interpreter(name, sec_prop)
     section.parent = parent
+    _apply_shear_factors(section, sec_prop)
 
     return section
+
+
+def _apply_shear_factors(section: Section, sec_prop) -> None:
+    """A parametric section's ``sfy``/``sfz`` (Sesam's SFY/SFZ: SHARY = calculated x SFY) go onto its
+    properties, which GeniE computes with them. A general section carries them itself."""
+    if section.type == Section.TYPES.GENERAL:
+        return
+    sfy, sfz = (float(sec_prop.attrib.get(k, 1.0)) for k in ("sfy", "sfz"))
+    if (sfy, sfz) == (1.0, 1.0):
+        return
+    from ada.sections.properties import calculate_general_properties
+
+    try:
+        section._genprops = calculate_general_properties(section, sfy=sfy, sfz=sfz)
+    except ValueError:  # not calculable (an angle without a second leg): refused by name when asked
+        return
+    section._genprops_normalized = False
 
 
 def box_sec(name, sec_prop) -> Section:
@@ -122,6 +140,17 @@ def _flange_absent(t_flange: float, w_flange: float, t_w: float) -> bool:
     return no_overhang or paper_thin
 
 
+def _t_bottom_slots(h, w_top, t_ftop, t_w, w_btn, t_fbtn) -> tuple[float, float]:
+    """A T's absent flange as adapy keeps it -- the stub as wide as the web and as thick as the flange --
+    when it is a placeholder (GeniE's 0.001 mm flange, which adapy's writer also writes), so a T reads
+    back as the T written. A flange with area past the web is kept as read; the T's properties leave it
+    out and say so by name."""
+    from ada.sections.properties import t_bottom_slot_area
+
+    overhang, area = t_bottom_slot_area(h, w_top, t_ftop, t_w, w_btn, t_fbtn)
+    return (t_w, t_ftop) if overhang <= 1e-6 * area else (w_btn, t_fbtn)
+
+
 def unsymm_isec(name, sec_prop) -> Section:
 
     h = float(sec_prop.attrib["h"])
@@ -152,6 +181,7 @@ def unsymm_isec(name, sec_prop) -> Section:
 
     if btn_absent and not top_absent:
         # Adapy convention — flange up.
+        w_btn, t_fbtn = _t_bottom_slots(h, w_top, t_ftop, t_w, w_btn, t_fbtn)
         return Section(
             name=name,
             sec_type=Section.TYPES.TPROFILE,
@@ -170,16 +200,17 @@ def unsymm_isec(name, sec_prop) -> Section:
         # the Genie source. Without the flip every beam carrying an
         # inverted T would point its flange the wrong way — the
         # user would see them upside-down.
+        w_absent, t_absent = _t_bottom_slots(h, w_btn, t_fbtn, t_w, w_top, t_ftop)
         return Section(
             name=name,
             sec_type=Section.TYPES.TPROFILE,
             sec_str=name,
             h=h,
-            w_btn=w_top,
+            w_btn=w_absent,
             w_top=w_btn,
             t_w=t_w,
             t_ftop=t_fbtn,
-            t_fbtn=t_ftop,
+            t_fbtn=t_absent,
             metadata={"gxml_flange_down": True},
         )
     return Section(

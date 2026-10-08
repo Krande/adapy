@@ -41,8 +41,13 @@ def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralP
         if p.Cgz is None:
             p.Cgz = 0.0
 
-    # Doubly symmetric sections
-    elif sec.type in {SectionCat.BASETYPES.IPROFILE, SectionCat.BASETYPES.BOX, SectionCat.BASETYPES.FLATBAR}:
+    # Doubly and mono-symmetric sections
+    elif sec.type in {
+        SectionCat.BASETYPES.IPROFILE,
+        SectionCat.BASETYPES.TPROFILE,
+        SectionCat.BASETYPES.BOX,
+        SectionCat.BASETYPES.FLATBAR,
+    }:
         calc_p = calculate_general_properties(sec)
         if p.Cy is None:
             p.Cy = calc_p.Cy
@@ -55,7 +60,18 @@ def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralP
 
     # Unsymmetric sections
     elif sec.type in {SectionCat.BASETYPES.CHANNEL, SectionCat.BASETYPES.ANGULAR}:
-        calc_p = calculate_general_properties(sec)
+        try:
+            calc_p = calculate_general_properties(sec)
+        except ValueError as e:
+            # An "angle" with no second leg (calc_angular refuses it by name). The properties given
+            # (a file's GBEAMG) stand; only the centroid and shear centre, which they lack, stay
+            # unknown -- a reader must not lose the whole model to one section.
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().suspect(
+                "section properties", "Section", sec.name, f"{e}; Cy/Cz/Cgy/Cgz left unset", type=sec.type
+            )
+            return p
         if p.Cy is None:
             p.Cy = calc_p.Cy
         if p.Cz is None:
@@ -80,8 +96,15 @@ def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralP
     return p
 
 
-def calculate_general_properties(section: Section) -> Union[None, GeneralProperties]:
-    """Calculations of cross section properties are based on different sources of information."""
+def calculate_general_properties(
+    section: Section, sfy: float = 1.0, sfz: float = 1.0
+) -> Union[None, GeneralProperties]:
+    """Calculations of cross section properties are based on different sources of information.
+
+    ``sfy``/``sfz`` are the Sesam shear factors (89-7012, GIORH/GBOX/GPIPE/GLSEC/GCHAN/GBARM: the
+    shear area calculated by the preprocessor is multiplied by SFY for SHARY, by SFZ for SHARZ,
+    measured so in GeniE V8.13-02). The returned ``Shary``/``Sharz`` include them, and ``Sfy``/``Sfz``
+    record them -- as a GBEAMG beside its profile card does."""
     bt = SectionCat.BASETYPES
     section_map = {
         bt.CIRCULAR: calc_circular,
@@ -104,7 +127,12 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
     if calc_func is None:
         raise Warning(f'Section type "{section.type}" is not yet supported in the cross section parameter calculations')
 
-    return calc_func(section)
+    props = calc_func(section)
+    if (sfy, sfz) != (1.0, 1.0):
+        props.Shary *= sfy
+        props.Sharz *= sfz
+        props.Sfy, props.Sfz = sfy, sfz
+    return props
 
 
 def calc_box(sec: Section) -> GeneralProperties:
@@ -134,7 +162,8 @@ def calc_box(sec: Section) -> GeneralProperties:
     ha = sec.h - (sec.t_fbtn + sec.t_ftop) / 2.0
     hb = sec.w_top - sec.t_w
 
-    Ix = 4 * (ha * hb) ** 2 / (hb / tb + hb / ty + 2 * ha / ty)
+    # Bredt, each wall at its own thickness: 4 Am^2 / (closed integral of ds / t), Am = ha hb
+    Ix = 4 * (ha * hb) ** 2 / (hb / tb + hb / tt + 2 * ha / ty)
     Iy = (by * (tb**3 + tt**3) + 2 * ty * d**3) / 12 + e * (h - a) ** 2 + f * (c - h) ** 2 + 2 * g * (b - h) ** 2
 
     Iz = ((sec.t_fbtn + sec.t_ftop) * sec.w_top**3 + 2 * d * sec.t_w**3) / 12 + (g * hb**2) / 2
@@ -178,6 +207,61 @@ def calc_box(sec: Section) -> GeneralProperties:
     )
 
 
+def t_bottom_slot_area(h, w_top, t_ftop, t_w, w_btn, t_fbtn) -> tuple[float, float]:
+    """``(area the bottom-flange slots of a T hold past its web, area of the T)``. Up to 1e-6 of the
+    T's area the slots are a placeholder (GeniE's 0.001 mm flange, adapy's web-wide stub)."""
+    return max(w_btn - t_w, 0.0) * t_fbtn, w_top * t_ftop + t_w * (h - t_ftop)
+
+
+def _t_without_bottom_flange(sec: Section) -> tuple[float, float]:
+    """A TPROFILE is a T: flange ``w_top`` x ``t_ftop`` on a web ``t_w`` running to the full height.
+
+    adapy keeps a T in the I-section fields with a placeholder in the bottom-flange slots -- a stub
+    as wide as the web (``string_to_section``, ``from_geometry``, the IFC reader), GeniE's
+    paper-thin flange (the gxml reader), or nothing (``geom_beams``). A stub as wide as the web is
+    the web, so the geometry never depended on it, but the I formulas count it as a second flange
+    in SHARY (doubling it), in IX and in the shear centre. GeniE has no T section; its own T
+    library (Libraries/tbar.xml) writes every T as an unsymmetrical I whose absent flange is
+    0.001 mm thick and 0.001 mm wider than the web, and that is the T computed here: bottom width
+    the web thickness, bottom thickness 0. Returns ``(bb, tb)``."""
+    ty = sec.t_w
+    if sec.w_btn is not None and sec.t_fbtn is not None:
+        overhang, area = t_bottom_slot_area(sec.h, sec.w_top, sec.t_ftop, ty, sec.w_btn, sec.t_fbtn)
+        if overhang > 1e-6 * area:
+            logger.warning(
+                f'Section "{sec.name}" is a TPROFILE whose bottom-flange slots ({sec.w_btn} x {sec.t_fbtn}) '
+                f"reach {overhang:.4g} past the web; a T has no bottom flange, so its properties leave that "
+                f"area out ({overhang / area:.2%} of the T). Use an I-profile for a section with two flanges."
+            )
+    return ty, 0.0
+
+
+def _neutral_axis_in_a_flange(sec: Section, flange: str, z, z0, z1, sy, first_moment, sharz) -> None:
+    """Say that SY/SHARZ follow GeniE rather than mechanics when the neutral axis lies in a flange.
+
+    The thin-walled formulas GeniE writes (SY with the web reaching the neutral axis, SHARZ =
+    IY TY / SY through the web) assume the axis cuts the web. When it cuts a flange GeniE keeps
+    them (measured, V8.13-02), and so does adapy, since that is what Sestra receives from a GeniE
+    model; but SY is then not the first moment at the axis and SHARZ is not a shear area of the
+    section (a T 100 high with a 300 x 50 flange on a 5 mm web: SHARZ 1.378e-3, energy-consistent
+    8.2e-3 from sectionproperties). Filed as an approximation in the conversion report (and logged) with both values."""
+    from ada.fem.formats import conversion_report
+
+    conversion_report.current().approximated(
+        "section properties",
+        "Section",
+        sec.name,
+        f"the neutral axis lies in the {flange}, outside the thin-walled shear formulas: Sy and Sharz "
+        "are GeniE's (the web taken as reaching the axis), not the first moment and shear area there",
+        neutral_axis=z,
+        flange_from=z0,
+        flange_to=z1,
+        Sy=sy,
+        first_moment_at_axis=first_moment,
+        Sharz=sharz,
+    )
+
+
 def calc_isec(sec: Section) -> GeneralProperties:
     """Calculate I/H cross section properties"""
 
@@ -196,6 +280,8 @@ def calc_isec(sec: Section) -> GeneralProperties:
     # aborted the whole solid_geom path.
     bb = sec.w_btn if sec.w_btn is not None else bt
     tb = sec.t_fbtn if sec.t_fbtn is not None else tt
+    if sec.type == SectionCat.BASETYPES.TPROFILE:
+        bb, tb = _t_without_bottom_flange(sec)
 
     Ax = bt * tt + ty * (hz - (tb + tt)) + bb * tb
     hw = hz - tt - tb
@@ -230,6 +316,10 @@ def calc_isec(sec: Section) -> GeneralProperties:
     Sz = (tt * bt**2 + tb * bb**2 + hw * ty**2) / 8
     Shary = (Iz / Sz) * (tb + tt) * sfy
     Sharz = (Iy / Sy) * ty * sfz
+    if z > hz - tt:
+        _neutral_axis_in_a_flange(sec, "top flange", z, hz - tt, hz, Sy, bt * (hz - z) ** 2 / 2, Sharz)
+    elif z < tb:
+        _neutral_axis_in_a_flange(sec, "bottom flange", z, 0.0, tb, Sy, bb * z**2 / 2, Sharz)
     Shceny = 0
     Shcenz = ((hz - tt / 2) * tt * bt**3 + (tb**2) * (bb**3) / 2) / (tt * bt**3 + tb * bb**3) - z
     Cy = bb / 2
@@ -310,11 +400,18 @@ def calc_angular(sec: Section) -> GeneralProperties:
     ty = sec.t_w
     tz = sec.t_fbtn
     by = sec.w_btn
+    if hz <= tz or by <= ty:
+        # Roark's formula divides by the shorter leg's free length; with none the section is a
+        # rectangle, not an angle, and the numbers would be the formula's, not the section's.
+        raise ValueError(
+            f'Section "{sec.name}" is not an angle: h {hz} must exceed the flange thickness {tz} and the '
+            f'flange width {by} the web thickness {ty} (angle strings are "L<h>x<t>" and "L<h>x<b>x<t>")'
+        )
 
     sfy = 1.0
     sfz = 1.0
     hw = hz - tz
-    b = tz - hw / 2.0
+    b = tz + hw / 2.0  # height of the web's centroid (was tz - hw / 2, which put z below the heel)
     c = tz / 2.0
     piqrt = np.arctan(1.0)
     Ax = ty * hw + by * tz + (1 - piqrt) * r**2
@@ -328,16 +425,20 @@ def calc_angular(sec: Section) -> GeneralProperties:
     rk = ri + 0.5 * ty
     rl = z - c
 
+    # Roark's torsion constant of an L-section, as GeniE writes it: the thicker leg (length la,
+    # thickness ta) runs through the corner, the other (lc, tc) ends at it, plus the corner term
+    # alpha d^4 with d the diameter of the circle inscribed in the corner
     if tz >= ty:
-        h = hw
+        la, ta, lc, tc = by, tz, hz - tz, ty
     else:
-        raise ValueError("Currently not implemented this yet")
-
-    Ix = (1 / 3) * (by * tz**3 + (hz - tz) * ty**3)
+        la, ta, lc, tc = hz, ty, by - ty, tz
+    k1 = la * ta**3 * (1 / 3 - 0.21 * (ta / la) * (1 - ta**4 / (12 * la**4)))
+    k2 = lc * tc**3 * (1 / 3 - 0.105 * (tc / lc) * (1 - tc**4 / (192 * lc**4)))
+    Ix = k1 + k2 + (tc / ta) * (0.07 + 0.076 * r / ta) * d**4
     Iyz = (rl * tz / 2) * (y**2 - rj**2) - (rk * ty / 2) * (e**2 - f**2)
 
     Wxmin = Ix / d
-    Wymin = Iy / max(z, hz - h)
+    Wymin = Iy / max(z, hz - z)
     Wzmin = Iz / max(y, rj)
     # Static moments and shear areas as GeniE writes them to GBEAMG: Sy is the web above the
     # neutral axis (the web taken as reaching the axis even when that lies in the flange), and
@@ -347,6 +448,8 @@ def calc_angular(sec: Section) -> GeneralProperties:
     Sz = (tz * rj**2) / 2
     Shary = (Iz * tz / Sz) * sfy
     Sharz = (Iy * ty / Sy) * sfz
+    if c_z < tz:
+        _neutral_axis_in_a_flange(sec, "flange", c_z, 0.0, tz, Sy, by * c_z**2 / 2, Sharz)
 
     if posweb:
         Iyz = -Iyz
@@ -507,7 +610,9 @@ def calc_flatbar(sec: Section) -> GeneralProperties:
     Iy = w * hz**3 / 12
     Iz = hz * w**3 / 12
 
-    bm = 2 * w * hz**2 / (hz**2 + Ax**2)
+    # Rectangle b x t (b >= t), n = b / t: J = (1 - 0.63/n + 0.052/n^5)/3 b t^3 and the torsional
+    # modulus J / (1 - 0.63/(1 + n^3)) / t, as GeniE writes them (square: 0.141 a^4, 0.208 a^3)
+    bm = w
     Wymin = Iy / max(h, d)
     Wzmin = 2 * Iz / max(w, w)
     Iyz = 0.0
@@ -518,16 +623,16 @@ def calc_flatbar(sec: Section) -> GeneralProperties:
         Wxmin = cb * hz**3
     elif hz < bm:
         cn = bm / hz
-        ca = (1 - 0.63 / cn + 0.052 / cn**5) * 3
+        ca = (1 - 0.63 / cn + 0.052 / cn**5) / 3
         cb = ca / (1 - 0.63 / (1 + cn**3))
         Ix = ca * bm * hz**3
         Wxmin = cb * bm * hz**2
     else:
         cn = hz / bm
-        ca = (1 - 0.63 / cn + 0.052 / cn**5) * 3
+        ca = (1 - 0.63 / cn + 0.052 / cn**5) / 3
         cb = ca / (1 - 0.63 / (1 + cn**3))
         Ix = ca * hz * bm**3
-        Wxmin = cb * hz * bm**3
+        Wxmin = cb * hz * bm**2
 
     Sy = (w * h**2) / 2 + (b - w / 2) * (h**2) / 3
     Sz = hz * ((w**2) / 8 + a * (w / 4 + a / 6))
@@ -585,7 +690,7 @@ def calc_channel(sec: Section) -> GeneralProperties:
 
     if tz == ty:
         Ix = ty**3 * (2 * by + a - 2.6 * ty) / 3
-        Wxmin = Ix / Iy
+        Wxmin = Ix / ty
     else:
         Ix = 1.12 * (2 * by * tz**3 + a * ty**3) / 3
         Wxmin = Ix / max(tz, ty)
@@ -601,7 +706,8 @@ def calc_channel(sec: Section) -> GeneralProperties:
     Sharz = (Iy / Sy) * ty * sfz
 
     if tz == ty:
-        q = ((by - ty / 2) ** 2) * ((hz - tz) ** 2) * tz / 4 * Iy
+        # web centreline to shear centre, b'^2 h'^2 tf / (4 Iy)
+        q = ((by - ty / 2) ** 2) * ((hz - tz) ** 2) * tz / (4 * Iy)
     else:
         q = ((by - ty / 2) ** 2) * tz / (2 * (by - ty / 2) * tz + (hz - tz) * ty / 3)
 

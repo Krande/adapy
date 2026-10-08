@@ -1,4 +1,5 @@
 from ada import Section
+from ada.base.units import Units
 from ada.sections import SectionCat
 
 from .write_utils import write_ff
@@ -28,6 +29,10 @@ def general_beam(sec: Section, sec_id) -> str:
 
 
 def angular(sec: Section, sec_id) -> str:
+    """GLSEC: HZ, TY, BY, TZ, SFY, SFZ and K = 0, the web on the negative local y side and the flange
+    towards +y (89-7012 7.3.19) -- adapy's angle outline, and the side of its SHCENY. GeniE writes
+    K = 0 with the same SHCENY. K = 1, written before, is the mirror; GeniE V8.13-02 and Sestra V11.3
+    ignore it (measured: GeniE imports it as K = 0, Sestra's displacements are bit-identical)."""
     p = sec.properties
     width = sec.w_top if sec.w_top is not None else sec.w_btn
     thickness = sec.t_ftop if sec.t_ftop is not None else sec.t_fbtn
@@ -35,7 +40,7 @@ def angular(sec: Section, sec_id) -> str:
         "GLSEC",
         [
             (sec_id, sec.h, sec.t_w, width),
-            (thickness, p.Sfy, p.Sfz, 1),
+            (thickness, p.Sfy, p.Sfz, 0),
         ],
     )
 
@@ -79,6 +84,30 @@ def iprofile(sec: Section, sec_id) -> str:
     )
 
 
+#: GeniE's T (Libraries/tbar.xml, all 202 entries): an unsymmetrical I whose absent flange is 0.001 mm
+#: thick and 0.001 mm wider than the web, in metres.
+GENIE_T_FLANGE = 1e-6
+
+
+def tprofile(sec: Section, sec_id) -> str:
+    """A T as GeniE writes one: GIORH with the bottom flange 0.001 mm thick and 0.001 mm wider than the web.
+
+    GeniE recomputes GBEAMG from the profile card on import (measured, V8.13-02: a GBEAMG with IX x 10
+    is replaced, under COMP 0 or 1). From this card it computes the T (adapy's GBEAMG, SHARY + 6.25e-5
+    from the 0.001 mm flange); from the web-wide stub written before (BB = TY, TB = TT) it computed an
+    I: SHARY 2.000 x the T's, IX + 1.95 %. ``genie_v8_13_import_T1.FEM``, sections T_GENIE and T_STUB."""
+    p = sec.properties
+    d = GENIE_T_FLANGE * Units.get_scale_factor(Units.M, sec.units)
+    return write_ff(
+        "GIORH",
+        [
+            (sec_id, sec.h, sec.t_w, sec.w_top),
+            (sec.t_ftop, sec.t_w + d, d, p.Sfy),
+            (p.Sfz,),
+        ],
+    )
+
+
 def tubular(sec: Section, sec_id) -> str:
     p = sec.properties
     return write_ff(
@@ -88,29 +117,18 @@ def tubular(sec: Section, sec_id) -> str:
 
 
 def circular(sec: Section, sec_id) -> str:
-    """A solid bar as the thickest pipe the format will take.
+    """A solid round bar as GeniE writes one: GPIPE with inner diameter 0 and the wall the radius.
 
-    Sesam has no solid-round beam card, so GPIPE stands in with an inner diameter of
-    1% of the outer one. The wall thickness has to follow from that -- ``(dy - di) / 2
-    = 0.99 * r``. Reading it off ``sec.wt`` instead wrote a bare ``None`` into the
-    record, which ``format_data`` rejects: a CIRCULAR section is defined by its radius
-    alone and never has a wall thickness to read.
+    GeniE V8.13-02 writes ``PipeSection(D, D/2)`` so (S11_ROD in
+    ``files/fem_files/sesam/section_props/genie_v8_13_shear_areas_T1.FEM``), and Sestra V11.3 runs
+    such a deck. The GBEAMG beside it carries the disc's properties; a GPIPE with a 1 % bore, which
+    this used to write, described a tube whose shear area is 1.0 % smaller (5.83159e-3 for
+    5.89049e-3 at D100), which GeniE, recomputing from the GPIPE on import, would have used.
     """
-    from .not_held import STAGE, report
-
     p = sec.properties
-    di = (sec.r - sec.r * 0.99) * 2
-    report().approximated(
-        STAGE,
-        "Section",
-        sec.name,
-        "a solid round bar has no Sesam card: written as a tube (GPIPE) with a bore of 1% of its diameter",
-        area_change=-((di / 2) ** 2) / sec.r**2,
-        second_moment_change=-((di / 2) ** 4) / sec.r**4,
-    )
     return write_ff(
         "GPIPE",
-        [(sec_id, di, sec.r * 2, (sec.r * 2 - di) / 2), (p.Sfy, p.Sfz)],
+        [(sec_id, 0.0, sec.r * 2, sec.r), (p.Sfy, p.Sfz)],
     )
 
 
@@ -127,7 +145,7 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         bt.BOX: box,
         bt.CHANNEL: channel,
         bt.IPROFILE: iprofile,
-        bt.TPROFILE: iprofile,
+        bt.TPROFILE: tprofile,
         bt.TUBULAR: tubular,
         bt.CIRCULAR: circular,
         bt.FLATBAR: flatbar,
