@@ -1,30 +1,48 @@
 """A model of two parts, solved by the single-part writers' solvers: the merge must carry each part's
-supports, the assembly's own supports and every load onto the nodes they were defined on.
+supports, the assembly's own supports, every load and each part's material onto the nodes and elements
+they were defined on.
 
-Two 1 x 1 m, 10 mm plates (PartA at x = 0, PartB at x = 10), each meshed at 0.5 m and clamped on its
-own x = x0 edge. Both parts number their nodes from 1, so the merge renumbers PartB.
+Two 1 x 1 m, 10 mm plates (PartA at x = 0, PartB at x = 10), each meshed with 2 x 2 four-node shells
+(0.5 m) and clamped on its own x = x0 edge, the other three edges free. Both parts number their nodes from
+1, so the merge renumbers PartB.
+
+Closed form, E = 2.1e11, nu = 0.3, t = 0.01, L = 1, a uniform load q: the clamped strip in cylindrical
+bending deflects w = q L^4 / (8 D) at its free edge, D = E t^3 / (12 (1 - nu^2)) = 19231 Nm. Gravity
+(q = rho g t = 7850 * 9.81 * 0.01 = 770.09 Pa): 5.0056e-3 m; 1000 Pa: 6.5000e-3 m. (The strip as a beam,
+without the (1 - nu^2): 5.5006e-3 and 7.1429e-3.) A plate with free sides lies a little above the
+cylindrical-bending value; refined to 0.125 m, Code_Aster gives 1.039 of it, Sestra 1.039 (pressure) and
+1.035 (gravity), CalculiX S4 1.018, rising.
 
 Measured before the fix: every leg stopped in the merge with ``AttributeError: property 'fem_set' of
 'Bc' object has no setter``. Past that (setter alone), Sestra V11.3-00 put a point load on PartB's tip
-(PartB node 4, merged node 13) on PartA's node 4 -- PartA moved (node 4: 0.0251), every PartB node
-stayed at 0.0 -- and an assembly-level Bc was in no deck.
+(PartB node 4, merged node 13) on PartA's node 4 -- PartA moved, every PartB node stayed at 0.0 -- and
+an assembly-level Bc was in no deck.
 
-Measured after it (CalculiX 2.23, Code_Aster 18.1.8, Sestra V11.3-00), ``u3`` in metres:
+Measured after it (CalculiX 2.23, Code_Aster 18.1.8, Sestra V11.3-00), ``u3`` in metres, (ratio to the
+closed form):
 
-=================================  ==============  ===============  ===============
-leg                                CalculiX        Code_Aster       Sestra
-=================================  ==============  ===============  ===============
-gravity, free-edge mid, each plate -3.15978e-05    -5.6479774e-03   -5.2545792e-03
-  largest relative A/B difference  0               1.1e-14          0
-pressure on PartB, PartB tip       7.03114e-05     6.9253865e-03    6.8859956e-03
-point load on PartB tip            --              --               -2.5134942e-02
-  every PartA node                 0.0             0.0              0.0
-assembly Bc, PartB corner          0.0             0.0              0.0
-  same corner of PartA             -4.73233e-05    -5.6209475e-03   -5.1408536e-03
-=================================  ==============  ===============  ===============
+=================================  ===================  ===================  ===================
+leg                                CalculiX (S4)        Code_Aster (DKQ)     Sestra
+=================================  ===================  ===================  ===================
+gravity, free-edge mid, each plate -5.0095e-03 (1.001)  -5.6220e-03 (1.123)  -5.2872e-03 (1.056)
+  largest relative A/B difference  0                    0                    0
+pressure on PartB, PartB mid       6.5051e-03 (1.001)   7.3005e-03 (1.123)   7.2990e-03 (1.123)
+point load on PartB tip            --                   --                   -2.6328e-02
+  every PartA node                 0.0                  0.0                  0.0
+assembly Bc, PartB corner          0.0                  0.0                  0.0
+  same corner of PartA             -5.0061e-03          -5.5028e-03          -5.0817e-03
+PartB at E / 3: worst B / 3A - 1   2.1e-06              1.1e-14              6.9e-08
+=================================  ===================  ===================  ===================
 
-(CalculiX expands the three-node shells into solids, which are far stiffer on this two-element-wide
-mesh; the comparisons below are between the plates of one run, so that is not what they measure.)
+The ratios to the closed form are the coarse mesh's: each solver's own element on 2 x 2 quads. (Sestra's
+gravity and its pressure, as ratios, differ on this mesh and close in as it is refined -- 1.056 / 1.123 at
+0.5 m, 1.039 / 1.056 at 0.25 m, 1.035 / 1.039 at 0.125 m; Code_Aster's and CalculiX's are equal.)
+The tolerances below are those measured deviations rounded up; a writer that got the thickness, the
+density or the units wrong misses by a factor.
+
+On the earlier three-node mesh CalculiX gave -3.15978e-05, 0.6 % of the closed form: it expands S3 into
+the linear wedge C3D6, one element through 10 mm at 0.5 m in plane, which shear-locks (31 % of the beam
+strip at 0.05 m). S3 -> C3D6 shear locking: 0.6 % of the closed form on this mesh; S4 gives 100.1 %.
 """
 
 from __future__ import annotations
@@ -39,12 +57,21 @@ from ada.materials.metals import CarbonSteel
 
 FORMATS = ["calculix", "code_aster", "sesam"]
 
+E, NU, RHO, G, T, L = 2.1e11, 0.3, 7850.0, 9.81, 0.01, 1.0
+D = E * T**3 / (12 * (1 - NU**2))
+#: Free-edge deflection of the clamped strip in cylindrical bending, q L^4 / (8 D).
+W_GRAVITY = RHO * G * T * L**4 / (8 * D)  # 5.0056e-3 m
+W_PRESSURE = 1000.0 * L**4 / (8 * D)  # 6.5000e-3 m
+#: Measured ratio to the closed form at the free-edge mid, minus one, on this mesh, rounded up.
+TOL_GRAVITY = {"calculix": 2e-3, "code_aster": 0.13, "sesam": 0.06}  # measured 7.9e-4, 0.123, 0.056
+TOL_PRESSURE = {"calculix": 2e-3, "code_aster": 0.13, "sesam": 0.13}  # measured 7.9e-4, 0.123, 0.123
+
 
 def _plate_part(name: str, x0: float, E: float = 2.1e11) -> ada.Part:
     mat = ada.Material("S355", CarbonSteel("S355", E=E))
     pl = ada.Plate("pl", [(x0, 0), (x0 + 1, 0), (x0 + 1, 1), (x0, 1)], 0.01, mat=mat)
     p = ada.Part(name) / pl
-    p.fem = pl.to_fem_obj(0.5, "shell")
+    p.fem = pl.to_fem_obj(0.5, "shell", use_quads=True)
     edge = [n for n in p.fem.nodes if abs(n.x - x0) < 1e-9]
     tip = [n for n in p.fem.nodes if abs(n.x - (x0 + 1)) < 1e-9 and abs(n.y - 1.0) < 1e-9]
     p.fem.sets.add(FemSet("edge", edge, FemSet.TYPES.NSET, parent=p.fem))
@@ -102,9 +129,8 @@ def test_two_clamped_plates_deflect_alike(fem_format, tmp_path, require_solver):
     plate_a, plate_b = _of(uz, 0.0), _of(uz, 10.0)
 
     assert sorted(plate_a) == sorted(plate_b)
-    free_mid = plate_a[(1.0, 0.5)]
-    assert free_mid < 0.0
-    # Measured worst relative difference: 1.1e-14 (Code_Aster); 0 for CalculiX and Sestra.
+    assert plate_a[(1.0, 0.5)] == pytest.approx(-W_GRAVITY, rel=TOL_GRAVITY[fem_format])
+    # Measured worst relative difference: 0 in all three (1.1e-14 for Code_Aster on three-node shells).
     for pos, value in plate_a.items():
         assert plate_b[pos] == pytest.approx(value, rel=1e-12, abs=1e-18), pos
 
@@ -126,7 +152,10 @@ def test_a_load_on_the_second_part_moves_only_the_second_part(fem_format, kind, 
     plate_a, plate_b = _of(uz, 0.0), _of(uz, 10.0)
 
     assert all(v == 0.0 for v in plate_a.values()), plate_a
-    assert plate_b[(1.0, 1.0)] != 0.0
+    if kind == "pressure":
+        assert plate_b[(1.0, 0.5)] == pytest.approx(W_PRESSURE, rel=TOL_PRESSURE[fem_format])
+    else:
+        assert plate_b[(1.0, 1.0)] < 0.0
 
 
 @pytest.mark.parametrize("fem_format", FORMATS)
@@ -160,7 +189,7 @@ def test_a_part_of_a_third_the_stiffness_deflects_three_times_as_much(fem_format
 
     assert plate_a[(1.0, 0.5)] < 0.0
     # The result files' own precision: CalculiX's .frd prints six significant digits (measured worst
-    # B / 3A - 1: 2.5e-6), Sestra's .SIN holds single precision (6.7e-8), Code_Aster's .rmed doubles (9.3e-15).
+    # B / 3A - 1: 2.1e-6), Sestra's .SIN holds single precision (6.9e-8), Code_Aster's .rmed doubles (1.1e-14).
     rel = {"calculix": 1e-5, "sesam": 2.4e-7, "code_aster": 1e-12}[fem_format]
     for pos, value in plate_a.items():
         assert plate_b[pos] == pytest.approx(3.0 * value, rel=rel, abs=1e-18), pos
