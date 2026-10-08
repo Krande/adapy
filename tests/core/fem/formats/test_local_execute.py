@@ -31,6 +31,9 @@ from ada.fem.formats.calculix.execute import CalculixExecute
 from ada.fem.formats.utils import LocalExecute
 
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="the launch scripts are written on Windows only")
+not_macos = pytest.mark.skipif(
+    sys.platform == "darwin", reason="adapy does not run solvers on macOS (run_macOS raises NotImplementedError)"
+)
 
 
 @pytest.fixture
@@ -73,6 +76,7 @@ def test_execute_dir_from_env_is_a_path(execute_dir, deck):
     assert LocalExecute(deck).execute_dir == execute_dir / "job1"
 
 
+@not_macos
 def test_solver_runs_in_the_deck_folder(execute_dir, deck, recorded_runs, monkeypatch):
     monkeypatch.setattr(CalculixExecute, "get_exe", lambda self, fea_software: pathlib.Path("ccx"))
 
