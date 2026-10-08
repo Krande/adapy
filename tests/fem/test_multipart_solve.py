@@ -35,12 +35,14 @@ import pytest
 import ada
 from ada.fem import Bc, FemSet, Load, StepImplicitStatic, Surface
 from ada.fem.loads import LoadPressure
+from ada.materials.metals import CarbonSteel
 
 FORMATS = ["calculix", "code_aster", "sesam"]
 
 
-def _plate_part(name: str, x0: float) -> ada.Part:
-    pl = ada.Plate("pl", [(x0, 0), (x0 + 1, 0), (x0 + 1, 1), (x0, 1)], 0.01)
+def _plate_part(name: str, x0: float, E: float = 2.1e11) -> ada.Part:
+    mat = ada.Material("S355", CarbonSteel("S355", E=E))
+    pl = ada.Plate("pl", [(x0, 0), (x0 + 1, 0), (x0 + 1, 1), (x0, 1)], 0.01, mat=mat)
     p = ada.Part(name) / pl
     p.fem = pl.to_fem_obj(0.5, "shell")
     edge = [n for n in p.fem.nodes if abs(n.x - x0) < 1e-9]
@@ -53,10 +55,10 @@ def _plate_part(name: str, x0: float) -> ada.Part:
     return p
 
 
-def _two_plates() -> tuple[ada.Assembly, StepImplicitStatic]:
+def _two_plates(e_b: float = 2.1e11) -> tuple[ada.Assembly, StepImplicitStatic]:
     a = ada.Assembly("A")
     a.add_part(_plate_part("PartA", 0.0))
-    a.add_part(_plate_part("PartB", 10.0))
+    a.add_part(_plate_part("PartB", 10.0, E=e_b))
     step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=1.0, total_time=1.0, max_incr=1.0))
     return a, step
 
@@ -142,3 +144,23 @@ def test_an_assembly_level_bc_holds_in_the_solve(fem_format, tmp_path, require_s
     assert plate_b[(1.0, 0.0)] == 0.0
     # The same corner of the plate without that Bc hangs free.
     assert plate_a[(1.0, 0.0)] < 0.0
+
+
+@pytest.mark.parametrize("fem_format", FORMATS)
+def test_a_part_of_a_third_the_stiffness_deflects_three_times_as_much(fem_format, tmp_path, require_solver):
+    """Both parts' material is named "S355"; PartB's has E = 7e10. Before the merge kept them apart,
+    every writer gave PartB PartA's material (one ``DEFI_MATERIAU`` / ``*Material`` / ``MISOSEL``) and the
+    two plates deflected alike."""
+    require_solver(fem_format)
+    a, step = _two_plates(e_b=7.0e10)
+    step.add_load(ada.fem.LoadGravity("grav", -9.81))
+
+    uz = _uz(a, fem_format, f"twomat_{fem_format}", tmp_path)
+    plate_a, plate_b = _of(uz, 0.0), _of(uz, 10.0)
+
+    assert plate_a[(1.0, 0.5)] < 0.0
+    # The result files' own precision: CalculiX's .frd prints six significant digits (measured worst
+    # B / 3A - 1: 2.5e-6), Sestra's .SIN holds single precision (6.7e-8), Code_Aster's .rmed doubles (9.3e-15).
+    rel = {"calculix": 1e-5, "sesam": 2.4e-7, "code_aster": 1e-12}[fem_format]
+    for pos, value in plate_a.items():
+        assert plate_b[pos] == pytest.approx(3.0 * value, rel=rel, abs=1e-18), pos

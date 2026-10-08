@@ -11,9 +11,11 @@ import ada
 from ada.fem import Bc, FemSet, Load, StepImplicitStatic, Surface
 from ada.fem.concat import concatenate_fem_to_single_part, single_part_assembly
 from ada.fem.exceptions.model_definition import DoesNotSupportMultiPart
+from ada.fem.formats import conversion_report
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.loads import LoadPressure
 from ada.fem.outputs import HistOutput
+from ada.materials.metals import CarbonSteel
 
 
 def _part_with_fem(name, origin_x):
@@ -84,8 +86,9 @@ NODE_SHIFT = 9
 ELEM_SHIFT = 8
 
 
-def _plate_part(name: str, x0: float, first_id: int = 1) -> ada.Part:
-    pl = ada.Plate("pl", [(x0, 0), (x0 + 1, 0), (x0 + 1, 1), (x0, 1)], 0.01)
+def _plate_part(name: str, x0: float, first_id: int = 1, E: float | None = None) -> ada.Part:
+    mat = {} if E is None else {"mat": ada.Material("S355", CarbonSteel("S355", E=E))}
+    pl = ada.Plate("pl", [(x0, 0), (x0 + 1, 0), (x0 + 1, 1), (x0, 1)], 0.01, **mat)
     p = ada.Part(name) / pl
     p.fem = pl.to_fem_obj(0.5, "shell")
     if first_id != 1:
@@ -364,3 +367,92 @@ def test_the_single_part_writers_write_two_supported_plates(fem_format, tmp_path
         fem = (tmp_path / "two" / "twoT1.FEM").read_text()
         held = sorted(int(float(line.split()[1])) for line in fem.splitlines() if line.startswith("BNBCD"))
         assert held == sorted(EDGE_IDS + [i + NODE_SHIFT for i in EDGE_IDS] + [corner])
+
+
+# -- two materials of one name ---------------------------------------------------------------------
+#
+# Every writer names a material by its name, and ``Materials.add`` hands back the material already held
+# under a name. Measured before the fix (PartA "S355" E = 2.1e11, PartB "S355" E = 7.0e10): one
+# ``mt_S355 = DEFI_MATERIAU(ELAS=_F(E=210000000000.0`` given to both parts' elsets, one CalculiX
+# ``*Material, name=S355`` / ``2.100000E+11``, one Sesam ``MISOSEL`` -- PartB solved three times stiffer than
+# modelled, without a word.
+
+
+def _two_materials(e_b: float) -> ada.Assembly:
+    a = ada.Assembly("A")
+    a.add_part(_plate_part("PartA", 0.0, E=2.1e11))
+    a.add_part(_plate_part("PartB", 10.0, E=e_b))
+    step = a.fem.add_step(StepImplicitStatic("g", nl_geom=False, init_incr=100.0, total_time=100.0))
+    step.add_load(ada.fem.LoadGravity("grav", -9.81))
+    return a
+
+
+def _section_material(fem, elset_name: str):
+    (sec,) = [s for s in fem.sections if s.elset.name == elset_name]
+    return sec.material
+
+
+def test_two_materials_of_one_name_and_different_properties_stay_two():
+    a = _two_materials(7.0e10)
+    with conversion_report.collect() as report:
+        merged = concatenate_fem_to_single_part(a)
+    assert sorted((m.name, m.model.E) for m in merged.materials) == [("PartB_S355", 7.0e10), ("S355", 2.1e11)]
+    assert _section_material(merged.fem, "PartA_elpl_sh").name == "S355"
+    assert _section_material(merged.fem, "PartB_elpl_sh").name == "PartB_S355"
+    assert _section_material(merged.fem, "PartB_elpl_sh") in merged.materials
+    (finding,) = [f for f in report.findings if f.keyword == "Material"]
+    assert finding.subject == "S355" and finding.details["new_name"] == "PartB_S355"
+    # the user's materials are untouched
+    assert [m.name for m in a.get_part("PartB").materials] == ["S355"]
+    assert a.get_part("PartB").materials.get_by_name("S355").model.E == 7.0e10
+
+
+def test_two_materials_of_one_name_and_equal_properties_stay_one():
+    a = _two_materials(2.1e11)
+    user_mats = [p.materials.get_by_name("S355") for p in a.get_all_parts_in_assembly()]
+    user_refs = [list(m.refs) for m in user_mats]
+    with conversion_report.collect() as report:
+        merged = concatenate_fem_to_single_part(a)
+    assert [m.name for m in merged.materials] == ["S355"]
+    assert _section_material(merged.fem, "PartB_elpl_sh") is _section_material(merged.fem, "PartA_elpl_sh")
+    assert [f for f in report.findings if f.keyword == "Material"] == []
+    # The merged material lists both parts' plates; the user's each still list only their own.
+    assert {id(r) for r in merged.materials.get_by_name("S355").refs} == {id(r) for refs in user_refs for r in refs}
+    assert [list(m.refs) for m in user_mats] == user_refs
+
+
+def _sesam_e_of_elements(fem_file: pathlib.Path) -> dict[int, float]:
+    """Young's modulus each element of a Sesam deck is given: ``GELREF1`` element -> material number,
+    ``MISOSEL`` material number -> E."""
+    records, current = [], None
+    for line in fem_file.read_text().splitlines():
+        if line[:8].strip():
+            current = [line[:8].strip()] if line.startswith(("MISOSEL", "GELREF1")) else None
+            if current is not None:
+                records.append(current)
+        if current is not None:
+            current.extend(float(v) for v in line[8:].split())
+    e_of_mat = {int(r[1]): r[2] for r in records if r[0] == "MISOSEL"}
+    return {int(r[1]): e_of_mat[int(r[2])] for r in records if r[0] == "GELREF1"}
+
+
+@pytest.mark.parametrize("fem_format", ["code_aster", "calculix", "sesam"])
+def test_each_part_s_elements_get_their_own_material_in_the_deck(fem_format, tmp_path):
+    a = _two_materials(7.0e10)
+    a.to_fem("tm", fem_format, scratch_dir=tmp_path, overwrite=True, execute=False)
+    if fem_format == "code_aster":
+        # (The writer cuts material names to five characters first: "PartB_S355" is "PartB" there.)
+        comm = (tmp_path / "tm" / "tm.comm").read_text()
+        e_of = {c: float(e) for c, e in re.findall(r"^(\w+) = DEFI_MATERIAU\(\s*ELAS=_F\(E=([\d.e+]+),", comm, re.M)}
+        mater = dict((g, c) for c, g in re.findall(r'_F\(MATER=\((\w+),\), GROUP_MA="(\w+)"\)', comm))
+        assert len(e_of) == 2
+        assert {g: e_of[c] for g, c in mater.items()} == {"PartA_elpl_sh": 2.1e11, "PartB_elpl_sh": 7.0e10}
+    elif fem_format == "calculix":
+        inp = (tmp_path / "tm" / "tm.inp").read_text()
+        assert re.search(r"^\*Shell Section, elset=PartA_elpl_sh, material=S355$", inp, re.M)
+        assert re.search(r"^\*Shell Section, elset=PartB_elpl_sh, material=PartB_S355$", inp, re.M)
+        assert re.search(r"^\*Material, name=S355\n\*Elastic\n 2.100000E\+11,", inp, re.M)
+        assert re.search(r"^\*Material, name=PartB_S355\n\*Elastic\n 7.000000E\+10,", inp, re.M)
+    else:
+        e_of = _sesam_e_of_elements(tmp_path / "tm" / "tmT1.FEM")
+        assert e_of == {**{i: 2.1e11 for i in range(1, 9)}, **{i: 7.0e10 for i in range(9, 17)}}

@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import logger
+from ada.core.guid import create_guid
 from ada.fem.exceptions.model_definition import DoesNotSupportMultiPart
 from ada.fem.formats import conversion_report
 
@@ -573,7 +574,46 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]
 
     # Sections: shallow copy, re-point the copy's elset to the merged set + carry the material
     # (copied once and re-pointed so the source sections stay intact).
+    #
+    # Materials are named, not numbered, in every writer (and the merged part holds one per name:
+    # ``Materials.add`` hands back the one it has). Two parts' materials of one name and equal
+    # properties are one material; of one name and different properties the second is prefixed
+    # like a set -- left alone, PartB's elements were written with PartA's material.
     mat_map: dict[int, object] = {}
+
+    def _merged_material(p, mat):
+        cm = mat_map.get(id(mat))
+        if cm is not None:
+            return cm
+        held = merged_part.materials.name_map.get(mat.name)
+        if held is not None and _same_material_model(held.model, mat.model):
+            mat_map[id(mat)] = held
+            held_refs = {id(r) for r in held.refs}
+            held.refs.extend(r for r in mat.refs if id(r) not in held_refs)
+            return held
+        cm = copy.copy(mat)
+        # Its own list: a shared one gained the other parts' objects in the user's material.
+        cm._refs = list(mat.refs)
+        if held is not None:
+            new_name = f"{prefix_of[id(p)]}_{mat.name}"
+            if new_name in merged_part.materials.name_map:
+                raise DoesNotSupportMultiPart(
+                    f"material {mat.name!r} of {p.name!r} differs from another part's material of that name, and the "
+                    f"merged model already has a material {new_name!r}"
+                )
+            cm._name = new_name
+            cm._guid = create_guid()
+            conversion_report.current().approximated(
+                _STAGE,
+                "Material",
+                mat.name,
+                "another part has a material of that name with different properties; renamed in the merged FEM",
+                new_name=new_name,
+            )
+        mat_map[id(mat)] = cm
+        merged_part.add_material(cm)
+        return cm
+
     merged_sections: list = []
     for p in parts:
         for sec in p.fem.sections:
@@ -582,12 +622,7 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]
                 ns.elset = _remap_set(p, ns.elset)
             mat = getattr(ns, "material", None)
             if mat is not None:
-                cm = mat_map.get(id(mat))
-                if cm is None:
-                    cm = copy.copy(mat)
-                    mat_map[id(mat)] = cm
-                    merged_part.add_material(cm)
-                ns.material = cm
+                ns.material = _merged_material(p, mat)
             ns.parent = merged
             merged_sections.append(ns)
     merged.sections = FemSections(merged_sections, fem_obj=merged)
@@ -842,6 +877,17 @@ def _children(obj) -> list:
         if isinstance(value, list):
             out += [v for v in value if isinstance(v, FemBase)]
     return out
+
+
+def _same_material_model(a, b) -> bool:
+    """Whether two material models write the same deck: every property ``Metal.unique_props`` lists
+    (E, v, rho, yield and ultimate stress, plasticity, thermal and damping data). A model without that
+    comparison is the same only as itself."""
+    if a is b:
+        return True
+    if type(a) is not type(b) or not hasattr(a, "equal_props"):
+        return False
+    return a.equal_props(b)
 
 
 def _put_once(container: dict, name: str, obj, label: str, part) -> None:
