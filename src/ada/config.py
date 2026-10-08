@@ -236,7 +236,8 @@ class Config:
         ConfigSection(
             "fea",
             [
-                ConfigEntry("execute_dir", str, None, False),
+                # Where run.bat/stop.bat are written, one folder per analysis; the solver runs in the deck's folder.
+                ConfigEntry("execute_dir", pathlib.Path, None, False),
                 ConfigEntry(
                     "fem_exe_paths", dict, dict(abaqus=None, ccx=None, sestra=None, usfos=None, code_aster=None)
                 ),
