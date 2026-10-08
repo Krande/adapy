@@ -1,6 +1,6 @@
 """The wider DEXPI corpus, run only when it has been fetched locally.
 
-``scripts/fetch_dexpi_testcases.py`` downloads the official DEXPI TrainingTestCases (CC BY 4.0)
+``scripts/codegen/fetch_dexpi_testcases.py`` downloads the official DEXPI TrainingTestCases (CC BY 4.0)
 into ``files/dexpi_files/_external/``, a git-ignored directory the repository never ships. This
 suite parses every ``*.xml`` under it and asserts T1 -- ``file -> doc -> XML -> doc'`` compares
 equal under :func:`~ada.cadit.dexpi.canonical.canonicalize` -- the same oracle
@@ -28,7 +28,7 @@ from ada.cadit.dexpi.write import write_dexpi
 _REPO = pathlib.Path(__file__).resolve().parents[4]
 _EXT = _REPO / "files" / "dexpi_files" / "_external"
 
-pytestmark = pytest.mark.skipif(not _EXT.is_dir(), reason="run scripts/fetch_dexpi_testcases.py first")
+pytestmark = pytest.mark.skipif(not _EXT.is_dir(), reason="run scripts/codegen/fetch_dexpi_testcases.py first")
 
 _EXT_FILES: list[pathlib.Path] = sorted(_EXT.rglob("*.xml")) if _EXT.is_dir() else []
 
@@ -47,7 +47,7 @@ def test_t1_external_corpus_file_survives_a_write_and_a_re_read(path, tmp_path):
     harmless for the 3D path and not what this test exists to police. T1 is the hard assertion.
     """
     if path is None:
-        pytest.fail(f"{_EXT} exists but contains no .xml files -- re-run scripts/fetch_dexpi_testcases.py")
+        pytest.fail(f"{_EXT} exists but contains no .xml files -- re-run scripts/codegen/fetch_dexpi_testcases.py")
 
     doc = read_dexpi(path)
     written = write_dexpi(doc, tmp_path / path.name)

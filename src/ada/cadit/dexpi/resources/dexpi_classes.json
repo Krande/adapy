@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "note": "generated - do not edit. Regenerate with scripts/gen_dexpi_class_table.py.",
+    "note": "generated - do not edit. Regenerate with scripts/codegen/gen_dexpi_class_table.py.",
     "source": "https://gitlab.com/dexpi/Specification",
     "tag": "V2.0.0",
     "commit": "260c81c51039789a6148a98af4c6caf23f87a3e2",

@@ -43,7 +43,7 @@ def _upload_to_personal_scope(glb: pathlib.Path) -> None:
         return
     cmd = [
         sys.executable,
-        str(ADAPY_ROOT / "scripts" / "viewer_upload.py"),
+        str(ADAPY_ROOT / "scripts" / "viewer" / "viewer_upload.py"),
         str(glb),
         "--scope",
         "user:me",

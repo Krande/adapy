@@ -376,7 +376,7 @@ def test_the_store_dispatches_to_the_right_reader_for_either_flavour(tmp_path):
 # -- T4: cross-flavour convergence over the checked-in example fixtures --------------------------------
 #
 # The pair above is authored twice, by hand, so the contract is legible; the fixtures below are the
-# other kind of evidence -- they are built *once* in Python by scripts/gen_dexpi_examples.py and
+# other kind of evidence -- they are built *once* in Python by scripts/codegen/gen_dexpi_examples.py and
 # written through both writers (write_proteus, write_dexpi20), so the pair is a cross-flavour
 # equality proof by construction rather than by careful hand-authoring. T4 re-parses both files that
 # construction produced and asserts the writers did not introduce a disagreement neither reader

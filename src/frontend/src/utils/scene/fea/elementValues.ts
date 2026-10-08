@@ -17,9 +17,9 @@ import type {
 } from "@/services/viewerApi";
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import {makeViewerApiFetcher} from "@/services/feaFieldBlob";
-import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {layerIpIndices, reduceIps} from "./applyElemField";
+import {feaSourceScope} from "./streaming/session";
 
 /** One component's value for the selected element. */
 export interface ElementComponentValue {
@@ -114,7 +114,8 @@ export async function feaValuesForElement(
     });
     if (!wanted.length) return empty;
 
-    const urlScope = scopeUrlPart(useScopeStore.getState().current);
+    // Where the open model's blobs are, not where the storage browser is.
+    const urlScope = feaSourceScope(sourceName);
     const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(urlScope, sourceName);
 
     const out: ElementFieldValues[] = [];

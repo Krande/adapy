@@ -6,7 +6,7 @@ thin-walled sleeve. Shown on docs/procedural_modelling.md, which includes the co
 
     python examples/penetration_detail.py     # opens the model in the viewer
 
-The docs page embeds ``figure()`` as an interactive 3D view (scripts/docs_notebooks.py).
+The docs page embeds ``figure()`` as an interactive 3D view (scripts/docs/docs_notebooks.py).
 """
 
 # --8<-- [start:model]

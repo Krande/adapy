@@ -56,6 +56,25 @@ export function visibleFieldValues(mesh: THREE.Object3D | null): Set<number> | n
     return out;
 }
 
+/**
+ * Every distinct value painted on `mesh`, hidden elements included, ascending;
+ * null when nothing has been recorded. What a ranked colour scale was ranked
+ * over, so a legend can colour its entries exactly as the painter did.
+ */
+export function paintedFieldValues(mesh: THREE.Object3D | null): number[] | null {
+    if (!mesh) return null;
+    const values = mesh.userData[KEY] as ValueByRange | undefined;
+    if (!values || values.size === 0) return null;
+    const seen = new Set<number>();
+    for (const value of values.values()) if (Number.isFinite(value)) seen.add(value);
+    return Array.from(seen).sort((a, b) => a - b);
+}
+
+/** The same, for whichever mesh the active result session is painting. */
+export function paintedFieldValuesForSession(): number[] | null {
+    return paintedFieldValues(useFeaAnimationStore.getState().mesh);
+}
+
 /** The same, for whichever mesh the active result session is painting. */
 export function visibleFieldValuesForSession(): Set<number> | null {
     return visibleFieldValues(useFeaAnimationStore.getState().mesh);

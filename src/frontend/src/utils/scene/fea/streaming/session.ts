@@ -13,6 +13,7 @@ import * as THREE from "three";
 
 import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession";
 import {requestRender} from "@/state/perfStore";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 
 /**
@@ -34,6 +35,22 @@ export const feaSession = {
         useModelSessionStore.getState().ensure().fea = handle;
     },
 };
+
+/**
+ * The storage scope (URL form) to read `sourceName`'s blobs from.
+ *
+ * The scope the open FEA model was loaded from when `sourceName` is that model,
+ * else the scope the storage browser is on. The two differ as soon as the user
+ * browses another scope with a model open - a storage panel that opens on the
+ * personal scope does exactly that - and reading the open model's field blobs
+ * from the browsing scope fetched them from a scope that does not hold them: a
+ * 404, and a property, a result value or a repaint that silently never came.
+ */
+export function feaSourceScope(sourceName: string | null | undefined): string {
+    const active = feaSession.active;
+    if (sourceName && active?.scope && active.sourceName === sourceName) return active.scope;
+    return scopeUrlPart(useScopeStore.getState().current);
+}
 
 /**
  * Does the loaded FEA model carry beam section geometry at all?

@@ -87,6 +87,11 @@ export interface FeaSessionHandle {
      *  mode that owns the scene colouring switches them off without recording
      *  that as the user's preference. Unset reads as shown. */
     resultColorsShown?: boolean;
+    /** The storage scope (URL form, e.g. "shared") the source was opened from.
+     *  Every later read of this model's blobs goes there, whatever scope the
+     *  storage browser has moved on to since: the bytes did not move. Unset
+     *  for a handle built before this was recorded. */
+    scope?: string;
 }
 
 /** One loaded model and everything the viewer holds on its behalf. */

@@ -23,7 +23,7 @@ COPY src/ ./src/
 COPY docs/ ./docs/
 COPY verification/ ./verification/
 COPY zensical.toml ./
-COPY scripts/docs_notebooks.py ./scripts/
+COPY scripts/docs/docs_notebooks.py ./scripts/docs/
 COPY examples/penetration_detail.py ./examples/
 
 RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \

@@ -166,3 +166,31 @@ test("a results field pick in flight when a mode is entered lands as the user's"
   // Nothing was parked for it, so entering it again suspends fresh.
   assert.equal(s().push("capacity", landed).view, null);
 });
+
+test("an owner that takes its own painting off is suspended fresh next time", () => {
+  s().noteLoad("model.SIN", RESULTS_OWNER, userView);
+  s().push("inspect", userView);
+  // The mode paints a property of its own...
+  const painted = view("props.material", 1, 3);
+  s().noteLoad("model.SIN", s().requestingOwner("model.SIN"), painted);
+  assert.equal(s().stack[1].painted, true);
+
+  // ...and takes it off again ("colour by: none").
+  assert.equal(s().unmarkPainted("inspect"), true);
+  assert.equal(s().stack[1].painted, false);
+
+  // Leaving parks nothing, so the user's result comes back and re-entry is fresh.
+  const popped = s().pop(painted);
+  assert.equal(popped?.left.view, null);
+  assert.deepEqual(popped?.below.view, userView);
+  assert.equal(s().push("inspect", userView).view, null);
+});
+
+test("only the owner on top can take its painting off, and never results", () => {
+  s().push("inspect", userView);
+  assert.equal(s().unmarkPainted("capacity"), false);
+  assert.equal(s().unmarkPainted(RESULTS_OWNER), false);
+  s().reset();
+  assert.equal(s().unmarkPainted(RESULTS_OWNER), false);
+  assert.equal(s().stack[0].painted, true);
+});

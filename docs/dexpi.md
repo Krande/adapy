@@ -282,12 +282,12 @@ to contribute to a write-back. Edit the model, write the model.
 
 The DEXPI test suite ships two official CC BY 4.0 example files under `files/dexpi_files/vendor/`
 so the reader/writer are exercised against real, unvendored emitter output without any network
-access. `scripts/fetch_dexpi_testcases.py` downloads the full official
+access. `scripts/codegen/fetch_dexpi_testcases.py` downloads the full official
 [TrainingTestCases](https://gitlab.com/dexpi/TrainingTestCases) corpus (currently around 220 P&IDs
 spanning DEXPI 1.2 and 1.3) into the git-ignored `files/dexpi_files/_external/`:
 
 ```console
-$ python scripts/fetch_dexpi_testcases.py
+$ python scripts/codegen/fetch_dexpi_testcases.py
 $ pixi run -e tests pytest tests/core/cadit/dexpi/test_external_corpus.py
 ```
 
@@ -383,7 +383,7 @@ is a single `System` spanning the junction, which is the *Deferred to follow-up 
 ## Licensing and attribution
 
 The generated class table, the two vendored official test files, and anything fetched by
-`scripts/fetch_dexpi_testcases.py` are Creative Commons Attribution 4.0 International (CC BY 4.0),
+`scripts/codegen/fetch_dexpi_testcases.py` are Creative Commons Attribution 4.0 International (CC BY 4.0),
 copyright DEXPI e.V. -- adapy's own code and curated defaults are not. See the repository-root
 `NOTICE` file for the full attribution, and `files/dexpi_files/vendor/NOTICE.md` for the
 file-level detail on the two vendored test cases.

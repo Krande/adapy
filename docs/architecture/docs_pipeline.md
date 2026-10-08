@@ -16,7 +16,7 @@ flowchart TB
 
     subgraph steps["pixi run -e docs docs"]
         FEADOC["fea-doc<br/>paradoc build verification"]
-        NBCONV["docs-notebooks<br/>scripts/docs_notebooks.py --execute"]
+        NBCONV["docs-notebooks<br/>scripts/docs/docs_notebooks.py --execute"]
         ZEN["docs-site<br/>zensical build --clean"]
     end
 
@@ -36,7 +36,7 @@ flowchart TB
 
     click VER href "https://github.com/Krande/adapy/tree/main/verification" "The paradoc report project"
     click FEADOC href "fea/verification/" "The FEA verification report"
-    click NBCONV href "https://github.com/Krande/adapy/blob/main/scripts/docs_notebooks.py" "Notebook execution and conversion"
+    click NBCONV href "https://github.com/Krande/adapy/blob/main/scripts/docs/docs_notebooks.py" "Notebook execution and conversion"
     click ZEN href "https://github.com/Krande/adapy/blob/main/zensical.toml" "Site configuration"
     click GH href "https://github.com/Krande/adapy/blob/main/.github/workflows/ci-pages.yml" "GitHub Pages workflow"
     click IMG href "https://github.com/Krande/adapy/blob/main/deploy/Dockerfile.docs" "Docs image"
@@ -50,13 +50,13 @@ flowchart TB
 | `docs-site` | `docs-notebooks`, then `zensical build --clean` into `site/`. Reuses whatever `docs/_static/fea-report/` already holds. |
 | `docs-notebooks` | Executes and converts the notebooks (below). |
 | `docs-serve` | `zensical serve`: live-reloading preview on <http://localhost:8000>. Run `docs-notebooks` once first. |
-| `serve` | Builds everything, then serves `site/` with `scripts/docs_serve.py` on :8080. |
+| `serve` | Builds everything, then serves `site/` with `scripts/docs/docs_serve.py` on :8080. |
 | `fea-doc`, `fea-doc-cached`, `fea-doc-{docx,odt,pdf}` | The FEA verification report and its downloadable files. |
 
 ## Notebooks
 
 Zensical runs no MkDocs plugins, so there is no nbsphinx or mkdocs-jupyter step.
-`scripts/docs_notebooks.py` fills the gap:
+`scripts/docs/docs_notebooks.py` fills the gap:
 
 ```mermaid
 sequenceDiagram

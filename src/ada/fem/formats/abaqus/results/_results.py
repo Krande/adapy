@@ -11,7 +11,7 @@ from ada.fem.exceptions.fea_execution import (
     FEAnalysisUnsuccessfulError,
 )
 
-from .read_odb import get_odb_data
+from .read_odb import convert_odb_to_sqlite, read_history
 
 if TYPE_CHECKING:
     from ada.fem.results.concepts import ElementDataOutput, FEMDataOutput, Results
@@ -124,18 +124,18 @@ def check_execution(file_ref: pathlib.Path):
 def odb_data_to_results(odb_file: pathlib.Path, results: Results) -> None:
     from ada.fem.results.concepts import HistoryStepDataOutput, ResultsHistoryOutput
 
-    odb_data = get_odb_data(odb_file)
-    res = ResultsHistoryOutput()
+    # step -> region -> output name -> [(time, value), ...], in export order
+    steps: dict[tuple[str, str], dict[str, dict[str, list[tuple[float, float]]]]] = {}
+    for step_name, procedure, region, output, time, value in read_history(convert_odb_to_sqlite(odb_file)):
+        steps.setdefault((step_name, procedure), {}).setdefault(region, {}).setdefault(output, []).append((time, value))
 
-    for step in odb_data["steps"].values():
-        name = step["name"]
-        step_type = step["procedure"]
-        step_res = HistoryStepDataOutput(name=name, step_type=step_type)
+    res = ResultsHistoryOutput()
+    for (step_name, procedure), regions in steps.items():
+        step_res = HistoryStepDataOutput(name=step_name, step_type=procedure)
         res.steps.append(step_res)
 
-        for reg in step["historyRegions"].values():
-            history_outputs = reg["historyOutputs"].values()
-            name = reg["name"]
+        for name, outputs in regions.items():
+            history_outputs = [dict(name=k, data=v) for k, v in outputs.items()]
             if "element" in name.lower():
                 step_res.element_data[name] = get_element_component_data(name, history_outputs)
             else:

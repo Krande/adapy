@@ -17,7 +17,7 @@ import pytest
 # no frontend tree there to check.
 HOSTS = (
     ("src/frontend/src/utils/pyodide/pyodide_worker.js", "src/frontend"),
-    ("tools/pyodide-test/wasm_sweep_driver.js", "tools/pyodide-test"),
+    ("scripts/testing/pyodide-test/wasm_sweep_driver.js", "scripts/testing/pyodide-test"),
 )
 
 RUNTIME_HELPER = "ensureAdapyRuntime"
