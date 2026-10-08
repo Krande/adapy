@@ -889,6 +889,24 @@ class BatchTessellator:
                 if stream_ms is not None:
                     return stream_ms
 
+            # A flat section swept along a path (BeamSweep, BeamCurved): the stream kernel rings
+            # the section's analytic outline straight through the sweep stations in
+            # milliseconds. The B-rep build lofts a polygonised section through the same
+            # stations and, for a hollow section, cuts the bore out with a boolean -- seconds
+            # per bent tube, for the same mesh.
+            import ada.geom.curves as _gcu
+            import ada.geom.solids as _gso
+            from ada.geom.sweep_frames import swept_area_is_planar_2d
+
+            if (
+                isinstance(g_root, _gso.FixedReferenceSweptAreaSolid)
+                and not isinstance(g_root.directrix, _gcu.GradientCurve)
+                and swept_area_is_planar_2d(g_root.swept_area)
+            ):
+                stream_ms = self._tessellate_geom_via_stream(geom, node_ref, force_pipeline="libtess2")
+                if stream_ms is not None:
+                    return stream_ms
+
         try:
             # Construction seam: build through the active CAD backend rather
             # than calling geom_to_occ_geom directly (= OccBackend.build under

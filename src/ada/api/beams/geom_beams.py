@@ -199,19 +199,37 @@ def straight_tapered_beam_to_geom(beam: BeamTapered, is_solid=True) -> Geometry:
         raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
 
 
-def swept_beam_to_face_geom(beam):
-    pass
-
-
 def swept_beam_to_geom(beam: BeamSweep, is_solid=True) -> Geometry:
-    if is_solid:
-        return swept_beam_to_solid_geom(beam)
-    else:
-        return swept_beam_to_face_geom(beam)
+    if not is_solid:
+        raise NotImplementedError("BeamSweep has no shell representation; use its solid_geom()")
+    return swept_beam_to_solid_geom(beam)
 
 
 def swept_beam_to_solid_geom(beam: BeamSweep) -> Geometry:
-    return Geometry()
+    """The section swept along the beam's path, as a ``FixedReferenceSweptAreaSolid``.
+
+    The 2D section (with its voids -- a tube stays hollow) is placed at stations along the exact
+    line/arc directrix by a rotation-minimising frame, carried as ``precomputed_frames`` so every
+    builder (NGEOM stream, OCC, adacpp) places it identically. ``position`` is the start station,
+    ``fixed_reference`` the start ``up``: the IFC reading of the same solid."""
+    from ada.geom.sweep_frames import orient_profile_ccw
+
+    origins, dir_x, dir_y = beam.sweep_frames()
+    # Right-handed stations + counter-clockwise loops -> outward-facing swept surfaces.
+    profile = orient_profile_ccw(section_to_arbitrary_profile_def_with_voids(beam.section))
+    tangent = _cross3(dir_x[0], dir_y[0])
+    position = Axis2Placement3D(
+        location=Point(*origins[0]), axis=Direction(*tangent), ref_direction=Direction(*dir_x[0])
+    )
+    solid = geo_so.FixedReferenceSweptAreaSolid(
+        profile,
+        position,
+        beam.directrix,
+        fixed_reference=Direction(*dir_y[0]),
+        precomputed_frames=(origins, dir_x, dir_y),
+    )
+    booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in beam.booleans]
+    return Geometry(beam.guid, solid, beam.color, bool_operations=booleans)
 
 
 def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) -> geo_su.ArbitraryProfileDef:

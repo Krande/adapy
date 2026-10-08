@@ -779,7 +779,6 @@ class _Encoder:
         world-space), mirroring how ``swept_disk_solid`` frames pipes."""
         import ada.geom.curves as geo_cu
 
-        face = self._profile_face(frs.swept_area)
         pre = getattr(frs, "precomputed_frames", None)
         if pre is not None:
             # Frames computed CONTINUOUSLY across a segmented run (see
@@ -799,18 +798,82 @@ class _Encoder:
 
             origins, dir_x, dir_y = self._general_directrix_frames(frs.directrix, frs.fixed_reference)
             position = Axis2Placement3D(location=(0.0, 0.0, 0.0))
+        profile = frs.swept_area
+        if pre is None and not isinstance(frs.directrix, geo_cu.GradientCurve):
+            from ada.geom.sweep_frames import (
+                placed_profile_to_planar,
+                swept_area_is_planar_2d,
+            )
+
+            if getattr(profile, "outer_curve", None) is not None and not swept_area_is_planar_2d(profile):
+                # A profile already placed in 3D at the path start (PrimSweep). Read as a flat
+                # section its z is dropped and the sweep collapses to a zero-volume sheet; express
+                # it in its own plane and carry that plane along the path instead.
+                try:
+                    profile, origins, dir_x, dir_y = placed_profile_to_planar(profile, frs.directrix)
+                except NotImplementedError:
+                    pass
         n = len(origins)
         if n < 2:
             raise _Unsupported("fixed-reference sweep directrix has < 2 stations")
+        return self._swept_profile(profile, position, origins, dir_x, dir_y)
+
+    def _sweep_record(self, face: int, position, origins, dir_x, dir_y) -> int:
         body = (
             self.i32(face)
             + self.i32(self.placement3(position))
-            + self.i32(n)
-            + self._f64_raw(origins.ravel())
-            + self._f64_raw(dir_x.ravel())
-            + self._f64_raw(dir_y.ravel())
+            + self.i32(len(origins))
+            + self._f64_raw(np.asarray(origins, dtype=float).ravel())
+            + self._f64_raw(np.asarray(dir_x, dtype=float).ravel())
+            + self._f64_raw(np.asarray(dir_y, dtype=float).ravel())
         )
         return self._add(_FIXED_REF_SWEPT_SOLID, body)
+
+    def _swept_profile(self, profile, position, origins, dir_x, dir_y) -> int:
+        """One FIXED_REF_SWEPT_SOLID of ``profile`` over the stations -- or, for a profile with
+        voids (a tube, a box section), the void-free outline swept and each void swept and
+        subtracted (BOOLEAN_RESULT DIFFERENCE).
+
+        The kernel's sweep caps a holed profile correctly but never rings the void loops, so a
+        hollow profile came out as the outer skin plus annular end caps: no bore, not closed. The
+        difference is closed and open-ended. Each void is swept with the outline's winding so both
+        operands come out with the same orientation."""
+        if getattr(profile, "outer_curve", None) is None:
+            try:
+                from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
+
+                profile = parametric_profile_to_arbitrary(profile)
+            except Exception:  # noqa: BLE001 - unconvertible profile -> reported by _profile_face
+                pass
+        inners = list(getattr(profile, "inner_curves", None) or [])
+        if not inners:
+            return self._sweep_record(self._profile_face(profile), position, origins, dir_x, dir_y)
+
+        from ada.geom.sweep_frames import (
+            extend_stations,
+            loop_signed_area,
+            reversed_loop,
+        )
+
+        outer = profile.outer_curve
+        ptype = profile.profile_type
+        idx = self._sweep_record(
+            self._profile_face(su.ArbitraryProfileDef(ptype, outer, [])), position, origins, dir_x, dir_y
+        )
+        outer_area = loop_signed_area(outer)
+        outer_ccw = outer_area > 0.0
+        # The cutters run a little past both ends: with caps coplanar to the outline's, the
+        # difference keeps the bore closed off at the ends (a sealed cavity, not a tube).
+        cut_frames = extend_stations(origins, dir_x, dir_y, 0.05 * abs(outer_area) ** 0.5)
+        for ic in inners:
+            if (loop_signed_area(ic) > 0.0) != outer_ccw:
+                flipped = reversed_loop(ic)
+                if flipped is ic:  # a conic (always CCW): sample it into a clockwise polygon
+                    flipped = cu.PolyLine(list(reversed(_conic_loop_points(ic))))
+                ic = flipped
+            cut = self._sweep_record(self._profile_face(su.ArbitraryProfileDef(ptype, ic, [])), position, *cut_frames)
+            idx = self._add(_BOOLEAN_RESULT, self.i32(0) + self.i32(idx) + self.i32(cut))  # 0 = DIFFERENCE
+        return idx
 
     def _sweep_frames(self, directrix):
         """Per-station (origin, profile-x, profile-y) frames along a general 3D directrix, using a
@@ -857,19 +920,10 @@ class _Encoder:
             outer_curve=cu.Circle(position=o, radius=float(sds.radius)),
             inner_curves=inner,
         )
-        face = self._profile_face(prof)
         origins, dir_x, dir_y = self._sweep_frames(sds.directrix)
         if len(origins) < 2:
             raise _Unsupported("swept-disk directrix has < 2 stations")
-        body = (
-            self.i32(face)
-            + self.i32(self.placement3(o))
-            + self.i32(len(origins))
-            + self._f64_raw(origins.ravel())
-            + self._f64_raw(dir_x.ravel())
-            + self._f64_raw(dir_y.ravel())
-        )
-        return self._add(_FIXED_REF_SWEPT_SOLID, body)
+        return self._swept_profile(prof, o, origins, dir_x, dir_y)
 
     def _xz_planar_face(self, pts3d) -> int:
         """Planar FACE_SURFACE in the local XZ plane (y=0; normal=+Y, ref=+X)."""
@@ -1141,6 +1195,24 @@ class _Encoder:
 
 class _Unsupported(Exception):
     pass
+
+
+def _conic_loop_points(curve, n: int = 48) -> list[tuple[float, float]]:
+    """A profile-plane Circle/Ellipse sampled counter-clockwise into ``n`` 2D points."""
+    import math
+
+    c = list(curve.position.location)
+    ref = curve.position.ref_direction
+    ang0 = math.atan2(float(ref[1]), float(ref[0])) if ref is not None else 0.0
+    a = float(getattr(curve, "radius", 0.0) or curve.semi_axis1)
+    b = float(getattr(curve, "radius", 0.0) or curve.semi_axis2)
+    ca, sa = math.cos(ang0), math.sin(ang0)
+    out = []
+    for i in range(n):
+        t = 2.0 * math.pi * i / n
+        x, y = a * math.cos(t), b * math.sin(t)
+        out.append((float(c[0]) + ca * x - sa * y, float(c[1]) + sa * x + ca * y))
+    return out
 
 
 def general_directrix_frames(directrix, fixed_reference):
