@@ -6,7 +6,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
 import type { AssetView } from "../../assets/assetView";
-import { geometryIndex, geometryMark, rollupApplies, rowHasGeometry } from "../../assets/geometryMarks";
+import { deliversGeometry, geometryIndex, geometryMark, rollupApplies, rowHasGeometry, rowLoadable } from "../../assets/geometryMarks";
 import { buildHierarchy } from "../../assets/hierarchy";
 import type { ResolutionMode, WireGeometryRollup } from "../../assets/types";
 
@@ -80,6 +80,15 @@ test("per provider: only that provider's geometry counts", () => {
   assert.equal(rowHasGeometry(v, tree, "root"), false, "a tree-only provider matches nothing");
 });
 
+test("loadable means geometry at the row or above it -- not merely somewhere below", () => {
+  const v = view({ root: { tree: "none" }, "zone-1": { meshes: "mesh" } });
+  const meshes = geometryIndex(v, "meshes");
+  assert.equal(rowLoadable(v, meshes, "zone-1"), true, "published here");
+  assert.equal(rowLoadable(v, meshes, "beam"), true, "covered from above");
+  assert.equal(rowLoadable(v, meshes, "site-a"), false, "kept by the filter, but loading it loads nothing");
+  assert.equal(rowLoadable(v, geometryIndex(v, "tree"), "zone-1"), false, "a tree-only publish loads nothing");
+});
+
 test("an unfetched branch is kept as unknown rather than hidden", () => {
   const v = view({ "zone-1": { meshes: "mesh" } }, ["site-c"]);
   const idx = geometryIndex(v, "meshes");
@@ -135,4 +144,13 @@ test("the roll-up is ignored for another collection and outside `latest`", () =>
   assert.equal(rollupApplies(rollup(), "coll", { kind: "latest" }), true);
   assert.equal(rollupApplies(null, "coll", { kind: "latest" }), false);
   assert.equal(rollupApplies(rollup(), "coll", { kind: "run", revision: "20260101T000000Z" }), false);
+});
+
+test("a build that counts no leaf delivers nothing; no count is no claim", () => {
+  assert.equal(deliversGeometry({ delivery: "build", leaves: 0 }), false, "it can only fail");
+  assert.equal(deliversGeometry({ delivery: "build", leaves: 4 }), true);
+  assert.equal(deliversGeometry({ delivery: "build" }), true);
+  assert.equal(deliversGeometry({ delivery: "mesh", leaves: null }), true);
+  assert.equal(deliversGeometry({ delivery: "none" }), false);
+  assert.equal(deliversGeometry(null), false);
 });

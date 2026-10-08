@@ -20,6 +20,7 @@ import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {resolveContourRange} from "../contourScale";
 import {isPropertyField} from "../propertyColors";
+import {isTimeHistory} from "../timeHistory";
 import {selectedResultRange} from "../resultUnits";
 import {autoWarpScale} from "../warpScale";
 import {findDisplacementField} from "./warp";
@@ -53,6 +54,7 @@ export function syncResultSession(args: {
         animStore.setSessionActive(true);
         const range: [number, number] = field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
         animStore.setRange(range);
+        animStore.setTimeHistory(isTimeHistory(field));
         // Only when the caller asked. See ``sliderFactor`` on the argument type:
         // the influence and the slider are different numbers, and equating them
         // moved the indicator on every component change.
@@ -110,6 +112,7 @@ export function syncResultSession(args: {
         animStore.setFieldName(null);
         animStore.setNSteps(1);
         animStore.setStepIndex(0);
+        animStore.setTimeHistory(false);
         useColorStore.getState().setShowLegend(false);
     }
 }

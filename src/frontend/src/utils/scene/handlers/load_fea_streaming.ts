@@ -51,6 +51,39 @@ export {
     syncFeaOverlayVisibility,
 } from "../fea/streaming/visibility";
 
+// Step changes run one at a time, latest wins. Play, the slider and Stop all ask
+// for steps; loads take a network round trip each, so without this an older load
+// could finish after a newer one and repaint its frame (Stop during play landed
+// back on the in-flight frame, and a second press was needed). Requests arriving
+// while a load runs collapse into "the newest one"; the returned promise settles
+// once the queue is drained, i.e. when the LAST requested step is on screen.
+let pendingStep: {step: number; run: (step: number) => Promise<void>} | null = null;
+let stepDrain: Promise<void> | null = null;
+
+function requestStep(step: number, run: (step: number) => Promise<void>): Promise<void> {
+    pendingStep = {step, run};
+    if (!stepDrain) {
+        stepDrain = (async () => {
+            try {
+                while (pendingStep) {
+                    const next = pendingStep;
+                    pendingStep = null;
+                    try {
+                        await next.run(next.step);
+                    } catch (err) {
+                        // A superseded load failing is not the caller's error: carry on
+                        // to the newer step. Only the last one's failure surfaces.
+                        if (!pendingStep) throw err;
+                    }
+                }
+            } finally {
+                stepDrain = null;
+            }
+        })();
+    }
+    return stepDrain;
+}
+
 /** Load the mesh GLB, fetch the chosen field's blob, and apply the
  * (component, step) selection. Subsequent calls for the same source
  * + field skip the network and just swap the step. */
@@ -270,20 +303,22 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // step drag still picks up the latest selection without needing
     // to re-register the callback here.
     if (field) {
-        useFeaAnimationStore.getState().setApplyStep(async (newStepIndex: number) => {
-            // The influence is read at call time like the colormap, and for the
-            // same reason: without it a step change repainted at the default of
-            // 1 and dropped the slider and the warp scale the user had set.
-            const {factor, scaleFactor} = useFeaAnimationStore.getState();
-            await load_fea_streaming({
-                sourceName,
-                manifest,
-                fieldName,
-                stepIndex: newStepIndex,
-                reduction,
-                displacementScale: factor * scaleFactor,
-            });
-        });
+        useFeaAnimationStore.getState().setApplyStep((newStepIndex: number) =>
+            requestStep(newStepIndex, async (step) => {
+                // The influence is read at call time like the colormap, and for the
+                // same reason: without it a step change repainted at the default of
+                // 1 and dropped the slider and the warp scale the user had set.
+                const {factor, scaleFactor} = useFeaAnimationStore.getState();
+                await load_fea_streaming({
+                    sourceName,
+                    manifest,
+                    fieldName,
+                    stepIndex: step,
+                    reduction,
+                    displacementScale: factor * scaleFactor,
+                });
+            }),
+        );
     }
 
     // Auto-show the SimulationControls panel on first apply so the

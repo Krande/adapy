@@ -395,14 +395,20 @@ def angular_section(in_str: str, s: float, units: Units):
         if res is None:
             continue
         if ang == "L":
-            h_str, tw_str = res.group(2), res.group(3)
-            h = float(h_str) * s
-            w = h
-            t_w = float(tw_str) * s
-            # An equal-leg angle: both flange slots carry the one leg, as profile_db_collect
-            # fills them for every HP. The ANGULAR geometry reads only h, w_btn, t_w and
-            # t_fbtn, so this moves no property or deck line -- only unique_props(), which
-            # otherwise disagreed with any L read back from a file that mirrors (Genie XML).
+            # L<h>x<b>x<t> (EN 10056: legs h and b, thickness t) or L<h>x<t> (equal legs). The
+            # two-number pattern above also matches the first two numbers of the three-number
+            # form, which made L100x100x10 a 100 mm thick L100.
+            res3 = re.search("(L)({digit})x({digit})x({digit})".format(digit=_digit), in_str, _re_in)
+            if res3 is not None and all(res3.group(i) for i in (2, 3, 4)):
+                h, w, t_w = (float(res3.group(i)) * s for i in (2, 3, 4))
+            else:
+                h = float(res.group(2)) * s
+                w = h
+                t_w = float(res.group(3)) * s
+            # Both flange slots carry the one leg, as profile_db_collect fills them for every
+            # HP. The ANGULAR geometry reads only h, w_btn, t_w and t_fbtn, so this moves no
+            # property or deck line -- only unique_props(), which otherwise disagreed with any
+            # L read back from a file that mirrors (Genie XML).
             sec = Section(
                 in_str,
                 sec_type=SectionCat.BASETYPES.ANGULAR,

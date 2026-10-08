@@ -18,6 +18,7 @@ import type {SidecarFetcher} from "@/plugins/registry";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import {useConversionStore} from "@/state/conversionStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {initialStepIndex} from "../timeHistory";
 import type {LoadFeaStreaming} from "./types";
 import {defaultResultField} from "./defaultField";
 
@@ -170,7 +171,7 @@ export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: st
             sourceName,
             manifest,
             fieldName: field ? field.name_canonical : null,
-            stepIndex: 0,
+            stepIndex: initialStepIndex(field),
             reduction: field ? reduction : null,
             displacementScale: 1,
             sliderFactor: 1,

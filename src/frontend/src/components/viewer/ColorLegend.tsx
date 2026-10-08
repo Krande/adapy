@@ -1,4 +1,4 @@
-import React, {useMemo} from "react";
+import React, {useMemo, useState} from "react";
 
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -19,6 +19,7 @@ import {
     propertySequentialColormap,
 } from "@/utils/scene/fea/propertyColors";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
+import {useIsMobile} from "@/utils/useIsMobile";
 
 function formatValue(value: number): string {
     if (!Number.isFinite(value)) return "—";
@@ -29,7 +30,20 @@ function formatValue(value: number): string {
     return value.toLocaleString(undefined, {maximumSignificantDigits: 6});
 }
 
-const ColorLegend = () => {
+export interface ColorLegendProps {
+    /** "overlay": floating over the canvas (the default). "panel": inside the
+     *  Simulation drawer's Legend tab, full width, never collapsed. */
+    placement?: "overlay" | "panel";
+}
+
+const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
+    const isMobile = useIsMobile();
+    const inPanel = placement === "panel";
+    // On a phone with an FEA result loaded the legend lives in the Simulation
+    // drawer's Legend tab instead of floating over the canvas (where it covered the
+    // top button row). Other phone legends start as a one-line strip; desktop is
+    // unchanged.
+    const [expanded, setExpanded] = useState(false);
     const {min, max, step, colorPalette, showLegend} = useColorStore();
     const {
         sessionActive,
@@ -93,11 +107,11 @@ const ColorLegend = () => {
         [sessionActive, contour.levels, min, max, colormap, property],
     );
 
-    const gradientStyle = useMemo(() => {
+    const gradientStops = useMemo(() => {
         if (!sessionActive) {
             const minColor = `rgb(${colorPalette[0].map((value) => value * 255).join(", ")})`;
             const maxColor = `rgb(${colorPalette[1].map((value) => value * 255).join(", ")})`;
-            return {backgroundImage: `linear-gradient(to top, ${minColor}, ${maxColor})`};
+            return `${minColor}, ${maxColor}`;
         }
         const map = property
             ? propertySequentialColormap(field)
@@ -111,10 +125,12 @@ const ColorLegend = () => {
                 `rgb(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)}) ${position * 100}%`,
             );
         }
-        return {backgroundImage: `linear-gradient(to top, ${stops.join(", ")})`};
+        return stops.join(", ");
     }, [sessionActive, colorPalette, colormap, contour.levels, property, field]);
+    const gradientStyle = {backgroundImage: `linear-gradient(to top, ${gradientStops})`};
 
     if (!showLegend) return null;
+    if (!inPanel && isMobile && sessionActive) return null;
 
     const path = field?.group_path?.join(" / ") ?? field?.name_canonical;
     const selectableSurface = field?.surface === "selectable" || !!field?.surface_variants?.length;
@@ -122,12 +138,39 @@ const ColorLegend = () => {
     const hasExactMarkers = field?.support === "result_point" || field?.support === "line_result_point";
     const pinned = !property && (contour.min !== null || contour.max !== null);
 
+    if (!inPanel && isMobile && !expanded) {
+        return (
+            <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                aria-label="Show colour legend"
+                className="w-40 select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-bg)] p-1.5 text-left text-[10px] leading-tight text-[var(--ada-panel-text)] shadow-lg backdrop-blur-sm"
+            >
+                {sessionActive && path && <div className="truncate font-semibold">{path}</div>}
+                <div
+                    className="my-1 h-2 rounded-sm"
+                    style={{backgroundImage: `linear-gradient(to right, ${gradientStops})`}}
+                />
+                <div className="flex justify-between font-mono tabular-nums">
+                    <span>{formatValue(min)}</span>
+                    <span>{formatValue(max)}</span>
+                </div>
+            </button>
+        );
+    }
+
     // Panel tokens, not literal black-on-white. The legend floats over the scene
     // inside a themed shell, and a hard black slab reads as a foreign object
     // against it -- the capacity plugin's own scale beside it already used these,
     // so the two disagreed with each other.
     return (
-        <div className="w-56 select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-0)]/85 p-2 text-[11px] leading-tight text-[var(--ada-panel-text)] shadow-lg backdrop-blur-sm">
+        <div
+            className={
+                (inPanel ? "w-full " : "w-56 shadow-lg backdrop-blur-sm ") +
+                "select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-bg)] p-2 text-[11px] leading-tight text-[var(--ada-panel-text)]"
+            }
+            onClick={!inPanel && isMobile ? () => setExpanded(false) : undefined}
+        >
             {sessionActive && field && (
                 <div className="mb-2 space-y-0.5 break-words">
                     <div className="font-semibold">{path}</div>
@@ -203,7 +246,7 @@ const ColorLegend = () => {
                     </div>
                 </div>
             ) : (
-                <div className="flex h-64 gap-2">
+                <div className={`flex gap-2 ${isMobile || inPanel ? "h-40" : "h-64"}`}>
                     <div className="w-5 shrink-0 rounded-sm" style={gradientStyle}/>
                     <div className="flex flex-1 flex-col justify-between font-mono tabular-nums">
                         {values.map((value, index) => (

@@ -19,7 +19,7 @@ Subcommand layout:
 
 This listing is the CLI's own claim about its surface, so it is checked against
 the parser in tests/core/test_cli_surface_docs.py — as are the README table and
-the docs page (docs/documents/cli.rst).
+the docs page (docs/cli.md).
 
 Exit codes: 0 success; 2 for anything wrong with the invocation — an argparse
 error, a ``CliUsageError`` raised by an implementation, or a bare command with

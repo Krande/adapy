@@ -140,8 +140,10 @@ export interface FeaManifestField {
   /** Drives the deformation-scale slider range in the picker:
    * 'static' = [0, 1] (one-directional displacement, signed sweep
    * isn't physical), 'eigen' = [-1, +1] (mode shape has no
-   * inherent sign). */
-  analysis_kind: "static" | "eigen";
+   * inherent sign). 'transient' = the steps are time frames of one
+   * run: the field opens on its last frame and play steps through
+   * time (see utils/scene/fea/timeHistory.ts). */
+  analysis_kind: "static" | "eigen" | "transient";
   components: string[];
   /** Nodal fields only — element fields use ``per_type`` instead. */
   blob?: {

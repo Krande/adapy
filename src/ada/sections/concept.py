@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING
 
 from ada.base.root import Root
@@ -14,6 +14,12 @@ if TYPE_CHECKING:
     from ada.sections.profiles import SectionProfile
 
 logger = get_logger()
+
+#: Relative difference below which stored section properties count as the calculated ones
+#: (``GeneralProperties.modified``). A Sesam field carries 9 significant digits (E16.8, 5e-9); GeniE
+#: computes from single-precision dimensions, and its GBEAMG is within 1.6e-7 of adapy's calculation
+#: for every parametric section in files/fem_files/sesam/section_props (measured, GeniE V8.13-02).
+MODIFIED_RTOL = 1e-6
 
 
 class Section(Root):
@@ -80,6 +86,16 @@ class Section(Root):
 
             sec, tap = interpret_section_str(from_str, scalef, units=units)
             self.__dict__.update(sec.__dict__)
+
+        if self._type == BaseTypes.TPROFILE:
+            # A T has no bottom flange; adapy keeps one in the I-section slots as a stub as wide as
+            # the web and as thick as the flange (string_to_section, from_geometry, the IFC reader),
+            # which is web. A T declared without them (geom_beams, from an IFC TShapeProfileDef) gets
+            # the same stub, so every writer sees one T: Sesam, USFOS and Genie XML failed on None.
+            if self._w_btn is None:
+                self._w_btn = self._t_w
+            if self._t_fbtn is None:
+                self._t_fbtn = self._t_ftop
 
         self._genprops = None
         # Tracks whether `_genprops` has been passed through
@@ -206,7 +222,12 @@ class Section(Root):
         elif self.type == BaseTypes.CIRCULAR:
             sec_str = "{}{:g}".format(self.type.value, s(self.r))
         elif self.type == BaseTypes.ANGULAR:
-            sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
+            if self.t_fbtn == self.t_w and self.w_btn == self.h:
+                sec_str = "L{:g}x{:g}".format(s(self.h), s(self.t_w))
+            elif self.t_fbtn == self.t_w:
+                sec_str = "L{:g}x{:g}x{:g}".format(s(self.h), s(self.w_btn), s(self.t_w))
+            else:  # a bulb flat (HP180x10): its flange is no plate of the web's thickness
+                sec_str = "{}{:g}x{:g}".format(self.type.value, s(self.h), s(self.t_w))
         elif self.type == BaseTypes.IPROFILE:
             sec_str = self._sec_str
         elif self.type == BaseTypes.TPROFILE:
@@ -417,6 +438,8 @@ class GeneralProperties:
     Shcenz: float = None
     Sy: float = None
     Sz: float = None
+    # Sesam shear factors already included in Shary / Sharz (GBEAMG SHARY = calculated x SFY); a
+    # record of the factor applied, not a setting -- changing one does not rescale the shear area
     Sfy: float = 1
     Sfz: float = 1
     Cy: float = None
@@ -453,11 +476,32 @@ class GeneralProperties:
 
     @property
     def modified(self) -> bool:
-        """Returns true if attributes are not equal to the calculated properties of the parent section"""
-        return self != self.calc_parent_properties()
+        """True if these properties are not the parent section's calculated ones (GBEAMG COMP = 1).
+
+        Equal to within :data:`MODIFIED_RTOL`: properties read from a file carry the file's precision,
+        and an exact comparison called every section read back from a Sesam deck modified. Lengths
+        (shear centre, centroid) are compared on the scale sqrt(Ax) and Iyz on sqrt(Iy Iz), where a
+        zero calculated from differences (2.8e-17 for an I's Shcenz) has no relative size."""
+        calc = self.calc_parent_properties()
+        if calc is None:
+            return True
+        scale = {f: abs(calc.Ax) ** 0.5 for f in ("Shceny", "Shcenz", "Cy", "Cz", "Cgy", "Cgz")}
+        scale["Iyz"] = abs(calc.Iy * calc.Iz) ** 0.5
+        for f in fields(self):
+            if f.name == "parent":
+                continue
+            a, b = getattr(self, f.name), getattr(calc, f.name)
+            if a is None or b is None:
+                if a is not b:
+                    return True
+                continue
+            if abs(a - b) > MODIFIED_RTOL * max(abs(a), abs(b), scale.get(f.name, 0.0)):
+                return True
+        return False
 
     def calc_parent_properties(self) -> GeneralProperties:
-        """Returns calculated properties based on parent section"""
+        """Returns calculated properties based on parent section, with this object's shear factors
+        (``Shary``/``Sharz`` include ``Sfy``/``Sfz``, as GBEAMG's SHARY/SHARZ include SFY/SFZ)"""
         from ada.sections.properties import calculate_general_properties
 
-        return calculate_general_properties(self.parent)
+        return calculate_general_properties(self.parent, sfy=self.Sfy, sfz=self.Sfz)

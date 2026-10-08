@@ -63,6 +63,8 @@ export interface WireManifestSummary {
   readonly produced_at: string;
   readonly hierarchy_revision?: string | null;
   readonly change?: WireChangeRecord | null;
+  /** The manifest's `counts.leaves`, when it has one: 0 means a build has nothing to draw. */
+  readonly leaves?: number | null;
 }
 
 export interface WireRevision {
@@ -168,6 +170,9 @@ export interface ManifestSummary {
   /** Present only when the manifest carries one -- §Decision 6, absent is
    *  normal and must render as nothing (no badge, no dimming, no "unknown"). */
   readonly change: ChangeRecord | null;
+  /** How many leaves the publish's subtree holds, when its provider says; null when it does not.
+   *  0 on a build claim means there is nothing to draw (`deliversGeometry`). */
+  readonly leaves?: number | null;
 }
 
 export interface AssetRevision {

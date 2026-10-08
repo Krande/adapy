@@ -131,7 +131,14 @@ function pickRange(field: FeaManifestField, reduction: string): [number, number]
 }
 
 function componentIndex(field: FeaManifestField, reduction: string): number {
-    return field.components.indexOf(reduction);
+    const index = field.components.indexOf(reduction);
+    // A one-component field's reduction is the bake's "scalar" (default_view for any
+    // field under three components without presentation metadata) rather than the
+    // component's own name. It means "the value itself": component 0. Without this
+    // every such field fell through to the 0 fallback and painted uniformly at the
+    // bottom of its scale.
+    if (index < 0 && field.components.length === 1) return 0;
+    return index;
 }
 
 /** Indices of IPs that match the chosen layer. Empty ``ip_layout``

@@ -194,9 +194,33 @@ class SifReader:
             yield data[:2]
 
     def read_gelmnts(self, first_line: str):
-        elno_id, eltyp, members = cards.GELMNT1.get_indices_from_names(["elno", "eltyp", "nids"])
+        # (ELTYP, ELNO, NODIN..., ELNOX): the internal number first, which is what the
+        # node references and every other record use; the external one last, as a label.
+        elnox_id, elno_id, eltyp, members = cards.GELMNT1.get_indices_from_names(["elnox", "elno", "eltyp", "nids"])
         for data in self._read_multi_line_statements("GELMNT1", first_line):
-            yield data[eltyp], data[elno_id], data[members:]
+            yield data[eltyp], data[elno_id], data[members:], data[elnox_id]
+
+    def external_number_maps(self) -> tuple[dict[int, int] | None, dict[int, int] | None]:
+        """``({internal node: external node}, {internal element: external element})``.
+
+        A Sesam file numbers each node and element twice (GNODE: NODEX, NODENO; GELMNT1:
+        ELNOX, ELNO). The internal numbers run 1..n and are what every other record
+        refers to: element nodes, sets, loads, boundary conditions and all results. The
+        external numbers are the user's, and what GeniE and Xtract show. Each map is
+        ``None`` when the deck's two numberings agree, as they do on most decks.
+        """
+        node_map = None
+        if self.node_ids is not None and len(self.node_ids):
+            ids = np.asarray(self.node_ids, dtype=np.int64)
+            if not np.array_equal(ids[:, 0], ids[:, 1]):
+                node_map = dict(zip(ids[:, 1].tolist(), ids[:, 0].tolist()))
+        elem_map = None
+        if self.elements:
+            # A tuple without ELNOX (a caller that builds ``elements`` itself) keeps its number.
+            pairs = [(int(e[1]), int(e[3] if len(e) > 3 else e[1])) for e in self.elements]
+            if any(internal != external for internal, external in pairs):
+                elem_map = dict(pairs)
+        return node_map, elem_map
 
     def read_results(self, result_variable: str, first_line: str) -> tuple:
         for data in self._read_multi_line_statements(result_variable, first_line):
@@ -919,7 +943,17 @@ class Sif2Mesh:
                 "deck for the super-element being read"
             )
 
-        nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=np.asarray(sif.node_ids[:, 0], dtype=int))
+        # Keyed by the INTERNAL numbers, which is what the file links by: GCOORD,
+        # GELMNT1's node references, GSETMEMB, the B* records and every RV* result
+        # refer to nodes and elements by them. The EXTERNAL numbers (GNODE NODEX,
+        # GELMNT1 ELNOX) are the user's, and what GeniE and Xtract show; they ride
+        # along as labels. On most decks the two agree and no label is kept.
+        node_map, elem_map = sif.external_number_maps()
+        node_identifiers = np.asarray(sif.nodes[:, 0], dtype=int)
+        node_labels = None
+        if node_map is not None:
+            node_labels = np.array([node_map.get(int(i), int(i)) for i in node_identifiers], dtype=int)
+        nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=node_identifiers, labels=node_labels)
         sorted_elem_data = sorted(sif.elements, key=lambda x: x[0])
         elem_blocks = []
         # Per-element-type histogram, logged below. Helps diagnose
@@ -943,8 +977,13 @@ class Sif2Mesh:
             elem_node_refs = SESAM_ORDER.conn_from_format(general_elem_type, elem_node_refs)
 
             elem_info = ElementInfo(type=general_elem_type, source_software=FEATypes.SESAM, source_type=elem_type)
+            elem_labels = None
+            if elem_map is not None:
+                elem_labels = np.array([elem_map.get(int(i), int(i)) for i in elem_identifiers], dtype=int)
             elem_blocks.append(
-                ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers)
+                ElementBlock(
+                    elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers, labels=elem_labels
+                )
             )
             eltype_counts[elem_type] = elem_identifiers.size
 

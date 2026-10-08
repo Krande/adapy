@@ -142,3 +142,16 @@ export function consumeDirty(): boolean {
     _dirty = false;
     return wasDirty;
 }
+
+// Suspends the render loop's own draws while something else owns the renderer --
+// the animation export resizes the drawing buffer and renders through its own
+// camera, and a loop draw in between would flash a distorted frame on screen.
+// The loop keeps ticking (controls, stats); only renderer.render is skipped.
+let _renderSuspended = false;
+export function setRenderSuspended(suspended: boolean): void {
+    _renderSuspended = suspended;
+    if (!suspended) _dirty = true;
+}
+export function isRenderSuspended(): boolean {
+    return _renderSuspended;
+}

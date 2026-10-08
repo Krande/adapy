@@ -40,6 +40,13 @@ export interface GeometryIndex {
 
 const LOADABLE = new Set(["mesh", "build"]);
 
+/** Does this publish have something to LOAD? A `mesh`/`build` delivery -- unless its own manifest
+ *  says the subtree holds no leaf, in which case a build can only fail ("names no leaf ... nothing
+ *  to read"). Such a claim reads as tree-only, so nothing offers to load it. */
+export function deliversGeometry(manifest: { delivery: string; leaves?: number | null } | null | undefined): boolean {
+  return !!manifest && LOADABLE.has(manifest.delivery) && manifest.leaves !== 0;
+}
+
 /** Whether the roll-up speaks for what is on screen: the same collection, and the `latest`
  *  resolution -- the one the server computes. Under `as-of`/`run` the marks stay client-only. */
 export function rollupApplies(
@@ -77,7 +84,7 @@ export function geometryIndex(
   for (const [subject, resolved] of view.resolution.subjects) {
     const contents =
       provider === undefined ? [resolved.content, ...resolved.byProvider.values()] : [resolved.byProvider.get(provider)];
-    if (contents.some((c) => c?.manifest && LOADABLE.has(c.manifest.delivery))) at.add(subject);
+    if (contents.some((c) => deliversGeometry(c?.manifest))) at.add(subject);
   }
   const below = new Set<string>();
   for (const subject of at) {
@@ -99,6 +106,15 @@ export function rowHasGeometry(view: AssetView, idx: GeometryIndex, id: string):
   // one thing rowFacts would add -- is a rejection either way.
   if (idx.at.has(id) || idx.below.has(id)) return true;
   if (idx.source === "client" && view.unexplored.has(id)) return true;
+  for (const a of ancestorsOf(view.hierarchy, id)) if (idx.at.has(a)) return true;
+  return false;
+}
+
+/** Can row `id` itself be LOADED from what `idx` covers: geometry at it, or at a row above it.
+ *  Stricter than `rowHasGeometry`, which also passes a row with geometry somewhere below it --
+ *  a filter keeps such a row, but loading it loads nothing. */
+export function rowLoadable(view: AssetView, idx: GeometryIndex, id: string): boolean {
+  if (idx.at.has(id)) return true;
   for (const a of ancestorsOf(view.hierarchy, id)) if (idx.at.has(a)) return true;
   return false;
 }

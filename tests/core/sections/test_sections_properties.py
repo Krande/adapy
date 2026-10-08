@@ -49,9 +49,10 @@ def test_ig():
         ("Wymin", 0.001639733333),
         ("Wzmin", 0.0002669666667),
         ("Shary", 0.005221841891),
-        # TODO: Fix Sy calculation
-        # ("Sharz", 0.003556905278),
-        # ("Sy", 0.000922),
+        # Iy tw / Sy, Sy = b tf (h - tf) / 2 + tw (h / 2 - tf)^2 / 2 = 9.22e-4 (was commented out
+        # while adapy wrote Sy = Iy / (b / 2) = 3.279e-3 and Sharz = 1.0e-3)
+        ("Sharz", 0.003556905278),
+        ("Sy", 0.000922),
         ("Sz", 0.0002045),
         ("Shceny", 0.0),
         ("Shcenz", 0.0),
@@ -63,25 +64,31 @@ def test_ig():
 def test_tg():
     sec = Section("MySec", from_str="TG650x300x25x40")
 
+    # GeniE V8.13-02 GBEAMG of the same T (genie_v8_13_torsion_T1.FEM, T11_TG650) agrees with each
+    # of these to < 2e-7. The list was a copy of test_ig's and was never evaluated.
     assertions = [
-        ("Ax", 0.0116),
-        ("Ix", 1.542666667e-6),
-        ("Iy", 3.279466667e-4),
-        ("Iz", 2.669666667e-5),
+        ("Ax", 0.02725),
+        # GeniE V8.13-02's own T (M1_TG650, genie_v8_13_review437_T1.FEM): Ix 1.24502012e-5, Wxmin
+        # 3.11255048e-4, Shary 7.29793217e-3 (its 0.001 mm flange adds 2.5e-5), Shcenz 1.81880727e-1.
+        # The web-wide stub counted as a flange gave 1.287270833e-5, 3.218177083e-4, 1.459549974e-2 and
+        # 0.18152792886 (test_section_tprofile.py).
+        ("Ix", 1.245020833e-05),
+        ("Iy", 0.001183811946),
+        ("Iz", 9.079427083e-05),
         ("Iyz", 0.0),
-        ("Wxmin", 7.713333333e-5),
-        ("Wymin", 0.001639733333),
-        ("Wzmin", 0.0002669666667),
-        ("Shary", 0.005221841891),
-        # TODO: Fix Sy calculation
-        # ("Sharz", 0.003556905278),
-        # ("Sy", 0.000922),
-        ("Sz", 0.0002045),
+        ("Wxmin", 0.0003112552083),
+        ("Wymin", 0.002641734099),
+        ("Wzmin", 0.0006052951389),
+        ("Shary", 0.007297749869),
+        # GeniE 2.51013599e-3 and 1.17903166e-2; adapy is -1.3e-8 and +3.4e-8 from those, so the
+        # 10-digit comparison takes adapy's own digits (before #437: 7.8921e-3 and 3.75e-3)
+        ("Sy", 0.002510135958),
+        ("Sharz", 0.01179031700),
+        ("Sz", 0.00049765625),
         ("Shceny", 0.0),
-        ("Shcenz", 0.0),
+        ("Shcenz", 0.18188073394),
     ]
-    print(sec, assertions)
-    # eval_assertions(sec, assertions)
+    eval_assertions(sec, assertions)
 
 
 def test_tubular():
@@ -136,18 +143,18 @@ def test_angular():
 
     assertions = [
         ("Ax", 0.00229375),
-        ("Ix", 1.4329e-07),
+        ("Ix", 1.159557642e-07),  # Roark L-section (main: sum b t^3 / 3 = 1.4329e-7)
         ("Iy", 7.363586836e-06),
         ("Iz", 1.5937759e-07),
         ("Iyz", -5.432998978e-07),
-        # ("Wxmin", 5.870944237e-06),
-        # ("Wymin", 6.865967864e-05),
+        ("Wxmin", 5.870944237e-06),  # Ix / d, d the circle inscribed in the corner
+        ("Wymin", 6.865967864e-05),  # Iy / (h - z) at the centroid z (main: 3.7284e-4)
         ("Wzmin", 6.075468764e-06),
         ("Shary", 0.0004631933599),
-        # ("Sharz", 0.001280395431),
+        ("Sharz", 0.001280395431),  # Iy tw / Sy (main: Iy tf / Sy = 6.0532e-4)
         ("Shceny", -0.003767029973),
         # ("Shcenz", -0.0628773842),
-        # ("Sy", 5.751025548e-05),
+        ("Sy", 5.751025548e-05),  # tw (h - z)^2 / 2 at the centroid z (main: 2.4025e-4)
         ("Sz", 6.795666075e-06),
     ]
 
@@ -204,12 +211,14 @@ def test_circular():
         # ("Wxmin",),
         ("Wymin", 7.8539816e-4),
         ("Wzmin", 7.8539816e-4),
-        # ("Shary",),
-        # ("Sharz",),
-        # ("Shceny",),
-        # ("Shcenz",),
-        # ("Sy",),
-        # ("Sz",),
+        # Solid round r = 0.1: Sy = 2 r^3 / 3, Shary = Iz 2r / Sy = 3/4 pi r^2, as GeniE writes it
+        # (main used a tube of wall 0.99 r: Shary 0.02332635, 1.0 % low)
+        ("Shary", 0.75 * 3.141592653589793 * 0.1**2),
+        ("Sharz", 0.75 * 3.141592653589793 * 0.1**2),
+        ("Shceny", 0.0),
+        ("Shcenz", 0.0),
+        ("Sy", 2 * 0.1**3 / 3),
+        ("Sz", 2 * 0.1**3 / 3),
     ]
 
     eval_assertions(sec, assertions)

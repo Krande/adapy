@@ -83,12 +83,28 @@ class ElementBlock:
     # (the array-substrate convention), so consumers skip the id->index remap. Default
     # False keeps the historical id-based convention (object/SIF producers).
     node_refs_are_indices: bool = False
+    # The element numbers a person reads, when they are not ``identifiers``. A Sesam
+    # deck numbers every element twice: the internal number (``identifiers``), which
+    # every other record of the file refers to, and the external one the user gave it,
+    # which GeniE and Xtract show. ``None`` when the two are the same.
+    labels: np.ndarray | None = None
+
+    def shown_ids(self) -> np.ndarray:
+        """The element numbers to show people: ``labels`` when set, else ``identifiers``."""
+        return self.identifiers if self.labels is None else self.labels
 
 
 @dataclass
 class FemNodes:
     coords: np.ndarray
     identifiers: np.ndarray
+    # The node numbers a person reads, when they are not ``identifiers`` (see
+    # ``ElementBlock.labels``). ``None`` when the two are the same.
+    labels: np.ndarray | None = None
+
+    def shown_ids(self) -> np.ndarray:
+        """The node numbers to show people: ``labels`` when set, else ``identifiers``."""
+        return self.identifiers if self.labels is None else self.labels
 
     def get_node_by_id(self, node_id: int | list[int]) -> list[Node]:
         from typing import Iterable
@@ -198,6 +214,30 @@ class Mesh:
     # profile is drawn centred on the element axis, floating beside the plate it is
     # welded to. None for readers that carry no eccentricity concept.
     eccentricities: dict[int, list] = None
+
+    def node_label_map(self) -> dict[int, int] | None:
+        """``{node id: number shown to people}``, or ``None`` when every node shows its id.
+
+        Node ids (``nodes.identifiers``) are what elements, sets and results refer to; a
+        Sesam deck whose external node numbers differ from its internal ones shows the
+        external numbers instead. See ``ElementBlock.labels``.
+        """
+        if self.nodes.labels is None:
+            return None
+        return {int(i): int(x) for i, x in zip(self.nodes.identifiers, self.nodes.labels)}
+
+    def element_label_map(self) -> dict[int, int] | None:
+        """``{element id: number shown to people}``, or ``None`` when every element shows its id."""
+        if all(block.labels is None for block in self.elements):
+            return None
+        out: dict[int, int] = {}
+        for block in self.elements:
+            out.update(
+                zip(
+                    np.asarray(block.identifiers, dtype=int).tolist(), np.asarray(block.shown_ids(), dtype=int).tolist()
+                )
+            )
+        return out
 
     def get_elem_by_id(self, elem_id: int) -> Elem:
         from ada.base.types import GeomRepr
@@ -329,7 +369,8 @@ class Mesh:
             if use_solid_beams and isinstance(el_type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                 continue
 
-            el_idmap = {i: x for i, x in enumerate(cell_block.identifiers)}
+            # Named by the number people read (see ElementBlock.labels).
+            el_idmap = {i: x for i, x in enumerate(cell_block.shown_ids())}
 
             for elem_ref, elem in enumerate(nodes_copy, start=0):
                 elem_id = el_idmap[elem_ref]
@@ -359,8 +400,11 @@ class Mesh:
 
         report_unrenderable(unrenderable)
 
+        node_shown = self.node_label_map() or {}
         for i, n in enumerate(sorted(self.nodes.identifiers)):
-            node = graph.add_node(GraphNode(f"P{int(n)}", graph.next_node_id(), parent=points_node))
+            node = graph.add_node(
+                GraphNode(f"P{node_shown.get(int(n), int(n))}", graph.next_node_id(), parent=points_node)
+            )
             po_groups.append(GroupReference(node, i, 1))
 
         edges_mesh = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
@@ -465,6 +509,10 @@ class FEAResult:
     # Populated by solver readers when available (e.g. Calculix .dat,
     # Code_Aster NORM_MODE table); surfaced through get_eig_summary.
     eigen_mode_data: EigenDataSummary | None = None
+    # What the steps ARE, when the reader knows: "transient" for a time history (explicit
+    # dynamics frames -- the viewer opens on the last state and plays through time),
+    # "static" / "eigen" otherwise. None leaves the bake's step-value heuristic to decide.
+    analysis_kind: Literal["static", "eigen", "transient"] | None = None
 
     def __post_init__(self):
         if self.results is None:

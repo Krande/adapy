@@ -1,11 +1,9 @@
 import {create} from "zustand";
 
-// Visibility for the external-models panel in the menu bar.
-//
-// Deliberately NOT persisted. The panel's contents depend on the current
-// scope's binding, which an admin can change or remove at any time; restoring
-// it open across reloads would reopen a panel that may now have nothing behind
-// it. The button is one click.
+// DEPRECATED. Visibility for the external-models panel, which is gone -- the
+// tree view's Sources tab browses and loads every provider's models now. Kept
+// only because `@/viewer-core/scene` exports it (1.1.0) and a shell built
+// against that must still resolve it; nothing in core reads it.
 
 interface ExternalModelsState {
     visible: boolean;

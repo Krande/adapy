@@ -1,0 +1,295 @@
+"""Torsion constant, section moduli and shear centre (GBEAMG IX, WXMIN, WYMIN, WZMIN, SHCENY,
+SHCENZ) of the parametric sections.
+
+The Sesam Input Interface File description (89-7012, GBEAMG) defines IX as the torsional
+moment of inertia and WXMIN as the minimum torsional section modulus, both about the shear
+centre (WXMIN = IX / rmax for a pipe), WYMIN = IY / zmax, WZMIN = IZ / ymax, and SHCENY/SHCENZ
+as the y and z components of the shear centre location. It gives no formula and no origin; the
+GeniE values below put the shear centre relative to the centroid (an angle's SHCENZ is the leg
+intersection minus the centroid height: L200x100x10x14, 0.007 - 0.064055 = -0.057055).
+
+GeniE (the preprocessor that normally writes GBEAMG for Sestra) is the primary reference:
+``genie_v8_13_torsion.js`` adds the cases ``genie_v8_13_shear_areas*.js`` lacks (angles with
+the web thicker than the flange, a wide and a square bar, an equal-wall box, a box with webs
+thicker than the flanges, a second equal-thickness channel, TG650x300x25x40, and IPE300 and a
+channel with root radii). What GeniE V8.13-02 writes, reconstructed exactly (to < 2e-7):
+
+* Box: Bredt, IX = 4 Am^2 / (hb/tb + hb/tt + 2 ha/ty), Am = ha hb, ha = h - (tb + tt)/2,
+  hb = b - ty; WXMIN = IX (ha + hb) / (ha hb).
+* Angle: Roark's L-section formula with no root radius, IX = K1 + K2 + alpha D^4, the thicker
+  leg (a, b) running through the corner and the other (c, d) ending at it,
+  K1 = a b^3 (1/3 - 0.21 (b/a)(1 - b^4/(12 a^4))), K2 = c d^3 (1/3 - 0.105 (d/c)(1 - d^4/(192
+  c^4))), alpha = 0.07 d/b, D = 2 (b + d - sqrt(2 b d)) the diameter of the circle inscribed in
+  the corner; WXMIN = IX / D. Shear centre at the leg intersection, (tw/2, tf/2) from the heel.
+* Flat bar b x t (b >= t), n = b/t: IX = (1 - 0.63/n + 0.052/n^5)/3 b t^3, WXMIN = IX/(1 -
+  0.63/(1 + n^3)) / t; a square bar 0.141 a^4 and 0.208 a^3.
+* Channel: WXMIN = IX / max(tw, tf); shear centre from the web's centreline e = b'^2 h'^2 tf /
+  (4 Iy), b' = b - tw/2, h' = h - tf.
+* I, T, pipe, solid round: what adapy already wrote.
+
+Measured on upstream main (e1e4381be), relative to GeniE: box IX and WXMIN -9.4 % (BOX
+400x300x12x20) and -10.0 % (flanges 20/30): the web thickness used for the top flange; angle IX
+and WXMIN +2.3 % to +8.2 % (sum b t^3 / 3); angle SHCENZ +4.907e-2 for -5.706e-2 and WYMIN
+x9.7, from a centroid height with a sign error; flat bar IX x58 and WXMIN x3.1; channel with
+tw = tf: WXMIN x500 (IX / IY) and SHCENY -1.674e-2 for -4.343e-2 (a misplaced bracket made the
+web-to-shear-centre term 1e-11 m); an angle with the web thicker than the flange raised
+ValueError, so ``ada.from_fem`` of ``genie_v8_13_torsion_T1.FEM`` failed.
+
+Independent references, at the end of this module: closed forms (Bredt, Roark's rectangle
+series, the thin-walled channel shear centre, the leg intersection) and, in the docstrings, a
+warping-function finite-element solution (sectionproperties 3.10.2, meshes of t^2/16 and
+t^2/64, J converged to < 1e-3).
+
+Tolerance: as in ``test_section_shear_areas.py`` -- GeniE stores the profile dimensions in
+single precision, so everything adapy recomputes from them differs by up to ~2e-7 relative;
+``REL = 1e-6``. Shear centres of symmetric sections, which GeniE writes as 0 or +-3e-17, are
+compared with ``ATOL = 1e-12`` m.
+"""
+
+from __future__ import annotations
+
+import pathlib
+
+import numpy as np
+import pytest
+
+import ada
+from ada.sections.properties import calculate_general_properties
+
+REL = 1e-6
+ATOL = 1e-12
+REF_DIR = pathlib.Path(__file__).resolve().parents[3] / "files/fem_files/sesam/section_props"
+GENIE_FEMS = (
+    REF_DIR / "genie_v8_13_shear_areas_T1.FEM",
+    REF_DIR / "genie_v8_13_shear_areas_edge_T1.FEM",
+    REF_DIR / "genie_v8_13_torsion_T1.FEM",
+)
+FIELDS = ("Ix", "Wxmin", "Wymin", "Wzmin", "Shceny", "Shcenz")
+
+# Section name in the GeniE models -> what it exercises
+GENIE_SECTIONS = {
+    "S01_IPE300": "doubly symmetric I (IPE300 without root radius)",
+    "S02_UNSI": "asymmetric I, flanges 200x16 top, 300x20 bottom",
+    "S03_TEE": "T: unsymmetrical I with the bottom flange as wide as the web",
+    "S04_BOX": "box 400x300, web 12, flanges 20",
+    "S05_BOXU": "box with unequal flanges, top 20, bottom 30",
+    "S06_PIPE": "pipe D500 t20",
+    "S07_ANG": "unequal angle 200x100, web 10, flange 14",
+    "S08_ANGEQ": "equal angle 150x150x12",
+    "S09_CHAN": "channel 300x100, web 7.1, flange 11",
+    "S10_BAR": "flat bar 200x50",
+    "S11_ROD": "solid round D100 (GPIPE with DI = 0, read as a tube of wall r)",
+    "S12_IEQ": "I with web and flanges all 10 mm thick",
+    "S13_CHEQ": "channel with web and flanges both 8 mm thick",
+    "E1_TEETHICK": "T 100 high, flange 300x50 on a 5 mm web",
+    "E2_ANGFLNA": "angle 60x300, web 5, flange 40",
+    "T02_ANGTW": "angle 200x100, web 14 thicker than the flange 10",
+    "T03_ANGTW2": "angle 100x200, web 16, flange 8",
+    "T04_ANGSM": "equal angle 100x100x10",
+    "T05_BARWIDE": "flat bar 50 high, 200 wide",
+    "T06_BARSQ": "square bar 100x100",
+    "T07_BOXEQ": "box 300x200, all walls 10",
+    "T08_BOXTW": "box 300x500, webs 30, bottom 15, top 10",
+    "T10_CHEQ2": "channel 300x90, web and flanges 10",
+    "T11_TG650": "unsymmetrical I 650 whose bottom flange is a 25 x 40 stub as wide as the web",
+}
+
+
+class _GenieSections(dict):
+    """Section name -> section, each FEM read on first use (``S``/``E`` names from the shear-area
+    files, ``T`` names from the torsion file), so a file adapy cannot read fails its own cases only."""
+
+    def __missing__(self, name):
+        fem = GENIE_FEMS[2] if name.startswith("T") else GENIE_FEMS[1] if name.startswith("E") else GENIE_FEMS[0]
+        a = ada.from_fem(fem)
+        self.update({s.name: s for p in a.get_all_parts_in_assembly(include_self=True) for s in p.sections})
+        return self[name] if name in self else None
+
+
+@pytest.fixture(scope="module")
+def genie_sections() -> dict[str, ada.Section]:
+    return _GenieSections()
+
+
+def _params():
+    for name in GENIE_SECTIONS:
+        for field in FIELDS:
+            yield pytest.param(name, field, id=f"{name}-{field}")
+
+
+@pytest.mark.parametrize("name, field", list(_params()))
+def test_torsion_and_shear_centre_match_genie(genie_sections, name, field):
+    """adapy's own value, from the profile record alone, equals GeniE's GBEAMG."""
+    sec = genie_sections[name]
+    c, r = getattr(calculate_general_properties(sec), field), getattr(sec.properties, field)
+    assert np.isclose(c, r, rtol=REL, atol=ATOL), f"{field}: adapy {c:.6e} GeniE {r:.6e}"
+
+
+def test_the_genie_files_hold_every_section(genie_sections):
+    """The parametrisation above silently covers nothing if a profile is not read back."""
+    assert all(genie_sections[name] is not None for name in GENIE_SECTIONS)
+
+
+def test_reference_file_is_genie_output():
+    head = GENIE_FEMS[2].read_text().splitlines()[3]
+    assert "SESAM GeniE" in head and "V8.13-02" in head
+
+
+def test_tg_string_matches_genie():
+    """``TG650x300x25x40`` against GeniE's own T of the same size (M1_TG650: GeniE's T library
+    encoding, the absent flange 0.001 mm thick). Tolerance as in ``test_section_tprofile.py``:
+    GeniE's web is 0.001 mm shorter, which moves Ix and Wxmin by up to 3e-6. GeniE's T11_TG650, an
+    unsymmetrical I with a 40 mm stub, is not a T: its Ix is 3.4 % higher (the stub as a flange)."""
+    a = ada.from_fem(REF_DIR / "genie_v8_13_review437_T1.FEM")
+    genie = {s.name: s for p in a.get_all_parts_in_assembly(include_self=True) for s in p.sections}
+    p, g = calculate_general_properties(ada.Section("TG", from_str="TG650x300x25x40")), genie["M1_TG650"].properties
+    for field in ("Ax", "Iy", "Iz") + FIELDS:
+        c, r = getattr(p, field), getattr(g, field)
+        assert np.isclose(c, r, rtol=1e-5, atol=ATOL), f"{field}: adapy {c:.6e} GeniE {r:.6e}"
+
+
+# --- independent of GeniE --------------------------------------------------------------------
+
+
+def _box(h, b, tw, tb, tt):
+    return ada.Section("B", sec_type="BG", h=h, w_top=b, w_btn=b, t_w=tw, t_fbtn=tb, t_ftop=tt)
+
+
+@pytest.mark.parametrize("h, b, tw, tb, tt", [(0.4, 0.3, 0.012, 0.03, 0.02), (0.3, 0.5, 0.03, 0.015, 0.01)])
+def test_box_torsion_is_bredt(h, b, tw, tb, tt):
+    """Bredt for a single cell, J = 4 Am^2 / (closed integral of ds / t), every wall at its own
+    thickness. Main used the web thickness for the top flange: 4.8549e-4 for Bredt's 5.3938e-4
+    (-10.0 %) and 1.1038e-3 for 7.4908e-4 (+47 %). Warping FE (sectionproperties) of the solid
+    walls: 5.5729e-4 and 7.7529e-4, 3.3 % and 3.5 % above thin-walled Bredt."""
+    ha, hb = h - (tb + tt) / 2, b - tw
+    bredt = 4 * (ha * hb) ** 2 / (hb / tb + hb / tt + 2 * ha / tw)
+    assert np.isclose(calculate_general_properties(_box(h, b, tw, tb, tt)).Ix, bredt, rtol=1e-12)
+
+
+def test_an_angle_with_its_web_thicker_than_its_flange_is_calculated():
+    """Main raised ValueError("Currently not implemented this yet") for tw > tf, which made
+    ``ada.from_fem`` fail on any Sesam file holding such an angle (GeniE writes them)."""
+    sec = ada.Section("L", sec_type="L", h=0.2, w_btn=0.1, w_top=0.1, t_w=0.014, t_fbtn=0.01, t_ftop=0.01)
+    assert calculate_general_properties(sec).Ix > 0
+
+
+@pytest.mark.parametrize("dims", [(0.1, 0.1, 0.01, 0.1), (0.2, 0.01, 0.01, 0.014)], ids=["no-web", "no-flange"])
+def test_an_angle_without_a_second_leg_is_refused_by_name(dims):
+    """A section with no second leg -- what ``L100x100x10`` was parsed as (a 100 mm thick L100, a
+    square) until the parser learned ``L<h>x<b>x<t>``. Main computed numbers for it; Roark's formula
+    divided by the absent leg's length and raised ZeroDivisionError from inside whatever writer
+    asked for the properties."""
+    h, b, tw, tf = dims
+    sec = ada.Section("Lbad", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    with pytest.raises(ValueError, match='"Lbad" is not an angle'):
+        calculate_general_properties(sec)
+
+
+def test_from_fem_reads_a_file_holding_an_angle_with_its_web_thicker_than_its_flange():
+    """The Sesam reader recomputes every angle's properties (for Cy/Cz), so the ValueError above
+    used to lose the whole model. ``ada.from_fem`` of GeniE's file now returns it, T02_ANGTW (GLSEC
+    200 x 100, web 14, flange 10) with GeniE's GBEAMG -- Ax 3.66e-3, Iy 1.52783e-5, Iz 2.22059e-6,
+    Sy 1.04739e-4, Sz 3.30089e-5, Shary 6.72724e-4, Sharz 2.04217e-3, as an independent GeniE
+    V8.13-02 run of the same LSection also wrote them -- and adapy's own calculation of it agrees."""
+    a = ada.from_fem(GENIE_FEMS[2])
+    (sec,) = [s for p in a.get_all_parts_in_assembly(include_self=True) for s in p.sections if s.name == "T02_ANGTW"]
+    assert sec.type == sec.TYPES.ANGULAR and (sec.h, sec.t_w, sec.w_btn, sec.t_fbtn) == pytest.approx(
+        (0.2, 0.014, 0.1, 0.01), rel=1e-7
+    )
+    genie = dict(Ax=3.66e-3, Iy=1.52783e-5, Iz=2.22059e-6, Sy=1.04739e-4, Sz=3.30089e-5, Shary=6.72724e-4)
+    genie["Sharz"] = 2.04217e-3
+    calc = calculate_general_properties(sec)
+    for field, value in genie.items():
+        assert np.isclose(getattr(sec.properties, field), value, rtol=5e-6), field  # GeniE, 6 digits
+        assert np.isclose(getattr(calc, field), getattr(sec.properties, field), rtol=REL), field
+
+
+@pytest.mark.parametrize(
+    "h, b, tw, tf", [(0.2, 0.1, 0.01, 0.014), (0.15, 0.15, 0.012, 0.012), (0.18, 0.035, 0.01, 0.01975)]
+)
+def test_angle_shear_centre_is_the_leg_intersection(h, b, tw, tf):
+    """Thin-walled angle: both legs' shear flows pass through the intersection of their
+    midlines, (tw/2, tf/2) from the heel; SHCENY/SHCENZ are that point minus the centroid, and
+    WYMIN is Iy over the larger of the centroid's distances to the heel and to the web tip.
+    Main put the centroid height at -0.04207 for L200x100x10x14 (centroid 0.06406), so SHCENZ
+    came out +4.907e-2 for -5.706e-2. Warping FE (sectionproperties) of the solid L: -5.607e-2,
+    1.7 % from the thin-walled point."""
+    sec = ada.Section("L", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    web, flange = tw * (h - tf), b * tf
+    cy = (web * tw / 2 + flange * b / 2) / (web + flange)
+    cz = (web * (tf + (h - tf) / 2) + flange * tf / 2) / (web + flange)
+    p = calculate_general_properties(sec)
+    assert np.isclose(p.Shceny, tw / 2 - cy, rtol=1e-12)
+    assert np.isclose(p.Shcenz, tf / 2 - cz, rtol=1e-12)
+    assert np.isclose(p.Wymin, p.Iy / max(cz, h - cz), rtol=1e-12)
+
+
+# h, b, tw, tf -> J of the solid L from a warping-function FE solution (sectionproperties 3.10.2,
+# triangles of area t_min^2 / 64; t_min^2 / 16 differs by < 1e-3)
+ANGLE_FE_J = {
+    (0.2, 0.1, 0.01, 0.014): 1.47027e-07,
+    (0.15, 0.15, 0.012, 0.012): 1.63081e-07,
+    (0.06, 0.3, 0.005, 0.04): 5.86358e-06,
+    (0.2, 0.1, 0.014, 0.01): 2.05156e-07,
+    (0.1, 0.2, 0.016, 0.008): 1.55296e-07,
+    (0.1, 0.1, 0.01, 0.01): 6.19792e-08,
+}
+
+
+@pytest.mark.parametrize("dims", list(ANGLE_FE_J), ids=[f"L{h}x{b}x{tw}x{tf}" for h, b, tw, tf in ANGLE_FE_J])
+def test_angle_torsion_constant_against_warping_fe(dims):
+    """Roark's L-section formula is within 0.93 % of the FE J for these six angles (largest:
+    60x300x5x40); 1 % is that measured spread. Main's sum of b t^3 / 3 was +0.96 % to +9.2 %
+    off (+4.4 % for L200x100x10x14)."""
+    h, b, tw, tf = dims
+    sec = ada.Section("L", sec_type="L", h=h, w_btn=b, w_top=b, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    assert np.isclose(calculate_general_properties(sec).Ix, ANGLE_FE_J[dims], rtol=0.01)
+
+
+@pytest.mark.parametrize(
+    "h, w, fe_j, fe_w", [(0.2, 0.05, 7.02033e-06, 1.40833e-04), (0.05, 0.2, 7.02033e-06, 1.40833e-04)]
+)
+def test_flat_bar_torsion_against_roark_and_warping_fe(h, w, fe_j, fe_w):
+    """Rectangle b x t, b >= t: Roark's J = b t^3 (1/3 - 0.21 (t/b)(1 - t^4/(12 b^4))) =
+    7.02117e-6 for 200x50; warping FE (sectionproperties) J 7.02033e-6 and T / max|tau| =
+    1.40833e-4. adapy (GeniE's series) writes 7.02126e-6 and 1.41799e-4: 1.3e-4 and 6.9e-3 from
+    FE, hence 1e-3 and 1e-2. Main wrote 4.0936e-4 and 4.3995e-4 (x58, x3.1): a width
+    2 w h^2 / (h^2 + A^2) that only equals w for a 1 m square, the series multiplied by 3
+    instead of divided, and t^3 in the modulus. Either orientation gives the same."""
+    b, t = max(h, w), min(h, w)
+    roark = b * t**3 * (1 / 3 - 0.21 * (t / b) * (1 - t**4 / (12 * b**4)))
+    p = calculate_general_properties(ada.Section("FB", sec_type="FB", h=h, w_btn=w, w_top=w))
+    assert np.isclose(p.Ix, roark, rtol=1e-4)
+    assert np.isclose(p.Ix, fe_j, rtol=1e-3)
+    assert np.isclose(p.Wxmin, fe_w, rtol=1e-2)
+
+
+@pytest.mark.parametrize("tw, tf", [(0.008, 0.008), (0.0071, 0.011)])
+def test_channel_torsional_modulus_is_ix_over_the_thickest_wall(tw, tf):
+    """Open thin-walled section: max shear stress T t_max / J, so WXMIN = J / t_max -- the form
+    adapy already used for tw != tf. For tw = tf main divided by Iy (a length^-1 off: 3.4569e-3
+    for GeniE's 6.8949e-6 on 200x80x8)."""
+    sec = ada.Section("C", sec_type="UNP", h=0.2, w_btn=0.08, w_top=0.08, t_w=tw, t_fbtn=tf, t_ftop=tf)
+    p = calculate_general_properties(sec)
+    assert np.isclose(p.Wxmin, p.Ix / max(tw, tf), rtol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "h, b, t, fe",
+    [(0.2, 0.08, 0.008, -4.32435e-02), (0.3, 0.09, 0.01, -4.25060e-02)],
+)
+def test_channel_shear_centre_against_thin_walled_closed_form_and_warping_fe(h, b, t, fe):
+    """Thin-walled channel, web and flanges of thickness t: shear centre e = 3 b'^2 / (6 b' + h')
+    outside the web's centreline (b' = b - t/2, h' = h - t); SHCENY is that point minus the
+    centroid. 200x80x8: e = 2.6741e-2, SHCENY -4.3485e-2; adapy (and GeniE), with the exact Iy in
+    b'^2 h'^2 t / (4 Iy), -4.3433e-2; warping FE (sectionproperties) -4.3244e-2. Measured
+    spread among the three 0.56 %, hence 1 %. Main wrote -1.6744e-2, the centroid-to-web
+    distance alone: the bracket in t / 4 * Iy made the e term 1e-11 m."""
+    sec = ada.Section("C", sec_type="UNP", h=h, w_btn=b, w_top=b, t_w=t, t_fbtn=t, t_ftop=t)
+    bp, hp = b - t / 2, h - t
+    web, flange = t * (h - 2 * t), b * t
+    cy = (web * t / 2 + 2 * flange * b / 2) / (web + 2 * flange)
+    thin = t / 2 - 3 * bp**2 / (6 * bp + hp) - cy
+    p = calculate_general_properties(sec)
+    assert np.isclose(p.Shceny, thin, rtol=0.01)
+    assert np.isclose(p.Shceny, fe, rtol=0.01)

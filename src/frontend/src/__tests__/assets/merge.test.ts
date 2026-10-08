@@ -182,3 +182,21 @@ test("an empty level is a no-op", () => {
   const forest = mergeLevel(EMPTY_FOREST, [node("B1", "A")], { subject: AREA, revision: R1, parent: "A" });
   assert.equal(mergeLevel(forest, [], { subject: AREA, revision: R2, parent: "B1" }), forest);
 });
+
+test("namedBy records every provider whose tree names a row, not just the last merged", () => {
+  const by = (provider: string) => (id: string, parent: string | null): AssetNode => ({ ...node(id, parent), provider });
+  // Two providers, one collection index each: one names A and B, the other A and X.
+  let forest = mergeSpine(EMPTY_FOREST, [by("first")("A", null), by("first")("B", "A")], { subject: "coll", revision: R1, root: null });
+  forest = mergeSpine(forest, [by("second")("A", null), by("second")("X", "A")], { subject: "coll", revision: R2, root: null });
+  assert.deepEqual([...(forest.namedBy.get("A") ?? [])].sort(), ["first", "second"]);
+  assert.deepEqual([...(forest.namedBy.get("B") ?? [])], ["first"], "the second provider's tree does not name B");
+  assert.deepEqual([...(forest.namedBy.get("X") ?? [])], ["second"]);
+  assert.equal(forest.nodes.get("A")?.provider, "second", "the row itself still reads as the last merged");
+});
+
+test("a pruned row is forgotten by namedBy too", () => {
+  let forest = mergeSpine(EMPTY_FOREST, chain, { subject: AREA, revision: R1, root: "A" });
+  assert.ok(forest.namedBy.get("C")?.has("fixture-lines"));
+  forest = mergeSpine(forest, [node("A", null), node("B", "A")], { subject: AREA, revision: R2, root: "A" });
+  assert.equal(forest.namedBy.get("C"), undefined);
+});

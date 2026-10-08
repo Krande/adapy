@@ -117,6 +117,8 @@ export interface AssetViewInput {
 export interface AssetView {
   readonly collection: string;
   readonly hierarchy: Hierarchy<AssetNode>;
+  /** node id -> every provider whose published tree names it (`Forest.namedBy`). */
+  readonly namedBy: ReadonlyMap<string, ReadonlySet<string>>;
   readonly resolution: Resolution;
   readonly summary: ResolutionSummary;
   readonly coverage: CoverageResult;
@@ -333,6 +335,7 @@ export function buildAssetView(input: AssetViewInput): AssetView {
   return {
     collection,
     hierarchy,
+    namedBy: forest.namedBy,
     resolution,
     // The collection subject is re-stamped by every publish; counting it would
     // make every leaf-only publish read as `mixed` against the index.

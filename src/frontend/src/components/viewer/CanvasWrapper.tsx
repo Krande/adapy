@@ -26,7 +26,9 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
   return (
     <div className="relative w-full h-full">
       {legend && (
-        <div className="absolute right-5 top-80 z-10">
+        // Phones: top-right corner, clear of the left-hand control column and the
+        // bottom-right orientation gizmo. Desktop keeps its old place.
+        <div className="absolute right-2 top-2 z-10 sm:right-5 sm:top-80">
           <ColorLegend />
         </div>
       )}
