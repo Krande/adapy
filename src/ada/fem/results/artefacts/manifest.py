@@ -148,6 +148,7 @@ def build_manifest(
     legacy_glb_url_template: str | None = None,
     baked_steps: list[int | float] | None = None,
     baked_steps_hint: str | None = None,
+    combination_steps: list[dict] | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
 
@@ -178,7 +179,14 @@ def build_manifest(
     ``baked_steps_hint`` (optional, with ``baked_steps`` only): what the
     producer of the bake says to do to get the other steps baked, written as
     ``baked_steps_hint``; the viewer shows it where it says a step is not
-    baked."""
+    baked.
+
+    ``combination_steps`` (optional): the load combinations this bake did NOT
+    bake and a server or client can materialise on request (entries from
+    :func:`~.combine.combination_entry`). Written with a ``lazy_cases`` block
+    saying so. Every field that a combination can be superposed for also gets
+    ``linear_components`` / ``derived_components`` (see
+    :func:`~.combine.classify_fields`), whether or not the bake has any."""
 
     n_cells = sum(int(cb.data.shape[0]) for cb in mesh_geom.cell_blocks)
     fields_payload = []
@@ -371,6 +379,17 @@ def build_manifest(
             }
         )
 
+    # Which components superpose and how the others are re-derived -- what a lazy
+    # combination (or any other linear combination of steps) needs to know.
+    from .combine import classify_fields
+
+    classes = classify_fields(fields_payload)
+    for field_payload in fields_payload:
+        cls = classes.get(field_payload["name_canonical"])
+        if cls is not None:
+            field_payload["linear_components"] = cls["linear_components"]
+            field_payload["derived_components"] = cls["derived_components"]
+
     mesh_meta: dict = {
         "url": mesh_glb_filename,
         "n_points": int(mesh_geom.points.shape[0]),
@@ -478,6 +497,19 @@ def build_manifest(
         manifest["baked_steps"] = list(baked_steps)
         if baked_steps_hint:
             manifest["baked_steps_hint"] = str(baked_steps_hint)
+    # The combinations left out of the bake, to be materialised on request. The
+    # fields' steps stay the stored cases, so a viewer that predates this sees a
+    # partial bake (``baked_steps``) and says so, as it always did.
+    if combination_steps:
+        from .combine import CASES_PREFIX, LAZY_CASES_VERSION
+
+        manifest["combination_steps"] = list(combination_steps)
+        manifest["lazy_cases"] = {
+            "version": LAZY_CASES_VERSION,
+            "server": True,
+            "client_tier_a": any(not c.get("needs_raw") for c in combination_steps),
+            "cases_prefix": CASES_PREFIX,
+        }
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
 

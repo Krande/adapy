@@ -144,6 +144,65 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None) -
     return FEAResultStreamAdapter(read_sin_file(path))
 
 
+def _sin_lazy_base_steps(path: pathlib.Path) -> "list[int] | None":
+    """The stored cases of a SIN whose load combinations are not stored, else None.
+
+    Cheap: each RV* record's first word and the RDRESCMB recipes -- no result
+    value is read. ``None`` when there is nothing to leave out (no combination,
+    or every one stored) or no stored case to superpose from.
+    """
+    from ada.fem.formats.sesam.results.read_sin import (
+        SinReader,
+        read_result_combination_terms,
+    )
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    with open_sin(str(path)) as sin:
+        combinations = read_result_combination_terms(sin)
+        if not combinations:
+            return None
+        stored = SinReader(sin=sin).stored_steps()
+    unstored = [n for n, recipe in combinations.items() if recipe and n not in stored]
+    if not stored or not unstored:
+        return None
+    return sorted(stored)
+
+
+_LazyPlanner = Callable[[pathlib.Path], "list[int | float] | None"]
+
+_LAZY_PLANNERS: dict[str, _LazyPlanner] = {".sin": _sin_lazy_base_steps}
+
+
+def register_lazy_case_planner(suffix: str, planner: _LazyPlanner) -> None:
+    """Register how a format tells which steps a lazy base bake holds.
+
+    ``planner(path)`` returns the steps to bake (the stored cases) when the source
+    defines cases that are linear combinations of them and does not store them,
+    else ``None`` (bake everything, as before)."""
+    _LAZY_PLANNERS[suffix] = planner
+
+
+def lazy_base_steps(src_path: os.PathLike) -> "list[int | float] | None":
+    """The steps of a lazy base bake of ``src_path``, or None for a whole bake.
+
+    A source that stores its basic load cases and defines its combinations as
+    recipes bakes the basic cases only; the combinations are materialised on
+    request from the baked strides (see :mod:`.combine`). A planner that fails
+    leaves the bake whole -- the old behaviour, never a broken bake.
+    """
+    src_path = pathlib.Path(src_path)
+    planner = _LAZY_PLANNERS.get(src_path.suffix.lower())
+    if planner is None:
+        return None
+    try:
+        return planner(src_path)
+    except Exception:  # noqa: BLE001 - advice; the reader proper reports a bad file
+        from ada.config import get_logger
+
+        get_logger().warning("lazy-case planning failed for %s; baking every case", src_path, exc_info=True)
+        return None
+
+
 def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
     """Stream-reader for a results-less FEM mesh (.inp / .fem).
 

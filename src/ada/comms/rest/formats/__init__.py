@@ -65,6 +65,10 @@ register(export_selection.ExportSelectionAssetHandler())
 register(utility.UtilityHandler())
 register(fea.FeaArtefactsHandler())
 register(fea.FeaMetaHandler())
+# Synthetic: a lazy load combination is superposed from the base bake in storage; the handler
+# fetches the source itself, and only for a recipe that needs the raw records.
+register(fea.FeaCaseHandler())
+register(fea.FeaEnvelopeHandler())
 register(parity.ParityHandler())
 register(clash_check.ClashCheckHandler())
 register(clash_detail.ClashDetailHandler())

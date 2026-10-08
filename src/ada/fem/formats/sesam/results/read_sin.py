@@ -1544,6 +1544,22 @@ class SinStreamReader:
 
         return selectable_result_cases(self.sin)
 
+    def try_combination_recipes(self):
+        """The deck's load combinations as recipes over its result cases.
+
+        ``{"recipes": {n: (complex, [(basic, factor, phase), ...])}, "complex_cases":
+        frozenset}`` -- terms in file order, phases in radians, the factors and
+        phases as the file's float32 words; ``complex_cases`` the result cases
+        whose records are complex (RDRESREF COMPLX). The bake lists the
+        combinations it leaves out so they can be materialised on request.
+        """
+        recipes = {
+            int(n): (bool(r.complex), [(int(b), float(f), float(p)) for b, f, p in r.terms])
+            for n, r in self._combinations.items()
+            if r
+        }
+        return {"recipes": recipes, "complex_cases": read_complex_result_cases(self.sin)}
+
 
 __all__ = [
     "CombinationRecipe",

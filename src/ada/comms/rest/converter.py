@@ -98,6 +98,8 @@ from .converters.keys import (  # noqa: F401
     derived_key_for,
     fea_artefact_manifest_key_for,
     fea_artefact_prefix_for,
+    fea_case_prefix_for,
+    fea_case_stale_reason,
     fea_manifest_stale_reason,
     fea_meta_key_for,
     is_derived_key,
