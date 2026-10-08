@@ -3,7 +3,7 @@ import os
 import pathlib
 
 from ada.fem.formats.abaqus.execute import run_abaqus
-from ada.fem.formats.abaqus.results.read_odb import read_odb_pckle_file
+from ada.fem.formats.abaqus.results.read_odb import read_odb
 from ada.fem.formats.abaqus.write.writer import to_fem as to_fem_abaqus
 from ada.fem.formats.fea_config import FrameworkConfig
 
@@ -78,4 +78,4 @@ class AbaqusPaths:
 class AbaqusSetup(FrameworkConfig):
     default_pre_processor = to_fem_abaqus
     default_executor = run_abaqus
-    default_post_processor = read_odb_pckle_file
+    default_post_processor = read_odb

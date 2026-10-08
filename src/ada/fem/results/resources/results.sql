@@ -1,103 +1,102 @@
-create table ElementConnectivity
-(
-    InstanceID INTEGER,
-    ElemID     INTEGER,
-    PointID    INTEGER,
-    Seq        INTEGER
+-- adapy FEA results SQLite schema.
+--
+-- Written by the ODB exporter (ada/fem/formats/abaqus/results/aba_io.py, run under
+-- `abaqus python`), which executes this file as-is. Read by
+-- ada.fem.formats.abaqus.results.sqlite_stream (the streaming bake) and
+-- ada.fem.formats.abaqus.results.read_odb.read_results_sqlite (FEAResult).
+-- It is public API (ada.fem.results.sqlite_schema.SCHEMA_PATH): any exporter that writes it
+-- gets adapy's readers for free.
+--
+-- RULES
+--   * Column ORDER is part of the contract: writers may insert positionally
+--     (`INSERT INTO "T" VALUES (?, ...)`). Append columns; never reorder or remove one.
+--   * Bump `user_version` (last line) on any change.
+--   * Every statement is idempotent (IF NOT EXISTS), so a writer can re-open a partly written
+--     file, e.g. to resume an export that crashed mid-step.
+--   * No indexes here: they would slow the bulk insert. Readers add the ones they need.
+--
+-- IDs start at 0. ModelInstances ID 0 is the root ASSEMBLY. Field data is blob-packed: one row
+-- per (instance, step, component, frame[, location, element type]) holding N little-endian
+-- float32 values, in the order of Points (by ID) or ElementInfo (by ID within Type) of that
+-- instance; element blobs are n_elements x NIPs.
+
+CREATE TABLE IF NOT EXISTS metadata (project TEXT, user TEXT, filename TEXT);
+
+CREATE TABLE IF NOT EXISTS "ModelInstances" (ID INTEGER, Name TEXT);
+
+CREATE TABLE IF NOT EXISTS "Points" (InstanceID INTEGER, ID INTEGER, X REAL, Y REAL, Z REAL);
+
+CREATE TABLE IF NOT EXISTS "ElementConnectivity" (InstanceID INTEGER, ElemID INTEGER, PointID INTEGER, Seq INTEGER);
+
+CREATE TABLE IF NOT EXISTS "ElementInfo" (InstanceID INTEGER, ElemID INTEGER, Type TEXT, IntPoints INTEGER);
+
+CREATE TABLE IF NOT EXISTS "ElementSets" (SetID INTEGER, Name TEXT, InstanceID INTEGER, ElemID INTEGER);
+
+CREATE TABLE IF NOT EXISTS "PointSets" (SetID INTEGER, Name TEXT, InstanceID INTEGER, PointID INTEGER);
+
+-- Procedure distinguishes static / dynamic / frequency / ... within the broader DomainType.
+CREATE TABLE IF NOT EXISTS "Steps" (ID INTEGER, Name TEXT, Description TEXT, DomainType TEXT, Procedure TEXT);
+
+-- One row per (step, frame). FieldNodes / FieldElem / HistOutput reference a frame by its REAL
+-- value (time / frequency); FrameID is the frame's index in the step, Increment its solver id.
+CREATE TABLE IF NOT EXISTS "Frames" (StepID INTEGER, FrameID INTEGER, Increment INTEGER, FrameValue REAL, Description TEXT);
+
+-- Linear-elastic + density properties of the materials sections reference.
+CREATE TABLE IF NOT EXISTS "Materials" (Name TEXT, Description TEXT, Density REAL, YoungsModulus REAL, PoissonRatio REAL);
+
+-- SubTypeId: the ODB API's section-subtype enum (shell / beam / solid / ...).
+CREATE TABLE IF NOT EXISTS "Sections" (Name TEXT, SubTypeId INTEGER, MaterialName TEXT, Thickness REAL, Profile TEXT);
+
+-- (instance, element set) -> section. Set membership lives in ElementSets.
+CREATE TABLE IF NOT EXISTS "SectionAssignments" (InstanceID INTEGER, SetName TEXT, SectionName TEXT, Offset REAL);
+
+-- Section points per (instance, element type, result position), e.g. TOP / BOT of a shell layer.
+-- FieldElem does not split by section point: where a field has several, the last one written
+-- fills the slot.
+CREATE TABLE IF NOT EXISTS "SectionPoints" (InstanceID INTEGER, ElemType TEXT, Position TEXT, PointNumber INTEGER, Description TEXT);
+
+-- Local coordinate systems of element sets. Kind: material / rebar / beam. Axis (1-3) + Angle
+-- (deg): the optional extra rotation about that axis.
+CREATE TABLE IF NOT EXISTS "MaterialOrientations" (
+    InstanceID INTEGER, SetName TEXT, Kind TEXT, CsysName TEXT, CsysType TEXT,
+    OriginX REAL, OriginY REAL, OriginZ REAL,
+    XAxisX REAL, XAxisY REAL, XAxisZ REAL,
+    YAxisX REAL, YAxisY REAL, YAxisZ REAL,
+    ZAxisX REAL, ZAxisY REAL, ZAxisZ REAL,
+    Axis INTEGER, Angle REAL
 );
 
-create table ElementInfo
-(
-    InstanceID INTEGER,
-    ElemID     INTEGER,
-    Type       TEXT,
-    IntPoints  INTEGER
+-- One row per (surface, element face).
+CREATE TABLE IF NOT EXISTS "Surfaces" (InstanceID INTEGER, Name TEXT, ElemLabel INTEGER, FaceId INTEGER);
+
+-- Inventory only: the read-side ODB API exposes no region / type / value for BCs and loads.
+CREATE TABLE IF NOT EXISTS "BoundaryConditions" (Name TEXT);
+
+CREATE TABLE IF NOT EXISTS "Loads" (Name TEXT);
+
+-- One row per component (U1, S11, ...) or history output (EIGFREQ, ...); Description is the
+-- owning field's ("Spatial displacement"), which groups components back into a field.
+CREATE TABLE IF NOT EXISTS "FieldVars" (FieldID INTEGER, Name TEXT, Description TEXT);
+
+-- One row per history sample. PointID / ElemID are -1 where the region has no node / element.
+CREATE TABLE IF NOT EXISTS "HistOutput" (
+    Region TEXT, ResType TEXT, InstanceID INTEGER, ElemID INTEGER, PointID INTEGER,
+    StepID INTEGER, FieldVarID INTEGER, Frame REAL, Value REAL
 );
 
-create table ElementSets
-(
-    SetID      INTEGER,
-    Name       TEXT,
-    InstanceID INTEGER,
-    ElemID     INTEGER
+-- IsImaginary: complex outputs (steady-state dynamics, ...) write a real (0) and an imaginary
+-- (1) row. "Data", not "Values": VALUES is reserved in SQLite.
+CREATE TABLE IF NOT EXISTS "FieldNodes" (
+    InstanceID INTEGER, StepID INTEGER, FieldVarID INTEGER, Frame REAL, IsImaginary INTEGER, Data BLOB
 );
 
-create table FieldElem
-(
-    InstanceID INTEGER,
-    ElemID     INTEGER,
-    StepID     INTEGER,
-    Location   TEXT,
-    IntPt      INTEGER,
-    FieldVarID INTEGER,
-    Frame      REAL,
-    Value      REAL
+-- Location: the result position (INTEGRATION_POINT, ELEMENT_NODAL, CENTROID, ...). Data is
+-- n_elements x NIPs, where NIPs is the integration points per element -- or, for ELEMENT_NODAL,
+-- the nodes per element, in connectivity order. NIPs is per row, so readers must not take it
+-- from ElementInfo.IntPoints.
+CREATE TABLE IF NOT EXISTS "FieldElem" (
+    InstanceID INTEGER, StepID INTEGER, FieldVarID INTEGER, Location TEXT, ElemType TEXT, NIPs INTEGER,
+    Frame REAL, IsImaginary INTEGER, Data BLOB
 );
 
-create table FieldNodes
-(
-    InstanceID INTEGER,
-    PointID    INTEGER,
-    StepID     INTEGER,
-    FieldVarID INTEGER,
-    Frame      REAL,
-    Value      REAL
-);
-
-create table FieldVars
-(
-    FieldID     INTEGER,
-    Name        TEXT,
-    Description TEXT
-);
-
-create table HistOutput
-(
-    Region     TEXT,
-    ResType    TEXT,
-    InstanceID INTEGER,
-    ElemID     INTEGER,
-    PointID    INTEGER,
-    StepID     INTEGER,
-    FieldVarID INTEGER,
-    Frame      REAL,
-    Value      REAL
-);
-
-create table ModelInstances
-(
-    ID   INTEGER,
-    Name TEXT
-);
-
-create table PointSets
-(
-    SetID      INTEGER,
-    Name       TEXT,
-    InstanceID INTEGER,
-    PointID    INTEGER
-);
-
-create table Points
-(
-    InstanceID INTEGER,
-    ID         INTEGER,
-    X          REAL,
-    Y          REAL,
-    Z          REAL
-);
-
-create table Steps
-(
-    ID          INTEGER,
-    Name        TEXT,
-    Description TEXT,
-    DomainType  TEXT
-);
-
-create table metadata
-(
-    project  TEXT,
-    user     TEXT,
-    filename TEXT
-);
+PRAGMA user_version = 1;

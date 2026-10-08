@@ -25,14 +25,12 @@ from ada.api.fem_tasks import (  # noqa: E402
 )
 from ada.config import logger  # noqa: E402
 from ada.fem.formats.abaqus.config import AbaqusSetup  # noqa: E402
-from ada.fem.formats.abaqus.post_processing import (  # noqa: E402
-    get_abaodb_exe,
-    post_processing_abaqus,
-)
+from ada.fem.formats.abaqus.post_processing import post_processing_abaqus  # noqa: E402
+from ada.fem.formats.abaqus.results.read_odb import odb_exporter_available  # noqa: E402
 
 
 def main(overwrite: bool = True, execute: bool = True, show: bool = False):
-    if get_abaodb_exe() is not None:
+    if odb_exporter_available():
         AbaqusSetup.set_default_post_processor(post_processing_abaqus)
 
     fea_format = "code_aster"

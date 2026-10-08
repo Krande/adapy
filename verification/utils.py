@@ -372,7 +372,7 @@ def mid_span_u3(result, length: float, width: float) -> float:
 
     from ada.fem.results.field_data import NodalFieldType
 
-    if hasattr(result, "to_fea_result"):  # FEAResultV2 (Abaqus via abaodb) carries no mesh itself
+    if hasattr(result, "to_fea_result"):  # FEAResultV2 (Abaqus via the results SQLite) carries no mesh itself
         result = result.to_fea_result()
 
     coords = np.asarray(result.mesh.nodes.coords, dtype=float)
