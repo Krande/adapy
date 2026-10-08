@@ -24,10 +24,11 @@ buffer cap). Needs ``numpy``; the layout is random-access by design.
 from __future__ import annotations
 
 import mmap
+import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any, Iterator
+from typing import IO, Any, Iterator, Union
 
 from ada.fem.formats.sesam.results.byte_source import ByteSource, MmapSource
 
@@ -383,6 +384,131 @@ class TypeBlock:
         return self.nfield + (self.nfield & 1)
 
 
+#: Result tables (RVNODDIS, RVSTRESS, RVFORCES, ...) share this prefix; an entry
+#: listing one of them carries results.
+_RESULT_BLOCK_PREFIX = "RV"
+
+#: The records a superelement assembly's top level holds (Results Interface
+#: File 4.3.2): the hierarchy itself, each superelement's statistics, and the
+#: placement of each first-level repeat.
+_HIERARCHY_BLOCK = "HIERARCH"
+_TRANSFORM_BLOCK = "HSUPTRAN"
+
+
+class SuperElementError(ValueError):
+    """A superelement selection that names nothing this SIN can read.
+
+    The message lists every superelement in the file, with its element count
+    and whether it has results, so the caller can pick one of them.
+    ``alternatives`` holds the same rows as :class:`SuperElementInfo`.
+    """
+
+    def __init__(self, message: str, alternatives: "tuple[SuperElementInfo, ...]" = ()) -> None:
+        super().__init__(message)
+        self.alternatives = tuple(alternatives)
+
+
+@dataclass(frozen=True)
+class SuperElementInfo:
+    """One superelement of a SIN, as :meth:`SinFile.hierarchy` lists it.
+
+    A SIN written for a superelement assembly holds the whole assembly: one
+    RESULTS entry per superelement that has data, plus the hierarchy (HIERARCH)
+    that ties them together. The top level of such an assembly typically holds
+    only the hierarchy records — no mesh, no results — while each first-level
+    superelement carries its own mesh, numbering and result tables.
+
+    A SIN without a hierarchy lists one row per RESULTS entry, with ``ihref``
+    ``None``, ``index`` 1 and ``level`` 1.
+    """
+
+    #: HIERARCH IHREF (None when the file has no HIERARCH).
+    ihref: int | None
+    #: Superelement type number (IDENT SELTYP / HIERARCH ISELTY). A SIN entry
+    #: without an IDENT record and outside any hierarchy uses its IREF.
+    seltyp: int
+    #: Instance of the type (HIERARCH INDSEL); 1 when there is no hierarchy.
+    index: int
+    #: HIERARCH ISLEVL; 1 is the first level.
+    level: int
+    #: IHREF of the parent, None for the top.
+    parent: int | None
+    #: IHREF of each child.
+    children: tuple[int, ...]
+    #: The RESULTS entry (IREF) carrying this superelement's data, or None.
+    iref: int | None
+    #: Populated GELMNT1 records (0 when there are none).
+    element_count: int
+    #: Populated GNODE (or GCOORD) records.
+    node_count: int
+    #: Every type-block name the entry's PTAB lists.
+    block_names: frozenset[str]
+    #: HSUPTRAN 4x4 placement, row-major, when the hierarchy gives one.
+    transform: tuple[float, ...] | None = None
+
+    @property
+    def label(self) -> str:
+        """Xtract's name for the superelement: ``SEL<type>.IND<instance>`` for
+        a first-level (or any child) superelement, ``R<type>`` for the top of
+        an assembly."""
+        if self.level == 1 or self.parent is not None:
+            return f"SEL{self.seltyp}.IND{self.index}"
+        return f"R{self.seltyp}"
+
+    @property
+    def has_results(self) -> bool:
+        """Whether the entry lists any result table (RV*)."""
+        return any(n.startswith(_RESULT_BLOCK_PREFIX) for n in self.block_names)
+
+    @property
+    def has_mesh(self) -> bool:
+        """Whether the entry lists elements (GELMNT1)."""
+        return "GELMNT1" in self.block_names
+
+    @property
+    def is_top(self) -> bool:
+        return self.parent is None
+
+    def describe(self) -> str:
+        """``"<label>: <n> elements, results: yes/no"`` plus why it cannot be
+        read, when it cannot."""
+        text = f"{self.label}: {self.element_count} elements, results: {'yes' if self.has_results else 'no'}"
+        if self.iref is None or not self.has_mesh:
+            text += " (top level, hierarchy only)" if self.is_top and self.children else " (no mesh)"
+        return text
+
+
+#: What :meth:`SinFile.resolve_super_element` accepts.
+SuperElementSpec = Union[int, str, tuple, SuperElementInfo]
+
+_SPEC_PATTERN = re.compile(r"\s*(?:SEL|R)?\s*(\d+)\s*(?:\.\s*(?:IND)?\s*(\d+))?\s*", re.IGNORECASE)
+
+
+def _parse_super_element_spec(spec: Any) -> tuple[int, int | None]:
+    """``(seltyp, index or None)`` from an int, a ``(type, index)`` pair or a
+    label such as ``"SEL10.IND1"``, ``"10.1"``, ``"10"`` or ``"R100"``."""
+    import numbers
+
+    if isinstance(spec, bool):
+        raise SuperElementError(f"not a superelement: {spec!r}")
+    if isinstance(spec, numbers.Integral):
+        return int(spec), None
+    if isinstance(spec, (tuple, list)) and len(spec) == 2:
+        try:
+            return int(spec[0]), int(spec[1])
+        except (TypeError, ValueError):
+            raise SuperElementError(f"not a superelement (type, index) pair: {spec!r}") from None
+    if isinstance(spec, str):
+        m = _SPEC_PATTERN.fullmatch(spec)
+        if m is None:
+            raise SuperElementError(
+                f"not a superelement: {spec!r}; give a type number (10), type.instance (10.1) "
+                "or Xtract's label (SEL10.IND1)"
+            )
+        return int(m.group(1)), (int(m.group(2)) if m.group(2) is not None else None)
+    raise SuperElementError(f"not a superelement: {spec!r}")
+
+
 def _trim_stale_packed_tail(pointer_table: Any, type_flag: int, dims: list[int]) -> Any:
     """Cut a 2-D result table's pointer table at its packed extent when stale slots follow.
 
@@ -628,7 +754,14 @@ class SinFile:
     first access (each can hold a 20 M-entry pointer table — decoding
     every SE upfront would blow past a 4 GiB cgroup limit).
     ``type_blocks`` aliases the active super-element's blocks; defaults
-    to the first super-element, override via :meth:`use_super_element`.
+    to the entry that carries a mesh and results (see
+    :meth:`_pick_default_super_element`), override via
+    :meth:`use_super_element` or :meth:`select_super_element`.
+
+    Superelement assemblies: :meth:`hierarchy` lists every superelement with
+    its type, instance, level and Xtract label (``SEL10.IND1``), and
+    :meth:`select_super_element` (or ``open_sin(..., super_element=...)``)
+    reads a chosen one.
     """
 
     source: ByteSource = field(repr=False)
@@ -647,6 +780,13 @@ class SinFile:
     # ``__post_init__`` for the first super-element).
     type_blocks: dict[str, TypeBlock] = field(default_factory=dict)
     _active_iref: int | None = field(default=None, repr=False)
+    # {iref: {block name: preamble offset}} — names only, no pointer tables.
+    _directories: dict[int, dict[str, int]] = field(default_factory=dict, repr=False)
+    _hierarchy: tuple[SuperElementInfo, ...] | None = field(default=None, repr=False)
+    _selected: SuperElementInfo | None = field(default=None, repr=False)
+    # False: leave the default entry undecoded (a caller about to select
+    # another one, see open_sin(super_element=...), would pay for it twice).
+    _decode_default: bool = field(default=True, repr=False)
 
     def close(self) -> None:
         """Release the byte source + file handle.
@@ -711,41 +851,75 @@ class SinFile:
             # purposes; leave type_blocks empty rather than guessing.
             return
 
-        # Step 2 — pick the super-element with the most type-blocks as
-        # the default, and decode only that one. The first RESULTS entry
-        # is typically a summary-only super-element (IREF=1 on multi-SE
-        # eigen decks has many type-block stubs but zero GELMNT1 records
-        # — useless for rendering). The "main" data lives in whichever
-        # super-element carries the densest PTAB. Touching each PTAB's
-        # slot[4] is cheap (~64 bytes per super-element) and avoids
+        # Step 2 — pick the entry that carries a mesh and results as the
+        # default, and decode only that one (see
+        # _pick_default_super_element). Reading the block NAMES each PTAB
+        # lists is cheap (one 8-byte name per block) and avoids
         # materialising the heavy pointer tables for the wrong default.
-        default_iref = self._pick_default_super_element()
+        default_iref = self._pick_default_super_element() if self._decode_default else None
         if default_iref is not None:
             self.use_super_element(default_iref)
 
     def _pick_default_super_element(self) -> int | None:
-        """Return the IREF whose PTAB lists the most type-blocks, as a
-        heuristic for "main" super-element (carries the full mesh +
-        results). Caller can override via :meth:`use_super_element`.
+        """Return the IREF of the entry most likely to be the "main"
+        superelement: the one with elements (GELMNT1), then results (RV*),
+        then the most type-blocks, judged by the block names its PTAB lists.
+        A tie keeps the first entry. Caller can override via
+        :meth:`use_super_element` / :meth:`select_super_element`.
+
+        Not by the PTAB's allocated slot count (slot[4]): that is space
+        reserved, not blocks written. A superelement assembly SIN whose
+        top-level entry holds only the hierarchy records can allocate as many
+        slots as the entry with the mesh, and with the first of a tie winning
+        it opened the hierarchy and found no mesh. The entries of a
+        multi-superelement eigen deck whose first entry is summary-only (block
+        stubs, no GELMNT1) keep landing on the dense entry.
         """
-        src = self.source
-        file_end = src.size()
         best_iref = None
-        best_count = -1
+        best_score: tuple[bool, bool, int] | None = None
         for iref, ptab_byte in self.super_element_refs:
-            if ptab_byte + 12 + 5 * SLOT_STRIDE + 4 > file_end:
+            if not self._is_ptab(ptab_byte):
                 continue
-            if src.u32(ptab_byte) != PREAMBLE:
-                continue
-            name = src.read(ptab_byte + 4, NAME_LEN).decode("ascii", errors="replace").rstrip()
-            if name != "PTAB":
-                continue
-            payload = ptab_byte + 4 + NAME_LEN
-            count = _read_u32_slot(src, payload + 4 * SLOT_STRIDE)
-            if count > best_count:
-                best_count = count
+            names = self._block_directory(iref)
+            score = (
+                "GELMNT1" in names,
+                any(n.startswith(_RESULT_BLOCK_PREFIX) for n in names),
+                len(names),
+            )
+            if best_score is None or score > best_score:
+                best_score = score
                 best_iref = iref
         return best_iref
+
+    def _is_ptab(self, ptab_byte: int) -> bool:
+        src = self.source
+        if ptab_byte + 12 + 5 * SLOT_STRIDE + 4 > src.size():
+            return False
+        if src.u32(ptab_byte) != PREAMBLE:
+            return False
+        return src.read(ptab_byte + 4, NAME_LEN).decode("ascii", errors="replace").rstrip() == "PTAB"
+
+    def _block_directory(self, iref: int) -> dict[str, int]:
+        """``{block name: preamble offset}`` for every type-block one entry's
+        PTAB lists. Reads only each block's preamble and name — no header
+        slots, no pointer table. Later duplicates win, as in
+        :meth:`_decode_super_element`."""
+        cached = self._directories.get(iref)
+        if cached is not None:
+            return cached
+        ptab_byte = next((b for ir, b in self.super_element_refs if ir == iref), None)
+        out: dict[str, int] = {}
+        if ptab_byte is not None:
+            src = self.source
+            file_end = src.size()
+            for off in self._walk_ptab(ptab_byte):
+                if off <= 0 or off + 12 > file_end or src.u32(off) != PREAMBLE:
+                    continue
+                raw = src.read(off + 4, NAME_LEN)
+                if _is_block_name(raw):
+                    out[raw.decode("ascii").rstrip()] = off
+        self._directories[iref] = out
+        return out
 
     def use_super_element(self, iref: int) -> None:
         """Set ``iref`` as the active super-element. Decodes its PTAB
@@ -756,6 +930,209 @@ class SinFile:
             self.super_elements[iref] = self._decode_super_element(iref)
         self._active_iref = iref
         self.type_blocks = self.super_elements[iref]
+        if self._selected is not None and self._selected.iref != iref:
+            self._selected = None
+
+    # ── superelement hierarchy ───────────────────────────────────────
+    def hierarchy(self) -> tuple[SuperElementInfo, ...]:
+        """Every superelement of this SIN, one :class:`SuperElementInfo` each.
+
+        With a hierarchy (HIERARCH records, on an assembly's top-level entry)
+        there is one row per HIERARCH record, in the file's order — the top
+        first — each mapped to the RESULTS entry whose IDENT names its type.
+        Without one there is one row per RESULTS entry.
+
+        Cheap: only the HIERARCH, HSUPTRAN, IDENT, GELMNT1 and GNODE blocks are
+        decoded, and an entry that is already decoded is not decoded again.
+        The active entry does not change. Cached on the instance.
+        """
+        if self._hierarchy is None:
+            self._hierarchy = self._read_hierarchy()
+        return self._hierarchy
+
+    def is_assembly(self) -> bool:
+        """Whether this SIN holds more than one superelement to choose from:
+        more than one entry with elements, or a hierarchy whose top has
+        children."""
+        rows = self.hierarchy()
+        meshed = {r.iref for r in rows if r.iref is not None and r.has_mesh}
+        return len(meshed) > 1 or any(r.ihref is not None and r.is_top and r.children for r in rows)
+
+    @property
+    def selected(self) -> SuperElementInfo | None:
+        """The superelement being read, on an assembly; None otherwise."""
+        if self._active_iref is None or not self.is_assembly():
+            return None
+        if self._selected is not None:
+            return self._selected
+        return next(
+            (r for r in self.hierarchy() if r.iref == self._active_iref and r.has_mesh),
+            next((r for r in self.hierarchy() if r.iref == self._active_iref), None),
+        )
+
+    def resolve_super_element(self, spec: SuperElementSpec) -> SuperElementInfo:
+        """The superelement ``spec`` names, or :class:`SuperElementError`.
+
+        ``spec`` is a type number (``10``), a ``(type, instance)`` pair
+        (``(10, 1)``), a label (``"SEL10.IND1"``, ``"10.1"``, ``"10"``,
+        ``"R100"``; case-insensitive, the ``SEL``/``IND``/``R`` prefixes
+        optional) or a row of :meth:`hierarchy`. A type number alone is enough
+        when the type has one instance, or when its instances share one
+        RESULTS entry (and so the same results).
+
+        Refused, with every superelement listed: a spec that matches nothing,
+        one that matches instances in different entries, and one that names a
+        superelement without a mesh to read (an assembly's top level).
+        """
+        rows = self.hierarchy()
+
+        def fail(message: str) -> SuperElementError:
+            listing = "\n".join(f"  {r.describe()}" for r in rows) or "  (none)"
+            return SuperElementError(f"{message}. The superelements in this SIN:\n{listing}", rows)
+
+        if isinstance(spec, SuperElementInfo):
+            matches = [r for r in rows if r == spec]
+            if not matches:
+                raise fail(f"superelement {spec.label} is not in this SIN")
+        else:
+            try:
+                seltyp, index = _parse_super_element_spec(spec)
+            except SuperElementError as e:
+                raise fail(str(e)) from None
+            matches = [r for r in rows if r.seltyp == seltyp and (index is None or r.index == index)]
+            if not matches:
+                raise fail(f"no superelement {spec!r} in this SIN")
+            if index is None and len({r.iref for r in matches}) > 1:
+                names = ", ".join(r.label for r in matches)
+                raise fail(f"superelement type {seltyp} has {len(matches)} instances ({names}); name one")
+        choice = matches[0]
+        if choice.iref is None or not choice.has_mesh:
+            what = "is the assembly's top level and holds only the hierarchy" if choice.is_top else "has no mesh"
+            raise fail(f"superelement {choice.label} {what}; there is nothing to read in it")
+        return choice
+
+    def select_super_element(self, spec: SuperElementSpec) -> SuperElementInfo:
+        """Make the superelement ``spec`` names the active one (see
+        :meth:`resolve_super_element`) and return its row."""
+        info = self.resolve_super_element(spec)
+        assert info.iref is not None  # resolve_super_element refuses the others
+        self.use_super_element(info.iref)
+        self._selected = info
+        return info
+
+    def _entry_block(self, iref: int, name: str) -> TypeBlock | None:
+        """One entry's block ``name``, decoded on its own when the entry is
+        not decoded already (no other block of it is touched)."""
+        decoded = self.super_elements.get(iref)
+        if decoded is not None:
+            return decoded.get(name)
+        off = self._block_directory(iref).get(name)
+        if off is None:
+            return None
+        try:
+            block = _decode_type_block(self.source, off, None)
+        except Exception:
+            return None
+        self._release_block_pages(block)
+        return block
+
+    def _read_hierarchy(self) -> tuple[SuperElementInfo, ...]:
+        entries: list[tuple[int, dict[str, int], int | None, int, int]] = []
+        holder: int | None = None
+        for iref, ptab_byte in self.super_element_refs:
+            if not self._is_ptab(ptab_byte):
+                continue
+            names = self._block_directory(iref)
+            ident_block = self._entry_block(iref, "IDENT") if "IDENT" in names else None
+            ident = next(self._iter_block_records(ident_block), None) if ident_block is not None else None
+            # IDENT: SLEVEL, SELTYP, SELMOD, ...
+            seltyp = int(ident[1]) if ident is not None and len(ident) >= 2 else None
+            elements = self._entry_block(iref, "GELMNT1") if "GELMNT1" in names else None
+            node_name = "GNODE" if "GNODE" in names else "GCOORD"
+            nodes = self._entry_block(iref, node_name) if node_name in names else None
+            entries.append(
+                (
+                    iref,
+                    names,
+                    seltyp,
+                    elements.count if elements is not None else 0,
+                    nodes.count if nodes is not None else 0,
+                )
+            )
+            if holder is None and _HIERARCHY_BLOCK in names:
+                holder = iref
+
+        def row(entry, **kw) -> SuperElementInfo:
+            iref, names, _, n_el, n_nodes = entry if entry is not None else (None, {}, None, 0, 0)
+            return SuperElementInfo(
+                iref=iref, element_count=n_el, node_count=n_nodes, block_names=frozenset(names), **kw
+            )
+
+        if holder is None:
+            return tuple(
+                row(
+                    e, ihref=None, seltyp=e[2] if e[2] is not None else e[0], index=1, level=1, parent=None, children=()
+                )
+                for e in entries
+            )
+
+        by_iref = {e[0]: e for e in entries}
+        by_seltyp: dict[int, int] = {}
+        for e in entries:
+            if e[2] is not None:
+                by_seltyp.setdefault(e[2], e[0])
+        hier_block = self._entry_block(holder, _HIERARCHY_BLOCK)
+        records = list(self._iter_block_records(hier_block)) if hier_block is not None else []
+        transforms: dict[int, tuple[float, ...]] = {}
+        if _TRANSFORM_BLOCK in by_iref[holder][1]:
+            # HSUPTRAN: ITREF, then the 4x4 transformation matrix.
+            for rec in self._iter_block_records(self._entry_block(holder, _TRANSFORM_BLOCK)):
+                if len(rec) >= 17:
+                    transforms[int(rec[0])] = tuple(float(v) for v in rec[1:17])
+
+        rows: list[SuperElementInfo] = []
+        claimed: set[int] = set()
+        holder_claimed = any(e[0] == holder and e[2] is not None for e in entries)
+        for rec in records:
+            if len(rec) < 7:
+                continue
+            # HIERARCH: IHREF, ISELTY, INDSEL, ISLEVL, ITREF, IHPREF, NSUB, IHSREF...
+            ihref, isel, indsel, islevl, itref, ihpref, nsub = (int(v) for v in rec[:7])
+            children = tuple(int(v) for v in rec[7 : 7 + max(nsub, 0)])
+            iref = by_seltyp.get(isel)
+            if iref is None and ihpref == 0 and not holder_claimed:
+                # The top level's own entry is the one holding the hierarchy.
+                iref = holder
+            if iref is not None:
+                claimed.add(iref)
+            rows.append(
+                row(
+                    by_iref.get(iref) if iref is not None else None,
+                    ihref=ihref,
+                    seltyp=isel,
+                    index=indsel,
+                    level=islevl,
+                    parent=ihpref or None,
+                    children=children,
+                    transform=transforms.get(itref) if itref else None,
+                )
+            )
+        # An entry the hierarchy does not reach (no IDENT to map it by) is still
+        # data in the file: list it rather than hide it.
+        for e in entries:
+            if e[0] not in claimed:
+                rows.append(
+                    row(
+                        e,
+                        ihref=None,
+                        seltyp=e[2] if e[2] is not None else e[0],
+                        index=1,
+                        level=1,
+                        parent=None,
+                        children=(),
+                    )
+                )
+        return tuple(rows)
 
     def _decode_super_element(self, iref: int) -> dict[str, TypeBlock]:
         """Walk one super-element's PTAB and decode every listed
@@ -1121,6 +1498,21 @@ class SinFile:
         block = self.type_blocks.get(name)
         if block is None:
             return
+        yield from self._iter_block_records(
+            block, where_first_word=where_first_word, where_second_word=where_second_word
+        )
+
+    def _iter_block_records(
+        self,
+        block: TypeBlock | None,
+        *,
+        where_first_word: int | None = None,
+        where_second_word: set[int] | None = None,
+    ) -> Iterator[tuple[float, ...]]:
+        """:meth:`iter_records` over a given block (which need not belong to
+        the active super-element)."""
+        if block is None:
+            return
         src = self.source
         file_end = src.size()
         for word_ptr in block.pointer_table:
@@ -1236,6 +1628,7 @@ def open_sin(
     page_kib: int = 1024,
     max_resident_mb: int = 256,
     s3_client: Any = None,
+    super_element: SuperElementSpec | None = None,
 ) -> SinFile:
     """Open a ``.sin`` from a local path **or a URI** and decode its index.
 
@@ -1256,7 +1649,32 @@ def open_sin(
 
     ``page_kib`` / ``max_resident_mb`` tune the streamed page cache. The
     returned :class:`SinFile` owns its source; call :meth:`SinFile.close`.
+
+    ``super_element``: on a superelement assembly SIN, which superelement to
+    read — a type number, a ``(type, instance)`` pair or a label such as
+    ``"SEL10.IND1"`` (see :meth:`SinFile.resolve_super_element`). None, the
+    default, reads the entry with a mesh and results. A spec naming nothing
+    readable raises :class:`SuperElementError`, listing the superelements.
     """
+    sf = _open_sin_file(
+        path,
+        page_kib=page_kib,
+        max_resident_mb=max_resident_mb,
+        s3_client=s3_client,
+        decode_default=super_element is None,
+    )
+    if super_element is not None:
+        try:
+            sf.select_super_element(super_element)
+        except BaseException:
+            sf.close()
+            raise
+    return sf
+
+
+def _open_sin_file(
+    path: str | Path, *, page_kib: int, max_resident_mb: int, s3_client: Any, decode_default: bool = True
+) -> SinFile:
     scheme = _uri_scheme(path)
 
     if scheme in ("s3", "http", "https"):
@@ -1280,7 +1698,7 @@ def open_sin(
             fetcher = HttpRangeSource(str(path))
             name = Path(unquote(urlsplit(str(path)).path)).name or "remote.sin"
         source = PagedByteSource(fetcher, page_bits=page_bits, max_resident_bytes=max_resident_mb << 20)
-        return SinFile(source=source, path=Path(name))
+        return SinFile(source=source, path=Path(name), _decode_default=decode_default)
 
     # Local path (optionally file://) — mmap, with a bytes fallback.
     if scheme == "file":
@@ -1298,11 +1716,11 @@ def open_sin(
             buf = fh.read()
         finally:
             fh.close()
-        return SinFile(source=MmapSource(buf), path=p)
+        return SinFile(source=MmapSource(buf), path=p, _decode_default=decode_default)
     except Exception:
         fh.close()
         raise
-    return SinFile(source=MmapSource(mm), path=p, _fh=fh)
+    return SinFile(source=MmapSource(mm), path=p, _fh=fh, _decode_default=decode_default)
 
 
 __all__ = [
@@ -1310,6 +1728,8 @@ __all__ = [
     "NAME_LEN",
     "TypeBlock",
     "SinFile",
+    "SuperElementError",
+    "SuperElementInfo",
     "iter_named_blocks",
     "open_sin",
 ]

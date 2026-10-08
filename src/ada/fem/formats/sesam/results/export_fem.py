@@ -34,7 +34,7 @@ from __future__ import annotations
 import pathlib
 from typing import TextIO
 
-from .sin_reader import SinFile, open_sin
+from .sin_reader import SinFile, SuperElementSpec, open_sin
 from .sin_to_sif import _format_record_line
 
 #: Record-name prefixes the Results Interface File adds on top of the input
@@ -127,26 +127,32 @@ def write_fem(sin: SinFile, out: TextIO) -> None:
 def export_fem_from_sin(
     sin_path: str | pathlib.Path,
     fem_path: str | pathlib.Path | None = None,
+    *,
+    super_element: SuperElementSpec | None = None,
 ) -> pathlib.Path:
     """Materialise the FEM (input-deck) file embedded in ``sin_path``.
 
     Default output sits next to the SIN as ``<stem>.FEM``.
+
+    ``super_element``: on a superelement assembly SIN, whose input deck to
+    write (see :func:`~.sin_reader.open_sin`).
     """
 
     sin_path = pathlib.Path(sin_path)
     out = pathlib.Path(fem_path) if fem_path is not None else sin_path.with_suffix(".FEM")
-    sin = open_sin(sin_path)
+    sin = open_sin(sin_path, super_element=super_element)
     with open(out, "w", encoding="ascii", newline="\n") as f:
         write_fem(sin, f)
     return out
 
 
-def export_fem_text(sin_path: str | pathlib.Path) -> str:
-    """The FEM text for ``sin_path``, in memory."""
+def export_fem_text(sin_path: str | pathlib.Path, *, super_element: SuperElementSpec | None = None) -> str:
+    """The FEM text for ``sin_path``, in memory (``super_element``: see
+    :func:`export_fem_from_sin`)."""
 
     from io import StringIO
 
-    sin = open_sin(sin_path)
+    sin = open_sin(sin_path, super_element=super_element)
     buf = StringIO()
     write_fem(sin, buf)
     return buf.getvalue()
