@@ -647,43 +647,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
-                    {/* Deformation scale and the animation period, side by side: the two
-                        numbers that shape what playing draws. In this row so the slider
-                        row stays the slider and its readout; drawn as the same field as
-                        the dropdowns beside them. */}
-                    <span className="flex items-center gap-2 shrink-0">
-                        <label
-                            className="flex items-center gap-1"
-                            title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
-                        >
-                            <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
-                            <span className="text-gray-300">Scale ×</span>
-                            <input
-                                type="number"
-                                min={0}
-                                step={0.1}
-                                value={scaleFactor}
-                                onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                                className={`${FIELD_CONTROL} w-14 font-mono tabular-nums`}
-                                aria-label="Deformation scale"
-                            />
-                        </label>
-                        {!timeHistory && (
-                            <label className="flex items-center gap-1" title="Period: seconds per oscillation when playing">
-                                <span className="text-gray-300">T</span>
-                                <input
-                                    type="number"
-                                    min={0.1}
-                                    step={0.1}
-                                    value={period}
-                                    onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                                    className={`${FIELD_CONTROL} w-12 font-mono tabular-nums`}
-                                    aria-label="Oscillation period in seconds"
-                                />
-                                <span className="text-gray-400">s</span>
-                            </label>
-                        )}
-                    </span>
                 </div>
             )}
             {unbakedNote && (
@@ -786,6 +749,43 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 >
                     <GearIcon/>
                 </button>
+                {/* Deformation scale and the animation period, side by side: the two numbers
+                    that shape what playing draws, beside the buttons that play it. Here rather
+                    than in the field row, which they made too wide; drawn as the same field as
+                    the dropdowns above. */}
+                <span className="flex items-center gap-2 text-xs text-white shrink-0">
+                    <label
+                        className="flex items-center gap-1"
+                        title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
+                    >
+                        <DeformScaleIcon className="shrink-0 text-blue-300" aria-hidden />
+                        <span className="text-gray-300">Scale ×</span>
+                        <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={scaleFactor}
+                            onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
+                            className={`${FIELD_CONTROL} w-14 font-mono tabular-nums`}
+                            aria-label="Deformation scale"
+                        />
+                    </label>
+                    {!timeHistory && (
+                        <label className="flex items-center gap-1" title="Period: seconds per oscillation when playing">
+                            <span className="text-gray-300">T</span>
+                            <input
+                                type="number"
+                                min={0.1}
+                                step={0.1}
+                                value={period}
+                                onChange={(e) => setPeriod(parseFloat(e.target.value))}
+                                className={`${FIELD_CONTROL} w-12 font-mono tabular-nums`}
+                                aria-label="Oscillation period in seconds"
+                            />
+                            <span className="text-gray-400">s</span>
+                        </label>
+                    )}
+                </span>
             </div>
 
             {/* Beams as solid. Here as well as in the Scene > FEM panel, and through
