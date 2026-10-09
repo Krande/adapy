@@ -429,9 +429,10 @@ def test_a_front_pressure_pushes_into_the_plates_normal_side_whatever_the_elemen
     assert resultants(deck)["LC"][0] == (0.0, 0.0, normal_z * fz)
 
 
-def test_the_steps_of_several_meshed_parts_lost_in_the_merge_are_named(tmp_path):
-    """A single-part writer gets the parts merged into one, which keeps the assembly's steps only: each part's
-    concept-load step and its loads would be gone without a word."""
+def test_the_steps_of_several_meshed_parts_reach_the_writer_which_names_what_it_cannot_hold(tmp_path):
+    """A single-part writer gets the parts merged into one, and the merge keeps each part's concept-load step (on the
+    merged part's FEM, re-keyed). Sesam holds one load set per file: it writes the first and names the second, with
+    its loads -- nothing is dropped by the merge without a word."""
     from ada.fem.concept.loads import LoadConceptCase, LoadConceptPoint
 
     parts = []
@@ -447,8 +448,10 @@ def test_the_steps_of_several_meshed_parts_lost_in_the_merge_are_named(tmp_path)
         p.fem = p.to_fem_obj(0.5, "line")
     with conversion_report.collect() as report:
         a.to_fem("two", "sesam", scratch_dir=tmp_path, overwrite=True)
-    lost = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
-    assert [f.kind for f in lost] == ["omitted"] and lost[0].count == 2
+    steps = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
+    assert not [f for f in steps if f.stage != "sesam writer"]  # the merge loses no step
+    (unwritten,) = [f for f in steps if f.kind == "omitted" and "only the first step is written" in f.reason]
+    assert unwritten.details == {"n_loads": 1, "n_bcs": 0}
 
 
 @pytest.mark.parametrize("fmt", ["calculix", "code_aster", "usfos"])
