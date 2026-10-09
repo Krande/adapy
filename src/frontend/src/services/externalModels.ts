@@ -39,17 +39,6 @@
 // across catalogues, extended across identities. If a consumer ever has to know,
 // this abstraction has failed.
 
-import {
-  bindingFor,
-  EXTERNAL_MODELS_BINDING_KEY,
-  parseBindingMap,
-  type ExternalModelBinding,
-  type ExternalModelBindingMap,
-  isHidden,
-  matchesGlob,
-  serialiseBinding,
-  type StoredBinding,
-} from "./externalModelsBinding";
 import { viewerApi, type ScopeUrl } from "./viewerApi";
 import {
   ExternalModelsError,
@@ -62,18 +51,6 @@ import type {
   ExternalModelProvider,
   ExternalModelRevision,
 } from "./externalModelTypes";
-
-export {
-  bindingFor,
-  EXTERNAL_MODELS_BINDING_KEY,
-  isHidden,
-  matchesGlob,
-  parseBindingMap,
-  serialiseBinding,
-  type ExternalModelBinding,
-  type ExternalModelBindingMap,
-  type StoredBinding,
-};
 
 // The vocabulary and the browser-side registry both live in leaf modules (see
 // their headers), and are re-exported here so a consumer has one import to
@@ -721,30 +698,4 @@ export async function uploadModel(
       `uploading ${modelId} failed: HTTP ${res.status} ${res.statusText}`.trim(),
     );
   }
-}
-
-// --- scope binding ----------------------------------------------------------
-
-/** Read the scope -> provider:collection binding. Missing or malformed reads as
- *  an empty map rather than throwing: an unbound deployment is the normal case,
- *  and a panel must not fail to render because nobody has bound anything yet. */
-export async function loadBindingMap(): Promise<ExternalModelBindingMap> {
-  try {
-    return parseBindingMap(
-      await viewerApi.getPublicSetting(EXTERNAL_MODELS_BINDING_KEY),
-    );
-  } catch {
-    return {};
-  }
-}
-
-/** Admin-only. Writes go through `adminSetSetting`; the `public.` prefix governs
- *  READ access only and has no public setter. */
-export async function saveBindingMap(
-  map: ExternalModelBindingMap,
-): Promise<void> {
-  await viewerApi.adminSetSetting(
-    EXTERNAL_MODELS_BINDING_KEY,
-    JSON.stringify(map),
-  );
 }

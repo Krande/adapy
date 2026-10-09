@@ -1,8 +1,8 @@
 // Which of an asset provider's collections may be REQUESTED in each scope.
 //
-// Pure, on purpose, for the reason `externalModelsBinding.ts` is: the API
-// client reaches `auth/oidc.ts`, which touches `sessionStorage` at module
-// scope, so anything importing it needs a DOM. Nothing here imports it. That
+// Pure, on purpose: the API client reaches `auth/oidc.ts`, which touches
+// `sessionStorage` at module scope, so anything importing it needs a DOM.
+// Nothing here imports it. That
 // keeps the reader testable under plain node, and lets a plugin resolve a value
 // it already holds without pulling the client in. Exported to plugins as part
 // of plugin API 1.8.0 -- see `plugins/registry.ts`.
@@ -14,9 +14,9 @@
 //     "<scope url>": { "<provider id>": ["<collection>", ...] }
 //   }
 //
-// A GRANT, NOT A BINDING. `public.external_models.binding_map` says which ONE
-// collection a scope shows; this says which of a provider's collections a
-// scope may ask for. Two questions, two settings.
+// It replaced the External Models tab's per-scope binding
+// (`public.external_models.binding_map`, one collection a scope showed), which
+// is gone along with that tab.
 //
 // A PICKER FILTER, NOT A PERMISSION. A provider's request dialog narrows its
 // choice by this list; nothing on the server refuses a request for a

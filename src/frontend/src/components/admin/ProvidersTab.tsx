@@ -30,6 +30,7 @@ import {
 import {useProviderNamesStore} from "@/state/providerNamesStore";
 
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
+import ProviderMirrorsSection from "./ProviderMirrorsSection";
 
 // Admin tab — which of an asset provider's collections may be REQUESTED in each
 // scope.
@@ -41,9 +42,9 @@ import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
 // name of the spec field listing the collections -- and this tab reads that off
 // `GET /plugins`. Core names no provider here and needs no protocol for it.
 //
-// WHY NOT A ROW IN "External Models". That tab BINDS a scope to one collection
-// to show; this GRANTS a set a scope may ask for. A control meaning both ends up
-// meaning neither.
+// This replaced the External Models tab's per-scope binding (one collection a
+// scope showed); that tab is gone, and its upstream-mirror controls are the
+// last section here (ProviderMirrorsSection).
 //
 // WHAT IT DOES NOT DO, said in the tab too: it narrows a provider's request
 // picker. It is not a permission -- nothing on the server refuses a request for
@@ -593,6 +594,8 @@ const ProvidersTab: React.FC = () => {
                 the providers a live pool offers does each scope use. Kept in its own component --
                 it shares the scope rows and nothing else. */}
             <ClashSpecProvidersSection rows={rows.filter((r) => !r.stale)} />
+
+            <ProviderMirrorsSection />
         </div>
     );
 };
