@@ -139,7 +139,7 @@ export type {
   MetricsSample,
   MetricsHistoryResp,
 } from "./api/metrics";
-export type { AdminProject, ProjectMember } from "./api/adminProjects";
+export type { AdminProject, CliTokenRecord, ProjectMember } from "./api/adminProjects";
 export type { AdminUser, AdminUserProject } from "./api/adminUsers";
 export type { Corpus } from "./api/adminCorpus";
 export type { PluginJobSchedule, BackendPluginSpec } from "./api/plugins";

@@ -14,6 +14,7 @@ export type AdminTab =
     | "performance"
     | "projects"
     | "users"
+    | "tokens"
     | "external_models"
     | "providers"
     | "storage"

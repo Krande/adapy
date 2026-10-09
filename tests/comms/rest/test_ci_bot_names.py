@@ -89,7 +89,7 @@ def ci_client(tmp_path: pathlib.Path, monkeypatch):
     async def fake_add_member(pool, pid, sub, role="member"):
         calls["members"].append({"sub": sub, "role": role})
 
-    async def fake_revoke(pool, user):
+    async def fake_revoke(pool, user, *, revoked_by=None):
         calls["revoked"].append(user.sub)
         return 1700000000
 
@@ -97,10 +97,14 @@ def ci_client(tmp_path: pathlib.Path, monkeypatch):
         calls["minted"].append(user.sub)
         return f"token-for-{user.sub}", 1700000000
 
+    async def fake_record(pool, token, *, label, issued_by):
+        return {"jti": f"jti-{token}", "hint": token[-8:]}
+
     monkeypatch.setattr(db_mod, "upsert_user", fake_upsert_user)
     monkeypatch.setattr(db_mod, "add_project_member", fake_add_member)
     monkeypatch.setattr(auth_mod, "revoke_cli_tokens", fake_revoke)
     monkeypatch.setattr(auth_mod, "mint_cli_token", fake_mint)
+    monkeypatch.setattr(auth_mod, "record_cli_token", fake_record)
 
     app = create_app(_settings(tmp_path))
     with TestClient(app) as client:

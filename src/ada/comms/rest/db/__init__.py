@@ -92,6 +92,14 @@ from .catalogs import (
     update_equipment_type,
     update_system_template,
 )
+from .cli_tokens import (
+    check_cli_token,
+    cli_tokens_tracked_since,
+    insert_cli_token,
+    list_cli_tokens,
+    revoke_cli_token,
+    revoke_cli_tokens_for_sub,
+)
 from .corpora import _corpus_row as _corpus_row  # noqa: F401
 from .corpora import (
     archive_corpus,
@@ -234,6 +242,12 @@ __all__ = [
     "get_worker_packages",
     "get_setting",
     "set_setting",
+    "insert_cli_token",
+    "check_cli_token",
+    "list_cli_tokens",
+    "revoke_cli_token",
+    "revoke_cli_tokens_for_sub",
+    "cli_tokens_tracked_since",
     "list_corpora",
     "create_corpus",
     "update_corpus",
