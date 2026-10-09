@@ -15,14 +15,20 @@ import {ConvertStatus, useConversionStore} from "@/state/conversionStore";
 // A provider's cache of an upstream catalogue: what is in it, and the switch
 // that governs refreshing it.
 //
-// WHAT THIS IS FOR. Some external-model providers do not serve their upstream
-// directly -- they COPY it into this deployment's own object store and serve it
-// from there. That is the only way to offer a catalogue whose own API
-// authorises per user: the copy is made once, by something holding a service
-// credential, and every viewer then reads from storage this deployment already
-// owns. A provider says it works that way by implementing `mirror_status`,
-// `mirror_sync` and `upstream_projects`; nothing here knows which catalogue is
-// upstream, and it must not.
+// WHAT THIS IS FOR. Some external-model providers can keep a COPY of their
+// upstream in this deployment's own object store and serve from that. Why
+// depends on the provider, and this panel must not assume either:
+//
+// * LOAD. Repeated reads hit storage this deployment owns instead of the
+//   upstream service. That is the whole point for a provider whose worker can
+//   already read upstream for everyone (a service credential, say).
+// * ACCESS. For an upstream that authorises per user and that the worker cannot
+//   read on everyone's behalf, the copy -- made once, by something that can --
+//   is what lets every signed-in viewer open the models at all.
+//
+// A provider offers one by implementing `mirror_status`, `mirror_sync` and
+// `upstream_projects`; nothing here knows which catalogue is upstream, and it
+// must not.
 //
 // WHY THE SWITCH IS A SETTING AND NOT A BUTTON THAT DOES THE WORK. Settings
 // live in the API's database and the worker that runs a plugin job has no pool,
@@ -260,10 +266,9 @@ const MirrorPanel: React.FC<Props> = ({provider}) => {
             </div>
 
             <div className="text-xs text-gray-400">
-                Mirrored models are served from this deployment&rsquo;s own store, so anyone
-                signed in can open them &mdash; nobody signs in upstream. A sync runs in the
-                background; watch it in the progress toast, and the counts here refresh when it
-                finishes.
+                Mirrored models are served from this deployment&rsquo;s own store instead of the
+                upstream service. A sync runs in the background; watch it in the progress toast,
+                and the counts here refresh when it finishes.
             </div>
 
             {/* PICKED FROM A LIST, NOT TYPED. It was a comma-separated field, and
