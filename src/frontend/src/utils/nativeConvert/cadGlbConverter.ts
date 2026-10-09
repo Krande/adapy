@@ -30,7 +30,8 @@ function ensureApi(): Comlink.Remote<CadGlbConverterAPI> {
 const DEFAULT_DEFLECTION = 2.0;
 const DEFAULT_ANGULAR_DEG = 20.0;
 
-function tessOpts(opts?: {deflection?: number; angularDeg?: number; meshopt?: boolean}) {
+/** The tessellation options a native conversion runs with: adapy's production defaults, overridable. */
+export function tessOpts(opts?: {deflection?: number; angularDeg?: number; meshopt?: boolean}) {
     return {
         deflection: opts?.deflection ?? DEFAULT_DEFLECTION,
         angularDeg: opts?.angularDeg ?? DEFAULT_ANGULAR_DEG,
