@@ -454,10 +454,11 @@ def test_the_steps_of_several_meshed_parts_reach_the_writer_which_names_what_it_
     assert unwritten.details == {"n_loads": 1, "n_bcs": 0}
 
 
-@pytest.mark.parametrize("fmt", ["calculix", "code_aster", "usfos"])
+@pytest.mark.parametrize("fmt", ["usfos"])
 def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(tmp_path, fmt):
-    """Calculix and Code_Aster write the assembly's steps, Usfos none: the step a part's concept load cases became
-    (on the part's FEM) and its loads were left out of a one-part model without a word."""
+    """Usfos writes no step: the step a part's concept load cases became (on the part's FEM) and its loads were left
+    out of a one-part model without a word. (Calculix and Code_Aster write it now --
+    ``test_calculix_and_code_aster_write_the_part_step``.)"""
     from ada.fem.concept.constraints import ConstraintConceptPoint
     from ada.fem.concept.loads import LoadConceptLine
 
@@ -469,6 +470,29 @@ def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(t
         a.to_fem("one", fmt, scratch_dir=tmp_path, overwrite=True)
     (lost,) = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
     assert (lost.kind, lost.stage, lost.details) == ("omitted", f"{fmt} writer", {"part": "p", "n_loads": 1})
+
+
+@pytest.mark.parametrize("fmt", ["calculix", "code_aster"])
+def test_calculix_and_code_aster_write_the_part_step(tmp_path, fmt):
+    """The step a part's concept load cases became is written, its load case with it, and no step is reported left
+    out. Both writers wrote the assembly's steps only (Calculix its first only), so a meshed GeniE model's loads never
+    reached either deck."""
+    from ada.fem.concept.constraints import ConstraintConceptPoint
+    from ada.fem.concept.loads import LoadConceptLine
+
+    q = (0, 0, -1000.0)
+    a, p = _beam_part("p", LoadConceptLine("u", (0, 1.5, 0), (4, 1.5, 0), q, q))
+    p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("fix", (0, 1.5, 0), []))
+    p.fem = p.to_fem_obj(0.5, "line")
+    with conversion_report.collect() as report:
+        a.to_fem("one", fmt, scratch_dir=tmp_path, overwrite=True)
+    assert [f for f in report.findings if f.keyword == "Step"] == []
+    if fmt == "calculix":
+        deck = (tmp_path / "one" / "one.inp").read_text()
+        assert "** STEP: concept_loads  LOAD CASE: LC" in deck
+    else:
+        deck = (tmp_path / "one" / "one.comm").read_text()
+        assert "MACRO_ELAS_MULT(" in deck and "NOM_CAS='LC'" in deck
 
 
 # --- refusals and physics the review of #435 found no test for (each fails under the mutation named) -------------

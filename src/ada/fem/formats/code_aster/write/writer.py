@@ -6,24 +6,28 @@ import h5py
 import numpy as np
 
 from ada.config import logger
+from ada.fem.formats.prescribed import prescribed_dofs
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..compatibility import check_compatibility
 from . import names as concept_names
 from .templates import el_convert_str, main_comm_str
-from .write_bc import create_bc_str
+from .write_bc import check_overlaps, prescribed_at_zero_str, supports_str
 from .write_constraints import (
     create_coupling_str,
     create_ref_points_mesh_str,
     create_ref_points_model_str,
     get_couplings,
+    model_bcs,
+    ref_points_group,
+    step_bcs,
 )
 from .write_loads import add_line_load_groups
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str
-from .write_steps import create_step_str
+from .write_steps import all_steps, steps_str
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
@@ -47,7 +51,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
     # A line load is written over mesh groups of its own (Code_Aster names a group, never an element or node);
     # they exist for this deck only and are taken off the model again once it is written.
-    line_load_groups = add_line_load_groups(assembly.fem.steps, p.fem)
+    line_load_groups = add_line_load_groups(all_steps(assembly), p.fem)
     try:
         # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
         # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
@@ -91,14 +95,20 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
-    sections_str = create_sections_str(part.fem.sections, has_ref_points=len(couplings) > 0)
-    # A new list: ``+=`` on ``part.fem.bcs`` itself appended the assembly's Bcs to the part's own, in
-    # the user's model, once more on every write.
-    bcs = list(part.fem.bcs)
-    if assembly != part:
-        bcs += [bc for bc in assembly.fem.bcs if not any(bc is b for b in bcs)]
-    bc_str = "\n".join([create_bc_str(bc) for bc in bcs] + [create_coupling_str(con) for con in couplings])
-    step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
+    ref_group = ref_points_group(part)
+    sections_str = create_sections_str(part.fem.sections, has_ref_points=len(couplings) > 0, ref_points_group=ref_group)
+    # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
+    # list with the assembly's on every write.
+    bcs = model_bcs(part)
+    prescribed = prescribed_dofs(bcs)
+    steps = all_steps(assembly)
+    # A step's own Bc holds in it and every later step (write_constraints.step_bcs), so the last step has them all:
+    # checked once over the model's and every step's.
+    every = step_bcs(part, steps[-1]) if steps else bcs
+    check_overlaps(every, prescribed_dofs(every))
+    supports = [supports_str(bcs, prescribed), prescribed_at_zero_str(bcs)]
+    bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings])
+    step_str = steps_str(steps, part)
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
 
@@ -157,9 +167,9 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
 
     if len(couplings) > 0:
         output_mesh = "mesh_ref"
-        section_sets += create_ref_points_mesh_str(part, input_mesh, output_mesh)
+        section_sets += create_ref_points_mesh_str(part, input_mesh, output_mesh, ref_group)
         input_mesh = output_mesh
-        model_type_str += create_ref_points_model_str()
+        model_type_str += create_ref_points_model_str(ref_group)
 
     comm_str = main_comm_str.format(
         section_sets=section_sets,

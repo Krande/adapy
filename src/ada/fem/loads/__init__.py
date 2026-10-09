@@ -6,6 +6,7 @@ from .fe_loads import (
     LoadLine,
     LoadPoint,
     LoadPressure,
+    acceleration_vector,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "LoadPoint",
     "LoadCase",
     "LoadPressure",
+    "acceleration_vector",
 ]

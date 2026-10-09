@@ -21,6 +21,7 @@ SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/static"
 @pytest.mark.parametrize("elem_order", [1, 2])
 @pytest.mark.parametrize("nl_geom", [True, False])
 def test_fem_static(
+    require_solver,
     fem_format,
     geom_repr,
     elem_order,
@@ -35,6 +36,7 @@ def test_fem_static(
     if geom_repr == "line" and use_hex_quad is True:
         return None
 
+    require_solver(fem_format)
     a = design_cantilever()
     # Static cantilever doesn't exercise reduced_integration in the
     # current test matrix; pass False to keep mesh_cantilever happy.
@@ -46,7 +48,7 @@ def test_fem_static(
         reduced_integration=False,
     )
     name = static_case_name(fem_format, geom_repr, elem_order, use_hex_quad, nl_geom)
-    return run_lin_static(
+    res = run_lin_static(
         a,
         fem_format=fem_format,
         scratch_dir=SCRATCH_DIR,
@@ -55,3 +57,10 @@ def test_fem_static(
         overwrite=overwrite,
         execute=execute,
     )
+    if fem_format == "code_aster" and execute:
+        # The result file exists after a failed run too (what was printed before it stopped): the second-order shell
+        # cases passed while Code_Aster stopped at <MED2_20>. Code_Aster's own verdict decides.
+        mess = (SCRATCH_DIR / name / f"{name}.mess").read_text(encoding="utf-8", errors="replace")
+        (verdict,) = [line for line in mess.splitlines() if "DIAGNOSTIC JOB" in line]
+        assert "<S>" not in verdict and "<F>" not in verdict and "<E>" not in verdict, verdict
+    return res

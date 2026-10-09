@@ -12,7 +12,7 @@ were one concept: the second replaced the first.
 A concept name is internal to the deck -- results are read back by field and case name, never by a
 load's concept -- so nothing has to keep the user's name verbatim. :class:`ConceptNames` gives each
 object a name of its own, ``<prefix><sanitised name>``, with ``_2``, ``_3``, ... when that is one of
-the deck's own names (:data:`RESERVED`), a keyword, or already another object's. One registry serves
+the deck's own names (:func:`is_reserved`), a keyword, or already another object's. One registry serves
 one command file (:func:`deck`), so the names are deterministic: the same model writes the same file.
 """
 
@@ -60,6 +60,10 @@ RESERVED = frozenset(
         "timeReel",
         "timeInst",
         "bc_step",
+        # the charge holding every support (write_bc.SUPPORTS) and the one holding the prescribed dofs at
+        # zero (write_bc.PRESCRIBED_AT_ZERO)
+        "supports",
+        "prescribed_zero",
         # eigen analysis
         "modes",
         "modes_0",
@@ -69,6 +73,25 @@ RESERVED = frozenset(
         "mass",
     }
 )
+
+#: The names the command file makes up as it goes: a static step's result (``result``, ``result2``, ...) and
+#: what the step binds after it -- its charge of prescribed values (``result_pd``), the instants and multiplier
+#: functions of its cases (``result_t``, ``result_f1``, ``result_g1``) and the unit charge of a prescribed dof
+#: (``result_p1``); a second-order shell face's stresses (``result_sup``, ``result_inf``); and the supports of a
+#: step with supports of its own, named after its position in the deck (``supports_2``, ``prescribed_zero_2``).
+#: Kept complete by the same test.
+RESERVED_PATTERNS = (
+    re.compile(r"result\d*"),
+    re.compile(r"result\d*_(?:pd|t|f\d+|p\d+|g\d+|sup|inf)"),
+    re.compile(r"supports_\d+"),
+    re.compile(r"prescribed_zero_\d+"),
+)
+
+
+def is_reserved(name: str) -> bool:
+    """Whether the command file may bind ``name`` itself (:data:`RESERVED`, :data:`RESERVED_PATTERNS`)."""
+    return name in RESERVED or any(p.fullmatch(name) for p in RESERVED_PATTERNS)
+
 
 #: The prefix of each kind of concept a user object becomes. None of the deck's own names starts with
 #: ``ld_``, ``cp_`` or ``mt_``; ``bc_step`` does, and is in :data:`RESERVED`.
@@ -100,7 +123,7 @@ class ConceptNames:
         prefix = PREFIX[kind]
         base = prefix + _sanitised(obj.name)
         candidate, n = base, 2
-        while candidate in RESERVED or candidate in self._taken or keyword.iskeyword(candidate):
+        while is_reserved(candidate) or candidate in self._taken or keyword.iskeyword(candidate):
             candidate = f"{base}_{n}"
             n += 1
         self._taken.add(candidate)

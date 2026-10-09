@@ -26,6 +26,7 @@ which silently distorted or dropped merged-in instances.
 from __future__ import annotations
 
 import copy
+import dataclasses
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -788,16 +789,31 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]
 
     step_copies: dict[int, object] = {}
 
+    def _rekey_segment(seg, where: str):
+        # A line load names its elements directly, one segment each (``LoadLine.segments``): each segment is
+        # moved onto its element's merged id, by the offset of the part that owns the element. Left as it was,
+        # a segment loaded the element of the merged model holding its old id -- another part's.
+        owner = part_of_fem.get(id(getattr(seg.elem, "parent", None)))
+        if owner is None:
+            raise DoesNotSupportMultiPart(
+                f"{where} loads element {seg.elem.id}, which belongs to no part of the merged model; its merged "
+                "id is unknown"
+            )
+        return dataclasses.replace(seg, elem=merged.elements.from_id(int(seg.elem.id) + el_off_of[id(owner)]))
+
     def _rekey_value(value, where: str):
         from ada.api.nodes import Node
         from ada.fem.common import FemBase
         from ada.fem.elements import Elem
+        from ada.fem.loads.fe_loads import LineLoadSegment
         from ada.fem.surfaces import Surface
 
         if isinstance(value, FemSet):
             return _set_for(value, where)
         if isinstance(value, Surface):
             return _surface_for(value, where)
+        if isinstance(value, LineLoadSegment):
+            return _rekey_segment(value, where)
         if isinstance(value, (Node, Elem)):
             raise DoesNotSupportMultiPart(
                 f"{where} names {type(value).__name__} {value.id} directly; the merge renumbers the parts' ids and "

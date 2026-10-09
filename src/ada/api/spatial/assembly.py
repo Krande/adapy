@@ -255,8 +255,23 @@ class Assembly(Part):
         res_path = fem_res_files.get(fem_format, None)
 
         if res_path.exists() and overwrite is False and return_fea_results is True and write_input_files_only is False:
-            logger.info(f"FEM result file already exists: {res_path}")
-            return postprocess(res_path, fem_format=fem_format)
+            # A failed run can leave a result file (a partial MED file, a .frd header): reused only when the run that
+            # wrote it said it finished. Otherwise the model is written and run again, or, not to be run, refused.
+            from ada.fem.exceptions.fea_execution import FEASolveFailed
+            from ada.fem.formats.execute import check_previous_run
+
+            try:
+                check_previous_run(name, fem_format, scratch_dir)
+            except FEASolveFailed as err:
+                if not execute:
+                    raise
+                logger.warning(
+                    f"The run that wrote {res_path} did not finish (<{err.code}>): writing and running again"
+                )
+                overwrite = True
+            else:
+                logger.info(f"FEM result file already exists: {res_path}")
+                return postprocess(res_path, fem_format=fem_format)
 
         from ada.fem import formulations as fem_formulations
         from ada.fem.formats import conversion_report

@@ -22,6 +22,7 @@ SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/eigen"
 @pytest.mark.parametrize("elem_order", [1, 2])
 @pytest.mark.parametrize("reduced_integration", [True, False])
 def test_fem_eig(
+    require_solver,
     fem_format,
     geom_repr,
     elem_order,
@@ -40,6 +41,7 @@ def test_fem_eig(
     ):
         return None
 
+    require_solver(fem_format)
     a = design_cantilever()
     a = mesh_cantilever(
         a,

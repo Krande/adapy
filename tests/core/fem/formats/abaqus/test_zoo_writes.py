@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from ada.fem.exceptions import IncompatibleElements
+from ada.fem.exceptions.model_definition import UnsupportedLoadType
 from ada.fem.formats.abaqus.read.lexer import tokenize
 from ada.fem.formats.abaqus.write.writer import to_fem as write_abaqus
 
@@ -25,11 +26,17 @@ ABAQUS_GAPS = {}
 
 #: What the Calculix writer cannot express, beyond the gaps it shares with Abaqus.
 CALCULIX_GAPS = {
-    "elements_line_profiles": (Exception, "the Calculix beam writer has no FLATBAR profile"),
+    # A two-node beam of any section is a U1 general section now, so the FLATBAR profile writes; a three-node beam
+    # of an I section has no CalculiX element (U1 has two nodes, B32R takes a geometric outline only).
+    "elements_line_second_order": (IncompatibleElements, "a three-node I beam has no CalculiX element"),
+    # An angle's y and z are not principal axes (L100x100x10: Iyz = -1.07e-6 m^4); U1 takes principal axes only.
+    "elements_line_profiles": (IncompatibleElements, "a U1 general section refuses an angle's product of inertia"),
     "elements_line_explicit": (ValueError, "Calculix has no explicit step"),
     "steps_explicit": (ValueError, "Calculix has no explicit step"),
     "steps_dynamic_implicit": (ValueError, "the Calculix writer has no implicit dynamic step"),
-    "loads": (ValueError, "Calculix loads need a fem_set; gravity/acceleration fields have none"),
+    # Every step is written now, so the second step of these is reached rather than dropped without a word.
+    "steps_steady_state": (ValueError, "the Calculix writer has no steady-state dynamics step"),
+    "loads": (UnsupportedLoadType, "a pressure on shell face 0 names neither SPOS nor SNEG"),
     "read_back_deck": (IncompatibleElements, "a read deck's elements carry no FemSection, which Calculix needs"),
     "sets_empty": (ValueError, "the Calculix set writer raises on an empty set (Abaqus logs and drops it)"),
     # The Calculix writer used to drop every constraint; it now writes kinematic couplings and refuses the rest
@@ -81,3 +88,36 @@ def test_the_abaqus_writer_called_directly_writes_every_zoo_model(name, tmp_path
 def test_the_calculix_writer_writes_every_zoo_model_it_supports(name, tmp_path):
     text = _write(name, "calculix", tmp_path)
     assert "NODE" in {b.keyword for b in tokenize(text)}
+
+
+def test_the_calculix_writer_writes_every_line_profile_but_the_angle(tmp_path):
+    """``elements_line_profiles`` stops at its angle; the profiles after it are written here."""
+    from .zoo import _line, _model
+
+    a, p, mat = _model()
+    names = []
+    for i, (name, profile) in enumerate(
+        [
+            ("ipe", "IPE300"),
+            ("box", "BG200x150x6x6"),
+            ("pipe", "OD200x10"),
+            ("circ", "CIRC100"),
+            ("flat", "FB100x10"),
+            ("channel", "UNP200"),
+        ]
+    ):
+        _line(p.fem, mat, profile, node_start=10 * i + 1, el_start=10 * i + 1, y=float(i), name=name)
+        names.append(name)
+    a.to_fem("profiles", "calculix", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+    text = (tmp_path / "profiles" / "profiles.inp").read_text().lower()
+    for name in names:
+        assert f"*beam section, elset={name}," in text, name
+
+
+def test_the_calculix_writer_refuses_an_angle_by_its_product_of_inertia(tmp_path):
+    from .zoo import _line, _model
+
+    a, p, mat = _model()
+    _line(p.fem, mat, "L100x100x10", node_start=1, el_start=1, y=0.0, name="angle")
+    with pytest.raises(IncompatibleElements, match=r"'L100x100x10' \(angle\) has a product of inertia"):
+        a.to_fem("angle", "calculix", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)

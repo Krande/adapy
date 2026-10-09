@@ -11,7 +11,7 @@ from ada.fem.shapes import ElemShape
 from ada.fem.shapes import definitions as shape_def
 
 
-def elements_str(fem_elements: FemElements) -> str:
+def elements_str(fem_elements: FemElements, report_locking: bool = True) -> str:
     if len(fem_elements) == 0:
         return "** No elements"
 
@@ -35,7 +35,7 @@ def elements_str(fem_elements: FemElements) -> str:
             # has no attribute 'parent'". Skipped like the rest, and named.
             unsectioned += sum(1 for _ in elements)
             continue
-        el_str += elwriter(el_type, fem_sec, elements)
+        el_str += elwriter(el_type, fem_sec, elements, report_locking)
 
     if skipped:
         logger.warning(
@@ -92,12 +92,12 @@ def _calculix_accepts(shape, name: str) -> bool:
     return str(name).upper() in CALCULIX_ELEMENT_TYPES and element_types().accepts(shape, name)
 
 
-def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
+def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem], report_locking: bool = True):
     from ada.fem.formulations import resolve
 
     sub_eltype = el_type_sub(eltype, fem_sec)
     el_set_str = f", ELSET={fem_sec.elset.name}" if fem_sec.elset is not None else ""
-    if sub_eltype == "U1":  # a beam of a general section: the section decides, not the element
+    if isinstance(eltype, shape_def.LineShapes):  # a beam: the section decides (beam_element_type), not the element
         by_type = {sub_eltype: list(elements)}
     else:
         # Each element's own type: the caller's rules, else the Abaqus-named type it was read as
@@ -109,9 +109,73 @@ def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem]):
                 el, "calculix", default=lambda _shape: sub_eltype, accepts=_calculix_accepts, stage="calculix writer"
             )
             by_type.setdefault(str(written).upper(), []).append(el)
+        for t in sorted(by_type):
+            if report_locking and t in LOCKING_SHELLS:
+                from ada.fem.formats import conversion_report
+
+                conversion_report.current().approximated(
+                    "calculix writer",
+                    "*ELEMENT",
+                    fem_sec.elset.name,
+                    f"written as {t}, which {LOCKING_SHELLS[t]}; a plate solved with it is far too stiff. Mesh plates "
+                    f"with quads (S4) or second-order elements (S6, S8) for CalculiX",
+                    element_type=t,
+                    n_elements=len(by_type[t]),
+                )
     return "".join(
-        f"""*ELEMENT, type={t}{el_set_str}\n{chr(10).join(write_elem(el) for el in els)}\n"""
+        f"""*ELEMENT, type={t}{el_set_str}
+{chr(10).join(write_elem(el) for el in els)}
+"""
         for t, els in by_type.items()
+    )
+
+
+#: Shell elements this writer reports, and why: each is expanded by ccx 2.23 into one layer of bricks that locks on a
+#: plate. They are still written -- an S3 or S4R read from another deck is that element, and CalculiX has no other
+#: three-node shell to put in its place -- with an ``approximated`` finding carrying the measurement. Measured on a 4.0 x 0.5 m, 10 mm plate at 0.125 / 0.0625 m, against Code_Aster DKT at 0.03125 m (cantilever
+#: under gravity, -1.38452 m) and 5 q L^4 / (384 D) (strip under 1000 Pa, -0.173333 m): S4R (C3D8R) gave -0.0741 /
+#: -0.2857 m and -0.0100 / -0.0386 m, S3 (C3D6) -0.233 / -0.414 m and -0.0118 / -0.0380 m -- where S4 gave
+#: -1.36346 / -1.3807 m and -0.173065 / -0.173268 m, and S6, S8 and S8R were within 1 %. ccx's own three-node shell, the
+#: US3 user element, stops this ccx 2.23 build with a segmentation fault on a two-element deck.
+LOCKING_SHELLS = {
+    "S4R": "CalculiX expands into a single C3D8R layer that locks on a plate (-95 % on a cantilever plate)",
+    "S3": "CalculiX expands into a single C3D6 layer that locks on a plate (-83 % on a cantilever plate); its US3 "
+    "triangle crashes ccx 2.23",
+}
+
+#: CalculiX's two-node Timoshenko user element, written for every two-node beam (see :func:`beam_element_type`).
+U1 = "U1"
+#: The three-node beam CalculiX expands into a C3D20R brick; its BOX and PIPE sections exist on no other element.
+B32R = "B32R"
+
+
+def beam_element_type(el_type, fem_sec: FemSection) -> str:
+    """The CalculiX element a beam of this shape and section is written as: ``U1`` for a two-node beam, ``B32R`` for
+    a three-node beam of a box or pipe section; any other three-node beam is refused.
+
+    Measured with ccx 2.23 (``CALCULIX_CODE_ASTER.md``):
+
+    * ``B31``, ``B32`` and ``B32R`` take a geometric section (RECT, CIRC, PIPE, BOX) and are expanded into C3D8I /
+      C3D20 / C3D20R bricks; ``SECTION=BOX`` and ``SECTION=PIPE`` stop ccx at "can only be used for B32R elements" on
+      the other two. adapy wrote them on B31 (and B32), so no box or pipe beam deck of it ever ran.
+    * An I, T, angle or general section has no geometric form at all, so a two-node beam of any section goes out as
+      ``U1`` with ``SECTION=GENERAL`` (area, inertias, orientation). That also covers a box or pipe on a two-node mesh,
+      which has no B32R middle node.
+    * ``U1`` is exact Euler-Bernoulli bending at any mesh when its shear coefficient is large (see
+      :data:`ada.fem.formats.calculix.write.writer.U1_SHEAR_COEFFICIENT`), where the expanded bricks are a 3D solid
+      answer -- B32R on a 0.2 x 0.4 box, simply supported, 4 m, 1 kN at mid-span: +3.8 % on Euler-Bernoulli and
+      -2.3 % on Timoshenko at 4, 8 and 16 elements alike.
+    """
+    from ada.sections.categories import BaseTypes
+
+    if el_type == shape_def.LineShapes.LINE:
+        return U1
+    if fem_sec.section.type in (BaseTypes.BOX, BaseTypes.TUBULAR):
+        return B32R
+    raise IncompatibleElements(
+        f"calculix writer: a three-node beam of a {fem_sec.section.type} section ({fem_sec.elset.name}) has no "
+        f"CalculiX form -- U1 has two nodes, and B32R takes a RECT, CIRC, PIPE or BOX outline only. Mesh it with "
+        f"two-node beams."
     )
 
 
@@ -119,8 +183,7 @@ def el_type_sub(el_type, fem_sec: FemSection) -> str:
     """Substitute Element types specifically Calculix"""
 
     if isinstance(el_type, shape_def.LineShapes):
-        if must_be_converted_to_general_section(fem_sec.section.type):
-            return "U1"
+        return beam_element_type(el_type, fem_sec)
     fem = fem_sec.parent
     if el_type == ElemShape.TYPES.shell.TRI6:
         if fem.options.CALCULIX.default_elements.use_reduced_integration:
@@ -129,6 +192,11 @@ def el_type_sub(el_type, fem_sec: FemSection) -> str:
 
     default_elem = fem.options.CALCULIX.default_elements.get_element_type(el_type)
     return default_elem
+
+
+def is_u1(elem: Elem) -> bool:
+    """Whether ``elem`` is written as a ``U1`` beam."""
+    return elem.type == shape_def.LineShapes.LINE and elem.fem_sec is not None
 
 
 def must_be_converted_to_general_section(sec_type):

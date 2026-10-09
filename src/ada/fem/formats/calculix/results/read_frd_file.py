@@ -236,8 +236,10 @@ class CcxResultModel:
             self.collect_elements()
 
         if stripped.startswith("1PSTEP"):
+            # "1PSTEP <result block> <increment> <step>": measured on a two-step ccx 2.23 deck, "1PSTEP 1 1 1" and
+            # "1PSTEP 2 1 2". The increment was read as the step, so every step's fields came out as step 1.
             split_data = stripped.split()
-            self._curr_step = int(float(split_data[2]))
+            self._curr_step = int(float(split_data[3] if len(split_data) > 3 else split_data[2]))
 
         if stripped.startswith("1PMODE"):
             split_data = stripped.split()
@@ -304,18 +306,22 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
         frd_file = pathlib.Path(frd_file)
 
     description = f"Adapy - Calculix ({ccx_results.ccx_version}) Results"
-    shape = ElemShape.get_type_from_elem_array_shape(ccx_results.elements)
-    node_refs = ccx_results.elements[:, 4:]
-    elem_info = ElementInfo(
-        type=ElemShape.el_shape_to_baseshape(shape), source_software=FEATypes.CALCULIX, source_type=str(shape.value)
-    )
-    identifiers = ccx_results.elements[:, 0]
-    elem_block = ElementBlock(elem_info=elem_info, node_refs=node_refs, identifiers=identifiers)
+    blocks = []
+    # ccx writes no element of a user element type (U1) to the .frd -- measured, ccx 2.23: a deck of U1 beams only
+    # has an empty "3C" block -- so a beam model's result is its nodes and their fields.
+    if np.asarray(ccx_results.elements).size > 0:
+        shape = ElemShape.get_type_from_elem_array_shape(ccx_results.elements)
+        node_refs = ccx_results.elements[:, 4:]
+        elem_info = ElementInfo(
+            type=ElemShape.el_shape_to_baseshape(shape), source_software=FEATypes.CALCULIX, source_type=str(shape.value)
+        )
+        identifiers = ccx_results.elements[:, 0]
+        blocks.append(ElementBlock(elem_info=elem_info, node_refs=node_refs, identifiers=identifiers))
 
     coords = ccx_results.nodes[:, 1:]
     identifiers = ccx_results.nodes[:, 0]
     nodes = FemNodes(coords=coords, identifiers=identifiers)
-    mesh = Mesh(elements=[elem_block], nodes=nodes)
+    mesh = Mesh(elements=blocks, nodes=nodes)
 
     software_version = extract_calculix_version(frd_file)
 

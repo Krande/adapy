@@ -537,3 +537,50 @@ def test_each_part_s_elements_get_their_own_material_in_the_deck(fem_format, tmp
     else:
         e_of = _sesam_e_of_elements(tmp_path / "tm" / "tmT1.FEM")
         assert e_of == {**{i: 2.1e11 for i in range(1, 9)}, **{i: 7.0e10 for i in range(9, 17)}}
+
+
+def _edge_load_on_part_b(a: ada.Assembly):
+    """A line load along PartB's far edge (x = 11), one segment per shell element on it: ``LoadLine`` names its
+    elements directly, not through a set."""
+    from ada.fem.loads import LineLoadSegment, LoadLine
+
+    pb = a.get_part("PartB")
+    segs = []
+    for el in pb.fem.elements:
+        xs = [n.x for n in el.nodes]
+        corners = len(xs)
+        for k in range(corners):
+            if abs(xs[k] - 11.0) < 1e-9 and abs(xs[(k + 1) % corners] - 11.0) < 1e-9:
+                segs.append(LineLoadSegment(el, (0.0, 0.0, -1000.0), (0.0, 0.0, -1000.0), edge=k + 1))
+    assert segs
+    return LoadLine("edge_q", segs)
+
+
+def test_a_line_load_on_part_b_loads_part_b_s_merged_elements():
+    """The merge moved sets and surfaces onto the merged ids, but a ``LoadLine``'s segments kept PartB's own
+    elements: the writers then wrote PartB's ids -- PartA's elements in the merged numbering (measured: a beam
+    line load on the second of two cantilevers stopped Code_Aster at <MODELISA7_77>). Each segment is now on its
+    element's merged copy: the id moved by PartB's offset, the same nodes' positions."""
+    a = _two_plates()
+    load = _edge_load_on_part_b(a)
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=100.0, total_time=100.0))
+    step.add_load(load)
+    merged = _merged_part(single_part_assembly(a))
+    (written,) = [ld for st in merged.get_assembly().fem.steps for ld in st.loads]
+    assert len(written.segments) == len(load.segments)
+    merged_ids = {int(e.id) for e in merged.fem.elements}
+    for old, new in zip(load.segments, written.segments):
+        assert new.elem.id == old.elem.id + ELEM_SHIFT and new.elem.id in merged_ids
+        assert [tuple(n.p) for n in new.elem.nodes] == [tuple(n.p) for n in old.elem.nodes]
+        assert (new.q1, new.q2, new.edge) == (old.q1, old.q2, old.edge)
+    # the user's load is untouched
+    assert all(s.elem.parent is a.get_part("PartB").fem for s in load.segments)
+
+
+def test_a_line_load_on_an_element_of_no_merged_part_is_refused_by_name():
+    a = _two_plates()
+    elsewhere = _two_plates()  # a model of its own: its PartB is in no part of ``a``
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=100.0, total_time=100.0))
+    step.add_load(_edge_load_on_part_b(elsewhere))
+    with pytest.raises(DoesNotSupportMultiPart, match=r"edge_q.*loads element \d+, which belongs to no part"):
+        single_part_assembly(a)

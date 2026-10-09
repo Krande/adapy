@@ -23,6 +23,11 @@ if TYPE_CHECKING:
         NodalFieldData,
     )
 
+#: The time (``PDT``) Code_Aster prints for every field of a result without instants: ``MACRO_ELAS_MULT``'s load cases,
+#: told apart by their order number (``NDT``) instead (measured, 18.1.8: one case or several, all ``PDT = 999.999``,
+#: ``NDT`` 1, 2, ...; a ``MECA_STATIQUE`` without instants prints ``PDT = 0.0``, ``NDT = 1``).
+NO_INSTANT = 999.999
+
 
 def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
     from ada.fem.results.common import FEAResult, FEATypes
@@ -154,6 +159,13 @@ class MedReader:
                     t = data[key].attrs["PDT"]  # current time
                     time_steps.append(float(t))
                     names[i] = name + f"[{i:d}] - {t:g}"
+            if len(set(time_steps)) < len(time_steps) or all(
+                t is not None and abs(float(t) - NO_INSTANT) < 1e-9 for t in time_steps
+            ):
+                # MACRO_ELAS_MULT's load cases all carry PDT = 999.999 (NO_INSTANT) and are told apart by their order
+                # number NDT, one per case in the order given -- also a step of one case, whose fields read back with
+                # step 999.999 when this applied to two cases or more only.
+                time_steps = [int(data[key].attrs["NDT"]) for key in time_step]
 
             if name == "modes___DEPL":
                 self.is_eigen_analysis = True

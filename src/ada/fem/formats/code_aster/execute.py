@@ -1,5 +1,7 @@
 import os
 import pathlib
+import re
+import subprocess
 import time
 from functools import wraps
 
@@ -52,7 +54,83 @@ def run_code_aster(
     with open(inp_path, "w") as f:
         f.write(write_export_file(name, cpus, emits_modal_mass=emits_modal_mass))
 
-    return ca.run(exit_on_complete=exit_on_complete)
+    out = ca.run(exit_on_complete=exit_on_complete)
+    if isinstance(out, subprocess.CompletedProcess):
+        check_code_aster_run(pathlib.Path(inp_path).with_suffix(".mess"))
+    return out
+
+
+#: What is known to cause a Code_Aster message and what would fix it (measured on 18.1.8; see each writer).
+KNOWN_MESSAGES = {
+    "FACTOR_11": "the stiffness matrix is singular: a rigid-body motion is not held (a mechanism) -- check the "
+    "supports and the connections",
+    "FACTOR_57": "MUMPS's error estimate exceeds RESI_RELA: an ill-conditioned system, typically a thin COQUE_3D "
+    "(second-order) shell, for which adapy already allows 1e-4 (the estimate measured 200 times or more the true "
+    "error); mesh it with first-order shells (DKT) or coarser, or check the answer with SOLVEUR=_F(METHODE="
+    "'MULT_FRONT') before allowing more",
+    "ASSEMBLA_26": "one node's dof is held by two dualised charges (two supports or a support and a prescribed value "
+    "on the same node and dof): merge them into one",
+    "ASSEMBLA_45": "a load case's own support charge given beside CHAR_MECA_GLOBAL in MACRO_ELAS_MULT",
+    "MED2_4": "two fields of one name printed into the MED file (two steps writing the same NOM_CHAM_MED)",
+    "MED2_20": "a layered (sub-point) field on COQUE_3D's QU9/TR7 cells cannot be printed to MED",
+    "CALCULEL2_92": "beam stresses computed over more than one distributed load",
+}
+
+_VERDICT = re.compile(r"DIAGNOSTIC JOB\s*:\s*(\S+)")
+#: A framed message's head: ``<EXCEPTION> <MED2_4>`` after the frame's bar (or ``! <F> <CODE>`` in the ASCII frame).
+_MESSAGE = re.compile("^\\s*[\\u2551!]\\s*<(EXCEPTION|F|S|E)>\\s*<([A-Z0-9_]+)>")
+_FRAME_BAR, _FRAME_ENDS = "║!", "╚╔"
+
+
+def check_code_aster_run(mess_path: str | os.PathLike) -> None:
+    """Raise :class:`~ada.fem.exceptions.fea_execution.FEASolveFailed` unless Code_Aster's own verdict in the .mess
+    file is ``OK`` or ``<A>_ALARM``.
+
+    Code_Aster ends every run with ``--- DIAGNOSTIC JOB : <verdict>``; an error (``<F>_ERROR``, ``<S>_ERROR``,
+    ``<E>_...``) names its cause in a framed message headed ``<EXCEPTION> <CODE>`` (or ``<F> <CODE>``). The run
+    stops at the failing command but leaves the MED file holding what was printed before it, so reading that file
+    would give a partial result (measured: two nlgeom steps -- the second stopped at <MED2_4> and the first step's
+    fields read back as the whole answer).
+    """
+    from ada.fem.exceptions.fea_execution import FEASolveFailed
+
+    mess_path = pathlib.Path(mess_path)
+    if not mess_path.exists():
+        raise FEASolveFailed("code_aster", "NO_MESS", mess_path, "Code_Aster wrote no message file: it did not run")
+    text = mess_path.read_text(encoding="utf-8", errors="replace")
+    verdicts = _VERDICT.findall(text)
+    verdict = verdicts[-1] if verdicts else ""
+    if verdict in ("OK", "<A>_ALARM"):
+        return
+    codes, bodies = [], {}
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        m = _MESSAGE.match(line)
+        if m is None:
+            continue
+        code = m.group(2)
+        if code in codes:
+            continue
+        codes.append(code)
+        body = []
+        for nxt in lines[i + 1 :]:
+            stripped = nxt.strip()
+            if not stripped or stripped[0] in _FRAME_ENDS or set(stripped) <= {"!", "-"}:
+                break
+            body.append(stripped.strip(_FRAME_BAR).strip())
+        bodies[code] = " ".join(b for b in body if b)
+    if not codes:
+        code = verdict or "NO_DIAGNOSTIC"
+        raise FEASolveFailed("code_aster", code, mess_path, f"DIAGNOSTIC JOB: {verdict or 'missing'}")
+    first = codes[0]
+    raise FEASolveFailed(
+        "code_aster",
+        first,
+        mess_path,
+        f"DIAGNOSTIC JOB: {verdict or 'missing'}; {bodies[first]}",
+        KNOWN_MESSAGES.get(first, ""),
+        codes,
+    )
 
 
 class CodeAsterExecute(LocalExecute):
