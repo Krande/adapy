@@ -193,3 +193,85 @@ def test_a_part_of_a_third_the_stiffness_deflects_three_times_as_much(fem_format
     rel = {"calculix": 1e-5, "sesam": 2.4e-7, "code_aster": 1e-12}[fem_format]
     for pos, value in plate_a.items():
         assert plate_b[pos] == pytest.approx(3.0 * value, rel=rel, abs=1e-18), pos
+
+
+# --- two beam cantilevers, a line load on the second ------------------------------------------------------------
+
+BEAM_L = 4.0
+#: Sestra V11.3-00 against Euler-Bernoulli plus its shear term: measured 6.2e-9 (the .SIN holds single precision).
+SESTRA_BEAM_REL = 1e-8
+
+
+def _beam_part(name: str, y0: float) -> tuple[ada.Part, ada.Beam]:
+    """An IPE300 cantilever along x, 4 m in 0.5 m line elements, clamped at x = 0. Each part's beam has a name of
+    its own, so no set is renamed in the merge (CalculiX 2.23 reads a ``*BEAM SECTION``'s element set by its first
+    20 characters -- measured -- and a renamed set is prefixed with its part's FEM name)."""
+    bm = ada.Beam(f"bm{name[-1]}", (0, y0, 0), (BEAM_L, y0, 0), "IPE300", ada.Material("S355", CarbonSteel("S355")))
+    p = ada.Part(name) / bm
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    root = [n for n in p.fem.nodes if abs(n.x) < 1e-9]
+    p.fem.add_bc(Bc(f"fix{name[-1]}", p.fem.sets.add(FemSet("root", root, "nset", parent=p.fem)), [1, 2, 3, 4, 5, 6]))
+    return p, bm
+
+
+def _beam_uz(a: ada.Assembly, fem_format: str, name: str, tmp_path) -> dict[tuple[float, float], float]:
+    """``u3`` of every node by its (x, y) position."""
+    from ada.fem.formats.general import FEATypes
+    from ada.fem.formats.utils import default_fem_res_path
+    from ada.fem.results.field_data import NodalFieldType
+
+    res = a.to_fem(name, fem_format, scratch_dir=tmp_path, overwrite=True, execute=True, exit_on_complete=False)
+    if res is None:
+        path = default_fem_res_path(name, scratch_dir=tmp_path, fem_format=FEATypes.from_str(fem_format))
+        res = ada.from_fem_res(path)
+    coords = {int(i): c for i, c in zip(res.mesh.nodes.identifiers, np.asarray(res.mesh.nodes.coords, dtype=float))}
+    field = [
+        f
+        for f in res.results
+        if getattr(f, "field_type", None) == NodalFieldType.DISP or f.name in ("DISP", "result__DEPL")
+    ][-1]
+    col = next(i for i, c in enumerate(field.components) if c.upper() in ("U3", "D3", "DZ", "Z"))
+    return {
+        (round(float(coords[int(row[0])][0]), 6), round(float(coords[int(row[0])][1]), 6)): float(row[col + 1])
+        for row in np.asarray(field.values, dtype=float)
+    }
+
+
+@pytest.mark.parametrize("fem_format", FORMATS)
+def test_a_beam_line_load_on_the_second_part_loads_the_second_part(fem_format, tmp_path, require_solver):
+    """PartA's and PartB's cantilevers both number their nodes and elements from 1; the merge moves PartB's by 9 and
+    8. A uniform 1 kN/m down PartB's beam, as a ``LoadLine`` of one segment per element (what the concept
+    conversion makes of a line load): the segments named PartB's own elements, which the merge did not move, so the
+    writers wrote ids 1..8 -- PartA's. Measured before: CalculiX 2.23 and Sestra V11.3-00 loaded PartA and left
+    PartB at 0 (PartA's w at x = 0.5 m -5.47e-5 / -6.70e-5 m), Code_Aster 18.1.8 stopped at <MODELISA7_77>. Now
+    PartA stays at 0 and PartB's tip deflects ``q L^4 / (8 E I)``.
+
+    Measured, tip w: Code_Aster -1.9050031385694e-3 (closed form -1.9050031385685e-3: Euler-Bernoulli POU_D_E,
+    Hermite-consistent nodal loads); CalculiX (U1) the closed form to its six printed digits; Sestra adds its beam's
+    shear deformation, ``q L^2 / (2 G A_s)``: -1.95750664e-3 against -1.95750663e-3."""
+    from ada.fem.loads import LineLoadSegment, LoadLine
+
+    require_solver(fem_format)
+    a = ada.Assembly("A")
+    pa, _ = _beam_part("PartA", 0.0)
+    pb, bm = _beam_part("PartB", 10.0)
+    a.add_part(pa)
+    a.add_part(pb)
+    q = (0.0, 0.0, -1000.0)
+    step = a.fem.add_step(StepImplicitStatic("s", nl_geom=False, init_incr=1.0, total_time=1.0, max_incr=1.0))
+    step.add_load(LoadLine("q", [LineLoadSegment(el, q, q) for el in pb.fem.elements]))
+
+    uz = _beam_uz(a, fem_format, f"mpline_{fem_format}", tmp_path)
+
+    assert all(v == 0.0 for (x, y), v in uz.items() if y == 0.0), uz
+    ei = bm.material.model.E * bm.section.properties.Iy
+    w_eb = -1000.0 * BEAM_L**4 / (8 * ei)
+    tip = uz[(BEAM_L, 10.0)]
+    if fem_format == "code_aster":
+        assert tip == pytest.approx(w_eb, rel=1e-9)
+    elif fem_format == "calculix":
+        assert tip == pytest.approx(w_eb, rel=5e-6)
+    else:
+        mat, props = bm.material.model, bm.section.properties
+        w_shear = -1000.0 * BEAM_L**2 / (2 * mat.E / (2 * (1 + mat.v)) * props.Sharz)
+        assert tip == pytest.approx(w_eb + w_shear, rel=SESTRA_BEAM_REL)
