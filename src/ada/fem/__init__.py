@@ -5,7 +5,15 @@ from .common import Amplitude, Csys
 from .constraints import Bc, Constraint, PredefinedField
 from .elements import Connector, Elem, Mass, Spring
 from .interactions import Interaction, InteractionProperty
-from .loads import Load, LoadCase, LoadGravity, LoadPoint, LoadPressure
+from .loads import (
+    LineLoadSegment,
+    Load,
+    LoadCase,
+    LoadGravity,
+    LoadLine,
+    LoadPoint,
+    LoadPressure,
+)
 from .outputs import FieldOutput, HistOutput
 from .sections import ConnectorSection, FemSection
 from .sets import FemSet
@@ -44,6 +52,8 @@ __all__ = [
     "LoadGravity",
     "LoadPressure",
     "LoadPoint",
+    "LoadLine",
+    "LineLoadSegment",
     "LoadCase",
     "FemSection",
     "Spring",

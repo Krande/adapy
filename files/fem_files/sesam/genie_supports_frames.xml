@@ -1,0 +1,1595 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.13-02" version_date="12-Oct-2025" platform="64bit" />
+		<session_info date="06-Oct-2026" time="20:16:24" user="userX" />
+	</administrative>
+	<model name="">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<sections>
+					<section name="IB" default="true">
+						<i_section h="0.3" b="0.15" tw="0.01" tf="0.02" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+				</sections>
+				<mesh_properties>
+					<mesh_densities>
+						<mesh_density name="Md" density="0.5" global_default="true" enforce_density="false" default="true" />
+					</mesh_densities>
+				</mesh_properties>
+				<hydro_properties />
+				<materials>
+					<material name="St" default="true">
+						<isotropic_linear_material yield_stress="355000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" />
+					</material>
+				</materials>
+				<thicknesses>
+					<thickness name="T10" default="true">
+						<constant_thickness th="0.01" />
+					</thickness>
+				</thicknesses>
+			</properties>
+			<structures>
+				<structure>
+					<straight_beam name="Bm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="0" z="1" />
+										<zvector x="0" y="1" z="0" />
+										<yvector x="1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="0" z="1" dir="x" />
+							<vector x="1" y="0" z="0" dir="y" />
+							<vector x="0" y="1" z="0" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IB" material_ref="St">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="6" z="0" end="1" />
+											<position x="0" y="6" z="2" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000002" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm2">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="1" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IB" material_ref="St">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="4" y="6" z="0" end="1" />
+											<position x="4" y="8" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000007" />
+											<edge edge_ref="EDGE00000008" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm3">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="0.6" y="0" z="0.8" />
+										<zvector x="-0.8" y="0" z="0.6" />
+										<yvector x="0" y="1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0.6" y="0" z="0.8" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="-0.8" y="0" z="0.6" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IB" material_ref="St">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="8" y="0" z="0" end="1" />
+											<position x="11" y="0" z="4" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000009" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm4">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="0" z="-1" />
+										<zvector x="0" y="1" z="0" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="1" z="0" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IB" material_ref="St">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="8" y="3" z="2" end="1" />
+											<position x="8" y="3" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000001" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm5">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="0" y="1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IB" material_ref="St">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="12" y="0" z="0" end="1" />
+											<position x="14" y="0" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000010" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<flat_plate name="Pl1" thickness_ref="T10" material_ref="St">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000004" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<flat_plate name="Pl2" thickness_ref="T10" material_ref="St">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000003" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<flat_plate name="Pl3" thickness_ref="T10" material_ref="St">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000005" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<flat_plate name="Pl4" thickness_ref="T10" material_ref="St">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000002" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<flat_plate name="Pl5" thickness_ref="T10" material_ref="St">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000006" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<flat_plate name="Pl6" thickness_ref="T10" material_ref="St">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000001" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<support_curve name="Sc_negx">
+						<local_system>
+							<vector x="-1" y="0" z="0" dir="x" />
+							<vector x="0" y="-1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<wire>
+								<guide>
+									<position x="4" y="0" z="0" end="1" />
+									<position x="0" y="0" z="0" end="2" />
+								</guide>
+								<sat_reference>
+									<edge edge_ref="EDGE00000003" />
+								</sat_reference>
+							</wire>
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="free" dof="dx" />
+							<boundary_condition constraint="fixed" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="fixed" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_curve>
+				</structure>
+				<structure>
+					<support_curve name="Sc_negz">
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="1" z="0" dir="z" />
+						</local_system>
+						<geometry>
+							<wire>
+								<guide>
+									<position x="8" y="3" z="2" end="1" />
+									<position x="8" y="3" z="0" end="2" />
+								</guide>
+								<sat_reference>
+									<edge edge_ref="EDGE00000001" />
+								</sat_reference>
+							</wire>
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_curve>
+				</structure>
+				<structure>
+					<support_curve name="Sc_slope">
+						<local_system>
+							<vector x="0.6" y="0" z="0.8" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="-0.8" y="0" z="0.6" dir="z" />
+						</local_system>
+						<geometry>
+							<wire>
+								<guide>
+									<position x="8" y="0" z="0" end="1" />
+									<position x="11" y="0" z="4" end="2" />
+								</guide>
+								<sat_reference>
+									<edge edge_ref="EDGE00000009" />
+								</sat_reference>
+							</wire>
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_curve>
+				</structure>
+				<structure>
+					<support_curve name="Sc_x_rot">
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<wire>
+								<guide>
+									<position x="0" y="1" z="0" end="1" />
+									<position x="4" y="1" z="0" end="2" />
+								</guide>
+								<sat_reference>
+									<edge edge_ref="EDGE00000005" />
+								</sat_reference>
+							</wire>
+						</geometry>
+						<line_orientation>
+							<constant_local_system_line_orientation />
+						</line_orientation>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="fixed" dof="rz" />
+						</boundary_conditions>
+					</support_curve>
+				</structure>
+				<structure>
+					<support_curve name="Sc_y_const">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<wire>
+								<guide>
+									<position x="4" y="0" z="0" end="1" />
+									<position x="4" y="1" z="0" end="2" />
+								</guide>
+								<sat_reference>
+									<edge edge_ref="EDGE00000004" />
+								</sat_reference>
+							</wire>
+						</geometry>
+						<line_orientation>
+							<constant_local_system_line_orientation />
+						</line_orientation>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="fixed" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_curve>
+				</structure>
+				<structure>
+					<support_curve name="Sc_y_dx">
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<wire>
+								<guide>
+									<position x="0" y="0" z="0" end="1" />
+									<position x="0" y="1" z="0" end="2" />
+								</guide>
+								<sat_reference>
+									<edge edge_ref="EDGE00000006" />
+								</sat_reference>
+							</wire>
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="fixed" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_curve>
+				</structure>
+				<structure>
+					<support_curve name="Sc_z">
+						<local_system>
+							<vector x="0" y="0" z="1" dir="x" />
+							<vector x="1" y="0" z="0" dir="y" />
+							<vector x="0" y="1" z="0" dir="z" />
+						</local_system>
+						<geometry>
+							<wire>
+								<guide>
+									<position x="0" y="6" z="0" end="1" />
+									<position x="0" y="6" z="2" end="2" />
+								</guide>
+								<sat_reference>
+									<edge edge_ref="EDGE00000002" />
+								</sat_reference>
+							</wire>
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_curve>
+				</structure>
+				<structure>
+					<support_point name="Sp_in">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="1.5" y="16" z="0" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="free" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="free" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<support_point name="Sp_presc">
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="14" y="0" z="0" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="prescribed" dof="dx" />
+							<boundary_condition constraint="fixed" dof="dy" />
+							<boundary_condition constraint="prescribed" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="prescribed" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<support_point name="Sp_presc_rot">
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="4" y="7" z="0" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="prescribed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="fixed" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<support_point name="Sp_rot90">
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="4" y="6" z="0" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="fixed" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="fixed" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<support_point name="Sp_spring_rot">
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<geometry>
+							<position x="4" y="8" z="0" />
+						</geometry>
+						<boundary_conditions>
+							<boundary_condition constraint="spring" stiffness="1000000" dof="dx" />
+							<boundary_condition constraint="free" dof="dy" />
+							<boundary_condition constraint="fixed" dof="dz" />
+							<boundary_condition constraint="free" dof="rx" />
+							<boundary_condition constraint="free" dof="ry" />
+							<boundary_condition constraint="free" dof="rz" />
+						</boundary_conditions>
+					</support_point>
+				</structure>
+				<structure>
+					<support_rigid_link include_all_edges="true" name="Srl_frame">
+						<position x="2" y="22" z="1" />
+						<region>
+							<footprint_box>
+								<lower_corner x="0" y="21" z="-0.1" />
+								<upper_corner x="2" y="22" z="0.1" />
+								<local_system>
+									<vector dir="x" x="1" y="0" z="0" />
+									<vector dir="z" x="0" y="0" z="1" />
+									<vector dir="y" x="0" y="1" z="0" />
+								</local_system>
+								<local_system_origin x="1" y="21.5" z="0" />
+							</footprint_box>
+						</region>
+						<local_system>
+							<vector dir="x" x="0" y="1" z="0" />
+							<vector dir="z" x="0" y="0" z="1" />
+							<vector dir="y" x="-1" y="0" z="0" />
+						</local_system>
+						<boundary_conditions>
+							<boundary_condition dof="dx" constraint="fixed" />
+							<boundary_condition dof="dy" constraint="free" />
+							<boundary_condition dof="dz" constraint="fixed" />
+							<boundary_condition dof="rx" constraint="free" />
+							<boundary_condition dof="ry" constraint="free" />
+							<boundary_condition dof="rz" constraint="free" />
+						</boundary_conditions>
+					</support_rigid_link>
+				</structure>
+				<structure>
+					<support_rigid_link include_all_edges="false" name="Srl_only">
+						<position x="2" y="16" z="1" />
+						<region>
+							<footprint_box>
+								<lower_corner x="0" y="15" z="-0.1" />
+								<upper_corner x="2" y="16" z="0.1" />
+								<local_system>
+									<vector dir="x" x="1" y="0" z="0" />
+									<vector dir="z" x="0" y="0" z="1" />
+									<vector dir="y" x="0" y="1" z="0" />
+								</local_system>
+								<local_system_origin x="1" y="15.5" z="0" />
+							</footprint_box>
+						</region>
+						<local_system>
+							<vector dir="x" x="1" y="0" z="0" />
+							<vector dir="z" x="0" y="0" z="1" />
+							<vector dir="y" x="0" y="1" z="0" />
+						</local_system>
+						<boundary_conditions>
+							<boundary_condition dof="dx" constraint="fixed" />
+							<boundary_condition dof="dy" constraint="fixed" />
+							<boundary_condition dof="dz" constraint="fixed" />
+							<boundary_condition dof="rx" constraint="fixed" />
+							<boundary_condition dof="ry" constraint="fixed" />
+							<boundary_condition dof="rz" constraint="fixed" />
+						</boundary_conditions>
+					</support_rigid_link>
+				</structure>
+				<structure>
+					<support_rigid_link include_all_edges="true" slave_rx="dependent" slave_ry="dependent" slave_rz="dependent" name="Srl_rot">
+						<position x="2" y="10" z="1" />
+						<region>
+							<footprint_box>
+								<lower_corner x="0" y="9" z="-0.1" />
+								<upper_corner x="2" y="10" z="0.1" />
+								<local_system>
+									<vector dir="x" x="1" y="0" z="0" />
+									<vector dir="z" x="0" y="0" z="1" />
+									<vector dir="y" x="0" y="1" z="0" />
+								</local_system>
+								<local_system_origin x="1" y="9.5" z="0" />
+							</footprint_box>
+						</region>
+						<local_system>
+							<vector dir="x" x="1" y="0" z="0" />
+							<vector dir="z" x="0" y="0" z="1" />
+							<vector dir="y" x="0" y="1" z="0" />
+						</local_system>
+						<boundary_conditions>
+							<boundary_condition dof="dx" constraint="fixed" />
+							<boundary_condition dof="dy" constraint="fixed" />
+							<boundary_condition dof="dz" constraint="fixed" />
+							<boundary_condition dof="rx" constraint="free" />
+							<boundary_condition dof="ry" constraint="free" />
+							<boundary_condition dof="rz" constraint="free" />
+						</boundary_conditions>
+					</support_rigid_link>
+				</structure>
+				<structure>
+					<support_rigid_link include_all_edges="true" slave_dx="free" name="Srl_sdx">
+						<position x="2" y="13" z="1" />
+						<region>
+							<footprint_box>
+								<lower_corner x="0" y="12" z="-0.1" />
+								<upper_corner x="2" y="13" z="0.1" />
+								<local_system>
+									<vector dir="x" x="1" y="0" z="0" />
+									<vector dir="z" x="0" y="0" z="1" />
+									<vector dir="y" x="0" y="1" z="0" />
+								</local_system>
+								<local_system_origin x="1" y="12.5" z="0" />
+							</footprint_box>
+						</region>
+						<local_system>
+							<vector dir="x" x="1" y="0" z="0" />
+							<vector dir="z" x="0" y="0" z="1" />
+							<vector dir="y" x="0" y="1" z="0" />
+						</local_system>
+						<boundary_conditions>
+							<boundary_condition dof="dx" constraint="free" />
+							<boundary_condition dof="dy" constraint="free" />
+							<boundary_condition dof="dz" constraint="fixed" />
+							<boundary_condition dof="rx" constraint="free" />
+							<boundary_condition dof="ry" constraint="free" />
+							<boundary_condition dof="rz" constraint="free" />
+						</boundary_conditions>
+					</support_rigid_link>
+				</structure>
+			</structures>
+			<feature_concepts />
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[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]]></sat_embedded>
+			</geometry>
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<rules>
+			<set_rules use_compact_scripting="true" />
+			<imported_file_history />
+			<tolerances use_tolerant_modelling="false" angle="0" point="0.01" />
+			<geometry_rules guide_curve_topology_snapping="true" beam_topology_snapping="true" creation_grouping="creation_grouping_off" />
+			<joint_creation_rules auto_generate="false" selection_aware="false">
+				<exclusion_rules>
+					<exclusion_rule exclude="tb_free" in_use="true" />
+					<exclusion_rule exclude="tb_int_pure" in_use="true" />
+					<exclusion_rule exclude="tb_int_all" in_use="false" />
+					<exclusion_rule exclude="eb_free" in_use="true" />
+					<exclusion_rule exclude="eb_int_aligned" in_use="true" />
+					<exclusion_rule exclude="eb_int_all" in_use="false" />
+				</exclusion_rules>
+			</joint_creation_rules>
+			<connected_move_rules default_connected="false" use_geometric_points="false" rearrange_x_joints="false" />
+			<tubular_joint_rules copy_reinforcement_on_copy="false" auto_adjust_segment_lengths="false">
+				<can default_can_fac="0.25" default_can_min="0.3" chord_alignment_tolerance="0.0872664626" />
+				<stub default_stub_fac="1" default_stub_min="0.6" />
+				<gap min_gap="0.0508" gap_tolerance="0.001" plane_tolerance="0.01745329252" brace_angle_move_limit="0.1745329252" iterations="2" flush_braces="false" gap_method="planewise" />
+				<cone cone_angle="0.1651486774" />
+			</tubular_joint_rules>
+			<beam_creation_rules>
+				<default_curve_orientation>
+					<customizable_curve_orientation use_default_rule="true">
+						<orientation>
+							<local_system>
+								<xvector x="1" y="0" z="0" />
+								<zvector x="0" y="0" z="1" />
+								<yvector x="0" y="1" z="0" />
+							</local_system>
+						</orientation>
+					</customizable_curve_orientation>
+				</default_curve_orientation>
+			</beam_creation_rules>
+			<transformation_rules copy_transformer_method="use_model_transformer" default_connected_copy="true" />
+			<meshing basic_lc_factor="1" analysis_folders="true" longitudinal_mass_on_nonstructural_elements="true" prefer_linear_dependencies="true" use_uniformized_face_parameterization="false">
+				<general>
+					<fem_options element_type="1st_order" super_element_type="1" />
+					<model_topology_performed_before_meshing auto_simply_topology="false" auto_split_periodic_geometry="false" repair_split_topology="false" />
+					<element_type_preferences>
+						<prefer_rectangular_mesh flag="false" />
+						<allow_triangular_elements flag="true" />
+						<prefer_point_mass_as_node_mass flag="true" />
+						<use_drilling_elements flag="false" />
+						<use_thick_override_thin_shell_elements flag="false" />
+						<use_eccentric_hinges flag="true" />
+					</element_type_preferences>
+					<other_preferences scantlings="gross_tickness" ignore_eccentricities="false" use_cocentricbeams="false" loads_based_on_gross_dimensions="true" automate_fem_load_case_numbering="combinations_automatic" node_loads_from_disconnected_point_loads="false">
+						<include_unused_properties flag="false" />
+						<mesh_density_rounded flag="false" />
+					</other_preferences>
+					<naming_preferences>
+						<use_long_loadcase_names flag="true" />
+						<use_long_set_names flag="true" />
+						<use_long_property_names flag="true" />
+					</naming_preferences>
+					<face_mesher face_mesh_strategy="sesam_quad_mesher" />
+					<edge_mesher edge_mesh_strategy="uniform_distribution" />
+					<idealizations eliminate_internal_vertices="true" eliminate_internal_edges="false" ignore_structure_not_part_of_subset_when_idealizing="false" />
+				</general>
+				<min_max_density_ratio>
+					<min_max_density_ratio_value active="false" value="0.1" />
+				</min_max_density_ratio>
+				<adjust_number_of_elements flag="true" />
+				<write_loads_seperate flag="true" />
+				<eliminate_internal_eccentricities flag="false" />
+				<ignore_fillet_radius flag="false" />
+				<min_max_angle>
+					<max_angle>
+						<error active="true" value="3.124139361" />
+						<split active="false" value="2.879793266" />
+					</max_angle>
+					<min_angle>
+						<error active="false" value="0.01745329252" />
+						<split active="false" value="0.2617993878" />
+					</min_angle>
+				</min_max_angle>
+				<max_twist_angle>
+					<error active="false" value="0.5235987756" />
+					<split active="false" value="0.1745329252" />
+				</max_twist_angle>
+				<jacobi>
+					<max_relative_jacobi>
+						<error active="false" value="10" />
+						<split active="false" value="5" />
+					</max_relative_jacobi>
+					<min_normalized_jacobi>
+						<error active="false" value="0" />
+						<split active="false" value="0.2" />
+					</min_normalized_jacobi>
+				</jacobi>
+				<eliminate_short_edges>
+					<none />
+				</eliminate_short_edges>
+				<chord_height>
+					<adjust_curved_edges active="false" value="0.2" />
+				</chord_height>
+			</meshing>
+			<compatibility user_defined_compatibility="false">
+				<compatibility_options>
+					<option value="true" option="SetDefaultNames" />
+					<option value="true" option="CaseInsensitiveFunctions" />
+					<option value="true" option="JournalledDefaultPrefix" />
+					<option value="true" option="SimplifyTopologyEnhancedVertexRemoval" />
+					<option value="true" option="PlateSnapping" />
+					<option value="true" option="PlateSortingCOGFirst" />
+					<option value="true" option="CurveSnapping" />
+					<option value="true" option="DefaultLongFemNames" />
+					<option value="true" option="DefaultEccentricHinghes" />
+					<option value="false" option="AutomaticallySaveModelAfterAnalysis" />
+					<option value="true" option="ValidateTransforms" />
+					<option value="true" option="CheckPlatesForErrorsDuringCreation" />
+					<option value="true" option="UseTopologySimplificationVersion7" />
+					<option value="true" option="UseSpliceVersionV" />
+					<option value="false" option="UseSpliceSecondOrderMoments" />
+					<option value="true" option="ImprovedJointDesign" />
+					<option value="true" option="EccentricBasedCapacityMemberRecognition" />
+					<option value="true" option="PreferLinearDependencies" />
+					<option value="true" option="PostponeFEMFileWrite" />
+					<option value="true" option="PostponeLoadApplication" />
+					<option value="true" option="UseSestra10" />
+					<option value="false" option="BucklingCapacityForSegmentedMembers" />
+					<option value="false" option="AlternativeJointBraceClassification" />
+					<option value="false" option="UseAutoSegmentation" />
+					<option value="false" option="AccurateCorrosionAddition" />
+					<option value="false" option="IncludeRotationalAccelerationInRotationField" />
+					<option value="false" option="ReplaceBNACCLOwithBRIGACifPossible" />
+					<option value="false" option="ParallellMeshing" />
+					<option value="false" option="UsePuls64bit" />
+					<option value="false" option="ACISFacetingV20" />
+					<option value="false" option="RenderUnoptimizedJavascriptLoads" />
+					<option value="false" option="UseNewHGLAGUI" />
+					<option value="false" option="AlphaNumericSortingOfLoadCases" />
+				</compatibility_options>
+			</compatibility>
+		</rules>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties />
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties />
+		</compartments>
+		<analysis_domain>
+			<analyses>
+				<global>
+					<loadcases>
+						<loadcase_basic name="LC1" design_condition="operating" fem_loadcase_number="1" complex_type="static" invalidated="true" />
+						<loadcase_basic name="LC2" design_condition="operating" fem_loadcase_number="2" complex_type="static" invalidated="true" />
+					</loadcases>
+					<loads>
+						<explicit_loads>
+							<dummy_mesh_loads_as_mass loadcase_ref="LC2" mesh_loads_as_mass="false" />
+							<prescribed_displacement loadcase_ref="LC2" name="PD_a">
+								<footprint>
+									<footprint_support_point support_point_ref="Sp_presc" />
+								</footprint>
+								<intensity>
+									<displacement_constant>
+										<intensity>
+											<translation dx="0.005" dy="0" dz="-0.01" />
+											<rotation rx="0" ry="0" rz="0.001" />
+										</intensity>
+									</displacement_constant>
+								</intensity>
+							</prescribed_displacement>
+							<prescribed_displacement loadcase_ref="LC2" name="PD_rot">
+								<footprint>
+									<footprint_support_point support_point_ref="Sp_presc_rot" />
+								</footprint>
+								<intensity>
+									<displacement_constant>
+										<intensity>
+											<translation dx="0.02" dy="0" dz="0" />
+											<rotation rx="0" ry="0" rz="0" />
+										</intensity>
+									</displacement_constant>
+								</intensity>
+							</prescribed_displacement>
+							<dummy_mesh_loads_as_mass loadcase_ref="LC1" mesh_loads_as_mass="false" />
+							<point_load loadcase_ref="LC1" name="PL1">
+								<footprint>
+									<footprint_point>
+										<point x="2" y="0.5" z="0" />
+									</footprint_point>
+								</footprint>
+								<intensity>
+									<component0d_constant intensity_system="local" position_system="local">
+										<intensity>
+											<force fx="0" fy="0" fz="-10000" />
+											<moment mx="0" my="0" mz="0" />
+										</intensity>
+									</component0d_constant>
+								</intensity>
+							</point_load>
+							<prescribed_displacement loadcase_ref="LC1" name="PD_b">
+								<footprint>
+									<footprint_support_point support_point_ref="Sp_presc" />
+								</footprint>
+								<intensity>
+									<displacement_constant>
+										<intensity>
+											<translation dx="-0.003" dy="0" dz="0" />
+											<rotation rx="0" ry="0" rz="0" />
+										</intensity>
+									</displacement_constant>
+								</intensity>
+							</prescribed_displacement>
+						</explicit_loads>
+						<slicer_loads />
+					</loads>
+				</global>
+				<analysis name="Analysis1" active="true" active_loadcase="LC2">
+					<activities>
+						<create_mesh beams_as_members="true" smart_load_combinations="true" write_load_combination_on_first_level_as_bsell="false" write_computed_load_cases_into_combination_bsell="true" pile_boundary_condition="pile_soil_interaction" use_partial_mesher="true" include_loads_on_mesh="false" needs_apply_loads="false" needs_remesh_loads="true" multithreaded_load_applier="true" multithreaded_mesher="false" write_fem_file="false" needs_fem_file_write="false" lock_meshed_concepts_after_partial_meshing="true" regenerate_mesh_option="conditional" exclude_include_subset_option="include" force_reuse_external_node_and_element_numbers="false" node_numbers_from_joint_name="false" element_numbers_from_beam_name="false" length_unit="m" force_unit="N" tempdiff_unit="delC">
+							<partial_remesh_handler prefer_NxM="false" allow_triangles="true" use_second_order="false" use_drilling="false" eliminate_internal_vertices="true" eliminate_internal_edges="false" use_uniformized_face_parametrization="false" is_remesh_required="false" short_edge_rel_length="-1" short_edge_abs_length="-1" pile_remeshing_required="false" super_element_type="1" super_element_type_top="1">
+								<edge_mesher edge_mesh_strategy="uniform_distribution" />
+								<face_mesher face_mesh_strategy="sesam_quad_mesher" />
+							</partial_remesh_handler>
+						</create_mesh>
+					</activities>
+					<loadcases auto_import="true" />
+					<runtime_statuses>
+						<status activity_ref="Analysis1.step(1)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(1)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(2)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(3)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(4)" activity_status="0" />
+					</runtime_statuses>
+					<completion_statuses>
+						<status activity_ref="Analysis1.step(1)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(1)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(2)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(3)" activity_status="0" />
+						<status activity_ref="Analysis1.step(1).step(4)" activity_status="0" />
+					</completion_statuses>
+					<activity_start_time>
+						<start_time activity_ref="Analysis1.step(1)" activity_start_time="0" />
+						<start_time activity_ref="Analysis1.step(1).step(1)" activity_start_time="0" />
+						<start_time activity_ref="Analysis1.step(1).step(2)" activity_start_time="0" />
+						<start_time activity_ref="Analysis1.step(1).step(3)" activity_start_time="0" />
+						<start_time activity_ref="Analysis1.step(1).step(4)" activity_start_time="0" />
+					</activity_start_time>
+					<activity_end_time>
+						<end_time activity_ref="Analysis1.step(1)" activity_end_time="0" />
+						<end_time activity_ref="Analysis1.step(1).step(1)" activity_end_time="0" />
+						<end_time activity_ref="Analysis1.step(1).step(2)" activity_end_time="0" />
+						<end_time activity_ref="Analysis1.step(1).step(3)" activity_end_time="0" />
+						<end_time activity_ref="Analysis1.step(1).step(4)" activity_end_time="0" />
+					</activity_end_time>
+				</analysis>
+			</analyses>
+		</analysis_domain>
+		<palette_manager default_palette="default" light_mode="true" include_all_items="false" include_legend_title="true" include_visible_objects_only="true" dim_not_color_coded="true" enable_edge_color_override="false">
+			<ambiguous r="0.2196078431" g="0.2196078431" b="0.2196078431" a="NaN" />
+			<not_found r="NaN" g="NaN" b="NaN" a="NaN" />
+			<not_specified r="NaN" g="NaN" b="NaN" a="NaN" />
+			<edge_override r="0.8" g="0.8" b="0.8" a="NaN" />
+			<providers>
+				<provider heading="Relative Jacobi" category="Mesh">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="1" g="0.6" b="0.2" a="NaN" />
+							<contours>
+								<contour line="1">
+									<color r="0" g="0" b="1" a="0.8" />
+								</contour>
+								<contour line="2">
+									<color r="0" g="1" b="0" a="0.5" />
+								</contour>
+								<contour line="3">
+									<color r="1" g="1" b="0" a="0.2" />
+								</contour>
+								<contour line="4">
+									<color r="1" g="0" b="0" a="0" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="UF for failed panels only" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.99">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="1.05">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1.15">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="2">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-BeamYield" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-BeamYield by panel" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-Buckling" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-PlateBuckling" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-PlateYield" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-PlateYield by panel" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-StiffenerBuckling" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Uf-Yield" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="UfBuckSigmaX" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="UfBuckSigmaY" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="UfBuckTau" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="UfTot" category="Results">
+					<palette>
+						<range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0.01">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="0.5">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="0.8">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="1">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="1.33">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+							</contours>
+						</range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Yield-BeamStress" category="Results">
+					<palette>
+						<stress_range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0">
+									<color r="0.8" g="0.8" b="0.8" a="NaN" />
+								</contour>
+								<contour line="5000000">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="10000000">
+									<color r="0" g="0" b="1" a="NaN" />
+								</contour>
+								<contour line="30000000">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="50000000">
+									<color r="0" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="75000000">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="100000000">
+									<color r="0.8" g="0.8" b="0" a="NaN" />
+								</contour>
+								<contour line="125000000">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="150000000">
+									<color r="0.8" g="0.4" b="0" a="NaN" />
+								</contour>
+								<contour line="175000000">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+								<contour line="200000000">
+									<color r="0.6" g="0" b="0" a="NaN" />
+								</contour>
+								<contour line="250000000">
+									<color r="1" g="0" b="1" a="NaN" />
+								</contour>
+							</contours>
+						</stress_range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Yield-SigmaXX" category="Results">
+					<palette>
+						<stress_range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="-999000000">
+									<color r="0.8" g="0" b="0.8" a="NaN" />
+								</contour>
+								<contour line="-150000000">
+									<color r="0.6" g="0" b="0" a="NaN" />
+								</contour>
+								<contour line="-100000000">
+									<color r="0.8" g="0.4" b="0" a="NaN" />
+								</contour>
+								<contour line="-75000000">
+									<color r="0.8" g="0.8" b="0" a="NaN" />
+								</contour>
+								<contour line="-50000000">
+									<color r="0" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="-30000000">
+									<color r="0" g="0.6" b="0.6" a="NaN" />
+								</contour>
+								<contour line="-10000000">
+									<color r="0.8" g="0.8" b="0.8" a="NaN" />
+								</contour>
+								<contour line="10000000">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="30000000">
+									<color r="0.6" g="1" b="0.6" a="NaN" />
+								</contour>
+								<contour line="50000000">
+									<color r="1" g="1" b="0.6" a="NaN" />
+								</contour>
+								<contour line="75000000">
+									<color r="1" g="0.8" b="0.6" a="NaN" />
+								</contour>
+								<contour line="100000000">
+									<color r="1" g="0.6" b="0.6" a="NaN" />
+								</contour>
+								<contour line="150000000">
+									<color r="1" g="0.6" b="1" a="NaN" />
+								</contour>
+							</contours>
+						</stress_range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Yield-SigmaYY" category="Results">
+					<palette>
+						<stress_range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="-999000000">
+									<color r="0.8" g="0" b="0.8" a="NaN" />
+								</contour>
+								<contour line="-150000000">
+									<color r="0.6" g="0" b="0" a="NaN" />
+								</contour>
+								<contour line="-100000000">
+									<color r="0.8" g="0.4" b="0" a="NaN" />
+								</contour>
+								<contour line="-75000000">
+									<color r="0.8" g="0.8" b="0" a="NaN" />
+								</contour>
+								<contour line="-50000000">
+									<color r="0" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="-30000000">
+									<color r="0" g="0.6" b="0.6" a="NaN" />
+								</contour>
+								<contour line="-10000000">
+									<color r="0.8" g="0.8" b="0.8" a="NaN" />
+								</contour>
+								<contour line="10000000">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="30000000">
+									<color r="0.6" g="1" b="0.6" a="NaN" />
+								</contour>
+								<contour line="50000000">
+									<color r="1" g="1" b="0.6" a="NaN" />
+								</contour>
+								<contour line="75000000">
+									<color r="1" g="0.8" b="0.6" a="NaN" />
+								</contour>
+								<contour line="100000000">
+									<color r="1" g="0.6" b="0.6" a="NaN" />
+								</contour>
+								<contour line="150000000">
+									<color r="1" g="0.6" b="1" a="NaN" />
+								</contour>
+							</contours>
+						</stress_range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Yield-TauXY" category="Results">
+					<palette>
+						<stress_range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="-999000000">
+									<color r="0.8" g="0" b="0.8" a="NaN" />
+								</contour>
+								<contour line="-150000000">
+									<color r="0.6" g="0" b="0" a="NaN" />
+								</contour>
+								<contour line="-100000000">
+									<color r="0.8" g="0.4" b="0" a="NaN" />
+								</contour>
+								<contour line="-75000000">
+									<color r="0.8" g="0.8" b="0" a="NaN" />
+								</contour>
+								<contour line="-50000000">
+									<color r="0" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="-30000000">
+									<color r="0" g="0.6" b="0.6" a="NaN" />
+								</contour>
+								<contour line="-10000000">
+									<color r="0.8" g="0.8" b="0.8" a="NaN" />
+								</contour>
+								<contour line="10000000">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="30000000">
+									<color r="0.6" g="1" b="0.6" a="NaN" />
+								</contour>
+								<contour line="50000000">
+									<color r="1" g="1" b="0.6" a="NaN" />
+								</contour>
+								<contour line="75000000">
+									<color r="1" g="0.8" b="0.6" a="NaN" />
+								</contour>
+								<contour line="100000000">
+									<color r="1" g="0.6" b="0.6" a="NaN" />
+								</contour>
+								<contour line="150000000">
+									<color r="1" g="0.6" b="1" a="NaN" />
+								</contour>
+							</contours>
+						</stress_range_contour_palette>
+					</palette>
+				</provider>
+				<provider heading="Yield-VonMises" category="Results">
+					<palette>
+						<stress_range_contour_palette>
+							<lower_color r="0.8" g="0.8" b="0.8" a="NaN" />
+							<contours>
+								<contour line="0">
+									<color r="0.8" g="0.8" b="0.8" a="NaN" />
+								</contour>
+								<contour line="5000000">
+									<color r="0.5" g="0.7" b="1" a="NaN" />
+								</contour>
+								<contour line="10000000">
+									<color r="0" g="0" b="1" a="NaN" />
+								</contour>
+								<contour line="30000000">
+									<color r="0" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="50000000">
+									<color r="0" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="75000000">
+									<color r="1" g="1" b="0" a="NaN" />
+								</contour>
+								<contour line="100000000">
+									<color r="0.8" g="0.8" b="0" a="NaN" />
+								</contour>
+								<contour line="125000000">
+									<color r="1" g="0.6" b="0.2" a="NaN" />
+								</contour>
+								<contour line="150000000">
+									<color r="0.8" g="0.4" b="0" a="NaN" />
+								</contour>
+								<contour line="175000000">
+									<color r="1" g="0" b="0" a="NaN" />
+								</contour>
+								<contour line="200000000">
+									<color r="0.6" g="0" b="0" a="NaN" />
+								</contour>
+								<contour line="250000000">
+									<color r="1" g="0" b="1" a="NaN" />
+								</contour>
+							</contours>
+						</stress_range_contour_palette>
+					</palette>
+				</provider>
+			</providers>
+		</palette_manager>
+	</model>
+</DNV_structure_concept_protocol>

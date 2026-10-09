@@ -296,6 +296,11 @@ def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:
     edge = _edge_or_none(coedge_first)
     if edge is not None:
         yield edge
+    # A loop of one coedge (a hole bounded by a single closed curve) is its own successor:
+    # without this stop the walk below yielded it a second time, and the hole came back as
+    # two coincident copies of its circle.
+    if coedge_next_id == coedge_start_id:
+        return
 
     max_iter = 100
     i = 0

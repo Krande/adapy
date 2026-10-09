@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, List
 
-from ada.fem import Load, LoadGravity
+from ada.fem import Load, LoadGravity, LoadLine
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
 
 if TYPE_CHECKING:
@@ -12,6 +12,8 @@ def load_str(load: Load):
         return write_gravity_load_str(load)
     elif load.type == Load.TYPES.PRESSURE:
         return pressure_load_str(load)
+    elif load.type == Load.TYPES.LINE:
+        return line_load_str(load)
     else:
         raise ValueError("Calculix does not accept Loads without reference to a fem_set")
 
@@ -124,6 +126,35 @@ def pressure_load_str(load: Load) -> str:
         data.append(f"{fem_set.name}, {PRESSURE_LABEL}, {_pressure_sign(side) * load.magnitude}")
 
     return "** Name: {0}   Type: Pressure\n*Dload\n{1}".format(load.name, "\n".join(data))
+
+
+#: The conversion report's stage for this writer.
+STAGE = "calculix writer"
+
+
+def line_load_str(load: LoadLine) -> str:
+    """A distributed line load as ``*CLOAD``: the consistent nodal forces of the linear elements it acts on.
+
+    The conversion the Abaqus writer uses for a varying or partial beam load and a shell edge load
+    (:meth:`LoadLine.nodal_loads`), here for every segment, uniform ones included, because CalculiX 2.23 has no
+    beam load this writer could use instead -- measured on the 4 m beam this writer writes as ``U1`` elements:
+    ``*DLOAD`` with ``PZ`` stops ccx at "*ERROR reading *DLOAD" (there is no load in global components), and
+    ``P1`` / ``P2`` (along the section's own axes) are read but load nothing, the reactions coming out 0. Exact
+    in the resultant and its moment; reported as a note.
+    """
+    from ada.fem.formats import conversion_report
+
+    nodal = LoadLine.summed_nodal_loads(load.segments)
+    lines = [f"{node.id}, {dof + 1}, {float(f[dof])!r}" for node, f in nodal for dof in range(3) if f[dof] != 0.0]
+    conversion_report.current().note(
+        STAGE,
+        "LoadLine",
+        load.name,
+        "a line load is written as the consistent nodal forces of the linear elements it acts on (*CLOAD): "
+        "CalculiX has no beam line load in global components and this writer has no shell edge form",
+        n_nodes=len(nodal),
+    )
+    return "** Name: {0}   Type: Line load as nodal forces\n*Cload\n{1}".format(load.name, "\n".join(lines))
 
 
 def check_if_grav_loads(fem: "FEM"):

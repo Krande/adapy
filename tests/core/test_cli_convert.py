@@ -755,3 +755,40 @@ def test_a_workspace_converts_to_ifc_without_a_from_flag(src_gnx, tmp_path):
     assert _cmd_convert(_ns(src_gnx, out)) == 0
     assert out.is_file()
     assert out.read_bytes()[:4] == b"ISO-"
+
+
+def test_binary_acis_writes_the_binary_body(src_xml, tmp_path):
+    """``--binary-acis``: the workspace's body as GeniE V9.3 saves it with its binary option on.
+    Without the flag the body stays text -- what every GeniE version opens."""
+    text, binary = tmp_path / "text" / "out.gnx", tmp_path / "binary" / "out.gnx"
+    _cmd_convert(_ns(src_xml, text))
+    ns = _ns(src_xml, binary)
+    ns.binary_acis = True
+    _cmd_convert(ns)
+    with zipfile.ZipFile(text) as z:
+        assert "acisGeometry.sat" in z.namelist() and "acisGeometry.sab" not in z.namelist()
+    with zipfile.ZipFile(binary) as z:
+        assert "acisGeometry.sab" in z.namelist() and "acisGeometry.sat" not in z.namelist()
+        assert z.read("acisGeometry.sab").startswith(b"ACIS BinaryFile")
+        assert b'<option value="true" option="WriteACISBinaryFile" />' in z.read("modelData.xml")
+    assert [pl.name for pl in _load(binary).get_all_physical_objects(by_type=ada.Plate)] == ["pl1"]
+
+
+@pytest.mark.parametrize("out_name", ["out.xml", "out.ifc"])
+def test_binary_acis_on_anything_but_a_workspace_is_a_usage_error(src_xml, tmp_path, out_name):
+    """Only a workspace keeps its ACIS body as a member of its own; elsewhere the flag would do
+    nothing and say nothing, so it is refused before the input is read."""
+    out = tmp_path / out_name
+    ns = _ns(src_xml, out)
+    ns.binary_acis = True
+    with pytest.raises(CliUsageError, match="--binary-acis"):
+        _cmd_convert(ns)
+    assert not out.exists()
+
+
+def test_the_parser_offers_binary_acis_off_by_default():
+    from ada_cli.main import _build_parser
+
+    parser = _build_parser()
+    assert parser.parse_args(["convert", "a.xml", "b.gnx"]).binary_acis is False
+    assert parser.parse_args(["convert", "a.xml", "b.gnx", "--binary-acis"]).binary_acis is True

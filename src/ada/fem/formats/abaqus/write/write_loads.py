@@ -1,4 +1,6 @@
-from ada.fem import Load, LoadPressure
+from __future__ import annotations
+
+from ada.fem import Load, LoadLine, LoadPressure
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
 
 from ..grammar import format_number
@@ -11,6 +13,7 @@ def load_str(load: Load) -> str:
         Load.TYPES.ACC: acceleration_field_str,
         Load.TYPES.FORCE: force_load_str,
         Load.TYPES.PRESSURE: pressure_load_str,
+        Load.TYPES.LINE: line_load_str,
     }
     load_str_func = load_map.get(load.type, None)
 
@@ -62,3 +65,62 @@ def pressure_load_str(load: LoadPressure) -> str:
         raise UnsupportedLoadType("Total Force calculation is not yet supported for Abaqus")
     data = [f"{instance_name}, P, {format_number(load.magnitude)}"]
     return render_block("Dsload", (), data, [f"Name: {load.name}   Type: Pressure"])
+
+
+#: ``*Dload`` labels for a beam element's distributed load in the global x, y, z directions, force per length.
+_BEAM_LOAD_LABELS = ("PX", "PY", "PZ")
+
+
+def _element_label(el) -> str:
+    """An element as a ``*Dload`` data line names it at assembly level: ``<instance>.<id>``."""
+    from ada import Assembly
+
+    fem = el.parent
+    return str(el.id) if isinstance(fem.parent, Assembly) else f"{fem.instance_name}.{el.id}"
+
+
+def line_load_str(load: LoadLine) -> str:
+    """A distributed line load: ``*Dload PX/PY/PZ`` per beam element it loads uniformly end to end, consistent nodal
+    ``*Cload`` for everything else.
+
+    Abaqus' beam distributed loads are constant over an element, and its shell edge loads need an edge surface,
+    which this writer has no form for. So a linearly varying or partial stretch of a beam, and a load along a shell
+    edge, go in as the consistent nodal forces of a linear element (:meth:`LoadLine.nodal_loads`) -- what Abaqus 2025
+    makes of a ``*Dload`` on a B31 itself (measured, see there), and exact in the resultant. Reported as a note.
+    Abaqus adds two loads on one element or node within a step (measured: two ``*Dload PZ, -1000`` on one 0.5 m
+    element reacted 1000 N, two ``*Cload -1000`` on one node 2000 N), so nothing needs merging here.
+    """
+    from ada.fem.formats import conversion_report
+
+    from .write_bc import STAGE
+
+    dload, rest = [], []
+    for seg in load.segments:
+        if seg.uniform_over_beam_element():
+            label = _element_label(seg.elem)
+            dload += [f"{label}, {lab}, {format_number(q)}" for lab, q in zip(_BEAM_LOAD_LABELS, seg.q1) if q != 0.0]
+        else:
+            rest.append(seg)
+    nodal = LoadLine.summed_nodal_loads(rest)
+
+    blocks = []
+    if dload:
+        blocks.append(render_block("Dload", (), dload, [f"Name: {load.name}   Type: Line load"]))
+    if nodal:
+        lines = [
+            f" {get_instance_name(node, True)}, {dof + 1}, {format_number(float(f[dof]))}"
+            for node, f in nodal
+            for dof in range(3)
+            if f[dof] != 0.0
+        ]
+        blocks.append(render_block("Cload", (), lines, [f"Name: {load.name}   Type: Line load as nodal forces"]))
+        conversion_report.current().note(
+            STAGE,
+            "LoadLine",
+            load.name,
+            "a varying or partial beam line load, or a shell edge load, is written as the consistent nodal forces "
+            "of the linear elements it acts on: Abaqus' beam loads are constant per element and this writer has no "
+            "shell edge surface",
+            n_nodes=len(nodal),
+        )
+    return "\n".join(blocks)

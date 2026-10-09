@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from ada.config import logger
 
 from .write_amplitudes import amplitudes_str
-from .write_bc import boundary_conditions_str
+from .write_bc import boundary_conditions_str, report_unstepped_settlements
 from .write_connectors import connector_section_str, connector_sets_str, connector_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
@@ -19,7 +19,7 @@ from .write_orientations import orientations_str
 from .write_parts import write_all_parts
 from .write_predefined_state import predefined_fields_str
 from .write_sets import elsets_str, nsets_str
-from .write_steps import write_step
+from .write_steps import abaqus_steps, write_step
 from .write_surfaces import surfaces_str
 
 if TYPE_CHECKING:
@@ -120,9 +120,10 @@ def to_fem(
     # Boundary Condition data
     with open(core_dir / "bc_data.inp", "w") as d:
         d.write(boundary_conditions_str(assembly))
+    report_unstepped_settlements(assembly)
 
     # Analysis steps
-    for step_in in afem.steps:
+    for step_in in abaqus_steps(assembly):
         write_step(step_in, analysis_dir)
 
     # Default: collapse the *INCLUDE chain into a single self-contained <name>.inp so the deck
