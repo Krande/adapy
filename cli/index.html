@@ -1,0 +1,2445 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/cli/">
+      
+      
+        <link rel="prev" href="../meshing/">
+      
+      
+        <link rel="next" href="../notebooks/design/primitives/box/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>Command line interface - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../_static/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Command line interface
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dexpi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ada-convert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada convert</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ada convert">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-conversion-could-not-carry-across" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a conversion could not carry across
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada view</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada build</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada files</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada audit</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada serve</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../architecture/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/topology_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/fea/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ada-convert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada convert</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ada convert">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-conversion-could-not-carry-across" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a conversion could not carry across
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada view</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada build</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada files</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada audit</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ada-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ada serve</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/cli.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="command-line-interface">Command line interface<a class="headerlink" href="#command-line-interface" title="Permanent link">&para;</a></h1>
+<p>The distribution is named <code>ada-py</code>, but the console script it installs is
+<code>ada</code> — there is no <code>ada-py</code> command. Install the package with <a href="https://pixi.sh">pixi</a>,
+then call <code>ada</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pixi<span class="w"> </span>global<span class="w"> </span>install<span class="w"> </span>ada-py
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>ada<span class="w"> </span>--help
+</span></code></pre></div>
+<p>In a pixi project (<code>pixi add ada-py</code>), run it through the project environment instead:
+<code>pixi run ada --help</code>.</p>
+<p>The entry point lives in its own top-level package (<code>ada_cli</code>) so that
+<code>ada --help</code> does not import the full CAD/FEM surface. Every subcommand
+imports its implementation lazily, so an invocation only pays for what it uses.</p>
+<p>One global option applies to all of them:</p>
+<dl>
+<dt><code>--log-level</code></dt>
+<dd>Logging level for the commands that initialise the <code>ada</code> package
+(<code>convert</code>, <code>view</code>, <code>audit repro</code>, <code>audit parity</code>). Default <code>INFO</code>.</dd>
+</dl>
+<p><code>convert</code> and <code>view</code> take <code>--log-file PATH</code> as well -- a per-command option
+rather than a global one, because argparse only accepts the global ones <em>before</em>
+the subcommand and <code>ada convert in out --log-file run.log</code> is how it gets
+typed.</p>
+<p>Every command exits <code>0</code> on success. An argparse error exits <code>2</code>, and so does
+a bare command with nothing to act on — a bare invocation prints that parser's
+<em>full</em> help rather than a one-line usage, but to stderr, and still exits <code>2</code>,
+because a wrong invocation must not look like success to a script. An explicit
+<code>--help</code> goes to stdout and exits <code>0</code>.</p>
+<p><code>convert</code> and <code>view</code> also exit <code>2</code> for a usage error they raise
+themselves — an extension nothing can be inferred from, an output that names a
+directory, an input that is not there — printed as
+<code>ada &lt;command&gt;: error: &lt;what was wrong&gt;</code>. For those two, <code>1</code> means the
+invocation was fine and the work itself failed. The commands that talk to a
+hosted viewer (<code>files</code>, <code>audit</code>, <code>build</code>) predate this convention and
+return <code>1</code> for a request that failed or was declined.</p>
+<p>The command groups are <code>convert</code>, <code>view</code>, <code>build</code>, <code>files</code>, <code>audit</code>
+and <code>serve</code>. The first two run entirely locally; the rest of this page notes
+where a group talks to a hosted viewer instead.</p>
+<h2 id="ada-convert"><code>ada convert</code><a class="headerlink" href="#ada-convert" title="Permanent link">&para;</a></h2>
+<p>Convert a model to another format. Both ends are inferred from the file
+extensions, and <code>--from</code> / <code>--to</code> override that inference.</p>
+<table>
+<thead>
+<tr>
+<th>Read (<code>--from</code>)</th>
+<th>Extensions</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ifc</code></td>
+<td><code>.ifc</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>step</code></td>
+<td><code>.step</code>, <code>.stp</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>xml</code></td>
+<td><code>.xml</code></td>
+<td>GeniE XML.</td>
+</tr>
+<tr>
+<td><code>gnx</code></td>
+<td><code>.gnx</code></td>
+<td>GeniE workspace: the same concept XML zipped with its ACIS body, which is what GeniE opens directly. <code>ada.from_gnx</code> is the Python entry point. A body GeniE V9.3 saved in binary (<code>acisGeometry.sab</code>) reads as its text twin would; one holding a record the reader was not verified on is refused by name.</td>
+</tr>
+<tr>
+<td><code>acis</code></td>
+<td><code>.sat</code>, <code>.acis</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>abaqus</code></td>
+<td><code>.inp</code></td>
+<td>Also how you read a Calculix deck; they share the keyword syntax.</td>
+</tr>
+<tr>
+<td><code>sesam</code></td>
+<td><code>.fem</code>, <code>.sif</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>code_aster</code></td>
+<td><code>.med</code>, <code>.rmed</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Write (<code>--to</code>)</th>
+<th>Extensions</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ifc</code></td>
+<td><code>.ifc</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>step</code></td>
+<td><code>.step</code>, <code>.stp</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>gltf</code></td>
+<td><code>.gltf</code>, <code>.glb</code></td>
+<td><code>.glb</code> is the binary flavour.</td>
+</tr>
+<tr>
+<td><code>xml</code></td>
+<td><code>.xml</code></td>
+<td>GeniE XML.</td>
+</tr>
+<tr>
+<td><code>gnx</code></td>
+<td><code>.gnx</code></td>
+<td>GeniE workspace. Same model as <code>xml</code>, in the container GeniE saves and opens; <code>Assembly.to_gnx</code> is the Python entry point. The ACIS body is text unless <code>--binary-acis</code> asks for binary.</td>
+</tr>
+<tr>
+<td><code>abaqus</code></td>
+<td><code>.inp</code></td>
+<td>Default owner of <code>.inp</code>. One self-contained deck — the include files the writer uses internally are inlined and removed.</td>
+</tr>
+<tr>
+<td><code>calculix</code></td>
+<td><code>.inp</code></td>
+<td>Shares <code>.inp</code> with Abaqus, so it is reachable only as <code>--to calculix</code>.</td>
+</tr>
+<tr>
+<td><code>sesam</code></td>
+<td><code>.fem</code></td>
+<td>Default owner of <code>.fem</code>. Writes <code>sestra.inp</code> beside the deck when the model carries an analysis step.</td>
+</tr>
+<tr>
+<td><code>usfos</code></td>
+<td><code>.fem</code></td>
+<td>Shares <code>.fem</code> with Sesam, so it is reachable only as <code>--to usfos</code>.</td>
+</tr>
+<tr>
+<td><code>code_aster</code></td>
+<td><code>.med</code></td>
+<td>The output is the <code>.med</code> mesh; the <code>.comm</code> command file and two <code>.json</code> maps land beside it.</td>
+</tr>
+<tr>
+<td><code>opencourant</code></td>
+<td><code>.rad</code></td>
+<td>OpenCourant (OpenRadioss) starter deck <code>&lt;name&gt;_0000.rad</code>. The engine deck <code>&lt;name&gt;_0001.rad</code> is written beside it when the model carries an explicit step. Shell models only for now.</td>
+</tr>
+</tbody>
+</table>
+<p>Two extensions name more than one FEM format — <code>.inp</code> is both Abaqus and
+Calculix, <code>.fem</code> is both Sesam and USFOS — so each has exactly one default
+owner, picked to agree with what <code>ada.from_fem</code> already infers from a path:
+<code>.inp</code> means Abaqus, <code>.fem</code> means Sesam. The minority dialect is reached with
+<code>--to</code> and no other way. Inference is not silent about it: resolving a shared
+extension is logged at <code>INFO</code>, naming the flag that would have chosen the other
+one.</p>
+<p><code>xml</code> and <code>gnx</code> are the inverse case: one model, two containers. A <code>.gnx</code> is
+the GeniE workspace -- the concept XML plus its ACIS body, zipped the way GeniE
+saves one -- so the extension decides which container is written and <code>--to</code>
+cannot override it. <code>ada convert in.xml out.gnx --to xml</code> is a usage error
+rather than an override, because the flag selects no conversion there: it can only
+put plain XML under a name GeniE will try to unzip, or a zip under a name an XML
+parser will try to parse, and neither file opens. Drop the flag and let the
+extension pick, or name the output with the extension you meant.</p>
+<p>The output argument always names <strong>one file</strong>, never a directory, and that exact
+path is what exists when the command exits <code>0</code>. This is worth stating because
+the FEM writers do not work that way on their own: called through the Python API
+they name the deck after the <em>model</em> and leave it in a scratch directory
+(<code>&lt;scratch&gt;/&lt;name&gt;/&lt;name&gt;T1.FEM</code> for Sesam, <code>ufo_bulk.fem</code> for USFOS
+regardless of the name given). The CLI writes into a temporary directory next to
+your output and moves the format's primary deck onto the path you asked for.</p>
+<p>Formats that genuinely need more than one file write the rest <strong>beside</strong> it,
+under the writer's own names — so point the output at a directory of its own when
+the sidecars matter. Every path written is printed to stdout as an absolute path,
+one per line, the file you asked for first and the sidecars after it:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="gp">$ </span><span class="nb">cd</span><span class="w"> </span>/work<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>ada<span class="w"> </span>convert<span class="w"> </span>model.inp<span class="w"> </span>analysis/mesh.med
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="go">/work/analysis/mesh.med</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="go">/work/analysis/mesh.adapy_fem.json</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="go">/work/analysis/mesh.comm</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="go">/work/analysis/mesh.name_map.json</span>
+</span></code></pre></div>
+<p>The sidecars are printed sorted by name, so the output is stable between runs.
+The temporary directory the deck is built in goes away
+even if the writer fails, so a failed conversion does not litter the output
+directory; in the rare case it cannot be removed, a warning names it.</p>
+<p>Sidecars keep the writer's own names, so converting twice into one directory
+replaces the previous run's sidecars -- that is warned about, and giving each
+conversion its own output directory avoids the question entirely.</p>
+<p>Two consequences of that rule are worth knowing. A Sesam output may be named
+either <code>model.FEM</code> or <code>modelT1.FEM</code> — the <code>T1</code> the Sesam writer appends is
+recognised, not doubled, so a name that already has it needs no rename
+afterwards. And Code_Aster output must be named <code>*.med</code>, because the mesh is
+the primary file; naming the <code>.comm</code> is a usage error rather than a silent
+surprise.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.sat<span class="w"> </span>model.stp
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.ifc<span class="w"> </span>model.glb
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.gnx<span class="w"> </span>model.ifc<span class="w">                  </span><span class="c1"># GeniE workspace -&gt; IFC</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.xml<span class="w"> </span>model.gnx<span class="w">                  </span><span class="c1"># concept XML -&gt; workspace</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.xml<span class="w"> </span>model.gnx<span class="w"> </span>--binary-acis<span class="w">    </span><span class="c1"># same, ACIS body as binary SAB (GeniE V9.3+)</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.inp<span class="w"> </span>model.FEM<span class="w">                  </span><span class="c1"># Abaqus deck -&gt; Sesam deck</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.inp<span class="w"> </span>analysis/modelT1.FEM<span class="w">       </span><span class="c1"># same, named as Sesam names it</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.inp<span class="w"> </span>ufo/model.fem<span class="w"> </span>--to<span class="w"> </span>usfos
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>ada<span class="w"> </span>convert<span class="w"> </span>model.FEM<span class="w"> </span>ccx/model.inp<span class="w"> </span>--to<span class="w"> </span>calculix
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>ada<span class="w"> </span>convert<span class="w"> </span>deck.dat<span class="w"> </span>model.FEM<span class="w"> </span>--from<span class="w"> </span>abaqus
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>ada<span class="w"> </span>convert<span class="w"> </span>--list-formats
+</span></code></pre></div>
+<dl>
+<dt><code>-f</code>, <code>--from</code></dt>
+<dd>Read the input as this format instead of inferring it from the extension.
+Use it for an Abaqus deck that is not named <code>.inp</code>, or to read a Calculix
+deck (<code>--from abaqus</code>). There is deliberately no <code>--from calculix</code>:
+adapy has no Calculix reader, and a <code>.frd</code> is a result file, not a model.</dd>
+<dt><code>-t</code>, <code>--to</code></dt>
+<dd>Write this format instead of inferring it from the output extension. This is
+the only route to <code>calculix</code> and <code>usfos</code>. An explicit <code>--to</code> always
+wins; if it disagrees with the extension you named, the conversion still runs
+and logs a warning naming the usual extension.</dd>
+<dt><code>--list-formats</code></dt>
+<dd>Print both tables, with the primary file each FEM writer produces, and exit
+<code>0</code>. Works without the input and output arguments.</dd>
+<dt><code>--split</code></dt>
+<dd>Split ACIS/SAT bodies into individual faces.</dd>
+<dt><code>--limit</code></dt>
+<dd>Stop after this many geometries. Debugging aid; unset by default.</dd>
+<dt><code>--log-file</code></dt>
+<dd>Write adapy's log records to this file, truncating it first, and leave only
+warnings and errors on the console. Useful on large FEM decks, where the
+<code>INFO</code> stream is worth keeping but not worth reading as it scrolls past.
+Without the flag nothing changes: every record at <code>--log-level</code> goes to
+stderr.</dd>
+<dt><code>--superelement</code></dt>
+<dd>The Sesam super element number, written as the deck's <code>IDENT</code> <code>SELTYP</code> and
+used to name the file <code>&lt;prefix&gt;T&lt;N&gt;.FEM</code>.</dd>
+</dl>
+<p>Without it the <code>T</code>-number in the output name decides, so <code>myPrefixT10.FEM</code>
+is super element 10. With neither, it is 1 -- and the run says so, rather than
+leaving you to discover it from Presel. Sesam expects the number in the deck and
+the number in the file name to agree, because Presel matches them when it
+assembles, so a flag contradicting the name is a usage error rather than a
+silent override.</p>
+<dl>
+<dt><code>--binary-acis</code></dt>
+<dd>For <code>gnx</code> output: store the ACIS body as binary SAB (<code>acisGeometry.sab</code>),
+the way GeniE V9.3 saves a workspace with <em>Write ACIS files in binary format</em>
+on, and set that option in the workspace so a re-save in GeniE stays binary
+(<code>Assembly.to_gnx(..., binary_acis=True)</code> in Python). The default is text,
+because GeniE before V9.3 opens a binary workspace as an empty model without
+a message; V9.3 reads either. Any other output format refuses the flag.</dd>
+<dt><code>--strict</code></dt>
+<dd>Exit <code>3</code> if anything in the input could not be written to the output, or if
+the input itself looks wrong. Approximations on their own do not fail -- a tie
+resolved to the nearest node is always one. The deck and the conversion report
+are written either way; <code>--strict</code> reports, it does not withhold.</dd>
+</dl>
+<h3 id="what-a-conversion-could-not-carry-across">What a conversion could not carry across<a class="headerlink" href="#what-a-conversion-could-not-carry-across" title="Permanent link">&para;</a></h3>
+<p>Every format lacks something another can say, so a conversion can be complete,
+approximate, or incomplete. <code>ada convert</code> says which, in three places:</p>
+<ul>
+<li>a short summary on <strong>stderr</strong> at the end -- the status, then one line per
+  finding. It is printed rather than logged, so <code>--log-file</code> cannot hide it,
+  and it is on stderr so <code>ada convert in out &gt; paths.txt</code> still captures
+  nothing but paths;</li>
+<li><code>&lt;OUT stem&gt;_conversion_report.json</code> beside the output, listing every finding
+  with counts and measurements, and named among the written paths on stdout. It
+  is written <strong>only when there is something to report</strong>: a clean conversion
+  leaves the output file alone;</li>
+<li>the exit code, under <code>--strict</code>.</li>
+</ul>
+<p>A finding is one of four kinds. <code>omitted</code> means the construct produced nothing
+in the output -- an unsupported constraint type, a keyword the reader has no
+handler for. <code>suspect</code> means the output is faithful and valid but the <em>input</em>
+looks like a modelling error, so the result is faithful to a wrong model: two
+constraints making one node's degree of freedom dependent is the case it exists
+for, because Sesam sums linear dependencies and would quietly add them together.
+<code>approximated</code> means something was written with different physics, and carries a
+measure of the difference (a pairing distance, a dropped weight). <code>note</code> means
+it was written faithfully and is worth a human's attention, or is plain inventory.</p>
+<p>Omissions and suspect input fail <code>--strict</code>; approximations and notes do not.</p>
+<p>Findings are counted per construct, not per node: a deck that drops ten thousand
+springs reports one line saying ten thousand, because a log nobody can scroll
+hides an omission just as well as no log at all.</p>
+<h2 id="ada-view"><code>ada view</code><a class="headerlink" href="#ada-view" title="Permanent link">&para;</a></h2>
+<p>Open the built-in web viewer on a file.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>ada<span class="w"> </span>view<span class="w"> </span>model.ifc
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>ada<span class="w"> </span>view<span class="w"> </span>model.ifc<span class="w"> </span>--renderer<span class="w"> </span>pygfx
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>ada<span class="w"> </span>view<span class="w"> </span>deck.dat<span class="w"> </span>--from<span class="w"> </span>abaqus
+</span></code></pre></div>
+<dl>
+<dt><code>-f</code>, <code>--from</code></dt>
+<dd>Read the input as this format instead of inferring it from the extension.
+Same names as <code>ada convert</code>'s <code>--from</code>.</dd>
+<dt><code>--renderer</code></dt>
+<dd>One of <code>react</code> (default), <code>pygfx</code> or <code>trimesh</code>.</dd>
+<dt><code>--host</code></dt>
+<dd>Host to bind the viewer websocket to. Default <code>localhost</code>.</dd>
+<dt><code>--ws-port</code></dt>
+<dd>Websocket port. Default <code>8765</code>.</dd>
+<dt><code>--split</code>, <code>--limit</code>, <code>--log-file</code></dt>
+<dd>As for <code>ada convert</code>.</dd>
+</dl>
+<h2 id="ada-build"><code>ada build</code><a class="headerlink" href="#ada-build" title="Permanent link">&para;</a></h2>
+<p>Run the entrypoints declared in an <code>ada_config.toml</code> and push the artefacts
+they produce to a viewer. The three subcommands share <code>--config</code> (default
+<code>ada_config.toml</code>), <code>--entrypoint</code> (run only the named one) and
+<code>--output-dir</code> (default <code>.ada-build</code>).</p>
+<dl>
+<dt><code>ada build run</code></dt>
+<dd>Run the entrypoints and stage the artefacts locally.</dd>
+<dt><code>ada build upload</code></dt>
+<dd>Upload the artefacts already under the output dir.</dd>
+<dt><code>ada build run-and-upload</code></dt>
+<dd>Chain the two. This is the one to use in CI.</dd>
+</dl>
+<p>Uploading needs a target and a credential, read from <code>ADAPY_VIEWER_URL</code> and
+<code>ADAPY_VIEWER_TOKEN</code> (the newer <code>ADAPY_API_BASE</code> / <code>ADAPY_API_TOKEN</code> pair
+is accepted too, and wins when both are set). A <code>.env</code> in the working
+directory is picked up automatically; real environment variables win over it.</p>
+<h2 id="ada-files"><code>ada files</code><a class="headerlink" href="#ada-files" title="Permanent link">&para;</a></h2>
+<p>List and move blobs in a viewer scope. Every subcommand takes <code>--url</code>,
+<code>--token</code> and <code>--scope</code>, each defaulting to the matching environment
+variable. A scope looks like <code>project:my-slug</code> or <code>user:me</code>.</p>
+<dl>
+<dt><code>ada files list</code></dt>
+<dd>List keys in the scope. <code>--prefix</code> filters, <code>-l</code>/<code>--long</code> adds sizes.</dd>
+<dt><code>ada files download</code></dt>
+<dd>Download <code>KEY</code> to <code>DEST</code> (default: its basename in the working
+directory). Goes S3-direct through a presigned URL where the backend
+supports it; <code>--via-api</code> forces the tunneled GET instead.</dd>
+<dt><code>ada files upload</code></dt>
+<dd>Upload <code>SRC</code> to <code>KEY</code> (default: the basename of <code>SRC</code>). <code>--via-api</code>
+forces the tunneled PUT, which is subject to the direct-upload size cap.</dd>
+<dt><code>ada files delete</code></dt>
+<dd>Delete the given keys, and/or everything under <code>--prefix</code>. <code>-y</code>/<code>--yes</code>
+skips the confirmation prompt.</dd>
+</dl>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ada<span class="w"> </span>files<span class="w"> </span>list<span class="w"> </span>--scope<span class="w"> </span>project:my-slug<span class="w"> </span>-l
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>ada<span class="w"> </span>files<span class="w"> </span>upload<span class="w"> </span>model.glb<span class="w"> </span>versions/main/abc1234/model.glb
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>ada<span class="w"> </span>files<span class="w"> </span>delete<span class="w"> </span>--prefix<span class="w"> </span>debug/<span class="w"> </span>--yes
+</span></code></pre></div>
+<h2 id="ada-audit"><code>ada audit</code><a class="headerlink" href="#ada-audit" title="Permanent link">&para;</a></h2>
+<p>A read-only client over the viewer's audit API, plus two local re-run paths.
+Credentials come from <code>ADAPY_API_TOKEN</code> with the base URL from
+<code>ADAPY_API_BASE</code> or <code>ADAPY_BASE_URL</code>; a bare host is accepted and gets
+<code>https://</code> prepended. Every subcommand accepts <code>--url</code>, <code>--token</code> and
+<code>--json</code> (raw JSON instead of a table).</p>
+<dl>
+<dt><code>ada audit runs</code></dt>
+<dd>List recent regression-sweep runs. <code>--limit</code> (default 20) and <code>--before</code>
+page through them.</dd>
+<dt><code>ada audit run</code></dt>
+<dd>Show one run's per-cell jobs. <code>--failed</code> narrows to failures, <code>--format</code>
+to a single target format.</dd>
+<dt><code>ada audit log</code></dt>
+<dd>Query the per-conversion audit log, filtered by <code>--source</code>, <code>--target</code>,
+<code>--status</code>, <code>--key</code> or <code>--grep</code>, and server-side by <code>--action</code>
+(<code>convert</code>, <code>view</code>, <code>render</code>, <code>validate</code>, …) and <code>--since</code> /
+<code>--until</code> (a relative duration such as <code>6h</code> or an ISO-8601 instant).</dd>
+<dt><code>ada audit loads</code></dt>
+<dd>Per-load browser model-load metrics recorded by the viewer's opt-in
+instrumentation: transport, TTFB, download, parse, prepare and first-render
+times, bytes and triangles. Filter with <code>--since</code>, <code>--until</code>, <code>--key</code>
+and <code>--device</code> (a device-id prefix); <code>--kind render</code> lists steady-state
+render windows instead. A row is written only once a load completes;
+<code>transport=relayed</code> means the server relayed the bytes instead of a direct
+storage fetch, with the reason in <code>client_metrics.fallback_reason</code>; and
+<code>first_render_ms</code> pauses while the tab is hidden.</dd>
+<dt><code>ada audit loads-summary</code></dt>
+<dd>Per-file p50/p95 load times over <code>--since-days</code> (default 1), split into
+network, CPU and GPU time with the dominant bottleneck. <code>--kind render</code>
+summarizes render windows (FPS, frame and GPU time).</dd>
+<dt><code>ada audit loads-hotspots</code></dt>
+<dd>Function-level self-time across profiled browser loads (or render windows
+with <code>--kind render</code>), optionally for one <code>--key</code>.</dd>
+<dt><code>ada audit perf</code></dt>
+<dd>Hot paths across conversions — function-level by default, cell-level when
+<code>--run</code>, <code>--worker-tag</code> or <code>--trigger</code> is given.</dd>
+<dt><code>ada audit profile</code></dt>
+<dd>Function stats for a single audit row's cProfile. <code>--sort</code> takes
+<code>cumtime</code> (default), <code>tottime</code> or <code>ncalls</code>.</dd>
+<dt><code>ada audit fetch</code></dt>
+<dd>Download one conversion's source blob under <code>--out</code>
+(default <code>./audit_repro</code>).</dd>
+<dt><code>ada audit logfile</code></dt>
+<dd>Download a conversion's captured stdout/stderr. Prints to stdout unless
+<code>--out</code> names a file.</dd>
+<dt><code>ada audit repro</code></dt>
+<dd>Fetch a conversion's source and run it locally, optionally against a
+different <code>--target</code> format.</dd>
+<dt><code>ada audit wasm-sweep</code></dt>
+<dd>Re-run a remote run's cells locally through the in-browser WASM engine
+(node-pyodide) and write a pass/fail report. Writes nothing back to the
+database.</dd>
+<dt><code>ada audit parity</code></dt>
+<dd>Cross-format visual-parity check on a local model: export to each of
+<code>--formats</code> (default <code>ifc,xml,step</code>), reload, and compare the visualized
+element counts.</dd>
+</dl>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ada<span class="w"> </span>audit<span class="w"> </span>runs<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>ada<span class="w"> </span>audit<span class="w"> </span>run<span class="w"> </span><span class="m">42</span><span class="w"> </span>--failed
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>ada<span class="w"> </span>audit<span class="w"> </span>repro<span class="w"> </span><span class="m">1234</span><span class="w"> </span>--target<span class="w"> </span>step
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>ada<span class="w"> </span>audit<span class="w"> </span>loads<span class="w"> </span>--since<span class="w"> </span>2h<span class="w"> </span>--device<span class="w"> </span>3f2a9c1e
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>ada<span class="w"> </span>audit<span class="w"> </span>loads-summary<span class="w"> </span>--since-days<span class="w"> </span><span class="m">7</span>
+</span></code></pre></div>
+<h2 id="ada-serve"><code>ada serve</code><a class="headerlink" href="#ada-serve" title="Permanent link">&para;</a></h2>
+<p>Run one of the long-lived server processes. Neither subcommand takes options —
+both are configured entirely through the environment.</p>
+<dl>
+<dt><code>ada serve api</code></dt>
+<dd>Run the REST API under uvicorn.</dd>
+<dt><code>ada serve worker</code></dt>
+<dd>Run the conversion worker (a NATS JetStream consumer).</dd>
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../meshing/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Build mesh recipes, not meshes">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Build mesh recipes, not meshes
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../notebooks/design/primitives/box/" class="md-footer__link md-footer__link--next" aria-label="Next: Box">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Box
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>

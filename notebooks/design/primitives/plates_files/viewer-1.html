@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+        
+        <title>Ada Studio</title>
+      <script type="module" crossorigin src="../../../../_static/notebook-viewer/viewer-03610e5dfee7.js"></script>
+      <link rel="stylesheet" href="../../../../_static/notebook-viewer/viewer-9176e2680a6e.css">
+    </head>
+    <body>
+        <div id="root" class=""></div>
+        <!--
+          Hosted viewer mode injects window.COMMS_MODE / window.API_BASE
+          via /config.js. In Vite dev or embedded mode the request 404s
+          and the comms picker falls back to the WS default.
+
+          MUST stay a blocking (non-defer) classic script. Vite emits the
+          SPA entry as a module in <head> (<script type="module">), which is
+          implicitly deferred. Deferred scripts (modules + `defer` classics)
+          run in DOCUMENT ORDER after parsing, so a `defer` here would run
+          config.js AFTER the head entry module — the SPA would read
+          window.AUTH_*/COMMS_MODE before config.js set them and bootstrap
+          with no auth config (empty "signed in as", no admin button, comms
+          falling back). A blocking classic script instead runs during parse
+          (in the body, before the deferred head module executes), so the
+          globals are in place when the SPA reads them. /config.js is served
+          in ~20ms, so blocking is not a meaningful render cost anyway.
+        -->
+        
+
+        <!-- Inject the startup config placeholder into a script -->
+        <script>window.B64GLTF = "Z2xURgIAAAAsCQAAgAUAAEpTT057InNjZW5lIjowLCJzY2VuZXMiOlt7ImV4dHJhcyI6eyJpZF9oaWVyYXJjaHkiOnsiMSI6WyJwbDEiLCIwIl0sIjAiOlsicm9vdCIsIioiXX0sImRyYXdfcmFuZ2VzX25vZGUwIjp7IjEiOlswLDM2XX19LCJub2RlcyI6WzBdfV0sImFzc2V0Ijp7InZlcnNpb24iOiIyLjAiLCJnZW5lcmF0b3IiOiJodHRwczovL2dpdGh1Yi5jb20vbWlrZWRoL3RyaW1lc2gifSwiYWNjZXNzb3JzIjpbeyJjb21wb25lbnRUeXBlIjo1MTI1LCJ0eXBlIjoiU0NBTEFSIiwiYnVmZmVyVmlldyI6MCwiY291bnQiOjM2LCJtYXgiOlsyM10sIm1pbiI6WzBdfSx7ImNvbXBvbmVudFR5cGUiOjUxMjYsInR5cGUiOiJWRUMzIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MSwiY291bnQiOjI0LCJtYXgiOlsxLjAsMS4wLDAuMDA5OTk5OTk5Nzc2NDgyNTgyXSwibWluIjpbMC4wLDAuMCwwLjBdfSx7ImNvbXBvbmVudFR5cGUiOjUxMjYsInR5cGUiOiJWRUMyIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MiwiY291bnQiOjI0LCJtYXgiOlswLjAsMS4wXSwibWluIjpbMC4wLDEuMF19LHsiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjI0LCJ0eXBlIjoiVkVDMyIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjMsIm1heCI6WzEuMCwxLjAsMS4wXSwibWluIjpbLTEuMCwtMS4wLC0xLjBdfV0sIm1lc2hlcyI6W3sibmFtZSI6Im5vZGUwIiwiZXh0cmFzIjp7fSwicHJpbWl0aXZlcyI6W3siYXR0cmlidXRlcyI6eyJQT1NJVElPTiI6MSwiVEVYQ09PUkRfMCI6MiwiTk9STUFMIjozfSwiaW5kaWNlcyI6MCwibW9kZSI6NCwibWF0ZXJpYWwiOjB9XX1dLCJtYXRlcmlhbHMiOlt7InBick1ldGFsbGljUm91Z2huZXNzIjp7ImJhc2VDb2xvckZhY3RvciI6WzAuOCwwLjgsMC44LDEuMF0sInJvdWdobmVzc0ZhY3RvciI6MC43LCJtZXRhbGxpY0ZhY3RvciI6MC4xfSwibmFtZSI6Im1hdDAiLCJhbHBoYU1vZGUiOiJPUEFRVUUiLCJkb3VibGVTaWRlZCI6dHJ1ZX1dLCJub2RlcyI6W3sibmFtZSI6Im5vZGUwIiwibWVzaCI6MH1dLCJidWZmZXJzIjpbeyJieXRlTGVuZ3RoIjo5MTJ9XSwiYnVmZmVyVmlld3MiOlt7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MCwiYnl0ZUxlbmd0aCI6MTQ0fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTQ0LCJieXRlTGVuZ3RoIjoyODh9LHsiYnVmZmVyIjowLCJieXRlT2Zmc2V0Ijo0MzIsImJ5dGVMZW5ndGgiOjE5Mn0seyJidWZmZXIiOjAsImJ5dGVPZmZzZXQiOjYyNCwiYnl0ZUxlbmd0aCI6Mjg4fV0sImV4dGVuc2lvbnNVc2VkIjpbIkFEQV9FWFRfZGF0YSJdLCJleHRlbnNpb25zIjp7IkFEQV9FWFRfZGF0YSI6eyJzaW11bGF0aW9uX29iamVjdHMiOltdLCJkZXNpZ25fb2JqZWN0cyI6W10sInZlcnNpb24iOiIxLjIuMCIsImFzc2VtYmx5X2d1aWQiOm51bGx9fX0gkAMAAEJJTgADAAAAAAAAAAEAAAADAAAAAQAAAAIAAAAHAAAABAAAAAUAAAAHAAAABQAAAAYAAAALAAAACAAAAAkAAAALAAAACQAAAAoAAAAPAAAADAAAAA0AAAAPAAAADQAAAA4AAAASAAAAEAAAABEAAAASAAAAEwAAABAAAAAWAAAAFQAAABQAAAAWAAAAFAAAABcAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAArXIzwAAAAAAAAAAArXIzwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAArXIzwAAAAAAACAPwrXIzwAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwrXIzwAAIA/AACAPwrXIzwAAIA/AACAPwAAAAAAAIA/AACAPwAAAAAAAIA/AACAPwrXIzwAAIA/AAAAAArXIzwAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAIA/AACAPwAAAAAAAIA/AAAAAArXIzwAAAAAAAAAAArXIzwAAAAAAACAPwrXIzwAAIA/AACAPwrXIzwAAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8=";</script><script>window.DEACTIVATE_WS = true;</script>
+        <script>window.UNIQUE_VERSION_ID = 1791544424660; window.FRONTEND_SHA = "484f2c39d";</script>
+    </body>
+</html>

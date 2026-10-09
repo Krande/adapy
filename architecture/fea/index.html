@@ -1,0 +1,2415 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/architecture/fea/">
+      
+      
+        <link rel="prev" href="../interop/">
+      
+      
+        <link rel="next" href="../platform/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>FEA - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../_static/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              FEA
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dexpi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topology_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-fe-model-adafem" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The FE model (<code>ada.fem</code>)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The FE model (ada.fem)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#meshing-a-design-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Meshing a design model
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-array-backed-mesh-store-adaapimesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The array-backed mesh store (<code>ada.api.mesh</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solver-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Solver integration
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-adafemresults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Results (<code>ada.fem.results</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#viewer-bake" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Viewer bake
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verification report
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-fe-model-adafem" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The FE model (<code>ada.fem</code>)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The FE model (ada.fem)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#meshing-a-design-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Meshing a design model
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-array-backed-mesh-store-adaapimesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The array-backed mesh store (<code>ada.api.mesh</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solver-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Solver integration
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results-adafemresults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Results (<code>ada.fem.results</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#viewer-bake" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Viewer bake
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verification report
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/architecture/fea.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="fea">FEA<a class="headerlink" href="#fea" title="Permanent link">&para;</a></h1>
+<p>adapy covers the whole finite element loop: model → mesh → solver deck → run → results →
+post-processing and visualisation. This page follows that loop through the code.</p>
+<div class="ada-diagram">flowchart TB
+    subgraph design["Design model"]
+        PART["Part / Assembly&lt;br/&gt;beams · plates · shapes"]
+        CONC["ConceptFEM&lt;br/&gt;concept loads &amp; constraints"]
+    end
+    subgraph mesh["Meshing"]
+        GMSH["fem/meshing&lt;br/&gt;GmshSession"]
+    end
+    subgraph femodel["FE model"]
+        FEM["FEM on Part.fem&lt;br/&gt;nodes · elements · sets · sections&lt;br/&gt;steps · loads · bcs · constraints"]
+        STORE["api/mesh · MeshArrays&lt;br/&gt;(packed numpy store)"]
+    end
+    subgraph solve["Solver"]
+        DECK["deck writer&lt;br/&gt;to_fem_*"]
+        RUN["execute_fem&lt;br/&gt;run_*"]
+    end
+    subgraph post["Results"]
+        READ["result readers&lt;br/&gt;read_*_file"]
+        RES["FEAResult&lt;br/&gt;Mesh + field data"]
+        BAKE["artefact bake&lt;br/&gt;FEAStreamReader → bake_artefacts"]
+    end
+    DECKIN[(".inp / .fem / .med")]
+    RESF[(".rmed / .frd / .SIN / .SIF / .odb / .radanim")]
+    VIEW(["viewer · GLB · VTU"])
+
+    PART --&gt; GMSH --&gt; FEM
+    CONC --&gt; FEM
+    DECKIN -- "from_fem" --&gt; FEM
+    FEM --- STORE
+    FEM --&gt; DECK --&gt; RUN --&gt; RESF
+    RESF --&gt; READ --&gt; RES --&gt; VIEW
+    RESF --&gt; BAKE --&gt; VIEW
+    DECKIN --&gt; BAKE
+
+    click PART href "architecture/core_model/" "The object model"
+    click CONC href "https://github.com/Krande/adapy/tree/main/src/ada/fem/concept" "ConceptFEM: concept-level loads and constraints"
+    click GMSH href "https://github.com/Krande/adapy/tree/main/src/ada/fem/meshing" "GmshSession and partitioning"
+    click FEM href "https://github.com/Krande/adapy/blob/main/src/ada/fem/base.py" "class FEM"
+    click STORE href "https://github.com/Krande/adapy/tree/main/src/ada/api/mesh" "MeshArrays, ArrayNodes/ArrayElements, proxies"
+    click DECK href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/general.py" "write_to_fem and the per-solver dispatch"
+    click RUN href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/execute.py" "execute_fem"
+    click READ href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/postprocess.py" "postprocess → FEAResult"
+    click RES href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/common.py" "FEAResult, Mesh, FemNodes, ElementBlock"
+    click BAKE href "https://github.com/Krande/adapy/tree/main/src/ada/fem/results/artefacts" "Streaming viewer bake"</div>
+<h2 id="the-fe-model-adafem">The FE model (<code>ada.fem</code>)<a class="headerlink" href="#the-fe-model-adafem" title="Permanent link">&para;</a></h2>
+<p><code>ada.fem.base.FEM</code> is a dataclass owned by every <code>Part</code> (<code>part.fem</code>):</p>
+<div class="ada-diagram">classDiagram
+    direction LR
+    class FEM {
+        nodes: Nodes | ArrayNodes
+        ref_points: Nodes
+        elements: FemElements | ArrayElements
+        sets, ref_sets: FemSets
+        sections: FemSections
+        masses, surfaces, amplitudes
+        connector_sections, intprops, interactions
+        predefined_fields, lcsys, constraints
+        bcs: list~Bc~
+        steps: list~Step~
+        springs (property)
+        parent: Part
+        add_elem / add_section / add_bc / add_step …
+        get_all_loads() · get_all_bcs()
+        to_mesh() Mesh
+        __add__(other) FEM
+    }
+    class Step {
+        &lt;&lt;abstract&gt;&gt;
+    }
+    class StepImplicitStatic
+    class StepImplicitDynamic
+    class StepExplicit
+    class StepEigen
+    class StepEigenComplex
+    class StepSteadyState
+    class Load {
+        LoadPoint · LoadPressure
+        LoadGravity · LoadCase
+    }
+    FEM "1" o-- "*" Step
+    Step &lt;|-- StepImplicitStatic
+    Step &lt;|-- StepImplicitDynamic
+    Step &lt;|-- StepExplicit
+    Step &lt;|-- StepEigen
+    Step &lt;|-- StepEigenComplex
+    Step &lt;|-- StepSteadyState
+    Step o-- Load</div>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fem/base.py</code></td>
+<td><code>FEM</code></td>
+</tr>
+<tr>
+<td><code>fem/containers.py</code></td>
+<td><code>FemElements</code>, <code>FemSets</code>, <code>FemSections</code> (object containers); nodes live in <code>api/containers/nodes.py</code> (<code>Nodes</code>)</td>
+</tr>
+<tr>
+<td><code>fem/elements.py</code>, <code>fem/shapes/</code></td>
+<td><code>Elem</code>, <code>Mass</code>, <code>Spring</code>, <code>Connector</code>; <code>LineShapes</code>, <code>ShellShapes</code>, <code>SolidShapes</code>, <code>ConnectorTypes</code>, <code>ShapeResolver</code>, <code>ElemShape</code>, node ordering</td>
+</tr>
+<tr>
+<td><code>fem/formulations/</code></td>
+<td><code>Formulation</code>, <code>BeamTheory</code></td>
+</tr>
+<tr>
+<td><code>fem/steps.py</code></td>
+<td>The step types above, <code>StepSolverOptions</code></td>
+</tr>
+<tr>
+<td><code>fem/loads/</code></td>
+<td><code>Load</code>, <code>LoadPressure</code>, <code>LoadGravity</code>, <code>LoadPoint</code>, <code>LoadCase</code></td>
+</tr>
+<tr>
+<td><code>fem/concept/</code></td>
+<td><code>ConceptFEM</code> (on <code>Part.concept_fem</code>), <code>BeamConceptFEM</code> (<code>Beam.concept_fem.fix_end()</code> …), constraint concepts (point, beam end, curve, rigid link) and load concepts (point, line, surface, acceleration field, load cases, combinations)</td>
+</tr>
+<tr>
+<td><code>fem/meshing/</code></td>
+<td><code>GmshSession</code>, partitioning strategies, <code>multisession_gmsh_tasker</code></td>
+</tr>
+<tr>
+<td><code>fem/concat.py</code></td>
+<td><code>concatenate_fem_meshes</code>, <code>concatenate_fem_to_single_part</code></td>
+</tr>
+<tr>
+<td><code>fem/conformality.py</code></td>
+<td><code>check_conformal_mesh</code></td>
+</tr>
+</tbody>
+</table>
+<p>Concept-level constraints are converted to FE constraints by
+<code>fem/concept/to_fem.add_constraint_concepts_to_fem</code>. Concept loads are carried to and from
+Genie XML (<code>cadit/gxml</code>).</p>
+<h3 id="meshing-a-design-model">Meshing a design model<a class="headerlink" href="#meshing-a-design-model" title="Permanent link">&para;</a></h3>
+<p><code>Part.to_fem_obj()</code> drives gmsh:</p>
+<div class="ada-diagram">sequenceDiagram
+    autonumber
+    participant P as Part.to_fem_obj
+    participant G as GmshSession
+    participant F as FEM
+    P-&gt;&gt;G: open session, add_obj(beams, plates, shapes)
+    P-&gt;&gt;G: partition_plates() · partition_beams()
+    P-&gt;&gt;G: mesh(size, use_quads, use_hex)
+    G-&gt;&gt;F: get_fem() → nodes, elements, sections
+    P-&gt;&gt;F: add point masses
+    P-&gt;&gt;F: remove_standalones()
+    P-&gt;&gt;F: add_constraint_concepts_to_fem()
+    P-&gt;&gt;F: check_conformal_mesh()</div>
+<h2 id="the-array-backed-mesh-store-adaapimesh">The array-backed mesh store (<code>ada.api.mesh</code>)<a class="headerlink" href="#the-array-backed-mesh-store-adaapimesh" title="Permanent link">&para;</a></h2>
+<p>With <code>Config().meshing_array_backed</code> on (the default; opt out with
+<code>ADA_MESHING_ARRAY_BACKED=false</code>), a <code>FEM</code>'s nodes and elements are thin facades over one
+packed numpy store, <code>MeshArrays</code>. <code>Node</code> / <code>Elem</code> objects are minted on demand as lazy
+proxies.</p>
+<div class="ada-diagram">classDiagram
+    direction LR
+    class FEM {
+        nodes: ArrayNodes
+        elements: ArrayElements
+    }
+    class ArrayNodes {
+        store: MeshArrays
+        from_id(id) NodeProxy
+        renumber(map) · move(…)
+        to_fem_nodes() FemNodes
+    }
+    class ArrayElements {
+        store: MeshArrays
+        _overflow: Mass / Spring / Connector
+        renumber(map)
+        to_elem_blocks() list~ElementBlock~
+    }
+    class MeshArrays {
+        coords: float64[n,3]
+        node_ids: int64[n]
+        blocks: dict~ctype, ElemArrayBlock~
+        id2idx (lazy)
+        adjacency: CSRAdjacency (lazy)
+        proxy caches (weak)
+    }
+    class ElemArrayBlock {
+        ctype
+        conn: int32[m,k] row indices
+        el_ids: int64[m]
+        fem_secs · elsets · formulations
+        ecc · hinge · metadata (sparse)
+    }
+    class NodeProxy {
+        store, row
+        id → node_ids[row]
+        p → coords[row]
+    }
+    class ElemProxy {
+        store, ctype, row
+    }
+    FEM --&gt; ArrayNodes
+    FEM --&gt; ArrayElements
+    ArrayNodes --&gt; MeshArrays
+    ArrayElements --&gt; MeshArrays
+    MeshArrays "1" o-- "*" ElemArrayBlock
+    ArrayNodes ..&gt; NodeProxy : mints
+    ArrayElements ..&gt; ElemProxy : mints</div>
+<ul>
+<li><strong>Connectivity holds row indices, not node ids.</strong> Renumbering nodes only rewrites
+  <code>node_ids</code>. Handing the mesh to the results side (<code>FEM.to_mesh()</code>) is zero-copy:
+  <code>to_elem_blocks()</code> passes <code>conn</code> and <code>el_ids</code> through as
+  <code>ElementBlock(..., node_refs_are_indices=True)</code>.</li>
+<li><strong>Node→element adjacency</strong> is a CSR incidence (<code>CSRAdjacency</code>), built lazily, instead of
+  per-node reference lists.</li>
+<li><strong>The Sesam, Abaqus and Code_Aster readers</strong> fill a <code>MeshArrays</code> directly from the deck
+  (Sesam can stream the file). Other FEMs are converted with <code>to_array_backed(fem)</code>.
+  <code>GmshSession.get_fem()</code> still produces object containers, which
+  <code>fem/formats/utils.convert_part_objects</code> converts.</li>
+<li><strong><code>fem/concat.py</code></strong> merges multi-part models at store level, offsetting ids and re-keying
+  sets, sections, boundary conditions and masses.</li>
+</ul>
+<h2 id="solver-integration">Solver integration<a class="headerlink" href="#solver-integration" title="Permanent link">&para;</a></h2>
+<div class="ada-diagram">sequenceDiagram
+    autonumber
+    participant U as User
+    participant A as Assembly.to_fem
+    participant W as general.write_to_fem
+    participant X as execute.execute_fem
+    participant S as Solver
+    participant P as postprocess.postprocess
+    participant R as FEAResult
+
+    U-&gt;&gt;A: to_fem(name, fem_format, execute=True)
+    A-&gt;&gt;W: merge parts (except Abaqus) → Setup.default_pre_processor
+    W--&gt;&gt;A: analysis_dir/deck
+    A-&gt;&gt;X: Setup.default_executor
+    X-&gt;&gt;S: run solver, write run_log.txt
+    S--&gt;&gt;X: result file
+    A-&gt;&gt;P: Setup.default_post_processor
+    P--&gt;&gt;R: FEAResult
+    R--&gt;&gt;U: to_gltf · to_vtu · show · get_eig_summary</div>
+<p><code>ada.from_fem_res(path)</code> starts from an existing result file at the <code>postprocess</code> step.
+<a href="../interop/#finite-element-formats">Interoperability</a> lists each solver's functions. Abaqus
+runs can wait for FlexNet licence tokens (<code>abaqus/licensing.abaqus_license_slot</code>, opt-in via
+<code>ADA_ABAQUS_LICENSE_WAIT_S</code>).</p>
+<h2 id="results-adafemresults">Results (<code>ada.fem.results</code>)<a class="headerlink" href="#results-adafemresults" title="Permanent link">&para;</a></h2>
+<p>Every result reader produces the same read-only snapshot:</p>
+<div class="ada-diagram">classDiagram
+    direction LR
+    class FEAResult {
+        name
+        software: FEATypes
+        results: list~NodalFieldData | ElementFieldData~
+        mesh: Mesh
+        step_name_map
+        eigen_mode_data
+        to_gltf() · to_vtu() · show()
+        get_eig_summary() EigenDataSummary
+    }
+    class Mesh {
+        elements: list~ElementBlock~
+        nodes: FemNodes
+        elem_data · sections · materials · vectors
+        sets · eccentricities
+        create_mesh_stores() MeshStore
+    }
+    class FemNodes {
+        coords: float[n,3]
+        identifiers: int[n]
+    }
+    class ElementBlock {
+        elem_info: ElementInfo
+        node_refs: int[m,k]
+        identifiers: int[m]
+        node_refs_are_indices: bool
+    }
+    class NodalFieldData
+    class ElementFieldData
+    FEAResult --&gt; Mesh
+    FEAResult o-- NodalFieldData
+    FEAResult o-- ElementFieldData
+    Mesh --&gt; FemNodes
+    Mesh "1" o-- "*" ElementBlock</div>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>common.py</code></td>
+<td><code>FEAResult</code>, <code>Mesh</code>, <code>FemNodes</code>, <code>ElementBlock</code>, <code>ElementInfo</code>, <code>MeshStore</code></td>
+</tr>
+<tr>
+<td><code>field_data.py</code></td>
+<td><code>NodalFieldData</code>, <code>ElementFieldData</code>, <code>FieldPosition</code>, line-section integration points</td>
+</tr>
+<tr>
+<td><code>eigenvalue.py</code></td>
+<td><code>EigenDataSummary</code>, <code>EigenMode</code></td>
+</tr>
+<tr>
+<td><code>sqlite_store.py</code></td>
+<td><code>SQLiteFEAStore</code></td>
+</tr>
+<tr>
+<td><code>case_result.py</code>, <code>line_sections.py</code></td>
+<td>Cached per-case results; beam line-section tables</td>
+</tr>
+<tr>
+<td><code>docs.py</code></td>
+<td>FEA bundles for the verification report (<code>bake_fea_bundles</code>, <code>collect_fea_bundles</code>, <code>restore_fea_bundles</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Result readers use the ids from the source file. <code>node_refs_are_indices=False</code> (the
+default) means <code>node_refs</code> holds node ids, which consumers map to rows. Only
+<code>FEM.to_mesh()</code> produces row-index blocks.</p>
+<h2 id="viewer-bake">Viewer bake<a class="headerlink" href="#viewer-bake" title="Permanent link">&para;</a></h2>
+<p>Large results are not loaded into the browser as one GLB. The <strong>bake</strong>
+(<code>fem/results/artefacts</code>) streams a result source into a set of files that the viewer fetches
+piece by piece:</p>
+<div class="ada-diagram">flowchart TB
+    SRC["source file"] --&gt; REG{"readers.make_stream_reader&lt;br/&gt;(by suffix)"}
+    REG -- ".rmed" --&gt; R1["RmedStreamReader"]
+    REG -- ".sif" --&gt; R2["SifStreamReader&lt;br/&gt;(adapter if ADA_FEA_SIF_STREAMER=0)"]
+    REG -- ".sin" --&gt; R3["FEAResultStreamAdapter(read_sin_file)&lt;br/&gt;SinStreamReader for steps=, ADA_FEA_SIN_STREAMER=1,&lt;br/&gt;or (unset) a deck too large to materialise"]
+    REG -- ".radanim" --&gt; R6["make_radanim_stream_reader&lt;br/&gt;OpenCourant time history (transient)"]
+    REG -- ".inp .fem .med" --&gt; R4["_make_fem_reader&lt;br/&gt;from_fem → concatenate_fem_meshes&lt;br/&gt;(mesh only, plus property fields)"]
+    REG -- "register_stream_reader()" --&gt; R5["plugins (e.g. .odb)"]
+    R1 &amp; R2 &amp; R3 &amp; R4 &amp; R5 &amp; R6 --&gt; P["FEAStreamReader protocol&lt;br/&gt;read_mesh_geometry · field_specs · iter_field_steps&lt;br/&gt;element_field_specs · iter_element_field_steps&lt;br/&gt;try_solid_beams · try_history_records"]
+    P --&gt; B["bake.bake_artefacts()"]
+    B --&gt; M["fea.mesh.glb&lt;br/&gt;+ edges · line_edges · elements"]
+    B --&gt; F["fea.FIELD.bin (nodal, AFBL)&lt;br/&gt;fea.FIELD.ETYPE.elements.bin (AFEL)&lt;br/&gt;step-major float32"]
+    B --&gt; BS["fea.beam_solids.compact.bin (AFBS)&lt;br/&gt;or beam-solid GLB + warp + elements"]
+    B --&gt; MF["fea.manifest.json (written last)&lt;br/&gt;fields · ranges · steps · groups"]
+
+    click REG href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/readers.py" "Suffix → stream-reader registry"
+    click R1 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/code_aster/read/med_stream_reader.py" "RmedStreamReader"
+    click R2 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/sesam/results/sif_stream.py" "SifStreamReader"
+    click R3 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/formats/sesam/results/read_sin.py" "read_sin_file / SinStreamReader"
+    click R4 href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/readers.py" "_make_fem_reader"
+    click P href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/protocol.py" "The FEAStreamReader protocol"
+    click B href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/bake.py" "bake_artefacts / bake_fea_artefacts_from_source"
+    click M href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/mesh.py" "Mesh GLB and sidecar writers"
+    click F href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/fields.py" "FieldBlobWriter / ElementFieldBlobWriter"
+    click BS href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/beam_compact.py" "Compact beam-solid instances"
+    click MF href "https://github.com/Krande/adapy/blob/main/src/ada/fem/results/artefacts/manifest.py" "build_manifest / write_manifest"</div>
+<ul>
+<li>Fields are written <strong>one step at a time</strong> (<code>FieldBlobWriter</code>, <code>ElementFieldBlobWriter</code>), so
+  peak memory does not grow with the number of steps. Each blob has a fixed JSON header and
+  then a contiguous <code>[steps × entities × components]</code> array that the viewer range-fetches
+  per step.</li>
+<li><code>FEAResultStreamAdapter</code> makes any eager reader that returns a <code>FEAResult</code> fit the protocol.</li>
+<li><code>beam_solids.py</code> / <code>beam_compact.py</code> extrude beam elements to solids with their real
+  section profiles. The compact format stores one instance per beam and lets the viewer
+  expand them.</li>
+<li>Extras: <code>mode_normalization</code> (mode-shape scale factors), <code>step_subset</code>
+  (<code>restrict_to_steps</code>), <code>history</code> (time-history records), <code>posters</code> (offscreen PNG posters
+  via pygfx, <code>bake_with_posters</code>).</li>
+<li>On the platform, the <code>fea_artefacts</code> job runs <code>bake_fea_artefacts_from_source</code> and writes to
+  <code>_derived/&lt;source&gt;.fea/</code>. The REST routes in <code>routes/fea.py</code> serve the artefacts and the
+  manifest (see <a href="../platform/">Viewer platform</a>).</li>
+</ul>
+<h2 id="verification-report">Verification report<a class="headerlink" href="#verification-report" title="Permanent link">&para;</a></h2>
+<p><code>verification/</code> is a <a href="https://github.com/Krande/paradoc">paradoc</a> project that builds the
+<a href="../../fea/verification/">FEA verification report</a>:</p>
+<div class="ada-diagram">flowchart TB
+    T["verification/tasks.py&lt;br/&gt;@task DAG"] --&gt; D["design"] --&gt; ME["mesh&lt;br/&gt;(geom repr × order × hex/quad × reduced int.)"]
+    ME --&gt; RE["run_eig&lt;br/&gt;(fan-out over solvers)"]
+    RE --&gt; PP["postprocess"]
+    PP --&gt; OUT["eig_tables · modal_tables · freq_plot · fea_outputs"]
+    CACHE[(".cache/ · .cache-plate/&lt;br/&gt;Abaqus &amp; Sesam replays")] --&gt; RE
+    OUT --&gt; PD["paradoc build&lt;br/&gt;(report/ markdown)"]
+    PD --&gt; WEB["docs/_static/fea-report/&lt;br/&gt;static web bundle"]
+    PD --&gt; FILES["fea-report.pdf / .docx / .odt&lt;br/&gt;docs/_static/fea-report-files/"]
+
+    click T href "https://github.com/Krande/adapy/blob/main/verification/tasks.py" "The report's task DAG"
+    click CACHE href "https://github.com/Krande/adapy/tree/main/verification/.cache" "Committed Abaqus / Sesam results"
+    click PD href "https://github.com/Krande/adapy/blob/main/verification/paradoc.toml" "paradoc build profiles"
+    click WEB href "fea/verification/" "Open the report page"</div>
+<p>Code_Aster and CalculiX run on every build. Abaqus and Sesam need licences, so their results
+replay from committed caches (<code>_CACHE_ONLY_SOLVERS</code>). <code>fea_outputs</code> bakes the mode-shape
+artefact bundles that the report's interactive 3D views load.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../interop/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Interoperability">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Interoperability
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../platform/" class="md-footer__link md-footer__link--next" aria-label="Next: Viewer platform">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Viewer platform
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>

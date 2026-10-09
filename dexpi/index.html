@@ -1,0 +1,2444 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/dexpi/">
+      
+      
+        <link rel="prev" href="../procedural_modelling/">
+      
+      
+        <link rel="next" href="../path_to_software_agnosticism/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>From P&ID to 3D model - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../_static/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              From P&amp;ID to 3D model
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#two-wire-formats-one-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Two wire formats, one model
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-a-pid" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading a P&amp;ID
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#equipment-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Equipment definitions
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#instrumentation-is-connectivity-not-decoration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Instrumentation is connectivity, not decoration
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-generated-layout-is-not-a-plot-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The generated layout is not a plot plan
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-modelled-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What is modelled, what is not
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing-back-to-dexpi" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Writing back to DEXPI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-the-wider-corpus-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Running the wider corpus locally
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#licensing-and-attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Licensing and attribution
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../architecture/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/topology_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/fea/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#two-wire-formats-one-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Two wire formats, one model
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-a-pid" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading a P&amp;ID
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#equipment-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Equipment definitions
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#instrumentation-is-connectivity-not-decoration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Instrumentation is connectivity, not decoration
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-generated-layout-is-not-a-plot-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The generated layout is not a plot plan
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-modelled-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What is modelled, what is not
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing-back-to-dexpi" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Writing back to DEXPI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-the-wider-corpus-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Running the wider corpus locally
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#licensing-and-attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Licensing and attribution
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/dexpi.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="from-pid-to-3d-model">From P&amp;ID to 3D model<a class="headerlink" href="#from-pid-to-3d-model" title="Permanent link">&para;</a></h1>
+<p><a href="https://dexpi.org/">DEXPI</a> (Data Exchange in the Process Industry) is the vendor-neutral
+exchange specification for a P&amp;ID: which equipment exists, which nozzles it has, and which piping,
+signal and electrical lines connect them -- with no notion whatsoever of physical size or plant
+coordinates. <code>ada.cadit.dexpi</code> reads and writes it, and <code>ada.from_dexpi</code> closes the gap between
+"here is a P&amp;ID" and "here is a routed 3D model": it resolves each item to a physical equipment
+definition, generates a plausible topology to put the equipment in, turns the P&amp;ID connectivity into
+adapy systems, and routes them.</p>
+<p>Nothing here is imported by <code>import ada</code> -- <code>ada.cadit.dexpi</code> and its readers load lazily, so
+the DEXPI support costs nothing until it is used.</p>
+<h2 id="two-wire-formats-one-model">Two wire formats, one model<a class="headerlink" href="#two-wire-formats-one-model" title="Permanent link">&para;</a></h2>
+<p>DEXPI 2.0.0 (2025-10-10, CC BY 4.0) replaced the <em>serialization</em> without changing plant semantics.
+adapy reads and writes both, dispatched on the root tag:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>DEXPI 1.3/1.4 ("Proteus XML")</th>
+<th>DEXPI 2.0.0 ("DEXPI XML")</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Root element</td>
+<td><code>&lt;PlantModel&gt;</code></td>
+<td><code>&lt;Model&gt;</code></td>
+</tr>
+<tr>
+<td>Class</td>
+<td><code>ComponentClass="CentrifugalPump"</code></td>
+<td><code>type="Plant/ProcessEquipment.CentrifugalPump"</code></td>
+</tr>
+<tr>
+<td>Attributes</td>
+<td><code>&lt;GenericAttribute Name Value Format Units/&gt;</code></td>
+<td><code>&lt;Data property&gt;&lt;String&gt;</code>/<code>&lt;Double&gt;</code>/<code>&lt;AggregatedDataValue&gt;</code></td>
+</tr>
+<tr>
+<td>Connectivity</td>
+<td><code>&lt;Connection FromID FromNode ToID ToNode&gt;</code> (positional node indices)</td>
+<td><code>&lt;References property="SourceItem" objects="#Nozzle6"/&gt;</code> (ID-based)</td>
+</tr>
+<tr>
+<td>Files in the wild</td>
+<td>every vendor export; the bulk of the official test corpus</td>
+<td>essentially only the specification's own reference P&amp;ID</td>
+</tr>
+</tbody>
+</table>
+<p>Proteus is the default and the format almost every real emitter still writes; DEXPI 2.0 support
+exists and is tested against the specification's own reference P&amp;ID, but real-world 2.0 files are
+still rare. Both converge on one neutral, in-memory <code>~ada.cadit.dexpi.model.DexpiDocument</code>,
+so nothing downstream of the reader -- equipment resolution, layout, systems -- cares which flavour
+a file came in as.</p>
+<p>The class table behind item resolution (<code>ada.cadit.dexpi.class_table</code>) is generated once from the
+CC BY 4.0 DEXPI 2.0.0 specification repository and checked in as JSON -- 341 classes, 142 of them
+under <code>Plant/ProcessEquipment</code>. Nothing here performs a live RDL lookup or XSD validation; both
+are offline by policy (see <em>Never</em>, below).</p>
+<h2 id="reading-a-pid">Reading a P&amp;ID<a class="headerlink" href="#reading-a-pid" title="Permanent link">&para;</a></h2>
+<p>Reading a P&amp;ID and building a plant are two different jobs, and adapy keeps them apart. There are
+three layers, each with one responsibility:</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DexpiDocument</code></td>
+<td>A faithful parse of the file: every item, every attribute, and the raw <code>ET.Element</code> of anything adapy does not model, so a re-write drops nothing.</td>
+</tr>
+<tr>
+<td><code>ada.SystemModel</code></td>
+<td>The adapy-native model: <code>Equipment</code> with real <code>Port</code>s, and the <code>System</code>s joining them. <strong>No coordinates</strong> -- a P&amp;ID says what exists and what connects to what, and nothing about where any of it stands.</td>
+</tr>
+<tr>
+<td><code>ada.Assembly</code></td>
+<td>The 3D model: generated decks, placed equipment, routed runs, structure.</td>
+</tr>
+</tbody>
+</table>
+<p><code>ada.from_dexpi</code> is the one-call path through all three, and returns an <code>ada.Assembly</code> like
+every other top-level <code>ada.from_*</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model.build_spec</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProceduralBuildSpec</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model.layout</span><span class="w"> </span><span class="kn">import</span> <span class="n">LayoutRules</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">spec</span> <span class="o">=</span> <span class="n">ProceduralBuildSpec</span><span class="p">(</span><span class="n">layout</span><span class="o">=</span><span class="n">LayoutRules</span><span class="p">(</span><span class="n">max_length</span><span class="o">=</span><span class="mf">24.0</span><span class="p">,</span> <span class="n">max_width</span><span class="o">=</span><span class="mf">12.0</span><span class="p">,</span> <span class="n">deck_height</span><span class="o">=</span><span class="mf">5.0</span><span class="p">))</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">a</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">from_dexpi</span><span class="p">(</span><span class="s2">&quot;files/dexpi_files/unit_separator_proteus.xml&quot;</span><span class="p">,</span> <span class="n">spec</span><span class="o">=</span><span class="n">spec</span><span class="p">)</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">a</span><span class="o">.</span><span class="n">to_ifc</span><span class="p">(</span><span class="s2">&quot;separator_unit.ifc&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Take the two steps separately whenever you want to look at what the P&amp;ID resolved to before
+committing to a build, vary the build rules without re-reading, or write the model back out:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">SystemModel</span><span class="o">.</span><span class="n">from_dexpi</span><span class="p">(</span><span class="s2">&quot;files/dexpi_files/unit_separator_proteus.xml&quot;</span><span class="p">)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nb">print</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">eq</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">eq</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">equipment</span><span class="p">))</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># [&#39;E-201&#39;, &#39;P-201A&#39;, &#39;P-201B&#39;, &#39;PV-202.01&#39;, &#39;TE-203&#39;, &#39;TE-204&#39;, &#39;V-201&#39;]</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nb">print</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">systems</span><span class="p">))</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># [&#39;201/1&#39;, &#39;202/1&#39;, &#39;203/1&#39;, &#39;203/2&#39;, &#39;203/3&#39;, &#39;204/1&#39;, &#39;204/2&#39;, &#39;204/3&#39;, &#39;206/1&#39;]</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">a</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">to_assembly</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>          <span class="c1"># decks, placement, routing</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">model</span><span class="o">.</span><span class="n">to_dexpi</span><span class="p">(</span><span class="s2">&quot;separator_unit.xml&quot;</span><span class="p">)</span>  <span class="c1"># write back</span>
+</span></code></pre></div>
+<p>Everything about <em>building</em> lives on the <code>ProceduralBuildSpec</code> -- deck bounds, design ruleset,
+structural blueprint, <code>route</code>, <code>relocate</code>, <code>base_doc</code>, level of detail. Everything about
+<em>reading</em> stays on the reader: <code>definitions</code> and <code>inline_components</code> decide what the P&amp;ID
+resolves to and what exists, which is why they are read arguments and deck bounds are not.</p>
+<p>Three steps happen inside (<code>ada.cadit.dexpi.read.to_procedural</code>):</p>
+<ol>
+<li><strong>Equipment.</strong> Every item that <code>is_a(cls, "ProcessEquipment")</code> resolves -- per-tag override,
+    then per-class override, then the shipped class default -- to an envelope, an IFC class and a
+    port per actual nozzle, placed on the box by a class-specific strategy (<code>vessel</code>/<code>pump</code>/
+    <code>exchanger</code>/<code>generic</code>). A nested <code>Chamber</code> (a separator's boot) folds into its owning
+    equipment rather than becoming an asset of its own. A <strong>branch point</strong> -- an in-line fitting
+    that more than one segment ends at, typically a <code>PipeTee</code> -- is materialised too, as a small
+    <code>IfcPipeFitting</code> with one port per connection node; <code>TE-203</code> and <code>TE-204</code> above are the
+    two in this file, and they are why the runs through them exist at all.</li>
+<li><strong>Layout.</strong> The resolved envelopes go to <code>ada.topo_model.layout.plan_layout</code>, which
+    generates deck spaces and shelf-packs equipment onto them -- see <em>The generated layout is not a
+    plot plan</em>, below.</li>
+<li><strong>Instrumentation.</strong> Every instrument a signal line ends on -- and every actuating system bound
+    to the valve it drives -- becomes a small placed object with <code>signal</code> ports, classed as the
+    IFC4 control element its DEXPI role implies (<code>IfcController</code>, <code>IfcSensor</code>, <code>IfcActuator</code>).
+    Each <code>SignalConveyingFunction</code> then becomes a routed run between two of them. See
+    <em>Instrumentation is connectivity, not decoration</em>, below.</li>
+<li><strong>Systems.</strong> One <code>~ada.topology.entities.TopoSystem</code> per DEXPI <code>PipingNetworkSegment</code>,
+    named <code>&lt;line number&gt;/&lt;segment number&gt;</code>, then routed with the standard design rules. A
+    <code>PipeOffPageConnector</code> becomes a site terminal (<code>is_site=True</code>); the parent
+    <code>PipingNetworkSystem</code> survives as the run's medium and provenance metadata.</li>
+</ol>
+<p>The above example is the checked-in <code>unit_separator_proteus.xml</code> fixture, and it is a good
+illustration of an honest gap, not a cherry-picked clean run: 9 of its 10 DEXPI segments turn into
+routed systems and the tenth is reported rather than dropped. That last one, <code>205/1</code>, is a relief
+valve discharging to something the P&amp;ID does not draw -- a genuinely one-ended run, and
+<code>~ada.topology.routing.route_system</code> routes exactly <code>ports[0] -&gt; ports[-1]</code>, so there is
+nothing to route it to. <strong>Nothing is dropped silently</strong>: every system or equipment that did not
+reach the 3D model is collected into <code>assembly.metadata["dexpi"]["report"]</code> and summarised in one
+<code>logger.warning</code> line; <code>~ada.cadit.dexpi.read.to_procedural.dexpi_import_report</code> renders it
+as a table:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1 of 10 system(s) and 0 of 6 equipment did not reach the 3D model:
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>Kind    Name   Stage         Reason
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>------  -----  ------------  -----------------------------------------------------------------
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>system  205/1  connectivity  1 endpoint(s) outside the segment; a routed run needs exactly two
+</span></code></pre></div>
+<p>Six of those nine runs meet at one of the file's two tees, and used to be lost with them: a segment
+whose end names a <code>PipeTee</code> names neither a nozzle nor an equipment nor an off-page connector.
+The junction itself still never becomes one system -- <code>route_system</code> has no branch concept, and
+that is why there is one system per DEXPI segment -- but each run <em>into</em> a junction is an ordinary
+two-ended run once the fitting it ends at is a real placed object with real ports.</p>
+<p>Pass <code>strict=True</code> to the <em>read</em> to raise instead of returning a model with a warning; it governs
+what the P&amp;ID could not be read into, not what could not be built. <code>inline_components="equipment"</code>
+materialises in-line valves and strainers as their own small <code>ada.Equipment</code> rather than run
+metadata. On the build side, <code>ProceduralBuildSpec</code> carries <code>route=False</code> (place without
+routing), <code>base_doc</code> (merge onto placements you already corrected, for a non-destructive
+re-import) and <code>relocate</code>.</p>
+<p><strong>The two reports are separate, and deliberately so.</strong> <code>model.report</code> names what the <em>read</em> could
+not carry -- a segment whose ends the P&amp;ID never stated, an item that resolved to nothing placeable.
+<code>assembly.metadata["build"]</code> names what the <em>build</em> could not carry -- equipment no cell would
+hold, a run the router could not path. They have different causes and different fixes, and one list
+mixing them serves neither reader. Whether a vessel fits, in particular, is entirely a function of
+the deck bounds a build was given, so it can only ever be a build gap.</p>
+<p><code>ada.dexpi_to_procedural(path, ...)</code> exposes the intermediate seam -- the plain procedural
+document plus the equipment catalog, ready for <code>ProceduralBuilder.from_dict</code> or <code>to_excel</code>
+before anything is built.</p>
+<h2 id="equipment-definitions">Equipment definitions<a class="headerlink" href="#equipment-definitions" title="Permanent link">&para;</a></h2>
+<p>A P&amp;ID says a vessel is a <code>ProcessColumn</code>; it never says how big it is. adapy ships a hand-curated
+table (<code>ada.cadit.dexpi.equipment_defaults</code>, backed by
+<code>resources/dexpi_equipment_defaults.json</code>) of <strong>29 curated DEXPI classes</strong> -- envelope, IFC
+element class, nozzle-layout strategy and an apparent density -- resolved up the supertype DAG so
+all 142 <code>Plant/ProcessEquipment</code> classes are covered (a <code>CentrifugalPump</code> inherits <code>Pump</code>'s
+entry). Nozzle <em>positions</em> are always generated per item from its actual DEXPI nozzles, never fixed
+per class, because nozzle count varies item by item.</p>
+<p>These are placeholders for real vendor data, not engineering deliverables, and are meant to be
+overridden. An equipment definition list (<code>ada.cadit.dexpi.equipment_list</code>) supplies full
+overrides keyed by <strong>tag</strong> (wins) or <strong>DEXPI class</strong> (falls back), as either JSON
+(<code>{tag_or_class: EquipmentTypeDoc}</code>) or a two-sheet XLSX workbook (<code>EquipmentTypes</code> + a joined
+<code>Nozzles</code> sheet, for hand-editing many nozzles at once). Pass a path or an already-loaded dict as
+<code>ada.SystemModel.from_dexpi(..., definitions=...)</code>.</p>
+<p><code>definitions</code> also accepts a <strong>callable</strong> <code>(item) -&gt; document | None</code> -- the escape hatch for a
+definition that has to be computed rather than tabulated: looked up in a vendor database, derived
+from an attribute the workbook has no column for, or generated. It is asked once per equipment item
+and its return value is validated exactly like a table entry, so a computed definition cannot fail
+later inside the compiler where the cause would be far harder to see.</p>
+<p>Port <code>category</code> (<code>process</code>/<code>signal</code>/<code>electrical</code>) is not cosmetic: <code>System.connect</code> raises
+on a category mismatch and the compiler then drops the <em>whole</em> system with only a warning. One trap
+worth knowing about because it is easy to get backwards: the DEXPI spec makes <code>Nozzle</code> a subtype
+of both <code>ActuatingElectricalLocation</code> and <code>SensingLocation</code>, so a naive "is this an electrical
+location?" test types every ordinary process nozzle in the model as electrical.
+<code>ada.cadit.dexpi.nozzle_placers.category_for</code> resolves the <code>Nozzle</code> family first, before any
+instrumentation supertype test, for exactly that reason.</p>
+<h2 id="instrumentation-is-connectivity-not-decoration">Instrumentation is connectivity, not decoration<a class="headerlink" href="#instrumentation-is-connectivity-not-decoration" title="Permanent link">&para;</a></h2>
+<p>A P&amp;ID's instrumentation is what says <em>this controller drives that valve</em>. It used to stop at the
+document: instruments were carried as metadata and echoed back out by the writer, and a model built
+from a P&amp;ID contained no controller, no actuator and nothing joining them. Across the official
+corpus that was 174 devices and 103 signal runs that simply were not there.</p>
+<p>They are modelled now, and two details make the difference between that working and quietly not:</p>
+<p><strong>Signal connectivity is stated differently from piping connectivity.</strong> A <code>PipingNetworkSegment</code>
+owns <code>&lt;Connection&gt;</code> elements naming positional node indices. A <code>SignalConveyingFunction</code> owns
+none at all -- it is a <em>function</em>, so what it joins is stated as <code>has logical start</code> and
+<code>has logical end</code> associations, and the line drawn on the sheet is presentation. Reading only the
+piping form is exactly why none of this reached 3D before.</p>
+<p><strong>The sensing and acting halves of one loop are two devices.</strong> DEXPI nests them inside the loop
+function that owns them: <code>PI 4712.01</code> in the official <code>C01</code> file contains its own
+<code>ProcessSignalGeneratingFunction</code> <em>and</em> the signal line joining that element to the indicator.
+Folding a nested instrument into its owner -- the rule a <code>Chamber</code> follows -- collapses both ends
+of that line onto one object, and the run is then rejected for having no two distinct ends. So
+instrumentation deliberately does <strong>not</strong> fold: membership is "something the signal graph refers
+to, or something bound to a component it operates".</p>
+<p>Ports are <code>signal</code> rather than <code>process</code>, which is load-bearing and not cosmetic:
+<code>System.connect</code> refuses a category mismatch and the compiler then drops the whole run with only a
+warning. An instrument gets one port per line that ends on it -- a controller that reads a
+transmitter and drives a valve is the end of two, and a port already wired cannot take a second.</p>
+<p>An actuator is placed with the valve it operates (via <code>is fulfilled by</code>) and named from its own
+<code>ActuatingSystemNumber</code>: DEXPI numbers the actuator on <code>PV-202</code> as <code>PV-202.01</code>, and letting it
+borrow the valve's tag instead would put two objects called <code>PV-202</code> in the model with nothing to
+tell them apart.</p>
+<p>What is <em>not</em> claimed: a signal run is routed with the same rules as a pipe, so a pair of
+instruments packed close together can fail to route on bend clearance. Those failures are reported
+in the import report like any other, not hidden.</p>
+<h2 id="the-generated-layout-is-not-a-plot-plan">The generated layout is not a plot plan<a class="headerlink" href="#the-generated-layout-is-not-a-plot-plan" title="Permanent link">&para;</a></h2>
+<p>There is no DEXPI concept of plant coordinates, and adapy does not invent good ones.
+<code>ada.topo_model.layout</code> (a general capability, not DEXPI-specific) is <strong>shelf packing on physical
+footprint alone</strong>: sort equipment by descending footprint, pack rows onto a deck within
+<code>LayoutRules.max_length</code>/<code>max_width</code>, start a new deck when one fills. It has no process sense
+whatsoever -- a pump can land at the far end of a deck from the vessel it feeds. Equipment connected
+by a segment is packed as one contiguous group, which is a cheap first heuristic and not a
+substitute for engineering judgement.</p>
+<p>Use <code>layout=LayoutRules(...)</code> to size the decks, and pass an explicit <code>deck_height</code>: the pitch
+is uniform across the whole plan, so leaving it unset makes it "the tallest item plus headroom" --
+one 15 m <code>ProcessColumn</code> would make <em>every</em> deck 16 m tall. <code>base_doc</code> lets a re-import keep
+placements you have already corrected by hand instead of regenerating them.</p>
+<p>Once a model is built and routed, <code>ada.topo_model.relocate.propose_relocations</code> looks at
+which runs did not route cleanly and proposes the equipment moves that would clear them. Plan first
+with <code>from_dexpi</code>, relocate after -- or pass <code>relocate=True</code> and let the import close that loop
+itself: the model is routed, the moves that would clear the failures are computed and applied, and
+it is routed again. Off by default, because a relocation changes where equipment stands; every
+applied move is recorded in <code>assembly.metadata["dexpi"]["relocations"]</code>, naming the runs it was
+made for.</p>
+<p>Making that loop work needed a fix in <code>~ada.topo_model.relocate</code> worth knowing about, because
+the symptom was silence rather than an error. The engine's routing probe is meant to mirror the
+compiler's, but it skipped the step that inserts every port coordinate as a grid line before
+occupancy is stamped -- so a port that did not already land on the lattice left an un-blocked
+corridor straight through an equipment box. That made the probe strictly more permissive than the
+compiler: it reported a model as routing cleanly that the compiler then failed to route, found no
+baseline problems, and proposed nothing at all. Its docstring's claim that "routing feasibility
+doesn't depend on the built walls" is right about walls and was wrong about this.</p>
+<h2 id="what-is-modelled-what-is-not">What is modelled, what is not<a class="headerlink" href="#what-is-modelled-what-is-not" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Modelled</th>
+<th>Equipment (142 <code>Plant/ProcessEquipment</code> classes -&gt; IFC class, size default, nozzle placement rule); <code>Nozzle</code> -&gt; <code>Port</code> (flow direction, DN, spec, category, with the <code>Nozzle</code>-is-not-electrical rule above); <code>Chamber</code> -&gt; nested equipment (folded into its owner); <code>PipingNetworkSegment</code> -&gt; a two-ended <code>TopoSystem</code>/piping system; the connection graph; <code>PipeOffPageConnector</code> -&gt; a site terminal; a branch point (a passive fitting more than one segment ends at, e.g. a <code>PipeTee</code>) -&gt; an <code>IfcPipeFitting</code> equipment with a port per connection node, so each run meeting there stays two-ended and routes; in-line components (as run metadata by default, or opt-in equipment); <code>TagName</code>/<code>LineNumber</code>/<code>FluidCode</code>/<code>PipingClassCode</code>/ nominal diameter; every import gap collected into <code>assembly.metadata["dexpi"]["report"]</code> rather than dropped silently.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Deferred to metadata + verbatim echo</td>
+<td><code>InstrumentComponent</code>, <code>InstrumentationLoopFunction</code>, <code>MeasuringSystem</code>, <code>PropertyBreak</code>, <code>PlantStructureItem</code>, <code>Association</code> links, <code>ShapeCatalogue</code>/<code>Presentation</code>/<code>Drawing</code>/<code>Label</code>, <code>CenterLine</code>/<code>PolyLine</code> geometry, custom attribute sets, physical quantities with units (parsed to <code>(value, unit_uri)</code>; SI-converted only for nominal diameter), <code>Position</code>/<code>Axis</code>/<code>Reference</code> rotation angles. None of this drives geometry, but none of it is thrown away either -- everything an item's source <code>ET.Element</code> does not model stays on <code>DexpiItem.raw</code>/<code>extras</code> for a future writer to re-emit.</td>
+</tr>
+<tr>
+<td>Deferred to follow-up work</td>
+<td>Clustering equipment by room requirements into per-group cells (the <code>group_key</code> seam on <code>LayoutRules</code> exists for it); <code>PlantStructureItem</code> -&gt; an <code>ada.Part</code> hierarchy; DEXPI-driven duct systems (a P&amp;ID has no ducting concept at all -- <code>"duct"</code> is only ever produced when a definition list marks a line as one); routing across multiple decks with vertical shafts; feeding <code>relocate.propose_relocations</code> back into the layout automatically when a run fails to route; a genuinely one-ended segment -- a relief valve discharging to something the P&amp;ID does not draw (<code>205/1</code> in the worked example above) -- which has nothing to route to and so lands in the import report rather than the model; routing a junction as <em>one</em> branched system rather than as the several two-ended runs that meet at it, which needs branch/tee support in <code>route_system</code> that does not exist yet (the runs themselves do route -- see the branch-point row above -- but no single <code>System</code> spans the tee, and no fitting geometry is modelled at the junction beyond the placed <code>IfcPipeFitting</code> box).</td>
+</tr>
+<tr>
+<td>Never</td>
+<td>Live RDL registry lookups (the symbol table ships with an out-of-tree package adapy does not depend on); XSD validation of DEXPI 2.0 (would need <code>lxml</code>/<code>xmlschema</code> -- structural checks in <code>ada.cadit.dexpi.validate</code> stand in instead). Both offline by policy: adapy has no network dependency at parse time.</td>
+</tr>
+</tbody>
+</table>
+<p>Two real adapy gaps surfaced by this work, worth naming rather than working around:
+<code>ada.Equipment</code> has no placement frame, so <code>Port.get_global_position</code> ignores rotation (harmless
+today because equipment rotation is baked into each port's position when it is placed); and
+<code>route_system</code> has no branch/tee support, which is the reason a DEXPI segment must be two-ended to
+route at all. The second is worked around rather than closed: materialising a branch point as
+equipment gives every run at a tee two real ends, but the tee is still three runs meeting at a box,
+not one branched system.</p>
+<h2 id="writing-back-to-dexpi">Writing back to DEXPI<a class="headerlink" href="#writing-back-to-dexpi" title="Permanent link">&para;</a></h2>
+<p><code>SystemModel.to_dexpi(destination, flavour="proteus", from_scratch=False)</code> writes an adapy model
+back out. It is a <strong>merge, not a regeneration</strong>: starting from the source <code>DexpiDocument</code> the
+model carries, it re-serializes everything adapy owns from the live objects so edits made in Python
+land in the file, re-emits everything it does not model verbatim from <code>DexpiItem.raw</code>/<code>extras</code>,
+drops items deleted in adapy along with their connections (logged), and mints fresh IDs for anything
+adapy added. <code>from_scratch=False</code> with no source document raises, pointing at the flag -- writing
+a from-scratch model (<code>from_scratch=True</code>, e.g. from a hand-built model) is lossy by construction
+and only claims that the equipment/port/system graph survives a re-read, not a byte-for-byte
+anything.</p>
+<p>The export lives on the model and <strong>not</strong> on the built assembly, and the reason is worth stating
+plainly: DEXPI has no coordinates. Nothing a build produces -- deck elevations, equipment
+placements, routed geometry -- is expressible in the format at all, so a built assembly has nothing
+to contribute to a write-back. Edit the model, write the model.</p>
+<h2 id="running-the-wider-corpus-locally">Running the wider corpus locally<a class="headerlink" href="#running-the-wider-corpus-locally" title="Permanent link">&para;</a></h2>
+<p>The DEXPI test suite ships two official CC BY 4.0 example files under <code>files/dexpi_files/vendor/</code>
+so the reader/writer are exercised against real, unvendored emitter output without any network
+access. <code>scripts/codegen/fetch_dexpi_testcases.py</code> downloads the full official
+<a href="https://gitlab.com/dexpi/TrainingTestCases">TrainingTestCases</a> corpus (currently around 220 P&amp;IDs
+spanning DEXPI 1.2 and 1.3) into the git-ignored <code>files/dexpi_files/_external/</code>:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="gp">$ </span>python<span class="w"> </span>scripts/codegen/fetch_dexpi_testcases.py
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="gp">$ </span>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>tests<span class="w"> </span>pytest<span class="w"> </span>tests/core/cadit/dexpi/test_external_corpus.py
+</span></code></pre></div>
+<p><code>tests/core/cadit/dexpi/test_external_corpus.py</code> parses every file under <code>_external/</code> and
+asserts the same lossless-echo round-trip (<code>file -&gt; doc -&gt; XML -&gt; doc'</code> canonically equal) the
+checked-in fixtures are held to. It is skipped, not run, whenever that directory does not exist, so
+this stays purely a local, opt-in tool -- <code>pixi run -e tests test-core</code> and CI never touch the
+network. A run against the full corpus is a good pre-release check: it is what caught the 0-based
+(rather than 1-based) positional node indexing that DEXPI 1.3 actually uses in the wild, which a
+smaller fixture set would not have exposed.</p>
+<p>It has since earned its keep twice more, on the first full run after the writers landed -- 15 of
+the 220 files failed, both causes invisible to any fixture the branch had:</p>
+<p><em>A connection nested in an element the model does not carry was written twice.</em> The
+<code>&lt;Connection&gt;</code> inside an <code>&lt;InformationFlow&gt;</code> is echoed verbatim along with its owner <em>and</em> was
+re-emitted from <code>doc.connections</code> at document level, so an unedited round-trip gained a second,
+owner-less copy of the edge -- connectivity the P&amp;ID never had. 14 files, DEXPI 1.2 signal
+connectivity above all. The writer now skips any connection whose source element the echo already
+carries, tested by element identity against the source parse.</p>
+<p><em>A full RDL URI in</em> <code>ComponentClass</code> <em>changed the class on the way through.</em> Emitters are not
+supposed to write <code>ComponentClass="http://sandbox.dexpi.org/rdl/ProcessInstrumentationFunction"</code>,
+and some do. <code>class_table.resolve</code> took the last <em>dot</em> before the last slash, which lands in the
+host name and yields the class <code>org/rdl/ProcessInstrumentationFunction</code>; the writer emitted that
+and the reader then resolved it differently coming back in. Taking the path segment off first fixes
+it and makes <code>resolve</code> idempotent, which is the property the round-trip actually depends on.</p>
+<p>Both are pinned by checked-in fixtures in <code>tests/core/cadit/dexpi/test_write_proteus.py</code>, so CI
+holds them without the corpus. Note that fetching the corpus puts third-party code in the tree:
+<code>pyproject.toml</code> names <code>_external/</code> in isort's skip list, because isort -- unlike black and
+ruff -- does not read <code>.gitignore</code> and would otherwise fail <code>pixi run lint-check</code> on it.</p>
+<p>Running the <em>3D import</em> over the same corpus -- not just the round-trip the test asserts -- was
+worth another three. <code>ada.from_dexpi</code> raised on 72 of the 220 files before them and on none
+after; equipment resolved went from 266 to 348 and systems built from 84 to 135:</p>
+<p><em>Equipment named out of a vendor symbol library was not recognised as equipment.</em> The shipped class
+table is generated from the DEXPI <strong>2.0.0</strong> specification, but a DEXPI 1.2 export classes its
+equipment out of the emitter's own library -- <code>ComponentClass="Pumps"</code>, <code>"VerticalDrums"</code>,
+<code>"Shell&amp;TubeExchangers"</code>. <code>is_a(cls, "ProcessEquipment")</code> is False for every one, so a P&amp;ID full
+of equipment resolved to none at all, the layout generated no decks, and the procedural builder
+raised. Where the class is not recognisable the Proteus <code>&lt;Equipment&gt;</code> element tag is now honoured
+as the emitter's statement of intent (<code>equipment_list.is_equipment</code>); <code>Chamber</code> and <code>Nozzle</code>
+are excluded explicitly, because Proteus spells a chamber <code>&lt;Equipment ComponentClass="Chamber"&gt;</code>.
+An unrecognised class still resolves to an envelope -- <code>resolve_defaults</code> reports
+<code>source="fallback"</code> and hands back the <code>ProcessEquipment</code> catch-all.</p>
+<p><em>A P&amp;ID with nothing to lay out raised instead of reporting.</em> An instrumentation-only sheet has no
+equipment, so the generated layout has no decks, and <code>ProceduralBuilder</code> rightly refuses to
+compile an empty document -- but that <code>ValueError</code> reached the caller for drawings adapy had read
+perfectly well. It is a property of the P&amp;ID, so it is now an <code>ImportIssue</code> of kind <code>model</code> and
+the schematic assembly comes back; <code>strict=True</code> still raises. Because a document-level failure
+has no per-item counts behind it, <code>DexpiImportReport.summary</code> states the reason rather than the
+tallies, which would otherwise read <code>0 of 0 ... did not reach the 3D model</code> -- indistinguishable
+from a clean import.</p>
+<p><em>The tag was read from only one of the two places Proteus puts it.</em> <code>TagName</code> is carried both as
+a <code>TagNameAssignmentClass</code> generic attribute and as a plain XML attribute on the element, and 122
+of the 220 files -- <code>C01</code> among them -- write only the latter. Items came back untagged, fell
+back to a class-and-ID slug (<code>verticaldrums-equipment-1</code> rather than <code>T4750</code>), and, less
+visibly, every <strong>tag-keyed</strong> entry in an equipment definition list stopped matching, because the
+tag it keys on did not exist. <code>DexpiItem.tag</code> now falls back to the XML attribute; across the
+corpus that is 253 equipment items tagged where 6 remain genuinely untagged.</p>
+<p>What the corpus still reports rather than models is dominated by one line -- 234 of the 310 system
+issues are <code>N endpoint(s) outside the segment; a routed run needs exactly two</code> -- and it is worth
+being precise about what that number is, because the obvious reading of it is wrong. It is <strong>not</strong>
+the branch/tee limitation at scale. Taking the cases apart:</p>
+<ul>
+<li>50 segments own no usable connection at all: the file writes a bare <code>&lt;Connection /&gt;</code> with
+  neither <code>FromID</code> nor <code>ToID</code>.</li>
+<li>93 own a connection with one end named and the other simply absent
+  (<code>&lt;Connection FromID="..."/&gt;</code>).</li>
+<li>30 end at an in-line component that no other segment or system references -- a genuine dead end
+  in the drawing.</li>
+<li>16 end at a component that <em>is</em> referenced elsewhere, but by an instrumentation owner (a signal
+  line to a valve), not by another piping segment. Not a piping junction.</li>
+</ul>
+<p>In other words the bulk of these P&amp;IDs do not state the connectivity in the data model at all; the
+<code>&lt;CenterLine&gt;</code> carries it as drawing geometry instead. Inferring the missing ends from that
+geometry was measured and rejected: of the free ends that are genuinely unknown, only 19 land on
+another item's connection node and 73 match nothing. (A first pass suggested 135 exact matches,
+which was an artefact -- for a connection with one end named, one end of the centre line trivially
+coincides with the item that <em>is</em> named.) These runs are reported because the drawing does not say
+where they go, which is the honest outcome rather than a gap in adapy.</p>
+<p>The genuine branch case is smaller and separate: 89 branch points across 21 of the 220 files, 37 of
+them where exactly two segments meet (a pass-through, not a branch) and 52 where three do. Those 52
+do route today -- as three two-ended runs meeting at a materialised fitting -- and what is missing
+is a single <code>System</code> spanning the junction, which is the <em>Deferred to follow-up work</em> row below.</p>
+<h2 id="licensing-and-attribution">Licensing and attribution<a class="headerlink" href="#licensing-and-attribution" title="Permanent link">&para;</a></h2>
+<p>The generated class table, the two vendored official test files, and anything fetched by
+<code>scripts/codegen/fetch_dexpi_testcases.py</code> are Creative Commons Attribution 4.0 International (CC BY 4.0),
+copyright DEXPI e.V. -- adapy's own code and curated defaults are not. See the repository-root
+<code>NOTICE</code> file for the full attribution, and <code>files/dexpi_files/vendor/NOTICE.md</code> for the
+file-level detail on the two vendored test cases.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../procedural_modelling/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Procedural modelling">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Procedural modelling
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../path_to_software_agnosticism/" class="md-footer__link md-footer__link--next" aria-label="Next: Path to Software Agnosticism">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Path to Software Agnosticism
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2616 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/architecture/topology_engine/">
+      
+      
+        <link rel="prev" href="../core_model/">
+      
+      
+        <link rel="next" href="../geometry_and_visualisation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>Topology engine - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../_static/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Topology engine
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dexpi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-engine-in-a-nutshell" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The engine in a nutshell
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing-a-blueprint" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Writing a blueprint
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#equipment-with-ports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Equipment with ports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wiring-systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Wiring systems
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Routing
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#penetrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Penetrations
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pluggable-design-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pluggable design rules
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pluggable design rules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#named-rulesets-for-the-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Named rulesets for the viewer
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-missing-io-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The missing-I/O report
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ifc-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        IFC export
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-and-viewing-the-demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Building and viewing the demo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compiling-a-whole-model-with-proceduralbuilder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compiling a whole model with <code>ProceduralBuilder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compiling a whole model with ProceduralBuilder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#loading-from-dict-json-excel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Loading from dict / JSON / Excel
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multiple-structures-in-one-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Multiple structures in one model
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading-the-catalog-from-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading the catalog from Python
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#viewer-catalogs-equipment-types-and-system-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Viewer catalogs: equipment types and system templates
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-engine-in-a-nutshell" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The engine in a nutshell
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing-a-blueprint" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Writing a blueprint
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#equipment-with-ports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Equipment with ports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wiring-systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Wiring systems
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Routing
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#penetrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Penetrations
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pluggable-design-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pluggable design rules
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pluggable design rules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#named-rulesets-for-the-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Named rulesets for the viewer
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-missing-io-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The missing-I/O report
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ifc-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        IFC export
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-and-viewing-the-demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Building and viewing the demo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compiling-a-whole-model-with-proceduralbuilder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compiling a whole model with <code>ProceduralBuilder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compiling a whole model with ProceduralBuilder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#loading-from-dict-json-excel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Loading from dict / JSON / Excel
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multiple-structures-in-one-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Multiple structures in one model
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading-the-catalog-from-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading the catalog from Python
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#viewer-catalogs-equipment-types-and-system-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Viewer catalogs: equipment types and system templates
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/architecture/topology_engine.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="topology-engine">Topology engine<a class="headerlink" href="#topology-engine" title="Permanent link">&para;</a></h1>
+<p><code>ada.topology</code> is a domain-generic procedural engine: you describe a model as
+a set of <em>spaces</em> (boxes), the engine partitions them into a cell graph with
+classified faces and edges, and a <em>blueprint</em> turns that topology into
+geometry. <code>ada.topo_model</code> is the in-repo reference implementation — a small
+steel structure with equipment, service systems and routed connections.</p>
+<h2 id="the-engine-in-a-nutshell">The engine in a nutshell<a class="headerlink" href="#the-engine-in-a-nutshell" title="Permanent link">&para;</a></h2>
+<p>Spaces go in, an assembly comes out:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">TopologyBuilder</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">SteelStru</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">boxes</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">ada</span><span class="o">.</span><span class="n">PrimBox</span><span class="p">(</span><span class="s2">&quot;Cell1&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">ada</span><span class="o">.</span><span class="n">PrimBox</span><span class="p">(</span><span class="s2">&quot;Cell2&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">]</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">builder</span> <span class="o">=</span> <span class="n">TopologyBuilder</span><span class="o">.</span><span class="n">from_prim_boxes</span><span class="p">(</span><span class="n">boxes</span><span class="p">,</span> <span class="n">blueprint</span><span class="o">=</span><span class="n">SteelStru</span><span class="p">())</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">builder</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">a</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">get_output_assembly</span><span class="p">(</span><span class="s2">&quot;MyModel&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The <code>CellGraph</code> behind the builder answers topology questions: which faces
+are external floors or walls, which wall is shared between two cells
+(<code>get_internal_walls</code>), and each face carries its ordered outline points,
+edges and normal. Two adjacent cells share one wall and the girder/column edges
+along it — the engine deduplicates those for you.</p>
+<p>Or in one line, with the demo's defaults:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_topo_model</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">a</span> <span class="o">=</span> <span class="n">build_topo_model</span><span class="p">()</span>
+</span></code></pre></div>
+<h2 id="writing-a-blueprint">Writing a blueprint<a class="headerlink" href="#writing-a-blueprint" title="Permanent link">&para;</a></h2>
+<p>A blueprint subclasses <code>~ada.topology.blueprint.BlueprintBase</code> and
+implements <code>build()</code>: read the cell graph, emit parts, register them per
+area with <code>add_to_area</code> and finish with <code>load_parts_from_area_map()</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlueprintBase</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">class</span><span class="w"> </span><span class="nc">MyStru</span><span class="p">(</span><span class="n">BlueprintBase</span><span class="p">):</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_group_prefix</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        <span class="k">return</span> <span class="s2">&quot;MyStru&quot;</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">:</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">output_part</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">(</span><span class="s2">&quot;MyStru&quot;</span><span class="p">)</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>        <span class="n">cg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">builder</span><span class="o">.</span><span class="n">cell_graph</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">face</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">cg</span><span class="o">.</span><span class="n">get_external_floors</span><span class="p">()):</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>            <span class="n">plate</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">Plate</span><span class="o">.</span><span class="n">from_3d_points</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;pl</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">face</span><span class="o">.</span><span class="n">get_points</span><span class="p">(),</span> <span class="mf">0.01</span><span class="p">)</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">add_to_area</span><span class="p">(</span><span class="s2">&quot;floors&quot;</span><span class="p">,</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Floor_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="n">plate</span><span class="p">)</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">load_parts_from_area_map</span><span class="p">()</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_part</span>
+</span></code></pre></div>
+<p><code>ada.topo_model.SteelStru</code> is the full worked example: reinforced floors
+(plate + evenly spaced stringers), girders from deduplicated floor-face edges
+and columns from the vertical wall edges.</p>
+<h2 id="equipment-with-ports">Equipment with ports<a class="headerlink" href="#equipment-with-ports" title="Permanent link">&para;</a></h2>
+<p>Equipment carries typed connection points — <em>ports</em> — at local positions with
+outward directions and a service category (<code>process</code>/<code>electrical</code>/<code>signal</code>):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">pump</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">Equipment</span><span class="p">(</span><span class="s2">&quot;P1&quot;</span><span class="p">,</span> <span class="n">mass</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">cog</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="n">origin</span><span class="o">=</span><span class="p">(</span><span class="mf">2.5</span><span class="p">,</span> <span class="mf">2.5</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span> <span class="n">lx</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">ly</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">lz</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">pump</span><span class="o">.</span><span class="n">add_port</span><span class="p">(</span><span class="n">ada</span><span class="o">.</span><span class="n">Port</span><span class="p">(</span><span class="s2">&quot;discharge&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">ada</span><span class="o">.</span><span class="n">PortDirection</span><span class="o">.</span><span class="n">OUT</span><span class="p">,</span> <span class="s2">&quot;process&quot;</span><span class="p">))</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">pump</span><span class="o">.</span><span class="n">add_port</span><span class="p">(</span><span class="n">ada</span><span class="o">.</span><span class="n">Port</span><span class="p">(</span><span class="s2">&quot;power&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">ada</span><span class="o">.</span><span class="n">PortDirection</span><span class="o">.</span><span class="n">IN</span><span class="p">,</span> <span class="s2">&quot;electrical&quot;</span><span class="p">))</span>
+</span></code></pre></div>
+<p>The demo archetypes <code>create_pump</code> / <code>create_tank</code> in <code>ada.topo_model</code>
+ship with realistic port layouts, and <code>ada.Voltage</code> enumerates typical
+industrial supply levels (230 V – 11 kV).</p>
+<h2 id="wiring-systems">Wiring systems<a class="headerlink" href="#wiring-systems" title="Permanent link">&para;</a></h2>
+<p>A <code>System</code> is a logical service network with a fixed category; connecting it
+to ports is fluent and fail-fast (wrong category or an already-connected port
+raises with a clear message):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">cooling</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">ada</span><span class="o">.</span><span class="n">PipingSystem</span><span class="p">(</span><span class="s2">&quot;CoolingWater&quot;</span><span class="p">,</span> <span class="n">medium</span><span class="o">=</span><span class="s2">&quot;water&quot;</span><span class="p">)</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">pump</span><span class="p">,</span> <span class="s2">&quot;discharge&quot;</span><span class="p">)</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">tank</span><span class="p">,</span> <span class="s2">&quot;inlet&quot;</span><span class="p">)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">)</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">power</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">ElectricalSystem</span><span class="p">(</span><span class="s2">&quot;PowerFeed&quot;</span><span class="p">,</span> <span class="n">voltage</span><span class="o">=</span><span class="n">ada</span><span class="o">.</span><span class="n">Voltage</span><span class="o">.</span><span class="n">LV_690</span><span class="p">)</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">pump</span><span class="p">,</span> <span class="s2">&quot;power&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The references are bidirectional: <code>port.connected_system</code> points at the
+system, <code>system.ports</code> / <code>system.connected_equipment</code> point back.</p>
+<h2 id="routing">Routing<a class="headerlink" href="#routing" title="Permanent link">&para;</a></h2>
+<p>Systems route over a <code>~ada.topology.grid.CellGrid</code> node lattice with
+6-connected A*; occupied nodes are avoided and the routed polyline keeps only
+its bends:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">CellGrid</span><span class="p">,</span> <span class="n">RoutingRules</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">grid</span> <span class="o">=</span> <span class="n">CellGrid</span><span class="o">.</span><span class="n">from_bounds</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mf">5.5</span><span class="p">),</span> <span class="n">spacing</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">grid</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">grid</span><span class="o">.</span><span class="n">index_of</span><span class="p">(</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">2.5</span><span class="p">,</span> <span class="mf">3.5</span><span class="p">),</span> <span class="s2">&quot;obstruction&quot;</span><span class="p">)</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">cooling</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span>                 <span class="c1"># default rules</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">power</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">RoutingRules</span><span class="p">(</span><span class="n">elevation_penalty</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span> <span class="n">bend_penalty</span><span class="o">=</span><span class="mf">1.0</span><span class="p">))</span>
+</span></code></pre></div>
+<p>Rules are pluggable: <code>is_allowed</code> / <code>move_cost</code> callables plus elevation
+and bend penalties. <code>system.route(...)</code> also generates the route geometry
+matched to the service: a round <code>ada.Pipe</code> run (with auto-inserted elbows)
+for piping, a rectangular BOX <code>ada.Beam</code> run for ducting, and an open
+UNP-channel <code>ada.Beam</code> run for cable trays / electrical. For
+blueprint-driven routing, subclass
+<code>~ada.topology.routing.RoutingBlueprintBase</code> and override <code>rules_for</code>
+per system and/or <code>build_routing_grid</code>.</p>
+<h2 id="penetrations">Penetrations<a class="headerlink" href="#penetrations" title="Permanent link">&para;</a></h2>
+<p>Where a routed system crosses a wall or floor, a penetration blueprint turns
+the crossing into a detail. <code>StandardPenetrations</code> keys the detail on the
+routing type — a pipe sleeve for process runs, an MCT-style transit block for
+cable/electrical, a rectangular frame for ducts — and cuts the through-hole in
+the crossed face's built wall plate:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">StandardPenetrations</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">pens</span> <span class="o">=</span> <span class="n">StandardPenetrations</span><span class="p">(</span><span class="n">systems</span><span class="o">=</span><span class="p">[</span><span class="n">service</span><span class="p">],</span> <span class="n">faces</span><span class="o">=</span><span class="n">cg</span><span class="o">.</span><span class="n">get_internal_walls</span><span class="p">())</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">a</span><span class="o">.</span><span class="n">add_part</span><span class="p">(</span><span class="n">pens</span><span class="o">.</span><span class="n">build</span><span class="p">())</span>   <span class="c1"># one detail part per crossing; wall plates get the hole</span>
+</span></code></pre></div>
+<p>The demo builds its shared internal wall as a reinforced wall
+(<code>SteelStru(reinforce_internal_walls=True)</code> — plate + vertical stiffeners)
+and routes an interior service run straight through it; subclass
+<code>~ada.topo_model.penetration.PenetrationBlueprintBase</code> and override
+<code>build_penetration</code> for your own detail standard.</p>
+<h2 id="pluggable-design-rules">Pluggable design rules<a class="headerlink" href="#pluggable-design-rules" title="Permanent link">&para;</a></h2>
+<p>Routing and penetration rules can be handed to the engine as plain callables —
+no subclassing. The engine runs in <strong>two phases</strong>, and every rule is a function
+that <em>fully encompasses</em> its stage:</p>
+<ul>
+<li><strong>Plan</strong> (geometry-free, runs first over the whole cell complex): a
+  <code>plan_route</code> callable turns <code>(system, cell complex, grid)</code> into a
+  <code>~ada.topology.design_rules.RoutePlan</code>, and a <code>plan_penetration</code>
+  callable turns <code>(system, routed path, penetrated members)</code> into a list of
+  <code>~ada.topology.design_rules.Penetration</code> crossings. Planners see the
+  <code>CellGraph</code> (the cell complex — cells + classified faces) and the routing
+  <code>CellGrid</code> lattice, plus the penetrated members for penetration rules. They
+  emit <em>data</em>, never geometry.</li>
+<li><strong>Model</strong> (plan → geometry): a <code>model_route</code> callable turns a <code>RoutePlan</code>
+  into adapy geometry, and a <code>model_penetration</code> callable turns a
+  <code>Penetration</code> into a detail part.</li>
+</ul>
+<p><code>~ada.topology.design_rules.DesignRules</code> bundles the four callables and
+<code>~ada.topology.design_rules.run_design</code> drives both phases in order (plan
+everything, then model everything), returning a
+<code>~ada.topology.design_rules.DesignResult</code> — the routed geometry
+(<code>route_geometry</code> keyed by system name), the planned <code>penetrations</code> and their
+<code>penetration_parts</code>, and any <code>skipped</code> systems (see <code>skip_failed</code> below).
+The defaults reproduce the built-in routing; supply your own callables to fully
+override a stage:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">DesignRules</span><span class="p">,</span> <span class="n">RoutePlan</span><span class="p">,</span> <span class="n">RoutingRules</span><span class="p">,</span> <span class="n">run_design</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">standard_design_rules</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># A planning rule that fully encompasses routing: forbid a keep-out zone and</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># prefer a fixed service elevation. Planners return data (the polyline).</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="k">def</span><span class="w"> </span><span class="nf">plan_route</span><span class="p">(</span><span class="n">ctx</span><span class="p">):</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">is_allowed</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">grid</span><span class="p">):</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>        <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span> <span class="o">=</span> <span class="n">grid</span><span class="o">.</span><span class="n">coord_from_index</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>        <span class="k">return</span> <span class="ow">not</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">&lt;</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mf">3.0</span><span class="p">)</span>          <span class="c1"># keep-out corridor</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">route_system</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>    <span class="n">poly</span> <span class="o">=</span> <span class="n">route_system</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">system</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">RoutingRules</span><span class="p">(</span><span class="n">is_allowed</span><span class="o">=</span><span class="n">is_allowed</span><span class="p">))</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    <span class="k">return</span> <span class="n">RoutePlan</span><span class="p">(</span><span class="n">system</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">system</span><span class="p">,</span> <span class="n">polyline</span><span class="o">=</span><span class="n">poly</span><span class="p">)</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="c1"># A modelling rule for the detail geometry at each crossing: a short sleeve</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="c1"># centred on the crossing point, along the crossed face normal.</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="k">def</span><span class="w"> </span><span class="nf">model_penetration</span><span class="p">(</span><span class="n">pen</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>    <span class="n">p1</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">pen</span><span class="o">.</span><span class="n">point</span> <span class="o">-</span> <span class="n">pen</span><span class="o">.</span><span class="n">normal</span> <span class="o">*</span> <span class="mf">0.15</span><span class="p">)</span>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>    <span class="n">p2</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">pen</span><span class="o">.</span><span class="n">point</span> <span class="o">+</span> <span class="n">pen</span><span class="o">.</span><span class="n">normal</span> <span class="o">*</span> <span class="mf">0.15</span><span class="p">)</span>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>    <span class="k">return</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="o">/</span> <span class="n">ada</span><span class="o">.</span><span class="n">PrimCyl</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_sleeve&quot;</span><span class="p">,</span> <span class="n">p1</span><span class="p">,</span> <span class="n">p2</span><span class="p">,</span> <span class="n">r</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>
+</span><span id="__span-7-22"><a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a><span class="n">rules</span> <span class="o">=</span> <span class="n">DesignRules</span><span class="p">(</span><span class="n">plan_route</span><span class="o">=</span><span class="n">plan_route</span><span class="p">,</span> <span class="n">model_penetration</span><span class="o">=</span><span class="n">model_penetration</span><span class="p">)</span>
+</span><span id="__span-7-23"><a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a><span class="n">result</span> <span class="o">=</span> <span class="n">run_design</span><span class="p">(</span><span class="n">systems</span><span class="p">,</span> <span class="n">cell_graph</span><span class="o">=</span><span class="n">cg</span><span class="p">,</span> <span class="n">grid</span><span class="o">=</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">rules</span><span class="p">)</span>
+</span><span id="__span-7-24"><a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>
+</span><span id="__span-7-25"><a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a><span class="c1"># Or reuse the reference detail standard (pipe sleeve / cable block / duct frame):</span>
+</span><span id="__span-7-26"><a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a><span class="n">result</span> <span class="o">=</span> <span class="n">run_design</span><span class="p">(</span><span class="n">systems</span><span class="p">,</span> <span class="n">cell_graph</span><span class="o">=</span><span class="n">cg</span><span class="p">,</span> <span class="n">grid</span><span class="o">=</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">standard_design_rules</span><span class="p">())</span>
+</span></code></pre></div>
+<p>The same ruleset threads into the higher-level entry points:
+<code>~ada.topology.routing.RoutingBlueprintBase(design_rules=...)</code> for
+blueprint-driven routing, and <code>compile_procedural_doc(..., design_rules=...)</code>
+for the viewer's compile (which defaults to <code>standard_design_rules()</code>). With
+<code>skip_failed=True</code> a run that can't be planned is dropped and named in
+<code>result.skipped</code> rather than sinking the whole model. The legacy
+subclass scaffolds (<code>~ada.topology.routing.RoutingBlueprintBase</code>'s
+<code>rules_for</code>/<code>build_routing_grid</code> overrides and
+<code>~ada.topo_model.penetration.PenetrationBlueprintBase</code>'s
+<code>build_penetration</code>) still work unchanged — the defaults simply wrap them.</p>
+<h3 id="named-rulesets-for-the-viewer">Named rulesets for the viewer<a class="headerlink" href="#named-rulesets-for-the-viewer" title="Permanent link">&para;</a></h3>
+<p>A JSON document can't carry Python callables, so the viewer selects a ruleset
+<strong>by name</strong>. <code>ada.topo_model</code> keeps a small registry
+(<code>~ada.topo_model.design_rulesets.DESIGN_RULESETS</code>) mapping a slug to a
+<code>DesignRules</code> factory:</p>
+<ul>
+<li><code>standard</code> — route runs and add the standard penetration detail at each wall
+  crossing (pipe sleeve / cable block / duct frame, with the wall plate cut).</li>
+<li><code>route_only</code> — route runs and detect crossings, but emit no detail geometry.</li>
+</ul>
+<p>A cell-model document names one via <code>doc["design_rules"]</code>, and
+<code>compile_procedural_doc</code> resolves it with
+<code>~ada.topo_model.resolve_design_rules</code> (an unknown/absent slug falls back
+to <code>standard</code>):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_design_rules</span><span class="p">,</span> <span class="n">design_ruleset_specs</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">rules</span> <span class="o">=</span> <span class="n">resolve_design_rules</span><span class="p">(</span><span class="s2">&quot;route_only&quot;</span><span class="p">)</span>          <span class="c1"># -&gt; DesignRules | None</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">design_ruleset_specs</span><span class="p">()</span>                               <span class="c1"># [{slug, name, description}, ...]</span>
+</span></code></pre></div>
+<p>The hosted viewer wires this end-to-end: workers advertise
+<code>design_ruleset_specs()</code>, the API serves the built-in rulesets ∪ the advertised
+ones at <code>GET /procedural-models/design-rulesets</code>, and the cellbuilder's
+<strong>Design rules</strong> dropdown writes the chosen slug into <code>doc.design_rules</code> so the
+compile worker applies it. Register your own ruleset by adding a slug →
+<code>DesignRules</code> factory to <code>DESIGN_RULESETS</code>; it then appears in the dropdown
+of any scope served by a worker that ships it.</p>
+<h2 id="the-missing-io-report">The missing-I/O report<a class="headerlink" href="#the-missing-io-report" title="Permanent link">&para;</a></h2>
+<p>Every port left unconnected is a hole in the design. The validation helpers
+walk a part tree and report them:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.api.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">find_unconnected_ports</span><span class="p">,</span> <span class="n">format_port_report</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">format_port_report</span><span class="p">(</span><span class="n">find_unconnected_ports</span><span class="p">(</span><span class="n">a</span><span class="p">)))</span>
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Equipment  Port     Category  Direction
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>---------  -------  --------  ---------
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>Pump1      suction  process   IN
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>Pump1      signal   signal    INOUT
+</span></code></pre></div>
+<h2 id="ifc-export">IFC export<a class="headerlink" href="#ifc-export" title="Permanent link">&para;</a></h2>
+<p>Equipment and systems export as proper IFC4 distribution entities: the
+equipment element class follows <code>Equipment.ifc_element_class</code> (the demo pump
+is an <code>IfcPump</code>, the tank an <code>IfcTank</code>), ports become nested
+<code>IfcDistributionPort</code> entities with mapped flow directions, each system is an
+<code>IfcDistributionSystem</code> (typed <code>WATERSUPPLY</code>/<code>ELECTRICAL</code>/…) grouping its
+routed segments and connected equipment, and cable/duct runs emit
+<code>IfcCableSegment</code>/<code>IfcDuctSegment</code> instead of pipe segments.</p>
+<h2 id="building-and-viewing-the-demo">Building and viewing the demo<a class="headerlink" href="#building-and-viewing-the-demo" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>prod<span class="w"> </span>topo-model-demo
+</span></code></pre></div>
+<p>The task builds the model, prints the missing-I/O report, exports a GLB,
+uploads it to your personal viewer scope (when <code>ADAPY_BASE_URL</code> /
+<code>ADAPY_API_TOKEN</code> are configured in <code>.env</code>; skipped otherwise) and streams
+the scene to the websocket viewer via <code>assembly.show()</code>. Use <code>--no-upload</code>
+/ <code>--no-show</code> to opt out of either side effect.</p>
+<h2 id="compiling-a-whole-model-with-proceduralbuilder">Compiling a whole model with <code>ProceduralBuilder</code><a class="headerlink" href="#compiling-a-whole-model-with-proceduralbuilder" title="Permanent link">&para;</a></h2>
+<p>The engine-in-a-nutshell example above builds a bare structure. A full
+procedural <em>model</em> — spaces plus equipment, routed systems, openings and a
+design ruleset — is compiled by
+<code>~ada.topo_model.builder.ProceduralBuilder</code>, the <strong>root object that owns
+the whole model</strong>. It is <em>object-first</em>: you hand it explicit, validated entity
+objects (<code>~ada.topology.entities.TopoSpace</code> /
+<code>~ada.topology.entities.TopoEquipment</code> /
+<code>~ada.topology.entities.TopoSystem</code> /
+<code>~ada.topology.entities.TopoOpening</code>) rather than a loose dict, and
+<code>compile()</code> returns GLB bytes:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProceduralBuilder</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology.entities</span><span class="w"> </span><span class="kn">import</span> <span class="n">TopoSpace</span><span class="p">,</span> <span class="n">TopoEquipment</span><span class="p">,</span> <span class="n">TopoSystem</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">spaces</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">TopoSpace</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Cell1&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">DX</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DY</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DZ</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="n">TopoSpace</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Cell2&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">DX</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DY</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DZ</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="p">]</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">equipment</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="n">TopoEquipment</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Pump2&quot;</span><span class="p">,</span> <span class="n">DESCRIPTION</span><span class="o">=</span><span class="s2">&quot;pump&quot;</span><span class="p">,</span> <span class="n">SPACE_NAME</span><span class="o">=</span><span class="s2">&quot;Cell1&quot;</span><span class="p">,</span>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>                  <span class="n">SPACE_LOC</span><span class="o">=</span><span class="s2">&quot;FLOOR&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">LX</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">LY</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">LZ</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>                  <span class="n">COGx</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGy</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGz</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">massDry</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">massCont</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>    <span class="n">TopoEquipment</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Tank2&quot;</span><span class="p">,</span> <span class="n">DESCRIPTION</span><span class="o">=</span><span class="s2">&quot;tank&quot;</span><span class="p">,</span> <span class="n">SPACE_NAME</span><span class="o">=</span><span class="s2">&quot;Cell2&quot;</span><span class="p">,</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>                  <span class="n">SPACE_LOC</span><span class="o">=</span><span class="s2">&quot;FLOOR&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mf">6.5</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">LX</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">LY</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">LZ</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>                  <span class="n">COGx</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGy</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGz</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">massDry</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">massCont</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="p">]</span>
+</span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="n">systems</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-12-17"><a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>    <span class="n">TopoSystem</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;CoolingWater&quot;</span><span class="p">,</span> <span class="n">TYPE</span><span class="o">=</span><span class="s2">&quot;piping&quot;</span><span class="p">,</span> <span class="n">MEDIUM</span><span class="o">=</span><span class="s2">&quot;water&quot;</span><span class="p">,</span> <span class="n">CONNECTIONS</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-12-18"><a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>        <span class="p">{</span><span class="s2">&quot;EQUIPMENT&quot;</span><span class="p">:</span> <span class="s2">&quot;Pump2&quot;</span><span class="p">,</span> <span class="s2">&quot;PORT&quot;</span><span class="p">:</span> <span class="s2">&quot;discharge&quot;</span><span class="p">},</span>
+</span><span id="__span-12-19"><a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a>        <span class="p">{</span><span class="s2">&quot;EQUIPMENT&quot;</span><span class="p">:</span> <span class="s2">&quot;Tank2&quot;</span><span class="p">,</span> <span class="s2">&quot;PORT&quot;</span><span class="p">:</span> <span class="s2">&quot;inlet&quot;</span><span class="p">},</span>
+</span><span id="__span-12-20"><a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a>    <span class="p">]),</span>
+</span><span id="__span-12-21"><a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a><span class="p">]</span>
+</span><span id="__span-12-22"><a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a><span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="p">(</span><span class="n">spaces</span><span class="o">=</span><span class="n">spaces</span><span class="p">,</span> <span class="n">equipments</span><span class="o">=</span><span class="n">equipment</span><span class="p">,</span> <span class="n">systems</span><span class="o">=</span><span class="n">systems</span><span class="p">)</span><span class="o">.</span><span class="n">compile</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>compile()</code> runs the phases in order — <code>build_structure</code> →
+<code>build_equipment</code> → <code>build_systems</code> → <code>to_glb</code>. Drive them individually to
+inspect the owned state (<code>blueprint</code>, <code>cell_graph</code>, <code>equipment_map</code>,
+<code>systems_parts</code>, <code>assembly</code>) in between:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="p">(</span><span class="n">spaces</span><span class="o">=</span><span class="n">spaces</span><span class="p">,</span> <span class="n">equipments</span><span class="o">=</span><span class="n">equipment</span><span class="p">,</span> <span class="n">systems</span><span class="o">=</span><span class="n">systems</span><span class="p">)</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">pb</span><span class="o">.</span><span class="n">build_structure</span><span class="p">()</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">pb</span><span class="o">.</span><span class="n">cell_graph</span><span class="o">.</span><span class="n">get_external_floors</span><span class="p">())</span>    <span class="c1"># the built topology</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">pb</span><span class="o">.</span><span class="n">build_equipment</span><span class="p">()</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">pb</span><span class="o">.</span><span class="n">equipment_map</span><span class="p">)</span>                       <span class="c1"># {&quot;Pump2&quot;: &lt;ada.Equipment&gt;, ...}</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="n">pb</span><span class="o">.</span><span class="n">build_systems</span><span class="p">()</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">pb</span><span class="o">.</span><span class="n">to_glb</span><span class="p">()</span>
+</span></code></pre></div>
+<p>Every child reaches the root through an injected <code>.procedural</code> reference — the
+blueprint directly, and any <code>GraphFace</code> through its cell graph — so a blueprint
+or a face-level rule can consult the whole model (equipment, systems, the design
+ruleset, the LOD). The topology engine
+(<code>~ada.topology.TopologyBuilder</code>) is reached the other way, as
+<code>pb.topology</code>; the LOD lives once on the root (<code>pb.detail</code>):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">pb</span><span class="o">.</span><span class="n">blueprint</span><span class="o">.</span><span class="n">procedural</span> <span class="ow">is</span> <span class="n">pb</span>                              <span class="c1"># True</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">face</span> <span class="o">=</span> <span class="n">pb</span><span class="o">.</span><span class="n">cell_graph</span><span class="o">.</span><span class="n">get_external_floors</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">face</span><span class="o">.</span><span class="n">parent_cell</span><span class="o">.</span><span class="n">cell_graph</span><span class="o">.</span><span class="n">procedural</span> <span class="ow">is</span> <span class="n">pb</span>              <span class="c1"># True</span>
+</span></code></pre></div>
+<h3 id="loading-from-dict-json-excel">Loading from dict / JSON / Excel<a class="headerlink" href="#loading-from-dict-json-excel" title="Permanent link">&para;</a></h3>
+<p>Explicit objects are the sturdy path, but a model also loads from the three
+document formats — each parses and validates into those same entity objects, so
+dict parsing lives in exactly one place:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># a procedural document (the viewer&#39;s commit format) — dict or a JSON file</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">doc</span><span class="p">)</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="s2">&quot;model.json&quot;</span><span class="p">)</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="s1">&#39;{&quot;spaces&quot;: [...], &quot;systems&quot;: [...]}&#39;</span><span class="p">)</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="c1"># a multi-sheet workbook: Spaces / Equipments / Openings / Systems + a</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="c1"># vertical Model sheet (name, blueprint, blueprint options, design ruleset)</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_excel</span><span class="p">(</span><span class="s2">&quot;model.xlsx&quot;</span><span class="p">)</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="c1"># and the inverse — round-trips the whole model back out</span>
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="n">pb</span><span class="o">.</span><span class="n">to_json</span><span class="p">(</span><span class="s2">&quot;model.json&quot;</span><span class="p">)</span>
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="n">pb</span><span class="o">.</span><span class="n">to_excel</span><span class="p">(</span><span class="s2">&quot;model.xlsx&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The functional <code>compile_procedural_doc(doc, ...)</code> is a thin wrapper over
+<code>from_dict</code> + <code>compile</code> — use the builder when you want the phases, the
+intermediate model, or the object/Excel round-trips; the function for a one-shot
+document compile.</p>
+<h3 id="multiple-structures-in-one-model">Multiple structures in one model<a class="headerlink" href="#multiple-structures-in-one-model" title="Permanent link">&para;</a></h3>
+<p>A single document (or workbook) can carry <strong>several</strong> topology models —
+<em>structures</em> — each a named group of spaces/openings placed at its own origin. A
+<code>Structures</code> sheet (<code>~ada.topology.entities.TopoStructure</code>: <code>NAME</code> +
+<code>X</code>/<code>Y</code>/<code>Z</code>) lists them, and every entity is tagged with its
+<code>STRUCTURE_NAME</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">doc</span> <span class="o">=</span> <span class="p">{</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    <span class="s2">&quot;structures&quot;</span><span class="p">:</span> <span class="p">[</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_A&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">},</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_B&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">},</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    <span class="p">],</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    <span class="s2">&quot;spaces&quot;</span><span class="p">:</span> <span class="p">[</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;A1&quot;</span><span class="p">,</span> <span class="s2">&quot;STRUCTURE_NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_A&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;DX&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DY&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DZ&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">},</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;B1&quot;</span><span class="p">,</span> <span class="s2">&quot;STRUCTURE_NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_B&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;DX&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DY&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DZ&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">},</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>    <span class="p">],</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="p">}</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">doc</span><span class="p">)</span><span class="o">.</span><span class="n">compile</span><span class="p">()</span>
+</span></code></pre></div>
+<p>The same <code>ProceduralBuilder</code> builds one topology model per structure (grouped by
+<code>STRUCTURE_NAME</code>) and places each at its origin — no separate multi-builder.
+Equipment and systems stay a <strong>single shared layer</strong> (not duplicated per
+structure). With no <code>structures</code> the whole document is one implicit model, so a
+plain single-structure build is unchanged. The <code>Structures</code> sheet + entity
+<code>STRUCTURE_NAME</code> mirror the sibling procedural-modelling tool's workbook, so a
+model round-trips between the two.</p>
+<h3 id="reading-the-catalog-from-python">Reading the catalog from Python<a class="headerlink" href="#reading-the-catalog-from-python" title="Permanent link">&para;</a></h3>
+<p>When the viewer's postgres is reachable, <code>~ada.topo_model.catalog.ProceduralCatalog</code>
+reads a scope's reusable equipment types and system templates and turns them
+into the objects above. <code>equipment_resolver()</code> returns the <code>slug -&gt; catalog doc</code> callable the builder uses to expand a placed catalog equipment (referenced
+by its <code>DESCRIPTION</code> slug) into a full <code>ada.Equipment</code> — ports and IFC
+class included:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProceduralBuilder</span><span class="p">,</span> <span class="n">ProceduralCatalog</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="k">with</span> <span class="n">ProceduralCatalog</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">scope_kind</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="n">scope_id</span><span class="o">=</span><span class="s2">&quot;me&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">cat</span><span class="p">:</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="k">for</span> <span class="n">et</span> <span class="ow">in</span> <span class="n">cat</span><span class="o">.</span><span class="n">list_equipment_types</span><span class="p">():</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">et</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="n">et</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">et</span><span class="o">.</span><span class="n">doc</span><span class="p">[</span><span class="s2">&quot;ifc_element_class&quot;</span><span class="p">])</span>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    <span class="k">for</span> <span class="n">st</span> <span class="ow">in</span> <span class="n">cat</span><span class="o">.</span><span class="n">list_system_templates</span><span class="p">():</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">st</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="n">st</span><span class="o">.</span><span class="n">doc</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">],</span> <span class="n">st</span><span class="o">.</span><span class="n">doc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;medium&quot;</span><span class="p">))</span>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>
+</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>    <span class="c1"># instantiate directly from a catalog type…</span>
+</span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>    <span class="n">pump</span> <span class="o">=</span> <span class="n">cat</span><span class="o">.</span><span class="n">get_equipment_type</span><span class="p">(</span><span class="s2">&quot;pump&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">to_equipment</span><span class="p">(</span><span class="s2">&quot;P1&quot;</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+</span><span id="__span-17-11"><a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a>    <span class="n">cw</span> <span class="o">=</span> <span class="n">cat</span><span class="o">.</span><span class="n">get_system_template</span><span class="p">(</span><span class="s2">&quot;cooling_water&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">to_system</span><span class="p">(</span>
+</span><span id="__span-17-12"><a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a>        <span class="s2">&quot;CW&quot;</span><span class="p">,</span> <span class="n">connections</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;EQUIPMENT&quot;</span><span class="p">:</span> <span class="s2">&quot;P1&quot;</span><span class="p">,</span> <span class="s2">&quot;PORT&quot;</span><span class="p">:</span> <span class="s2">&quot;discharge&quot;</span><span class="p">}])</span>
+</span><span id="__span-17-13"><a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a>
+</span><span id="__span-17-14"><a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a>    <span class="c1"># …or let the builder resolve placed catalog slugs at compile time</span>
+</span><span id="__span-17-15"><a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a>    <span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="p">(</span><span class="n">spaces</span><span class="o">=</span><span class="n">spaces</span><span class="p">,</span> <span class="n">equipments</span><span class="o">=</span><span class="n">equipment</span><span class="p">,</span> <span class="n">systems</span><span class="o">=</span><span class="n">systems</span><span class="p">,</span>
+</span><span id="__span-17-16"><a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a>                           <span class="n">equipment_resolver</span><span class="o">=</span><span class="n">cat</span><span class="o">.</span><span class="n">equipment_resolver</span><span class="p">())</span>
+</span><span id="__span-17-17"><a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a>    <span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">pb</span><span class="o">.</span><span class="n">compile</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>connect</code> defaults <code>database_url</code> to the <code>DATABASE_URL</code> environment
+variable and binds the reader to one scope for its lifetime; use it as a context
+manager (or call <code>close()</code>) to release the connection pool.</p>
+<h2 id="viewer-catalogs-equipment-types-and-system-templates">Viewer catalogs: equipment types and system templates<a class="headerlink" href="#viewer-catalogs-equipment-types-and-system-templates" title="Permanent link">&para;</a></h2>
+<p>The catalogs above are edited in the hosted viewer's admin panels and mirror the
+Python API — the same equipment-type / system-template rows feed both.</p>
+<p>The hosted viewer exposes two per-scope catalogs that feed the cellbuilder,
+backed by postgres (migrations <code>023</code>/<code>024</code>) and edited from admin panels:</p>
+<ul>
+<li><strong>Equipment types</strong> — reusable archetypes with a name/description/slug, a
+  bounding box, mass, IFC element class and a port/nozzle list (each port a
+  local position + outward direction, tagged process/electrical/signal). A CAD
+  asset can be attached (uploaded or copied from a scope file); a worker
+  <code>equipment_bbox</code> job then infers the bounding box and renders a preview GLB.
+  Placed catalog equipment resolve by slug at compile time
+  (<code>compile_procedural_doc(..., equipment_resolver=...)</code>) into a full
+  <code>ada.Equipment</code> — ports and IFC class included.</li>
+<li><strong>System templates</strong> — named service systems (category/type, medium, voltage,
+  pipe radius/wall thickness) that seed the cellbuilder's systems inspector.</li>
+</ul>
+<p>When a compiled model enables <em>"use CAD models for equipment"</em>
+(<code>doc["equipment_cad"]</code>), catalog equipment that have a linked CAD asset are
+built without their placeholder box and the real CAD geometry is spliced into
+the output GLB at the cell footprint
+(<code>compile_procedural_doc(..., cad_scene_resolver=...)</code>).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../core_model/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Core object model">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Core object model
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../geometry_and_visualisation/" class="md-footer__link md-footer__link--next" aria-label="Next: Geometry &amp;amp; visualisation">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Geometry &amp; visualisation
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>
