@@ -82,7 +82,7 @@ def bldep_records(fem: FEM, ndofs: NodeDofs | None = None) -> list[BldepRecord]:
         # same kinematic relation Sesam expresses with BLDEP linear-dependency cards, so it
         # writes identically to a coupling.
         if constraint.type in (constraint.TYPES.COUPLING, constraint.TYPES.RIGID_BODY):
-            new = coupling_records(constraint)
+            new = coupling_records(constraint, ndofs)
             _report_coupling(constraint, new, ndofs)
         elif constraint.type == constraint.TYPES.SHELL2SOLID:
             new = shell2solid_records(constraint)
@@ -194,9 +194,10 @@ def _merged(owned: list[tuple[str, BldepRecord]]) -> list[BldepRecord]:
 def _report_coupling(constraint: Constraint, records: list[BldepRecord], ndofs: NodeDofs) -> None:
     """Say where the rigid links :func:`coupling_records` writes differ from the coupling.
 
-    What is written is the rigid-body motion of each slave's *translations* (dofs 1-3). A
-    coupling that also holds slave rotations -- a rigid body always does, a kinematic
-    coupling when it names dofs 4-6 -- leaves them free here; one naming fewer than all three
+    What is written is the rigid-body motion of each slave's translations (dofs 1-3), and the
+    slave rotations it holds (a rigid body all three, a kinematic coupling those of dofs 4-6 it
+    names) equal to the master's wherever both nodes have rotations. A slave rotation is left
+    free only where the slave has it and the master has none. One naming fewer than all three
     translations gets all three. An undeclared dof list on a hand-built coupling is its
     constructor default, not a statement, and is taken to mean the translations.
     """
@@ -226,15 +227,15 @@ def _report_coupling(constraint: Constraint, records: list[BldepRecord], ndofs: 
         return
 
     rot = sorted(declared & {4, 5, 6})
-    n_free = sum(1 for r in records for dof in rot if dof <= ndofs.ndof(r.slave))
-    if n_free:
+    left_free = [r for r in records if rot and ndofs.ndof(r.slave) >= 6 and not set(rot) <= set(r.slave_dofs)]
+    if left_free:
         rep.approximated(
             STAGE,
             "Constraint",
             constraint.name,
-            "slave rotations are left free; BLDEP is written for the three translations only",
+            "slave rotations are left free where the master has none to follow",
             dofs=rot,
-            n_slaves=len(records),
+            n_slaves=len(left_free),
         )
     missing = sorted({1, 2, 3} - declared)
     if missing:
@@ -315,31 +316,55 @@ def _bldep(master, slave) -> BldepRecord:
     return BldepRecord(slave.id, master.id, terms)
 
 
-def coupling_records(constraint: Constraint) -> list[BldepRecord]:
+def coupling_records(constraint: Constraint, ndofs: NodeDofs | None = None) -> list[BldepRecord]:
     """A coupling / rigid body as BLDEP links from every slave node to the master.
 
     Both sides go through ``surface_nodes``: either may be given as a ``Surface``
     rather than a ``FemSet`` (Abaqus writes ``*Coupling`` with ``surface=``), and a
     set may hold elements rather than nodes, as a rigid body over an element region
     does.
+
+    The slave rotations a coupling holds (all three for a rigid body, those of dofs 4-6 a
+    kinematic coupling names) follow the master's: ``(d, d, 1.0)`` terms after the nine of the
+    rigid arm, where both nodes have rotations. That is GeniE's own record for a rotation
+    dependent rigid link (V8.13-02: 12 terms, BNBCD 3 on all six slave dofs); the nine alone, as
+    written before, left the slave rotations free.
     """
+    from ada.fem.constraints import expand_dofs
+
+    from .writer import ALL_SIX_DOF
+
+    if ndofs is None:
+        ndofs = ALL_SIX_DOF
     masters = surface_nodes(constraint.m_set)
     if not masters:
         report().omitted(STAGE, "Constraint", constraint.name, "a coupling with no master node")
         return []
     master = masters[0]
 
+    if constraint.type == constraint.TYPES.RIGID_BODY:
+        rotations = (4, 5, 6)
+    elif constraint.dofs_declared:
+        rotations = tuple(sorted(set(expand_dofs(constraint.dofs)) & {4, 5, 6}))
+    else:
+        rotations = ()
+    if ndofs.ndof(master.id) < 6:
+        rotations = ()
+
     records = []
     for node in surface_nodes(constraint.s_set):
         if node.id == master.id:
             continue  # the reference node can't depend on itself
-        records.append(_bldep(master, node))
+        record = _bldep(master, node)
+        if rotations and ndofs.ndof(node.id) >= 6:
+            record = BldepRecord(record.slave, record.master, record.terms + tuple((d, d, 1.0) for d in rotations))
+        records.append(record)
 
     return records
 
 
-def write_coupling(constraint: Constraint) -> str:
-    return "".join(r.to_str() for r in coupling_records(constraint))
+def write_coupling(constraint: Constraint, ndofs: NodeDofs | None = None) -> str:
+    return "".join(r.to_str() for r in coupling_records(constraint, ndofs))
 
 
 def shell2solid_records(constraint: Constraint) -> list[BldepRecord]:

@@ -765,6 +765,11 @@ def _sample_curve_edge_occ(oe, n: int = 12) -> list[tuple]:
         if _points_close(oe.start, oe.end):
             # genuinely closed edge: walk the full curve
             t0, t1 = f, l
+        elif getattr(oe, "t_start", None) is not None and getattr(oe, "t_end", None) is not None:
+            # Trimmed on its own parameter, the edge make_edge_from_edge built IS the arc, half a
+            # turn or more included -- the shortest arc below guessed the other one there (a
+            # three-quarter elliptic sector rebuilt as its quarter; Krande/adapy#435).
+            t0, t1 = f, l
         else:
 
             def _param(pt):

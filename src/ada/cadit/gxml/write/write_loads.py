@@ -132,6 +132,33 @@ def add_point_load(
     return point_load
 
 
+def add_prescribed_displacement(
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    name: str,
+    support_point_ref: str,
+    translation: tuple,
+    rotation: tuple,
+) -> ET.Element:
+    """Adds a <prescribed_displacement> of a support point to a load case, as GeniE exports one."""
+    loads_elem = global_elem.find("loads")
+    if loads_elem is None:
+        loads_elem = ET.SubElement(global_elem, "loads")
+    explicit_loads_elem = loads_elem.find("explicit_loads")
+    if explicit_loads_elem is None:
+        explicit_loads_elem = ET.SubElement(loads_elem, "explicit_loads")
+
+    attrib = {"loadcase_ref": lc_elem.attrib["name"], "name": name}
+    displacement = ET.SubElement(explicit_loads_elem, "prescribed_displacement", attrib)
+    footprint = ET.SubElement(displacement, "footprint")
+    ET.SubElement(footprint, "footprint_support_point", {"support_point_ref": support_point_ref})
+    intensity = ET.SubElement(ET.SubElement(displacement, "intensity"), "displacement_constant")
+    values = ET.SubElement(intensity, "intensity")
+    ET.SubElement(values, "translation", {k: str(v) for k, v in zip(("dx", "dy", "dz"), translation)})
+    ET.SubElement(values, "rotation", {k: str(v) for k, v in zip(("rx", "ry", "rz"), rotation)})
+    return displacement
+
+
 def add_surface_load_polygon(
     global_elem: ET.Element,
     lc_elem: ET.Element,

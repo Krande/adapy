@@ -19,12 +19,17 @@ so the reader reproduces all three rather than reading every BNDISPL value it se
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 import ada
 from ada.fem.formats import conversion_report
 from ada.fem.formats.sesam.read.read_constraints import get_bcs
-from ada.fem.formats.sesam.read.read_loads import SESAM_LOAD_CASE, STAGE
+from ada.fem.formats.sesam.read.read_loads import (
+    SESAM_LOAD_CASE,
+    STAGE,
+    load_case_names,
+)
 from ada.fem.formats.sesam.write.write_bcs import (
     DTYPE_DISPLACEMENT,
     FIXED,
@@ -213,9 +218,10 @@ def test_an_unnamed_load_case_is_lc_plus_its_number():
     assert bc.metadata[SESAM_LOAD_CASE] == "LC1"
 
 
-def test_two_load_cases_prescribing_one_node_keep_the_first_and_say_so():
-    """Sestra solves each load case on its own; a ``Bc`` belongs to none, so one of the two
-    values has to be the one read. The first case, named."""
+def test_two_load_cases_prescribing_one_node_are_two_bcs_each_naming_its_case():
+    """Sestra solves each load case on its own, and GeniE prescribes one support differently in
+    each. Only the first case used to be read (reported as approximated) and the second case's
+    settlement was lost; now each case is a ``Bc`` of its own, as the writer takes them."""
     bulk = (
         _tdload(1, "CASE_A")
         + _tdload(2, "CASE_B")
@@ -225,11 +231,43 @@ def test_two_load_cases_prescribing_one_node_keep_the_first_and_say_so():
     )
     bcs, findings = _read(bulk, 10)
 
-    assert bcs[0].magnitudes == [-0.01]
-    assert bcs[0].metadata[SESAM_LOAD_CASE] == "CASE_A"
-    approx = _findings(findings, conversion_report.APPROXIMATED)
-    assert len(approx) == 1
-    assert approx[0].details["load_cases"] == ["CASE_A", "CASE_B"]
+    assert [(bc.metadata[SESAM_LOAD_CASE], bc.magnitudes) for bc in bcs] == [("CASE_A", [-0.01]), ("CASE_B", [-0.02])]
+    assert [m.id for bc in bcs for m in bc.fem_set.members] == [10, 10]
+    assert _findings(findings, conversion_report.APPROXIMATED) == []
+
+
+def test_genies_two_case_settlement_reads_back_and_writes_back_case_by_case(tmp_path):
+    """GeniE V8.13-02's own deck of the frames fixture: Sp_presc at (14, 0, 0) prescribed dx, dz, rz, with -0.003 in
+    dx in LC1 and 0.005, -0.01, 0.001 in LC2. Read, both cases come back; written again, both BNDISPL records are
+    GeniE's."""
+    import pathlib
+
+    from ada.fem.formats.sesam.read.reader import read_fem
+
+    files = pathlib.Path(__file__).resolve().parents[5] / "files" / "fem_files" / "sesam"
+    deck = files / "genie_supports_frames_T1.FEM"
+    a = ada.Assembly("frames") / read_fem(deck)
+    (part,) = [p for p in a.get_all_subparts() if len(p.fem.nodes) > 0]
+    (node,) = [n for n in part.fem.nodes if np.allclose(n.p, (14, 0, 0))]
+    held = {
+        bc.metadata.get(SESAM_LOAD_CASE): {
+            d: None if m is None else round(m, 6) for d, m in zip(bc.dofs, bc.magnitudes)
+        }
+        for bc in part.fem.bcs
+        if node in bc.fem_set.members
+    }
+    # The first case's Bc is the support (dy merely fixed); the second holds the prescribed dofs. GeniE wrote the
+    # values in single precision (-0.00300000003).
+    assert held == {"LC1": {1: -0.003, 2: None, 3: 0.0, 6: 0.0}, "LC2": {1: 0.005, 3: -0.01, 6: 0.001}}
+
+    a.to_fem("back", "sesam", scratch_dir=tmp_path, overwrite=True)
+    text = next((tmp_path / "back").glob("*T1.FEM")).read_text()
+    names = load_case_names(text)
+    records = [r.split() for r in text.split("BNDISPL")[1:]]
+    values = sorted(
+        (names[int(float(r[0]))], [round(float(x), 6) for x in r[6:12]]) for r in records if int(float(r[4])) == node.id
+    )
+    assert values == [("LC1", [-0.003, 0.0, 0.0, 0.0, 0.0, 0.0]), ("LC2", [0.005, 0.0, -0.01, 0.0, 0.0, 0.001])]
 
 
 # --- grouping ---------------------------------------------------------------------------------

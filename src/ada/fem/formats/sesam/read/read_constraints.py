@@ -124,6 +124,9 @@ def _is_rigid_link(d: dict, fem: FEM) -> bool:
     master = fem.nodes.from_id(str_to_int(d["master"]))
     got = {(s, m): b for s, m, b in _bldep_terms(d)}
     want = {(s, m): b for s, m, b in LinDep(master.p, slave.p).to_integer_list()}
+    # The slave rotations a coupling holds follow the master's one to one (GeniE's 12-term
+    # record for a rotation dependent link; ``write_constraints.coupling_records``).
+    want.update({(r, r): 1.0 for r in (4, 5, 6) if (r, r) in got})
     if got.keys() != want.keys():
         return False
     # GCOORD holds nine significant digits, so the lever arm read back is the written one
@@ -263,7 +266,11 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
     by_pattern: dict[tuple, list[Node]] = {}
     for node, dofs, magnitudes, load_case in fixed:
         by_pattern.setdefault((dofs, magnitudes, load_case), []).append(node)
-    pattern_of = {node.id: key for key, nodes in by_pattern.items() for node in nodes}
+    # A node prescribed in several load cases carries one pattern per case.
+    patterns_of: dict[int, set] = {}
+    for key, nodes in by_pattern.items():
+        for node in nodes:
+            patterns_of.setdefault(node.id, set()).add(key)
 
     nsets = [fs for fs in fem.sets.sets if fs.type == "nset" and len(fs.members) > 0]
     bcs = []
@@ -272,7 +279,7 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
     for pattern, nodes in by_pattern.items():
         dofs, magnitudes, load_case = pattern
         ids = {n.id for n in nodes}
-        candidates = [fs for fs in nsets if all(pattern_of.get(m.id) == pattern for m in fs.members)]
+        candidates = [fs for fs in nsets if all(pattern in patterns_of.get(m.id, ()) for m in fs.members)]
         exact = [fs for fs in candidates if {m.id for m in fs.members} == ids]
         chosen = exact[:1]
         if not chosen:
@@ -288,15 +295,18 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
             taken.add(name)
             bc = _bc(name, fs, dofs, magnitudes, load_case, fem)
             for m in fs.members:
-                m.bc = bc
+                m.bc = m.bc if getattr(m, "bc", None) is not None and m.bc in bcs else bc
             bcs.append(bc)
         covered = {m.id for fs in chosen for m in fs.members}
         for node in nodes:
             if node.id in covered:
                 continue
-            fem_set = fem.sets.add(FemSet(f"bc{node.id}_set", [node], "nset"))
-            bc = _bc(f"bc{node.id}", fem_set, dofs, magnitudes, load_case, fem)
-            node.bc = bc
+            existing = fem.sets.nodes.get(f"bc{node.id}_set")
+            fem_set = existing if existing is not None else fem.sets.add(FemSet(f"bc{node.id}_set", [node], "nset"))
+            name = f"bc{node.id}" if f"bc{node.id}" not in taken else f"bc{node.id}_{load_case}"
+            taken.add(name)
+            bc = _bc(name, fem_set, dofs, magnitudes, load_case, fem)
+            node.bc = node.bc if getattr(node, "bc", None) is not None and node.bc in bcs else bc
             bcs.append(bc)
     return bcs
 

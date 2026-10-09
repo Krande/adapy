@@ -3,7 +3,7 @@ from __future__ import annotations
 import ada.geom.curves as geo_cu
 import ada.geom.surfaces as geo_su
 from ada import Direction, Point
-from ada.cadit.sat.exceptions import ACISReferenceDataError
+from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedSurfaceType
 from ada.cadit.sat.read.bsplinesurface import create_bsplinesurface_from_sat
 from ada.cadit.sat.read.curves import iter_loop_coedges
 from ada.cadit.sat.read.sat_entities import AcisRecord
@@ -75,13 +75,18 @@ def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
     reading only the face's first loop then yields an empty wire and the whole plate fails to build
     (``build_advanced_face: wire build failed``) — dropping a valid plate.
 
-    Walk the chain and take the outer boundary: the ``periphery`` loop if one is marked, else the
-    first loop that actually carries edges. Inner holes are not represented here (the downstream
-    planar/advanced-face builders take a single bound), matching the prior single-loop behaviour.
+    Walk the chain and take every loop that carries edges: the outer boundary first -- the
+    ``periphery`` loop if one is marked, else the loop whose box encloses all the others -- then
+    the holes, each as authored (ACIS runs a hole against the outer loop, which is the winding the
+    face builders expect of an inner bound). A face with one real loop is the single bound it
+    always was. Measured on a GeniE V9.3 plate with a circular hole: the face is a ``periphery``
+    loop of 4 lines plus an ``unknown`` loop of one closed NURBS edge, and reading only the first
+    dropped the hole. Several loops with none marked and none enclosing the others is refused
+    (:class:`ACISReferenceDataError`) rather than guessed.
     """
     loop_ptr = acis_record.chunks[7]
     seen: set[str] = set()
-    first_nonempty: list | None = None
+    loops: list[tuple[AcisRecord, list]] = []
 
     while loop_ptr and loop_ptr != "$-1" and loop_ptr not in seen:
         seen.add(loop_ptr)
@@ -90,14 +95,109 @@ def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
             break
         edges = list(iter_loop_coedges(loop_rec))
         if edges:
-            if first_nonempty is None:
-                first_nonempty = edges
-            # Prefer the periphery (outer) loop over any non-degenerate hole loop.
-            if len(loop_rec.chunks) > 16 and loop_rec.chunks[16] == "periphery":
-                return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True)]
+            loops.append((loop_rec, edges))
         loop_ptr = loop_rec.chunks[6]
 
-    return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(first_nonempty or []), orientation=True)]
+    if len(loops) <= 1:
+        return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(loops[0][1] if loops else []), orientation=True)]
+
+    outer = next((i for i, (rec, _e) in enumerate(loops) if _loop_kind(rec) == "periphery"), None)
+    if outer is None:
+        boxes = [_loop_box(rec, edges) for rec, edges in loops]
+        enclosing = [i for i, b in enumerate(boxes) if all(_box_encloses(b, o) for o in boxes)]
+        if len(enclosing) != 1:
+            raise ACISReferenceDataError(
+                f"face {acis_record.chunks[0]}: {len(loops)} loops, none marked periphery and none enclosing the others"
+            )
+        outer = enclosing[0]
+    ordered = [loops[outer]] + [lp for i, lp in enumerate(loops) if i != outer]
+    return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True) for _rec, edges in ordered]
+
+
+def _loop_kind(loop_rec: AcisRecord) -> str | None:
+    """``periphery`` / ``hole`` / ``unknown`` as the loop record states it, if it does."""
+    for token in loop_rec.chunks[9:]:
+        if token in ("periphery", "hole", "unknown"):
+            return token
+    return None
+
+
+def _loop_box(loop_rec: AcisRecord, edges: list) -> tuple[float, ...]:
+    """The loop's box: the record's own when it carries one (``T`` + 6 reals), else its corners'."""
+    chunks = loop_rec.chunks
+    if len(chunks) > 16 and chunks[9] == "T":
+        try:
+            return tuple(float(x) for x in chunks[10:16])
+        except ValueError:
+            pass
+    pts = [tuple(float(c) for c in p) for oe in edges for p in (oe.start, oe.end)]
+    return (*(min(p[k] for p in pts) for k in range(3)), *(max(p[k] for p in pts) for k in range(3)))
+
+
+def _box_encloses(a, b, tol: float = 1e-9) -> bool:
+    return all(a[k] <= b[k] + tol for k in range(3)) and all(a[k + 3] >= b[k + 3] - tol for k in range(3))
+
+
+class ConeRecord:
+    """The fields of an ACIS ``cone-surface`` record (SAT R10 ``cone::restore_data``).
+
+    ``cone-surface $-1 -1 -1 $-1 <centre> <axis> <major> <ratio> <range> <sine> <cosine>
+    <u scale> <forward|reversed> <subset range>``: the base ellipse (centre, unit normal along
+    the cone axis, major axis whose length is the base radius, minor/major ratio, and the
+    curve's subset interval -- ``I I`` or ``F <real>`` per end), the sine and cosine of the half
+    angle, the u parameter scale, whether u is reversed, and the surface's subset intervals.
+    GeniE writes a rolled or swept cylindrical shell this way: ``cylinder_shell`` holds ``0 0 0
+    0 0 1 1 0 0 1 I I 0 1 1 forward I I I I`` (radius 1 about +z), and a circular arc swept
+    along a line ``1 -0.75 0 0 0 1 -1 0.75 0 1 I I 0 -1 1.25 forward I I I I`` (radius 1.25,
+    cosine -1).
+    """
+
+    def __init__(self, record: AcisRecord):
+        c = record.chunks
+        self.centre = tuple(float(x) for x in c[6:9])
+        self.axis = tuple(float(x) for x in c[9:12])
+        self.major = tuple(float(x) for x in c[12:15])
+        self.ratio = float(c[15])
+        i = 16
+        for _ in range(2):
+            if c[i] == "F":
+                i += 2
+            elif c[i] == "I":
+                i += 1
+            else:
+                raise ACISUnsupportedSurfaceType(f"cone-surface {c[0]}: unreadable curve interval at {c[i]!r}")
+        self.sine = float(c[i])
+        self.cosine = float(c[i + 1])
+        self.u_scale = float(c[i + 2])
+        self.u_sense = c[i + 3]
+
+
+def get_cylindrical_surface(record: AcisRecord) -> geo_su.CylindricalSurface:
+    """A circular-cylinder ``cone-surface`` as a :class:`~ada.geom.surfaces.CylindricalSurface`.
+
+    A cylinder is the cone with a zero half angle (sine 0) on a circular base (ratio 1); the
+    radius is the major axis' length and the reference direction its direction, so ``u = 0``
+    is where ACIS has it. Anything else -- a true cone, an elliptic base, a reversed u -- is
+    refused by name: no GeniE twin pins how those parameterise or which way they face.
+
+    The cosine's sign is not geometry but the side the surface faces, and is carried by
+    :func:`get_face_same_sense`.
+    """
+    cone = ConeRecord(record)
+    name = record.chunks[0]
+    if cone.sine != 0.0 or abs(cone.cosine) != 1.0:
+        raise ACISUnsupportedSurfaceType(f"cone-surface {name}: a true cone (sine {cone.sine}) is not read")
+    if cone.ratio != 1.0:
+        raise ACISUnsupportedSurfaceType(f"cone-surface {name}: an elliptic cylinder (ratio {cone.ratio}) is not read")
+    if cone.u_sense != "forward":
+        raise ACISUnsupportedSurfaceType(f"cone-surface {name}: u parameter {cone.u_sense!r} is not read")
+    major = Direction(*cone.major)
+    return geo_su.CylindricalSurface(
+        position=geo_su.Axis2Placement3D(
+            location=Point(*cone.centre), axis=Direction(*cone.axis), ref_direction=major.get_normalized()
+        ),
+        radius=float(major.get_length()),
+    )
 
 
 def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES | geo_su.Plane:
@@ -126,6 +226,8 @@ def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES | geo
         normal = Direction(*[float(x) for x in face_surface_record.chunks[9:12]])
         ref_dir = Direction(*[float(x) for x in face_surface_record.chunks[12:15]])
         face_surface = geo_su.Plane(position=geo_su.Axis2Placement3D(location=pos, axis=normal, ref_direction=ref_dir))
+    elif face_surface_record.type == "cone-surface":
+        face_surface = get_cylindrical_surface(face_surface_record)
     else:
         raise NotImplementedError(f"Unsupported surface type: {face_surface_record.type}")
 
@@ -164,11 +266,18 @@ def get_face_same_sense(face_record: AcisRecord) -> bool:
     face_sense = face_record.chunks[11] if len(face_record.chunks) > 11 else "forward"
     surface_record = face_record.sat_store.get(face_record.chunks[10])
     # A plane-surface has no sense of its own (its normal is a vector it
-    # states outright); only a spline-surface carries one.
+    # states outright); a spline-surface carries one, and a cone-surface says it
+    # with the sign of its cosine.
     surface_sense = "forward"
     if surface_record.type == "spline-surface" and len(surface_record.chunks) > 6:
         if surface_record.chunks[6] in ("forward", "reversed"):
             surface_sense = surface_record.chunks[6]
+    elif surface_record.type == "cone-surface":
+        # A negative cosine turns the normal towards the axis. Measured on GeniE V9.3
+        # meshes of two forward faces with sense flag true: the cylinder with cosine 1
+        # meshes with its element normals pointing away from the axis (1 of 1), the
+        # swept arc with cosine -1 towards it (2 of 2).
+        surface_sense = "forward" if ConeRecord(surface_record).cosine > 0 else "reversed"
     return (face_sense == "forward") == (surface_sense == "forward")
 
 

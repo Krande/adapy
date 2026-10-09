@@ -98,6 +98,13 @@ def expand_dofs(dofs) -> tuple[int, ...]:
     return tuple(sorted(found))
 
 
+#: ``Bc.metadata`` key naming the load case a prescribed displacement (a ``Bc`` with magnitudes) belongs to. A ``Bc``
+#: is otherwise model data, in no load case, where Sesam keeps a settlement in one (BNDISPL) and GeniE gives one
+#: support a different value in each case. The Sesam writer puts the values into the load case of that name and the
+#: Abaqus writer into the step of that name; the Sesam reader sets it from the case a BNDISPL record was in.
+BC_LOAD_CASE = "sesam_load_case"
+
+
 class Bc(FemBase):
     TYPES = BcTypes
 

@@ -1509,11 +1509,24 @@ class Part(BackendGeom):
         name=None,
         debug_mode=False,
         merge_coincident_nodes=True,
+        embed_concept_points=True,
     ) -> FEM:
+        """Mesh the part, then convert its concept supports and loads onto the mesh.
+
+        ``embed_concept_points`` makes every concept point load and point support a vertex of the geometry it lies
+        on before meshing, so the mesh has a node there (:mod:`ada.fem.meshing.partitioning.embed_points`); without
+        it a point in a beam's span or inside a plate has no node and is reported as acting on nothing. The concept
+        load cases become FE load cases of one static step (:mod:`ada.fem.concept.loads_to_fem`).
+        """
         from ada import Beam, Plate, Shape
-        from ada.fem.concept.to_fem import add_constraint_concepts_to_fem
+        from ada.fem.concept.loads_to_fem import (
+            add_load_concepts_to_fem,
+            concept_load_points,
+        )
+        from ada.fem.concept.to_fem import STAGE, add_constraint_concepts_to_fem, report
         from ada.fem.elements import Mass
         from ada.fem.meshing import GmshOptions, GmshSession
+        from ada.fem.meshing.partitioning.embed_points import embed_points
 
         if isinstance(bm_repr, str):
             bm_repr = GeomRepr.from_str(bm_repr)
@@ -1536,7 +1549,15 @@ class Part(BackendGeom):
                 elif issubclass(type(obj), Shape):
                     gs.add_obj(obj, geom_repr=shp_repr)
                 else:
-                    logger.error(f'Unsupported object type "{obj}". Should be either plate or beam objects')
+                    # A finding, not a log line: GeniE's cylinder shells and plates with holes read as PlateCurved,
+                    # and a mesh without them used to say so on stderr only.
+                    report().omitted(
+                        STAGE,
+                        type(obj).__name__,
+                        obj.name,
+                        "not meshed: the mesher takes beams, flat plates and shapes and has no route for this kind "
+                        "of object, so whatever acts on it (a load, a support) acts on nothing",
+                    )
 
             if interactive is True:
                 gs.open_gui()
@@ -1545,6 +1566,12 @@ class Part(BackendGeom):
             gs.partition_plates()
             gs.check_model_entities()
             gs.partition_beams()
+
+            constraints = self.concept_fem.constraints.get_part_constraint_concepts()
+            if embed_concept_points:
+                points = concept_load_points(self) + _support_points(constraints)
+                embed_points(gs, points, surfaces=not use_quads)
+                gs.check_model_entities()
 
             if interactive is True:
                 gs.open_gui()
@@ -1567,11 +1594,18 @@ class Part(BackendGeom):
             n_after = len(fem.nodes)
             logger.info(f"Removed {n_before - n_after} standalone nodes")
 
+        # The load cases are passed for their prescribed displacements -- the values of the supports' prescribed
+        # dofs -- in the order GeniE numbers them in.
+        load_cases = [
+            lc for p in self.get_all_subparts(include_self=True) for lc in p.concept_fem.loads.load_cases.values()
+        ]
         add_constraint_concepts_to_fem(
-            self.concept_fem.constraints.get_part_constraint_concepts(),
+            constraints,
             fem,
             beams=self.get_all_physical_objects(by_type=Beam),
+            load_cases=sorted(load_cases, key=lambda lc: lc.fem_loadcase_number),
         )
+        add_load_concepts_to_fem(self, fem)
 
         if Config().meshing_check_hanging_nodes:
             from ada.fem.conformality import check_conformal_mesh
@@ -2075,3 +2109,12 @@ class Part(BackendGeom):
             f'Part("{self.name}": Beams: {nbms}, Plates: {npls}, '
             f"Pipes: {npipes}, Shapes: {nshps}, Elements: {nels}, Nodes: {nnodes})"
         )
+
+
+def _support_points(constraints) -> list:
+    """The global positions of a part's point supports, for :func:`embed_points`."""
+    from ada.api.transforms import to_global_points
+
+    return [
+        to_global_points(pc.parent.parent_fem.parent_part, pc.position) for pc in constraints.point_constraints.values()
+    ]

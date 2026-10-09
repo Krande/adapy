@@ -1,8 +1,18 @@
-from .fe_loads import Load, LoadCase, LoadGravity, LoadPoint, LoadPressure
+from .fe_loads import (
+    LineLoadSegment,
+    Load,
+    LoadCase,
+    LoadGravity,
+    LoadLine,
+    LoadPoint,
+    LoadPressure,
+)
 
 __all__ = [
     "Load",
     "LoadGravity",
+    "LoadLine",
+    "LineLoadSegment",
     "LoadPoint",
     "LoadCase",
     "LoadPressure",

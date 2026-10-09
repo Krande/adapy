@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Iterable, List, Union
 
 import numpy as np
 
@@ -12,6 +13,8 @@ from ada.fem.sets import FemSet
 from ada.fem.surfaces import Surface
 
 if TYPE_CHECKING:
+    from ada.api.nodes import Node
+    from ada.fem.elements import Elem
     from ada.fem.steps import Step
 
 
@@ -23,8 +26,9 @@ class LoadTypes:
     FORCE_SET = "force_set"
     MASS = "mass"
     PRESSURE = "pressure"
+    LINE = "line"
 
-    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE]
+    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE, LINE]
 
 
 class Load(FemBase):
@@ -249,6 +253,145 @@ class LoadPoint(Load):
             follower_force=follower_force,
             csys=csys,
         )
+
+
+@dataclass(frozen=True)
+class LineLoadSegment:
+    """One element's share of a distributed line load: force per unit length, in global components.
+
+    On a beam element (``edge`` is ``None``) the load acts along the element's axis from end 1 (its first node) to
+    end 2, over the stretch that leaves ``l1`` unloaded at end 1 and ``l2`` at end 2; ``q1`` is the intensity at the
+    start of that stretch and ``q2`` at its end, and it varies linearly in between. This is Sesam's BELOAD1
+    (``L1``, ``L2`` and the intensities at the load's own start and end points, as GeniE writes them: a partial
+    line load 1.3..2.9 m on 0.5 m elements gave L1 = 0.3 and L2 = 0.1 on the two end elements).
+
+    On a shell element ``edge`` names the edge, 1-based, from corner node ``edge`` to the next one; the load covers
+    the whole edge (``l1 = l2 = 0``), ``q1`` at the edge's first node and ``q2`` at its second (Sesam's BELLO2).
+    """
+
+    elem: Elem
+    q1: tuple[float, float, float]
+    q2: tuple[float, float, float]
+    l1: float = 0.0
+    l2: float = 0.0
+    edge: int | None = None
+
+    def ends(self) -> tuple[np.ndarray, np.ndarray]:
+        """The positions of the element end (or edge end) the segment's ``l1`` and ``l2`` count from."""
+        nodes = self.elem.nodes
+        if self.edge is None:
+            return np.asarray(nodes[0].p, dtype=float), np.asarray(nodes[1].p, dtype=float)
+        corners = _corner_count(self.elem)
+        a, b = nodes[self.edge - 1], nodes[self.edge % corners]
+        return np.asarray(a.p, dtype=float), np.asarray(b.p, dtype=float)
+
+    def loaded_ends(self) -> tuple[np.ndarray, np.ndarray]:
+        """The start and end point of the loaded stretch."""
+        a, b = self.ends()
+        length = float(np.linalg.norm(b - a))
+        axis = (b - a) / length
+        return a + self.l1 * axis, b - self.l2 * axis
+
+    def resultant(self) -> np.ndarray:
+        """The segment's total force: the mean intensity times the loaded length."""
+        start, end = self.loaded_ends()
+        return (
+            0.5
+            * (np.asarray(self.q1, dtype=float) + np.asarray(self.q2, dtype=float))
+            * float(np.linalg.norm(end - start))
+        )
+
+    def moment(self, about=(0.0, 0.0, 0.0)) -> np.ndarray:
+        """The segment's moment about ``about``: a linearly varying load's force acts at its centroid."""
+        start, end = self.loaded_ends()
+        q1, q2 = np.asarray(self.q1, dtype=float), np.asarray(self.q2, dtype=float)
+        length = float(np.linalg.norm(end - start))
+        # q(t) = q1 (1 - t) + q2 t over t in 0..1: each end's share and its lever arm.
+        f1, f2 = q1 * length / 2, q2 * length / 2
+        r1 = start + (end - start) / 3 - np.asarray(about, dtype=float)
+        r2 = start + 2 * (end - start) / 3 - np.asarray(about, dtype=float)
+        return np.cross(r1, f1) + np.cross(r2, f2)
+
+    def uniform_over_beam_element(self) -> bool:
+        """A beam segment of one intensity from end to end: what a format's per-element beam load writes exactly."""
+        return self.edge is None and self.l1 == 0.0 and self.l2 == 0.0 and tuple(self.q1) == tuple(self.q2)
+
+
+def _corner_count(elem: Elem) -> int:
+    from ada.fem.shapes.definitions import ShellShapes
+
+    return 3 if elem.type in (ShellShapes.TRI, ShellShapes.TRI6, ShellShapes.TRI7) else 4
+
+
+class LoadLine(Load):
+    """A distributed line load, as the element loads it acts through (:class:`LineLoadSegment`).
+
+    What the concept to FE conversion makes of a ``LoadConceptLine``: per beam element under the line a BELOAD1-like
+    segment, or per shell element edge under it a BELLO2-like one. A format with no element line load writes it as
+    the consistent nodal loads of each segment (see :meth:`nodal_loads`), and says so.
+    """
+
+    def __init__(self, name: str, segments: Iterable[LineLoadSegment], metadata=None, parent: Step = None):
+        super().__init__(name, LoadTypes.LINE, 1.0, metadata=metadata, parent=parent)
+        self.segments: list[LineLoadSegment] = list(segments)
+
+    def resultant(self) -> np.ndarray:
+        return sum((s.resultant() for s in self.segments), np.zeros(3))
+
+    def scaled(self, factor: float, name: str) -> LoadLine:
+        segs = [
+            replace(s, q1=tuple(factor * float(q) for q in s.q1), q2=tuple(factor * float(q) for q in s.q2))
+            for s in self.segments
+        ]
+        return LoadLine(name, segs, metadata=dict(self.metadata or {}))
+
+    @staticmethod
+    def nodal_loads(seg: LineLoadSegment) -> list[tuple[Node, np.ndarray]]:
+        """The consistent nodal forces of one segment for an element interpolating linearly between its two end
+        nodes: ``F_i = int q(x) N_i(x) dx`` over the loaded stretch, ``N_1 = 1 - x/L`` and ``N_2 = x/L``.
+
+        This is what Abaqus 2025 itself makes of a ``*Dload PZ`` on a B31 element: measured on a 4 m B31 beam in
+        eight elements, ``*Dload PZ, -1000`` and ``*Cload -250/-500`` at the nodes gave the same mid-span
+        deflection to all eight printed digits (-2.3587535E-04)."""
+        a, b = seg.ends()
+        length = float(np.linalg.norm(b - a))
+        x1, x2 = seg.l1 / length, 1.0 - seg.l2 / length
+        q1, q2 = np.asarray(seg.q1, dtype=float), np.asarray(seg.q2, dtype=float)
+        # q(x) linear from q1 at x1 to q2 at x2 (x as a fraction of L); exact Gauss over the stretch.
+        f_a, f_b = np.zeros(3), np.zeros(3)
+        span = x2 - x1
+        for g, w in ((-1 / np.sqrt(3), 1.0), (1 / np.sqrt(3), 1.0)):
+            t = 0.5 * (g + 1.0)
+            x = x1 + t * span
+            q = q1 * (1 - t) + q2 * t
+            jac = 0.5 * span * length
+            f_a += w * jac * q * (1 - x)
+            f_b += w * jac * q * x
+        if seg.edge is None:
+            n_a, n_b = seg.elem.nodes[0], seg.elem.nodes[1]
+        else:
+            corners = _corner_count(seg.elem)
+            n_a, n_b = seg.elem.nodes[seg.edge - 1], seg.elem.nodes[seg.edge % corners]
+        return [(n_a, f_a), (n_b, f_b)]
+
+    @staticmethod
+    def summed_nodal_loads(segments: Iterable[LineLoadSegment]) -> list[tuple[Node, np.ndarray]]:
+        """:meth:`nodal_loads` of every segment, summed per node and sorted by node id.
+
+        Summed because not every format adds two loads on one node: Abaqus 2025 does, and so does CalculiX 2.23
+        (measured: two ``*CLOAD`` lines of -500 on one node and dof moved it exactly as one of -1000 did), but
+        Code_Aster's rule for ``AFFE_CHAR_MECA`` is that of two conflicting assignments the last one wins
+        (U4.44.01, "Rules of overload and retention")."""
+        nodal: dict = {}
+        for seg in segments:
+            for node, force in LoadLine.nodal_loads(seg):
+                nodal[node] = nodal.get(node, np.zeros(3)) + force
+        return sorted(nodal.items(), key=lambda x: x[0].id)
+
+
+#: ``LoadCase.metadata`` key: the case's number in the analysis (GeniE's ``fem_loadcase_number``), which the Sesam
+#: writer writes it under (TDLOAD, BNLOAD, BNDISPL ... LLC) when the step's numbers are distinct.
+LOAD_CASE_NUMBER = "fem_loadcase_number"
 
 
 class LoadCase(FemBase):
