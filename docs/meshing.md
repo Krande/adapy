@@ -65,7 +65,3 @@ The deck is split along the girder's web, so the two share every node on that li
 <iframe class="ada-viewer" src="_static/viewer-figures/mesh_part_before.html" loading="lazy" style="width:100%;height:340px;border:none;" title="Before: default deck and girder mesh"></iframe>
 <iframe class="ada-viewer" src="_static/viewer-figures/mesh_part_after.html" loading="lazy" style="width:100%;height:340px;border:none;" title="After: refined hole, finer girder, conforming deck"></iframe>
 </div>
-
-## Partitioning
-
-TODO: Add description of automatic partitioning of meshes using python and gmsh
