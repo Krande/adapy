@@ -42,6 +42,19 @@ from .beam_solids import (
     write_beam_solids_glb,
     write_beam_solids_warp,
 )
+from .combine import (
+    DERIVATION_OPS,
+    NeedsRawRecords,
+    classify_fields,
+    combination_entry,
+    envelope,
+    local_stride_fetcher,
+    materialise_case,
+    materialise_case_from_source,
+    recipe_hash,
+    superpose,
+    superpose_case,
+)
 from .fields import _encode_blob_header as _encode_blob_header  # noqa: F401
 from .fields import (  # noqa: F401
     _encode_elem_field_blob_header as _encode_elem_field_blob_header,
@@ -122,7 +135,9 @@ from .readers import _StreamReaderFactory as _StreamReaderFactory  # noqa: F401
 from .readers import (
     fea_artefact_extensions,
     is_fea_artefact_source,
+    lazy_base_steps,
     make_stream_reader,
+    register_lazy_case_planner,
     register_stream_reader,
 )
 from .specs import (
@@ -225,4 +240,17 @@ __all__ = [
     "BakeWithPostersResult",
     "bake_with_posters",
     "bake_with_posters_from_source",
+    "DERIVATION_OPS",
+    "NeedsRawRecords",
+    "classify_fields",
+    "combination_entry",
+    "envelope",
+    "lazy_base_steps",
+    "local_stride_fetcher",
+    "materialise_case",
+    "materialise_case_from_source",
+    "recipe_hash",
+    "register_lazy_case_planner",
+    "superpose",
+    "superpose_case",
 ]

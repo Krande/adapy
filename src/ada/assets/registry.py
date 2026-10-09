@@ -26,6 +26,7 @@ __all__ = [
     "clear_asset_providers",
     "register_asset_provider",
     "registered_provider_ids",
+    "registered_provider_labels",
 ]
 
 
@@ -96,6 +97,16 @@ def asset_provider(provider_id: str) -> AssetTreeProvider:
 def registered_provider_ids() -> tuple[str, ...]:
     with _LOCK:
         return tuple(sorted(_REGISTRY))
+
+
+def registered_provider_labels() -> dict[str, str]:
+    """Provider id -> the ``label`` it was registered with, for those registered WITH one.
+
+    Unlike :func:`asset_providers` this falls back to nothing: a display name nobody gave stays
+    absent, and the caller decides what to show instead. Instantiates nothing.
+    """
+    with _LOCK:
+        return {pid: reg.label for pid, reg in _REGISTRY.items() if reg.label and reg.label.strip()}
 
 
 def asset_providers() -> list[dict]:

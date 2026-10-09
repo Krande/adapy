@@ -44,11 +44,14 @@
 # panel asks it for a check. The guard therefore greps the .wasm for the verbs
 # as well as the files.
 #
+# 0.33.0 carries the sharded STEP/IFC->GLB verbs (StepGlbShard / IfcGlbShard + mergeGlbLanes and
+# Module.glbShards, adacpp#72): one browser conversion split across several workers.
+#
 # KEEP IN STEP WITH `ada-cpp` in pixi.toml, so the module running in the browser
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.31.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.33.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -134,7 +137,7 @@ RUN mkdir -p /build/dist/wasm && \
 # adacpp_extrude while the viewer drew every compact-baked beam as a line.
 # Keep the list in step with `grep -rn '/wasm/adacpp_' src/frontend/src`.
 RUN set -eu; \
-    for m in adacpp_step_glb adacpp_ifc_glb adacpp_brep_writer adacpp_glb_diff adacpp_extrude; do \
+    for m in adacpp_step_glb adacpp_ifc_glb adacpp_brep_writer adacpp_glb_diff adacpp_extrude adacpp_fea; do \
         for f in "/build/dist/wasm/$m.js" "/build/dist/wasm/$m.wasm"; do \
             [ -f "$f" ] && continue; \
             echo "ERROR: $f is missing — the adacpp wasm base image (ADACPP_BASE_IMAGE, see the" >&2; \
@@ -150,10 +153,15 @@ RUN set -eu; \
 # nobody is watching. embind writes each exported name into the .wasm as a literal, so grepping for
 # it is enough to tell a base that HAS the verb from one that merely has the module.
 # Keep in step with the verbs called in `src/frontend/src/utils/nativeConvert/*.worker.ts`.
+# The shard verbs (StepGlbShard / IfcGlbShard / mergeGlbLanes, 0.33+) are feature-detected by the
+# frontend, so a base without them still works -- on one worker. Guarded anyway: a pin moved back by
+# accident would otherwise drop the multi-worker conversion without a trace.
 RUN set -eu; \
-    for v in scanMembers clashJoints ifcToGlb; do \
-        grep -aq "$v" /build/dist/wasm/adacpp_ifc_glb.wasm && continue; \
-        echo "ERROR: adacpp_ifc_glb.wasm does not export $v — the adacpp wasm base image" >&2; \
+    for mv in ifc_glb:scanMembers ifc_glb:clashJoints ifc_glb:ifcToGlb ifc_glb:IfcGlbShard ifc_glb:mergeGlbLanes \
+              step_glb:StepGlbShard step_glb:mergeGlbLanes; do \
+        m="adacpp_${mv%%:*}"; v="${mv#*:}"; \
+        grep -aq "$v" "/build/dist/wasm/$m.wasm" && continue; \
+        echo "ERROR: $m.wasm does not export $v — the adacpp wasm base image" >&2; \
         echo "       (ADACPP_BASE_IMAGE, see the pin at the top of this file) predates it." >&2; \
         echo "       The module loads and the verb answers undefined at runtime. Bump the pin." >&2; \
         exit 1; \

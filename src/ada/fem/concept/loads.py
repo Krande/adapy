@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Iterable, Literal
 if TYPE_CHECKING:
     from ada import Direction, Plate, Point
     from ada.fem.concept.base import ConceptFEM
+    from ada.fem.concept.constraints import ConstraintConceptPoint
 
 
 class DesignCondition(str, enum.Enum):
@@ -150,11 +151,34 @@ class LoadConceptAccelerationField:
 
 
 @dataclass
+class LoadConceptPrescribedDisplacement:
+    """The displacement of a support point in one load case, on the dofs that support declares ``"prescribed"``.
+
+    GeniE's ``PrescribedDisplacement(LC, Sp, dx, dy, dz, rx, ry, rz)``. A prescribed displacement is loading in
+    Sesam, so it belongs to a load case and one support can carry a different one in each: GeniE V8.13 meshed a
+    support with prescribed dx, dz and rz and a displacement in two load cases into BNBCD code 2 on dofs 1, 3, 6 and
+    one BNDISPL per load case (-0.003 in LC1; 0.005, -0.01, 0.001 in LC2). The values are in the global axes of the
+    support (a support in a rotated local system is not read with a prescribed dof) and every dof is kept as
+    written, including those the support does not prescribe.
+    """
+
+    name: str
+    support: ConstraintConceptPoint
+    translation: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    parent: LoadConceptCase = field(init=False, repr=False)
+
+
+@dataclass
 class LoadConceptCase:
     name: str
-    loads: list[LoadConceptLine | LoadConceptPoint | LoadConceptSurface | LoadConceptAccelerationField] = field(
-        default_factory=list
-    )
+    loads: list[
+        LoadConceptLine
+        | LoadConceptPoint
+        | LoadConceptSurface
+        | LoadConceptAccelerationField
+        | LoadConceptPrescribedDisplacement
+    ] = field(default_factory=list)
     design_condition: DesignCondition = DesignCondition.OPERATING
     fem_loadcase_number: int = 1
     complex_type: Literal["static"] = "static"

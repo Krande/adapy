@@ -2,7 +2,7 @@
 <DNV_structure_concept_protocol version="1.6">
 	<administrative>
 		<program program="GeniE" version="V8.13-02" version_date="12-Oct-2025" platform="64bit" />
-		<session_info date="26-Jan-2026" time="13:15:00" user="ofsolha3" />
+		<session_info date="26-Jan-2026" time="13:15:00" user="user" />
 	</administrative>
 	<model name="Assembly">
 		<units>

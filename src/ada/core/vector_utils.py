@@ -981,13 +981,67 @@ def extract_boundary_loops(facet_loops, ndigits: int = 9):
     return faces
 
 
-def merge_coplanar_loops_by_edge_cancellation(loops, ndigits: int = 9):
+def _split_at_t_junctions(loops, tol_factor: float = 1e-8):
+    """Insert into each loop's edges the vertices of the other loops that lie on them.
+
+    Two faces meeting along a line need not share its vertices: where a third face
+    meets one of them partway along, the neighbour carries a vertex there that the
+    first face's edge runs straight through (a T-junction). Edge cancellation only
+    cancels identical edges, so without the split vertex the shared line survives as
+    boundary and the merge fails. Measured on a GeniE V9.3 workspace of 250 flat
+    plates over 889 faces: 7 multi-face plates failed to merge for exactly this
+    reason and were read as 54 separate plates (297 instead of GeniE's 250).
+
+    A vertex is *on* an edge when the doubled triangle area it spans with the edge is
+    within ``tol_factor * scale**2`` -- the criterion :func:`remove_near_collinear_points`
+    uses to drop a vertex from a face's own loop, which is how such a vertex goes
+    missing from an edge in the first place.
+    """
+    import numpy as _np
+
+    loops = [[_np.asarray([float(c) for c in list(p)[:3]]) for p in lp] for lp in loops]
+    every = [p for lp in loops for p in lp]
+    if not every:
+        return loops
+    arr = _np.asarray(every)
+    scale = max(float((arr.max(axis=0) - arr.min(axis=0)).max()), 1.0)
+    tol = tol_factor * scale * scale
+
+    out = []
+    for lp in loops:
+        n = len(lp)
+        new_lp = []
+        for i in range(n):
+            a, b = lp[i], lp[(i + 1) % n]
+            new_lp.append(a)
+            ab = b - a
+            len2 = float(ab @ ab)
+            if len2 == 0.0:
+                continue
+            inner = set()
+            for v in every:
+                av = v - a
+                t = float(av @ ab) / len2
+                if t <= 0.0 or t >= 1.0:
+                    continue
+                if float(_np.linalg.norm(_np.cross(ab, av))) <= tol:
+                    inner.add((t, tuple(float(c) for c in v)))
+            new_lp.extend(_np.asarray(v) for _t, v in sorted(inner))
+        out.append(new_lp)
+    return out
+
+
+def merge_coplanar_loops_by_edge_cancellation(loops, ndigits: int = 9, split_t_junctions: bool = False):
     """Merge coplanar planar polygon loops by canceling edges shared between them.
 
     Each input loop is a list of 3D points (not repeating the first point).
     Returns a single outer loop as 3D points, or ``None`` if the inputs do not
     form a single topologically clean outer boundary (e.g. they produce a hole,
     leave a non-manifold vertex, or split into multiple loops).
+
+    ``split_t_junctions`` first splits every edge at the other loops' vertices lying
+    on it (see :func:`_split_at_t_junctions`): for loops that come from separately
+    authored faces rather than from one conforming mesh.
     """
 
     def _round(pt):
@@ -999,6 +1053,9 @@ def merge_coplanar_loops_by_edge_cancellation(loops, ndigits: int = 9):
     edge_counts: dict = {}
     point_repr: dict = {}
     any_valid = False
+
+    if split_t_junctions:
+        loops = [[tuple(float(c) for c in p) for p in lp] for lp in _split_at_t_junctions(loops)]
 
     for pts in loops:
         pts = list(pts)

@@ -1,5 +1,3 @@
-import logging
-
 import pytest
 
 import ada
@@ -160,7 +158,19 @@ def test_part_to_fem_obj_applies_beam_end_constraints():
     assert all(abs(n.x - 1) < 1e-4 for n in _section_nodes(fem, "bm1_n2"))
 
 
-def test_beam_end_constraint_takes_priority_over_point_constraint(caplog):
+def _overlap_finding(report, name: str):
+    """The conversion report's finding that support ``name`` gave way to a beam end support."""
+    (finding,) = [
+        f
+        for f in report.findings
+        if f.stage == "concept to fem" and name in [f.subject, *f.other_subjects] and "beam end" in f.reason
+    ]
+    return finding
+
+
+def test_beam_end_constraint_takes_priority_over_point_constraint():
+    from ada.fem.formats import conversion_report
+
     bm = _beam()
     p = ada.Part("P1") / bm
     bm.concept_fem.pin_end("n1")
@@ -168,17 +178,12 @@ def test_beam_end_constraint_takes_priority_over_point_constraint(caplog):
         ada.ConstraintConceptPoint("bc1", bm.n1.p, ada.ConstraintConceptDofType.encastre())
     )
 
-    # the "ada" logger does not propagate to the root logger where caplog listens
-    ada_logger = logging.getLogger("ada")
-    ada_logger.addHandler(caplog.handler)
-    try:
+    with conversion_report.collect() as report:
         fem = p.to_fem_obj(0.1, GeomRepr.SHELL)
-    finally:
-        ada_logger.removeHandler(caplog.handler)
 
     assert [bc.name for bc in fem.bcs] == ["bm1_n1"]
     assert fem.bcs[0].dofs == [1, 2, 3]
-    assert "overlaps beam end constraint(s) ['bm1_n1']" in caplog.text
+    assert _overlap_finding(report, "bc1").details["beam_end_supports"] == ["bm1_n1"]
 
 
 @pytest.mark.parametrize(
@@ -250,7 +255,9 @@ def test_curve_constraint_restrains_the_nodes_on_its_segment():
     assert bc.dofs == [1, 2, 3]
 
 
-def test_curve_constraint_yields_to_a_beam_end_constraint(caplog):
+def test_curve_constraint_yields_to_a_beam_end_constraint():
+    from ada.fem.formats import conversion_report
+
     bm = _beam()
     p = ada.Part("P1") / bm
     bm.concept_fem.fix_end("n1")
@@ -258,17 +265,13 @@ def test_curve_constraint_yields_to_a_beam_end_constraint(caplog):
         ada.ConstraintConceptCurve("line", (0, 0, 0), (1, 0, 0), ada.ConstraintConceptDofType.pinned())
     )
 
-    ada_logger = logging.getLogger("ada")
-    ada_logger.addHandler(caplog.handler)
-    try:
+    with conversion_report.collect() as report:
         fem = p.to_fem_obj(0.25, GeomRepr.LINE)
-    finally:
-        ada_logger.removeHandler(caplog.handler)
 
     bcs = {bc.name: bc for bc in fem.bcs}
     assert [n.x for n in bcs["bm1_n1"].fem_set.members] == [0.0]
     assert all(n.x > 0 for n in bcs["line"].fem_set.members)
-    assert "overlaps beam end constraint(s) ['bm1_n1']" in caplog.text
+    assert _overlap_finding(report, "line").details["beam_end_supports"] == ["bm1_n1"]
 
 
 @pytest.mark.parametrize("rotation_dependent", [True, False])

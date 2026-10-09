@@ -26,7 +26,7 @@ import {
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useComponentSpecsStore} from "@/state/componentSpecsStore";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
-import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
+import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {useModelState} from "@/state/modelState";
 
 // Specs are fetched centrally by componentSpecsStore (re-fetches on
@@ -78,7 +78,7 @@ const ComponentControls: React.FC = () => {
         const loaded = useModelState.getState().loadedSourceNames;
         for (const name of loaded) {
             if (name.startsWith("component:")) {
-                unload_source_from_scene(name);
+                void unload_any_source(name);
             }
         }
         void overlay_file_in_scene(sourceName, job.derivedKey).catch((err) => {
@@ -128,7 +128,7 @@ const ComponentControls: React.FC = () => {
             const loaded = useModelState.getState().loadedSourceNames;
             for (const src of loaded) {
                 if (src.startsWith("component:")) {
-                    unload_source_from_scene(src);
+                    void unload_any_source(src);
                 }
             }
             // Reset the loadedKeyRef so the on-build-done effect

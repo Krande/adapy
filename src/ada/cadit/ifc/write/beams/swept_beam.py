@@ -11,6 +11,11 @@ from ada.cadit.ifc.write.write_curves import write_curve_poly
 
 
 def create_swept_beam(beam: BeamSweep, f, profile):
+    from ada.api.curves import CurveOpen2d
+
+    if not isinstance(beam.curve, CurveOpen2d):
+        return _create_swept_beam_from_directrix(beam, f, profile)
+
     a = beam.parent.get_assembly()
     body_context = a.ifc_store.get_context("Body")
     axis_context = a.ifc_store.get_context("Axis")
@@ -33,6 +38,39 @@ def create_swept_beam(beam: BeamSweep, f, profile):
         add_colour(f, extrude_area_solid, str(beam.color), beam.color)
 
     return axis, body, placement
+
+
+def _create_swept_beam_from_directrix(beam: BeamSweep, f, profile):
+    """A sweep path given as 3D points or ``ada.geom`` lines/arcs: an
+    ``IfcFixedReferenceSweptAreaSolid`` over the path in object coordinates (identity
+    ``Position``), its ``FixedReference`` the section's local y at the start -- for a path in one
+    plane that holds the section as the rotation-minimising frame does."""
+    from ada.cadit.ifc.write.geom.curves import indexed_poly_curve
+    from ada.geom import curves as geo_cu
+
+    a = beam.parent.get_assembly()
+    body_context = a.ifc_store.get_context("Body")
+    axis_context = a.ifc_store.get_context("Axis")
+
+    directrix = beam.directrix
+    if not isinstance(directrix, geo_cu.IndexedPolyCurve):
+        directrix = geo_cu.IndexedPolyCurve([directrix])
+    ifc_curve = indexed_poly_curve(directrix, f)
+
+    _, dir_x, _ = beam.sweep_frames()
+    solid = f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid",
+        SweptArea=profile,
+        Position=create_ifc_placement(f),
+        Directrix=ifc_curve,
+        FixedReference=ifc_dir(f, tuple(float(c) for c in dir_x[0])),
+    )
+    axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_curve])
+    body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid])
+    if beam.color is not None:
+        add_colour(f, solid, str(beam.color), beam.color)
+
+    return axis, body, create_local_placement(f)
 
 
 def sweep_beam(beam, f, profile, global_placement, extrude_dir):

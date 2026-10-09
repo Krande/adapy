@@ -19,6 +19,7 @@ from .write_constraints import (
     create_ref_points_model_str,
     get_couplings,
 )
+from .write_loads import add_line_load_groups
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str
@@ -44,36 +45,44 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     # Prepare model for
     shorten_material_names(assembly)
 
-    # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
-    # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
-    # Mutate every FemSet name to a deterministic short id BEFORE we
-    # write either the .med (NOM datasets) or the .comm (GROUP_MA refs),
-    # so both sides stay in sync. The reverse map is dumped as a JSON
-    # sidecar so callers can resolve short ids back to the original
-    # FemSet names when interpreting .rmed results.
-    name_map = build_name_map(assembly)
-    apply_name_map(assembly, name_map)
+    # A line load is written over mesh groups of its own (Code_Aster names a group, never an element or node);
+    # they exist for this deck only and are taken off the model again once it is written.
+    line_load_groups = add_line_load_groups(assembly.fem.steps, p.fem)
+    try:
+        # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
+        # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
+        # Mutate every FemSet name to a deterministic short id BEFORE we
+        # write either the .med (NOM datasets) or the .comm (GROUP_MA refs),
+        # so both sides stay in sync. The reverse map is dumped as a JSON
+        # sidecar so callers can resolve short ids back to the original
+        # FemSet names when interpreting .rmed results.
+        name_map = build_name_map(assembly)
+        apply_name_map(assembly, name_map)
 
-    # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
-    # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
+        # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
+        # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
 
-    filename = (analysis_dir / name).with_suffix(".med")
-    write_to_med(name, p, filename)
+        filename = (analysis_dir / name).with_suffix(".med")
+        write_to_med(name, p, filename)
 
-    dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
+        dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
 
-    # FEM lineage + tessellation sidecar — viewer's RMED stream reader
-    # picks this up to tessellate line elements as 3D extruded solids
-    # AND to resolve CAD↔FEA linkage. The .med format has no section
-    # / orientation / lineage on its own, so this is the only way to
-    # feed the streaming bake without re-parsing the .comm.
-    dump_beams_sidecar(assembly, (analysis_dir / name).with_suffix(".adapy_fem.json"))
+        # FEM lineage + tessellation sidecar — viewer's RMED stream reader
+        # picks this up to tessellate line elements as 3D extruded solids
+        # AND to resolve CAD↔FEA linkage. The .med format has no section
+        # / orientation / lineage on its own, so this is the only way to
+        # feed the streaming bake without re-parsing the .comm.
+        dump_beams_sidecar(assembly, (analysis_dir / name).with_suffix(".adapy_fem.json"))
 
-    if model_data_only:
-        return
+        if model_data_only:
+            return
 
-    with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck():
-        f.write(create_comm_str(assembly, p))
+        with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck():
+            f.write(create_comm_str(assembly, p))
+
+    finally:
+        for fs in line_load_groups:
+            p.fem.sets.remove(fs)
 
     logger.info(f'Created a Code_Aster input deck at "{analysis_dir}"')
 

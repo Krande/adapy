@@ -6,6 +6,7 @@ import numpy as np
 
 from ada import FEM
 from ada.fem.loads import Load
+from ada.fem.loads.fe_loads import LOAD_CASE_NUMBER
 from ada.fem.steps import Step
 
 from .not_held import STAGE, report
@@ -39,38 +40,49 @@ def step_loads_str(
     step: Step | None,
     ndofs: NodeDofs | None = None,
     prescribed: dict[int, dict[int, float]] | None = None,
+    prescribed_cases: dict[str, dict[int, dict[int, float]]] | None = None,
 ) -> str:
     """The load block of one step: its load cases, or all its loads as one case ``LC1``.
 
     ``to_fem`` passes the part FEM's dof counts even when the step lives on the assembly,
     because that is where the nodes a load names actually live.
 
-    ``prescribed`` (``{node id: {dof: value}}``, from ``write_bcs.prescribed_displacements``)
-    are the settlements, and they are written *here* rather than with the boundary conditions
-    because in Sesam a prescribed displacement is loading: its BNDISPL record declares an LLC.
-    A model whose only loading is a settlement therefore still needs a load case -- with FIX
-    code 2 and no load case at all Sestra V11.3-00 warns "No load is specified" and writes no
-    displacement result -- so one is opened for it here.
+    ``prescribed`` (``{node id: {dof: value}}``) are the settlements of the BCs that name no
+    load case, and ``prescribed_cases`` (``{load case name: {node id: {dof: value}}}``) those
+    of the BCs that do (``write_bcs.prescribed_by_case``). They are written *here* rather than
+    with the boundary conditions because in Sesam a prescribed displacement is loading: its
+    BNDISPL record declares an LLC. A named case's values go into the step's case of that name,
+    and a case the step does not have is opened after the step's own, in the order given --
+    which is how a GeniE model, whose concept loads become no FE loads, gets its settlement
+    cases. A model whose only loading is a settlement therefore still needs a load case -- with
+    FIX code 2 and no load case at all Sestra V11.3-00 warns "No load is specified" and writes
+    no displacement result -- so one is opened for it here.
     """
     from .write_bcs import bndispl_str
 
     prescribed = prescribed or {}
-    if step is None or len(step.loads) == 0:
-        if not prescribed:
-            return ""
-        return _case_str(1, DEFAULT_CASE) + bndispl_str(prescribed, ndofs, 1)
-
-    if len(step.load_cases.keys()) > 0:
+    prescribed_cases = prescribed_cases or {}
+    if step is not None and len(step.load_cases.keys()) > 0:
+        # A load case may hold no load of its own -- a settlement case of a GeniE model -- and still be a case.
         cases = [(lc.name, lc.loads or []) for lc in step.load_cases.values()]
+        _report_loads_outside_cases(step)
+    elif step is None or len(step.loads) == 0:
+        cases = [(DEFAULT_CASE, [])] if prescribed else []
     else:
         cases = [(DEFAULT_CASE, step.loads)]
+    names = {name for name, _ in cases}
+    cases += [(name, []) for name in prescribed_cases if name not in names]
 
+    numbers = case_numbers(step, [name for name, _ in cases])
     out_str = ""
-    for lid, (lc_name, loads) in enumerate(cases, start=1):
+    for i, (lc_name, loads) in enumerate(cases):
+        lid = numbers[lc_name]
         out_str += _case_str(lid, lc_name)
         out_str += case_loads_str(loads, lid, ndofs)
-        if lid == 1:
-            out_str += bndispl_str(prescribed, ndofs, lid)
+        settled = {nid: dict(values) for nid, values in prescribed.items()} if i == 0 else {}
+        for nid, values in prescribed_cases.get(lc_name, {}).items():
+            settled.setdefault(nid, {}).update(values)
+        out_str += bndispl_str(settled, ndofs, lid)
     if prescribed and len(cases) > 1:
         # A Bc belongs to no load case, so which case a settlement acts in is not something the
         # model says. Sestra solves each case on its own, so putting it in all of them would make
@@ -85,6 +97,65 @@ def step_loads_str(
             n_cases=len(cases),
         )
     return out_str
+
+
+def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
+    """``{case name: LLC}`` -- the number each load case is written under, which is the result case id Sestra gives
+    its results.
+
+    A load case carrying a number (``LoadCase.metadata[LOAD_CASE_NUMBER]``, GeniE's ``fem_loadcase_number`` set by
+    the concept conversion) is written under it, as GeniE writes TDLOAD, BNLOAD and BNDISPL, so that the result cases
+    of adapy's deck are numbered as GeniE's are: cases numbered 5 and 9 used to be written 1 and 2. A case with no
+    number (a combination, a settlement case the writer opens) takes the next number above the highest given, in
+    order. Two cases given one number cannot both have it: then every case is numbered by position, 1..n, and the
+    clash is reported by name.
+    """
+    given: dict[str, int] = {}
+    if step is not None:
+        for lc in step.load_cases.values():
+            number = (lc.metadata or {}).get(LOAD_CASE_NUMBER)
+            if lc.name in names and number is not None:
+                given[lc.name] = int(number)
+    by_number: dict[int, list[str]] = {}
+    for name, number in given.items():
+        by_number.setdefault(number, []).append(name)
+    shared = {n: sorted(v) for n, v in sorted(by_number.items()) if len(v) > 1}
+    bad = sorted(name for name, n in given.items() if n < 1)
+    if shared or bad:
+        report().note(
+            STAGE,
+            "TDLOAD",
+            step.name,
+            "the load cases' numbers are not one distinct positive number each, so the cases are numbered 1..n in "
+            "order and Sestra's result case ids are not the numbers given",
+            shared=shared,
+            not_positive=bad,
+        )
+        given = {}
+    out: dict[str, int] = {}
+    nxt = max(given.values(), default=0) + 1
+    for name in names:
+        if name in given:
+            out[name] = given[name]
+        else:
+            out[name] = nxt
+            nxt += 1
+    return out
+
+
+def _report_loads_outside_cases(step: Step) -> None:
+    """A step with load cases writes its load cases; a load of the step in none of them has no case to go in."""
+    in_cases = {id(ld) for lc in step.load_cases.values() for ld in (lc.loads or [])}
+    for load in step.loads:
+        if id(load) not in in_cases:
+            report().omitted(
+                STAGE,
+                "Load",
+                load.name,
+                "a load of a step that has load cases, in none of them; each Sesam load case is written, so it "
+                "has no case to go in",
+                step=step.name,
+            )
 
 
 def case_loads_str(loads, lid: int, ndofs: NodeDofs | None = None) -> str:
@@ -140,6 +211,10 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
             rep.approximated(STAGE, "Load", load.name, "Sestra is linear; a follower load keeps its direction")
     elif load.type == Load.TYPES.PRESSURE:
         out = load_pressure(load, lid)
+        if out == "":
+            return ""
+    elif load.type == Load.TYPES.LINE:
+        out = load_line(load, lid)
         if out == "":
             return ""
     else:
@@ -452,4 +527,63 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
             "BNLOAD",
             [(load_id, lotype, complx, 0), real_loads_1, real_loads_2],
         )
+    return out
+
+
+#: BELOAD1's LOTYP for a distributed line load on a beam (2 is GeniE's "simulated concentrated force"), and its
+#: OPT for intensities given in global components -- what GeniE V9.2-01 writes for every line load on a beam
+#: (``genie_loads_all_kinds_T1.FEM``: ``BELOAD1 4 1 0 1``).
+LINE_LOTYP = 1
+LINE_OPT_GLOBAL = 1
+
+#: BELLO2's LOTYP for a line load on a shell element edge, intensities in global components; GeniE writes 1
+#: (``BELLO2 9 1 0 0`` for 500 N/m along a plate edge).
+EDGE_LOTYP = 1
+
+
+def load_line(load, load_id: int) -> str:
+    """A distributed line load: one BELOAD1 per beam element, one BELLO2 per shell element edge.
+
+    ``BELOAD1  LLC LOTYP COMPLX OPT / ELNO L1 L2 NDOF / INTNO RLOAD1..RLOAD6`` -- GeniE's own record (SIF 7.2.7),
+    the intensities three global components at the start of the loaded stretch and three at its end, and L1, L2
+    the unloaded lengths at the element's ends. ``BELLO2  LLC LOTYP COMPLX LAYER / ELNO NDOF INTNO LINE / SIDE
+    RLOAD1..RLOAD6`` (SIF 7.2.6), as GeniE writes it for a load along a plate edge: LINE the element edge, three
+    global components at each of its two nodes.
+
+    A segment on an element BELOAD1 or BELLO2 does not hold -- a beam that is not a two-node line, a part of a
+    shell edge -- is refused by name.
+    """
+    from ada.fem.shapes.definitions import LineShapes, ShellShapes
+
+    from ..common import sesam_reverse
+
+    rep = report()
+    out = ""
+    refused: dict[str, list[str]] = {}
+    for seg in load.segments:
+        el = seg.elem
+        if el.type not in sesam_reverse:
+            refused.setdefault("an element with no Sesam element type", []).append(str(el.id))
+            continue
+        q = tuple(float(v) for v in (*seg.q1, *seg.q2))
+        if seg.edge is None:
+            if el.type != LineShapes.LINE:
+                refused.setdefault("BELOAD1 on an element that is not a two-node beam", []).append(str(el.id))
+                continue
+            out += write_ff(
+                "BELOAD1",
+                [(load_id, LINE_LOTYP, 0, LINE_OPT_GLOBAL), (el.id, seg.l1, seg.l2, 6), (0, *q[:3]), q[3:]],
+            )
+        else:
+            if el.type not in (ShellShapes.TRI, ShellShapes.QUAD) or seg.l1 != 0.0 or seg.l2 != 0.0:
+                refused.setdefault("BELLO2 on part of an edge, or of an element that is not a linear shell", []).append(
+                    str(el.id)
+                )
+                continue
+            out += write_ff(
+                "BELLO2",
+                [(load_id, EDGE_LOTYP, 0, 0), (el.id, 6, 0, seg.edge), (0, *q[:3]), q[3:]],
+            )
+    for why, ids in sorted(refused.items()):
+        rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))
     return out

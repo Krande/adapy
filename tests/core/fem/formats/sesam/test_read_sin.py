@@ -189,6 +189,51 @@ def test_read_sin_file_equals_read_sif_file():
         assert np.allclose(sn.values, sf.values, atol=0.01, equal_nan=True), f"result {sn.name!r}: SIN/SIF value drift"
 
 
+def test_derived_fields_build_their_mesh_lookups_once_for_every_step(monkeypatch):
+    """The per-element lookups (connectivity, normals, geometry) do not change from
+    step to step; a deck with a hundred result cases used to rebuild them a hundred
+    times. Two copies of the fixture's step must derive twice the fields from one
+    build, with the second step's values the same as the first's; a streaming read,
+    deriving one step per call over the same reader and mesh, reuses that build;
+    another mesh gets its own."""
+    import copy
+    import dataclasses
+
+    from ada.fem.formats.sesam.results import derived_fields
+    from ada.fem.formats.sesam.results.read_sif import read_sin_file
+
+    seen = {}
+    real_build = derived_fields.build_derived_fields
+
+    def capture(raw_fields, mesh, sif, *, wanted=None):
+        seen.update(raw=raw_fields, mesh=mesh, sif=sif)
+        return real_build(raw_fields, mesh, sif, wanted=wanted)
+
+    monkeypatch.setattr(derived_fields, "build_derived_fields", capture)
+    read_sin_file(SIN_PATH)
+    raws = [r for r in seen["raw"] if r.name == "STRESS"]
+    assert raws
+
+    builds = []
+    real_maps = derived_fields._element_maps
+    monkeypatch.setattr(derived_fields, "_element_maps", lambda mesh: builds.append(mesh) or real_maps(mesh))
+    vars(seen["sif"]).pop("_derived_lookups", None)
+    later = [dataclasses.replace(r, step=int(r.step) + 1) for r in raws]
+    two = real_build(raws + later, seen["mesh"], seen["sif"])
+    assert len(builds) == 1
+    one = real_build(raws, seen["mesh"], seen["sif"])
+    assert len(builds) == 1
+    real_build(raws, copy.copy(seen["mesh"]), seen["sif"])
+    assert len(builds) == 2
+
+    assert len(two) == 2 * len(one)
+    first = {(f.name, str(getattr(f, "elem_type", ""))): f for f in two if int(f.step) == int(raws[0].step)}
+    for f in two:
+        if int(f.step) != int(raws[0].step):
+            twin = first[(f.name, str(getattr(f, "elem_type", "")))]
+            assert np.array_equal(f.values, twin.values, equal_nan=True), f.name
+
+
 def test_sparse_reactions_expand_to_dense_nodes():
     from ada.fem.formats.sesam.results.read_sif import get_nodal_reactions
 
@@ -694,6 +739,44 @@ def test_sin_registered_in_stream_readers():
         assert any(s.support == "nodal" for s in specs), "no nodal field surfaced for the streaming bake"
     finally:
         reader.close()
+
+
+def test_sin_too_large_to_materialise_is_streamed_unless_told_otherwise(monkeypatch):
+    """A deck whose result tables would not fit in memory whole takes the
+    per-step streaming reader by default; ADA_FEA_SIN_STREAMER still forces
+    either reader."""
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+    from ada.fem.results.artefacts import (
+        FEAResultStreamAdapter,
+        make_stream_reader,
+        readers,
+    )
+
+    with open_sin(str(SIN_PATH)) as sin:
+        rows = sum(int(np.count_nonzero(b.pointer_table)) for n, b in sin.type_blocks.items() if n.startswith("RV"))
+    assert rows > 0
+    assert not readers._sin_too_big_to_materialise(SIN_PATH)
+    assert not readers._sin_too_big_to_materialise(SIN_PATH, max_rows=rows)  # no combinations to add
+    assert readers._sin_too_big_to_materialise(SIN_PATH, max_rows=rows - 1)
+    assert not readers._sin_too_big_to_materialise(SIN_PATH.with_name("missing.SIN"), max_rows=0)
+
+    def kind(env):
+        if env is None:
+            monkeypatch.delenv("ADA_FEA_SIN_STREAMER", raising=False)
+        else:
+            monkeypatch.setenv("ADA_FEA_SIN_STREAMER", env)
+        reader = make_stream_reader(SIN_PATH)
+        try:
+            return type(reader)
+        finally:
+            reader.close()
+
+    assert kind(None) is FEAResultStreamAdapter
+    monkeypatch.setattr(readers, "SIN_MATERIALISE_MAX_ROWS", rows - 1)
+    assert kind(None) is SinStreamReader
+    assert kind("off") is FEAResultStreamAdapter
+    assert kind("1") is SinStreamReader
 
 
 def test_viewer_adapter_hides_only_superseded_raw_sesam_fields():

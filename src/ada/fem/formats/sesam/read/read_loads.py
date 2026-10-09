@@ -21,8 +21,7 @@ So the reader pairs them the same way -- a value is read onto a DOF only if BNBC
 DOF prescribed, and each of the other two combinations is reported rather than guessed at.
 A prescribed displacement is *loading* in Sesam, so the record names a load case (``LLC``); an
 ada ``Bc`` belongs to no load case, so the case name is recorded in the BC's metadata under
-:data:`SESAM_LOAD_CASE` -- which is also the writer's own approximation, in reverse (it writes
-every settlement into the first case).
+:data:`SESAM_LOAD_CASE`, and the writer puts the value back into the load case of that name.
 
 **BEUSLO** (``LLC LOTYP COMPLX LAYER`` / ``ELNO NDOF INTNO SIDE`` / ``RLOAD1..RLOADn``) is a
 surface pressure, one intensity per node of the element. The sign is the whole of the direction:
@@ -50,6 +49,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
 from ada.fem import FemSet, Surface
+from ada.fem.constraints import BC_LOAD_CASE
 from ada.fem.formats import conversion_report
 from ada.fem.formats.utils import str_to_int
 from ada.fem.loads import LoadCase, LoadPressure
@@ -81,11 +81,11 @@ STAGE = "sesam reader"
 #: magnitude and a ``Load`` magnitude are single real numbers.
 NO_PHASE = 0
 
-#: ``Bc.metadata`` key holding the name of the load case a BNDISPL record was in. A ``Bc``
-#: belongs to no load case in ada, and a Sesam deck keeps a settlement in one, so the name has
-#: nowhere else to go; the writer puts every settlement in the *first* case, which is the same
-#: gap seen from the other side (``write_loads.step_loads_str``).
-SESAM_LOAD_CASE = "sesam_load_case"
+#: ``Bc.metadata`` key holding the name of the load case a BNDISPL record was in
+#: (:data:`ada.fem.constraints.BC_LOAD_CASE`). A ``Bc`` belongs to no load case in ada, and a Sesam
+#: deck keeps a settlement in one, so the name has nowhere else to go; the writer puts the value
+#: back into the case of that name (``write_loads.step_loads_str``).
+SESAM_LOAD_CASE = BC_LOAD_CASE
 
 #: The step the deck's load cases are read into. A Sesam FEM file holds no analysis step at all
 #: -- Sestra's control data is a separate ``sestra.inp``, which is not read -- so the step is
@@ -131,8 +131,9 @@ def case_name(names: dict[int, str], llc: int) -> str:
 # --- BNDISPL: the value of a prescribed displacement ----------------------------------------
 
 
-def prescribed_displacements(bulk_str: str) -> tuple[dict[int, dict[int, float]], dict[int, str]]:
-    """``({node id: {dof: value}}, {node id: load case name})`` from the BNDISPL records.
+def prescribed_displacements(bulk_str: str) -> dict[int, dict[str, dict[int, float]]]:
+    """``{node id: {load case name: {dof: value}}}`` from the BNDISPL records, each node's cases in
+    load case number order.
 
     Every DOF the record lists is returned, zeros included: which of them is *prescribed* is
     BNBCD's statement, not this one, and a genuinely prescribed zero is a value like any other.
@@ -186,26 +187,14 @@ def prescribed_displacements(bulk_str: str) -> tuple[dict[int, dict[int, float]]
             continue
         by_node.setdefault(nodeno, {})[llc] = {dof: value for dof, value in enumerate(values, start=1)}
 
-    prescribed: dict[int, dict[int, float]] = {}
-    cases: dict[int, str] = {}
-    for nodeno in sorted(by_node):
-        per_case = by_node[nodeno]
-        llc = min(per_case)
-        if len(per_case) > 1:
-            # A Bc belongs to no load case, so a node prescribed differently in two of them
-            # cannot be held as two BCs either. The first case is the choice, said out loud --
-            # the mirror of the writer, which puts every settlement in the first case.
-            rep.approximated(
-                STAGE,
-                "BNDISPL",
-                f"node {nodeno}",
-                "a displacement is prescribed in several load cases; a Bc belongs to none, so only the "
-                "first case's values are read",
-                load_cases=[case_name(names, x) for x in sorted(per_case)],
-            )
-        prescribed[nodeno] = per_case[llc]
-        cases[nodeno] = case_name(names, llc)
-    return prescribed, cases
+    # Every case, in number order. GeniE prescribes one support differently in each load case (V8.13-02: -0.003 in
+    # dx in LC1; 0.005, -0.01, 0.001 in dx, dz, rz in LC2, a BNDISPL each); only the first case used to be read and
+    # the rest were lost, said as an approximation. Each case now comes back as a Bc of its own naming its case,
+    # which is how the writer takes them (``write_bcs.prescribed_by_case``).
+    return {
+        nodeno: {case_name(names, llc): by_node[nodeno][llc] for llc in sorted(by_node[nodeno])}
+        for nodeno in sorted(by_node)
+    }
 
 
 def prescribed_magnitudes(
@@ -217,6 +206,11 @@ def prescribed_magnitudes(
     BNBCD record constrains, and the subset of those carrying FIX code 2 (prescribed).
     ``magnitudes`` lines up with ``dofs``, ``None`` on a DOF that is merely fixed.
 
+    A node prescribed in several load cases gives one entry per case: the first holds all its
+    constrained dofs and that case's values, each further one the prescribed dofs and its own
+    case's values -- the support's ``Bc`` plus one per further case, as GeniE's supports are
+    converted (``ada.fem.concept.to_fem``).
+
     The two halves disagreeing is reported rather than resolved silently, in both directions:
 
     * FIX code 2 with no value for that DOF -- Sestra's "No load is specified", which leaves a
@@ -227,35 +221,43 @@ def prescribed_magnitudes(
     * a nonzero BNDISPL value on a DOF without code 2 -- measured to be ignored by Sestra, so
       it is ignored here too, and named.
     """
-    prescribed, cases = prescribed_displacements(bulk_str)
+    prescribed = prescribed_displacements(bulk_str)
     rep = report()
     out = []
     for node, dofs, settled in records:
-        values = prescribed.get(node.id, {})
-        missing = [dof for dof in settled if dof not in values]
-        if missing:
-            rep.note(
-                STAGE,
-                "BNDISPL",
-                f"node {node.id}",
-                "BNBCD prescribes these dofs (FIX code 2) and no BNDISPL record gives them a value, which "
-                'Sestra solves as "No load is specified"; they are read as a prescribed zero',
-                dofs=missing,
-            )
-        ignored = sorted(dof for dof, value in values.items() if dof not in settled and value != 0.0)
-        if ignored:
-            rep.omitted(
-                STAGE,
-                "BNDISPL",
-                f"node {node.id}",
-                "a displacement is prescribed on dofs BNBCD does not give FIX code 2, and Sestra ignores "
-                "the value there (measured); it is not read",
-                dofs=ignored,
-                values=[values[dof] for dof in ignored],
-            )
-        magnitudes = tuple(values.get(dof, 0.0) if dof in settled else None for dof in dofs)
-        out.append((node, dofs, magnitudes, cases.get(node.id) if settled else None))
+        per_case = list(prescribed.get(node.id, {}).items()) or [(None, {})]
+        for i, (case, values) in enumerate(per_case):
+            _report_mismatch(node, settled, values, rep)
+            if i == 0:
+                magnitudes = tuple(values.get(dof, 0.0) if dof in settled else None for dof in dofs)
+                out.append((node, dofs, magnitudes, case if settled else None))
+            elif settled:
+                out.append((node, tuple(settled), tuple(values.get(dof, 0.0) for dof in settled), case))
     return out
+
+
+def _report_mismatch(node: Node, settled, values: dict[int, float], rep) -> None:
+    missing = [dof for dof in settled if dof not in values]
+    if missing:
+        rep.note(
+            STAGE,
+            "BNDISPL",
+            f"node {node.id}",
+            "BNBCD prescribes these dofs (FIX code 2) and no BNDISPL record gives them a value, which "
+            'Sestra solves as "No load is specified"; they are read as a prescribed zero',
+            dofs=missing,
+        )
+    ignored = sorted(dof for dof, value in values.items() if dof not in settled and value != 0.0)
+    if ignored:
+        rep.omitted(
+            STAGE,
+            "BNDISPL",
+            f"node {node.id}",
+            "a displacement is prescribed on dofs BNBCD does not give FIX code 2, and Sestra ignores "
+            "the value there (measured); it is not read",
+            dofs=ignored,
+            values=[values[dof] for dof in ignored],
+        )
 
 
 # --- BEUSLO: a surface pressure -------------------------------------------------------------

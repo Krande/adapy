@@ -7,7 +7,14 @@
 // and tried to parse the queued-job payload as a manifest; this
 // module exists in part so that bug class can't recur.
 
-import type {ConvertResponse, FeaManifest, ResultMeta, ScopeUrl} from "./viewerApi";
+import type {
+    ConvertResponse,
+    FeaCaseOverlay,
+    FeaEnvelope,
+    FeaManifest,
+    ResultMeta,
+    ScopeUrl,
+} from "./viewerApi";
 
 /** Minimal fetch surface used by the helpers. Tests pass a stub
  * conforming to this shape; production passes a wrapped fetch that
@@ -29,7 +36,7 @@ class ApiError extends Error {
     }
 }
 
-interface PollDeps {
+export interface PollDeps {
     fetcher: Fetcher;
     convertStatus: StatusFn;
     apiBase: string;
@@ -54,13 +61,39 @@ interface PollDeps {
     /** Polling interval (ms). Tests pass small values; production
      * defaults to 600 ms. */
     pollMs?: number;
-    /** Hard timeout (ms). Tests pass small values; production
+    /** Inactivity timeout (ms): give up once the job has shown no change of
+     * status, stage or progress for this long. Not a cap on the whole bake --
+     * a large deck legitimately bakes for longer than this, and the worker
+     * re-emits progress while it does. Tests pass small values; production
      * defaults to 5 min. */
     timeoutMs?: number;
+    /** How long (ms) the status poll may keep failing transiently -- the
+     * API restarting, a proxy or ingress answering 502/503/504 or a bare
+     * 500 while the server is away -- before the loop gives up. The job
+     * lives in the queue, not in the API process, so it is still there when
+     * the API comes back. Defaults to 2 min. */
+    transientGraceMs?: number;
     /** Sleep injection so tests don't have to wait real time. */
     sleep?: (ms: number) => Promise<void>;
     /** Clock injection so tests can advance virtual time. */
     now?: () => number;
+}
+
+/** A status-poll failure that says nothing about the job: the request never
+ * reached a live API. A network failure (fetch rejects with a TypeError), a
+ * gateway's 502/503/504, or a 500 with no body -- what a dev proxy answers
+ * when the API behind it is restarting. A 500 the API itself raised carries a
+ * body ("Internal Server Error" or a JSON detail), so it is not retried. */
+export function isTransientPollError(err: unknown): boolean {
+    if (err instanceof TypeError) return true;
+    if (typeof err !== "object" || err === null) return false;
+    const status = (err as {status?: unknown}).status;
+    if (status === 502 || status === 503 || status === 504) return true;
+    if (status === 500) {
+        const detail = (err as {detail?: unknown}).detail;
+        return typeof detail !== "string" || detail.trim() === "";
+    }
+    return false;
 }
 
 async function _readDetail(r: Response): Promise<string> {
@@ -110,19 +143,33 @@ async function pollEnqueueGet<T>(
 
     const pollMs = deps.pollMs ?? 600;
     const timeoutMs = deps.timeoutMs ?? 5 * 60 * 1000;
+    const transientGraceMs = deps.transientGraceMs ?? 2 * 60 * 1000;
     const sleep = deps.sleep ?? ((ms) => new Promise((res) => setTimeout(res, ms)));
     const now = deps.now ?? (() => Date.now());
 
-    const startedAt = now();
+    // Last time the job visibly moved; the timeout counts from here.
+    let lastChangeAt = now();
+    // Start of the current run of transient poll failures, if in one.
+    let failingSince: number | null = null;
     while (true) {
         if (deps.signal?.aborted) {
             throw new DOMException("aborted", "AbortError");
         }
         await sleep(pollMs);
-        if (now() - startedAt > timeoutMs) {
+        const t = now();
+        if (t - lastChangeAt > timeoutMs) {
             throw new ApiError(`${label} timed out`, 504);
         }
-        const next = await deps.convertStatus(queued.job_id);
+        let next: ConvertResponse;
+        try {
+            next = await deps.convertStatus(queued.job_id);
+        } catch (err) {
+            if (deps.signal?.aborted || !isTransientPollError(err)) throw err;
+            if (failingSince === null) failingSince = t;
+            if (t - failingSince > transientGraceMs) throw err;
+            continue;
+        }
+        failingSince = null;
         if (next.status === "cancelled") {
             // Server-side cancel (audit row flipped to cancelled by
             // the kill endpoint). Treat as an abort so call sites
@@ -140,6 +187,7 @@ async function pollEnqueueGet<T>(
             stage = next.stage;
             progress = next.progress;
             status = nextStatus;
+            lastChangeAt = t;
             deps.onProgress?.({jobId: queued.job_id, stage, progress, status});
         }
         if (next.status === "error") {
@@ -170,6 +218,36 @@ export async function fetchFeaManifest(deps: PollDeps): Promise<FeaManifest> {
         () =>
             `${deps.apiBase}/scopes/${encodeURIComponent(deps.scope)}` +
             `/fea/manifest?key=${encodeURIComponent(deps.sourceKey)}`,
+    );
+}
+
+/** One materialised load combination: ``GET .../fea/case`` -- 200 overlay, or
+ * 202 + the same poll as the manifest, then re-GET. 404 (unknown case) and 409
+ * (base bake missing or stale: re-fetch the manifest) surface as ApiError with
+ * that status. */
+export async function fetchFeaCase(
+    deps: PollDeps & {caseN: number; field?: string},
+): Promise<FeaCaseOverlay> {
+    return pollEnqueueGet<FeaCaseOverlay>(
+        deps,
+        `feaCase(${deps.sourceKey}, ${deps.caseN})`,
+        () =>
+            `${deps.apiBase}/scopes/${encodeURIComponent(deps.scope)}` +
+            `/fea/case?key=${encodeURIComponent(deps.sourceKey)}&case=${encodeURIComponent(String(deps.caseN))}` +
+            (deps.field ? `&field=${encodeURIComponent(deps.field)}` : ""),
+    );
+}
+
+/** One field's range over every load combination (``GET .../fea/envelope``),
+ * same 200 / 202+poll contract. Optional on the server: callers treat any
+ * failure as "no envelope". */
+export async function fetchFeaEnvelope(deps: PollDeps & {field: string}): Promise<FeaEnvelope> {
+    return pollEnqueueGet<FeaEnvelope>(
+        deps,
+        `feaEnvelope(${deps.sourceKey}, ${deps.field})`,
+        () =>
+            `${deps.apiBase}/scopes/${encodeURIComponent(deps.scope)}` +
+            `/fea/envelope?key=${encodeURIComponent(deps.sourceKey)}&field=${encodeURIComponent(deps.field)}`,
     );
 }
 

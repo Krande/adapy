@@ -159,7 +159,7 @@ async def _run_clash_detail(
     try:
         await queue.update(job_id, stage="upload", progress=0.85)
         if glb_key:
-            await storage.put_bytes(scope, glb_key, (out_dir / "detail.glb").read_bytes(), content_encoding="gzip")
+            await storage.put_path(scope, glb_key, out_dir / "detail.glb", content_encoding="gzip")
         await storage.put_bytes(scope, job.derived_key, (out_dir / "stats.json").read_bytes(), content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: clash_detail upload failed for job %s", job_id)

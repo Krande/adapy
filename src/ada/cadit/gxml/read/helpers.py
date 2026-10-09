@@ -229,8 +229,20 @@ def _sense_against_face(sat_data, desired_normal, authored_sense: bool) -> bool:
 
 
 def yield_plate_elems_to_plate(
-    plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None, face_normal_resolver=None, edge_curves_d=None
+    plate_elem,
+    parent,
+    sat_ref_d,
+    thick_map,
+    flat_fallback_d=None,
+    face_normal_resolver=None,
+    edge_curves_d=None,
+    excluded_faces=frozenset(),
 ):
+    """The adapy plate(s) of one GeniE ``flat_plate`` / ``curved_shell`` element.
+
+    ``excluded_faces`` are faces the element names that are not plate material: the interior
+    of a GeniE ``<hole>``, which GeniE keeps in the plate's sheet and cuts out when it meshes.
+    """
     base_name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
@@ -276,6 +288,10 @@ def yield_plate_elems_to_plate(
         return fn if sense else tuple(-c for c in fn)
 
     face_elems = list(plate_elem.findall(".//face"))
+    holes = [f.attrib["face_ref"] for f in face_elems if f.attrib["face_ref"] in excluded_faces]
+    if holes:
+        logger.info(f"Plate {base_name!r}: face(s) {', '.join(holes)} are the interior of a GeniE hole, not plate")
+        face_elems = [f for f in face_elems if f.attrib["face_ref"] not in excluded_faces]
     if face_elems:
         face_refs = [res.attrib["face_ref"] for res in face_elems]
 
@@ -283,7 +299,7 @@ def yield_plate_elems_to_plate(
         if len(face_elems) > 1:
             face_point_sets = _collect_sat_face_point_sets(face_refs, sat_ref_d)
             if face_point_sets is not None and is_coplanar_points([p for s in face_point_sets for p in s]):
-                merged_points = merge_coplanar_loops_by_edge_cancellation(face_point_sets)
+                merged_points = merge_coplanar_loops_by_edge_cancellation(face_point_sets, split_t_junctions=True)
                 if merged_points is not None:
                     try:
                         yield _plate_from_3d_points(
@@ -427,6 +443,9 @@ def yield_plate_elems_to_plate(
                         props=dict(
                             gxml_face_ref=face_ref,
                             gxml_sense_flag=_sense_against_face(sat_data, desired_normal, sense),
+                            # the element GeniE held it as: a planar face read here because
+                            # its edges curve or it has a hole goes back as what it came as
+                            gxml_element=plate_elem.tag,
                         )
                     ),
                     parent=parent,

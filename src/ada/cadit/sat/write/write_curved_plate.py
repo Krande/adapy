@@ -386,6 +386,10 @@ def _surface_entity(id_gen, surface, same_sense: bool) -> tuple[se.SATEntity, st
         pos = surface.position
         record = se.PlaneSurface(id_gen.next_id(), pos.location, pos.axis, pos.ref_direction)
         return record, ("forward" if same_sense else "reversed")
+    if isinstance(surface, geo_su.CylindricalSurface):
+        # a cone-surface has a sense of its own (the cosine's sign), as a spline does
+        sense = "forward" if same_sense else "reversed"
+        return se.ConeSurface(id_gen.next_id(), surface, sense=sense), "forward"
     raise UnsupportedCurvedFace(f"no ACIS surface record for {type(surface).__name__}")
 
 
@@ -621,20 +625,24 @@ def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: Top
     the edge against its curve, which is a ``reversed`` coedge and an edge whose
     two vertices swap. Deriving it from the range keeps the edge record's range
     ascending, as ACIS reads it.
+
+    Every bound becomes a loop: the outer boundary first (the face's own loop
+    pointer), each hole hung off the one before it through ``next_loop``, as
+    GeniE writes a plate with a hole. Writing the outer loop alone was
+    Krande/adapy#410. A hole bounded by one closed curve (GeniE's round hole is
+    one closed NURBS edge) is a loop of a single coedge on an edge that starts
+    and ends at the same vertex.
     """
     if not isinstance(geom, geo_su.AdvancedFace):
         raise UnsupportedCurvedFace(f"{type(geom).__name__} is not an AdvancedFace")
-    # The reader gives one bound per face — it does not surface hole loops (16
-    # of a hull export's faces have one and lose it on the way in). Guard
-    # rather than emit the outer loop alone and call the plate round-tripped.
-    if len(geom.bounds) != 1:
-        raise UnsupportedCurvedFace(f"{len(geom.bounds)} bounds; only a single outer loop is supported")
-    bound = geom.bounds[0].bound
-    if not isinstance(bound, geo_cu.EdgeLoop):
-        raise UnsupportedCurvedFace(f"{type(bound).__name__} is not an EdgeLoop")
-    edge_list = bound.edge_list
-    if len(edge_list) < 2:
-        raise UnsupportedCurvedFace(f"{len(edge_list)} edges in the loop")
+    if not geom.bounds:
+        raise UnsupportedCurvedFace("no bounds")
+    for fb in geom.bounds:
+        if not isinstance(fb.bound, geo_cu.EdgeLoop):
+            raise UnsupportedCurvedFace(f"{type(fb.bound).__name__} is not an EdgeLoop")
+    outer = geom.bounds[0].bound.edge_list
+    if len(outer) < 2 and not _is_closed_curve_loop(outer):
+        raise UnsupportedCurvedFace(f"{len(outer)} edges in the loop")
 
     id_gen = sw.id_generator
     entities: list[se.SATEntity] = []
@@ -648,15 +656,81 @@ def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: Top
     name.entity = face
     entities += [face, name]
 
-    loop = se.Loop(id_gen.next_id(), None, [0.0] * 6, face=face)
-    face.loop = loop
-    entities.append(loop)
+    previous: se.Loop | None = None
+    for fb in geom.bounds:
+        loop = se.Loop(id_gen.next_id(), None, [0.0] * 6, face=face)
+        entities.append(loop)
+        entities += _author_loop(loop, fb.bound.edge_list, face_name, surface, sw, weld)
+        if previous is None:
+            face.loop = loop
+        else:
+            previous.next_loop = loop
+        previous = loop
 
+    return sorted(entities, key=lambda x: x.id)
+
+
+def _is_closed_curve_loop(edge_list) -> bool:
+    """One edge running a whole closed curve: its ends coincide, its parameter range does not."""
+    if len(edge_list) != 1:
+        return False
+    oe = edge_list[0]
+    curve = getattr(oe.edge_element, "edge_geometry", None)
+    return (
+        curve is not None
+        and not isinstance(curve, geo_cu.Line)
+        and oe.t_start is not None
+        and oe.t_end is not None
+        and abs(oe.t_end - oe.t_start) > 1e-12
+    )
+
+
+def _edge_box_points(curve, p_lo, p_hi, t_lo=None, t_hi=None) -> list[np.ndarray]:
+    """Points whose box is an edge's: its ends, and where its curve turns between them.
+
+    An arc bulges past its two ends -- GeniE's swept arc reaches y = 0.5 between ends at y = 0 --
+    and a closed curve's two ends are one point. On a circle or ellipse
+    ``p(t) = c + a cos(t) x + b sin(t) y``, each coordinate turns where
+    ``t = atan2(b y_k, a x_k) + m pi``; those inside the edge's range ``[t_lo, t_hi]`` are added,
+    which makes the box exact. Without a range the whole curve is boxed. A B-spline lies in the
+    hull of its control points, which encloses it (loosely).
+    """
+    pts = [np.asarray(p_lo, dtype=float), np.asarray(p_hi, dtype=float)]
+    if isinstance(curve, geo_cu.BSplineCurveWithKnots):
+        pts += [np.asarray(cp, dtype=float)[:3] for cp in curve.control_points_list]
+    elif isinstance(curve, (geo_cu.Circle, geo_cu.Ellipse)):
+        a, b = (
+            (curve.radius, curve.radius) if isinstance(curve, geo_cu.Circle) else (curve.semi_axis1, curve.semi_axis2)
+        )
+        c = np.asarray(curve.position.location, dtype=float)
+        z = np.asarray(curve.position.axis, dtype=float)
+        z = z / np.linalg.norm(z)
+        x = np.asarray(curve.position.ref_direction, dtype=float)
+        x = x - z * float(x @ z)
+        x = x / np.linalg.norm(x)
+        y = np.cross(z, x)
+        lo, hi = (0.0, 2 * np.pi) if t_lo is None or t_hi is None else (float(t_lo), float(t_hi))
+        for k in range(3):
+            t0 = float(np.arctan2(b * y[k], a * x[k]))
+            for m in range(int(np.floor((lo - t0) / np.pi)), int(np.ceil((hi - t0) / np.pi))):
+                t = t0 + m * np.pi
+                if lo <= t <= hi:
+                    pts.append(c + a * np.cos(t) * x + b * np.sin(t) * y)
+    return pts
+
+
+def _author_loop(
+    loop: se.Loop, edge_list, face_name: str, surface, sw: SatWriter, weld: TopologyWeld
+) -> list[se.SATEntity]:
+    """The coedges of one loop of a face, with whatever edges, curves and pcurves it adds."""
+    id_gen = sw.id_generator
+    entities: list[se.SATEntity] = []
     loop_points = [np.asarray(oe.start, dtype=float) for oe in edge_list]
+    closed_single = _is_closed_curve_loop(edge_list)
 
     coedges: list[se.CoEdge] = []
-    face_vertices: list[se.Vertex] = []
-    for i, oriented_edge in enumerate(edge_list):
+    box_points: list[np.ndarray] = []
+    for oriented_edge in edge_list:
         edge_curve = oriented_edge.edge_element
         curve_geom = getattr(edge_curve, "edge_geometry", None)
         if curve_geom is None:
@@ -669,8 +743,9 @@ def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: Top
         # ``Direction.get_normalized`` and takes the whole SAT write down with
         # it. ACIS marks such singularities with a null curve and the reader
         # steps over them (see ``ACISDegenerateEdge`` in read/curves.py); do the
-        # same here so the coedge ring simply closes over the survivors.
-        if _vkey(p_start, weld.nd) == _vkey(p_end, weld.nd):
+        # same here so the coedge ring simply closes over the survivors. A whole
+        # closed curve has coincident ends too, and is the loop.
+        if _vkey(p_start, weld.nd) == _vkey(p_end, weld.nd) and not closed_single:
             logger.debug("advanced_face %r: skipping zero-length edge at %s", face_name, tuple(p_start))
             continue
 
@@ -710,6 +785,9 @@ def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: Top
                 t_start=t_lo,
                 t_end=t_hi,
             )
+            if not isinstance(curve_geom, geo_cu.Line):
+                around = np.asarray(_edge_box_points(curve_geom, p_lo, p_hi, t_lo, t_hi), dtype=float)
+                edge.box = [float(x) for x in (*around.min(axis=0), *around.max(axis=0))]
             weld.add_edge(key, edge, curve)
         elif t_lo is not None and edge.t_start is not None:
             # Two faces on one edge must agree on where it starts and stops;
@@ -721,13 +799,17 @@ def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: Top
         for v in (edge.vertex_start, edge.vertex_end):
             if v.edge is None:
                 v.edge = edge
-            face_vertices.append(v)
+        # the box of a loop holds its edges, arcs and all -- not just its vertices
+        box_points += _edge_box_points(curve_geom, p_lo, p_hi, t_lo, t_hi)
 
         # Which way this loop runs the edge, asked of the edge rather than of
         # our own parameters: a neighbour may have built it, and the sense has
         # to be read against the record as written. For the face that built it
-        # this says exactly what `runs_backwards` did.
-        runs_backwards = _vkey(p_start, weld.nd) != _vkey(edge.start_pt, weld.nd)
+        # this says exactly what `runs_backwards` did. The two ends of a closed
+        # curve are one vertex and say nothing; its range, which the record
+        # holds ascending, already did.
+        if not closed_single:
+            runs_backwards = _vkey(p_start, weld.nd) != _vkey(edge.start_pt, weld.nd)
 
         # A pcurve belongs to a spline face: it is the edge in that surface's
         # parameter space, and a plane has none to speak of. Genie agrees —
@@ -764,16 +846,17 @@ def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: Top
         entities.append(coedge)
         coedges.append(coedge)
 
+    if not coedges:
+        # what used to be an IndexError further down: a loop of nothing but zero-length edges
+        raise UnsupportedCurvedFace("a loop with no edge left once its zero-length edges are dropped")
     for i, coedge in enumerate(coedges):
         coedge.next_coedge = coedges[(i + 1) % len(coedges)]
         coedge.prev_coedge = coedges[i - 1]
     loop.coedge = coedges[0]
 
-    unique = {id(v): v for v in face_vertices}
-    pts = np.asarray([v.point.point for v in unique.values()], dtype=float)
+    pts = np.asarray(box_points, dtype=float)
     loop.bbox = make_ints_if_possible([*np.min(pts, axis=0), *np.max(pts, axis=0)])
-
-    return sorted(entities, key=lambda x: x.id)
+    return entities
 
 
 def _into_face(p_lo, p_hi, loop_points: list[np.ndarray]) -> np.ndarray:

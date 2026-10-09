@@ -2,6 +2,50 @@
 
 
 
+## v0.113.0 (2026-10-09)
+
+### Feature
+
+* feat(sesam): read a SIN&#39;s superelement hierarchy and open a chosen superelement (#444)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`0c7769d`](https://github.com/Krande/adapy/commit/0c7769d95d89b70ddd93904a9dd4d193ddc44d99))
+
+
+## v0.112.0 (2026-10-09)
+
+### Chore
+
+* chore(test): neutral test data -- no local paths, user or host names (#446)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`e0b475e`](https://github.com/Krande/adapy/commit/e0b475e9de6f0692c3e3ef4af44f46ef1c0d2eae))
+
+### Feature
+
+* feat: native STEP/IFC-&gt;GLB in the browser across several workers (#445)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`638bdcc`](https://github.com/Krande/adapy/commit/638bdcc4cdb5186b78c65a2fbfa0672ad7654b00))
+
+
+## v0.111.0 (2026-10-09)
+
+### Feature
+
+* feat(gxml): GeniE supports, concept loads to FE, binary ACIS workspaces, and plates that round-trip (#435)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`ba3b4bc`](https://github.com/Krande/adapy/commit/ba3b4bcfd5b15231a4b093fd7f4f23fa24bcad8b))
+
+
+## v0.110.0 (2026-10-08)
+
+### Feature
+
+* feat: Scene tree menu and visibility, sets edited in the tree, provider display names, empty-build answers, one audit issue per failure (#442)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`1600e98`](https://github.com/Krande/adapy/commit/1600e98881488b3277b35ab1a432e6cf9457a5f1))
+
+
 ## v0.109.0 (2026-10-08)
 
 ### Feature

@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCC.Core.Geom import Geom_BSplineCurve
@@ -7,8 +8,8 @@ from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline, GeomAPI_ProjectPointOnCurv
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Elips, gp_Pnt
 from OCC.Core.TColgp import TColgp_Array1OfPnt
 from OCC.Core.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
-from OCC.Core.TopAbs import TopAbs_FORWARD
-from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
+from OCC.Core.TopAbs import TopAbs_FORWARD, TopAbs_REVERSED
+from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire, topods
 
 from ada.cad.exceptions import UnableToCreateCurveOCCGeom
 from ada.geom import curves as geo_cu
@@ -56,6 +57,20 @@ def segments_to_edges(
     return [make_edge_from_line(seg) for seg in segments]
 
 
+def _ax2(position, normal) -> gp_Ax2:
+    """The circle's frame about ``normal``, its parameter measured from ``position.ref_direction``.
+
+    ``gp_Ax2(P, N)`` alone picks an X direction of its own, which moves every trim off the
+    points it names unless the ref direction happens to be that one.
+    """
+    ref = getattr(position, "ref_direction", None)
+    if ref is None:
+        return gp_Ax2(gp_Pnt(*position.location), gp_Dir(*normal))
+    x = np.asarray(ref, dtype=float)
+    x = x - normal * float(x @ normal) / float(normal @ normal)
+    return gp_Ax2(gp_Pnt(*position.location), gp_Dir(*normal), gp_Dir(*x))
+
+
 def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
     """
     Create an OCC edge from an adapy Edge.
@@ -73,6 +88,12 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
             return all(abs(x - y) <= tol for x, y in zip(a, b))
         except Exception:
             return False
+
+    # A closed curve built whole has no endpoints to say which way the loop runs it, so a loop
+    # running it backwards has to say so on the edge. Measured on a GeniE plate with a round
+    # hole (one closed rational B-spline, coedge reversed): built forward, the hole wound the
+    # same way as the outline, the face was invalid and its area 12.51 instead of 11.50.
+    closed_reversed = False
 
     # Check if this is an OrientedEdge with an edge_element
     if isinstance(edge, geo_cu.OrientedEdge) and hasattr(edge, "edge_element"):
@@ -125,12 +146,18 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                     t_start = getattr(edge, "t_start", None)
                     t_end = getattr(edge, "t_end", None)
                     if t_start is not None and t_end is not None:
-                        # SAT params are canonical w.r.t. the UNREVERSED curve.
-                        circle_fwd = gp_Circ(
-                            gp_Ax2(gp_Pnt(*curve_geom.position.location), gp_Dir(*curve_geom.position.axis)),
-                            curve_geom.radius,
-                        )
-                        edge_maker = BRepBuilderAPI_MakeEdge(circle_fwd, float(t_start), float(t_end))
+                        # SAT params are canonical w.r.t. the UNREVERSED curve, measured from its
+                        # ref_direction. An edge run against the circle has t_start > t_end, and
+                        # MakeEdge(circ, p1, p2) on a periodic curve takes p1 > p2 the LONG way
+                        # round (measured: (2 pi, 3 pi/2) -> range (0, 3 pi/2)). The same arc,
+                        # run from start to end, is the circle about the opposite axis between
+                        # -t_start and -t_end (Krande/adapy#435).
+                        t_start, t_end = float(t_start), float(t_end)
+                        normal = np.asarray(curve_geom.position.axis, dtype=float)
+                        if t_start > t_end:
+                            normal, t_start, t_end = -normal, -t_start, -t_end
+                        circle_fwd = gp_Circ(_ax2(curve_geom.position, normal), curve_geom.radius)
+                        edge_maker = BRepBuilderAPI_MakeEdge(circle_fwd, t_start, t_end)
                     else:
                         edge_maker = BRepBuilderAPI_MakeEdge(circle, point3d(arc_start), point3d(arc_end))
             elif isinstance(curve_geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
@@ -165,6 +192,7 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                     # If start and end are identical, create a full-curve edge (closed loop)
                     if _points_equal(edge.start, edge.end):
                         edge_maker = BRepBuilderAPI_MakeEdge(occ_bs)
+                        closed_reversed = not bool(getattr(edge_element, "same_sense", True))
                     elif (
                         getattr(edge, "t_start", None) is not None
                         and getattr(edge, "t_end", None) is not None
@@ -263,8 +291,18 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                         else gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis))
                     )
                     el = gp_Elips(ax2, float(curve_geom.semi_axis1), float(curve_geom.semi_axis2))
+                    t_start, t_end = getattr(edge, "t_start", None), getattr(edge, "t_end", None)
                     if _points_equal(edge.start, edge.end):
                         edge_maker = BRepBuilderAPI_MakeEdge(el)
+                    elif t_start is not None and t_end is not None and float(t_start) > float(t_end):
+                        # Run against the ellipse: MakeEdge(elips, p1, p2) walks the parameter UP from
+                        # p1, so it built the other arc between the same points (measured: a quarter
+                        # sector run backwards measured as three quarters, and the reverse). As for a
+                        # circle, the same arc run from start to end is the ellipse about the opposite
+                        # axis between -t_start and -t_end (Krande/adapy#435).
+                        normal = -np.asarray(pos.axis, dtype=float)
+                        el = gp_Elips(_ax2(pos, normal), float(curve_geom.semi_axis1), float(curve_geom.semi_axis2))
+                        edge_maker = BRepBuilderAPI_MakeEdge(el, -float(t_start), -float(t_end))
                     else:
                         edge_maker = BRepBuilderAPI_MakeEdge(el, point3d(edge.start), point3d(edge.end))
                 except Exception as ex:
@@ -313,7 +351,7 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
         raise UnableToCreateCurveOCCGeom(error_msg)
 
     occ_edge = edge_maker.Edge()
-    occ_edge.Orientation(TopAbs_FORWARD)
+    occ_edge.Orientation(TopAbs_REVERSED if closed_reversed else TopAbs_FORWARD)
 
     return occ_edge
 
@@ -461,6 +499,13 @@ def make_wire_from_composite_curve(cc: geo_cu.CompositeCurve) -> TopoDS_Wire:
     return wire_builder.Wire()
 
 
+def _as_run(wire: TopoDS_Wire, edge_curve) -> TopoDS_Wire:
+    """``wire`` reversed when the edge curve runs against its curve (``same_sense`` false)."""
+    if getattr(edge_curve, "same_sense", True):
+        return wire
+    return topods.Wire(wire.Reversed())
+
+
 def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
     from ada.config import logger
 
@@ -490,12 +535,17 @@ def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
                 logger.debug(f"Edge element type: {type(ee).__name__}")
                 if isinstance(ee, geo_cu.EdgeCurve):
                     geom = ee.edge_geometry
+                    # A whole circle or ellipse runs the way its loop says: against its own
+                    # parameter when the edge's sense is false -- a hole, round an outline wound
+                    # with the curve. Built forward regardless, a plate's round hole (adapy's
+                    # boolean cut, read back) wound like the outline: face invalid, area 12.50
+                    # instead of 11.50.
                     if isinstance(geom, geo_cu.Circle):
                         logger.debug("Creating full-circle wire from Circle geometry")
-                        return make_wire_from_circle(geom)
+                        return _as_run(make_wire_from_circle(geom), ee)
                     if isinstance(geom, geo_cu.Ellipse) and _pts_equal(para_edge.start, para_edge.end):
                         logger.debug("Creating full-ellipse wire from Ellipse geometry")
-                        return make_wire_from_ellipse(geom)
+                        return _as_run(make_wire_from_ellipse(geom), ee)
                     if isinstance(geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
                         # If marked closed or start==end, treat as full curve edge
                         if getattr(geom, "closed_curve", False) or _pts_equal(para_edge.start, para_edge.end):

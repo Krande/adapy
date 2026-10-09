@@ -114,7 +114,12 @@ export function tickFeaAnimation(deltaSeconds: number): void {
 }
 
 /** Play for a time-history field: step through the frames at true scale (factor 1),
- * one frame fetch at a time, looping. Same path as dragging the step slider. */
+ * one frame fetch at a time, looping. Same path as dragging the step slider.
+ *
+ * A step may be a load combination computed on request (fea/caseSteps.ts): the
+ * next frame is not asked for until ``applyStep`` -- which waits for the case to
+ * be materialised -- has settled (``inFlight``), so cases materialise in
+ * sequence; ``applyStep`` itself warms up the following case while it does. */
 function tickTimeHistory(deltaSeconds: number): void {
     const state = useFeaAnimationStore.getState();
     if (!state.isPlaying || !state.sessionActive || !state.mesh || !state.applyStep) return;

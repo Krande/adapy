@@ -16,6 +16,7 @@ import {
   newSetId,
   parseSetsDoc,
   serialiseSetsDoc,
+  setMembership,
   setsDocKey,
   treeSetFilter,
   type TreeSet,
@@ -42,6 +43,21 @@ const h = buildHierarchy(
 const set = (id: string, members: TreeSet["members"]): TreeSet => ({ id, name: id, created_at: "t0", members });
 const doc = (...sets: TreeSet[]): TreeSetsDoc => ({ schema: SETS_SCHEMA, sets });
 const opts = { searchActive: false, showHidden: false };
+
+test("membership marks each row for editing in the tree: member, covered below one, containing one above", () => {
+  const s = set("main", membersForIds(["zone-1", "site-b"], h));
+  const of = setMembership(s, h);
+  assert.equal(of("zone-1"), "member");
+  assert.equal(of("site-b"), "member");
+  assert.equal(of("beam"), "covered", "under a member");
+  assert.equal(of("zone-2"), "covered");
+  assert.equal(of("site-a"), "contains", "on the way down to one");
+  assert.equal(of("world"), "contains");
+  assert.equal(of("site-temp"), null);
+  // Asked again (memoised walks), the answers hold.
+  assert.equal(of("beam"), "covered");
+  assert.equal(of("site-temp"), null);
+});
 
 test("the document lives beside the saved view, one per collection", () => {
   assert.equal(setsDocKey("abc"), "assets/_sets/abc.json");

@@ -22,6 +22,7 @@ import {
   DeliveryError,
   loadNode,
   loadPrepared,
+  NothingToDraw,
   parseBuildSummary,
   parseDeliveryClaim,
   prepareNode,
@@ -506,7 +507,25 @@ test("validateBuildSummary refuses ok: false with the summary's own error", () =
         fingerprint: "fp123",
         derivedPrefix: "_derived/assets/fixture-lines/plant-a/area-1/20260901T100000Z/all/fp123",
       }),
-    (e: unknown) => e instanceof DeliveryError && /no geometry produced/.test((e as Error).message),
+    (e: unknown) => e instanceof DeliveryError && !(e instanceof NothingToDraw) && /no geometry produced/.test((e as Error).message),
+  );
+});
+
+test("an empty summary is NothingToDraw -- an answer, told apart from a failure", () => {
+  const summary = parseBuildSummary(summaryDoc({ ok: false, empty: true, error: "nothing this builder draws" }));
+  assert.equal(summary.empty, true);
+  assert.throws(
+    () =>
+      validateBuildSummary(summary, {
+        provider: "fixture-lines",
+        collection: "plant-a",
+        subject: "area-1",
+        revision: "20260901T100000Z",
+        node: "area-1",
+        fingerprint: "fp123",
+        derivedPrefix: "_derived/assets/fixture-lines/plant-a/area-1/20260901T100000Z/all/fp123",
+      }),
+    (e: unknown) => e instanceof NothingToDraw && /nothing this builder draws/.test((e as Error).message),
   );
 });
 

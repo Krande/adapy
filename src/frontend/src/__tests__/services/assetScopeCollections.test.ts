@@ -87,6 +87,7 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
   assert.deepEqual(assetProviderCollections(specs), [
     {
       providerId: "vendor",
+      label: null,
       pluginIds: ["exporter"],
       titles: ["Exporter"],
       collections: ["A", "B"],
@@ -96,6 +97,18 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
       requestOptions: null,
     },
   ]);
+});
+
+test("assetProviderCollections reads a declared provider label, string or per-provider map", () => {
+  const specs = [
+    { id: "a", asset_provider_id: "vendor", asset_collections_field: "c", c: [], asset_provider_label: "  Vendor\tlines " },
+    { id: "a2", asset_provider_id: "vendor", asset_collections_field: "c", c: [], asset_provider_label: "Later" },
+    { id: "b", asset_provider_id: "other", asset_collections_field: "c", c: [], asset_provider_label: { other: "Other one" } },
+    { id: "c", asset_provider_id: "blank", asset_collections_field: "c", c: [], asset_provider_label: "   " },
+    { id: "d", asset_provider_id: "wrong", asset_collections_field: "c", c: [], asset_provider_label: 3 },
+  ];
+  const byId = Object.fromEntries(assetProviderCollections(specs).map((p) => [p.providerId, p.label]));
+  assert.deepEqual(byId, { blank: null, other: "Other one", vendor: "Vendor lines", wrong: null });
 });
 
 test("assetProviderCollections reads declared request options as the spec's own job_options", () => {

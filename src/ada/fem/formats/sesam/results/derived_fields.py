@@ -19,12 +19,13 @@ import numpy as np
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.derived_values import (
     B_STRESS_COMPONENTS,
+    BEAM_STRESS_DENOMINATORS,
     D_STRESS_COMPONENTS,
     G_FORCE_COMPONENTS,
     G_STRESS_COMPONENTS,
     P_STRESS_COMPONENTS,
     R_STRESS_COMPONENTS,
-    beam_stress,
+    beam_stress_per_element,
     decompose_shell,
     general_stress,
     membrane_principal,
@@ -295,14 +296,45 @@ def _wants_nodal_surface(wanted: set[str] | None, attribute: str, surface: str) 
     return wanted is None or requested in wanted
 
 
-def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
+def _once(cache: dict | None, key: str, make):
+    """``make()``, or what it returned the first time for ``key`` in ``cache``.
+
+    The mesh- and model-wide lookups below do not change from one step to the
+    next; built per raw field, a deck with a hundred result cases rebuilt them a
+    hundred times (a Python pass over every element each)."""
+    if cache is None:
+        return make()
+    if key not in cache:
+        cache[key] = make()
+    return cache[key]
+
+
+def _lookup_cache(mesh, sif) -> dict:
+    """The :func:`_once` cache for ``mesh`` and the reader ``sif`` it was read with.
+
+    Kept on the reader: a streaming read (one result case at a time) keeps one
+    reader and one mesh and derives every case over them, so this is what spares
+    each case rebuilding the lookups -- and it goes when the reader goes, rather
+    than riding along on the mesh of the result. A different mesh starts a fresh
+    cache; a reader that takes no attributes gets one per call."""
+    cache = getattr(sif, "_derived_lookups", None)
+    if cache is None or cache.get("mesh") is not mesh:
+        cache = {"mesh": mesh}
+        try:
+            sif._derived_lookups = cache
+        except AttributeError:
+            pass
+    return cache
+
+
+def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted, cache: dict | None = None):
     surfaces = _shell_surfaces(raw)
     if surfaces is None:
         return []
     labels, bottom, top, corner_indices, result_locations = surfaces
-    nodes_by_element, normals, _ = _element_maps(mesh)
-    geometry = _geometry_by_element(mesh)
-    thickness_map = sif.get_shell_thickness_map()
+    nodes_by_element, normals, _ = _once(cache, "element_maps", lambda: _element_maps(mesh))
+    geometry = _once(cache, "geometry", lambda: _geometry_by_element(mesh))
+    thickness_map = _once(cache, "thickness", sif.get_shell_thickness_map)
     unit_factors = sif.get_unit_factors()
     thickness = np.asarray([thickness_map.get(geometry.get(int(label), -1), np.nan) for label in labels])
     arrays = _shell_position_arrays(bottom, top, corner_indices)
@@ -403,57 +435,139 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
         _wants(wanted, "nodes", attribute)
         for attribute in ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
     ):
-        corner_bottom = bottom[:, corner_indices, :]
-        corner_top = top[:, corner_indices, :]
-        for ei, label in enumerate(labels):
-            refs = nodes_by_element.get(int(label))
-            if refs is None or len(refs) != len(corner_indices):
-                continue
-            normal = normals.get(int(label), np.full(3, np.nan))
-            for ci, node_id in enumerate(refs):
-                nodal_contrib[int(node_id)].append(
-                    (corner_bottom[ei, ci], corner_top[ei, ci], float(thickness[ei]), normal)
-                )
+        element_rows, refs, element_normals = _once(
+            cache,
+            ("shell_corners", labels.tobytes(), len(corner_indices)),
+            lambda: _shell_corner_nodes(labels, nodes_by_element, normals, len(corner_indices)),
+        )
+        nodal_contrib.add(
+            refs,
+            bottom[element_rows][:, corner_indices, :],
+            top[element_rows][:, corner_indices, :],
+            thickness[element_rows],
+            element_normals,
+        )
     return out
 
 
-def _average_nodal_shell(contrib, node_ids):
-    bottom = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
-    top = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
-    thickness = np.full(len(node_ids), np.nan)
-    cos_limit = np.cos(np.deg2rad(5.0))
-    for ni, node_id in enumerate(node_ids):
-        rows = contrib.get(int(node_id), ())
-        # The reference postprocessor only creates a nodal average where at least two eligible
-        # adjoining shell elements contribute. A lone boundary value remains
-        # blank in the listing.
-        if len(rows) < 2:
+def _shell_corner_nodes(labels, nodes_by_element, normals, n_corners: int):
+    """The elements of ``labels`` whose corners feed the nodal average, as arrays.
+
+    ``(rows, refs, normals)``: the row of each such element in ``labels``, its
+    ``n_corners`` corner node ids in connectivity order, and its unit normal (NaN
+    when unknown). An element without connectivity, or with another corner count,
+    contributes nothing."""
+    rows, refs, normal_rows = [], [], []
+    missing = np.full(3, np.nan)
+    for ei, label in enumerate(labels):
+        element_refs = nodes_by_element.get(int(label))
+        if element_refs is None or len(element_refs) != n_corners:
             continue
-        ref_t = rows[0][2]
-        ref_n = rows[0][3]
-        eligible = []
-        for row in rows:
-            t = row[2]
-            normal = row[3]
-            thickness_ok = np.isfinite(t) and np.isfinite(ref_t) and abs(t - ref_t) <= 0.1 * max(abs(ref_t), 1e-30)
-            normal_ok = (
-                np.all(np.isfinite(normal)) and np.all(np.isfinite(ref_n)) and float(np.dot(normal, ref_n)) >= cos_limit
+        rows.append(ei)
+        refs.append(element_refs)
+        normal_rows.append(normals.get(int(label), missing))
+    return (
+        np.asarray(rows, dtype=int),
+        np.asarray(refs, dtype=int).reshape(len(rows), n_corners),
+        np.asarray(normal_rows, dtype=float).reshape(len(rows), 3),
+    )
+
+
+class _ShellNodalContributions:
+    """Every shell element corner's basic stresses, gathered for the nodal average.
+
+    One step's contributions arrive raw field by raw field as arrays
+    (:meth:`add`); :meth:`average` reduces them per node. Equivalent to keeping a
+    list of ``(bottom, top, thickness, normal)`` per node in arrival order, without
+    a Python object per corner per step.
+    """
+
+    def __init__(self) -> None:
+        self._chunks: list[tuple] = []
+
+    def add(self, refs, bottom, top, thickness, normals) -> None:
+        """``refs`` ``(n, c)`` corner node ids; ``bottom`` / ``top`` ``(n, c, 3)``;
+        ``thickness`` ``(n,)``; ``normals`` ``(n, 3)`` -- per element, corners in order."""
+        n, c = refs.shape
+        if not n:
+            return
+        self._chunks.append(
+            (
+                refs.reshape(-1),
+                np.asarray(bottom, dtype=np.float32).reshape(n * c, 3),
+                np.asarray(top, dtype=np.float32).reshape(n * c, 3),
+                np.repeat(np.asarray(thickness, dtype=float), c),
+                np.repeat(np.asarray(normals, dtype=float), c, axis=0),
             )
-            if thickness_ok and normal_ok:
-                eligible.append(row)
-        # Multiple non-coplanar/thickness groups at one node are ambiguous in a
-        # single nodal scalar field. Match the reference postprocessor's blank rather than choosing a
-        # group silently.
-        if len(eligible) != len(rows) or len(eligible) < 2:
-            continue
-        bottom[ni] = np.mean([row[0] for row in eligible], axis=0)
-        top[ni] = np.mean([row[1] for row in eligible], axis=0)
-        thickness[ni] = float(np.mean([row[2] for row in eligible]))
-    return bottom, top, thickness
+        )
+
+    def average(self, node_ids):
+        """``(bottom, top, thickness)`` averaged per node of ``node_ids``; NaN where not.
+
+        The reference postprocessor only creates a nodal average where at least
+        two adjoining shell elements contribute AND all of them agree with the
+        first on thickness (within 10 %) and normal (within 5 degrees). A lone
+        boundary value, or several non-coplanar / thickness groups meeting at one
+        node -- ambiguous in a single nodal scalar field -- stay blank rather than
+        one group being chosen silently. The means add up in arrival order, in
+        float32 for the stresses, as ``np.mean`` over each node's list does.
+        """
+        node_ids = np.asarray(node_ids)
+        bottom = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
+        top = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
+        thickness = np.full(len(node_ids), np.nan)
+        if not self._chunks or not len(node_ids):
+            return bottom, top, thickness
+        nodes, b, t, tk, nr = (np.concatenate(parts) for parts in zip(*self._chunks))
+        order = np.argsort(nodes, kind="stable")
+        nodes, b, t, tk, nr = nodes[order], b[order], t[order], tk[order], nr[order]
+        groups, starts, counts = np.unique(nodes, return_index=True, return_counts=True)
+
+        first = np.repeat(starts, counts)
+        ref_t, ref_n = tk[first], nr[first]
+        cos_limit = np.cos(np.deg2rad(5.0))
+        with np.errstate(invalid="ignore"):
+            thickness_ok = (
+                np.isfinite(tk) & np.isfinite(ref_t) & (np.abs(tk - ref_t) <= 0.1 * np.maximum(np.abs(ref_t), 1e-30))
+            )
+            normal_ok = (
+                np.all(np.isfinite(nr), axis=1)
+                & np.all(np.isfinite(ref_n), axis=1)
+                & (np.einsum("ij,ij->i", nr, ref_n) >= cos_limit)
+            )
+        averaged = np.logical_and.reduceat(thickness_ok & normal_ok, starts) & (counts >= 2)
+
+        # np.mean's order of addition: one value after another onto the first, in
+        # float32 for the stresses -- for fewer than eight values; beyond, it is
+        # simply asked (below). Same order, same roundings. (np.add.reduceat
+        # associates differently, and the last bit shows.)
+        sum_b, sum_t, sum_tk = b[starts].copy(), t[starts].copy(), tk[starts].copy()
+        for k in range(1, min(int(counts.max()), 8)):
+            more = np.flatnonzero(counts > k)
+            sum_b[more] += b[starts[more] + k]
+            sum_t[more] += t[starts[more] + k]
+            sum_tk[more] += tk[starts[more] + k]
+        mean_b = (sum_b.astype(float) / counts[:, None]).astype(np.float32)
+        mean_t = (sum_t.astype(float) / counts[:, None]).astype(np.float32)
+        mean_tk = sum_tk / counts
+        for g in np.flatnonzero(averaged & (counts >= 8)):
+            span = slice(starts[g], starts[g] + counts[g])
+            mean_b[g], mean_t[g] = np.mean(b[span], axis=0), np.mean(t[span], axis=0)
+            mean_tk[g] = float(np.mean(tk[span]))
+
+        at = np.searchsorted(groups, node_ids)
+        found = at < len(groups)
+        found[found] = groups[at[found]] == node_ids[found]
+        hit = np.flatnonzero(found)
+        hit = hit[averaged[at[hit]]]
+        bottom[hit] = mean_b[at[hit]]
+        top[hit] = mean_t[at[hit]]
+        thickness[hit] = mean_tk[at[hit]]
+        return bottom, top, thickness
 
 
 def _nodal_shell_fields(step, node_ids, contrib, wanted, unit_factors):
-    bottom, top, thickness = _average_nodal_shell(contrib, node_ids)
+    bottom, top, thickness = contrib.average(node_ids)
     d = decompose_shell(bottom, top)
     out = []
     for surface, basic in (("upper", top), ("lower", bottom)):
@@ -552,10 +666,10 @@ def _profile_extents(sif) -> dict[int, tuple[float, float]]:
     return extents
 
 
-def _beam_properties(sif, mesh, labels):
-    geometry = _geometry_by_element(mesh)
-    props = sif.get_gbeamg_map()
-    extents = _profile_extents(sif)
+def _beam_properties(sif, mesh, labels, cache: dict | None = None):
+    geometry = _once(cache, "geometry", lambda: _geometry_by_element(mesh))
+    props = _once(cache, "gbeamg", sif.get_gbeamg_map)
+    extents = _once(cache, "profile_extents", lambda: _profile_extents(sif))
     names = ("area", "ix", "iy", "iz", "wxmin", "wymin", "wzmin", "shary", "sharz")
     indices = cards.GBEAMG.get_indices_from_names(list(names))
     out = []
@@ -573,7 +687,24 @@ def _beam_properties(sif, mesh, labels):
     return out
 
 
-def _beam_fields_for_raw(raw, mesh, sif, wanted):
+def _beam_denominators(properties) -> np.ndarray:
+    """``(n, 8)`` :data:`BEAM_STRESS_DENOMINATORS` per element; NaN where it has no section.
+
+    A missing opposite-side modulus falls back to the primary one, as
+    :func:`beam_stress` does for ``wymin2=None`` / ``wzmin2=None``."""
+    out = np.full((len(properties), len(BEAM_STRESS_DENOMINATORS)), np.nan)
+    fallback = {"wymin2": "wymin", "wzmin2": "wzmin"}
+    for i, prop in enumerate(properties):
+        if prop is None:
+            continue
+        out[i] = [
+            prop[fallback[name]] if name in fallback and prop.get(name) is None else prop[name]
+            for name in BEAM_STRESS_DENOMINATORS
+        ]
+    return out
+
+
+def _beam_fields_for_raw(raw, mesh, sif, wanted, cache: dict | None = None):
     values = np.asarray(raw.values, dtype=float)
     labels, counts = np.unique(values[:, 0].astype(int), return_counts=True)
     if not len(labels) or len(set(counts.tolist())) != 1:
@@ -582,15 +713,13 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
     per_element = values.reshape(len(labels), n_ips, -1)
     labels = per_element[:, 0, 0].astype(int)
     force = per_element[:, :, 2:8]
-    properties = _beam_properties(sif, mesh, labels)
+    denominators = _once(
+        cache,
+        ("beam_denominators", labels.tobytes()),
+        lambda: _beam_denominators(_beam_properties(sif, mesh, labels, cache)),
+    )
     unit_factors = sif.get_unit_factors()
-    b_stress = np.full(force.shape[:-1] + (8,), np.nan)
-    for i, prop in enumerate(properties):
-        if prop is not None:
-            b_stress[i] = beam_stress(
-                force[i],
-                **{k: prop[k] for k in ("area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2")},
-            )
+    b_stress = beam_stress_per_element(force, denominators)
 
     position_indices = {
         "resultpoints": np.arange(n_ips),
@@ -631,13 +760,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
                 )
             )
     force_avg = force[:, (0, n_ips - 1), :].mean(axis=1, keepdims=True)
-    b_avg = np.full(force_avg.shape[:-1] + (8,), np.nan)
-    for i, prop in enumerate(properties):
-        if prop is not None:
-            b_avg[i] = beam_stress(
-                force_avg[i],
-                **{k: prop[k] for k in ("area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2")},
-            )
+    b_avg = beam_stress_per_element(force_avg, denominators)
     if _wants(wanted, "element_average", "G-FORCE"):
         out.append(
             _element_field(
@@ -690,6 +813,10 @@ def build_derived_fields(
             force_by_step[int(raw.step)].append(raw)
 
     node_ids = np.asarray(mesh.nodes.identifiers, dtype=int)
+    # Mesh- and model-wide lookups, built once for every step (see _once) --
+    # and, kept on the reader, once for a streaming read that derives one step
+    # at a time over the same mesh.
+    cache = _lookup_cache(mesh, sif)
     for step, shell_fields in shell_by_step.items():
         shell_attributes = ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
         if wanted is not None and not any(
@@ -698,9 +825,9 @@ def build_derived_fields(
             for attribute in shell_attributes
         ):
             continue
-        contrib = defaultdict(list)
+        contrib = _ShellNodalContributions()
         for raw in shell_fields:
-            out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib, wanted))
+            out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib, wanted, cache))
         if any(_wants(wanted, "nodes", attribute) for attribute in shell_attributes):
             out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted, sif.get_unit_factors()))
     for force_fields in force_by_step.values():
@@ -711,7 +838,7 @@ def build_derived_fields(
         ):
             continue
         for raw in force_fields:
-            out.extend(_beam_fields_for_raw(raw, mesh, sif, wanted))
+            out.extend(_beam_fields_for_raw(raw, mesh, sif, wanted, cache))
     return out
 
 

@@ -14,6 +14,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
+import { useProviderName } from "@/state/providerNamesStore";
+import { providerIdTitle } from "@/assets/providerNames";
 import ClashRootPicker from "@/components/info_box_scene/ClashRootPicker";
 import IsolationControls from "@/components/info_box_scene/joints/IsolationControls";
 import {
@@ -139,6 +141,7 @@ const GeometryProviderSelector: React.FC<{ target: ClashCheckTarget | null }> = 
   const value = useClashCheckStore((s) => s.geometryProvider);
   const setGeometryProvider = useClashCheckStore((s) => s.setGeometryProvider);
   const choices = useMemo(() => geometryProviderChoices(target, available), [target, available]);
+  const pn = useProviderName();
   if (!target || target.kind === "file") return null;
   return (
     <label
@@ -153,8 +156,10 @@ const GeometryProviderSelector: React.FC<{ target: ClashCheckTarget | null }> = 
       >
         <option value="">Own provider (each member's)</option>
         {choices.map((c) => (
-          <option key={c.id} value={c.id} disabled={!c.readable} title={c.reason ?? undefined}>
-            {c.readable ? c.label : `${c.label} — ${c.reason}`}
+          <option key={c.id} value={c.id} disabled={!c.readable} title={c.reason ?? providerIdTitle(c.id)}>
+            {/* The scope's display name where it has one; else the pool's own label for it. */}
+            {pn(c.id) !== c.id ? pn(c.id) : c.label}
+            {c.readable ? "" : ` — ${c.reason}`}
           </option>
         ))}
       </select>
@@ -165,10 +170,11 @@ const GeometryProviderSelector: React.FC<{ target: ClashCheckTarget | null }> = 
 /** Where the result's geometry came from, when it was not each member's own provider. */
 const GeometrySourceLine: React.FC<{ result: ClashResult }> = ({ result }) => {
   const source = geometrySourceOf(result);
+  const pn = useProviderName();
   if (!source) return null;
   return (
     <Banner tone={source.unmatched ? "warn" : "info"}>
-      Geometry from <span className="font-mono">{source.provider}</span>
+      Geometry from <span title={providerIdTitle(source.provider)}>{pn(source.provider)}</span>
       {` · ${source.remapped} member${source.remapped === 1 ? "" : "s"} matched by name`}
       {source.unmatched > 0 && ` · ${source.unmatched} not found there (left out)`}
     </Banner>

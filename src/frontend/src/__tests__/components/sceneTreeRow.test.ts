@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { clickRow } from "../../components/tree_view/SceneTreeRow";
+import { clickRow, contextRow } from "../../components/tree_view/SceneTreeRow";
 
 function fakeNode(selected: boolean, disableMultiSelection = false) {
   const calls: string[] = [];
@@ -45,6 +45,15 @@ test("Cmd behaves the same, and a plain or Shift click is the library's own", ()
     clickRow(plain.node, click(mods));
     assert.deepEqual(plain.calls, ["handleClick"]);
   }
+});
+
+test("a right-click keeps a selection the row is in, and selects a row outside it", () => {
+  const inside = fakeNode(true);
+  contextRow(inside.node);
+  assert.deepEqual(inside.calls, [], "a multi-selection must survive the right-click");
+  const outside = fakeNode(false);
+  contextRow(outside.node);
+  assert.deepEqual(outside.calls, ["select"]);
 });
 
 test("with multi-select off, Ctrl-click is an ordinary click", () => {

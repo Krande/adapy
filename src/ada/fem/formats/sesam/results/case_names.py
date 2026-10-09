@@ -88,6 +88,28 @@ def _text_records(sin_file: Any, card: str) -> dict[int, str]:
     return out
 
 
+def _load_case_names_by_result_case(sin_file: Any) -> dict[int, str]:
+    """TDLOAD's names keyed by the RESULT case each load case became.
+
+    TDLOAD is keyed by the load case number (LLC), the result case by Sestra's own count (IRES, 1..n); RDRESREF's
+    IERES is the load case number again (measured, Sestra V11.3: GeniE's cases numbered 5 and 9 became IRES 1 and 2
+    with IERES 5 and 9). Where the two numberings differ, TDLOAD's numbers are taken through IERES -- read as result
+    cases they named result cases 5 and 9, which do not exist. A deck whose IERES do not cover every TDLOAD number
+    keeps the numbers as they are.
+    """
+    names = _text_records(sin_file, "TDLOAD")
+    if not names or "RDRESREF" not in sin_file.type_blocks:
+        return names
+    ires_of: dict[int, int] = {}
+    for rec in sin_file.iter_records("RDRESREF"):
+        # [ires, irno, ieres, ...] -- NFIELD stripped.
+        if len(rec) >= 3:
+            ires_of.setdefault(int(round(rec[2])), int(round(rec[0])))
+    if not set(names) <= set(ires_of):
+        return names
+    return {ires_of[llc]: name for llc, name in names.items()}
+
+
 def result_case_names(sin_file: Any) -> dict[int, str] | None:
     """``{case number: name}`` for a Sesam deck, or ``None`` when it names none.
 
@@ -99,7 +121,7 @@ def result_case_names(sin_file: Any) -> dict[int, str] | None:
     try:
         # Load cases first, so the result-case pass overwrites them rather than
         # the other way round.
-        names = _text_records(sin_file, "TDLOAD")
+        names = _load_case_names_by_result_case(sin_file)
         names.update(_text_records(sin_file, "TDRESREF"))
     except Exception:  # a deck we cannot read here is a deck with no names
         return None

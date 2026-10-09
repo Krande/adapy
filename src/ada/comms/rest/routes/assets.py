@@ -60,12 +60,19 @@ from ada.assets.manifest import (
 )
 from ada.assets.projection import HierarchyError, parse_hierarchy
 from ada.assets.provider import BuildDelivery, MeshDelivery
+from ada.assets.provider_labels import (
+    PROVIDER_LABELS_SETTING,
+    declared_provider_labels,
+    parse_provider_aliases,
+    resolve_provider_labels,
+)
 from ada.assets.publish import staged_prefix
 from ada.assets.registry import (
     AssetProviderError,
     asset_provider,
     asset_providers,
     registered_provider_ids,
+    registered_provider_labels,
 )
 from ada.assets.rollup import (
     ROLLUP_SCHEMA,
@@ -80,10 +87,12 @@ from ada.assets.unpublish import plan_unpublish
 from ada.config import logger
 
 from .. import auth as auth_module
+from .. import db as db_module
 from ..auth import User
 from ..job_transport import JobRequest
 from ..scope import Scope
 from .deps import RestContext, rest_context, scope_from_path
+from .plugins import online_plugin_specs
 
 router = APIRouter()
 
@@ -138,10 +147,46 @@ def _is_published(provider: str) -> bool:
     return provider == PUBLISHED_PROVIDER_ID or provider not in registered_provider_ids()
 
 
+async def _scope_provider_labels(request: Request, ctx: RestContext, scope_obj: Scope) -> dict[str, str]:
+    """``provider id -> display name`` for this scope, resolved: the scope's admin alias, else what
+    an online plugin spec declares, else the label the provider registered with. Absent when none.
+
+    Every source is best effort -- a display name is never worth failing the route over -- and a
+    failure is logged, so a missing alias is explainable.
+    """
+    try:
+        declared = declared_provider_labels((await online_plugin_specs(ctx)).values())
+    except Exception as exc:  # noqa: BLE001 - names are a courtesy; the provider list is the answer
+        logger.warning("asset providers: could not read plugin specs for display names: %s", exc)
+        declared = {}
+    aliases: dict[str, dict[str, str]] = {}
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        try:
+            aliases = parse_provider_aliases(await db_module.get_setting(pool, PROVIDER_LABELS_SETTING))
+        except Exception as exc:  # noqa: BLE001 - as above
+            logger.warning("asset providers: could not read %s: %s", PROVIDER_LABELS_SETTING, exc)
+    try:
+        scope_key: str | None = scope_obj.wire()
+    except ValueError:
+        # A personal scope has no admin aliases (the Providers tab leaves personal scopes out).
+        scope_key = None
+    return resolve_provider_labels(scope_key, aliases, declared, registered_provider_labels())
+
+
 @router.get("/scopes/{scope}/assets/providers")
-async def api_asset_providers(scope_obj: Scope = Depends(scope_from_path)) -> JSONResponse:
+async def api_asset_providers(
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
     """Registered providers. The built-in ``published`` one is always offered, because a scope may
-    hold published assets from a provider this process has never heard of."""
+    hold published assets from a provider this process has never heard of.
+
+    ``provider_labels`` is the display name of every provider -- registered or only published --
+    that has one in this scope (``ada.assets.provider_labels``), already resolved, so a viewer shows
+    one answer and never re-derives the order. A provider with none is absent: show its id.
+    """
     providers = [
         {
             "id": PUBLISHED_PROVIDER_ID,
@@ -152,7 +197,8 @@ async def api_asset_providers(scope_obj: Scope = Depends(scope_from_path)) -> JS
         }
     ]
     providers.extend(_public_provider(p) for p in asset_providers() if p["id"] != PUBLISHED_PROVIDER_ID)
-    return JSONResponse({"providers": providers})
+    labels = await _scope_provider_labels(request, ctx, scope_obj)
+    return JSONResponse({"providers": providers, "provider_labels": labels})
 
 
 @router.get("/scopes/{scope}/assets/index")

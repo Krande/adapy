@@ -17,6 +17,8 @@ import { loaderFor } from "@/state/assetBrowserLoader";
 import { useAssetBrowserStore } from "@/state/assetBrowserStore";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useMeStore } from "@/state/meStore";
+import { useProviderName } from "@/state/providerNamesStore";
+import { providerIdTitle } from "@/assets/providerNames";
 import { useSavedGroupsStore } from "@/state/savedGroupsStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
@@ -122,6 +124,7 @@ const RequestGeometryForm: React.FC<{ scope: string; group: SavedGroup; onClose:
   // resolving again for each would reset the form under the user.
   const [group] = useState(groupAtOpen);
   const isAdmin = useMeStore((s) => s.isAdmin);
+  const pn = useProviderName();
   const [providers, setProviders] = useState<readonly ProviderChoice[] | null>(null);
   const [plan, setPlan] = useState<GroupNodePlan | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
@@ -200,7 +203,7 @@ const RequestGeometryForm: React.FC<{ scope: string; group: SavedGroup; onClose:
                   <label
                     key={p.providerId}
                     className={`flex items-center gap-1.5 ${blocked ? "opacity-50" : "cursor-pointer"}`}
-                    title={blocked ? `Only an administrator can run ${p.req.pluginId}` : p.req.label}
+                    title={`${blocked ? `Only an administrator can run ${p.req.pluginId}` : p.req.label}\n${providerIdTitle(p.providerId)}`}
                   >
                     <input
                       type="checkbox"
@@ -214,7 +217,7 @@ const RequestGeometryForm: React.FC<{ scope: string; group: SavedGroup; onClose:
                         })
                       }
                     />
-                    <span className="truncate">{p.providerId}</span>
+                    <span className="truncate">{pn(p.providerId)}</span>
                     {p.req.onDemand && <span className="text-gray-500">(quick)</span>}
                   </label>
                 );

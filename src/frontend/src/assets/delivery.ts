@@ -85,6 +85,16 @@ export class DeliveryError extends Error {
   }
 }
 
+/** The build's answer was "nothing here to draw" (`empty` in the summary, the builder's
+ *  `NothingToBuild`): the node is real, but holds no element type the builder draws. Not a
+ *  failure -- a caller reports these together, quietly, and never as an error. */
+export class NothingToDraw extends DeliveryError {
+  constructor(message: string) {
+    super(message);
+    this.name = "NothingToDraw";
+  }
+}
+
 // --- wire -> the browser's model ---------------------------------------------------
 
 export function parseDeliveryClaim(wire: WireDeliveryClaim): DeliveryClaim {
@@ -135,6 +145,8 @@ export interface ParsedBuildSummary {
   readonly counts: Readonly<Record<string, number>>;
   readonly warnings: readonly string[];
   readonly error: string | null;
+  /** The builder found nothing to draw; `error` says why. */
+  readonly empty: boolean;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -189,6 +201,7 @@ export function parseBuildSummary(doc: unknown): ParsedBuildSummary {
     counts,
     warnings: Array.isArray(doc.warnings) ? doc.warnings.map(String) : [],
     error: doc.error != null ? String(doc.error) : null,
+    empty: doc.empty === true,
   };
 }
 
@@ -209,6 +222,9 @@ export function validateBuildSummary(
     readonly derivedPrefix: string;
   },
 ): void {
+  if (summary.empty) {
+    throw new NothingToDraw(summary.error || "the build found nothing to draw");
+  }
   if (!summary.ok) {
     throw new DeliveryError(summary.error || "build reported ok=false without an error");
   }

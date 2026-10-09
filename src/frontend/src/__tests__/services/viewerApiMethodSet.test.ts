@@ -64,7 +64,7 @@ const EXPECTED_METHODS = [
   "createProceduralModel", "createSystemTemplate", "deleteBlob", "deleteEquipmentType",
   "deleteProceduralEngine", "deleteProceduralModel", "deleteSystemTemplate", "downloadBlob",
   "downloadStatsExport", "exportProceduralModel", "exportProceduralModelXlsx",
-  "feaArtefactBlobUrl", "feaArtefactUploadTarget", "feaManifest", "fetchModelStats",
+  "feaArtefactBlobUrl", "feaArtefactUploadTarget", "feaCase", "feaManifest", "fetchModelStats",
   "fetchProceduralImportResult", "fetchProceduralRelocations", "getBlob", "getBlobRange",
   "getEquipmentType", "getProceduralEngine", "getProceduralModel", "getPublicSetting",
   "getSystemTemplate", "importProceduralModelXlsx", "inferEquipmentBbox",

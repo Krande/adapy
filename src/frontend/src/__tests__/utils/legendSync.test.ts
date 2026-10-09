@@ -121,6 +121,33 @@ test("the slider is left alone unless the caller moved it", () => {
   assert.equal(moved.morphTargetInfluences![0], 25);
 });
 
+test("a load combination's own range drives the legend, labelled as this case", () => {
+  const field = makeField();
+  const caseView = { ...field, n_steps: 1, scalar_range: { magnitude: [0.001, 0.5] } } as FeaManifestField;
+  sync(field, {
+    stepIndex: 4,
+    rangeField: caseView,
+    nSlots: 6,
+    legendScope: { scope: "case", label: "this case" },
+  });
+  const fea = useFeaAnimationStore.getState();
+  // Slots, not the field's own steps: the picker offers the combinations too.
+  assert.equal(fea.nSteps, 6);
+  assert.equal(fea.stepIndex, 4);
+  assert.equal(fea.legendScope, "case");
+  assert.equal(fea.legendScopeLabel, "this case");
+  const legend = useColorStore.getState();
+  assert.equal(legend.min, 0.001);
+  assert.equal(legend.max, 0.5);
+});
+
+test("without a scope the legend says nothing extra, as before", () => {
+  sync(makeField());
+  const fea = useFeaAnimationStore.getState();
+  assert.equal(fea.legendScope, "all");
+  assert.equal(fea.legendScopeLabel, null);
+});
+
 test("a field-less mesh is no result session and shows no legend", () => {
   useColorStore.setState({ showLegend: true });
   sync(null);
