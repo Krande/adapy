@@ -20,7 +20,7 @@ that drives the real application (see [Regenerating the screenshots](#regenerati
 ## Open a model
 
 A model in your storage opens in the 3D view together with its object tree. Here it is an IFC
-file of the [topology engine's](topology_engine.md) demo structure: columns, girders,
+file of the [topology engine's](architecture/topology_engine.md) demo structure: columns, girders,
 stiffeners and decks, organised the way the model's parts are.
 
 ![An IFC model opened from storage, with its object tree](screenshots/ada-studio/model.png)
@@ -76,7 +76,7 @@ joints match the built-in girder-gusset rule, and **generate detail model** buil
 - **Groups:** named selections that are saved with the scope and shared with everyone who can
   read it.
 - **Procedural models:** cell-model documents compiled into structures, equipment and routed
-  systems by the [topology engine](topology_engine.md), with equipment and system catalogs.
+  systems by the [topology engine](architecture/topology_engine.md), with equipment and system catalogs.
 - **Plugins:** UI shells, panels and URL handlers on the frontend side, and plugin backends,
   artefact contributors and job kinds on the worker side.
 - **Administration:** users, projects, storage, workers, scheduled audits of conversions,
