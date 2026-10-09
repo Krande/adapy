@@ -49,4 +49,4 @@ and BIM models and act as a high-level scripting library for parametric and proc
 
 _paradoc_ was created to simplify the generation of reports by creating the structure of the document and text
 in markdown with a string substitution scheme that lets you easily pass in tables, functions and finally be
-able to produce production ready documents in Microsoft Word.
+able to produce production ready documents in PDF, ODT or Microsoft Word (docx).
