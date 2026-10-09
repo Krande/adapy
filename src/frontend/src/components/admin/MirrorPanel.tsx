@@ -90,27 +90,36 @@ const MirrorPanel: React.FC<Props> = ({provider}) => {
     const [projectFilter, setProjectFilter] = useState("");
     const [projectsOpen, setProjectsOpen] = useState(false);
 
-    const loadSetting = useCallback(async () => {
+    const loadSetting = useCallback(async (): Promise<MirrorSetting> => {
+        let next: MirrorSetting = {enabled: false, projects: []};
         try {
-            const raw = await viewerApi.getPublicSetting(settingKey);
-            setSetting(parseSetting(raw));
+            next = parseSetting(await viewerApi.getPublicSetting(settingKey));
         } catch {
             // An unset key is the normal first state, not a failure.
-            setSetting({enabled: false, projects: []});
         }
+        setSetting(next);
+        return next;
     }, []);
 
     // `checkSource` false skips one HEAD against the upstream catalogue per site. The first paint
     // wants what is cached and not a round trip per model; entries then report
     // staleness as unknown, which the table renders as "—" rather than as
     // up to date. Pressing Check asks the real question.
+    //
+    // `projects` is the admin's choice from this panel. It has to travel with the
+    // job: the worker cannot read settings, so without it the provider falls back
+    // to its own default list -- and a deployment without one refuses outright,
+    // whatever was ticked here. Empty means "the provider's default list".
     const loadStatus = useCallback(
-        async (checkSource: boolean) => {
+        async (checkSource: boolean, projects: string[]) => {
             setLoading(true);
             setError(null);
             setUnavailable(null);
             try {
-                const out = await mirrorStatus(provider, CATALOGUE_SCOPE, {checkSource});
+                const out = await mirrorStatus(provider, CATALOGUE_SCOPE, {
+                    checkSource,
+                    projects: projects.length ? projects : undefined,
+                });
                 setReport(out);
             } catch (e) {
                 setReport(null);
@@ -137,24 +146,31 @@ const MirrorPanel: React.FC<Props> = ({provider}) => {
     }, [available, provider]);
 
     useEffect(() => {
-        void loadSetting();
-        void loadStatus(false);
+        // The setting first: the status read needs the projects it names.
+        void loadSetting().then((s) => loadStatus(false, s.projects));
     }, [loadSetting, loadStatus]);
 
     const persist = useCallback(
         async (next: MirrorSetting) => {
             setBusy("setting");
             setError(null);
+            let saved = false;
             try {
                 await viewerApi.adminSetSetting(settingKey, JSON.stringify(next));
                 setSetting(next);
+                saved = true;
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
             } finally {
                 setBusy(null);
             }
+            // A different selection is a different question for the provider:
+            // ask it again, so the report and the Sync button reflect the ticks.
+            if (saved && next.projects.join("\u0000") !== setting.projects.join("\u0000")) {
+                void loadStatus(false, next.projects);
+            }
         },
-        [],
+        [setting.projects, loadStatus],
     );
 
     // A SYNC IS NOT AWAITED. A first mirror of a project is hundreds of sites
@@ -187,7 +203,10 @@ const MirrorPanel: React.FC<Props> = ({provider}) => {
 
             let job;
             try {
-                job = await startMirrorSync(provider, CATALOGUE_SCOPE, {force});
+                job = await startMirrorSync(provider, CATALOGUE_SCOPE, {
+                    force,
+                    projects: setting.projects.length ? setting.projects : undefined,
+                });
             } catch (e) {
                 // The ENQUEUE failing is this panel's problem to show: it means
                 // the deployment refused before any work started, and the toast
@@ -222,10 +241,17 @@ const MirrorPanel: React.FC<Props> = ({provider}) => {
                 }
             })();
         },
-        [provider],
+        [provider, setting.projects],
     );
 
     const projects = report ? Object.entries(report.projects) : [];
+    // Why Sync is unavailable, in the order an admin can act on it. Shown as the
+    // button's tooltip: a disabled button that does not say why reads as broken.
+    const syncBlocked = !setting.enabled
+        ? "Switch the cache on first"
+        : unavailable
+          ? `Nothing to sync: ${unavailable}`
+          : null;
     const anyStale = projects.some(([, p]) => p.stale > 0);
     const anyMissing = projects.some(([, p]) => p.cached < p.total);
 
@@ -246,18 +272,16 @@ const MirrorPanel: React.FC<Props> = ({provider}) => {
                     type="button"
                     className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
                     disabled={loading || busy !== null}
-                    onClick={() => void loadStatus(true)}
+                    onClick={() => void loadStatus(true, setting.projects)}
                 >
                     {loading ? "Checking…" : "Check"}
                 </button>
                 <button
                     type="button"
                     className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
-                    disabled={!setting.enabled || busy !== null || unavailable !== null}
+                    disabled={syncBlocked !== null || busy !== null}
                     title={
-                        setting.enabled
-                            ? "Transfer anything the upstream catalogue has changed since it was last cached"
-                            : "Switch the cache on first"
+                        syncBlocked ?? "Transfer anything the upstream catalogue has changed since it was last cached"
                     }
                     onClick={() => void sync(false)}
                 >
