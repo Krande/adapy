@@ -611,15 +611,23 @@ class AdacppBackend:
                     f"AdacppBackend.build: FixedReferenceSweptAreaSolid swept_area "
                     f"{type(area).__name__!r} not yet ported to adacpp."
                 )
-            # MakePipeShell sweeps the profile *wire* (already positioned in 3D
-            # at the directrix start) along the directrix spine.
-            directrix = self._encode_curve(g.directrix)
-            outer = self._encode_curve(area.outer_curve)
-            shape = self._cad.build_fixed_reference_swept_area_solid(
-                directrix,
-                outer,
-                self._xyz(g.position.location),
-            )
+            from ada.geom.sweep_frames import swept_area_is_planar_2d
+
+            if swept_area_is_planar_2d(area) and not isinstance(g.directrix, gcu.GradientCurve):
+                # A flat section (BeamSweep / BeamCurved) must be PLACED at every station of
+                # the path; the native PipeShell below sweeps a wire where it lies (and its
+                # contact mode moves a section centred on the spine off it).
+                shape = self._loft_planar_sweep(g, area)
+            else:
+                # MakePipeShell sweeps the profile *wire* (already positioned in 3D
+                # at the directrix start) along the directrix spine.
+                directrix = self._encode_curve(g.directrix)
+                outer = self._encode_curve(area.outer_curve)
+                shape = self._cad.build_fixed_reference_swept_area_solid(
+                    directrix,
+                    outer,
+                    self._xyz(g.position.location),
+                )
         elif isinstance(g, su.HalfSpaceSolid):
             # Infinite half-space cutter (boolean second operand, e.g. an IFC
             # IfcHalfSpaceSolid clipping a beam). ``flip`` selects which side is the solid
@@ -894,6 +902,40 @@ class AdacppBackend:
         # Apply booleans natively (operands built recursively in adacpp).
         for op in geometry.bool_operations:
             shape = self.boolean(op.operator, shape, self.build(op.second_operand))
+        return shape
+
+    def _loft_planar_sweep(self, g, area) -> ShapeHandle:
+        """A flat section swept along a path: the section is placed at every station of the
+        shared sweep frames (``ada.geom.sweep_frames.frames_for_solid`` -- the stations the NGEOM
+        stream and OCC builders use) and lofted (ruled) through them. Each void is lofted the
+        same way and cut out, so a tube stays hollow."""
+        import numpy as np
+
+        from ada.geom.booleans import BoolOpEnum
+        from ada.geom.sweep_frames import (
+            decimate_stations,
+            extend_stations,
+            frames_for_solid,
+            profile_loops_2d,
+        )
+
+        origins, dir_x, dir_y = frames_for_solid(g)
+        if len(origins) < 2:
+            raise NotImplementedError("FixedReferenceSweptAreaSolid: directrix has < 2 stations")
+        loops = profile_loops_2d(area)
+        extent = float(np.ptp(np.vstack(loops), axis=0).max())
+        keep = decimate_stations(origins, dir_x, dir_y, extent)
+        stations = origins[keep], dir_x[keep], dir_y[keep]
+        # Void cutters run past both ends so their caps are not coplanar with the solid's.
+        cut_stations = extend_stations(*stations, 0.05 * extent)
+
+        def loft(loop: np.ndarray, o, dx, dy) -> ShapeHandle:
+            sections = [o[i] + loop[:, :1] * dx[i] + loop[:, 1:2] * dy[i] for i in range(len(o))]
+            return self.loft_profiles([s.tolist() for s in sections], ruled=True, solid=True)
+
+        shape = loft(loops[0], *stations)
+        for inner in loops[1:]:
+            shape = self.boolean(BoolOpEnum.DIFFERENCE, shape, loft(inner, *cut_stations))
         return shape
 
     @staticmethod

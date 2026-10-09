@@ -377,3 +377,12 @@ class _SyncStorageFacade:
         # `pre_compressed` only when asked: a stand-in storage need not know the keyword.
         extra = {"pre_compressed": True} if pre_compressed else {}
         self._run(self._s.put_bytes(self._scope, key, data, content_encoding=content_encoding, **extra))
+
+    def put_path(self, key: str, src, content_encoding: "str | None" = None, pre_compressed: bool = False) -> dict:
+        """Stream a file already on local disk to ``key`` -- :meth:`Storage.put_path`, so a large
+        output is never read whole into memory. Same encoding semantics as :meth:`put_bytes`."""
+        return self._run(
+            self._s.put_path(
+                self._scope, key, pathlib.Path(src), content_encoding=content_encoding, pre_compressed=pre_compressed
+            )
+        )

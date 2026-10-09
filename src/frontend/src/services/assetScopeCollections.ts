@@ -154,6 +154,10 @@ export function serialiseScopeCollections(map: ScopeCollectionsMap): string {
 /** One asset provider whose collections a live plugin advertises. */
 export interface AssetProviderCollections {
   providerId: string;
+  /** The provider's own display name (`asset_provider_label` on a declaring spec), or null. What
+   *  the viewer shows is the server's resolved answer (`@/assets/providerNames`); this is what an
+   *  admin alias falls back to, shown as the alias field's placeholder. */
+  label: string | null;
   /** Backend plugin ids declaring it, for the tab to say where the list came from. */
   pluginIds: readonly string[];
   /** Human titles of those plugins, where they gave one. */
@@ -286,6 +290,7 @@ export function assetProviderCollections(
     {
       pluginIds: string[];
       titles: string[];
+      label: string | null;
       collections: Set<string>;
       refresh: AssetCollectionsRefresh | null;
       request: AssetCollectionRequest | null;
@@ -301,6 +306,7 @@ export function assetProviderCollections(
     const entry = byProvider.get(providerId) ?? {
       pluginIds: [],
       titles: [],
+      label: null,
       collections: new Set<string>(),
       refresh: null,
       request: null,
@@ -321,6 +327,7 @@ export function assetProviderCollections(
       entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, spec.requires_admin === true);
     }
     if (!entry.requestOptions) entry.requestOptions = parseRequestOptions(pluginId, spec);
+    if (!entry.label) entry.label = declaredLabel(spec, providerId);
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
     }
@@ -333,6 +340,7 @@ export function assetProviderCollections(
   return [...byProvider.entries()]
     .map(([providerId, e]) => ({
       providerId,
+      label: e.label,
       pluginIds: e.pluginIds,
       titles: e.titles,
       collections: [...e.collections].sort(compare),
@@ -342,6 +350,16 @@ export function assetProviderCollections(
       requestOptions: e.requestOptions,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
+}
+
+/** A spec's `asset_provider_label` for `providerId`: a string naming the spec's own provider, or a
+ *  `{provider id: label}` map. Inner whitespace collapsed; empty is none. */
+function declaredLabel(spec: Record<string, unknown>, providerId: string): string | null {
+  const raw = spec.asset_provider_label;
+  const value = isRecord(raw) ? raw[providerId] : raw;
+  if (typeof value !== "string") return null;
+  const label = value.split(/\s+/).filter(Boolean).join(" ");
+  return label || null;
 }
 
 /** One checkbox in the tab. */

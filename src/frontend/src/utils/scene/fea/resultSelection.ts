@@ -2,6 +2,7 @@ import { useFeaAnimationStore } from "@/state/feaAnimationStore";
 import { load_fea_streaming } from "@/utils/scene/handlers/load_fea_streaming";
 import { availableResultLayers } from "@/utils/scene/fea/resultLayers";
 import type { ContourSettings } from "@/utils/scene/fea/contourScale";
+import { clampSlot } from "@/utils/scene/fea/caseSteps";
 
 /** Shared action for compact controls and external/docked result trees. */
 export async function selectFeaResultComponent(
@@ -33,7 +34,9 @@ export async function selectFeaResultComponent(
   }
   if (field.default_view?.ip_reduction)
     state.setIpReduction(field.default_view.ip_reduction);
-  const stepIndex = Math.min(state.stepIndex, Math.max(field.n_steps - 1, 0));
+  // A slot, not a stored index: past the field's own steps are the load
+  // combinations (fea/caseSteps.ts), which every result field offers alike.
+  const stepIndex = clampSlot(manifest, field, state.stepIndex);
   await load_fea_streaming({
     sourceName,
     manifest,
@@ -70,7 +73,7 @@ export async function selectFeaResultLayer(layer: string): Promise<void> {
     sourceName,
     manifest,
     fieldName: targetFieldName,
-    stepIndex: Math.min(state.stepIndex, Math.max(targetField.n_steps - 1, 0)),
+    stepIndex: clampSlot(manifest, targetField, state.stepIndex),
     reduction: targetField.components.includes(state.reduction)
       ? state.reduction
       : (targetField.default_view?.reduction ?? targetField.components[0] ?? "scalar"),

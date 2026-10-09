@@ -8,6 +8,7 @@ import Menu from './components/Menu';
 import {runtime} from "@/runtime/config";
 
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
+import {SceneMenuHost} from './components/tree_view/SceneTreeMenu';
 import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import {AdaViewerProvider} from "./state/AdaViewerContext";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
@@ -125,6 +126,8 @@ function AppBody() {
             <div className={"relative h-full"}>
                 <ResizableTreeView/>
             </div>
+            {/* The Scene's right-click menu, for tree rows and 3D picks alike; portals to the body. */}
+            <SceneMenuHost/>
 
             <div className={"relative top-0 left-0"}>
                 <Menu/>

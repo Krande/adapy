@@ -9,6 +9,7 @@ protocol so the issue-bot dispatch loop in
 Endpoints we exercise:
 
 * ``GET    /repos/{repo}/issues?labels=...&state=...`` — find by label.
+* ``GET    /repos/{repo}/issues/{number}`` — read back a claimed issue.
 * ``POST   /repos/{repo}/issues`` — open a new issue with body + labels.
 * ``POST   /repos/{repo}/issues/{number}/comments`` — comment on existing.
 * ``PATCH  /repos/{repo}/issues/{number}`` — update the body (used to
@@ -70,6 +71,8 @@ class GitForgeClient(Protocol):
     ) -> list[IssueRef]: ...
 
     async def find_issue_by_title(self, title: str) -> IssueRef | None: ...
+
+    async def get_issue(self, number: int) -> IssueRef: ...
 
     async def create_issue(
         self,
@@ -169,6 +172,13 @@ class _BaseClient:
             if d.get("title") == title:
                 return _parse_issue(d)
         return None
+
+    async def get_issue(self, number: int) -> IssueRef:
+        """One issue by number -- unlike the label search, never behind a fresh write.
+        A missing issue raises :class:`IssueClientError` with ``status`` 404 (410 on a
+        forge that reports deletions as gone)."""
+        r = await self._request("GET", self._issues_url(str(number)))
+        return _parse_issue(r.json())
 
     async def create_issue(
         self,

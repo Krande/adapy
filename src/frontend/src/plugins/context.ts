@@ -138,9 +138,7 @@ function makeSceneHandle(): SceneHandle {
       requestRender();
     },
     unloadModel(sourceName) {
-      void import("@/utils/scene/handlers/unload_source_from_scene").then(
-        ({ unload_source_from_scene }) => unload_source_from_scene(sourceName),
-      );
+      void import("@/utils/scene/handlers/unload_any_source").then(({ unload_any_source }) => unload_any_source(sourceName));
     },
   };
 }

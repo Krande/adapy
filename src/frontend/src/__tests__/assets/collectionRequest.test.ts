@@ -11,6 +11,7 @@ import {
   requestNodes,
   requestOptionChoices,
   unchangedOf,
+  nothingOf,
   requestOptions,
   stagingIdOf,
   type CollectionRequestApi,
@@ -196,6 +197,16 @@ test("a provider that finds its source unchanged gets no publish, and the outcom
   assert.equal(out.message, "same ETags");
   assert.equal(calls.filter((c) => c.kind === "publish").length, 0, "nothing is published");
   assert.equal(unchangedOf({ asset_staging_id: "x" }), null);
+});
+
+test("a provider with nothing for the node answers without a publish and without failing", async () => {
+  const { api, calls } = fakeApi({ fetchSummary: { asset_nothing: true, message: "no such site in the current export" } });
+  const out = await requestNode({ api, wait: noWait }, "project:1", "vendor", { ...REQ, nodeOption: "nodes" }, "alpha", "n1");
+  assert.equal(out.nothing, true);
+  assert.equal(out.message, "no such site in the current export");
+  assert.equal(out.stagingId, "");
+  assert.equal(calls.filter((c) => c.kind === "publish").length, 0, "nothing is published");
+  assert.equal(nothingOf({ asset_staging_id: "x" }), null);
 });
 // --- provider options: sent with every request for the collection ---------------------------
 

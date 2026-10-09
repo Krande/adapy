@@ -13,6 +13,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ada.assets.provider_labels import (
+    PROVIDER_LABELS_SETTING,
+    ProviderLabelError,
+    normalise_provider_aliases,
+)
+
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
@@ -55,6 +61,13 @@ async def admin_set_setting(
     if "value" not in body:
         raise HTTPException(status_code=400, detail="value required")
     value = "" if body["value"] is None else str(body["value"])
+    if key == PROVIDER_LABELS_SETTING:
+        # Validated and normalised here, the one place it is written: a display name the read path
+        # would silently drop is refused with the reason instead.
+        try:
+            value = normalise_provider_aliases(value)
+        except ProviderLabelError as exc:
+            raise HTTPException(status_code=400, detail=f"{key}: {exc}") from exc
     await db_module.set_setting(pool, key, value, updated_by=user.sub)
     if key == CAPABILITY_REQUIREMENTS_SETTING:
         await publish_capability_requirements(ctx.queue, value)

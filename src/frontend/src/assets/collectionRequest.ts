@@ -62,8 +62,22 @@ export interface CollectionRequestOutcome {
   revision: string;
   subjects: readonly string[];
   unchanged?: boolean;
-  /** The provider's own words for an unchanged answer, e.g. what it compared. */
+  /** The provider has nothing for what was asked (`asset_nothing`): nothing was staged or published,
+   *  and asking again would get the same answer. Not a failure. */
+  nothing?: boolean;
+  /** The provider's own words for an unchanged or nothing answer, e.g. what it compared. */
   message?: string;
+}
+
+/** A provider's "I have nothing for that" answer: `{asset_nothing: true, message?}` in place of
+ *  `asset_staging_id` -- a node its source does not carry (a site a source models and another does
+ *  not, or one gone from the source's latest export). An answer, not an error: the job succeeded.
+ *  Null for any other summary. */
+export function nothingOf(summary: unknown): { message: string | null } | null {
+  if (!summary || typeof summary !== "object") return null;
+  const s = summary as Record<string, unknown>;
+  if (s.asset_nothing !== true) return null;
+  return { message: typeof s.message === "string" ? s.message : null };
 }
 
 /** A provider's "nothing changed" answer: `{asset_unchanged: true, revision, subjects?, message?}`
@@ -239,6 +253,18 @@ async function stageAndPublish(
       subjects: same.subjects,
       unchanged: true,
       message: same.message ?? `${what} is unchanged since ${same.revision || "its last publish"}`,
+    };
+  }
+  // The source has nothing for what was asked: no staging, no publish, and no error.
+  const nothing = nothingOf(summary);
+  if (nothing) {
+    return {
+      stagingId: "",
+      collection,
+      revision: "",
+      subjects: [],
+      nothing: true,
+      message: nothing.message ?? `${req.pluginId} has nothing for ${what}`,
     };
   }
   const stagingId = stagingIdOf(summary);

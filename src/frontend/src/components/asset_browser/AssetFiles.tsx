@@ -13,7 +13,9 @@
 import React, { useCallback, useState } from "react";
 
 import { assetSourcesApi, assetsApi, type WireAssetSource } from "@/services/api/assets";
+import { providerIdTitle } from "@/assets/providerNames";
 import type { ScopeUrl } from "@/services/api/client";
+import { providerName, useProviderName } from "@/state/providerNamesStore";
 
 import { formatRevision } from "./format";
 
@@ -58,7 +60,7 @@ const AssetFiles: React.FC<{
 
     const q = filter.trim().toLowerCase();
     const sources = (data?.sources ?? []).filter(
-        (s) => !q || `${s.label} ${s.collection} ${s.provider} ${s.revision}`.toLowerCase().includes(q),
+        (s) => !q || `${s.label} ${s.collection} ${s.provider} ${providerName(s.provider)} ${s.revision}`.toLowerCase().includes(q),
     );
 
     const act = async (label: string, fn: () => Promise<string | null>) => {
@@ -77,7 +79,7 @@ const AssetFiles: React.FC<{
     };
 
     const removeSource = (s: WireAssetSource) => {
-        const what = `${s.label} (${s.provider}, ${s.collection} @ ${formatRevision(s.revision)})`;
+        const what = `${s.label} (${providerName(s.provider)}, ${s.collection} @ ${formatRevision(s.revision)})`;
         if (
             !window.confirm(
                 `Delete ${what}?\n\nEverything derived from it goes with it: ${s.derived_files} file(s), ` +
@@ -182,6 +184,7 @@ const SourceRow: React.FC<{
     disabled: boolean;
     onDelete: () => void;
 }> = ({ scope, source, busy, disabled, onDelete }) => {
+    const pn = useProviderName();
     const [files, setFiles] = useState<{ key: string; size: number }[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     return (
@@ -196,11 +199,14 @@ const SourceRow: React.FC<{
                 }}
             >
                 <summary className="flex items-center gap-2 cursor-pointer rounded px-1 hover:bg-white/5">
-                    <span className="truncate font-medium text-gray-100" title={`${source.provider} · ${source.collection} @ ${source.revision}`}>
+                    <span
+                        className="truncate font-medium text-gray-100"
+                        title={`${pn(source.provider)} · ${source.collection} @ ${source.revision}\n${providerIdTitle(source.provider)}`}
+                    >
                         {source.label}
                     </span>
                     <span className="truncate text-gray-500">
-                        {source.collection} · {source.provider} · {formatRevision(source.revision)}
+                        {source.collection} · {pn(source.provider)} · {formatRevision(source.revision)}
                     </span>
                     <span
                         className="ml-auto shrink-0 font-mono text-[11px] text-gray-500"

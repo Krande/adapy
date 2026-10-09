@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import asyncpg
 
@@ -454,3 +456,71 @@ async def set_issue_recheck_verdict(
         verdict,
         detail,
     )
+
+
+# ── Issue claims (migration 033) ───────────────────────────────────
+
+# Advisory-lock class for "one sync per fingerprint". The two-int lock form keeps these out
+# of the single-bigint key space the migration runner's lock lives in.
+_ISSUE_CLAIM_LOCK_CLASS = 0x0ADA0002
+
+
+class _PgHeld:
+    def __init__(self, conn, target: str, fp: str):
+        self._conn = conn
+        self._target = target
+        self._fp = fp
+
+    async def get(self) -> int | None:
+        return await self._conn.fetchval(
+            "SELECT issue_number FROM audit_issue_claims WHERE target = $1 AND fp = $2",
+            self._target,
+            self._fp,
+        )
+
+    async def record(self, number: int) -> None:
+        await self._conn.execute(
+            """
+            INSERT INTO audit_issue_claims (target, fp, issue_number)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (target, fp)
+            DO UPDATE SET issue_number = EXCLUDED.issue_number, updated_at = NOW()
+            """,
+            self._target,
+            self._fp,
+            number,
+        )
+
+    async def forget(self) -> None:
+        await self._conn.execute(
+            "DELETE FROM audit_issue_claims WHERE target = $1 AND fp = $2",
+            self._target,
+            self._fp,
+        )
+
+
+class PgIssueClaims:
+    """:class:`ada.comms.rest.audit_issue.IssueClaims` on Postgres: a session advisory lock
+    per fingerprint, held on one pooled connection for the length of that fingerprint's
+    sync, and the ``audit_issue_claims`` row it reads and writes. Every replica and worker
+    sharing the database is serialised; a connection that dies releases its lock.
+
+    ``target`` names the forge + repo the issue numbers belong to
+    (``"<kind>:<base url>:<owner/name>"``).
+    """
+
+    durable = True
+
+    def __init__(self, pool: asyncpg.Pool, *, target: str):
+        self._pool = pool
+        self._target = target
+
+    @asynccontextmanager
+    async def hold(self, fp: str) -> AsyncIterator[_PgHeld]:
+        key = f"{self._target}|{fp}"
+        async with self._pool.acquire() as conn:
+            await conn.execute("SELECT pg_advisory_lock($1, hashtext($2))", _ISSUE_CLAIM_LOCK_CLASS, key)
+            try:
+                yield _PgHeld(conn, self._target, fp)
+            finally:
+                await conn.execute("SELECT pg_advisory_unlock($1, hashtext($2))", _ISSUE_CLAIM_LOCK_CLASS, key)

@@ -60,18 +60,67 @@ def _make_sif_reader(path: pathlib.Path) -> "FEAStreamReader":
     return SifStreamReader(path)
 
 
+#: The most result rows (RV* records, over every case including the load
+#: combinations still to be superposed) a SIN is materialised whole with, unless
+#: told otherwise. Materialised, a row costs a couple of kilobytes once its derived
+#: fields are counted, so this is a peak of the order of 4-5 GB.
+SIN_MATERIALISE_MAX_ROWS = 2_000_000
+
+
+def _sin_too_big_to_materialise(path: pathlib.Path, max_rows: int | None = None) -> bool:
+    """Whether reading ``path`` whole would hold more than ``max_rows`` result rows.
+
+    Cheap: the record counts come from the pointer tables, the stored cases from
+    each RV* record's first word, the combinations from their recipes -- no
+    result value is read. Unstored combinations count as the average stored
+    case's rows each, which is what superposing them materialises. A file that
+    cannot be sized this way is left to the default reader.
+    """
+    from ada.fem.formats.sesam.results.read_sin import (
+        _RV_TYPE_NAMES,
+        SinReader,
+        read_result_combination_terms,
+    )
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    limit = SIN_MATERIALISE_MAX_ROWS if max_rows is None else max_rows
+    try:
+        with open_sin(str(path)) as sin:
+            rows = sum(
+                int(np.count_nonzero(sin.type_blocks[name].pointer_table))
+                for name in _RV_TYPE_NAMES
+                if name in sin.type_blocks
+            )
+            if rows > limit:
+                return True
+            if not rows:
+                return False
+            stored = SinReader(sin=sin).stored_steps()
+            unstored = sum(
+                1 for ires, recipe in read_result_combination_terms(sin).items() if recipe and ires not in stored
+            )
+    except Exception:  # noqa: BLE001 - sizing is advice; the reader proper reports a bad file
+        return False
+    if not stored or not unstored:
+        return False
+    return rows * (len(stored) + unstored) / len(stored) > limit
+
+
 def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None) -> "FEAStreamReader":
     # Pure-Python Sesam Norsam-binary reader (see
     # ada.fem.formats.sesam.results.read_sin). No Prepost.exe shell-out
     # and no SIF text intermediate — feeds the streaming bake directly.
     #
-    # Default: the full-materialise adapter — fastest, and it enriches
-    # step labels from SESTRA.LIS eigen-frequencies. The admin "Stream
-    # SIN FEA bake" toggle sets ADA_FEA_SIN_STREAMER to opt into the
-    # per-step SinStreamReader instead: ~1.7x slower but peak RSS stays
-    # flat in step count, for many-mode / large decks whose full result
-    # would OOM the worker. On the streamer path step labels fall back to
-    # the IRES mode index (no LIS enrichment).
+    # The full-materialise adapter is the faster of the two and enriches step
+    # labels from SESTRA.LIS eigen-frequencies; the per-step SinStreamReader is
+    # slower but its peak RSS stays flat in step count. On the streamer path step
+    # labels fall back to the IRES mode index (no LIS enrichment).
+    #
+    # ADA_FEA_SIN_STREAMER (the admin "Stream SIN FEA bake" toggle) picks one:
+    # on -> always stream, off -> always materialise. Unset, a deck whose result
+    # tables would not fit is streamed (_sin_too_big_to_materialise): a deck that
+    # stores 13 cases and leaves 90 load combinations to superpose needs over
+    # 40 GB materialised and about 3 GB streamed.
     #
     # ``steps`` (result-case numbers) always takes the streamer, restricted to
     # those cases: the full-materialise adapter reads every case before it can
@@ -79,7 +128,12 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None) -
     # of gigabytes for the sake of one case.
     import os
 
-    if steps is not None or os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower() in {"1", "true", "yes", "on"}:
+    choice = os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower()
+    if (
+        steps is not None
+        or choice in {"1", "true", "yes", "on"}
+        or (choice not in {"0", "false", "no", "off"} and _sin_too_big_to_materialise(path))
+    ):
         from ada.fem.formats.sesam.results.read_sin import SinStreamReader
         from ada.fem.formats.sesam.results.sin_reader import open_sin
 
@@ -88,6 +142,65 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None) -
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
     return FEAResultStreamAdapter(read_sin_file(path))
+
+
+def _sin_lazy_base_steps(path: pathlib.Path) -> "list[int] | None":
+    """The stored cases of a SIN whose load combinations are not stored, else None.
+
+    Cheap: each RV* record's first word and the RDRESCMB recipes -- no result
+    value is read. ``None`` when there is nothing to leave out (no combination,
+    or every one stored) or no stored case to superpose from.
+    """
+    from ada.fem.formats.sesam.results.read_sin import (
+        SinReader,
+        read_result_combination_terms,
+    )
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    with open_sin(str(path)) as sin:
+        combinations = read_result_combination_terms(sin)
+        if not combinations:
+            return None
+        stored = SinReader(sin=sin).stored_steps()
+    unstored = [n for n, recipe in combinations.items() if recipe and n not in stored]
+    if not stored or not unstored:
+        return None
+    return sorted(stored)
+
+
+_LazyPlanner = Callable[[pathlib.Path], "list[int | float] | None"]
+
+_LAZY_PLANNERS: dict[str, _LazyPlanner] = {".sin": _sin_lazy_base_steps}
+
+
+def register_lazy_case_planner(suffix: str, planner: _LazyPlanner) -> None:
+    """Register how a format tells which steps a lazy base bake holds.
+
+    ``planner(path)`` returns the steps to bake (the stored cases) when the source
+    defines cases that are linear combinations of them and does not store them,
+    else ``None`` (bake everything, as before)."""
+    _LAZY_PLANNERS[suffix] = planner
+
+
+def lazy_base_steps(src_path: os.PathLike) -> "list[int | float] | None":
+    """The steps of a lazy base bake of ``src_path``, or None for a whole bake.
+
+    A source that stores its basic load cases and defines its combinations as
+    recipes bakes the basic cases only; the combinations are materialised on
+    request from the baked strides (see :mod:`.combine`). A planner that fails
+    leaves the bake whole -- the old behaviour, never a broken bake.
+    """
+    src_path = pathlib.Path(src_path)
+    planner = _LAZY_PLANNERS.get(src_path.suffix.lower())
+    if planner is None:
+        return None
+    try:
+        return planner(src_path)
+    except Exception:  # noqa: BLE001 - advice; the reader proper reports a bad file
+        from ada.config import get_logger
+
+        get_logger().warning("lazy-case planning failed for %s; baking every case", src_path, exc_info=True)
+        return None
 
 
 def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
