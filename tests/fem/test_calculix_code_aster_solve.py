@@ -48,6 +48,25 @@ WID, T = 0.5, 0.010
 SOLVERS = ("calculix", "code_aster")
 #: ccx's .frd prints ``%12.5E``: half a unit in the sixth significant digit.
 FRD = 5e-6
+#: Code_Aster on shells, across builds and CPUs. One deck run on one Code_Aster version (conda-forge 18.1.7) gives
+#: answers that differ from about the ninth digit on. MUMPS factorises with the BLAS (MKL on win-64, OpenBLAS on
+#: linux-64), the CPU decides which kernels the BLAS uses, and each kernel rounds differently. Thread counts make no
+#: difference (measured, 1 to 8). The shell tests below were first written to what one machine measured (1e-9, 2e-9)
+#: and failed on the GitHub runners. The measured spread, relative to the exact answer, covers both runners and two
+#: local machines, every kernel path a local CPU can be forced onto (OPENBLAS_CORETYPE: 7 kernels; MKL_CBWR: 4 paths),
+#: and on Windows also the other MUMPS orderings and the MULT_FRONT and LDLT solvers:
+#:
+#: * reaction sums on 4-, 8- and 6-node shells (DKT, COQUE_3D) in the edge-load and tip-edge-load tests: at most
+#:   1.9e-9 (GitHub ubuntu 1.84e-9, 8-node shells), 1.4e-9 with LDLT. They are asserted to :data:`SHELL_SUMS`, about
+#:   5 times that and at least 1e4 times below what the tests are meant to catch: a load lost (100 %) or a nodal share
+#:   wrong (1e-3 for an error of a tenth of a percent).
+#: * the thin COQUE_3D cantilever, tip deflection and root reactions: the system is ill-conditioned, and MUMPS's own
+#:   error estimate is 6.9e-6. Across builds the spread is at most 3.8e-8 (GitHub ubuntu +3.55e-8, GitHub windows
+#:   -2.9e-9, local -8.4e-10), and 1.2e-7 with LDLT. They are asserted to :data:`COQUE_3D_THIN`, 5 times the builds'
+#:   spread and 27 times below the Mindlin shear term the test is there to see (5.35e-6 of the deflection). MUMPS's
+#:   estimate itself (6.9e-6) would let a missing shear term pass, so it is not used as the tolerance.
+SHELL_SUMS = 1e-8
+COQUE_3D_THIN = 2e-7
 
 
 def _dofs(fixed):
@@ -464,6 +483,9 @@ def test_a_cantilever_plate_takes_its_tip_edge_load(fem_format, require_solver, 
     No load sits on a root node, so CalculiX's nodal forces there are the reactions (249.996 N as printed). The tip
     deflects -0.6018318 m in Code_Aster (DKT), -0.6020137 m in Sestra and -0.593815 m in CalculiX (S4), whose single
     brick layer is 1.3 % stiffer at this mesh (-0.60026 m at 0.0625 m).
+
+    Code_Aster's root reactions: +9.9e-10 (local Windows), +1.02e-9 (local Linux) and up to +1.4e-9 over the other
+    rounding paths (see :data:`SHELL_SUMS`, the tolerance).
     """
     require_solver(fem_format)
     a, p, pl, _ = _plate("cant")
@@ -478,11 +500,11 @@ def test_a_cantilever_plate_takes_its_tip_edge_load(fem_format, require_solver, 
 
     root = [n for n, c in solved.coords.items() if abs(c[0]) < 1e-9]
     force, moment = solved.reactions(1, root)
-    tol = 1e-4 if fem_format == "calculix" else 1e-9
+    tol = 1e-4 if fem_format == "calculix" else SHELL_SUMS
     assert force[2] == pytest.approx(250.0, rel=tol)
     tip = solved.u(1, solved.node(L))[2]
     if fem_format == "code_aster":
-        assert moment[1] == pytest.approx(-250.0 * L, rel=1e-9)
+        assert moment[1] == pytest.approx(-250.0 * L, rel=SHELL_SUMS)
         assert tip == pytest.approx(-0.6020137, rel=4e-4), "Sestra on the same mesh"
     else:
         assert tip == pytest.approx(-0.6018318, rel=1.5e-2), "Code_Aster on the same mesh; S4 is 1.3 % stiffer here"
@@ -753,8 +775,9 @@ def test_an_edge_load_reacts_as_its_resultant_on_first_and_second_order_shells(
     ``-F x_c``, ``x_c = 1 + l (q1 + 2 q2) / (3 (q1 + q2))`` -- 2000 N at 2 m and 4000 N at 2.1667 m.
 
     On 8-node quads and 6-node triangles the load became nothing (reported ``omitted``: no shell element edge along
-    it), so there was no reaction. Measured: Code_Aster to 1e-9 on all three meshes (DKT on quads; COQUE_3D on the 9-
-    and 7-node cells it makes of 8- and 6-node shells: 1999.999999 N, -4000.0 N m); CalculiX S4 2000 / 4000.022 N, S8
+    it), so there was no reaction. Measured: Code_Aster to 1.9e-9 on all three meshes over the builds (DKT on quads;
+    COQUE_3D on the 9- and 7-node cells it makes of 8- and 6-node shells; GitHub ubuntu 1.84e-9 on 8-node shells,
+    local 5.8e-10), asserted to :data:`SHELL_SUMS`; CalculiX S4 2000 / 4000.022 N, S8
     1999.8828 / 4000.1266 N, S6 1999.9906 / 4000.109 N, each within what six printed digits per nodal force allow
     (``5e-6 sum |RF|``: 0.056, 1.08, 0.49 N for the uniform case), which is the tolerance on those sums.
 
@@ -784,7 +807,7 @@ def test_an_edge_load_reacts_as_its_resultant_on_first_and_second_order_shells(
         x_c = EDGE_FROM + ell * (q1 + 2 * q2) / (3 * (q1 + q2))
         force, moment = solved.reactions(k, supports)
         if fem_format == "code_aster":
-            tol_f, tol_m = 1e-9 * total, 1e-9 * total * x_c
+            tol_f, tol_m = SHELL_SUMS * total, SHELL_SUMS * total * x_c
         else:
             rf = solved._fields("rf", k)
             tol_f = 5e-6 * sum(abs(rf[n][2]) for n in supports)
@@ -1058,7 +1081,11 @@ def test_a_thin_coque_3d_cantilever_deflects_as_a_mindlin_plate(require_solver, 
     Measured, Code_Aster 18.1.8: it stopped at <FACTOR_57>, MUMPS's error estimate 6.88e-6 over RESI_RELA = 1e-6. The
     system is ill-conditioned (thin Mindlin shell; see ``static_lin._solver_str``), the answer is not: with the check
     off, tip -0.5546696376 m (-8.3e-10 relative), root 249.99999740 N (-1.04e-8) and 999.9999969 N m (-3.1e-9);
-    MULT_FRONT -0.5546696381 m (-3.3e-11). Written now with ``RESI_RELA=1e-4``; the tolerances are those measured.
+    MULT_FRONT -0.5546696381 m (-3.3e-11). Written now with ``RESI_RELA=1e-4``.
+
+    Those were one machine's numbers. Across builds and CPUs (:data:`COQUE_3D_THIN`), the tip moves by up to 3.8e-8
+    (GitHub ubuntu 0.55466965777 m, +3.55e-8; GitHub windows 0.55466963649 m, -2.9e-9) and the root reactions by up to
+    3.8e-8. The shear term the test checks is 5.35e-6 of the deflection, 27 times the tolerance.
     """
     require_solver("code_aster")
     a, mat = _cylindrical_cantilever("cyl", T)
@@ -1068,11 +1095,11 @@ def test_a_thin_coque_3d_cantilever_deflects_as_a_mindlin_plate(require_solver, 
     closed = 500.0 * L**3 / (3 * d) + 500.0 * L / (5 / 6 * g * T)
     tip = [n for n, xyz in solved.coords.items() if abs(xyz[0] - L) < 1e-9]
     for n in tip:
-        assert -solved.u(1, n)[2] == pytest.approx(closed, rel=2e-9)
+        assert -solved.u(1, n)[2] == pytest.approx(closed, rel=COQUE_3D_THIN)
     root = [n for n, xyz in solved.coords.items() if abs(xyz[0]) < 1e-9]
     force, moment = solved.reactions(1, root)
-    assert force[2] == pytest.approx(250.0, rel=2e-8)
-    assert -moment[1] == pytest.approx(1000.0, rel=1e-8)
+    assert force[2] == pytest.approx(250.0, rel=COQUE_3D_THIN)
+    assert -moment[1] == pytest.approx(1000.0, rel=COQUE_3D_THIN)
 
 
 def test_a_thinner_coque_3d_cantilever_stops_by_name(require_solver, tmp_path):
