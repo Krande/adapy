@@ -48,7 +48,7 @@
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.32.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.33.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
