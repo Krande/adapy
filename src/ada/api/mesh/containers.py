@@ -222,23 +222,30 @@ class ArrayNodes(Nodes):
         self.remove([n for n in self if not n.has_refs])
 
     def merge_coincident(self, tol: float = None) -> None:
-        from ada.fem.utils import replace_node
+        from ada.api.nodes import replace_node
 
         tol = tol if tol is not None else self._point_tol
+        # Repoint every element first and remove the merged nodes once, at the end: `remove` shifts the store's
+        # rows and renumbers the ids, so a node proxy (or id) taken before a removal is stale after it.
+        merged_ids: set[int] = set()
+        merged = []
         for n in list(self):
-            if not n.has_refs:
+            if n.id in merged_ids or not n.has_refs:
                 continue
-            if not self._store.has_node(n.id):
+            group = [n] + [
+                m for m in self.get_by_volume(tuple(n.p), tol=tol) if m.id != n.id and m.id not in merged_ids
+            ]
+            if len(group) == 1:
                 continue
-            dups = sorted(
-                [m for m in self.get_by_volume(tuple(n.p), tol=tol) if m.id != n.id],
-                key=lambda x: len(x.refs),
-            )
-            if dups:
-                primary = max([n] + dups, key=lambda x: len(x.refs))
-                for dup in dups:
-                    replace_node(dup, primary)
-                    self.remove(dup)
+            primary = max(group, key=lambda x: len(x.refs))
+            for dup in group:
+                if dup.id == primary.id:
+                    continue
+                replace_node(dup, primary)
+                merged_ids.add(dup.id)
+                merged.append(dup)
+        if merged:
+            self.remove(merged)
         self._invalidate_order()
 
 
