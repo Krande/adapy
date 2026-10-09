@@ -12,6 +12,15 @@ export function tokenStatus(t: CliTokenRecord, now: number = Date.now()): CliTok
     return new Date(t.expires_at).getTime() <= now ? "expired" : "active";
 }
 
+/** Days before expiry at which the list starts flagging a token, so a CI bot's
+ * rotation is noticed before its jobs start failing. */
+export const EXPIRING_SOON_DAYS = 3;
+
+export function isExpiringSoon(t: Pick<CliTokenRecord, "expires_at">, now: number = Date.now()): boolean {
+    const left = new Date(t.expires_at).getTime() - now;
+    return left > 0 && left <= EXPIRING_SOON_DAYS * 86_400_000;
+}
+
 /** How a token is shown in the list. Every token starts with the same JWT
  * header (``eyJ…``), so the recognisable part is the tail the server kept;
  * the leading ``eyJ`` is there so it still reads as "the end of that token". */

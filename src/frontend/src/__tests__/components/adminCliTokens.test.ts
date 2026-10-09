@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   filterTokens,
   isCiBot,
+  isExpiringSoon,
   tokenHint,
   tokenOwner,
   tokenStatus,
@@ -45,6 +46,12 @@ test("status: active until expiry, expired after", () => {
 test("status: revoked wins over expired", () => {
   const t = token({ revoked_at: "2026-10-02T00:00:00Z", expires_at: "2026-10-03T00:00:00Z" });
   assert.equal(tokenStatus(t, NOW), "revoked");
+});
+
+test("expiring soon: within 3 days, not after expiry", () => {
+  assert.equal(isExpiringSoon(token({ expires_at: "2026-10-11T12:00:00Z" }), NOW), true);
+  assert.equal(isExpiringSoon(token({ expires_at: "2026-10-13T12:00:00Z" }), NOW), false);
+  assert.equal(isExpiringSoon(token({ expires_at: "2026-10-09T11:00:00Z" }), NOW), false);
 });
 
 test("hint shows the tail, since every token starts with the same header", () => {

@@ -7,6 +7,7 @@ import {
     CLI_TOKEN_TTL_DAYS,
     filterTokens,
     isCiBot,
+    isExpiringSoon,
     tokenHint,
     tokenOwner,
     tokenStatus,
@@ -245,23 +246,14 @@ const TokenRow: React.FC<{
                 </div>
                 <div className="text-[11px] text-gray-500 font-mono truncate" title={t.sub}>{t.sub}</div>
             </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-[11px] text-gray-400 w-full sm:w-72 shrink-0">
+            <ExpiryCell token={t} status={status}/>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-[11px] text-gray-400 w-full sm:w-56 shrink-0">
                 <dt className="text-gray-500">issued</dt>
-                <dd title={fmtTimestamp(t.issued_at)}>
+                <dd className="truncate" title={fmtTimestamp(t.issued_at)}>
                     {fmtRelative(t.issued_at)}{t.issued_by && t.issued_by !== t.sub ? ` by ${t.issued_by}` : ""}
                 </dd>
-                <dt className="text-gray-500">{status === "expired" ? "expired" : "expires"}</dt>
-                <dd title={fmtTimestamp(t.expires_at)}>{fmtRelative(t.expires_at)}</dd>
                 <dt className="text-gray-500">last used</dt>
                 <dd title={fmtTimestamp(t.last_used_at)}>{t.last_used_at ? fmtRelative(t.last_used_at) : "never"}</dd>
-                {t.revoked_at && (
-                    <>
-                        <dt className="text-gray-500">revoked</dt>
-                        <dd title={fmtTimestamp(t.revoked_at)}>
-                            {fmtRelative(t.revoked_at)}{t.revoked_by ? ` by ${t.revoked_by}` : ""}
-                        </dd>
-                    </>
-                )}
             </dl>
             <div className="flex items-center gap-2 sm:w-24 shrink-0 sm:justify-end">
                 <span className={"rounded-sm px-1.5 py-0.5 text-[10px] uppercase " + STATUS_STYLE[status]}>
@@ -279,6 +271,31 @@ const TokenRow: React.FC<{
                 )}
             </div>
         </li>
+    );
+};
+
+/** When the token stops working — the thing an operator scans the list for.
+ * A revoked token already has: it shows when and by whom instead. */
+const ExpiryCell: React.FC<{token: CliTokenRecord; status: ReturnType<typeof tokenStatus>}> = ({
+    token: t,
+    status,
+}) => {
+    if (status === "revoked" && t.revoked_at) {
+        return (
+            <div className="w-full sm:w-40 shrink-0 text-xs" title={fmtTimestamp(t.revoked_at)}>
+                <div className="text-red-300">revoked {fmtRelative(t.revoked_at)}</div>
+                <div className="text-[11px] text-gray-500 truncate">{t.revoked_by ? `by ${t.revoked_by}` : ""}</div>
+            </div>
+        );
+    }
+    const soon = status === "active" && isExpiringSoon(t);
+    return (
+        <div className="w-full sm:w-40 shrink-0 text-xs" title={fmtTimestamp(t.expires_at)}>
+            <div className={status === "expired" ? "text-gray-400" : soon ? "text-amber-300" : "text-gray-200"}>
+                {status === "expired" ? "expired" : "expires"} {fmtRelative(t.expires_at)}
+            </div>
+            <div className="text-[11px] text-gray-500">{new Date(t.expires_at).toLocaleDateString()}</div>
+        </div>
     );
 };
 
