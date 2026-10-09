@@ -19,6 +19,7 @@ on:
       - 'zensical.toml'
       - 'scripts/docs/docs_notebooks.py'
       - 'examples/penetration_detail.py'
+      - 'examples/mesh_overrides.py'
       - 'verification/**'
       - 'src/ada/**'
       - 'pixi.toml'

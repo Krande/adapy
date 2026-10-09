@@ -25,6 +25,7 @@ COPY verification/ ./verification/
 COPY zensical.toml ./
 COPY scripts/docs/docs_notebooks.py ./scripts/docs/
 COPY examples/penetration_detail.py ./examples/
+COPY examples/mesh_overrides.py ./examples/
 
 RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
     pixi run --environment docs docs
