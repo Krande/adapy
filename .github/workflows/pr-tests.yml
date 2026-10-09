@@ -435,3 +435,52 @@ jobs:
           run: |
             docker run --rm -i --entrypoint sh adapy-viewer:pr \
               -c 'exec /env/bin/python -' < deploy/viewer-smoke.py
+    # Build the docs image the way the release does. Its Dockerfiles COPY a curated list rather than the
+    # repo, and the image was otherwise only built by the tag-time publish workflow -- so a page that
+    # started reading a new file (examples/mesh_overrides.py, for the meshing figures) passed every job
+    # here, all of which run on a full checkout, and broke the publish after merge. Building it is the
+    # only check that sees exactly what the image sees: a missing file, a missing system package, a
+    # figure that fails to render.
+    docs-image:
+        runs-on: ubuntu-latest
+        permissions:
+          contents: read
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+            # The scope check diffs against the PR base, and the docs footer runs git describe.
+            fetch-depth: 0
+
+        # Same approach as viewer-image: an inline scope check, so the job always reports a status.
+        - name: Does this PR affect the docs image?
+          id: scope
+          env:
+            BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          run: |
+            CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
+            if printf '%s\n' "$CHANGED" | grep -qE '^(src/ada/|docs/|examples/|verification/|scripts/docs/|zensical\.toml$|deploy/Dockerfile\.docs(-fast)?$|pixi\.(toml|lock)$|pyproject\.toml$|\.github/workflows/pr-tests\.yml$)'; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "No docs-affecting paths in this PR; skipping the image build."
+            fi
+
+        - uses: docker/setup-buildx-action@v4
+          if: steps.scope.outputs.build == 'true'
+
+        # Never pushed: a build that completes is the check (the builder stage runs `pixi run docs`).
+        - name: Build docs image
+          if: steps.scope.outputs.build == 'true'
+          uses: docker/build-push-action@v7
+          with:
+            context: .
+            file: ./deploy/Dockerfile.docs
+            push: false
+            tags: adapy-docs:pr
+            build-args: |
+              IMAGE_TAG=pr-${{ github.event.pull_request.number }}
+            cache-from: |
+              type=gha,scope=docs-pr
+              type=gha,scope=docs
+            cache-to: type=gha,mode=max,scope=docs-pr
