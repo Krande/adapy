@@ -399,3 +399,18 @@ def test_the_three_writers_write_the_steps_in_one_order(tmp_path):
     marks = {"eig": comm.index("#modal analysis"), "concept_loads": comm.index("# Load cases of step concept_loads")}
     order["code_aster"] = sorted(marks, key=marks.get)
     assert order == {fmt: ["eig", "concept_loads"] for fmt in order}
+
+
+def test_two_steps_loads_of_one_name_are_two_concepts_and_the_second_step_carries_both(tmp_path):
+    """A load in each of two general steps, both named ``P``: the first carries into the second, so the second step
+    applies both. As one concept ``P`` the second definition replaced the first and the second step listed ``P``
+    twice (Code_Aster: <CHARGES9_10>, measured). The deck's concept-name registry gives the second ``ld_P_2``."""
+    a, p, _ = _beam(cases=False)
+    mid = p.fem.add_set(ada.fem.FemSet("mid", [p.fem.nodes.get_by_volume((2.0, 0, 0))[0]], "nset"))
+    a.fem.add_step(StepImplicitStatic("first")).add_load(LoadPoint("P", -100.0, mid, 3))
+    a.fem.add_step(StepImplicitStatic("second")).add_load(LoadPoint("P", -200.0, mid, 3))
+    comm, _ = _comm(a, tmp_path)
+    assert _excit(comm, "result") == ["supports", "ld_P"]
+    assert _excit(comm, "result2") == ["supports", "ld_P", "ld_P_2"]
+    assert re.findall(r"^(ld_P\w*) = AFFE_CHAR_MECA\(", comm, re.M) == ["ld_P", "ld_P", "ld_P_2"]
+    assert "ld_P_2 = AFFE_CHAR_MECA(\n    MODELE=model,\n    FORCE_NODALE=_F(GROUP_NO='mid', FZ=-200.0)," in comm

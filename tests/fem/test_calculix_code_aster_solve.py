@@ -1185,3 +1185,54 @@ def test_second_order_shell_stresses_are_printed_at_the_faces(quads, require_sol
         assert abs(centre + radius) == pytest.approx(sigma, rel=tol_along)
         assert abs(centre - radius) == pytest.approx(nu * sigma, rel=tol_across)
         assert faces["INF"][n][:4] == pytest.approx(-faces["SUP"][n][:4], rel=1e-9, abs=1e-6 * sigma)
+
+
+# --- loads named like the deck's own concepts -----------------------------------------------------------------
+
+
+def _settled_cantilever_two_steps(load_name: str):
+    """Root clamped, the tip's dz settled -0.01 m in every static step (a ``Bc`` with a value and no load case):
+    step 1 a 1 kN point load down at mid-span named ``load_name``, step 2 another of that name at mid-span, with
+    the first carried. The deck binds ``supports``, ``prescribed_zero``, ``result_pd`` and ``result2_pd`` itself."""
+    from ada.fem import Bc, FemSet, LoadPoint
+
+    a, p, bm = _ipe300_beam()
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+
+    def nset(name, x):
+        return p.fem.add_set(FemSet(name, [n for n in p.fem.nodes if abs(n.x - x) < 1e-9], "nset"))
+
+    p.fem.add_bc(Bc("root", nset("root_set", 0.0), [1, 2, 3, 4, 5, 6]))
+    p.fem.add_bc(Bc("tip", nset("tip_set", L), [3], magnitudes=[-0.01]))
+    mid = nset("mid_set", L / 2)
+    for k in (1, 2):
+        step = a.fem.add_step(StepImplicitStatic(f"s{k}"))
+        step.add_load(LoadPoint(load_name, -1000.0, mid, 3))
+        step.add_field_output(FieldOutput("rf", nodal=["U", "RF"]))
+    return a, bm
+
+
+@pytest.mark.parametrize("load_name", ["supports", "prescribed_zero", "result_pd", "result2_pd"])
+def test_loads_named_like_the_deck_s_own_charges_solve_as_their_closed_form(load_name, require_solver, tmp_path):
+    """Two loads of one name in two general steps, the name one of the deck's own: each load is a concept of its own
+    (``ld_<name>``, ``ld_<name>_2``), never the deck's charge of that name. The propped cantilever settling
+    ``delta`` = -0.01 m: step 1 mid-span ``0.3125 delta - 7 P L^3 / (768 E I)``, tip reaction
+    ``3 E I delta / L^3 + 5 P / 16``; step 2 carries step 1's load, so twice the load terms.
+
+    Measured with Code_Aster 18.1.8 before the concept-name registry, each load bound under its own name: one load
+    named ``supports`` or ``result_pd`` was rebound by the deck's charge of that name and the run stopped at
+    <CHARGES9_10> (one charge given twice in EXCIT); two loads of one name were one concept and stopped it the same
+    way, whatever the name."""
+    require_solver("code_aster")
+    a, bm = _settled_cantilever_two_steps(load_name)
+    solved = _solve(a, "named", "code_aster", tmp_path)
+    comm = (tmp_path / "named" / "named.comm").read_text(encoding="utf-8")
+    assert f"ld_{load_name} = AFFE_CHAR_MECA(" in comm and f"ld_{load_name}_2 = AFFE_CHAR_MECA(" in comm
+    ei = bm.material.model.E * bm.section.properties.Iy
+    delta, w1, r1 = -0.01, -7 * 1000.0 * L**3 / (768 * ei), 5 * 1000.0 / 16
+    tip, mid = solved.node(L), solved.node(L / 2)
+    for k, result in enumerate(("result", "result2"), start=1):
+        assert solved.u(None, tip, result)[2] == pytest.approx(delta, abs=1e-15)
+        assert solved.u(None, mid, result)[2] == pytest.approx(0.3125 * delta + k * w1, rel=1e-9)
+        r_tip = solved.reactions(None, [tip], result)[0][2]
+        assert r_tip == pytest.approx(3 * ei * delta / L**3 + k * r1, rel=1e-9)

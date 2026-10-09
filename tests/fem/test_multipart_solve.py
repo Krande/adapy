@@ -137,7 +137,14 @@ def test_two_clamped_plates_deflect_alike(fem_format, tmp_path, require_solver):
 
 @pytest.mark.parametrize(
     "fem_format, kind",
-    [("sesam", "point"), ("sesam", "pressure"), ("calculix", "pressure"), ("code_aster", "pressure")],
+    [
+        ("sesam", "point"),
+        ("calculix", "point"),
+        ("code_aster", "point"),
+        ("sesam", "pressure"),
+        ("calculix", "pressure"),
+        ("code_aster", "pressure"),
+    ],
 )
 def test_a_load_on_the_second_part_moves_only_the_second_part(fem_format, kind, tmp_path, require_solver):
     require_solver(fem_format)
