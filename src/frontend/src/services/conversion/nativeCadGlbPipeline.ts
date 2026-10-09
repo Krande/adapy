@@ -10,8 +10,11 @@ import {
     nativeCadToGlb,
     nativeCadToGlbStreaming,
     nativeCadGlbOpfsAvailable,
+    tessOpts,
     type CadKind,
 } from "@/utils/nativeConvert/cadGlbConverter";
+import {nativeCadToGlbSharded} from "@/utils/nativeConvert/cadGlbShardPool";
+import {shardWorkerCount} from "@/utils/nativeConvert/shardSchedule";
 
 // Distinguishes the native embind module from the pyodide path in the audit panel.
 const WASM_IMAGE_TAG = "wasm:native-cadglb";
@@ -20,6 +23,17 @@ const WASM_IMAGE_TAG = "wasm:native-cadglb";
 // RSS) over buffering the whole source into the wasm heap — provided OPFS + a presigned URL are both
 // available. Below it, the buffered MEMFS path is simpler and plenty (and the validated default).
 const OPFS_STREAM_THRESHOLD = 100 * 1024 * 1024; // 100 MB
+
+// Above this source size, split the conversion across several workers (one wasm instance each, sharing
+// an OPFS job directory) when the browser can: below it, starting the extra instances costs more than
+// the split saves.
+const SHARD_THRESHOLD = 30 * 1024 * 1024; // 30 MB
+
+// Workers for a sharded conversion of `size` bytes, from this device's cores and memory (1 = don't).
+function shardWorkersFor(size: number): number {
+    const nav = navigator as Navigator & {deviceMemory?: number};
+    return shardWorkerCount(size, {cores: nav.hardwareConcurrency, deviceMemoryGb: nav.deviceMemory});
+}
 
 function extOf(name: string): string {
     const i = name.lastIndexOf(".");
@@ -92,21 +106,55 @@ export async function convertViaWasmNativeAndUpload(
         // is small, presign is unavailable (local-disk backends 503), or OPFS isn't supported. A
         // streaming run is NOT retried buffered — re-reading a huge deck into the heap would just OOM.
         const upper = kind.toUpperCase();
-        let streamUrl: {url: string; size: number} | null = null;
+        let presigned: {url: string; size: number} | null = null;
         try {
-            const dl = await viewerApi.requestDownloadUrl(scope, sourceKey);
-            if (dl.size >= OPFS_STREAM_THRESHOLD && (await nativeCadGlbOpfsAvailable(kind))) {
-                streamUrl = {url: dl.url, size: dl.size};
-            }
+            presigned = await viewerApi.requestDownloadUrl(scope, sourceKey);
         } catch {
-            streamUrl = null; // presign unavailable → buffered fallback
+            presigned = null; // presign unavailable → buffered fallback
+        }
+        let streamUrl: {url: string; size: number} | null = null;
+        if (presigned && presigned.size >= OPFS_STREAM_THRESHOLD && (await nativeCadGlbOpfsAvailable(kind))) {
+            streamUrl = presigned;
         }
 
-        let glb: ArrayBuffer;
-        let products: number;
-        let ms: number;
-        let readBytes: number;
-        if (streamUrl) {
+        let glb!: ArrayBuffer;
+        let products!: number;
+        let ms!: number;
+        let readBytes!: number;
+        let sharded = false;
+        // Several cores: split the conversion across workers that stream the source from the URL
+        // themselves. Anything that keeps this from working (an older module, no shared read-only OPFS
+        // handles, a crashed worker) falls back to the single-worker paths below.
+        const nworkers = presigned && presigned.size >= SHARD_THRESHOLD ? shardWorkersFor(presigned.size) : 1;
+        if (presigned && nworkers >= 2) {
+            store.setJob(storeKey, {
+                ...(store.jobs[storeKey] || job),
+                progress: 0.15,
+                stage: `converting ${upper} → GLB in browser (native, ${nworkers} workers)`,
+            });
+            try {
+                ({glb, products, ms} = await nativeCadToGlbSharded(
+                    kind,
+                    {url: presigned.url},
+                    nworkers,
+                    tessOpts(),
+                    ({done, total}) =>
+                        store.setJob(storeKey, {
+                            ...(useConversionStore.getState().jobs[storeKey] || job),
+                            progress: 0.15 + 0.7 * (done / Math.max(1, total)),
+                            stage: `converting ${upper} → GLB in browser (native, ${nworkers} workers, ${done}/${total})`,
+                        }),
+                ));
+                readBytes = presigned.size;
+                sharded = true;
+            } catch (err) {
+                // eslint-disable-next-line no-console
+                console.info("[native-convert] sharded conversion unavailable, using one worker:", err);
+            }
+        }
+        if (sharded) {
+            /* done above */
+        } else if (streamUrl) {
             store.setJob(storeKey, {
                 ...(store.jobs[storeKey] || job),
                 progress: 0.15,

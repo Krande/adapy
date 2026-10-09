@@ -2,6 +2,21 @@
 
 
 
+## v0.112.0 (2026-10-09)
+
+### Chore
+
+* chore(test): neutral test data -- no local paths, user or host names (#446)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`e0b475e`](https://github.com/Krande/adapy/commit/e0b475e9de6f0692c3e3ef4af44f46ef1c0d2eae))
+
+### Feature
+
+* feat: native STEP/IFC-&gt;GLB in the browser across several workers (#445)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`638bdcc`](https://github.com/Krande/adapy/commit/638bdcc4cdb5186b78c65a2fbfa0672ad7654b00))
+
+
 ## v0.111.0 (2026-10-09)
 
 ### Feature
