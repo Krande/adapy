@@ -23,14 +23,56 @@ export interface ProjectMember {
   last_seen_at: string | null;
 }
 
+/** The server's record of one issued CLI token. The token itself is never
+ * stored; ``hint`` is its last eight characters, for telling tokens apart. */
+export interface CliTokenRecord {
+  jti: string;
+  sub: string;
+  email: string | null;
+  display_name: string | null;
+  is_admin: boolean;
+  label: string | null;
+  hint: string;
+  issued_by: string | null;
+  issued_at: string;
+  expires_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+}
+
 export const adminProjectsApi = {
-  /** Mint a 30-day bearer for CLI / pixi-task use. Returned once;
-   * the server does not persist it. */
-  async adminMintCliToken(): Promise<{ token: string; expires_at: number }> {
+  /** Mint a 30-day bearer for CLI / pixi-task use. Returned once; the
+   * server keeps only its record (see adminListCliTokens). */
+  async adminMintCliToken(
+    label?: string,
+  ): Promise<{ token: string; expires_at: number; jti: string; hint: string }> {
     const r = await authedFetch(`${runtime.apiBase()}/admin/auth/cli-token`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: label?.trim() || null }),
     });
     return jsonOrThrow(r, "adminMintCliToken");
+  },
+
+  /** Every issued CLI token on the deployment, people's and CI bots'.
+   * ``tracked_since``: tokens issued before it predate per-token records and
+   * are not listed. */
+  async adminListCliTokens(
+    includeInactive = false,
+  ): Promise<{ tokens: CliTokenRecord[]; tracked_since: string | null }> {
+    const q = includeInactive ? "?include_inactive=true" : "";
+    const r = await authedFetch(`${runtime.apiBase()}/admin/auth/cli-tokens${q}`);
+    return jsonOrThrow(r, "adminListCliTokens");
+  },
+
+  /** Revoke one token by its id, whoever owns it. */
+  async adminRevokeCliToken(jti: string): Promise<CliTokenRecord> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/auth/cli-tokens/${encodeURIComponent(jti)}/revoke`,
+      { method: "POST" },
+    );
+    return jsonOrThrow(r, "adminRevokeCliToken");
   },
 
   /** Revoke every previously-minted CLI token for the current user

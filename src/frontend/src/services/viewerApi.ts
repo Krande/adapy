@@ -25,6 +25,7 @@ import { pluginsApi } from "./api/plugins";
 import { adminAuditApi } from "./api/adminAudit";
 import { adminCorpusApi } from "./api/adminCorpus";
 import { adminProjectsApi } from "./api/adminProjects";
+import { assetSchedulesApi } from "./api/assetSchedules";
 import { adminStorageApi } from "./api/adminStorage";
 import { adminUsersApi } from "./api/adminUsers";
 import { workersApi } from "./api/workers";
@@ -46,6 +47,7 @@ export const viewerApi = {
   ...adminAuditApi,
   ...adminCorpusApi,
   ...adminProjectsApi,
+  ...assetSchedulesApi,
   ...adminStorageApi,
   ...adminUsersApi,
   ...workersApi,
@@ -57,6 +59,16 @@ export const viewerApi = {
 // and out-of-tree plugins) ────────────────────────────────────────
 
 export type { TargetFormat, ConvertStatus, ScopeUrl } from "./api/client";
+export type {
+  AssetSchedulesListing,
+  ChangeItem,
+  ChangeRun,
+  ProviderSchedule,
+  ProviderScheduleJob,
+  ProviderSchedules,
+  ScheduleChoice,
+  ScheduleSetting,
+} from "./api/assetSchedules";
 export type {
   MovedKeyEntry,
   MoveKeysResult,
@@ -139,7 +151,7 @@ export type {
   MetricsSample,
   MetricsHistoryResp,
 } from "./api/metrics";
-export type { AdminProject, ProjectMember } from "./api/adminProjects";
+export type { AdminProject, CliTokenRecord, ProjectMember } from "./api/adminProjects";
 export type { AdminUser, AdminUserProject } from "./api/adminUsers";
 export type { Corpus } from "./api/adminCorpus";
 export type { PluginJobSchedule, BackendPluginSpec } from "./api/plugins";

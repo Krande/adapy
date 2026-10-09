@@ -19,6 +19,14 @@ via the :func:`get_pool` accessor.
 from __future__ import annotations
 
 from ._common import _loads_jsonb as _loads_jsonb  # noqa: F401
+from .asset_changes import (
+    asset_change_users,
+    finish_asset_change_run,
+    get_asset_change_run,
+    insert_asset_change_run,
+    latest_asset_change_runs_for_schedules,
+    list_asset_change_runs,
+)
 from .audit_log import (  # noqa: F401
     _AUDIT_RUN_COUNTER_FOR_STATUS as _AUDIT_RUN_COUNTER_FOR_STATUS,
 )
@@ -91,6 +99,14 @@ from .catalogs import (
     set_equipment_type_cad,
     update_equipment_type,
     update_system_template,
+)
+from .cli_tokens import (
+    check_cli_token,
+    cli_tokens_tracked_since,
+    insert_cli_token,
+    list_cli_tokens,
+    revoke_cli_token,
+    revoke_cli_tokens_for_sub,
 )
 from .corpora import _corpus_row as _corpus_row  # noqa: F401
 from .corpora import (
@@ -234,6 +250,18 @@ __all__ = [
     "get_worker_packages",
     "get_setting",
     "set_setting",
+    "insert_cli_token",
+    "check_cli_token",
+    "list_cli_tokens",
+    "revoke_cli_token",
+    "revoke_cli_tokens_for_sub",
+    "cli_tokens_tracked_since",
+    "insert_asset_change_run",
+    "list_asset_change_runs",
+    "get_asset_change_run",
+    "latest_asset_change_runs_for_schedules",
+    "finish_asset_change_run",
+    "asset_change_users",
     "list_corpora",
     "create_corpus",
     "update_corpus",

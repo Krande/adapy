@@ -22,12 +22,13 @@ export function fmtTimestamp(iso: string | null): string {
 export function fmtRelative(iso: string | null): string {
     if (!iso) return "";
     const ms = new Date(iso).getTime() - Date.now();
-    const sign = ms >= 0 ? "in" : "ago";
     const abs = Math.abs(ms);
-    if (abs < 60_000) return `${sign === "in" ? "in <1m" : "<1m ago"}`;
-    if (abs < 3600_000) return `${sign} ${Math.round(abs / 60_000)}m`;
-    if (abs < 86400_000) return `${sign} ${Math.round(abs / 3600_000)}h`;
-    return `${sign} ${Math.round(abs / 86400_000)}d`;
+    const span =
+        abs < 60_000 ? "<1m"
+        : abs < 3600_000 ? `${Math.round(abs / 60_000)}m`
+        : abs < 86400_000 ? `${Math.round(abs / 3600_000)}h`
+        : `${Math.round(abs / 86400_000)}d`;
+    return ms >= 0 ? `in ${span}` : `${span} ago`;
 }
 
 /** Common 5-field cron patterns, offered instead of hand-typing.

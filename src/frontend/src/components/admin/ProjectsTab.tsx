@@ -516,10 +516,10 @@ const MemberPane: React.FC<{
     );
 };
 
-// One-shot reveal of a freshly-minted CI bot token. Mirrors
-// CliTokenButton's modal chrome (dvh height clamp + clipboard copy)
-// so it stays usable on phones, where the token textarea would
-// otherwise push the buttons off-screen.
+// One-shot reveal of a freshly-minted CI bot token. Modal chrome with a
+// dvh height clamp + clipboard copy so it stays usable on phones, where
+// the token textarea would otherwise push the buttons off-screen. The
+// token then shows in the CLI Tokens tab like any other.
 const CiBotTokenModal: React.FC<{
     projectSlug: string;
     userSub: string;

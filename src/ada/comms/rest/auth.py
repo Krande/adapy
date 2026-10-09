@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,6 +55,9 @@ _CLAIM_GROUPS = "groups"
 # forever.
 _CLI_TOKEN_ISS = "ada-viewer-cli"
 _CLI_TOKEN_TTL_SECONDS = 30 * 86400
+# Characters of the token kept server-side so a list can tell tokens apart.
+# Taken from the END: every token begins with the same JWT header.
+_CLI_TOKEN_HINT_CHARS = 8
 
 
 def _revoke_setting_key(sub: str) -> str:
@@ -311,6 +315,19 @@ async def _verify_cli_token(request: Request, token: str, config: AuthConfig) ->
             if int(claims["iat"]) < revoke_at:
                 raise TokenError("token revoked")
 
+        # Tokens minted since migration 034 carry a jti and have a row. A
+        # missing row is refused rather than waved through: every mint path
+        # records before it returns the token, so an unknown jti was not
+        # issued by this deployment's database. Tokens without a jti predate
+        # tracking and are governed by the cutoff above alone.
+        jti = claims.get("jti")
+        if jti:
+            state = await db_module.check_cli_token(pool, str(jti))
+            if state == "revoked":
+                raise TokenError("token revoked")
+            if state == "unknown":
+                raise TokenError("token not recognised")
+
     raw_groups = claims.get(_CLAIM_GROUPS) or []
     if not isinstance(raw_groups, (list, tuple, set, frozenset)):
         raw_groups = [raw_groups]
@@ -326,11 +343,9 @@ async def _verify_cli_token(request: Request, token: str, config: AuthConfig) ->
 def mint_cli_token(user: User, config: AuthConfig) -> tuple[str, int]:
     """Issue a self-signed bearer for CLI / pixi-task use.
 
-    Returns ``(token, exp_unix)``. The caller is expected to display
-    the token once and not persist it server-side — this is a
-    stateless JWT, not a row in a PAT table. Revocation runs through
-    :func:`_revoke_setting_key` and the per-user cutoff in
-    ``app_settings``.
+    Returns ``(token, exp_unix)``. The token carries a ``jti``; route
+    handlers pass it to :func:`record_cli_token` so it can be listed and
+    revoked on its own. The token string itself is never persisted.
     """
     if not config.cli_token_secret:
         raise HTTPException(
@@ -348,14 +363,46 @@ def mint_cli_token(user: User, config: AuthConfig) -> tuple[str, int]:
         "is_admin": user.is_admin,
         "iat": now,
         "exp": exp,
+        "jti": uuid.uuid4().hex,
     }
     token = jwt.encode(payload, config.cli_token_secret, algorithm="HS256")
     return token, exp
 
 
-async def revoke_cli_tokens(pool, user: User) -> int:
+async def record_cli_token(pool, token: str, *, label: str | None, issued_by: str | None) -> dict:
+    """Record a freshly minted token so it can be listed and revoked.
+
+    Must run before the token is handed out: verification refuses a jti it
+    has no row for. A no-op without a pool (shared-only mode), where
+    verification has nothing to check against either.
+
+    Returns the public fields of the record (``jti`` and ``hint``).
+    """
+    claims = jwt.decode(token, options={"verify_signature": False})
+    hint = token[-_CLI_TOKEN_HINT_CHARS:]
+    if pool is not None:
+        from . import db as db_module
+
+        await db_module.insert_cli_token(
+            pool,
+            jti=str(claims["jti"]),
+            sub=str(claims["sub"]),
+            email=claims.get("email") or None,
+            display_name=claims.get("name") or None,
+            is_admin=bool(claims.get("is_admin")),
+            label=label,
+            hint=hint,
+            issued_by=issued_by,
+            issued_at=int(claims["iat"]),
+            expires_at=int(claims["exp"]),
+        )
+    return {"jti": str(claims["jti"]), "hint": hint}
+
+
+async def revoke_cli_tokens(pool, user: User, *, revoked_by: str | None = None) -> int:
     """Bump the per-user revoke cutoff so all previously-minted CLI
-    tokens for ``user`` start failing verification on the next use.
+    tokens for ``user`` start failing verification on the next use, and
+    mark their rows revoked so the token list agrees.
 
     Returns the cutoff unix timestamp. Idempotent — calling twice in
     quick succession just moves the bar a little higher.
@@ -363,7 +410,9 @@ async def revoke_cli_tokens(pool, user: User) -> int:
     from . import db as db_module
 
     now = int(time.time())
-    await db_module.set_setting(pool, _revoke_setting_key(user.sub), str(now), updated_by=user.sub)
+    actor = revoked_by or user.sub
+    await db_module.set_setting(pool, _revoke_setting_key(user.sub), str(now), updated_by=actor)
+    await db_module.revoke_cli_tokens_for_sub(pool, user.sub, revoked_by=actor)
     return now
 
 

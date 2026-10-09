@@ -185,6 +185,7 @@ async def _ci_bot_request(request: Request, project_id: str) -> tuple[object, st
 async def admin_provision_ci_bot(
     project_id: str,
     request: Request,
+    user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Provision (or rotate the token of) a CI bot user for a project.
 
@@ -206,9 +207,10 @@ async def admin_provision_ci_bot(
     problems go away: separate rotation, separate revocation, and an audit
     trail that says which one did the thing.
 
-    Nothing about the token or the revocation model changes to allow it. A
-    distinct subject simply HAS its own cutoff, which is why this is a new
-    segment on the subject rather than a token id and a revocation list.
+    A distinct subject simply HAS its own cutoff. Each minted token is also
+    recorded (``cli_tokens``), so it shows in the admin token list and can be
+    revoked on its own there; the subject split is still what keeps rotation
+    and the audit trail per consumer.
     """
     pool, pid, bot_sub, bot_email, bot_display = await _ci_bot_request(request, project_id)
 
@@ -225,14 +227,16 @@ async def admin_provision_ci_bot(
     # Rotate: invalidate any tokens minted before now for this bot,
     # then mint a fresh one. The cutoff is iat-based so the token
     # we're about to mint (with a fresh iat) survives.
-    await auth_module.revoke_cli_tokens(pool, bot_user)
+    await auth_module.revoke_cli_tokens(pool, bot_user, revoked_by=user.sub)
     config = request.app.state.auth_config
     token, exp = auth_module.mint_cli_token(bot_user, config)
+    record = await auth_module.record_cli_token(pool, token, label="CI bot", issued_by=user.sub)
     return JSONResponse(
         {
             "user_sub": bot_sub,
             "token": token,
             "expires_at": exp,
+            **record,
         },
         status_code=201,
     )
@@ -242,6 +246,7 @@ async def admin_provision_ci_bot(
 async def admin_revoke_ci_bot(
     project_id: str,
     request: Request,
+    user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Kill a CI bot's tokens WITHOUT minting a replacement.
 
@@ -264,6 +269,6 @@ async def admin_revoke_ci_bot(
         groups=frozenset(),
         is_admin=False,
     )
-    revoked_at = await auth_module.revoke_cli_tokens(pool, bot_user)
+    revoked_at = await auth_module.revoke_cli_tokens(pool, bot_user, revoked_by=user.sub)
     logger.info("admin: revoked CI bot tokens for %s", bot_sub)
     return JSONResponse({"user_sub": bot_sub, "revoked_at": revoked_at})

@@ -1,8 +1,7 @@
 // The pure half of the external-model upload path: what to send, and how.
 //
-// Split from `externalModels.ts` for the same reason `externalModelsBinding.ts`
-// is — that module imports `viewerApi`, which touches `sessionStorage` at load
-// and so cannot be imported under `node --test`. These are decisions about
+// Split from `externalModels.ts` because that module imports `viewerApi`, which
+// touches `sessionStorage` at load and so cannot be imported under `node --test`. These are decisions about
 // bytes and headers with no network in them, and they are exactly the part
 // worth asserting.
 
