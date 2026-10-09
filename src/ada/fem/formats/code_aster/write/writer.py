@@ -20,6 +20,7 @@ from .write_constraints import (
     create_ref_points_model_str,
     get_couplings,
     model_bcs,
+    ref_points_group,
     step_bcs,
 )
 from .write_loads import add_line_load_groups
@@ -94,7 +95,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
-    sections_str = create_sections_str(part.fem.sections, has_ref_points=len(couplings) > 0)
+    ref_group = ref_points_group(part)
+    sections_str = create_sections_str(part.fem.sections, has_ref_points=len(couplings) > 0, ref_points_group=ref_group)
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
     bcs = model_bcs(part)
@@ -165,9 +167,9 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
 
     if len(couplings) > 0:
         output_mesh = "mesh_ref"
-        section_sets += create_ref_points_mesh_str(part, input_mesh, output_mesh)
+        section_sets += create_ref_points_mesh_str(part, input_mesh, output_mesh, ref_group)
         input_mesh = output_mesh
-        model_type_str += create_ref_points_model_str()
+        model_type_str += create_ref_points_model_str(ref_group)
 
     comm_str = main_comm_str.format(
         section_sets=section_sets,

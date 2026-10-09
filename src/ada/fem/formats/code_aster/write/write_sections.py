@@ -6,8 +6,8 @@ from ada.fem.containers import FemSections
 from .names import concept_name
 
 
-def create_sections_str(fem_sections: FemSections, has_ref_points: bool = False) -> str:
-    from .write_constraints import create_ref_points_discrete_str
+def create_sections_str(fem_sections: FemSections, has_ref_points: bool = False, ref_points_group: str = None) -> str:
+    from .write_constraints import REF_POINTS_GROUP, create_ref_points_discrete_str
 
     mat_assign_str = ""
 
@@ -32,7 +32,7 @@ def create_sections_str(fem_sections: FemSections, has_ref_points: bool = False)
     if len(fem_sections.solids) > 0:
         mat_assign_str += write_solid_section(fem_sections.solids)
 
-    discrete_str = create_ref_points_discrete_str() if has_ref_points else ""
+    discrete_str = create_ref_points_discrete_str(ref_points_group or REF_POINTS_GROUP) if has_ref_points else ""
 
     sec_str = ""
     if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or has_ref_points:

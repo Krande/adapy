@@ -19,7 +19,7 @@ from .names import concept_name
 if TYPE_CHECKING:
     from ada.api.spatial import Part
 
-#: The element group the reference points of all couplings are created in
+#: The element group the reference points of all couplings are created in (:func:`ref_points_group`)
 REF_POINTS_GROUP = "ref_pts"
 
 
@@ -134,24 +134,41 @@ def has_cara_elem(part: Part) -> bool:
     return len(fem.sections.lines) > 0 or len(fem.sections.shells) > 0 or len(get_couplings(part)) > 0
 
 
-def create_ref_points_mesh_str(part: Part, input_mesh: str, output_mesh: str = "mesh_ref") -> str:
+def ref_points_group(part: Part) -> str:
+    """The element group the couplings' reference points are created in: :data:`REF_POINTS_GROUP`, or
+    ``ref_pts_2``, ``ref_pts_3``, ... when the model has an element set of that name.
+
+    ``CREA_POI1`` does not create a group that exists -- measured, Code_Aster 18.1.8: a shell cantilever coupled
+    at its root, with a user element set named ``ref_pts``, stopped at <MESH1_20> ("il existe déjà"). A node set
+    of that name is no clash (node and element groups are apart; measured: it solved)."""
+    taken = {name for fem in _fems(part) for name in fem.elsets.keys()}
+    group, n = REF_POINTS_GROUP, 2
+    while group in taken:
+        group = f"{REF_POINTS_GROUP}_{n}"
+        n += 1
+    return group
+
+
+def create_ref_points_mesh_str(
+    part: Part, input_mesh: str, output_mesh: str = "mesh_ref", group: str = REF_POINTS_GROUP
+) -> str:
     ref_sets = ", ".join(f"'{con.m_set.name}'" for con in get_couplings(part))
     return f"""{output_mesh} = CREA_MAILLAGE(
     MAILLAGE={input_mesh},
-    CREA_POI1=_F(NOM_GROUP_MA='{REF_POINTS_GROUP}', GROUP_NO=({ref_sets},)),
+    CREA_POI1=_F(NOM_GROUP_MA='{group}', GROUP_NO=({ref_sets},)),
 )
 """
 
 
-def create_ref_points_model_str() -> str:
-    return f"_F(GROUP_MA='{REF_POINTS_GROUP}', PHENOMENE='MECANIQUE', MODELISATION='DIS_TR',),"
+def create_ref_points_model_str(group: str = REF_POINTS_GROUP) -> str:
+    return f"_F(GROUP_MA='{group}', PHENOMENE='MECANIQUE', MODELISATION='DIS_TR',),"
 
 
-def create_ref_points_discrete_str() -> str:
+def create_ref_points_discrete_str(group: str = REF_POINTS_GROUP) -> str:
     return f"""
         DISCRET=(
-            _F(GROUP_MA='{REF_POINTS_GROUP}', CARA='K_TR_D_N', VALE=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)),
-            _F(GROUP_MA='{REF_POINTS_GROUP}', CARA='M_TR_D_N', VALE=(0.0,) * 10),
+            _F(GROUP_MA='{group}', CARA='K_TR_D_N', VALE=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)),
+            _F(GROUP_MA='{group}', CARA='M_TR_D_N', VALE=(0.0,) * 10),
         ),"""
 
 
