@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   assetProviderCollections,
+  changeFeedSource,
   collectionChoices,
   enabledFor,
   isCollectionEnabled,
@@ -96,6 +97,7 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
       nodeRequest: null,
       requestOptions: null,
       changeCheck: null,
+      changeSource: null,
     },
   ]);
 });
@@ -344,4 +346,21 @@ test("assetProviderCollections ignores a change check it could not run", () => {
     const [p] = assetProviderCollections([{ id: "x", asset_provider_id: "vendor", asset_schedules }]);
     assert.equal(p.changeCheck, null, JSON.stringify(asset_schedules));
   }
+});
+
+test("changeFeedSource reads a provider's per-collection feed source, else the provider id", () => {
+  assert.equal(changeFeedSource(null, "vendor", "alpha"), "vendor");
+  assert.equal(changeFeedSource("  ", "vendor", "alpha"), "vendor");
+  assert.equal(changeFeedSource("vendor:{COLLECTION}", "vendor", "alpha"), "vendor:ALPHA");
+  assert.equal(changeFeedSource("feed/{collection}", "vendor", "Alpha"), "feed/Alpha");
+  // A template needs a collection; without one the provider id is the honest fallback.
+  assert.equal(changeFeedSource("vendor:{COLLECTION}", "vendor", null), "vendor");
+  assert.equal(changeFeedSource("fixed-feed", "vendor", null), "fixed-feed");
+});
+
+test("assetProviderCollections reads asset_change_source", () => {
+  const [p] = assetProviderCollections([
+    { id: "x", asset_provider_id: "vendor", asset_change_source: "vendor:{COLLECTION}" },
+  ]);
+  assert.equal(p.changeSource, "vendor:{COLLECTION}");
 });

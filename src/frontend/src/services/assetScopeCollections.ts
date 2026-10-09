@@ -177,6 +177,21 @@ export interface AssetProviderCollections {
    *  Sources tab's "Check for changes" runs (through core's `/asset-changes/check`, which builds the
    *  job options from the live declaration). */
   changeCheck: AssetChangeCheck | null;
+  /** `asset_change_source`: where the provider records its change feed (`source_nodes.source`), as
+   *  a template over the collection -- `{COLLECTION}` upper case, `{collection}` as published. Null
+   *  when undeclared: the feed is then read under the provider id itself. See `changeFeedSource`. */
+  changeSource: string | null;
+}
+
+/** The change-feed source to ask for one provider's nodes in one collection.
+ *
+ *  A provider whose sweep records per upstream project (one cursor each) declares a template on its
+ *  spec, e.g. `"vendor:{COLLECTION}"`; without one the feed is read under the provider id, as
+ *  before. The answer still belongs to the provider either way -- only the lookup key changes. */
+export function changeFeedSource(template: string | null | undefined, providerId: string, collection?: string | null): string {
+  if (!template || !template.trim()) return providerId;
+  if (!collection) return template.includes("{") ? providerId : template.trim();
+  return template.trim().replaceAll("{COLLECTION}", collection.toUpperCase()).replaceAll("{collection}", collection);
 }
 
 /** A provider's declared change check (`asset_schedules[kind == "change-check"]`). Only what the
@@ -329,6 +344,7 @@ export function assetProviderCollections(
       nodeRequest: AssetNodeRequest | null;
       requestOptions: AssetRequestOptions | null;
       changeCheck: AssetChangeCheck | null;
+      changeSource: string | null;
     }
   >();
   for (const spec of specs) {
@@ -346,6 +362,7 @@ export function assetProviderCollections(
       nodeRequest: null,
       requestOptions: null,
       changeCheck: null,
+      changeSource: null,
     };
     const pluginId = typeof spec.id === "string" ? spec.id : typeof spec.slug === "string" ? spec.slug : "";
     if (pluginId && !entry.pluginIds.includes(pluginId)) entry.pluginIds.push(pluginId);
@@ -362,6 +379,9 @@ export function assetProviderCollections(
     }
     if (!entry.requestOptions) entry.requestOptions = parseRequestOptions(pluginId, spec);
     if (!entry.changeCheck) entry.changeCheck = parseChangeCheck(pluginId, spec);
+    if (!entry.changeSource && typeof spec.asset_change_source === "string" && spec.asset_change_source.trim()) {
+      entry.changeSource = spec.asset_change_source.trim();
+    }
     if (!entry.label) entry.label = declaredLabel(spec, providerId);
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
@@ -384,6 +404,7 @@ export function assetProviderCollections(
       nodeRequest: e.nodeRequest,
       requestOptions: e.requestOptions,
       changeCheck: e.changeCheck,
+      changeSource: e.changeSource,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
 }

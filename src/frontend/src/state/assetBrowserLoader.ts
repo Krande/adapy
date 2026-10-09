@@ -39,7 +39,13 @@ export interface AssetsApiLike {
  *  about the change feed (most of today's tests) need not supply one at all:
  *  evidence fetching is then simply a no-op, never a crash. */
 export interface SourceNodesApiLike {
-  getSourceNodes(scope: string, source: string, refs: readonly string[]): Promise<SourceNodesAnswer | null>;
+  /** `collection` lets the api find a provider's per-collection feed source (`asset_change_source`). */
+  getSourceNodes(
+    scope: string,
+    source: string,
+    refs: readonly string[],
+    collection?: string | null,
+  ): Promise<SourceNodesAnswer | null>;
 }
 
 export interface StoreLike {
@@ -82,7 +88,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     const missing = refs.filter((r) => !s.evidenceAsked.has(r));
     if (!missing.length) return;
     try {
-      const answer = await sourceNodesApi.getSourceNodes(scope, source, missing);
+      const answer = await sourceNodesApi.getSourceNodes(scope, source, missing, collection);
       if (!alive(gen, scope, collection)) return;
       store.getState().mergeSourceAnswer(source, answer, missing);
     } catch {

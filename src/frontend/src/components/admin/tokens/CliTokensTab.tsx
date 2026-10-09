@@ -151,7 +151,9 @@ const CliTokensTab: React.FC = () => {
                         checked={showInactive}
                         onChange={(e) => setShowInactive(e.target.checked)}
                     />
-                    revoked &amp; expired
+                    {/* A JS string, not `&amp;`: the bundle stores the decoded text, and the bundle
+                        provenance check looks for it verbatim in source. */}
+                    {"revoked & expired"}
                 </label>
                 <button
                     type="button"
