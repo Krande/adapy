@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 from ada.fem import Load, LoadLine, LoadPressure
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
 
+from .names import concept_name
+
 if TYPE_CHECKING:
     from ada.fem import FEM, FemSet
     from ada.fem.steps import Step
@@ -28,14 +30,14 @@ def write_load(load: Load) -> str:
 
 
 def gravity_load_str(load: Load) -> str:
-    return f"""{load.name} = AFFE_CHAR_MECA(
+    return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
     MODELE=model, PESANTEUR=_F(DIRECTION=(0.0, 0.0, 1.0), GRAVITE={load.magnitude})
 )"""
 
 
 def acc_load_str(load: Load) -> str:
     acc_dir_str = f"({','.join(load.acc_vector)})"
-    return f"""{load.name} = AFFE_CHAR_MECA(
+    return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
     MODELE=model, PESANTEUR=_F(DIRECTION={acc_dir_str}, GRAVITE={load.magnitude})
 )"""
 
@@ -131,7 +133,7 @@ def pressure_load_str(load: LoadPressure) -> str:
     # whatever outward orientation the check would have imposed, which is what makes the sign above
     # reproducible.
     return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',\n    FORCE_COQUE=(\n{1}\n    ),\n)".format(
-        load.name, "\n".join(rows)
+        concept_name(load, "load"), "\n".join(rows)
     )
 
 
@@ -221,4 +223,4 @@ def line_load_str(load: LoadLine) -> str:
             "are left out",
             n_nodes=sum(len(nodes) for _, nodes, _ in nsets),
         )
-    return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n{1}\n)".format(load.name, "\n".join(blocks))
+    return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n{1}\n)".format(concept_name(load, "load"), "\n".join(blocks))

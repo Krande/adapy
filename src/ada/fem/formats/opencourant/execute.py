@@ -64,7 +64,7 @@ class OpenCourantExecute(LocalExecute):
         if self.auto_execute is False:
             return None
 
-        cwd = self.execute_dir
+        cwd = self.analysis_dir
         env = self._env(starter)
         preexec = _raise_stack_limit if sys.platform.startswith("linux") else None
         props = dict(cwd=cwd, env=env, capture_output=True, text=True, errors="replace", preexec_fn=preexec)

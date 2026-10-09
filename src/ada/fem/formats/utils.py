@@ -121,6 +121,9 @@ class LocalExecute:
 
     @property
     def execute_dir(self):
+        """Where ``run.bat``/``stop.bat`` are written (``<fea_execute_dir>/<analysis name>`` when the setting is
+        given; a relative setting resolves against the process's working directory). The solver itself always
+        runs in :attr:`analysis_dir`, the deck's folder."""
         if Config().fea_execute_dir is None:
             return self.analysis_dir
         else:
@@ -190,8 +193,13 @@ def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     if len(parts) > 1:
         # Multi-instance model -> concatenate into one FEM (renumbered ids, instance-prefixed
         # set names) so the single-part writers (Code_Aster/MED, Calculix) can emit it.
-        from ada.fem.concat import concatenate_fem_to_single_part
+        from ada.fem.concat import (
+            concatenate_fem_to_single_part,
+            refuse_assembly_data_the_merge_leaves_behind,
+        )
 
+        # The writer goes on to read the assembly's own Bcs, sets and steps from ``assembly``.
+        refuse_assembly_data_the_merge_leaves_behind(assembly)
         merged = concatenate_fem_to_single_part(assembly)
         if merged is not None:
             return merged
@@ -367,20 +375,13 @@ echo ON\ncall {run_cmd}"""
     with open(exe.execute_dir / start_bat, "w") as d:
         d.write(bat_start_str + "\nEXIT")
 
+    # Only a solver with a stop command (Abaqus) gets a stop.bat. The scripts stay in execute_dir/<name>: a copy at the
+    # root of fea_execute_dir would be overwritten by every analysis and name only the last one.
     if stop_cmd is not None:
         with open(exe.execute_dir / stop_bat, "w") as d:
             d.write(f"cd /d {exe.analysis_dir}\n{stop_cmd}")
 
-    if Config().fea_execute_dir is not None:
-        shutil.copy(exe.execute_dir / start_bat, Config().fea_execute_dir / start_bat)
-        shutil.copy(exe.execute_dir / stop_bat, Config().fea_execute_dir / stop_bat)
-
-    # If the script should be running from batch files, then this can be used
-    if run_in_shell:
-        _ = "start " + start_bat if exe.run_ext is True else "start /wait " + start_bat
-    else:
-        _ = "start " + start_bat if exe.run_ext is True else "call " + start_bat
-
+    # The scripts are for re-running or stopping an analysis by hand; the solver itself is started by run_tool.
     return run_tool(exe, run_cmd, "Windows")
 
 
@@ -395,7 +396,7 @@ def run_tool(exe: LocalExecute, run_cmd, platform):
     # without an error handler subprocess.run raises UnicodeDecodeError
     # AFTER the solver has already finished, masking the actual result.
     props = dict(
-        cwd=exe.execute_dir,
+        cwd=exe.analysis_dir,
         env=os.environ,
         universal_newlines=True,
         encoding="utf-8",

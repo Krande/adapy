@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import StepImplicitStatic
 
+from ..names import concept_name
 from ..write_loads import write_load
 from .fields import create_field_output_str
 
@@ -22,12 +23,14 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part) -> str:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
     from ..write_constraints import get_charge_names, has_cara_elem
 
-    load = step.loads[0]
     charges = get_charge_names(part)
     if len(charges) == 0:
         raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
 
     bc_str = "".join(f"_F(CHARGE={name})," for name in charges)
+    # Every load of the step acts in it: each is written above, and each must be in EXCIT -- with the first
+    # alone the others were defined in the deck and never applied.
+    load_excit = ",".join(f"_F(CHARGE={concept_name(load, 'load')})" for load in step.loads)
 
     has_shells_or_beams = has_cara_elem(part)
     sec_str = "\n    CARA_ELEM=element," if has_shells_or_beams else ""
@@ -45,7 +48,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part) -> str:
 result = MECA_STATIQUE(
     MODELE=model,
     CHAM_MATER=material,{sec_str}
-    EXCIT=({bc_str}_F(CHARGE={load.name}))
+    EXCIT=({bc_str}{load_excit})
 )
 
 {field_str}

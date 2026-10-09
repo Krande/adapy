@@ -151,6 +151,16 @@ class Bc(FemBase):
     def fem_set(self) -> FemSet:
         return self._fem_set
 
+    @fem_set.setter
+    def fem_set(self, value: FemSet):
+        # Keeps ``FemSet.refs`` as the constructor leaves it: the set lists the Bc that names it.
+        old = self._fem_set
+        if old is not None:
+            old.refs[:] = [r for r in old.refs if r is not self]
+        self._fem_set = value
+        if value is not None and not any(r is self for r in value.refs):
+            value.refs.append(self)
+
     @property
     def dofs(self):
         return self._dofs

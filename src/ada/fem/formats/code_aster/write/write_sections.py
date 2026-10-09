@@ -3,6 +3,8 @@ from typing import Iterable
 from ada.fem import FemSection
 from ada.fem.containers import FemSections
 
+from .names import concept_name
+
 
 def create_sections_str(fem_sections: FemSections, has_ref_points: bool = False) -> str:
     from .write_constraints import create_ref_points_discrete_str
@@ -55,7 +57,7 @@ material = AFFE_MATERIAU(
 
 
 def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
-    mat_name = fem_sec.material.name
+    mat_name = concept_name(fem_sec.material, "material")
     sec_name = fem_sec.elset.name
     #
     local_vec = str(tuple(float(c) for c in fem_sec.local_y))
@@ -70,7 +72,7 @@ def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
 
 
 def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
-    mat_name = fem_sec.material.name
+    mat_name = concept_name(fem_sec.material, "material")
     sec_name = fem_sec.elset.name
     p = fem_sec.section.properties
 
@@ -99,5 +101,5 @@ def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
 def write_solid_section(fem_sections: Iterable[FemSection]) -> str:
     mat_ = ""
     for fsec in fem_sections:
-        mat_ += f'		_F(MATER=({fsec.material.name},), GROUP_MA="{fsec.elset.name}"),\n'
+        mat_ += f'		_F(MATER=({concept_name(fsec.material, "material")},), GROUP_MA="{fsec.elset.name}"),\n'
     return mat_

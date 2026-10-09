@@ -9,6 +9,8 @@ if TYPE_CHECKING:
 def create_bc_str(bc: Bc) -> str:
     from ada.fem.utils import is_parent_of_node_solid
 
+    from .names import concept_name
+
     set_name = bc.fem_set.name
     is_solid = False
     for no in bc.fem_set.members:
@@ -29,7 +31,7 @@ def create_bc_str(bc: Bc) -> str:
 
     return (
         dofs_str
-        + f"""{bc.name} = AFFE_CHAR_MECA(
+        + f"""{concept_name(bc, "bc")} = AFFE_CHAR_MECA(
     MODELE=model, DDL_IMPO=_F(**dofs)
 )"""
     )

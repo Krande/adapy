@@ -146,9 +146,17 @@ def _med_groups(med_file) -> dict[str, set[int]]:
     return groups
 
 
+def _aster_concept(load: LoadLine) -> str:
+    """The concept a load becomes in the command file: the writer's prefix and the load's name (an identifier here,
+    so not renamed -- :mod:`ada.fem.formats.code_aster.write.names`)."""
+    from ada.fem.formats.code_aster.write.names import PREFIX
+
+    return PREFIX["load"] + load.name
+
+
 def _aster_records(comm: str, load: LoadLine, p, groups) -> tuple[list, list]:
     """The load's ``FORCE_POUTRE`` rows as (element, q) and ``FORCE_NODALE`` rows as (node position, force)."""
-    m = re.search(rf"^{load.name} = AFFE_CHAR_MECA\(\n(.*?)^\)$", comm, re.M | re.S)
+    m = re.search(rf"^{_aster_concept(load)} = AFFE_CHAR_MECA\(\n(.*?)^\)$", comm, re.M | re.S)
     assert m, f"no AFFE_CHAR_MECA for {load.name}"
     body = m[1]
     num = r"(-?[\d.eE+-]+)"
@@ -201,9 +209,11 @@ def test_code_aster_writes_each_kind_where_it_is_exact(meshed, tmp_path):
         "LC_edge": {"FORCE_NODALE"},
     }.items():
         comm, load, _ = _write(meshed, "code_aster", case, tmp_path / case)
-        body = comm.split(f"{load.name} = AFFE_CHAR_MECA(")[1].split("\n)\n")[0]
+        concept = _aster_concept(load)
+        body = comm.split(f"{concept} = AFFE_CHAR_MECA(")[1].split("\n)\n")[0]
         assert {k for k in ("FORCE_POUTRE", "FORCE_NODALE") if k in body} == kinds
-        assert "EXCIT=(" in comm and f"_F(CHARGE={load.name})" in comm
+        # the step loads the concept the load was written as
+        assert "EXCIT=(" in comm and f"_F(CHARGE={concept})" in comm
 
 
 def test_code_aster_takes_its_line_load_groups_off_the_model_again(meshed, tmp_path):

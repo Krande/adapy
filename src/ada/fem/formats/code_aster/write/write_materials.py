@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 from ada.config import logger
 from ada.materials.concept import Material
 
+from .names import concept_name
+
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
 
@@ -53,7 +55,7 @@ Traction=DEFI_FONCTION(
 
     return f"""{nl_mat}
 
-{material.name} = DEFI_MATERIAU(
+{concept_name(material, "material")} = DEFI_MATERIAU(
     ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}){mat_nl_in},
 )
 """

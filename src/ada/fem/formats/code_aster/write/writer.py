@@ -10,6 +10,7 @@ from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..compatibility import check_compatibility
+from . import names as concept_names
 from .templates import el_convert_str, main_comm_str
 from .write_bc import create_bc_str
 from .write_constraints import (
@@ -76,7 +77,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         if model_data_only:
             return
 
-        with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
+        with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck():
             f.write(create_comm_str(assembly, p))
 
     finally:
@@ -91,9 +92,11 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
     sections_str = create_sections_str(part.fem.sections, has_ref_points=len(couplings) > 0)
-    bcs = part.fem.bcs
+    # A new list: ``+=`` on ``part.fem.bcs`` itself appended the assembly's Bcs to the part's own, in
+    # the user's model, once more on every write.
+    bcs = list(part.fem.bcs)
     if assembly != part:
-        bcs += assembly.fem.bcs
+        bcs += [bc for bc in assembly.fem.bcs if not any(bc is b for b in bcs)]
     bc_str = "\n".join([create_bc_str(bc) for bc in bcs] + [create_coupling_str(con) for con in couplings])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
 

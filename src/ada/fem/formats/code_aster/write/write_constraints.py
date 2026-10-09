@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from ada.config import logger
 from ada.fem import Constraint
 
+from .names import concept_name
+
 if TYPE_CHECKING:
     from ada.api.spatial import Part
 
@@ -37,9 +39,10 @@ def get_charge_names(part: Part) -> list[str]:
     names = []
     for fem in _fems(part):
         for bc in fem.bcs:
-            if bc.name not in names:
-                names.append(bc.name)
-    names += [con.name for con in get_couplings(part)]
+            name = concept_name(bc, "bc")
+            if name not in names:
+                names.append(name)
+    names += [concept_name(con, "coupling") for con in get_couplings(part)]
     return names
 
 
@@ -75,7 +78,7 @@ def create_coupling_str(con: Constraint) -> str:
         logger.warning(
             f'Coupling "{con.name}" couples dofs {con.dofs}. Code_Aster writes it as a rigid link in all dofs'
         )
-    return f"""{con.name} = AFFE_CHAR_MECA(
+    return f"""{concept_name(con, "coupling")} = AFFE_CHAR_MECA(
     MODELE=model, LIAISON_SOLIDE=_F(GROUP_NO=('{con.m_set.name}', '{con.s_set.name}'))
 )"""
 
