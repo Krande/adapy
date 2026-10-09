@@ -18,7 +18,10 @@ import type {
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import {makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {peekCase, resolveCase} from "@/services/fea/feaCaseResolver";
+import {caseFieldView, isCaseRef} from "@/services/fea/feaStepRef";
 import {layerIpIndices, reduceIps} from "./applyElemField";
+import {mergeCaseSteps, slotRef} from "./caseSteps";
 import {feaSourceScope} from "./streaming/session";
 
 /** One component's value for the selected element. */
@@ -120,11 +123,25 @@ export async function feaValuesForElement(
 
     const out: ElementFieldValues[] = [];
     await Promise.all(
-        wanted.map(async (field) => {
+        wanted.map(async (baseField) => {
+            // A combination slot reads the case's own blobs (feaStepRef), the
+            // ones the colouring read; a stored slot its index, clamped as before.
+            let field = baseField;
+            let step: number;
+            const ref = slotRef(manifest, baseField, stepIndex);
+            if (isCaseRef(ref)) {
+                const resolution = peekCase(manifest, sourceName, ref.case)
+                    ?? (await resolveCase(manifest, {scope: urlScope, sourceKey: sourceName}, ref.case).catch(() => null));
+                const caseView = resolution ? caseFieldView(baseField, resolution.overlay, resolution.relPrefix) : null;
+                if (!caseView) return;
+                field = caseView;
+                step = 0;
+            } else {
+                step = Math.min(ref.stored, Math.max(0, (baseField.n_steps ?? 1) - 1));
+            }
             const found = locate(field, elementId);
             if (!found) return;
             const {bucket, index} = found;
-            const step = Math.min(stepIndex, Math.max(0, (field.n_steps ?? 1) - 1));
             let view: Float32Array;
             try {
                 view = await fetchElemFieldStep(rangeFetcher, fetcher, bucket, step, cacheKey);
@@ -158,7 +175,7 @@ export async function feaValuesForElement(
     const rank = new Map((manifest.fields ?? []).map((f, i) => [f.name_canonical, i]));
     out.sort((a, b) => (rank.get(a.field.name_canonical) ?? 0) - (rank.get(b.field.name_canonical) ?? 0));
 
-    const steps = wanted[0]?.steps;
-    const stepLabel = steps?.[stepIndex]?.name ?? steps?.[stepIndex]?.label ?? null;
+    const slot = mergeCaseSteps(manifest, wanted[0] ?? null)[stepIndex];
+    const stepLabel = slot?.name ?? slot?.label ?? null;
     return {label, fields: out, stepIndex, stepLabel};
 }

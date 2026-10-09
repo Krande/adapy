@@ -55,7 +55,7 @@ extensions, and `--from` / `--to` override that inference.
 | `ifc` | `.ifc` |  |
 | `step` | `.step`, `.stp` |  |
 | `xml` | `.xml` | GeniE XML. |
-| `gnx` | `.gnx` | GeniE workspace: the same concept XML zipped with its ACIS body, which is what GeniE opens directly. `ada.from_gnx` is the Python entry point. |
+| `gnx` | `.gnx` | GeniE workspace: the same concept XML zipped with its ACIS body, which is what GeniE opens directly. `ada.from_gnx` is the Python entry point. A body GeniE V9.3 saved in binary (`acisGeometry.sab`) reads as its text twin would; one holding a record the reader was not verified on is refused by name. |
 | `acis` | `.sat`, `.acis` |  |
 | `abaqus` | `.inp` | Also how you read a Calculix deck; they share the keyword syntax. |
 | `sesam` | `.fem`, `.sif` |  |
@@ -67,7 +67,7 @@ extensions, and `--from` / `--to` override that inference.
 | `step` | `.step`, `.stp` |  |
 | `gltf` | `.gltf`, `.glb` | `.glb` is the binary flavour. |
 | `xml` | `.xml` | GeniE XML. |
-| `gnx` | `.gnx` | GeniE workspace. Same model as `xml`, in the container GeniE saves and opens; `Assembly.to_gnx` is the Python entry point. |
+| `gnx` | `.gnx` | GeniE workspace. Same model as `xml`, in the container GeniE saves and opens; `Assembly.to_gnx` is the Python entry point. The ACIS body is text unless `--binary-acis` asks for binary. |
 | `abaqus` | `.inp` | Default owner of `.inp`. One self-contained deck — the include files the writer uses internally are inlined and removed. |
 | `calculix` | `.inp` | Shares `.inp` with Abaqus, so it is reachable only as `--to calculix`. |
 | `sesam` | `.fem` | Default owner of `.fem`. Writes `sestra.inp` beside the deck when the model carries an analysis step. |
@@ -134,6 +134,7 @@ ada convert model.sat model.stp
 ada convert model.ifc model.glb
 ada convert model.gnx model.ifc                  # GeniE workspace -> IFC
 ada convert model.xml model.gnx                  # concept XML -> workspace
+ada convert model.xml model.gnx --binary-acis    # same, ACIS body as binary SAB (GeniE V9.3+)
 ada convert model.inp model.FEM                  # Abaqus deck -> Sesam deck
 ada convert model.inp analysis/modelT1.FEM       # same, named as Sesam names it
 ada convert model.inp ufo/model.fem --to usfos
@@ -181,6 +182,14 @@ leaving you to discover it from Presel. Sesam expects the number in the deck and
 the number in the file name to agree, because Presel matches them when it
 assembles, so a flag contradicting the name is a usage error rather than a
 silent override.
+
+`--binary-acis`
+:   For `gnx` output: store the ACIS body as binary SAB (`acisGeometry.sab`),
+    the way GeniE V9.3 saves a workspace with *Write ACIS files in binary format*
+    on, and set that option in the workspace so a re-save in GeniE stays binary
+    (`Assembly.to_gnx(..., binary_acis=True)` in Python). The default is text,
+    because GeniE before V9.3 opens a binary workspace as an empty model without
+    a message; V9.3 reads either. Any other output format refuses the flag.
 
 `--strict`
 :   Exit `3` if anything in the input could not be written to the output, or if

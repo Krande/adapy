@@ -21,6 +21,19 @@ class ACISUnsupportedCurveType(Exception):
     pass
 
 
+class ACISBinaryBodyError(Exception):
+    """An ACIS body saved in binary (SAB) where this reader needs text (SAT).
+
+    GeniE V9.3 writes a workspace's body as ``acisGeometry.sab`` when its
+    compatibility option "Write ACIS files in binary format"
+    (``GenieRules.Compatibility.enable(WriteACISBinaryFile, true)``) is on, and
+    GeniE itself picks the format by that member name alone. The text reader
+    would find no records in it: measured on V9.3 workspaces, every beam read
+    and every plate silently vanished. Hence a refusal by name, raised before
+    the body reaches the SAT parser.
+    """
+
+
 class ACISDegenerateEdge(Exception):
     """An edge with no curve — ACIS marking a singularity, not a boundary.
 

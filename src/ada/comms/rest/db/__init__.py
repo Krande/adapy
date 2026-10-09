@@ -101,6 +101,7 @@ from .corpora import (
     update_corpus,
 )
 from .issue_bot import (
+    PgIssueClaims,
     audit_log_history_for_cell,
     backfill_audit_log_issue_fps,
     claim_audit_run_for_auto_validate,
@@ -267,6 +268,7 @@ __all__ = [
     "claim_failed_conversion_for_issue_bot",
     "mark_audit_log_issue_bot",
     "reset_audit_log_issue_bot",
+    "PgIssueClaims",
     "backfill_audit_log_issue_fps",
     "list_issue_fp_rows",
     "count_issue_fp_cells",

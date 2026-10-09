@@ -19,6 +19,7 @@ import {
     propertySequentialColormap,
 } from "@/utils/scene/fea/propertyColors";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
+import {mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
 import {useIsMobile} from "@/utils/useIsMobile";
 
 function formatValue(value: number): string {
@@ -56,6 +57,7 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
         ipReduction,
         colormap,
         contour,
+        legendScopeLabel,
     } = useFeaAnimationStore();
 
     const field = useMemo(
@@ -67,7 +69,11 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
     // follows the painter: its own colours, no bands, no pinned range, no case.
     const property = isPropertyField(field);
     const activeUnit = selectedResultUnit(field, reduction);
-    const activeStep = field?.steps[stepIndex];
+    // A slot: a stored step, or (bake_version 4) a load combination past them.
+    const activeStep = useMemo(
+        () => (field ? mergeCaseSteps(manifest, field)[stepIndex] : undefined),
+        [manifest, field, stepIndex],
+    );
     const tickCount = Math.min(Math.max(step, 1), 6);
     const values = contourTicks([min, max], tickCount);
 
@@ -198,6 +204,13 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
                         does not know the range was fixed reads the colours as the
                         field's own extremes. Say so. */}
                     {pinned && <div className="opacity-80">Range: set by hand</div>}
+                    {/* With load combinations in play the range is no longer
+                        "the field's": it is this case's, the stored cases', or
+                        every combination's. Two cases coloured on their own
+                        ranges cannot be compared by colour, so say which. */}
+                    {!pinned && !property && legendScopeLabel && (
+                        <div className="opacity-80" data-testid="fea-legend-scope">Range: {legendScopeLabel}</div>
+                    )}
                 </div>
             )}
             {/* With result colouring switched off the scale would describe a

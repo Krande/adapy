@@ -199,6 +199,86 @@ describe("fetchFeaManifest", () => {
         );
     });
 
+    it("rides out the API restarting mid-bake (bare 500 / 502 / network error)", async () => {
+        // Regression: a dev proxy answers a bare 500 while the API behind it
+        // restarts, and the loop used to surface that as the bake failing --
+        // though the job lives in the queue and finishes regardless.
+        let fetchCount = 0;
+        const fetcher = async () =>
+            ++fetchCount === 1 ? jsonResponse(202, {job_id: "job-1"}) : jsonResponse(200, FAKE_MANIFEST);
+        const script: Array<() => ConvertResponse> = [
+            () => makeStatus({progress: 0.2}),
+            () => {
+                throw new ApiError("convertStatus(job-1) failed: 500 Internal Server Error", 500, "");
+            },
+            () => {
+                throw new ApiError("convertStatus(job-1) failed: 502 Bad Gateway", 502, "");
+            },
+            () => {
+                throw new TypeError("Failed to fetch");
+            },
+            () => makeStatus({status: "done", stage: "ready", progress: 1}),
+        ];
+        const convertStatus = async () => script.shift()!();
+        const m = await fetchFeaManifest({...baseDeps(), fetcher, convertStatus});
+        assert.equal(m.fields.length, 1);
+        assert.equal(script.length, 0);
+    });
+
+    it("still fails on a 500 the API itself raised", async () => {
+        const fetcher = async () => jsonResponse(202, {job_id: "job-1"});
+        const convertStatus = async () => {
+            throw new ApiError("convertStatus(job-1) failed: 500", 500, "Internal Server Error");
+        };
+        await assert.rejects(
+            () => fetchFeaManifest({...baseDeps(), fetcher, convertStatus}),
+            (err: unknown) => err instanceof ApiError && err.status === 500,
+        );
+    });
+
+    it("gives up when the API stays away past the grace period", async () => {
+        const fetcher = async () => jsonResponse(202, {job_id: "job-1"});
+        let calls = 0;
+        const convertStatus = async () => {
+            calls++;
+            throw new ApiError("convertStatus(job-1) failed: 503", 503, "");
+        };
+        let virtualNow = 0;
+        await assert.rejects(
+            () =>
+                fetchFeaManifest({
+                    ...baseDeps(),
+                    fetcher,
+                    convertStatus,
+                    timeoutMs: 1_000_000,
+                    transientGraceMs: 100,
+                    now: () => (virtualNow += 30),
+                }),
+            (err: unknown) => err instanceof ApiError && err.status === 503,
+        );
+        assert.ok(calls > 1, "retried before giving up");
+    });
+
+    it("does not time out a long bake that keeps reporting progress", async () => {
+        let fetchCount = 0;
+        const fetcher = async () =>
+            ++fetchCount === 1 ? jsonResponse(202, {job_id: "job-1"}) : jsonResponse(200, FAKE_MANIFEST);
+        // Ten polls, each 80 ms apart against a 100 ms timeout: far past the
+        // timeout in total, but the progress ticks on every poll.
+        let n = 0;
+        const convertStatus = async () =>
+            ++n < 10 ? makeStatus({progress: 0.1 + n * 0.01}) : makeStatus({status: "done", stage: "ready", progress: 1});
+        let virtualNow = 0;
+        const m = await fetchFeaManifest({
+            ...baseDeps(),
+            fetcher,
+            convertStatus,
+            timeoutMs: 100,
+            now: () => (virtualNow += 80),
+        });
+        assert.equal(m.fields.length, 1);
+    });
+
     it("times out when the job never finishes", async () => {
         const fetcher = async () => jsonResponse(202, {job_id: "job-1"});
         const convertStatus = async () =>

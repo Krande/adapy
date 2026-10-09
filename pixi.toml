@@ -166,6 +166,10 @@ wbuild-serve = { cmd = "npm run gen:plugins && npm run build:serve", cwd = "./sr
 # Build the pyodide ada-py wheel into the SPA's public/wheels so the dev
 # server and build serve it at /wheels/ for the in-browser FEM/SAT stacks.
 wheel-pyodide = { cmd = "python scripts/packaging/build_pyodide_adapy_wheel.py src/frontend/public/wheels" }
+# Copy the adacpp embind wasm modules (STEP/IFC converters, GLB diff, compact
+# beam-solid expander) out of the pinned viewer base image into public/wasm, so
+# the dev server serves /wasm/ as a deployment does. Needs docker.
+wasm-adacpp = { cmd = "python scripts/packaging/fetch_adacpp_wasm.py" }
 fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
 
 json-code-gen-ts = { cmd = [

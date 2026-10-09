@@ -11,7 +11,7 @@
 import * as Comlink from "comlink";
 
 import {loadEmscriptenModule} from "@/utils/wasm/emscriptenLoader";
-import {WasmfsModule, OPFS_MOUNT, ensureOpfsMounted, streamUrlToOpfs, unlinkAll} from "./opfsWasmfs";
+import {WasmfsModule, OPFS_MOUNT, ensureOpfsMounted, streamUrlToOpfs, unlinkAll, writeFileFresh} from "./opfsWasmfs";
 
 const WASM_URL = "/wasm/adacpp_brep_writer.js";
 
@@ -72,7 +72,7 @@ function runWriter(Module: EmModule, dir: BrepDir, inPath: string, outPath: stri
 const api = {
     // Can this worker OPFS-stream? (mount is the capability gate; worker-only.)
     async opfsAvailable(): Promise<boolean> {
-        return ensureOpfsMounted(await getModule());
+        return await ensureOpfsMounted(await getModule());
     },
 
     // Buffered path: source bytes → MEMFS → output. Simplest; fine below the OPFS threshold.
@@ -85,7 +85,7 @@ const api = {
         const t0 = performance.now();
         const inPath = `/in.${srcExt(dir)}`;
         const outPath = `/out.${outExt(dir)}`;
-        Module.FS.writeFile(inPath, new Uint8Array(srcBytes));
+        writeFileFresh(Module, inPath, new Uint8Array(srcBytes));
         const products = runWriter(Module, dir, inPath, outPath, opts?.schema ?? DEFAULT_IFC_SCHEMA, opts?.maxSolids ?? 0);
         if (products <= 0) {
             throw new Error(`native ${dir === "step2ifc" ? "STEP→IFC" : "IFC→STEP"} wrote no products`);
@@ -105,7 +105,7 @@ const api = {
         opts?: {schema?: string; maxSolids?: number},
     ): Promise<NativeBrepWriteResult> {
         const Module = await getModule();
-        if (!ensureOpfsMounted(Module)) {
+        if (!(await ensureOpfsMounted(Module))) {
             throw new Error("OPFS streaming unavailable in this worker (OPFS backend not mountable)");
         }
         const t0 = performance.now();

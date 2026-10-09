@@ -154,3 +154,45 @@ def beam_stress(
         ),
         axis=-1,
     )
+
+
+#: The section properties :func:`beam_stress` divides by, in the order
+#: :func:`beam_stress_per_element` takes them.
+BEAM_STRESS_DENOMINATORS = ("area", "wymin", "wzmin", "wxmin", "shary", "sharz", "wymin2", "wzmin2")
+
+
+def beam_stress_per_element(forces: np.ndarray, denominators: np.ndarray) -> np.ndarray:
+    """:func:`beam_stress` for many elements at once.
+
+    ``forces`` is ``(n_elements, ..., 6)`` G-FORCE values; ``denominators`` is
+    ``(n_elements, 8)``, each element's :data:`BEAM_STRESS_DENOMINATORS` (NaN
+    where it has no section). An element whose denominators are not all finite
+    and positive gets NaN, as :func:`beam_stress` gives it; the others get the
+    same quotients, computed the same way, without a Python call per element.
+    """
+
+    f = np.asarray(forces, dtype=float)
+    if f.shape[-1] != 6:
+        raise ValueError(f"beam_stress expects [...,6] G-FORCE values, got {f.shape}")
+    den = np.asarray(denominators, dtype=float)
+    valid = np.all(np.isfinite(den), axis=1) & np.all(den > 0.0, axis=1)
+    out = np.full(f.shape[:-1] + (8,), np.nan, dtype=float)
+    if not valid.any():
+        return out
+    fv = f[valid]
+    d = den[valid].reshape((-1,) + (1,) * (fv.ndim - 2) + (8,))
+    nxx, nxy, nxz, mxx, mxy, mxz = np.moveaxis(fv, -1, 0)
+    out[valid] = np.stack(
+        (
+            nxx / d[..., 0],
+            -mxy / d[..., 1],
+            mxz / d[..., 2],
+            mxx / d[..., 3],
+            nxy / d[..., 4],
+            nxz / d[..., 5],
+            mxy / d[..., 6],
+            -mxz / d[..., 7],
+        ),
+        axis=-1,
+    )
+    return out

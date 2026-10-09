@@ -302,7 +302,7 @@ flowchart TB
     SRC["source file"] --> REG{"readers.make_stream_reader<br/>(by suffix)"}
     REG -- ".rmed" --> R1["RmedStreamReader"]
     REG -- ".sif" --> R2["SifStreamReader<br/>(adapter if ADA_FEA_SIF_STREAMER=0)"]
-    REG -- ".sin" --> R3["FEAResultStreamAdapter(read_sin_file)<br/>SinStreamReader for steps= or ADA_FEA_SIN_STREAMER=1"]
+    REG -- ".sin" --> R3["FEAResultStreamAdapter(read_sin_file)<br/>SinStreamReader for steps=, ADA_FEA_SIN_STREAMER=1,<br/>or (unset) a deck too large to materialise"]
     REG -- ".radanim" --> R6["make_radanim_stream_reader<br/>OpenCourant time history (transient)"]
     REG -- ".inp .fem .med" --> R4["_make_fem_reader<br/>from_fem → concatenate_fem_meshes<br/>(mesh only, plus property fields)"]
     REG -- "register_stream_reader()" --> R5["plugins (e.g. .odb)"]

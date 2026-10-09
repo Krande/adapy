@@ -21,6 +21,7 @@ import {setRenderSuspended} from "@/state/perfStore";
 import {getColormap} from "@/utils/scene/fea/colormaps";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 import {formatStepTime} from "@/utils/scene/fea/timeHistory";
+import {mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
 
 import {
     exportFileName,
@@ -230,7 +231,8 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
         period: anim.period,
         stepLabels: anim.timeHistory
             ? (field?.steps ?? []).map((s) => formatStepTime(s.value, field!.steps.map((x) => x.value)))
-            : (field?.steps.map((s) => s.label) ?? []),
+            // Slots, so a load combination's frame is labelled too (fea/caseSteps.ts).
+            : mergeCaseSteps(anim.manifest, field).map((s) => s.name ?? s.label),
         fps: settings.fps,
     });
     if (plan.stepsChange && !anim.applyStep) throw new Error("the result cannot change step");

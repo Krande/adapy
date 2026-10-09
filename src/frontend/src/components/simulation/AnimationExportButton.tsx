@@ -1,6 +1,7 @@
 import React, {useCallback, useRef, useState} from "react";
 
 import AnchoredPopover from "../common/AnchoredPopover";
+import {FIELD_CONTROL, TRANSPORT_BUTTON, TRANSPORT_BUTTON_ON} from "./controlStyles";
 import ExportAnimationIcon from "../icons/ExportAnimationIcon";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import type {ExportProgress} from "@/utils/scene/fea/animationExport/exportAnimation";
@@ -14,9 +15,8 @@ import {
     type ExportSettings,
 } from "@/utils/scene/fea/animationExport/framePlan";
 
-const BUTTON_CLASS =
-    "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-1.5 px-3 @sm:py-2 @sm:px-4 rounded-sm";
-const SELECT_CLASS = "text-black bg-white rounded-sm px-1 py-0.5";
+const BUTTON_CLASS = TRANSPORT_BUTTON;
+const SELECT_CLASS = FIELD_CONTROL;
 const STORAGE_KEY = "ada.feaAnimationExport.v1";
 
 const ASPECT_LABELS: Record<ExportAspect, string> = {
@@ -91,7 +91,7 @@ const AnimationExportButton: React.FC = () => {
 
     if (progress) {
         return (
-            <div className="flex items-center gap-2 text-xs text-white">
+            <div className="flex h-8 items-center gap-2 text-xs text-white">
                 <span className="tabular-nums">
                     Exporting{progress.total > 0 ? ` ${progress.done}/${progress.total}` : "…"}
                 </span>
@@ -110,7 +110,7 @@ const AnimationExportButton: React.FC = () => {
         <div className="relative">
             <button
                 ref={buttonRef}
-                className={BUTTON_CLASS + (open ? " ring-2 ring-blue-300" : "")}
+                className={BUTTON_CLASS + (open ? ` ${TRANSPORT_BUTTON_ON}` : "")}
                 onClick={() => setOpen((v) => !v)}
                 title="Save the animation as a video or GIF"
                 aria-haspopup="dialog"

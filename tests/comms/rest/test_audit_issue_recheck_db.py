@@ -104,6 +104,39 @@ class _Forge:
         self.states.append((number, state))
 
 
+def test_pg_issue_claims_serialise_one_fingerprint_and_remember_its_issue(db):
+    pool, run = db
+    run(pool.execute("TRUNCATE audit_issue_claims"))
+    claims = db_module.PgIssueClaims(pool, target="github::o/r")
+    order: list[str] = []
+
+    async def sync(name, number):
+        async with claims.hold("fp1") as held:
+            order.append(f"{name}:in:{await held.get()}")
+            await asyncio.sleep(0.05)
+            if await held.get() is None:
+                await held.record(number)
+            order.append(f"{name}:out")
+
+    async def both():
+        await asyncio.gather(sync("a", 11), sync("b", 22))
+
+    run(both())
+    # one at a time, and the second saw the first one's issue
+    assert order[1].endswith(":out") and order[2].endswith(":in:11")
+
+    async def readback():
+        other = db_module.PgIssueClaims(pool, target="forgejo:https://x:o/r")
+        async with other.hold("fp1") as held:
+            assert await held.get() is None, "claims are per forge repo"
+        async with claims.hold("fp1") as held:
+            got = await held.get()
+            await held.forget()
+            return got, await held.get()
+
+    assert run(readback()) == (11, None)
+
+
 def test_a_finished_recheck_run_closes_its_issue(db, monkeypatch):
     pool, run = db
     fp = fingerprint_job({"key": "a.step", "target_format": "glb", "error": "boom"})

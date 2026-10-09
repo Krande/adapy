@@ -147,7 +147,32 @@ def import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         coords = [tuple(float(c) for c in pt) for pt in axis.Points.CoordList]
     else:
         coords = [tuple(float(c) for c in p.Coordinates) for p in axis.Points]
-    curve = CurvePoly2d.from_3d_points(coords)
+    up_kw = {}
+    segments = getattr(axis, "Segments", None) if axis.is_a("IfcIndexedPolyCurve") else None
+    if segments and any(s.is_a("IfcArcIndex") for s in segments):
+        # Exact arcs (a bent member): keep them as line/arc segments rather than reading the arc
+        # mid points as polyline corners.
+        from ada.geom import curves as geo_cu
+
+        segs = []
+        for s in segments:
+            idx = [int(i) - 1 for i in s.wrappedValue]
+            if s.is_a("IfcArcIndex"):
+                segs.append(geo_cu.ArcLine(coords[idx[0]], coords[idx[1]], coords[idx[2]]))
+            else:
+                segs.extend(geo_cu.Edge(coords[a], coords[b]) for a, b in zip(idx[:-1], idx[1:]))
+        curve = geo_cu.IndexedPolyCurve(segs)
+        # FixedReference is the section's local y at the start; its up is tangent x that.
+        fixed_ref = getattr(get_ifc_body(ifc_elem), "FixedReference", None)
+        if fixed_ref is not None:
+            from ada.geom.sweep_frames import sample_directrix
+
+            t0 = sample_directrix(curve)[1][0]
+            up = np.cross(t0, np.asarray(fixed_ref.DirectionRatios, dtype=float))
+            if float(np.linalg.norm(up)) > 1e-9:
+                up_kw = dict(up=tuple(float(c) for c in up / np.linalg.norm(up)))
+    else:
+        curve = CurvePoly2d.from_3d_points(coords)
 
     return BeamSweep(
         name,
@@ -157,4 +182,5 @@ def import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         guid=ifc_elem.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
+        **up_kw,
     )

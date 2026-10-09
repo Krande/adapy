@@ -16,6 +16,11 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {pickResultLineSegment} from "@/utils/scene/fea/resultLineSegments";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import CameraControls from "camera-controls";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {useTreeViewStore} from "@/state/treeViewStore";
+import {useSceneMenuStore} from "@/state/sceneMenuStore";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {selectedLeafNodes} from "@/utils/tree_view/treeNavigation";
 
 // A second click/tap inside this window + radius counts as a double.
 // 350ms matches the OS-level double-tap threshold on iOS / Android and
@@ -83,7 +88,43 @@ export function setupPointerHandler(
         }
         lastTapTime = now;
         lastTapPos = {x: e.clientX, y: e.clientY};
+        await pickAndSelect(e);
+    });
 
+    // RIGHT-CLICK: the Scene's menu for what is under the cursor -- the same menu its tree row has.
+    // A right DRAG pans the camera, so only a click that stayed put opens it. An object already in
+    // the selection keeps the selection (as in the tree); anything else is selected first, by the
+    // same picking a left click does. Nothing under the cursor: no menu, and the selection stays.
+    container.addEventListener("contextmenu", async (e: MouseEvent) => {
+        // The cell builder has its own right-click menu (ports) while it is active.
+        if (useCellBuilderStore.getState().active !== null) return;
+        e.preventDefault();
+        if (pointerDownPos) {
+            const dx = e.clientX - pointerDownPos.x;
+            const dy = e.clientY - pointerDownPos.y;
+            if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
+        }
+        let pick: ReturnType<typeof gpuMeshPicker.pickAt> = null;
+        try {
+            pick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
+        } catch {
+            pick = null;
+        }
+        if (!pick) return;
+        const key = pick.mesh.unique_key;
+        const selected = useSelectedObjectStore.getState().selectedObjects.get(pick.mesh)?.has(pick.rangeId) ?? false;
+        if (!selected) await pickAndSelect(e);
+        const tv = useTreeViewStore.getState();
+        const row = tv.findNodeByRangeId(key, pick.rangeId);
+        if (!row) return;
+        const rows = selectedLeafNodes();
+        const api = tv.tree && typeof tv.tree.get === "function" ? tv.tree.get(row.id) : null;
+        useSceneMenuStore.getState().open({row, rows: rows.length ? rows : [row], node: api ?? undefined, x: e.clientX, y: e.clientY});
+    });
+
+    /** What a left click selects at the cursor: a joint marker, a point, a beam line or a mesh, or
+     *  nothing (empty space clears the selection). Shared with the right-click menu. */
+    async function pickAndSelect(e: MouseEvent): Promise<void> {
         // 0) A clash-check joint marker, if one is under the cursor. Asked FIRST because the
         //    markers are annotations drawn ON the geometry they describe: resolved after the mesh
         //    pickers, a sphere sitting on a beam would never be clickable. One object and a few
@@ -253,7 +294,7 @@ export function setupPointerHandler(
         } else {
             handleClickEmptySpace(e);
         }
-    });
+    }
 
     return () => {
         container.removeEventListener("pointerdown", () => {

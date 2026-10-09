@@ -84,6 +84,90 @@ def _circle_param(pt, loc, axis, ref) -> float:
     return math.atan2(sum(d[i] * perp[i] for i in range(3)), sum(d[i] * r0[i] for i in range(3)))
 
 
+def _circle_point(loc, axis, ref, r: float, t: float) -> list[float]:
+    """The point at parameter ``t`` on the circle :func:`_circle_param` measures (its inverse)."""
+    ax = [float(x) for x in axis]
+    an = math.sqrt(sum(c * c for c in ax)) or 1.0
+    ax = [c / an for c in ax]
+    r0 = [float(x) for x in ref]
+    dp = sum(r0[i] * ax[i] for i in range(3))
+    r0 = [r0[i] - dp * ax[i] for i in range(3)]
+    rn = math.sqrt(sum(c * c for c in r0)) or 1.0
+    r0 = [c / rn for c in r0]
+    perp = [ax[1] * r0[2] - ax[2] * r0[1], ax[2] * r0[0] - ax[0] * r0[2], ax[0] * r0[1] - ax[1] * r0[0]]
+    return [float(loc[i]) + r * (math.cos(t) * r0[i] + math.sin(t) * perp[i]) for i in range(3)]
+
+
+def _reversed_face_bound(fb):
+    """The same loop run the other way: edges in reverse order, each from its end to its start."""
+    import ada.geom.curves as cu
+    import ada.geom.surfaces as su
+
+    edges = []
+    for oe in reversed(fb.bound.edge_list):
+        ec = oe.edge_element
+        flipped = cu.EdgeCurve(start=oe.end, end=oe.start, edge_geometry=ec.edge_geometry, same_sense=not ec.same_sense)
+        edges.append(
+            cu.OrientedEdge(
+                start=oe.end, end=oe.start, edge_element=flipped, orientation=True, t_start=oe.t_end, t_end=oe.t_start
+            )
+        )
+    return su.FaceBound(bound=cu.EdgeLoop(edge_list=edges), orientation=fb.orientation)
+
+
+def _loop_turn_on_cylinder(fb, position) -> float | None:
+    """Twice the signed area a loop encloses in its cylinder's (angle, height), by the shoelace.
+
+    Positive where it runs counter-clockwise there (angle about the axis from the ref
+    direction, height along the axis). Each arc contributes points along it, from its trims
+    where it has them, so no step between points turns half a revolution. 0.0 for a loop this
+    cannot follow (not an edge loop, or one built from pcurves), which leaves it as given.
+
+    ``None`` where an edge is neither a line nor a circle: a B-spline or ellipse arc can turn
+    half a revolution between its ends, and its ends alone are all this would see (a GeniE
+    half cylinder bounded by rational B-splines measured +12.57 run clockwise, 0.0 run the other
+    way). The caller then lets the kernel's own check say which way the loop builds.
+    """
+    import ada.geom.curves as cu
+
+    if not isinstance(fb.bound, cu.EdgeLoop):
+        return 0.0
+    if any(getattr(oe, "pcurve", None) is not None for oe in fb.bound.edge_list):
+        # Built from its pcurves (kind-6 records), not the 3D edges this follows -- and the IFC
+        # tube those come from builds as given (tests/core/fem/test_mesh_faces.py).
+        return 0.0
+    loc = [float(c) for c in position.location]
+    axis = [float(c) for c in (position.axis if position.axis is not None else (0, 0, 1))]
+    ref = [float(c) for c in (position.ref_direction if position.ref_direction is not None else (1, 0, 0))]
+    an = math.sqrt(sum(c * c for c in axis)) or 1.0
+    axis = [c / an for c in axis]
+    pts = []
+    for oe in fb.bound.edge_list:
+        ec = getattr(oe, "edge_element", None)
+        curve = ec.edge_geometry if isinstance(ec, cu.EdgeCurve) else None
+        if not isinstance(curve, cu.Circle):
+            if curve is not None and not isinstance(curve, cu.Line):
+                return None
+            pts.append([float(c) for c in oe.start])
+            continue
+        c_loc, c_axis = curve.position.location, curve.position.axis
+        c_ref = curve.position.ref_direction if curve.position.ref_direction is not None else (1, 0, 0)
+        t0, t1 = getattr(oe, "t_start", None), getattr(oe, "t_end", None)
+        if t0 is None or t1 is None:
+            t0, t1 = _circle_param(oe.start, c_loc, c_axis, c_ref), _circle_param(oe.end, c_loc, c_axis, c_ref)
+            while t1 <= t0 + 1e-12:
+                t1 += 2.0 * math.pi
+        pts += [_circle_point(c_loc, c_axis, c_ref, float(curve.radius), t0 + (t1 - t0) * k / 16) for k in range(16)]
+    uv, prev = [], None
+    for p in pts:
+        a = _circle_param(p, loc, axis, ref)
+        if prev is not None:
+            a = prev + (a - prev + math.pi) % (2.0 * math.pi) - math.pi
+        prev = a
+        uv.append((a, sum((p[i] - loc[i]) * axis[i] for i in range(3))))
+    return sum(uv[i][0] * uv[(i + 1) % len(uv)][1] - uv[(i + 1) % len(uv)][0] * uv[i][1] for i in range(len(uv)))
+
+
 class Containment(Enum):
     """Backend-neutral result of a point-in-solid classification.
 
@@ -527,15 +611,23 @@ class AdacppBackend:
                     f"AdacppBackend.build: FixedReferenceSweptAreaSolid swept_area "
                     f"{type(area).__name__!r} not yet ported to adacpp."
                 )
-            # MakePipeShell sweeps the profile *wire* (already positioned in 3D
-            # at the directrix start) along the directrix spine.
-            directrix = self._encode_curve(g.directrix)
-            outer = self._encode_curve(area.outer_curve)
-            shape = self._cad.build_fixed_reference_swept_area_solid(
-                directrix,
-                outer,
-                self._xyz(g.position.location),
-            )
+            from ada.geom.sweep_frames import swept_area_is_planar_2d
+
+            if swept_area_is_planar_2d(area) and not isinstance(g.directrix, gcu.GradientCurve):
+                # A flat section (BeamSweep / BeamCurved) must be PLACED at every station of
+                # the path; the native PipeShell below sweeps a wire where it lies (and its
+                # contact mode moves a section centred on the spine off it).
+                shape = self._loft_planar_sweep(g, area)
+            else:
+                # MakePipeShell sweeps the profile *wire* (already positioned in 3D
+                # at the directrix start) along the directrix spine.
+                directrix = self._encode_curve(g.directrix)
+                outer = self._encode_curve(area.outer_curve)
+                shape = self._cad.build_fixed_reference_swept_area_solid(
+                    directrix,
+                    outer,
+                    self._xyz(g.position.location),
+                )
         elif isinstance(g, su.HalfSpaceSolid):
             # Infinite half-space cutter (boolean second operand, e.g. an IFC
             # IfcHalfSpaceSolid clipping a beam). ``flip`` selects which side is the solid
@@ -627,13 +719,38 @@ class AdacppBackend:
                 # below (callers tessellating tubes use ADAPY_CAD_BACKEND=occ); it
                 # activates automatically once ada-cpp ships build_advanced_face_cylindrical.
                 pos = surf.position
-                shape = self._cad.build_advanced_face_cylindrical(
-                    self._xyz(pos.location),
-                    _axis(pos.axis, (0, 0, 1)),
-                    _axis(pos.ref_direction, (1, 0, 0)),
-                    float(surf.radius),
-                    [self._encode_face_bound(fb) for fb in g.bounds],
-                )
+                bounds = list(g.bounds)
+
+                # The builder takes the loops as running clockwise in the cylinder's own
+                # (angle, height) and does not turn them round: measured on ada-cpp 0.31.1,
+                # GeniE's quarter cylinder (outline counter-clockwise there, face forward) built
+                # invalid at -pi, the same loops run the other way valid at +pi, and GeniE's swept
+                # arc (clockwise there) the reverse -- whatever the face's sense. pythonocc builds
+                # both valid either way. The region is the loops', not their direction, so loops
+                # that run counter-clockwise are handed over run the other way (Krande/adapy#435).
+                def cylindrical(fbs):
+                    return self._cad.build_advanced_face_cylindrical(
+                        self._xyz(pos.location),
+                        _axis(pos.axis, (0, 0, 1)),
+                        _axis(pos.ref_direction, (1, 0, 0)),
+                        float(surf.radius),
+                        [self._encode_face_bound(fb) for fb in fbs],
+                    )
+
+                turn = _loop_turn_on_cylinder(bounds[0], pos)
+                if turn is None:
+                    # An edge the turn cannot follow (a B-spline or ellipse arc): built as given,
+                    # and run the other way only where the kernel calls that face invalid and
+                    # the other one valid.
+                    shape = cylindrical(bounds)
+                    if not self.is_valid(shape):
+                        other = cylindrical([_reversed_face_bound(fb) for fb in bounds])
+                        if self.is_valid(other):
+                            shape = other
+                else:
+                    if turn > 0:
+                        bounds = [_reversed_face_bound(fb) for fb in bounds]
+                    shape = cylindrical(bounds)
             elif isinstance(surf, su.ConicalSurface) and g.bounds and hasattr(self._cad, "build_advanced_face_conical"):
                 # Cone AdvancedFace (e.g. PrimCone). hasattr-guarded like the cylinder path.
                 pos = surf.position
@@ -785,6 +902,40 @@ class AdacppBackend:
         # Apply booleans natively (operands built recursively in adacpp).
         for op in geometry.bool_operations:
             shape = self.boolean(op.operator, shape, self.build(op.second_operand))
+        return shape
+
+    def _loft_planar_sweep(self, g, area) -> ShapeHandle:
+        """A flat section swept along a path: the section is placed at every station of the
+        shared sweep frames (``ada.geom.sweep_frames.frames_for_solid`` -- the stations the NGEOM
+        stream and OCC builders use) and lofted (ruled) through them. Each void is lofted the
+        same way and cut out, so a tube stays hollow."""
+        import numpy as np
+
+        from ada.geom.booleans import BoolOpEnum
+        from ada.geom.sweep_frames import (
+            decimate_stations,
+            extend_stations,
+            frames_for_solid,
+            profile_loops_2d,
+        )
+
+        origins, dir_x, dir_y = frames_for_solid(g)
+        if len(origins) < 2:
+            raise NotImplementedError("FixedReferenceSweptAreaSolid: directrix has < 2 stations")
+        loops = profile_loops_2d(area)
+        extent = float(np.ptp(np.vstack(loops), axis=0).max())
+        keep = decimate_stations(origins, dir_x, dir_y, extent)
+        stations = origins[keep], dir_x[keep], dir_y[keep]
+        # Void cutters run past both ends so their caps are not coplanar with the solid's.
+        cut_stations = extend_stations(*stations, 0.05 * extent)
+
+        def loft(loop: np.ndarray, o, dx, dy) -> ShapeHandle:
+            sections = [o[i] + loop[:, :1] * dx[i] + loop[:, 1:2] * dy[i] for i in range(len(o))]
+            return self.loft_profiles([s.tolist() for s in sections], ruled=True, solid=True)
+
+        shape = loft(loops[0], *stations)
+        for inner in loops[1:]:
+            shape = self.boolean(BoolOpEnum.DIFFERENCE, shape, loft(inner, *cut_stations))
         return shape
 
     @staticmethod
@@ -1026,10 +1177,20 @@ class AdacppBackend:
 
         ee = getattr(oe, "edge_element", None)
         curve = ee.edge_geometry if isinstance(ee, cu.EdgeCurve) else None
+        # A closed curve built whole has no endpoints to say which way its loop runs it, so the
+        # edge's sense has to (as OccBackend's make_edge_from_edge reads it): a round hole is the
+        # curve run backwards. The record has no orientation field, so a backwards run is
+        # encoded as the same point set parameterised the other way -- a circle or ellipse about
+        # the opposite axis, a B-spline with its poles and knots reversed. Encoded forward, a
+        # hole wound like its outline and the face measured the outline plus the hole
+        # (Krande/adapy#435).
+        backwards = closed and not bool(getattr(ee, "same_sense", True))
 
         if isinstance(curve, cu.Circle):
             pos = curve.position
             loc, axis = self._xyz(pos.location), self._xyz(pos.axis)
+            if backwards:
+                axis = [-c for c in axis]
             # ref_direction is the circle's angular origin (param 0). It MUST be carried so the
             # arc/closed-circle vertices land where the adjacent edges (e.g. a cylinder/torus
             # seam line) attach — without it adacpp placed them at OCC's default x-axis and the
@@ -1040,7 +1201,15 @@ class AdacppBackend:
                 # Full circle: anchor the edge vertex at the start point so a seam connects there.
                 return [2.0, *loc, *axis, *ref, r, *start]
             if has_trim:
-                return [5.0, *loc, *axis, *ref, r, float(t_start), float(t_end)]
+                t0, t1 = float(t_start), float(t_end)
+                if t0 > t1:
+                    # Run against the circle: the record's trim is taken increasing on a periodic
+                    # curve, so (pi/2, 0) went the long way round (measured: GeniE's quarter
+                    # cylinder built invalid at 3 pi). The arc through its middle runs start to
+                    # end (Krande/adapy#435).
+                    mid = _circle_point(loc, axis, ref, r, 0.5 * (t0 + t1))
+                    return [1.0, *start, *mid, *end]
+                return [5.0, *loc, *axis, *ref, r, t0, t1]
             # No explicit trim: recover the arc's angular extent from the endpoints (CCW from
             # start to end, matching OccBackend's two-point arc). WITHOUT this the arc collapsed
             # to a chord ([0, start, end]) → the face lost the surface and BRepMesh tessellated it
@@ -1055,6 +1224,12 @@ class AdacppBackend:
             pos = curve.position
             loc, axis, ref = self._xyz(pos.location), self._xyz(pos.axis), self._xyz(pos.ref_direction)
             s1, s2 = float(curve.semi_axis1), float(curve.semi_axis2)
+            # An arc run against the ellipse (t_start > t_end): the record trims between its points
+            # walking the parameter up, which is the other arc between them (measured: a quarter
+            # sector run backwards built as three quarters). About the opposite axis, up from start
+            # to end is the arc the edge runs (Krande/adapy#435).
+            if backwards or (has_trim and float(t_start) > float(t_end)):
+                axis = [-c for c in axis]
             if closed:
                 return [4.0, *loc, *axis, *ref, s1, s2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             return [4.0, *loc, *axis, *ref, s1, s2, 1.0, *start, *end]
@@ -1063,6 +1238,11 @@ class AdacppBackend:
             knots = [float(k) for k in curve.knots]
             mults = [float(m) for m in curve.knot_multiplicities]
             rational = isinstance(curve, cu.RationalBSplineCurveWithKnots)
+            weights = [float(w) for w in curve.weights_data] if rational else []
+            if backwards:
+                # t -> (first + last) - t: the same curve, run from its end to its start
+                poles, weights, mults = poles[::-1], weights[::-1], mults[::-1]
+                knots = [knots[0] + knots[-1] - k for k in reversed(knots)]
             rec = [
                 3.0,
                 float(curve.degree),
@@ -1081,7 +1261,7 @@ class AdacppBackend:
                 rec += p
             rec += [float(len(knots)), *knots, *mults]
             if rational:
-                rec += [float(w) for w in curve.weights_data]
+                rec += weights
             return rec
         # Line, no geometry, or unsupported → straight segment.
         return [0.0, *start, *end]

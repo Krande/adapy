@@ -490,6 +490,7 @@ class Assembly(Part):
         writer_postprocessor: Callable[[ET.Element, Part], None] = None,
         streaming: bool = False,
         merge_strategy=None,
+        binary_acis: bool = False,
     ):
         """Write a Genie (DNV) workspace file (``.gnx``).
 
@@ -501,6 +502,12 @@ class Assembly(Part):
 
         ``streaming``/``merge_strategy`` take the streaming XML writer's route
         through a temporary XML and repack it, for large FEM-derived models.
+
+        ``binary_acis`` stores the ACIS body as binary SAB (``acisGeometry.sab``),
+        what GeniE V9.3 writes with its "Write ACIS files in binary format" option
+        on, and sets that option in the workspace. The default is text, because
+        GeniE before V9.3 opens a binary workspace as an empty model and says
+        nothing (measured on V8.13-02); V9.3 reads either.
         """
         import pathlib
         import tempfile
@@ -517,9 +524,9 @@ class Assembly(Part):
                     streaming=True,
                     merge_strategy=merge_strategy,
                 )
-                gnx_from_genie_xml(tmp_xml, destination_gnx)
+                gnx_from_genie_xml(tmp_xml, destination_gnx, binary_acis=binary_acis)
         else:
-            write_gnx(self, destination_gnx, writer_postprocessor=writer_postprocessor)
+            write_gnx(self, destination_gnx, writer_postprocessor=writer_postprocessor, binary_acis=binary_acis)
         logger.info(f'Genie workspace "{destination_gnx}" created')
         return destination_gnx
 

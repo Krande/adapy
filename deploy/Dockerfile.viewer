@@ -48,7 +48,7 @@
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.31.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.32.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -134,7 +134,7 @@ RUN mkdir -p /build/dist/wasm && \
 # adacpp_extrude while the viewer drew every compact-baked beam as a line.
 # Keep the list in step with `grep -rn '/wasm/adacpp_' src/frontend/src`.
 RUN set -eu; \
-    for m in adacpp_step_glb adacpp_ifc_glb adacpp_brep_writer adacpp_glb_diff adacpp_extrude; do \
+    for m in adacpp_step_glb adacpp_ifc_glb adacpp_brep_writer adacpp_glb_diff adacpp_extrude adacpp_fea; do \
         for f in "/build/dist/wasm/$m.js" "/build/dist/wasm/$m.wasm"; do \
             [ -f "$f" ] && continue; \
             echo "ERROR: $f is missing — the adacpp wasm base image (ADACPP_BASE_IMAGE, see the" >&2; \

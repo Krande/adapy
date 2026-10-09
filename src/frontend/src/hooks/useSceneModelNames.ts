@@ -4,6 +4,7 @@
 
 import { useCallback, useMemo } from "react";
 
+import { useProviderName } from "@/state/providerNamesStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 
 /** The provider a model was loaded from, when it came through the asset browser
@@ -18,6 +19,7 @@ export function providerOf(sourceName: string): string | null {
  *  unless the label already says it -- for a list where models from two providers sit together. */
 export function useSceneModelNames(): (sourceName: string, opts?: { withProvider?: boolean }) => string {
   const treeData = useTreeViewStore((s) => s.treeData);
+  const providerName = useProviderName();
   const labels = useMemo(() => {
     const out = new Map<string, string>();
     for (const root of treeData?.children ?? []) if (root.source_name) out.set(root.source_name, root.name);
@@ -27,8 +29,11 @@ export function useSceneModelNames(): (sourceName: string, opts?: { withProvider
     (sourceName, opts) => {
       const label = labels.get(sourceName) ?? sourceName.split("/").pop() ?? sourceName;
       const provider = opts?.withProvider ? providerOf(sourceName) : null;
-      return provider && !label.includes(provider) ? `${label} · ${provider}` : label;
+      if (!provider) return label;
+      // Shown by its display name; a label already naming the provider, either way, is left alone.
+      const shown = providerName(provider);
+      return label.includes(provider) || label.includes(shown) ? label : `${label} · ${shown}`;
     },
-    [labels],
+    [labels, providerName],
   );
 }

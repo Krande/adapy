@@ -70,7 +70,11 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
 
     _, _, shell = sw.init_body(plates, curved)
 
-    if curved:
+    # A plate with booleans has its holes cut by the CAD backend and authored as inner loops,
+    # which the planar imprint cannot carry (it takes outlines): such a plate goes the advanced
+    # way, and the rest with it, as beside a curved plate.
+    cut = [pl for pl in plates if pl.booleans]
+    if curved or cut:
         # A body has one topology, and the imprint can only build a planar one.
         # Where curved faces are present the flat plates join their weld
         # instead, so the two share vertices and edges where they meet — built
@@ -94,7 +98,7 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
 
 
 def _cover_wires(sw: SatWriter) -> None:
-    """Widen the body/lump/shell box over the beam wires the shell carries.
+    """Widen the body/lump/shell box over the beam wires the shell carries, and its faces' loops.
 
     The box starts as the plates' extent, but the imprint also hangs every beam whose
     axis lies on no plate off this shell as a wire. GeniE treats the boxes as a bound
@@ -107,14 +111,19 @@ def _cover_wires(sw: SatWriter) -> None:
     (Fz -10000 N / My 500 N m, -4000 N, -8000 N); widening any one of them alone does not.
     """
     wires = sw.get_entities_by_type(se.Wire)
-    if not wires or sw.body is None:
+    # The plates' extent is their outlines' -- a curved plate's, its boundary nodes' -- and an
+    # arc bulges past its ends: GeniE's swept arc reaches y = 0.5 where its nodes are at y = 0.
+    # Every loop's box holds its arcs (``_edge_box_points``), so the body's is widened over them
+    # too; Abaqus/CAE trusts it (findAt at the apex found no face before).
+    loops = sw.get_entities_by_type(se.Loop)
+    if not (wires or loops) or sw.body is None:
         return
 
     import numpy as np
 
     from ada.cadit.sat.utils import make_ints_if_possible
 
-    boxes = np.asarray([sw.bbox] + [w.bbox for w in wires], dtype=float)
+    boxes = np.asarray([sw.bbox] + [w.bbox for w in wires] + [lp.bbox for lp in loops], dtype=float)
     sw.bbox = make_ints_if_possible([*boxes[:, :3].min(axis=0), *boxes[:, 3:].max(axis=0)])
     for entity in (sw.body, sw.lump, sw.shell):
         entity.bbox = list(sw.bbox)
@@ -258,7 +267,7 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
         name_straight_beam_edges,
     )
 
-    if not curved:
+    if not curved and not any(pl.booleans for pl in plates):
         return
 
     from ada.api.plates import PlateCurved
@@ -271,17 +280,26 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
     # Build one AdvancedFace per plate. Curved plates carry the surface the file
     # authored; flat plates become a plane face. Curved go first so a shared edge
     # takes the curved face's parameter range (a straight edge has none).
-    ordered = list(curved) + list(plates)
+    # A plate whose booleans cut it gives the faces the cut leaves (one with its holes as inner
+    # loops, or several where the cut parts it), so the lists run per face, not per plate.
+    ordered: list = []
     afaces: list = []
-    for pl in ordered:
-        af = None
+    for pl in list(curved) + list(plates):
+        faces = [None]
         try:
-            af = pl.geom.geometry if isinstance(pl, PlateCurved) else flat_plate_to_advanced_face(pl)
+            if isinstance(pl, PlateCurved):
+                faces = [pl.geom.geometry]
+            elif pl.booleans:
+                faces = _faces_after_booleans(pl)
+            else:
+                faces = [flat_plate_to_advanced_face(pl)]
         except UnsupportedCurvedFace as ex:
             skipped[str(ex)] += 1
         except Exception as ex:  # noqa: BLE001 - a bad face must not sink the whole write
             skipped[f"advanced-face build: {ex}"] += 1
-        afaces.append(af)
+        for af in faces:
+            ordered.append(pl)
+            afaces.append(af)
 
     # Imprint the beam axes onto the faces: a stiffener lying on a plate splits it
     # along its axis, exactly as Genie's own export is split. Without this Genie
@@ -360,6 +378,26 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
         total = sum(skipped.values())
         detail = "; ".join(f"{reason} ({n})" for reason, n in skipped.most_common(3))
         logger.warning(f"sat-write: {total} of {len(curved)} curved plates are not authored as SAT faces: {detail}")
+
+
+def _faces_after_booleans(pl) -> list:
+    """The advanced faces a plate's booleans leave of it, or its whole outline -- said by name.
+
+    Writing the outline alone used to be silent (Krande/adapy#410): the hole was simply not in
+    the body. Where the cut cannot be stated exactly the plate still goes out whole, but the
+    log says which plate lost which booleans and why.
+    """
+    from ada.cadit.sat.write.plate_booleans import (
+        PlateBooleanNotAuthored,
+        plate_faces_after_booleans,
+    )
+    from ada.cadit.sat.write.write_curved_plate import flat_plate_to_advanced_face
+
+    try:
+        return plate_faces_after_booleans(pl)
+    except PlateBooleanNotAuthored as ex:
+        logger.warning(f"sat-write: plate {pl.name!r} is written without its {len(pl.booleans)} boolean(s): {ex}")
+        return [flat_plate_to_advanced_face(pl)]
 
 
 def _add_imprinted_plates(sw: SatWriter, plates) -> None:

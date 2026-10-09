@@ -14,7 +14,7 @@
 import * as Comlink from "comlink";
 
 import {loadEmscriptenModule} from "@/utils/wasm/emscriptenLoader";
-import {WasmfsModule, OPFS_MOUNT, ensureOpfsMounted, streamUrlToOpfs, unlinkAll} from "./opfsWasmfs";
+import {WasmfsModule, OPFS_MOUNT, ensureOpfsMounted, streamUrlToOpfs, unlinkAll, writeFileFresh} from "./opfsWasmfs";
 
 // Which native module + verb + source extension a `kind` maps to. Each module ships its own single
 // verb; both share the FS + mountOpfs surface.
@@ -97,7 +97,7 @@ const api = {
     // Can this worker run the OPFS-streaming tier for `kind`? Mounting OPFS (worker-only) is the real
     // capability gate; the pipeline decides WHEN to use it (large sources with a presigned URL).
     async opfsAvailable(kind: CadKind): Promise<boolean> {
-        return ensureOpfsMounted(await getModule(kind));
+        return await ensureOpfsMounted(await getModule(kind));
     },
 
     // OPFS-streaming path: stream a (presigned) URL into OPFS, tessellate off-disk via pread, write
@@ -108,7 +108,7 @@ const api = {
         opts: {deflection: number; angularDeg: number; meshopt: boolean},
     ): Promise<NativeCadGlbResult> {
         const Module = await getModule(kind);
-        if (!ensureOpfsMounted(Module)) {
+        if (!(await ensureOpfsMounted(Module))) {
             throw new Error("OPFS streaming unavailable in this worker (OPFS backend not mountable)");
         }
         const t0 = performance.now();
@@ -150,7 +150,7 @@ const api = {
         const inPath = "/scan_in.ifc";
         const outPath = "/scan_out.jsonl";
         const t0 = performance.now();
-        Module.FS.writeFile(inPath, new Uint8Array(srcBytes));
+        writeFileFresh(Module, inPath, new Uint8Array(srcBytes));
         const members = (Module.scanMembers as ScanVerb)(inPath, outPath);
         if (members < 0) {
             unlinkAll(Module, [inPath, outPath]);
@@ -165,7 +165,7 @@ const api = {
     // the wasm heap -- which is the case the scan is most wanted for.
     async scanMembersStreaming(sourceUrl: string): Promise<NativeMemberScanResult> {
         const Module = await getModule("ifc");
-        if (!ensureOpfsMounted(Module)) {
+        if (!(await ensureOpfsMounted(Module))) {
             throw new Error("OPFS streaming unavailable in this worker (OPFS backend not mountable)");
         }
         const t0 = performance.now();
@@ -194,7 +194,7 @@ const api = {
         const inPath = "/clash_in.ifc";
         const outPath = "/clash_out.json";
         const t0 = performance.now();
-        Module.FS.writeFile(inPath, new Uint8Array(srcBytes));
+        writeFileFresh(Module, inPath, new Uint8Array(srcBytes));
         const joints = (Module.clashJoints as ClashVerb)(inPath, outPath, opts.outOfPlaneTol, opts.pointTol);
         if (joints < 0) {
             unlinkAll(Module, [inPath, outPath]);
@@ -216,7 +216,7 @@ const api = {
         const outPath = "/out.glb";
         const spillDir = "/spill";
         const t0 = performance.now();
-        Module.FS.writeFile(inPath, new Uint8Array(srcBytes));
+        writeFileFresh(Module, inPath, new Uint8Array(srcBytes));
         try {
             Module.FS.mkdir(spillDir);
         } catch {

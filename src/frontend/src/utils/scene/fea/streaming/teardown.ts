@@ -8,6 +8,7 @@
 // `useColorStore`, `useTableNavStore`, `useAnimationStore`, the animation
 // driver and the go-to-node marker.
 
+import {clearCaseCache} from "@/services/fea/feaCaseResolver";
 import {useAnimationStore} from "@/state/animationStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -32,6 +33,9 @@ export function clearActiveFeaStreaming(): void {
     useFeaAnimationStore.getState().reset();
     useColorStore.getState().setShowLegend(false);
     resetFeaAnimationPhase();
+    // Materialised load combinations belong to the bake that was open; a re-open
+    // may be a re-solved deck under the same name, so ask again.
+    clearCaseCache();
     // Drop any "go to node" marker + active-row state. The marker
     // mesh would otherwise survive into the next loaded model and
     // point at a vertex that no longer exists.

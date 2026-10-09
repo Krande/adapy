@@ -220,4 +220,8 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
             lower_corner=tuple(lower_corner),
             upper_corner=tuple(upper_corner),
             dof_constraints=rigid_link.dof_constraints,
+            # GeniE V8.13 imports rotation_dependent="true" as slave_rx/ry/rz="dependent" (a 12-term BLDEP);
+            # left at the function's defaults, every rigid link was written rotation dependent.
+            include_all_edges=rigid_link.include_all_edges,
+            rotation_dependent=rigid_link.rotation_dependent,
         )

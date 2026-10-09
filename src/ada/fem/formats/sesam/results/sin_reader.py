@@ -739,6 +739,41 @@ def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int
     )
 
 
+def _prefilter_pointers(source: ByteSource, pointers: Any, file_end: int, where_first_word, where_second_word):
+    """Narrow a pointer table to the records :meth:`SinFile.iter_records`' filters keep.
+
+    The same tests its per-record loop makes, as a few vectorised gathers. A
+    filtered read -- one result case of an RV* table -- otherwise pays a Python
+    iteration and a couple of scalar reads for every record of EVERY case, and
+    superposing a deck's load combinations makes one such read per term per
+    combination, each walking the whole multi-case table again.
+
+    Order is kept, and a record whose words this cannot test (its NFIELD or first
+    data word lies outside the file) is left in for the loop to skip, so the loop
+    yields exactly what it yielded unfiltered.
+    """
+    import numpy as np
+
+    ptrs = np.asarray(pointers, dtype=np.int64)
+    testable = (ptrs >= 1) & (ptrs * 4 + 4 <= file_end)
+    idx = ptrs[testable]
+    if idx.size == 0:
+        return ptrs
+    keep_testable = np.ones(idx.shape, dtype=bool)
+    if where_first_word is not None:
+        keep_testable &= source.gather_f32(idx).astype(np.int64) == int(where_first_word)
+    if where_second_word is not None:
+        n_data = source.gather_f32(idx - 1).astype(np.int64) - 1
+        has_second = (n_data >= 2) & (idx * 4 + 8 <= file_end)
+        second = np.zeros(idx.shape, dtype=np.int64)
+        second[has_second] = source.gather_f32(idx[has_second] + 1).astype(np.int64)
+        wanted = np.fromiter((int(x) for x in where_second_word), dtype=np.int64)
+        keep_testable &= has_second & np.isin(second, wanted)
+    keep = np.ones(ptrs.shape, dtype=bool)
+    keep[testable] = keep_testable
+    return ptrs[keep]
+
+
 @dataclass
 class SinFile:
     """Top-level handle for an opened ``.sin`` file.
@@ -1541,8 +1576,11 @@ class SinFile:
         block = self.type_blocks.get(name)
         if block is None:
             return
-        yield from self._iter_block_records(
-            block, where_first_word=where_first_word, where_second_word=where_second_word
+        # Through the class, not ``self``: the helper reads only ``self.source``, and
+        # callers (and tests) run iter_records on any object with ``source`` and
+        # ``type_blocks``.
+        yield from SinFile._iter_block_records(
+            self, block, where_first_word=where_first_word, where_second_word=where_second_word
         )
 
     def _iter_block_records(
@@ -1558,7 +1596,10 @@ class SinFile:
             return
         src = self.source
         file_end = src.size()
-        for word_ptr in block.pointer_table:
+        pointers = block.pointer_table
+        if where_first_word is not None or where_second_word is not None:
+            pointers = _prefilter_pointers(src, pointers, file_end, where_first_word, where_second_word)
+        for word_ptr in pointers:
             wp = int(word_ptr)
             if wp == 0:
                 continue
@@ -1585,6 +1626,44 @@ class SinFile:
                 if n_data < 2 or int(src.f32(data_byte + 4)) not in where_second_word:
                     continue
             yield struct.unpack(f"<{n_data}f", src.read(data_byte, n_data * 4))
+
+    def gather_ragged_records(
+        self,
+        name: str,
+        *,
+        where_first_word: int | None = None,
+        where_second_word: set[int] | None = None,
+    ):
+        """:meth:`iter_records`' records as arrays, for tables of varying width.
+
+        Returns ``(n_data, words)``: each yielded record's count of data words,
+        and all of their data words back to back as float32, in the order
+        :meth:`iter_records` yields them -- the same filters, the same records
+        skipped as malformed. ``None`` when the type is absent. One gather for
+        the whole selection instead of a read and an unpack per record.
+        """
+        import numpy as np
+
+        block = self.type_blocks.get(name)
+        if block is None:
+            return None
+        src = self.source
+        file_end = src.size()
+        ptrs = np.asarray(block.pointer_table, dtype=np.int64)
+        if where_first_word is not None or where_second_word is not None:
+            ptrs = _prefilter_pointers(src, ptrs, file_end, where_first_word, where_second_word)
+        # iter_records' per-record checks, in its order.
+        ptrs = ptrs[(ptrs != 0) & (ptrs >= 1) & ((ptrs - 1) * 4 + 4 <= file_end)]
+        n_data = src.gather_f32(ptrs - 1).astype(np.int64) - 1 if ptrs.size else np.empty(0, dtype=np.int64)
+        keep = (n_data > 0) & (ptrs * 4 + n_data * 4 <= file_end)
+        ptrs, n_data = ptrs[keep], n_data[keep]
+        total = int(n_data.sum())
+        if not total:
+            return n_data, np.empty(0, dtype=np.float32)
+        offsets = np.cumsum(n_data) - n_data
+        within = np.arange(total, dtype=np.int64) - np.repeat(offsets, n_data)
+        words = src.gather_f32(np.repeat(ptrs, n_data) + within)
+        return n_data, np.asarray(words, dtype=np.float32)
 
     def iter_text_records(self, name: str) -> Iterator[tuple[tuple[float, ...], str]]:
         """Yield ``(numeric_prefix, text)`` per record for text-typed

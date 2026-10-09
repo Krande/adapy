@@ -348,6 +348,34 @@ class SatReaderFactory:
             loop = self.sat_store.get(loop.chunks[6])
         return False
 
+    def face_has_hole(self, face_record: AcisRecord) -> bool:
+        """Does the face carry more than one loop that bounds something?
+
+        A face with a hole is not a polygon either, whatever its edges: ``ada.Plate`` holds one
+        outline, and the flat path reads the periphery alone, so the hole would vanish without a
+        word. A loop counts when one of its edges names a curve -- GeniE also writes loops of a
+        single curve-less edge, a vertex embedded in the face (4 of 889 faces in a 250-plate
+        workspace), which bound nothing.
+        """
+        n_real = 0
+        loop = self.sat_store.get(face_record.chunks[7])
+        seen_loops = set()
+        while loop is not None and loop.type == "loop" and id(loop) not in seen_loops:
+            seen_loops.add(id(loop))
+            first = self.sat_store.get(loop.chunks[7])
+            coedge, seen = first, set()
+            while coedge is not None and coedge.type == "coedge" and id(coedge) not in seen:
+                seen.add(id(coedge))
+                edge = self.sat_store.get(coedge.chunks[9])
+                if edge is not None and edge.type == "edge" and edge.chunks[11] not in ("$-1", ""):
+                    n_real += 1
+                    break
+                coedge = self.sat_store.get(coedge.chunks[6])
+                if coedge is first:
+                    break
+            loop = self.sat_store.get(loop.chunks[6])
+        return n_real > 1
+
     def iter_flat_plates(self) -> Iterable[tuple[str, list[tuple[float, float, float]], list]]:
         for face_record in self.iter_faces():
             # face_surface = self.sat_store.get(face_record.chunks[10])
@@ -407,7 +435,8 @@ class SatReaderFactory:
                 bounds = get_face_bound(face_record)
                 if not bounds:
                     return None
-                return geo_su.WireFilledFace(bounds=bounds)
+                # the filling interpolates its boundary: the outer loop only, as it always was
+                return geo_su.WireFilledFace(bounds=bounds[:1])
             except Exception as ex:
                 logger.debug("WireFilledFace fallback failed: %s", ex)
                 return None
@@ -418,12 +447,16 @@ class SatReaderFactory:
                 if face_surface.type == "plane-surface":
                     # A flat face is not necessarily a polygon. Take it as an
                     # advanced face when any edge is curved, so the boundary
-                    # survives as the curves it is; leave a genuinely
-                    # straight-edged one to the flat path, where ada.Plate
+                    # survives as the curves it is, or when it has a hole;
+                    # leave a straight-edged single-loop one to the flat path, where ada.Plate
                     # represents it exactly and more cheaply.
-                    if not self.face_has_curved_edge(face_record):
+                    if not (self.face_has_curved_edge(face_record) or self.face_has_hole(face_record)):
                         continue
-                elif face_surface.type != "spline-surface":
+                elif face_surface.type not in ("spline-surface", "cone-surface"):
+                    # A cone-surface is how GeniE writes a cylindrical shell. It used to
+                    # be skipped here and so read as the flat polygon of its corners: a
+                    # quarter cylinder of radius 1 and height 2 came back as a 2.83 m2
+                    # flat plate instead of a 3.14 m2 shell.
                     continue
                 attempted += 1
                 try:

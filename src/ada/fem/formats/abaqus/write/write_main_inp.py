@@ -9,7 +9,7 @@ from .helper_utils import include_str, render_block
 from .templates import main_inp_str
 from .write_interactions import interact_str
 from .write_predefined_state import predefined_fields_str
-from .write_steps import constraint_control, main_step_inp_str
+from .write_steps import abaqus_steps, constraint_control, main_step_inp_str
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
@@ -27,8 +27,9 @@ def write_main_inp_str(assembly: Assembly, analysis_dir) -> str:
     iprop_str = "**"
     int_str = "**"
 
-    if len(assembly.fem.steps) > 0:
-        step_str = "\n".join(list(map(main_step_inp_str, assembly.fem.steps))).rstrip()
+    steps = abaqus_steps(assembly)
+    if len(steps) > 0:
+        step_str = "\n".join(list(map(main_step_inp_str, steps))).rstrip()
     if len(assembly.fem.amplitudes) > 0:
         ampl_str = include_str(f"{incl}\\amplitude_data.inp")
     if len([con for fem_part in all_fem_parts for con in fem_part.connector_sections.values()]) > 0:

@@ -11,7 +11,18 @@
 // move. Holds no state: the session handle is `feaSession` on the model
 // session, resolved once per load.
 
-import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import {makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import {prefetchCase, resolveCase, resolveEnvelope} from "@/services/fea/feaCaseResolver";
+import {caseManifestView, isCaseRef} from "@/services/fea/feaStepRef";
+import {
+    hasLazyCases,
+    legendScopeFor,
+    mergeCaseSteps,
+    nextCaseToPrefetch,
+    slotCount,
+    slotRef,
+} from "../fea/caseSteps";
+import {isPropertyField} from "../fea/propertyColors";
 import {capabilities} from "@/services/capabilities";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -58,6 +69,9 @@ export {
 // while a load runs collapse into "the newest one"; the returned promise settles
 // once the queue is drained, i.e. when the LAST requested step is on screen.
 let pendingStep: {step: number; run: (step: number) => Promise<void>} | null = null;
+// The slot the step callback last asked for: tells a walk through the list
+// (prefetch the next combination) from a jump (prefetch nothing).
+let lastAppliedSlot: number | null = null;
 let stepDrain: Promise<void> | null = null;
 
 function requestStep(step: number, run: (step: number) => Promise<void>): Promise<void> {
@@ -121,13 +135,16 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // fieldName == null is the field-less mesh path (design-model FEM): no field to resolve.
     const field =
         fieldName == null ? null : manifest.fields.find((f) => f.name_canonical === fieldName) ?? null;
+    // Slots: the field's stored steps, then (bake_version 4) the load
+    // combinations the bake left to compute on request. See fea/caseSteps.ts.
+    const nSlots = field ? slotCount(manifest, field) : 0;
     if (fieldName != null) {
         if (!field) {
             throw new Error(`field ${fieldName} not found in manifest`);
         }
-        if (stepIndex < 0 || stepIndex >= field.n_steps) {
+        if (stepIndex < 0 || stepIndex >= nSlots) {
             throw new Error(
-                `step index ${stepIndex} out of range (0..${field.n_steps - 1})`,
+                `step index ${stepIndex} out of range (0..${nSlots - 1})`,
             );
         }
     }
@@ -209,6 +226,55 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     stage("loading field data", 0.55);
     throwIfAborted();
 
+    // What is actually painted. A stored slot reads the base blobs at its own
+    // index. A combination slot is materialised first (feaCaseResolver: cached,
+    // or computed on request), and then the WHOLE manifest is read through the
+    // case's view -- blobs under its case prefix, step 0, its own ranges -- so
+    // the colour field and the warp source are the same case. Everything below
+    // is unaware of combinations.
+    let paintManifest = manifest;
+    let paintField = field;
+    let paintStep = stepIndex;
+    let isCase = false;
+    if (field) {
+        const ref = slotRef(manifest, field, stepIndex);
+        if (isCaseRef(ref)) {
+            stage("materialising load combination", 0.6);
+            const resolution = await resolveCase(manifest, {scope, sourceKey: sourceName}, ref.case, {
+                field: field.name_canonical,
+                signal,
+            });
+            throwIfAborted();
+            paintManifest = caseManifestView(manifest, resolution.overlay, resolution.relPrefix);
+            paintField = paintManifest.fields.find((f) => f.name_canonical === field.name_canonical) ?? null;
+            if (!paintField || paintField === field) {
+                throw new Error(`load combination ${ref.case} has no ${field.name_canonical} field`);
+            }
+            paintStep = 0;
+            isCase = true;
+        } else {
+            paintStep = ref.stored;
+        }
+    }
+    // The range the scale is measured over: the painted field's own (the
+    // stored steps, or this case), or every combination's when the user asked
+    // for it and the server offers one.
+    const lazy = hasLazyCases(manifest);
+    let envelopeAvailable = false;
+    if (paintField && lazy && useFeaAnimationStore.getState().envelopeMode && !isPropertyField(paintField)) {
+        const envelope = await resolveEnvelope(manifest, {scope, sourceKey: sourceName}, paintField.name_canonical);
+        if (envelope) {
+            paintField = {...paintField, scalar_range: {...paintField.scalar_range, ...envelope.scalar_range}};
+            envelopeAvailable = true;
+        }
+    }
+    const legendScope = legendScopeFor({
+        hasCombinations: lazy,
+        isCase,
+        envelopeMode: useFeaAnimationStore.getState().envelopeMode,
+        envelopeAvailable,
+    });
+
     // Resolve the warp source. The picked field drives colour
     // regardless; warp depends on category:
     //   * displacement → warp by self (legacy behaviour).
@@ -222,7 +288,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // displacement output), we clamp to its last step and warn.
     // Field-less FEM meshes (no results) skip all result coloring / warp / step handling —
     // they only need geometry + beam-solids (loaded above). Everything below is field work.
-    if (field) {
+    if (field && paintField) {
     const reductionStr = reduction ?? "magnitude"; // field present -> reduction is meaningful
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
     // Read once, applied to every surface that carries the field. Splitting the
@@ -233,21 +299,21 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         rangeFetcher,
         fetcher,
         cacheKey,
-        manifest,
-        field,
-        stepIndex,
+        paintManifest,
+        paintField,
+        paintStep,
         warpEnabled,
     );
 
-    if (field.per_type && field.per_type.length > 0) {
+    if (paintField.per_type && paintField.per_type.length > 0) {
         await paintElemField({
-            active, field, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
-            warpInfo, rangeFetcher, fetcher, cacheKey,
+            active, field: paintField, stepIndex: paintStep, reduction: reductionStr, displacementScale, colormap,
+            contour, warpInfo, rangeFetcher, fetcher, cacheKey,
         });
     } else {
         await paintNodeField({
-            active, field, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
-            warpInfo, rangeFetcher, fetcher, cacheKey,
+            active, field: paintField, stepIndex: paintStep, reduction: reductionStr, displacementScale, colormap,
+            contour, warpInfo, rangeFetcher, fetcher, cacheKey,
         });
     }
     } // end if (field)
@@ -282,7 +348,10 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
 
     // The animation store and the legend, from what was just painted: the
     // session it drives, the field's range, the derived warp scale.
-    syncResultSession({mesh: active.mesh, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor});
+    syncResultSession({
+        mesh: active.mesh, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor,
+        rangeField: paintField, nSlots: field ? nSlots : undefined, legendScope,
+    });
 
     // The colours and legend above assume nobody else owns the scene colouring.
     // A mode that does (capacity, inspect) may be on top of the owner stack: one
@@ -309,6 +378,17 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
                 // same reason: without it a step change repainted at the default of
                 // 1 and dropped the slider and the warp scale the user had set.
                 const {factor, scaleFactor} = useFeaAnimationStore.getState();
+                // Walking the list in order (play, export, stepping one by one):
+                // start materialising the next combination while this one loads,
+                // so the next frame does not wait on a cold case. A jump to an
+                // arbitrary step prefetches nothing -- it would only start jobs
+                // nobody asked for.
+                const sequential = lastAppliedSlot !== null && step === lastAppliedSlot + 1;
+                lastAppliedSlot = step;
+                if (sequential) {
+                    const next = nextCaseToPrefetch(mergeCaseSteps(manifest, field), step);
+                    if (next !== null) prefetchCase(manifest, {scope, sourceKey: sourceName}, next);
+                }
                 await load_fea_streaming({
                     sourceName,
                     manifest,

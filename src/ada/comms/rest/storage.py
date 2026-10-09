@@ -471,7 +471,13 @@ class Storage:
         *,
         content_encoding: str | None = None,
     ) -> None:
-        """Multipart-upload a local file at ``full`` (already scope-prefixed).
+        """Upload a local file at ``full`` (already scope-prefixed) from an open handle.
+
+        obstore picks the transfer from the file's length: a file larger than one part
+        (``chunk_size``, 5 MiB) goes up as a multipart upload read a part at a time, so
+        memory is bounded by ``chunk_size * max_concurrency`` whatever the file size;
+        a smaller one is a single PUT, which saves the create/complete round trips that
+        dominate when a bake writes dozens of small artefacts.
 
         Opens the file fresh for each attempt so the LocalStore
         attribute-unsupported retry doesn't replay a consumed cursor.
@@ -483,7 +489,6 @@ class Storage:
                         self._store,
                         full,
                         fh,
-                        use_multipart=True,
                         attributes={"Content-Encoding": content_encoding},
                     )
                 return
@@ -493,7 +498,7 @@ class Storage:
                 # path recognise compressed content.
                 pass
         with open(path, "rb") as fh:
-            await obs.put_async(self._store, full, fh, use_multipart=True)
+            await obs.put_async(self._store, full, fh)
 
     async def get_range(self, scope: Scope, key: str, start: int, length: int) -> bytes:
         """Read ``[start, start+length)`` raw bytes of an object — no gzip

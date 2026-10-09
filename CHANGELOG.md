@@ -2,6 +2,25 @@
 
 
 
+## v0.111.0 (2026-10-09)
+
+### Feature
+
+* feat(gxml): GeniE supports, concept loads to FE, binary ACIS workspaces, and plates that round-trip (#435)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`ba3b4bc`](https://github.com/Krande/adapy/commit/ba3b4bcfd5b15231a4b093fd7f4f23fa24bcad8b))
+
+
+## v0.110.0 (2026-10-08)
+
+### Feature
+
+* feat: Scene tree menu and visibility, sets edited in the tree, provider display names, empty-build answers, one audit issue per failure (#442)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`1600e98`](https://github.com/Krande/adapy/commit/1600e98881488b3277b35ab1a432e6cf9457a5f1))
+
+
 ## v0.109.0 (2026-10-08)
 
 ### Feature

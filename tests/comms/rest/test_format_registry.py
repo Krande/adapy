@@ -49,6 +49,10 @@ CHAIN_KINDS = [
     ("utility", False),
     ("fea_artefacts", False),
     ("fea_meta", False),
+    # Synthetic: a lazy load combination (or an envelope over them) is superposed from the base
+    # bake in storage; the handler fetches the source itself, and only for a raw-record recipe.
+    ("fea_case", True),
+    ("fea_envelope", True),
     ("parity", False),
     ("clash_check", False),
     ("clash_detail", False),

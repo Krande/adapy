@@ -17,7 +17,9 @@ import {
   type ProviderOptionsDoc,
 } from "@/assets/providerOptions";
 import type { PluginJobOption } from "@/components/admin/pluginOptionFields";
+import { providerIdTitle } from "@/assets/providerNames";
 import type { AssetRequestOptions } from "@/services/assetScopeCollections";
+import { useProviderName } from "@/state/providerNamesStore";
 import { readProviderOptions, saveListedChoices, saveProviderOptions } from "@/services/providerOptions";
 
 /** One shared "nothing stored" value, so a section's draft is not reset on every render. */
@@ -46,6 +48,7 @@ const ProviderSection: React.FC<{
   deps: (onStage: (s: string) => void) => CollectionRequestDeps;
   onSaved: () => void;
 }> = ({ scope, collection, providerId, declared, stored, cached, deps, onSaved }) => {
+  const providerName = useProviderName()(providerId);
   const [draft, setDraft] = useState<Record<string, unknown>>({ ...stored });
   const [choices, setChoices] = useState<Readonly<Record<string, readonly OptionChoice[]>> | null>(cached?.options ?? null);
   const [listedAt, setListedAt] = useState<string | null>(cached?.listed_at ?? null);
@@ -187,7 +190,9 @@ const ProviderSection: React.FC<{
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <span className="font-medium text-gray-200 mr-auto">{providerId}</span>
+        <span className="font-medium text-gray-200 mr-auto" title={providerIdTitle(providerId)}>
+            {providerName}
+          </span>
         {declared.choices && (
           <button type="button" className={BTN} disabled={!!listing} onClick={() => void listChoices()} title={declared.choices.label}>
             {listing ? "Listing…" : choices ? "List again" : "List choices"}

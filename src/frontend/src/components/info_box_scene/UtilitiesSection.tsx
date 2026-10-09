@@ -185,8 +185,8 @@ const UtilitiesSection = () => {
                 await overlay_file_in_scene(key, key, {scope}); // key is a .glb → used verbatim
                 next.add(key);
             } else {
-                const {unload_source_from_scene} = await import("@/utils/scene/handlers/unload_source_from_scene");
-                await unload_source_from_scene(key);
+                const {unload_any_source} = await import("@/utils/scene/handlers/unload_any_source");
+                await unload_any_source(key);
                 next.delete(key);
             }
             setActiveOverlays(next);

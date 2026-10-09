@@ -39,7 +39,7 @@ function indices(): TreeIndices | null {
 
 /** Tree nodes backing the currently-selected draw ranges (resolved by the
  *  globally-unique ``model_key|rangeId`` — never by repeating display name). */
-function selectedLeafNodes(): TreeNodeData[] {
+export function selectedLeafNodes(): TreeNodeData[] {
     const store = useTreeViewStore.getState();
     const out: TreeNodeData[] = [];
     for (const [mesh, ranges] of useSelectedObjectStore.getState().selectedObjects) {

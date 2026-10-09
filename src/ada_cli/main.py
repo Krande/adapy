@@ -269,6 +269,16 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--binary-acis",
+        dest="binary_acis",
+        action="store_true",
+        help=(
+            "gnx output only: store the ACIS body as binary SAB (acisGeometry.sab), as GeniE V9.3 does "
+            "with 'Write ACIS files in binary format' on. GeniE before V9.3 opens such a workspace as an "
+            "empty model, so the default is text."
+        ),
+    )
+    p.add_argument(
         "--strict",
         action="store_true",
         help=(

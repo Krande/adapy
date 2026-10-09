@@ -33,6 +33,12 @@ FULL_ROUND_TRIP_GAPS = {
         AssertionError,
         "a zero-thickness shell section has no Abaqus form: left out, reported as omitted",
     ),
+    "boundary_conditions": (
+        AssertionError,
+        "(d) the 'pushed' settlement is a model-level Bc in a model with no step: Abaqus 2025 refuses a nonzero "
+        "*Boundary magnitude in model data ('PRESCRIBED *BOUNDARY MAGNITUDES MUST BE ZERO IN THE MODEL DEFINITION'), "
+        "and its values go into static steps only, so it is held at zero and its values are reported omitted",
+    ),
 }
 
 

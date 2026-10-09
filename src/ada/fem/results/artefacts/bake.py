@@ -124,6 +124,7 @@ def bake_fea_artefacts_from_source(
     steps: Iterable[int | float] | None = None,
     on_progress: "ProgressCallback | None" = None,
     steps_hint: str | None = None,
+    lazy_combinations: bool = True,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -132,10 +133,24 @@ def bake_fea_artefacts_from_source(
     when to surface that vs route to a different code path.
 
     ``steps``, ``on_progress`` and ``steps_hint``: see :func:`bake_artefacts`. The reader is
-    opened on ``steps`` already, so a SIN is read for those cases only."""
+    opened on ``steps`` already, so a SIN is read for those cases only.
+
+    ``lazy_combinations`` (default on), with ``steps`` None: a source that stores
+    its basic load cases and leaves its combinations as recipes (see
+    :func:`~.readers.lazy_base_steps`) is baked for the stored cases only -- the
+    "base bake" -- and the manifest lists the combinations as
+    ``combination_steps`` for :mod:`.combine` to materialise on request. Off, or
+    for any other source, every step is baked as before."""
 
     src_path = pathlib.Path(src_path)
     src = src_key or src_path.stem
+    if steps is None and lazy_combinations:
+        from .readers import lazy_base_steps
+
+        base = lazy_base_steps(src_path)
+        if base is not None:
+            steps = base
+            steps_hint = steps_hint or LAZY_BASE_HINT
     with make_stream_reader(src_path, steps=steps) as reader:
         return bake_artefacts(
             reader,
@@ -150,6 +165,45 @@ def bake_fea_artefacts_from_source(
             on_progress=on_progress,
             steps_hint=steps_hint,
         )
+
+
+#: The ``baked_steps_hint`` of a lazy base bake: what a viewer that does not
+#: know ``combination_steps`` shows beside the cases it cannot find.
+LAZY_BASE_HINT = "Load combinations are computed on request; open the result in a current viewer to see them."
+
+
+def _combination_steps(reader, baked_steps, step_names, result_cases) -> list[dict] | None:
+    """The ``combination_steps`` entries for the combinations ``baked_steps`` left out."""
+    if baked_steps is None:
+        return None
+    try:
+        offered = reader.try_combination_recipes()
+    except (AttributeError, NotImplementedError):
+        return None
+    if not offered or not offered.get("recipes"):
+        return None
+    from .combine import combination_entry
+
+    baked = {float(v) for v in baked_steps}
+    makeups = {
+        int(c["n"]): c.get("makeup") for c in (result_cases or []) if isinstance(c, dict) and c.get("combination")
+    }
+    entries = []
+    for n, (complex_, terms) in sorted(offered["recipes"].items()):
+        if float(n) in baked or not terms:
+            continue
+        entries.append(
+            combination_entry(
+                n,
+                complex_,
+                terms,
+                complex_basics=offered.get("complex_cases") or (),
+                baked=baked_steps,
+                name=(step_names or {}).get(int(n)),
+                makeup=makeups.get(int(n)),
+            )
+        )
+    return entries or None
 
 
 #: ``on_progress(done, total, label)``: ``done`` of ``total`` units of work
@@ -663,6 +717,7 @@ def bake_artefacts(
         legacy_glb_url_template=legacy_glb_url_template,
         baked_steps=baked_steps,
         baked_steps_hint=steps_hint if baked_steps is not None else None,
+        combination_steps=_combination_steps(reader, baked_steps, step_names, result_cases),
     )
     manifest_path = out_dir / "fea.manifest.json"
     write_manifest(manifest, manifest_path)

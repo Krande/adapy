@@ -159,6 +159,11 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
 #: data), so the model is handed over as it is rather than merged into one part first.
 _WRITES_ASSEMBLIES = frozenset({FEATypes.ABAQUS})
 
+#: Formats whose writer writes a part FEM's own steps as well as the assembly's -- where ``Part.to_fem_obj`` puts the
+#: step its concept load cases become. The others (Calculix, Code_Aster: the assembly's steps; Usfos: no step) leave
+#: it out, which is reported.
+_WRITES_PART_STEPS = frozenset({FEATypes.ABAQUS, FEATypes.SESAM})
+
 
 def write_to_fem(
     assembly: Assembly,
@@ -195,6 +200,9 @@ def write_to_fem(
         # assembly-level data, and merging first renamed every part and dropped what the merge
         # does not carry (assembly-level amplitudes, interactions, reference points) -- so a
         # deck read and written back came out as a different model.
+        from ada.fem.concept.loads_to_fem import report_unconverted_concept_loads
+
+        report_unconverted_concept_loads(assembly)
         write_assembly = assembly
         fem_parts = [p for p in assembly.get_all_parts_in_assembly(include_self=True) if len(p.fem.nodes) > 0]
         if len(fem_parts) > 1 and fem_format not in _WRITES_ASSEMBLIES:
@@ -202,9 +210,12 @@ def write_to_fem(
             from ada.fem.concat import concatenate_fem_to_single_part
 
             merged_part = concatenate_fem_to_single_part(assembly)
+            _report_part_steps_not_merged(fem_parts, fem_format)
             write_assembly = Assembly(assembly.name, units=assembly.units)
             write_assembly.add_part(merged_part)
             write_assembly.fem.steps = assembly.fem.steps  # carry analysis steps for the writer
+        elif fem_format not in _WRITES_PART_STEPS:
+            _report_part_steps_not_written([p for p in fem_parts if p is not assembly], fem_format)
 
         fem_exporter(write_assembly, name, analysis_dir, metadata, model_data_only)
 
@@ -218,3 +229,39 @@ def write_to_fem(
     if out is None and res_path is None:
         logger.info("No Result file is created")
         return None
+
+
+def _report_part_steps_not_merged(fem_parts, fem_format) -> None:
+    """The merge into one part carries the assembly's steps only: a part FEM's step -- the step its concept load
+    cases became in ``Part.to_fem_obj`` -- and its loads do not reach the writer."""
+    from ada.fem.formats import conversion_report
+
+    for p in fem_parts:
+        for step in p.fem.steps:
+            conversion_report.current().omitted(
+                f"{fem_format.value} writer",
+                "Step",
+                step.name,
+                "a step of one of several meshed parts; merging the parts into one keeps the assembly's steps only, "
+                "so this step and its loads are not written",
+                part=p.name,
+                n_loads=len(step.loads),
+            )
+
+
+def _report_part_steps_not_written(fem_parts, fem_format) -> None:
+    """A writer that writes the assembly's steps only (or none) leaves a part FEM's step out -- the step its concept
+    load cases became in ``Part.to_fem_obj`` -- and its loads with it."""
+    from ada.fem.formats import conversion_report
+
+    for p in fem_parts:
+        for step in p.fem.steps:
+            conversion_report.current().omitted(
+                f"{fem_format.value} writer",
+                "Step",
+                step.name,
+                "a step of a part's FEM; this writer writes no part's steps (at most the assembly's), so this step and "
+                "its loads are not written",
+                part=p.name,
+                n_loads=len(step.loads),
+            )

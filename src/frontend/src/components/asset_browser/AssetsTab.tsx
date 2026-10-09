@@ -35,6 +35,7 @@ import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionR
 import {
     assetSourceName,
     loadPrepared,
+    NothingToDraw,
     parseDeliveryClaim,
     prepareNode,
     type LoadNodeDeps,
@@ -43,10 +44,11 @@ import {
 } from "@/assets/delivery";
 import { geometryIndex, rowHasGeometry, rowLoadable } from "@/assets/geometryMarks";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
+import { providerIdTitle } from "@/assets/providerNames";
 import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
 import { actionTargets } from "@/assets/treeKeys";
-import { bothKeep, loadsProvider, membersForIds, treeSetFilter, type TreeSet } from "@/assets/treeSets";
+import { bothKeep, loadsProvider, membersForIds, setMembership, treeSetFilter, type TreeSet } from "@/assets/treeSets";
 import { beginBulkLoad, endBulkLoad } from "@/utils/scene/loadingView";
 import type { ResolutionMode, WireNodeAttributes } from "@/assets/types";
 import PositionedMenu, { type KebabMenuItem } from "@/components/common/PositionedMenu";
@@ -63,6 +65,7 @@ import { assetProviderCollections, type AssetNodeRequest, type AssetRequestOptio
 import { viewerApi } from "@/services/viewerApi";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useMeStore } from "@/state/meStore";
+import { providerName, useProviderName } from "@/state/providerNamesStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { useTreeSetsStore } from "@/state/treeSetsStore";
 import { useViewerStores } from "@/state/AdaViewerContext";
@@ -73,7 +76,8 @@ import { scopeUrlPart } from "@/state/scopeStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { selectTreeNode } from "@/utils/tree_view/treeNavigation";
 
-import AssetTree from "./AssetTree";
+import AssetTree, { type SetEditing } from "./AssetTree";
+import { ancestorsOf } from "@/assets/hierarchy";
 import { formatRevision } from "./format";
 import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
@@ -201,20 +205,29 @@ const BTN_SECONDARY =
     "h-7 px-3 rounded-md text-xs font-medium border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50";
 const BTN_QUIET ="h-7 px-1.5 rounded-md text-xs text-gray-400 hover:text-white disabled:opacity-50";
 
-const IconButton: React.FC<{ label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode }> = ({
+/** A toolbar icon. `open`: the panel it toggles is showing -- the accent, so which panel is open
+ *  reads at a glance. `pressed`: what it controls is in effect (a set narrowing the tree) with its
+ *  panel shut -- a quieter mark. */
+const IconButton: React.FC<{ label: string; pressed?: boolean; open?: boolean; onClick: () => void; children: React.ReactNode }> = ({
     label,
     pressed,
+    open,
     onClick,
     children,
 }) => (
     <button
         type="button"
         aria-label={label}
-        aria-pressed={pressed}
+        aria-pressed={pressed || open}
+        aria-expanded={open}
         title={label}
         onClick={onClick}
-        className={`${CONTROL} w-7 shrink-0 grid place-items-center ${
-            pressed ? "bg-gray-600 border-gray-500 text-white" : "text-gray-300 hover:text-white hover:bg-gray-700"
+        className={`h-7 w-7 shrink-0 grid place-items-center rounded-md border text-xs ${
+            open
+                ? "bg-blue-500/25 border-blue-400 text-blue-100"
+                : pressed
+                  ? "bg-gray-600 border-gray-500 text-white"
+                  : "bg-gray-800 border-gray-700 text-gray-300 hover:text-white hover:bg-gray-700"
         }`}
     >
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
@@ -264,6 +277,36 @@ const ModePicker: React.FC<{ mode: ResolutionMode; revisions: readonly string[];
     );
 };
 
+/** Published subjects not placed yet because their branches are unopened: a neutral chip, with
+ *  the action that turns "not placed yet" into a real answer. One level per unopened hierarchy,
+ *  never a whole one -- once every hierarchy is open, what is still unplaced sits under a branch
+ *  nobody has expanded, and expanding it is how it is placed. */
+const PendingChip: React.FC<{ pending: readonly string[]; unmergedSpines: number; loadingSpines: boolean; onPlace: () => void }> = ({
+    pending,
+    unmergedSpines,
+    loadingSpines,
+    onPlace,
+}) => (
+    <span
+        className="inline-flex items-center gap-1 rounded-full bg-gray-700/70 px-2 py-0.5 text-gray-200"
+        data-testid="asset-pending"
+        title={`${pending.length} published subject(s) not placed yet -- their branches are unopened:\n${pending.join("\n")}`}
+    >
+        {pending.length} not placed
+        {unmergedSpines > 0 && (
+            <button
+                type="button"
+                className="text-blue-300 hover:text-white disabled:text-gray-500"
+                disabled={loadingSpines}
+                onClick={onPlace}
+                title={`Open the first level of the ${unmergedSpines} unopened published hierarch${unmergedSpines === 1 ? "y" : "ies"} to place them`}
+            >
+                · {loadingSpines ? "placing…" : "place"}
+            </button>
+        )}
+    </span>
+);
+
 /** Published subjects no loaded tree places, under the collection root.
  *  Collapsed to one line by default: the full sentence is on the entry's title
  *  and in the detail block when selected, so a long list cannot push the tree
@@ -278,32 +321,9 @@ const Orphans: React.FC<{
     onPlace: () => void;
 }> = ({ orphans, pending, unmergedSpines, loadingSpines, selected, onSelect, onPlace }) => {
     const [open, setOpen] = React.useState(false);
-    if (pending.length) {
-        // Not orphans yet: their branches are unopened. Neutral colour, and the
-        // action that turns "not placed yet" into a real answer.
-        return (
-            <div className="border-t border-gray-700 text-xs shrink-0 flex items-center px-2 py-0.5 text-gray-300" data-testid="asset-pending">
-                <span className="min-w-0 truncate" title={pending.join("\n")}>
-                    {pending.length} published subject(s) not placed yet — their branches are unopened
-                </span>
-                {/* One level per unopened hierarchy, never a whole one. Once every
-                    hierarchy is open, what is still unplaced sits under a branch
-                    nobody has expanded, and expanding it is how it is placed. */}
-                {unmergedSpines > 0 && (
-                    <button
-                        type="button"
-                        className="ml-auto shrink-0 pl-2 text-blue-300 hover:text-white disabled:text-gray-500"
-                        disabled={loadingSpines}
-                        onClick={onPlace}
-                        title={`Open the first level of the ${unmergedSpines} unopened published hierarch${unmergedSpines === 1 ? "y" : "ies"} to place them`}
-                    >
-                        {loadingSpines ? "placing…" : "place"}
-                    </button>
-                )}
-            </div>
-        );
-    }
-    if (!orphans.length) return null;
+    // Not orphans yet while some are pending: their branches are unopened. That is a chip in the
+    // row under the search box (`PendingChip`), not a footer.
+    if (pending.length || !orphans.length) return null;
     const ahead = orphans.filter((o) => o.cause === "ahead").length;
     const removed = orphans.length - ahead;
     return (
@@ -355,6 +375,8 @@ interface AssetLoadControl {
     root: TreeNodeData | null;
     busy: boolean;
     error: string | null;
+    /** The build's answer was "nothing to draw" (the reason), so there is nothing to load. */
+    empty: string | null;
     /** What the build said it could not draw, once loaded: members of the node's source that are
      *  not in the model, and why -- the build summary's `warnings`. Empty when it drew them all. */
     notes: readonly string[];
@@ -384,6 +406,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
     const { useAssetBrowserStore, useModelState, useTreeViewStore } = useViewerStores();
     const loadBusy = useAssetBrowserStore((s) => s.loadBusy);
     const loadErrors = useAssetBrowserStore((s) => s.loadErrors);
+    const loadEmpty = useAssetBrowserStore((s) => s.loadEmpty);
     const loaded = useAssetBrowserStore((s) => s.loaded);
     const liveSourceNames = useModelState((s) => s.loadedSourceNames);
     const treeData = useTreeViewStore((s) => s.treeData);
@@ -426,6 +449,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
             root,
             busy: loadBusy.has(key),
             error: loadErrors.get(key) ?? null,
+            empty: loadEmpty.get(key) ?? null,
             notes: asset?.warnings ?? [],
             // The work lives in the store, not in the caller: a context menu closes
             // the moment its item is clicked, and the load must outlive it.
@@ -439,11 +463,12 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
                         const facts = rowFacts(view, id);
                         const label = facts?.node.label ?? id;
                         const several = (facts?.claims ?? []).filter((b) => b.weight !== "below").length > 1;
-                        const asset = await loadPrepared(deps(), ref, prepared ?? prepare(), several ? `${label} · ${badge.provider}` : label);
+                        const asset = await loadPrepared(deps(), ref, prepared ?? prepare(), several ? `${label} · ${providerName(badge.provider)}` : label);
                         useAssetBrowserStore.getState().endLoad(key, asset);
                         requestRender();
                     } catch (e) {
-                        useAssetBrowserStore.getState().failLoad(key, e instanceof Error ? e.message : String(e));
+                        if (e instanceof NothingToDraw) useAssetBrowserStore.getState().emptyLoad(key, e.message);
+                        else useAssetBrowserStore.getState().failLoad(key, e instanceof Error ? e.message : String(e));
                     }
                 })();
             },
@@ -530,8 +555,8 @@ function requestLoadsFor(
                 const what =
                     ids.length === 1 ? `"${rowFacts(view, ids[0])?.node.label ?? ids[0]}"` : `these ${ids.length} nodes`;
                 const ok = window.confirm(
-                    `${what} ${ids.length === 1 ? "has" : "have"} no ${r.provider} geometry in this scope yet.\n\n` +
-                        `Request ${ids.length === 1 ? "it" : "them"} from ${r.provider} now? The geometry is fetched once, ` +
+                    `${what} ${ids.length === 1 ? "has" : "have"} no ${providerName(r.provider)} geometry in this scope yet.\n\n` +
+                        `Request ${ids.length === 1 ? "it" : "them"} from ${providerName(r.provider)} now? The geometry is fetched once, ` +
                         "published here so it is cached for everyone in the scope, and then loaded into the scene.",
                 );
                 if (!ok) return;
@@ -584,7 +609,7 @@ function loadGroups(controls: readonly AssetLoadControl[]): LoadGroup[] {
         const g = by.get(c.provider) ?? { provider: c.provider, toLoad: [], loaded: [], busy: 0, failed: [] };
         if (c.loaded) g.loaded.push(c);
         else if (c.busy) g.busy += 1;
-        else g.toLoad.push(c);
+        else if (!c.empty) g.toLoad.push(c);
         if (!c.busy && c.error) g.failed.push(c);
         by.set(c.provider, g);
     }
@@ -649,6 +674,7 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
     requestMissing,
 }) => {
     const { useAssetBrowserStore } = useViewerStores();
+    const pn = useProviderName();
     const rollup = useAssetBrowserStore((s) => s.geometryRollup);
     const [asking, setAsking] = useState(false);
     const present = set.members.filter((m) => view.hierarchy.byId.has(m.id));
@@ -667,10 +693,13 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
         return !!idx && rowLoadable(view, idx, id);
     };
     const byId = new Map(present.map((m) => [m.id, m]));
-    const wanted = controls.filter((c) => {
+    const chosen = controls.filter((c) => {
         const m = byId.get(c.rowId);
         return !!m && loadsProvider(m, c.provider) && loadable(c.rowId, c.provider);
     });
+    // A build that answered "nothing to draw" is counted with the empty ones below, not loaded again.
+    const wanted = chosen.filter((c) => !c.empty);
+    const drewNothing = chosen.filter((c) => c.empty);
     const toLoad = wanted.filter((c) => !c.loaded && !c.busy);
     const loaded = wanted.filter((c) => c.loaded);
     const busy = wanted.filter((c) => c.busy).length;
@@ -694,6 +723,11 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
             list.push({ id: m.id, label: m.label });
             into.set(p, list);
         }
+    }
+    for (const c of drewNothing) {
+        const list = empty.get(c.provider) ?? [];
+        list.push({ id: c.rowId, label: byId.get(c.rowId)?.label ?? c.rowId });
+        empty.set(c.provider, list);
     }
     const emptyCount = [...empty.values()].reduce((n, l) => n + l.length, 0);
     const unknownCount = [...unknown.values()].reduce((n, l) => n + l.length, 0);
@@ -727,7 +761,7 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                     type="button"
                     className={BTN_PRIMARY}
                     disabled={!toLoad.length && !missingCount}
-                    title={toLoad.length ? toLoad.map((c) => `${rowFacts(view, c.rowId)?.node.label ?? c.rowId} · ${c.provider}`).join("\n") : "Nothing left to load"}
+                    title={toLoad.length ? toLoad.map((c) => `${rowFacts(view, c.rowId)?.node.label ?? c.rowId} · ${pn(c.provider)}`).join("\n") : "Nothing left to load"}
                     onClick={() => (missingCount ? setAsking(true) : loadAvailable())}
                 >
                     {busy ? `Loading… (${busy} left)` : toLoad.length || missingCount ? `Load set (${plural(toLoad.length + missingCount, "model")})` : "Set loaded"}
@@ -738,19 +772,19 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                     </button>
                 )}
                 {failed.length > 0 && (
-                    <span className="text-red-300" title={failed.map((c) => `${c.rowId} · ${c.provider}: ${c.error}`).join("\n")}>
+                    <span className="text-red-300" title={failed.map((c) => `${c.rowId} · ${pn(c.provider)}: ${c.error}`).join("\n")}>
                         {failed.length} failed
                     </span>
                 )}
                 {missingCount > 0 && !asking && (
-                    <span className="text-amber-300" title={requests.map((r) => `${r.provider}: ${r.rows.map((x) => x.label).join(", ")}`).join("\n")}>
+                    <span className="text-amber-300" title={requests.map((r) => `${pn(r.provider)}: ${r.rows.map((x) => x.label).join(", ")}`).join("\n")}>
                         {missingCount} not requested yet
                     </span>
                 )}
                 {emptyCount > 0 && (
                     <span
                         className="text-gray-400"
-                        title={[...empty.entries()].map(([p, rows]) => `${p}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
+                        title={[...empty.entries()].map(([p, rows]) => `${pn(p)}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
                     >
                         {emptyCount} with nothing to draw
                     </span>
@@ -758,7 +792,7 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                 {unknownCount > 0 && (
                     <span
                         className="text-gray-400"
-                        title={[...unknown.entries()].map(([p, rows]) => `not in ${p}'s tree: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
+                        title={[...unknown.entries()].map(([p, rows]) => `not in ${pn(p)}'s tree: ${rows.map((x) => x.label).join(", ")}`).join("\n")}
                     >
                         {unknownCount} not in that provider's tree
                     </span>
@@ -771,8 +805,8 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                     </div>
                     <ul className="space-y-0.5">
                         {requests.map((r) => (
-                            <li key={r.provider} className="text-gray-200" title={r.rows.map((x) => x.label).join("\n")}>
-                                <span className="font-mono">{r.provider}</span>: {r.rows.length}
+                            <li key={r.provider} className="text-gray-200" title={`${providerIdTitle(r.provider)}\n${r.rows.map((x) => x.label).join("\n")}`}>
+                                <span>{pn(r.provider)}</span>: {r.rows.length}
                                 <span className="text-gray-400">
                                     {" — "}
                                     {!r.request ? "this provider cannot be asked for it" : r.request.blocked ? r.request.blocked : "can be requested"}
@@ -786,9 +820,9 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
                         </div>
                     )}
                     {unknownCount > 0 && (
-                        <div className="text-gray-400" title={[...unknown.entries()].map(([p, rows]) => `${p}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}>
+                        <div className="text-gray-400" title={[...unknown.entries()].map(([p, rows]) => `${pn(p)}: ${rows.map((x) => x.label).join(", ")}`).join("\n")}>
                             {unknownCount} more are not in the chosen provider's tree at all (
-                            {[...unknown.entries()].map(([p, rows]) => `${p}: ${rows.length}`).join(", ")}); nothing can be requested for them.
+                            {[...unknown.entries()].map(([p, rows]) => `${pn(p)}: ${rows.length}`).join(", ")}); nothing can be requested for them.
                         </div>
                     )}
                     <div className="flex flex-wrap gap-1.5">
@@ -865,21 +899,25 @@ const LoadControls: React.FC<{
 
 /** "Load into scene" from a provider that has not published this node here yet: asks first, then
  *  requests, publishes and loads (`requestLoadsFor`). */
-const RequestLoad: React.FC<{ control: RequestLoadControl; named: boolean }> = ({ control, named }) => (
-    <button
-        type="button"
-        disabled={control.busy || !!control.blocked}
-        className={`${BTN_PRIMARY} shrink-0`}
-        title={control.blocked ?? `Not published here yet — requests it from ${control.provider} first, then loads it`}
-        onClick={control.run}
-    >
-        {control.busy ? `Requesting${named ? ` · ${control.provider}` : ""}…` : named ? `Load · ${control.provider}` : "Load into scene"}
-    </button>
-);
+const RequestLoad: React.FC<{ control: RequestLoadControl; named: boolean }> = ({ control, named }) => {
+    const name = useProviderName()(control.provider);
+    return (
+        <button
+            type="button"
+            disabled={control.busy || !!control.blocked}
+            className={`${BTN_PRIMARY} shrink-0`}
+            title={`${control.blocked ?? `Not published here yet — requests it from ${name} first, then loads it`}\n${providerIdTitle(control.provider)}`}
+            onClick={control.run}
+        >
+            {control.busy ? `Requesting${named ? ` · ${name}` : ""}…` : named ? `Load · ${name}` : "Load into scene"}
+        </button>
+    );
+};
 
 /** A selection's loads, one set of controls per provider: load what is not in the scene yet, unload
  *  what is. Each model still loads on its own -- this only starts them together. */
 const BulkLoads: React.FC<{ groups: readonly LoadGroup[]; scope: string; collection: string }> = ({ groups, scope, collection }) => {
+    const pn = useProviderName();
     const named = groups.length > 1;
     return (
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -889,18 +927,18 @@ const BulkLoads: React.FC<{ groups: readonly LoadGroup[]; scope: string; collect
                         type="button"
                         disabled={!g.toLoad.length}
                         className={`${BTN_PRIMARY} shrink-0`}
-                        title={`Load ${plural(g.toLoad.length, "model")} from ${g.provider}`}
+                        title={`Load ${plural(g.toLoad.length, "model")} from ${pn(g.provider)}\n${providerIdTitle(g.provider)}`}
                         onClick={() => void loadSelection(scope, collection, g.toLoad)}
                     >
                         {g.toLoad.length ? `Load ${g.toLoad.length}` : "All loaded"}
-                        {named ? ` · ${g.provider}` : ""}
+                        {named ? ` · ${pn(g.provider)}` : ""}
                     </button>
                     {g.busy > 0 && <span className="text-gray-400 shrink-0">loading {g.busy}…</span>}
                     {g.loaded.length > 0 && (
                         <button
                             type="button"
                             className="text-gray-300 hover:text-white shrink-0"
-                            title={`Unload the ${plural(g.loaded.length, "model")} from ${g.provider} in the scene`}
+                            title={`Unload the ${plural(g.loaded.length, "model")} from ${pn(g.provider)} in the scene`}
                             onClick={() => g.loaded.forEach((c) => c.unload())}
                         >
                             unload {g.loaded.length}
@@ -919,11 +957,12 @@ const BulkLoads: React.FC<{ groups: readonly LoadGroup[]; scope: string; collect
 
 const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ control, named }) => {
     const { badge, root } = control;
+    const name = useProviderName()(control.provider);
     const via = badge.weight === "ghost" ? ` via ${badge.at}` : "";
     if (control.loaded) {
         return (
-            <div className="flex items-center gap-2 min-w-0" title={`${control.provider}${via}`}>
-                <span className="text-green-300 truncate">Loaded{named ? ` · ${control.provider}` : via ? ` (${via.trim()})` : ""}</span>
+            <div className="flex items-center gap-2 min-w-0" title={`${name}${via}\n${providerIdTitle(control.provider)}`}>
+                <span className="text-green-300 truncate">Loaded{named ? ` · ${name}` : via ? ` (${via.trim()})` : ""}</span>
                 {control.notes.length > 0 && (
                     // Said where the model is, not left for someone to find missing in it.
                     <span className="shrink-0 text-amber-300 cursor-help" title={control.notes.join("\n")}>
@@ -951,14 +990,19 @@ const SingleLoad: React.FC<{ control: AssetLoadControl; named: boolean }> = ({ c
                 type="button"
                 disabled={control.busy}
                 className={`${BTN_PRIMARY} shrink-0`}
-                title={`From ${control.provider}${via} @ ${formatRevision(badge.revision)}`}
+                title={`From ${name}${via} @ ${formatRevision(badge.revision)}\n${providerIdTitle(control.provider)}`}
                 onClick={() => void control.load()}
             >
-                {control.busy ? "Loading…" : named ? `Load · ${control.provider}` : "Load into scene"}
+                {control.busy ? "Loading…" : named ? `Load · ${name}` : "Load into scene"}
             </button>
             {control.error && (
                 <span className="text-red-300 truncate" title={control.error}>
                     {control.error}
+                </span>
+            )}
+            {control.empty && !control.error && (
+                <span className="text-gray-400 truncate cursor-help" title={control.empty}>
+                    nothing to draw
                 </span>
             )}
         </div>
@@ -1102,6 +1146,7 @@ const RequestPicker: React.FC<{
     anchor: { x: number; y: number; above?: boolean };
     onClose: () => void;
 }> = ({ requests, anchor, onClose }) => {
+    const pn = useProviderName();
     const ref = React.useRef<HTMLDivElement>(null);
     const [picked, setPicked] = useState<ReadonlySet<string>>(
         () => new Set(requests.filter((r) => !r.blocked && !r.busy).map((r) => r.provider)),
@@ -1148,7 +1193,7 @@ const RequestPicker: React.FC<{
                     <label
                         key={r.provider}
                         className={`flex items-start gap-2 px-3 py-1.5 ${r.blocked || r.busy ? "opacity-50" : "hover:bg-gray-700 cursor-pointer"}`}
-                        title={r.blocked ?? (r.busy ? "Already requested; running" : REQUEST_TITLE)}
+                        title={`${r.blocked ?? (r.busy ? "Already requested; running" : REQUEST_TITLE)}\n${providerIdTitle(r.provider)}`}
                     >
                         <input
                             type="checkbox"
@@ -1158,7 +1203,7 @@ const RequestPicker: React.FC<{
                             onChange={() => toggle(r.provider)}
                         />
                         <span className="min-w-0">
-                            <span className="block font-medium truncate">{r.provider}</span>
+                            <span className="block font-medium truncate">{pn(r.provider)}</span>
                             <span className="block text-gray-400 truncate">{r.busy ? r.stage ?? "requesting…" : r.label}</span>
                         </span>
                     </label>
@@ -1188,6 +1233,7 @@ const RequestPicker: React.FC<{
 /** The request button and each running request's progress, for the detail's bottom row. One
  *  provider: the button asks it directly. Several: it opens the picker. */
 const RequestControls: React.FC<{ requests: readonly NodeRequestControl[] }> = ({ requests }) => {
+    const pn = useProviderName();
     const [pickerAt, setPickerAt] = useState<{ x: number; y: number; above: boolean } | null>(null);
     const single = requests.length === 1 ? requests[0] : null;
     const busy = requests.filter((r) => r.busy);
@@ -1209,13 +1255,13 @@ const RequestControls: React.FC<{ requests: readonly NodeRequestControl[] }> = (
                 {single ? (single.busy ? "Requesting…" : single.label) : "Request geometry…"}
             </button>
             {busy.length > 0 && (
-                <span className="text-gray-400 truncate" title={busy.map((r) => `${r.provider}: ${r.stage ?? "requesting"}`).join("\n")}>
-                    {busy.length === 1 ? `${busy[0].provider}: ${busy[0].stage ?? "requesting…"}` : `${busy.length} requests running`}
+                <span className="text-gray-400 truncate" title={busy.map((r) => `${pn(r.provider)}: ${r.stage ?? "requesting"}`).join("\n")}>
+                    {busy.length === 1 ? `${pn(busy[0].provider)}: ${busy[0].stage ?? "requesting…"}` : `${busy.length} requests running`}
                 </span>
             )}
             {busy.length === 0 && failed.length > 0 && (
-                <span className="text-red-300 truncate" title={failed.map((r) => `${r.provider}: ${r.error}`).join("\n")}>
-                    {failed.length === 1 && requests.length === 1 ? failed[0].error : `${failed.map((r) => r.provider).join(", ")} failed`}
+                <span className="text-red-300 truncate" title={failed.map((r) => `${pn(r.provider)}: ${r.error}`).join("\n")}>
+                    {failed.length === 1 && requests.length === 1 ? failed[0].error : `${failed.map((r) => pn(r.provider)).join(", ")} failed`}
                 </span>
             )}
             {busy.length === 0 && failed.length === 0 && requests.some((r) => r.note) && (
@@ -1223,12 +1269,12 @@ const RequestControls: React.FC<{ requests: readonly NodeRequestControl[] }> = (
                     className="text-gray-400 truncate"
                     title={requests
                         .filter((r) => r.note)
-                        .map((r) => `${r.provider}: ${r.note}`)
+                        .map((r) => `${pn(r.provider)}: ${r.note}`)
                         .join("\n")}
                 >
                     {requests
                         .filter((r) => r.note)
-                        .map((r) => (requests.length > 1 ? `${r.provider} ${r.note}` : r.note))
+                        .map((r) => (requests.length > 1 ? `${pn(r.provider)} ${r.note}` : r.note))
                         .join("; ")}
                 </span>
             )}
@@ -1258,18 +1304,19 @@ const AssetRowMenu: React.FC<{
     onClose: () => void;
 }> = ({ view, id, ids, scope, x, y, requests, onPickRequests, scopeItem, setItems, onClose }) => {
     const many = ids.length > 1;
+    const pn = useProviderName();
     const loads = useAssetLoads(view, ids, scope);
     const onDemand = requestLoadsFor(view, ids, loads, requests);
     const joints = useJointsCheck(view, id, scope);
     const items: KebabMenuItem[] = [];
     // A provider that can be asked on demand loads from here too: confirm, request, load.
     for (const r of onDemand) {
-        const from = loads.length + onDemand.length > 1 ? ` · ${r.provider}` : "";
+        const from = loads.length + onDemand.length > 1 ? ` · ${pn(r.provider)}` : "";
         items.push({
             key: `request-load:${r.provider}`,
             label: r.busy ? `Requesting…${from}` : `Load into scene${from}`,
             disabled: r.busy || !!r.blocked,
-            title: r.blocked ?? `Not published here yet — requests it from ${r.provider} first, then loads it`,
+            title: `${r.blocked ?? `Not published here yet — requests it from ${pn(r.provider)} first, then loads it`}\n${providerIdTitle(r.provider)}`,
             onClick: r.run,
         });
     }
@@ -1279,7 +1326,7 @@ const AssetRowMenu: React.FC<{
     if (many) {
         const groups = loadGroups(loads);
         for (const g of groups) {
-            const from = groups.length > 1 ? ` · ${g.provider}` : "";
+            const from = groups.length > 1 ? ` · ${pn(g.provider)}` : "";
             items.push({
                 key: `load:${g.provider}`,
                 label: g.toLoad.length ? `Load ${plural(g.toLoad.length, "model")} into scene${from}` : `All loaded${from}`,
@@ -1298,7 +1345,7 @@ const AssetRowMenu: React.FC<{
     }
     const named = loads.length > 1;
     for (const load of many ? [] : loads) {
-        const from = named ? ` · ${load.provider}` : "";
+        const from = named ? ` · ${pn(load.provider)}` : "";
         if (load.loaded) {
             items.push({ key: `reveal:${load.provider}`, label: `Reveal in Scene${from}`, disabled: !load.root, onClick: load.reveal });
             items.push({ key: `unload:${load.provider}`, label: `Unload from scene${from}`, onClick: load.unload });
@@ -1307,7 +1354,7 @@ const AssetRowMenu: React.FC<{
                 key: `load:${load.provider}`,
                 label: load.busy ? `Loading…${from}` : `Load into scene${from}`,
                 disabled: load.busy,
-                title: `From ${load.provider} @ ${formatRevision(load.badge.revision)}`,
+                title: `From ${pn(load.provider)} @ ${formatRevision(load.badge.revision)}\n${providerIdTitle(load.provider)}`,
                 onClick: () => void load.load(),
             });
         }
@@ -1360,6 +1407,7 @@ const Detail: React.FC<{
     requests: readonly NodeRequestControl[];
     actions?: React.ReactNode;
 }> = ({ view, id, ids, scope, requests, actions }) => {
+    const pn = useProviderName();
     const facts = rowFacts(view, id);
     const orphan = view.orphans.find((o) => o.id === id);
     const resolved = view.resolution.subjects.get(id);
@@ -1367,7 +1415,7 @@ const Detail: React.FC<{
     const lines: [string, React.ReactNode][] = [];
     if (facts) {
         lines.push(["Id", <span className="font-mono text-[11px]">{id}</span>]);
-        lines.push(["Provider", <span className="font-mono text-[11px]">{facts.node.provider}</span>]);
+        lines.push(["Provider", <span title={providerIdTitle(facts.node.provider)}>{pn(facts.node.provider)}</span>]);
         lines.push(["Claim", facts.node.delivery === "none" ? "none" : facts.node.delivery]);
     }
     if (resolved) lines.push(["Published", `${formatRevision(resolved.revision.revision)}${manifest ? ` · ${manifest.delivery}` : ""}`]);
@@ -1474,10 +1522,11 @@ const ChangedByFilter: React.FC<{ view: AssetView; selected: string | null; onSe
     const owners = changeOwners(view);
     const matches = owner ? subjectsByOwner(view, owner) : [];
     return (
-        <div className="px-1 pt-1 flex flex-wrap items-center gap-1 shrink-0">
+        // Inline in the chip row under the search box: one row for every narrowing of the view.
+        <div className="contents">
             <select
                 aria-label="Changed by"
-                className={`${CONTROL} px-2 max-w-[70%] truncate`}
+                className="h-6 rounded-full border border-gray-600 bg-gray-800 px-2 text-[11px] text-gray-200 hover:bg-gray-700 max-w-[60%] truncate"
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
             >
@@ -1511,6 +1560,8 @@ const AssetsTab: React.FC = () => {
     const { useAssetBrowserStore, useScopeStore } = useViewerStores();
     const scope = scopeUrlPart(useScopeStore((s) => s.current));
     const loader = loaderFor(useAssetBrowserStore, assetsApi, sourceNodesApi);
+    // Display names for provider ids, in this scope; ids stay what everything keys on.
+    const pn = useProviderName();
 
     const storeScope = useAssetBrowserStore((s) => s.scope);
     const collections = useAssetBrowserStore((s) => s.collections);
@@ -1669,17 +1720,86 @@ const AssetsTab: React.FC = () => {
     }, [scope, collection, storeScope]);
     const activeSet: TreeSet | null = treeSets.find((s) => s.id === activeSetId) ?? null;
     const setFilter = useMemo(() => (view && activeSet ? treeSetFilter(activeSet, view.hierarchy) : null), [view, activeSet]);
+    // Editing the active set's members in the tree ("Edit" in the Sets panel): the set's narrowing
+    // is lifted so non-members can be ticked in, and every row shows where it stands.
+    const [editingSetRaw, setEditingSet] = useState(false);
+    const editingSet = editingSetRaw && setsOpen && !!activeSet;
+    useEffect(() => setEditingSet(false), [activeSetId]);
+    const membership = useMemo(
+        () => (editingSet && view && activeSet ? setMembership(activeSet, view.hierarchy) : null),
+        [editingSet, view, activeSet],
+    );
     const display = useMemo(
         () =>
             view
                 ? displayHierarchy(view.hierarchy, viewSettings, {
                       searchActive,
                       showHidden,
-                      keep: bothKeep(keepForProvider, setFilter?.keep),
+                      keep: bothKeep(keepForProvider, editingSet ? undefined : setFilter?.keep),
                   })
                 : null,
-        [view, viewSettings, searchActive, showHidden, keepForProvider, setFilter],
+        [view, viewSettings, searchActive, showHidden, keepForProvider, setFilter, editingSet],
     );
+    const setEditing: SetEditing | null =
+        editingSet && membership && activeSet && view
+            ? {
+                  name: activeSet.name,
+                  state: membership,
+                  onToggle: (id) => {
+                      const sets = useTreeSetsStore.getState();
+                      const state = membership(id);
+                      if (state === "covered") return;
+                      if (state === "member") {
+                          void sets.removeMembers(activeSet.id, [id]);
+                          return;
+                      }
+                      // Adding a branch takes in the members below it: they would only be covered twice.
+                      const under = activeSet.members
+                          .filter((m) => m.id !== id && (m.path.includes(id) || ancestorsOf(view.hierarchy, m.id).includes(id)))
+                          .map((m) => m.id);
+                      void (async () => {
+                          if (under.length) await sets.removeMembers(activeSet.id, under);
+                          await sets.addMembers(activeSet.id, membersForIds([id], view.hierarchy));
+                      })();
+                  },
+                  // A member's own provider choice, on its row; shown only where there is a choice.
+                  trailing:
+                      view.contentProviders.length > 1
+                          ? (id) => {
+                                const m = activeSet.members.find((x) => x.id === id);
+                                if (!m) return null;
+                                const providers = view.contentProviders;
+                                return (
+                                    <span className="flex items-center gap-0.5 shrink-0">
+                                        {providers.map((p) => {
+                                            const on = loadsProvider(m, p);
+                                            return (
+                                                <button
+                                                    key={p}
+                                                    type="button"
+                                                    title={`${on ? "Loads" : "Does not load"} ${pn(p)}'s geometry for ${m.label} -- click to switch\n${providerIdTitle(p)}`}
+                                                    className={`px-1 rounded-sm border text-[9px] leading-[14px] ${
+                                                        on ? "bg-emerald-800/80 border-emerald-600 text-white" : "border-gray-600 text-gray-500 line-through"
+                                                    }`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const own = new Set(m.providers ?? providers);
+                                                        if (!own.delete(p)) own.add(p);
+                                                        void useTreeSetsStore.getState().setProviders(activeSet.id, [
+                                                            { memberId: id, providers: providers.every((q) => own.has(q)) ? null : [...own].sort() },
+                                                        ]);
+                                                    }}
+                                                >
+                                                    {pn(p)}
+                                                </button>
+                                            );
+                                        })}
+                                    </span>
+                                );
+                            }
+                          : undefined,
+              }
+            : null;
     const topKinds = useMemo(
         () => (view ? [...new Set(view.hierarchy.roots.map((id) => view.hierarchy.byId.get(id)?.data.kind ?? ""))] : []),
         [view],
@@ -1878,7 +1998,7 @@ const AssetsTab: React.FC = () => {
                     busy: running.length > 0,
                     stage: many ? (running.length ? `${running.length} of ${targets.length} running` : null) : (states[0]?.stage ?? null),
                     error: errors.length ? (many ? `${errors.length} failed:\n${errors.join("\n")}` : states[0]!.error) : null,
-                    note: notes.length ? (many ? `${notes.length} of ${targets.length} up to date` : notes[0]) : null,
+                    note: notes.length ? (many ? `${notes.length} of ${targets.length} answered without a new publish` : notes[0]) : null,
                     blocked: req.requiresAdmin && !isAdmin ? `Only an administrator can run ${req.pluginId}` : null,
                     onDemand: !!req.onDemand,
                     run: async () => {
@@ -1889,6 +2009,13 @@ const AssetsTab: React.FC = () => {
                                 patch({ busy: true, stage: null, error: null, note: null });
                                 return requestNodes(requestDeps((stage) => patch({ stage })), scope, providerId, req, collection, batch)
                                     .then((out) => {
+                                        // Nothing: the provider's source does not carry these nodes. Said as a
+                                        // note, not an error, and false so no load waits on a publish that
+                                        // will not come.
+                                        if (out.nothing) {
+                                            patch({ busy: false, stage: null, note: `nothing to load: ${out.message}` });
+                                            return false;
+                                        }
                                         // Unchanged: the provider's last publish already covers these nodes, so
                                         // nothing new was published -- the note says which one.
                                         patch({ busy: false, stage: null, note: out.unchanged ? `up to date (${out.revision})` : null });
@@ -1981,14 +2108,15 @@ const AssetsTab: React.FC = () => {
                     </IconButton>
                     <IconButton
                         label="Sets — named sets of branches the tree can be narrowed to, shared in this scope"
-                        pressed={setsOpen || !!activeSet}
+                        open={setsOpen}
+                        pressed={!!activeSet}
                         onClick={() => setSetsOpen((o) => !o)}
                     >
                         <path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h6M11 11v3M9.5 12.5h3" />
                     </IconButton>
                     <IconButton
                         label="Options — provider filter, row marks and legend, how the tree is drawn, and provider options"
-                        pressed={optionsOpen}
+                        open={optionsOpen}
                         onClick={() => setOptionsOpen((o) => !o)}
                     >
                         <path d="M2 4h7M12 4h2M2 12h3M8 12h6M9 2.5v3M5 10.5v3" />
@@ -2004,7 +2132,7 @@ const AssetsTab: React.FC = () => {
                                       {
                                           id: "filter",
                                           title: "Provider filter",
-                                          badge: providerFilter || null,
+                                          badge: providerFilter ? pn(providerFilter) : null,
                                           content: (
                                               <select
                                                   aria-label="Provider filter"
@@ -2015,8 +2143,8 @@ const AssetsTab: React.FC = () => {
                                               >
                                                   <option value="">All providers</option>
                                                   {view!.contentProviders.map((p) => (
-                                                      <option key={p} value={p}>
-                                                          {p}
+                                                      <option key={p} value={p} title={providerIdTitle(p)}>
+                                                          {pn(p)}
                                                       </option>
                                                   ))}
                                               </select>
@@ -2085,20 +2213,11 @@ const AssetsTab: React.FC = () => {
                         }
                         onRename={(id, name) => void useTreeSetsStore.getState().rename(id, name)}
                         onDelete={(id) => void useTreeSetsStore.getState().remove(id)}
-                        onAdd={(id, members) => void useTreeSetsStore.getState().addMembers(id, members)}
-                        onRemove={(id, ids) => void useTreeSetsStore.getState().removeMembers(id, ids)}
                         providers={view?.contentProviders ?? []}
                         onSetProviders={(id, choices) => void useTreeSetsStore.getState().setProviders(id, choices)}
                         loadControl={view && activeSet ? <SetLoad view={view} set={activeSet} scope={scope} requestMissing={requestMissing} /> : null}
-                        onReveal={(id) => {
-                            const open: string[] = [];
-                            let p = view?.hierarchy.byId.get(id)?.parent ?? null;
-                            while (p) {
-                                open.push(p);
-                                p = view?.hierarchy.byId.get(p)?.parent ?? null;
-                            }
-                            useAssetBrowserStore.getState().revealRow(id, open);
-                        }}
+                        editing={editingSet}
+                        onEditing={setEditingSet}
                     />
                 )}
                 {!setsOpen && setsError && <Banner tone="error">{setsError}</Banner>}
@@ -2132,32 +2251,45 @@ const AssetsTab: React.FC = () => {
                         />
                     </div>
                 </div>
-                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter) && (
+                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter || view?.hasChangeOwners || (view?.pending.length ?? 0) > 0) && (
                     <div className="px-2 pt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400 shrink-0">
+                        {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
+                        {view && view.pending.length > 0 && (
+                            <PendingChip
+                                pending={view.pending}
+                                unmergedSpines={view.unmergedSpines.length}
+                                loadingSpines={levelLoading.size > 0}
+                                onPlace={() => void loader.loadLevels(scope, view.unmergedSpines)}
+                            />
+                        )}
                         {providerFilter && (
                             <button
                                 type="button"
                                 className="rounded-full bg-blue-900/60 px-2 py-0.5 text-blue-100 hover:bg-blue-800"
-                                title="Only rows that are, or contain, geometry from this provider are drawn. Click to show every provider."
+                                title={`Only rows that are, or contain, geometry from this provider are drawn. Click to show every provider.\n${providerIdTitle(providerFilter)}`}
                                 onClick={() => setProviderFilter("")}
                             >
-                                Provider: {providerFilter} ×
+                                Provider: {pn(providerFilter)} ×
                             </button>
                         )}
                         {viewSettings.rootKinds && !display.rootFilterStoodDown && !searchActive && (
                             <button
                                 type="button"
                                 className="rounded-full bg-gray-700/70 px-2 py-0.5 text-gray-200 hover:bg-gray-600"
-                                title="Only these kinds are drawn at the top level. Change it under Options ▸ View."
+                                title={
+                                    "Only these kinds are drawn at the top level. Change it under Options ▸ View." +
+                                    (display.hiddenRoots > 0
+                                        ? `\n${display.hiddenRoots} top-level branch${display.hiddenRoots === 1 ? "" : "es"} of other kinds ${display.hiddenRoots === 1 ? "is" : "are"} not drawn.`
+                                        : "")
+                                }
                                 onClick={() => showOptions("view")}
                             >
                                 Top: {[...viewSettings.rootKinds].join(", ")}
+                                {display.hiddenRoots > 0 && <span className="text-gray-400"> · {display.hiddenRoots} hidden</span>}
                             </button>
                         )}
-                        {display.hiddenRoots > 0 && (
-                            <span title="Top-level branches of other kinds are not drawn">
-                                {display.hiddenRoots} other branch{display.hiddenRoots === 1 ? "" : "es"} hidden
-                            </span>
+                        {display.hiddenRoots > 0 && (!viewSettings.rootKinds || display.rootFilterStoodDown || searchActive) && (
+                            <span title="Top-level branches of other kinds are not drawn">{display.hiddenRoots} hidden</span>
                         )}
                         {display.rootFilterStoodDown && (
                             <span title="None of the chosen kinds is at the top, so every branch is drawn">
@@ -2178,15 +2310,16 @@ const AssetsTab: React.FC = () => {
                     </div>
                 )}
                 <div className="mt-2 border-t border-gray-700/70 shrink-0" />
-                {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
 
                 <div className="shrink-0">
                     {indexError && <Banner tone="error">{indexError}</Banner>}
                     {summary?.mixed && (
-                        <Banner tone="warn" title={summary.revisions.map(formatRevision).join("\n")}>
-                            Mixed: this view spans {summary.revisions.length} publishes (
-                            {formatRevision(summary.revisions[0])} … {formatRevision(summary.revisions[summary.revisions.length - 1])}). Pick a
-                            run for a coeval view.
+                        <Banner
+                            tone="warn"
+                            title={`This view spans ${summary.revisions.length} publishes:\n${summary.revisions.map(formatRevision).join("\n")}\nPick a run (beside the collection) for a coeval view.`}
+                        >
+                            Mixed: {summary.revisions.length} publishes, {formatRevision(summary.revisions[0])} …{" "}
+                            {formatRevision(summary.revisions[summary.revisions.length - 1])}
                         </Banner>
                     )}
                     {summary?.coeval && mode.kind === "run" && (
@@ -2215,7 +2348,9 @@ const AssetsTab: React.FC = () => {
                         <Banner tone="warn">{view.drift.size} subject(s) were published against an older tree than the one shown.</Banner>
                     )}
                     {view && view.providers.length > 1 && (
-                        <Banner tone="info">Mixed collection — providers: {view.providers.join(", ")}</Banner>
+                        <Banner tone="info" title={view.providers.map(providerIdTitle).join("\n")}>
+                            Mixed collection — providers: {view.providers.map(pn).join(", ")}
+                        </Banner>
                     )}
                     {summary && summary.incompleteCount > 0 && (
                         <Banner tone="warn">
@@ -2245,6 +2380,7 @@ const AssetsTab: React.FC = () => {
                             showHidden={showHidden}
                             onRetryLevel={(req) => void loader.loadLevel(scope, req)}
                             onRowContextMenu={(id, x, y) => setRowMenu({ id, x, y })}
+                            editing={setEditing}
                         />
                     )}
                 </div>

@@ -273,21 +273,75 @@ def prescribed_displacements(fems: Sequence[FEM]) -> dict[int, dict[int, float]]
 
     ``fems`` is the same sequence :func:`bnbcd_str` takes -- the writer passes the BCs BNBCD can
     hold (``not_held.bc_is_held``), so a velocity BC's magnitude cannot arrive here as a
-    displacement. Two BCs prescribing one DOF differently leave the later one's value, which is
-    how the fixed DOFs of two BCs already merge.
+    displacement. Two BCs prescribing one DOF differently in one load case leave the first one's
+    value, reported by :func:`prescribed_by_case`; across load cases this merged view keeps the
+    last nonzero one, which only says that the DOF is prescribed (FIX code 2).
     """
     out: dict[int, dict[int, float]] = {}
+    for per_node in prescribed_by_case(fems, report_clashes=False).values():
+        for nid, values in per_node.items():
+            for dof, value in values.items():
+                if value != 0.0:
+                    out.setdefault(nid, {})[dof] = value
+    return out
+
+
+def prescribed_by_case(
+    fems: Sequence[FEM], report_clashes: bool = True
+) -> dict[str | None, dict[int, dict[int, float]]]:
+    """``{load case name: {node id: {dof: value}}}`` -- :func:`prescribed_displacements` per load case.
+
+    A ``Bc`` naming its load case in ``metadata[BC_LOAD_CASE]`` goes in that case; one naming none goes under
+    ``None``, which ``write_loads.step_loads_str`` writes into the first case. GeniE gives one support a different
+    value in each load case (V8.13-02: -0.003 in dx in LC1; 0.005, -0.01, 0.001 in dx, dz, rz in LC2, one BNDISPL
+    each), which takes one ``Bc`` per case. The cases are in the order their BCs are met.
+
+    A case's zeros are kept: in LC1 above dz and rz are prescribed zero while LC2 moves them, so LC1's record says
+    so (GeniE writes them too). An untagged ``Bc``'s zero is left out, as before: a prescribed zero alone is a
+    fixed support.
+
+    A second ``Bc`` giving one node's dof another value in the same case keeps the first value, as the Abaqus writer
+    does, and is reported by name (``report_clashes``): a BNDISPL holds one value per dof, and the second used to
+    overwrite the first without a word -- a combination of two cases prescribing one support came out as the last
+    case's values.
+    """
+    from ada.fem.constraints import BC_LOAD_CASE
+
+    from .not_held import STAGE, report
+
+    out: dict[str | None, dict[int, dict[int, float]]] = {}
+    first_by: dict[tuple[str | None, int, int], str] = {}
     for fem in fems:
         if fem is None:
             continue
         for bc in fem.bcs:
             if bc.fem_set.type != "nset":
                 continue
+            case = (bc.metadata or {}).get(BC_LOAD_CASE)
+            clashes: dict[str, set[int]] = {}
             for dof, magnitude in zip(bc.dofs, bc.magnitudes or ()):
-                if isinstance(dof, str) or magnitude is None or float(magnitude) == 0.0:
+                if isinstance(dof, str) or magnitude is None or (case is None and float(magnitude) == 0.0):
                     continue
                 for mem in bc.fem_set.members:
-                    out.setdefault(int(mem.id), {})[int(dof)] = float(magnitude)
+                    values = out.setdefault(case, {}).setdefault(int(mem.id), {})
+                    key = (case, int(mem.id), int(dof))
+                    if key in first_by and values[int(dof)] != float(magnitude):
+                        clashes.setdefault(first_by[key], set()).add(int(mem.id))
+                        continue
+                    values[int(dof)] = float(magnitude)
+                    first_by.setdefault(key, bc.name)
+            for kept, nodes in sorted(clashes.items()) if report_clashes else ():
+                report().omitted(
+                    STAGE,
+                    "BNDISPL",
+                    bc.name,
+                    "a second prescribed displacement of the same node dofs in one load case, with other values; a "
+                    "BNDISPL holds one value per dof, and the first one's values are written",
+                    load_case=case,
+                    kept=kept,
+                    nodes=sorted(nodes)[:10],
+                    n_nodes=len(nodes),
+                )
     return out
 
 

@@ -34,6 +34,7 @@ __all__ = [
     "BuildError",
     "BuildProvenance",
     "BuildSummary",
+    "NothingToBuild",
     "build_fingerprint",
     "derived_asset_key",
     "derived_asset_prefix",
@@ -54,6 +55,17 @@ ALL_NODES = "all"
 
 class BuildError(ValueError):
     """A build request, or the summary answering it, that core refuses."""
+
+
+class NothingToBuild(BuildError):
+    """The node is real and published, but holds nothing this builder can draw.
+
+    An ANSWER, not a failure: a subtree of element types the builder does not draw yet, or one
+    with no geometry at all. A builder raises it instead of a plain ``BuildError`` so core can
+    store the answer at the derived key (``BuildSummary.empty``) -- a repeat is then a lookup,
+    not another job -- record it as skipped rather than failed, and so never file it as a bug.
+    The message says why, for whoever asks.
+    """
 
 
 def _fp_segment(value: str, what: str) -> str:
@@ -176,6 +188,10 @@ class BuildSummary:
     counts: Mapping[str, int] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
     error: str | None = None
+    #: The builder found nothing to draw (``NothingToBuild``): ``ok`` is false, there is no GLB, and
+    #: ``error`` says why. Absent from the document unless set, so older readers see an ordinary
+    #: refusal with its reason.
+    empty: bool = False
     schema: str = BUILD_SCHEMA
 
     def to_dict(self) -> dict:
@@ -194,6 +210,8 @@ class BuildSummary:
             out["warnings"] = list(self.warnings)
         if self.error is not None:
             out["error"] = self.error
+        if self.empty:
+            out["empty"] = True
         return out
 
     def to_json(self) -> bytes:
@@ -248,6 +266,7 @@ def parse_build_summary(doc: bytes | str | Mapping[str, Any]) -> BuildSummary:
         counts={str(k): int(v) for k, v in counts.items()},
         warnings=tuple(str(w) for w in (raw.get("warnings") or ())),
         error=raw.get("error"),
+        empty=bool(raw.get("empty", False)),
         schema=schema,
     )
 
@@ -272,6 +291,8 @@ def validate_build_summary(
     builder writing another request's summary (a cache key bug) and a stale blob under a reused
     key, and only the field that disagrees tells those apart.
     """
+    if summary.empty:
+        raise NothingToBuild(summary.error or "the build found nothing to draw")
     if not summary.ok:
         raise BuildError(summary.error or "build reported ok=false without an error")
     p = summary.provenance

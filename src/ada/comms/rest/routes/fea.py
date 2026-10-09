@@ -35,10 +35,21 @@ from ..auth import User
 from ..converter import (
     fea_artefact_manifest_key_for,
     fea_artefact_prefix_for,
+    fea_case_prefix_for,
+    fea_case_stale_reason,
     fea_manifest_stale_reason,
     fea_meta_key_for,
     is_fea_artefact_source,
     is_fea_result_key,
+)
+from ..fea_case_upload import (
+    CASE_OVERLAY_NAME,
+    CaseFile,
+    CaseUploadError,
+    combination_entry,
+    parse_case_file_name,
+    validate_case_blob,
+    validate_case_overlay,
 )
 from ..job_transport import JobRequest
 from ..scope import Scope
@@ -170,6 +181,11 @@ async def api_scope_fea_artefact_upload_one(
 
     Query: ``source`` (existing source key) + ``name`` (the bare
     ``fea.*`` filename). Body: the raw file bytes.
+
+    ``name`` may also be ``cases/<n>-<recipeHash8>/fea.*``: one file of a
+    load combination the browser materialised, validated against the base
+    manifest and cached where the server's ``fea_case`` job would write it
+    (see :func:`_upload_case_file`).
     """
     source = (request.query_params.get("source") or "").strip().lstrip("/")
     if not source:
@@ -178,10 +194,17 @@ async def api_scope_fea_artefact_upload_one(
         raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source}")
 
     name = (request.query_params.get("name") or "").strip()
+    case_file = parse_case_file_name(name)
+    if case_file is not None:
+        # A load combination the browser materialised: validated against the
+        # fresh base manifest (see fea_case_upload), then cached exactly where
+        # the server's own fea_case job would have put it.
+        return await _upload_case_file(request, ctx, scope_obj, source, case_file)
     base = posixpath.basename(name)
     # Same guard as the zip route: a bare ``fea.*`` filename only — no
     # subdirs, no traversal, so a request can't escape the per-source
-    # prefix and write an arbitrary key.
+    # prefix and write an arbitrary key. (The one nested form accepted is
+    # ``cases/<n>-<hash8>/fea.*``, above.)
     if base != name or not base or base.startswith(".") or not base.startswith("fea."):
         raise HTTPException(status_code=400, detail=f"illegal artefact name: {name!r}")
 
@@ -479,3 +502,271 @@ async def api_scope_fea_manifest(
         },
         status_code=202,
     )
+
+
+# ── Lazy load combinations ──────────────────────────────────────────────────
+#
+# A base bake (bake_version >= 4) of a deck that leaves its load combinations as
+# recipes holds the stored cases only and lists the rest as
+# ``combination_steps``. These two routes are how a viewer gets one: the
+# materialised case (``fea_case``), or one field's envelope over all of them
+# (``fea_envelope``). Same contract as the manifest: 200 with the cached JSON,
+# else 202 with a job to poll on /convert/{job_id}, then ask again.
+
+
+async def _fresh_base_manifest(ctx: RestContext, scope_obj: Scope, source_key: str) -> tuple[dict, dict | None]:
+    """The base manifest of ``source_key`` and its head, or an HTTPException.
+
+    409 when there is no fresh base bake to combine from: the viewer then asks
+    for the manifest, which (re)bakes it."""
+    storage = ctx.storage
+    pending = pending_uploads.get(scope_obj, source_key)
+    if pending is not None:
+        raise HTTPException(status_code=409, detail=pending_upload_detail(source_key, pending))
+    if not is_fea_artefact_source(source_key):
+        raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source_key!r}")
+    if not await storage.exists(scope_obj, source_key):
+        raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
+    manifest_key = fea_artefact_manifest_key_for(source_key)
+    try:
+        manifest = json.loads((await storage.get_bytes(scope_obj, manifest_key)).decode("utf-8"))
+    except FileNotFoundError:
+        raise HTTPException(status_code=409, detail="no base bake yet; request the manifest first") from None
+    except Exception as exc:
+        logger.exception("fea-case: base manifest unreadable for %s", source_key)
+        raise HTTPException(status_code=409, detail="base bake unreadable; request the manifest again") from exc
+    try:
+        src_head = await storage.head(scope_obj, source_key)
+        man_head = await storage.head(scope_obj, manifest_key)
+    except Exception:
+        logger.exception("fea-case: head failed for %s", source_key)
+        src_head = man_head = None
+    stale = fea_manifest_stale_reason(manifest, src_head, man_head)
+    if stale is not None:
+        raise HTTPException(status_code=409, detail=f"base bake is stale ({stale}); request the manifest again")
+    return manifest, {"source": src_head, "manifest": man_head}
+
+
+async def _cached_json(ctx: RestContext, scope_obj: Scope, key: str) -> tuple[dict | None, dict | None]:
+    try:
+        raw = await ctx.storage.get_bytes(scope_obj, key)
+    except FileNotFoundError:
+        return None, None
+    except Exception:
+        logger.exception("fea-case: cache read failed for %s", key)
+        return None, None
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except Exception:
+        logger.exception("fea-case: cache parse failed for %s; rebuilding", key)
+        return None, None
+    try:
+        head = await ctx.storage.head(scope_obj, key)
+    except Exception:
+        head = None
+    return doc, head
+
+
+async def _submit_lazy_job(
+    request: Request,
+    ctx: RestContext,
+    user: User,
+    scope_obj: Scope,
+    *,
+    source_key: str,
+    target_format: str,
+    derived_key: str,
+    force: bool,
+    step: int | None = None,
+    field_name: str | None = None,
+) -> dict:
+    ctx.jobs.require("bake")
+    try:
+        job = await ctx.jobs.submit(
+            JobRequest(
+                source_key=source_key,
+                target_format=target_format,
+                scope=scope_obj,
+                feature="bake",
+                derived_key=derived_key,
+                step=step,
+                field_name=field_name,
+                force_rebuild=force,
+            )
+        )
+    except Exception as exc:
+        logger.exception("%s: enqueue failed for %s", target_format, source_key)
+        await ctx.audit(request, user, scope_obj, target_format, key=source_key, status="error", error=str(exc))
+        raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
+    await ctx.audit(request, user, scope_obj, target_format, key=source_key, status="queued", job_id=job.job_id)
+    return {"job_id": job.job_id, "status": job.status, "progress": job.progress, "stage": job.stage}
+
+
+@router.get("/scopes/{scope}/fea/case")
+async def api_scope_fea_case(
+    request: Request,
+    key: str,
+    case: int,
+    field: str | None = None,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """One lazy load combination of a base bake, materialised.
+
+    200: the case overlay (``fea.case.json``) plus ``prefix``, the storage
+    prefix its single-step blobs live under (``_derived/<src>.fea/cases/<n>-<recipeHash8>/``;
+    the overlay's blob urls are relative to it). 202: ``{job_id, source_key,
+    case, case_key, status, progress, stage}`` -- poll /convert/{job_id}, then ask
+    again. 404: ``case`` is not a lazy combination of this bake. 409: there is no
+    fresh base bake to combine from (ask for the manifest).
+
+    ``field`` is accepted and checked against the bake, but a job materialises
+    every field of the case: one superposition pass costs little more than one
+    field's, and the next field asked for is then already there.
+    """
+    source_key = (key or "").strip().lstrip("/")
+    if not source_key:
+        raise HTTPException(status_code=400, detail="key required")
+    manifest, heads = await _fresh_base_manifest(ctx, scope_obj, source_key)
+    entry = next((e for e in manifest.get("combination_steps") or [] if int(e.get("n", -1)) == int(case)), None)
+    if entry is None or not entry.get("recipe_hash"):
+        raise HTTPException(status_code=404, detail=f"case {case} is not a lazy combination of {source_key}")
+    if field is not None and field not in {f.get("name_canonical") for f in manifest.get("fields") or []}:
+        raise HTTPException(status_code=404, detail=f"no field {field!r} in {source_key}")
+
+    prefix = fea_case_prefix_for(source_key, f"{int(entry['n'])}-{str(entry['recipe_hash'])[:8]}")
+    case_key = prefix + "fea.case.json"
+    cached, case_head = await _cached_json(ctx, scope_obj, case_key)
+    force = False
+    if cached is not None:
+        stale = fea_case_stale_reason(cached, heads["source"], case_head, heads["manifest"])
+        if stale is None and (cached.get("case") or {}).get("recipe_hash") == entry["recipe_hash"]:
+            return JSONResponse({**cached, "prefix": prefix})
+        logger.info("fea-case: cached case %s of %s is stale (%s) -- rebuilding", case, source_key, stale)
+        force = True
+    job = await _submit_lazy_job(
+        request,
+        ctx,
+        user,
+        scope_obj,
+        source_key=source_key,
+        target_format="fea_case",
+        derived_key=case_key,
+        force=force,
+        step=int(entry["n"]),
+    )
+    return JSONResponse(
+        {**job, "source_key": source_key, "case": int(entry["n"]), "case_key": case_key}, status_code=202
+    )
+
+
+async def _upload_case_file(
+    request: Request,
+    ctx: RestContext,
+    scope_obj: Scope,
+    source_key: str,
+    cf: CaseFile,
+) -> JSONResponse:
+    """``POST .../fea/artefact?name=cases/<n>-<hash8>/<file>``: one file of a
+    browser-materialised load combination, into the server's case cache.
+
+    Blobs first, the overlay last (it names only blobs already stored, so a
+    reader that finds it finds a complete case). A case the cache already
+    holds fresh is not replaced (409): the server's copy, or an earlier
+    upload, wins. 404/409/422 as for ``GET .../fea/case`` and
+    :mod:`~ada.comms.rest.fea_case_upload`.
+    """
+    manifest, heads = await _fresh_base_manifest(ctx, scope_obj, source_key)
+    try:
+        entry = combination_entry(manifest, cf)
+    except CaseUploadError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    prefix = fea_case_prefix_for(source_key, cf.case_dir)
+    cached, case_head = await _cached_json(ctx, scope_obj, prefix + CASE_OVERLAY_NAME)
+    if cached is not None and fea_case_stale_reason(cached, heads["source"], case_head, heads["manifest"]) is None:
+        if (cached.get("case") or {}).get("recipe_hash") == entry["recipe_hash"]:
+            raise HTTPException(status_code=409, detail=f"case {cf.n} is already cached")
+
+    cl = request.headers.get("content-length")
+    limit = DIRECT_UPLOAD_THRESHOLD_BYTES
+    if cl is not None and cl.isdigit() and int(cl) > limit:
+        raise HTTPException(status_code=413, detail=f"case file exceeds {limit} bytes")
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty body")
+
+    try:
+        if cf.is_overlay:
+            overlay, names = validate_case_overlay(manifest, cf, entry, data)
+            for blob_name in names:
+                if not await ctx.storage.exists(scope_obj, prefix + blob_name):
+                    raise CaseUploadError(409, f"{blob_name} is not uploaded yet; send the blobs first")
+            payload = json.dumps(overlay, separators=(",", ":")).encode("utf-8")
+            encoding = "gzip"
+        else:
+            validate_case_blob(manifest, cf, data)
+            payload, encoding = data, None
+    except CaseUploadError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    key = prefix + cf.file
+    try:
+        await ctx.storage.put_bytes(scope_obj, key, payload, content_encoding=encoding)
+    except Exception as exc:
+        logger.exception("fea case upload failed for %s/%s", source_key, cf.file)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return JSONResponse({"key": key, "name": f"cases/{cf.case_dir}/{cf.file}"}, status_code=201)
+
+
+def _envelope_dir(field: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_." else "_" for c in field)
+
+
+@router.get("/scopes/{scope}/fea/envelope")
+async def api_scope_fea_envelope(
+    request: Request,
+    key: str,
+    field: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """One field's max / min over the lazy load combinations of a base bake.
+
+    200: ``fea.envelope.json`` (``field``, ``components``, ``cases`` covered,
+    ``skipped`` -- the combinations that need the raw records and are not in it
+    --, ``scalar_range``, per-blob max/min blob + governing indices) plus
+    ``prefix``. 202: a job, as for a case. 404: no such field or no lazy
+    combinations. 409: no fresh base bake.
+    """
+    source_key = (key or "").strip().lstrip("/")
+    if not source_key:
+        raise HTTPException(status_code=400, detail="key required")
+    manifest, heads = await _fresh_base_manifest(ctx, scope_obj, source_key)
+    if not manifest.get("combination_steps"):
+        raise HTTPException(status_code=404, detail=f"{source_key} has no lazy combinations")
+    if field not in {f.get("name_canonical") for f in manifest.get("fields") or []}:
+        raise HTTPException(status_code=404, detail=f"no field {field!r} in {source_key}")
+    prefix = f"{fea_artefact_prefix_for(source_key)}envelopes/{_envelope_dir(field)}/"
+    env_key = prefix + "fea.envelope.json"
+    cached, env_head = await _cached_json(ctx, scope_obj, env_key)
+    force = False
+    if cached is not None:
+        stale = fea_case_stale_reason(cached, heads["source"], env_head, heads["manifest"])
+        if stale is None:
+            return JSONResponse({**cached, "prefix": prefix})
+        force = True
+    job = await _submit_lazy_job(
+        request,
+        ctx,
+        user,
+        scope_obj,
+        source_key=source_key,
+        target_format="fea_envelope",
+        derived_key=env_key,
+        force=force,
+        field_name=field,
+    )
+    return JSONResponse({**job, "source_key": source_key, "field": field, "envelope_key": env_key}, status_code=202)
