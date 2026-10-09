@@ -2,6 +2,16 @@
 
 
 
+## v0.113.0 (2026-10-09)
+
+### Feature
+
+* feat(sesam): read a SIN&#39;s superelement hierarchy and open a chosen superelement (#444)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`0c7769d`](https://github.com/Krande/adapy/commit/0c7769d95d89b70ddd93904a9dd4d193ddc44d99))
+
+
 ## v0.112.0 (2026-10-09)
 
 ### Chore
