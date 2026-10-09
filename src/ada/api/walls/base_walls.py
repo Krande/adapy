@@ -28,17 +28,18 @@ class WallJustification:
 
 
 class Wall(BackendGeom):
-    TYPES_JUSL = WallJustification
-
     """
-    A wall object representing
+    A wall swept along a polyline.
 
+    :param name: Name
     :param points: Points making up wall
     :param height: Height
     :param thickness: Thickness
-    :param origin: Origin
+    :param placement: Placement
     :param offset: Wall offset from points making up the wall centerline. Accepts float | CENTER | LEFT | RIGHT
     """
+
+    TYPES_JUSL = WallJustification
 
     def __init__(
         self,

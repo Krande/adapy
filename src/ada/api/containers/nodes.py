@@ -348,7 +348,7 @@ class Nodes:
             if duplicates:
                 primary = max([n] + duplicates, key=lambda x: len(x.refs))
                 for dup in duplicates:
-                    from ada.fem.utils import replace_node
+                    from ada.api.nodes import replace_node
 
                     replace_node(dup, primary)
                     self.remove(dup)

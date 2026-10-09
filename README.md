@@ -33,10 +33,20 @@ Here are some of the goals with `ada-py`:
 * Provide the building blocks for advanced parametric and procedural 3d model design and simulation workflows
 * The library should always strive for user ergonomics.
 
-## Command line
+## Quick Links
 
-Installing the package also installs a console script. Note that the distribution is named `ada-py`
-but the command is `ada` — there is no `ada-py` command:
+* Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
+* Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
+* Docs is located in https://krande.github.io/adapy
+* FEA verification documentation [FEA Verification Documentation](https://krande.github.io/adapy/_static/fea-report/index.html).
+
+
+## Usage
+Using the ada-py package 
+
+### Command line
+
+Installing the package also installs a console script:
 
 ```
 ada --help
@@ -55,17 +65,6 @@ The `build`, `files` and `audit` groups talk to a hosted viewer and read their b
 from the environment (a `.env` in the working directory is picked up too; real environment variables
 win). Every command and subcommand takes `--help`, and the full reference is in
 [the docs](https://krande.github.io/adapy/cli/).
-
-## Quick Links
-
-* Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
-* Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
-* Docs is located in https://krande.github.io/adapy
-* FEA verification documentation [FEA Verification Documentation](https://krande.github.io/adapy/_static/fea-report/index.html).
-
-
-## Usage
-Some examples of using the ada-py package 
 
 
 ### Create an IFC file
@@ -88,7 +87,7 @@ creates an Ifc file containing an IfcBeam with the following hierarchy
 ![Beam Visualized in BlenderBIM](docs/_static/figures/my_beam.png)
 
 The resulting IfcBeam (and corresponding hierarchy) shown in the figure above is taken from the awesome 
-[blender](https://blender.org) plugin [blenderbim](https://blenderbim.org/).
+[blender](https://blender.org) plugin [Bonsai](https://bonsaibim.org).
 
 ### Convert between FEM formats
 
@@ -132,58 +131,9 @@ in python using the built-in THREEJS based viewer in a web browser or Jupyter no
 <img src="docs/_static/figures/code_aster_jupyter_displ.png" alt="Code Aster (jupyter) results" height="220"/>
 
 
-**Note!**
-
-The above example assumes you have installed Abaqus, Calculix and Code Aster locally on your computer.
-
-To set correct paths to your installations of FE software you wish to use there are a few ways of doing so.
-
-1. Add directory path of FE executable/batch to your system path.
-2. Add directory paths to system environment variables. This can be done by using the control panel or 
-   running the following from a cmd prompt with administrator rights:
-    
-```cmd
-:: Windows
-setx ADA_abaqus_exe <absolute path to abaqus.bat>
-setx ADA_calculix_exe <absolute path to ccx.exe>
-setx ADA_code_aster_exe <absolute path to as_run.bat>
-
-:: Linux?
-
-:: Mac?
-```
-
-Note! It is crucial that any paths containing whitespaces be converted to "shortened paths". To shorten a path
-on windows, you can use the utility [pathcopycopy](https://pathcopycopy.github.io/).
-
-For manual installation files of open source FEA software such as Calculix and Code Aster, 
-here are some relevant links:
-
-* https://github.com/calculix/cae/releases (Calculix CAE for Windows/linux)
-* https://code-aster-windows.com/download/ (Code Aster and/or Salome Meca for Windows)
-* https://www.code-aster.org/spip.php?rubrique21 (Code Aster for Linux)
-* https://www.salome-platform.org/?page_id=2430 (Latest Salome for windows/linux)
-* https://prepomax.fs.um.si/downloads/ (PreProMax -> Calculix preprocessor)
-* https://www.paraview.org/download/ (Paraview for post-processing)
-
-
 ## Acknowledgements
 
-This project would never have been possible without the existing open source python and c++ libraries. 
-Although listed in the package dependencies (which is a long list), here are some of the packages that are at the very 
-core of adapy;
-
-* IfcOpenShell
-* OpenCascade
-* PythonOCC-Core
-* Gmsh
-* Trimesh
-
-A huge thanks to all involved in the development of the packages mentioned here and in the list of packages adapy
-depends on.
-
-If you feel that a certain package listed in the adapy dependencies should be listed here please let me know and I will 
-update the list :)
+This project would never have been possible without the existing open source python and c++ libraries adapy depends on. 
 
 
 ## Project Responsible ##

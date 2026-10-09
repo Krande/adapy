@@ -48,10 +48,15 @@ flowchart TB
 |---|---|
 | `docs` | Everything: `fea-doc`, then `docs-site`. |
 | `docs-site` | `docs-notebooks`, then `zensical build --clean` into `site/`. Reuses whatever `docs/_static/fea-report/` already holds. |
-| `docs-notebooks` | Executes and converts the notebooks (below). |
-| `docs-serve` | `zensical serve`: live-reloading preview on <http://localhost:8000>. Run `docs-notebooks` once first. |
+| `docs-notebooks` | Executes and converts the notebooks (below). Skipped by pixi while its inputs are unchanged. |
+| `docs-serve` | `docs-notebooks` and `fea-doc-cached`, then `zensical serve`: live-reloading preview on <http://localhost:8000>. |
 | `serve` | Builds everything, then serves `site/` with `scripts/docs/docs_serve.py` on :8080. |
 | `fea-doc`, `fea-doc-cached`, `fea-doc-{docx,odt,pdf}` | The FEA verification report and its downloadable files. |
+
+Only `fea-doc` runs the licensed solvers (Abaqus, Sesam), by setting `ADAPY_VERIFICATION_RUN_LICENSED=1`.
+Every other build skips them even where they are installed and replays their committed snapshots, so a
+preview never spends the shared licence pools. Calculix and Code_Aster always run, and their figures are
+baked from that run.
 
 ## Notebooks
 

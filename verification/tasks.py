@@ -121,6 +121,18 @@ _EIG_MODES = 11
 #: licensed machine committed: the JSON snapshot, and beside it the bundle holding the mode shapes.
 _CACHE_ONLY_SOLVERS = frozenset({"abaqus", "sesam"})
 
+#: Set to "1" to run the cache-only solvers live (and re-commit their snapshots). Only `pixi run fea-doc`
+#: sets it. Without it they are skipped even where installed: finding Abaqus on PATH or Sesam under
+#: Program Files is not consent to spend the shared licence pools, and an ordinary doc build (or
+#: `docs-serve`) that misses paradoc's cache would otherwise rerun every licensed case.
+_RUN_LICENSED_ENV = "ADAPY_VERIFICATION_RUN_LICENSED"
+
+
+def _licensed_skip(solver: object) -> bool:
+    """True for a cache-only solver's cell unless this build was asked to run them."""
+    return str(solver).lower() in _CACHE_ONLY_SOLVERS and os.environ.get(_RUN_LICENSED_ENV, "0") != "1"
+
+
 #: How many runs of each solver may go at once (paradoc runs a task's cells side by side within
 #: these). The licensed ones are held by their shared pools, not by the cores:
 #:   * Abaqus: two jobs, at most -- the FlexNet pool is shared, a CPUS=2 job holds 5 of its tokens,
@@ -136,6 +148,18 @@ _CONCURRENCY = {"concurrency": _SOLVER_CONCURRENCY} if "concurrency" in inspect.
 # running jobs hold -- instead of failing its checkout (ada.fem.formats.abaqus.licensing). Up to
 # half an hour.
 os.environ.setdefault("ADA_ABAQUS_LICENSE_WAIT_S", "1800")
+
+
+def _cases_to_bake(cases: list) -> list:
+    """The cases whose FEA bundles this build bakes from its own results.
+
+    The licence-free solvers' cases always: nothing is committed for them, so a bundle baked now is
+    the only one their figures can come from. The cache-only solvers' cases only under
+    ``ADAPY_VERIFICATION_REGEN_ASSETS=1``; otherwise their committed bundles are restored instead.
+    """
+    if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
+        return list(cases)
+    return [c for c in cases if str(getattr(c.fem_format, "value", c.fem_format)).lower() not in _CACHE_ONLY_SOLVERS]
 
 
 def _snapshot_raw_data(case: FeaCaseResult, cache_dir: pathlib.Path) -> None:
@@ -241,8 +265,11 @@ def _eig_skip(**kw: object) -> bool:
 
     Cell.full_kwargs delivers every ancestor's kwargs merged in, so this
     sees mesh's axes + run_eig's solver in one dict — exactly what
-    is_eig_skip needs.
+    is_eig_skip needs. Cache-only solvers are skipped too unless asked for (`_licensed_skip`); their
+    cases then come from the committed snapshots in `postprocess`.
     """
+    if _licensed_skip(kw["solver"]):
+        return True
     return is_eig_skip(
         fem_format=kw["solver"],
         geom_repr=kw["geom_repr"],
@@ -577,7 +604,8 @@ def fea_outputs(results: list) -> list:
     """Per-case FEA bundle bakes + ThreeD/Filter outcomes.
 
     One task fans out into all per-case artifacts:
-    - Bakes fresh FEA bundles if `ADAPY_VERIFICATION_REGEN_ASSETS=1`
+    - Bakes fresh FEA bundles for this build's licence-free cases, and for every case under
+      `ADAPY_VERIFICATION_REGEN_ASSETS=1` (see `_cases_to_bake`)
     - Restores the bundles committed under `.cache/` (the cache-only solvers' mode shapes) into
       `_assets/` and renders their posters
     - Picks up bundles an earlier build left in `_assets/` for cases that weren't re-baked
@@ -591,9 +619,7 @@ def fea_outputs(results: list) -> list:
     block-sugar to lay the bundles out per mode at preprocessor time. See
     `verification/filters.py:FeaModesCompareFilter`.
     """
-    fresh: dict = {}
-    if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
-        fresh = bake_fea_bundles(results, out_dir=_ASSETS_DIR)
+    fresh = bake_fea_bundles(_cases_to_bake(results), out_dir=_ASSETS_DIR)
     restored = restore_fea_bundles(_CACHE_DIR, _ASSETS_DIR, skip_keys=set(fresh), prefix="cantilever_")
     cached = collect_fea_bundles(_ASSETS_DIR, skip_keys=set(fresh) | {a.key for a in restored})
 
@@ -740,12 +766,14 @@ def plate_mesh(a: ada.Assembly, *, mesh_size: float) -> ada.Assembly:
 
 
 def _plate_static_skip(**kw: object) -> bool:
+    if _licensed_skip(kw["solver"]):
+        return True
     return is_plate_skip(fem_format=kw["solver"], analysis="static", elem_order=1, stiffened=kw["stiffened"])
 
 
 def _plate_eig_skip(**kw: object) -> bool:
     # One seed for the eigen case; the others are the static convergence study's.
-    if kw["mesh_size"] != _PLATE_EIG_MESH_SIZE:
+    if kw["mesh_size"] != _PLATE_EIG_MESH_SIZE or _licensed_skip(kw["solver"]):
         return True
     return is_plate_skip(fem_format=kw["solver"], analysis="EIG", elem_order=1, stiffened=kw["stiffened"])
 
@@ -956,13 +984,11 @@ def plate_eig_tables(results: list) -> list:
 def _plate_bundle_outcomes(cases: list, prefix: str) -> list:
     """Bake the live plate cases into `_assets/plate/` and register what is on disk.
 
-    The shape `fea_outputs` has for the cantilever: fresh bakes under `ADAPY_VERIFICATION_REGEN_ASSETS=1`,
+    The shape `fea_outputs` has for the cantilever: fresh bakes of this build's cases (`_cases_to_bake`),
     then the cache-only cases (Abaqus, Sestra) restored from the bundles committed in `.cache-plate/`,
     then whatever bundles an earlier build left.
     """
-    fresh: dict = {}
-    if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
-        fresh = bake_fea_bundles(cases, out_dir=_PLATE_ASSETS_DIR)
+    fresh = bake_fea_bundles(_cases_to_bake(cases), out_dir=_PLATE_ASSETS_DIR)
     assets_by_name: dict = {**fresh}
     restored = restore_fea_bundles(_PLATE_CACHE_DIR, _PLATE_ASSETS_DIR, skip_keys=set(fresh), prefix=prefix)
     skip = set(fresh) | {a.key for a in restored}

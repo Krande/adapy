@@ -1510,6 +1510,7 @@ class Part(BackendGeom):
         debug_mode=False,
         merge_coincident_nodes=True,
         embed_concept_points=True,
+        use_mesh_override=True,
     ) -> FEM:
         """Mesh the part, then convert its concept supports and loads onto the mesh.
 
@@ -1517,6 +1518,10 @@ class Part(BackendGeom):
         on before meshing, so the mesh has a node there (:mod:`ada.fem.meshing.partitioning.embed_points`); without
         it a point in a beam's span or inside a plate has no node and is reported as acting on nothing. The concept
         load cases become FE load cases of one static step (:mod:`ada.fem.concept.loads_to_fem`).
+
+        Each object's ``mesh_override`` runs after partitioning and point embedding, against the shared session, and
+        adds its rules for that object; everything is then meshed at once, so an overridden object conforms to its
+        neighbours. ``use_mesh_override=False`` meshes without them.
         """
         from ada import Beam, Plate, Shape
         from ada.fem.concept.loads_to_fem import (
@@ -1573,6 +1578,10 @@ class Part(BackendGeom):
                 embed_points(gs, points, surfaces=not use_quads)
                 gs.check_model_entities()
 
+            # Per-object rules, on the entities as partitioning left them.
+            if use_mesh_override:
+                gs.apply_mesh_overrides(mesh_size)
+
             if interactive is True:
                 gs.open_gui()
 
@@ -1584,7 +1593,9 @@ class Part(BackendGeom):
             fem = gs.get_fem(name=name if name is not None else f"{self.name}-FEM")
 
         for mass_shape in masses:
-            cog_absolute = to_global_points(mass_shape, mass_shape.cog)
+            # A shape given a mass but no cog carries it at its geometric centre (local, like `cog`).
+            cog = mass_shape.cog if mass_shape.cog is not None else mass_shape.bbox().volume_cog
+            cog_absolute = to_global_points(mass_shape, cog)
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 

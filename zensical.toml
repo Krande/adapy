@@ -23,7 +23,6 @@ nav = [
   { "Features" = [
     "ada_studio.md",
     "procedural_modelling.md",
-    "topology_engine.md",
     "dexpi.md",
     "path_to_software_agnosticism.md",
     "meshing.md",
@@ -54,6 +53,7 @@ nav = [
   { "Architecture" = [
     "architecture/index.md",
     "architecture/core_model.md",
+    "architecture/topology_engine.md",
     "architecture/geometry_and_visualisation.md",
     "architecture/interop.md",
     "architecture/fea.md",

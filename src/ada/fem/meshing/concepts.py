@@ -88,6 +88,53 @@ class GmshSession:
             self.options.General_Terminal = 0
         self.persist = persist
         self.model_map: dict[Union[Shape, Beam, Plate, Pipe], GmshData] = dict()
+        #: Size fields registered by mesh overrides; `mesh` combines them (gmsh `Min`) into the background size.
+        self._size_fields: list[int] = []
+        #: The smallest element size any registered field asks for.
+        self._min_local_size: float | None = None
+        #: Objects whose override asked to be left out of the default quad/hex treatment.
+        self._skip_default: set[int] = set()
+
+    def add_size_field(self, field_tag: int, min_size: float) -> None:
+        """Register a gmsh size field (e.g. a ``Threshold``) for this mesh; ``min_size`` is the smallest size it asks
+        for.
+
+        Every registered field is combined with gmsh's ``Min`` field, so several overrides each refining their own
+        object compose instead of the last one replacing the others, and ``mesh(size)`` then lets sizes go down to the
+        smallest ``min_size`` instead of pinning them all to ``size``. Use this rather than
+        ``gmsh.model.mesh.field.setAsBackgroundMesh``.
+        """
+        self._size_fields.append(field_tag)
+        if self._min_local_size is None or min_size < self._min_local_size:
+            self._min_local_size = min_size
+
+    def skip_default_meshing(self, obj) -> None:
+        """Leave ``obj`` out of the default quad/hex treatment (``make_quads`` / ``make_hex``): its override sets
+        transfinite and recombine on its own entities instead."""
+        self._skip_default.add(id(obj))
+
+    def apply_mesh_overrides(self, mesh_size: float | None = None) -> None:
+        """Run each added object's ``mesh_override`` against this session: once, after partitioning, before meshing.
+
+        An override is a rule for its own entities (``gs.model_map[obj].entities``, as they are after partitioning):
+        sizes (``add_size_field``), transfinite/recombine, element options. It does not mesh -- the session meshes
+        everything at once, so an overridden object conforms to its neighbours. ``mesh_size`` is the size the session
+        will mesh at; it is set as ``options.Mesh_MeshSizeMax`` first, so an override can size relative to it.
+        """
+        if mesh_size is not None:
+            self.options.Mesh_MeshSizeMax = mesh_size
+        for obj, data in list(self.model_map.items()):
+            override = getattr(obj, "mesh_override", None)
+            if override is None:
+                continue
+            result = override(self, obj, data.geom_repr)
+            if result is not None:
+                raise TypeError(
+                    f"mesh_override of {obj.name!r} returned {type(result).__name__}; an override applies rules to "
+                    "the session it is given and returns None -- the session meshes"
+                )
+        self.model.occ.synchronize()
+        self.model.geo.synchronize()
 
     def add_obj(
         self,
@@ -229,9 +276,12 @@ class GmshSession:
         if size is not None:
             self.options.Mesh_MeshSizeMax = size
             if self.options.Mesh_MeshSizeFromCurvature is False:
-                self.options.Mesh_MeshSizeMin = size
+                # Pinned to `size`, unless an override registered local sizes: then down to the smallest of them.
+                local = self._min_local_size
+                self.options.Mesh_MeshSizeMin = size if local is None else min(size, local)
 
         self.apply_settings()
+        self._apply_size_fields()
         self.model.geo.synchronize()
         self.model.mesh.setRecombine(3, -1)
 
@@ -252,6 +302,17 @@ class GmshSession:
             self.model.mesh.removeDuplicateNodes()
             self.model.mesh.remove_duplicate_elements()
 
+    def _apply_size_fields(self) -> None:
+        if not self._size_fields:
+            return
+        field = self.model.mesh.field
+        if len(self._size_fields) == 1:
+            background = self._size_fields[0]
+        else:
+            background = field.add("Min")
+            field.setNumbers(background, "FieldsList", self._size_fields)
+        field.setAsBackgroundMesh(background)
+
     def make_quads(self):
         from ada.fem.meshing.partitioning.strategies import partition_objects_with_holes
 
@@ -261,7 +322,7 @@ class GmshSession:
 
         ents = []
         for obj, model in self.model_map.items():
-            if model.geom_repr != ElemType.SHELL:
+            if model.geom_repr != ElemType.SHELL or id(obj) in self._skip_default:
                 continue
             if len(obj.booleans) > 0:
                 partition_objects_with_holes(model, self)
@@ -281,13 +342,23 @@ class GmshSession:
     def make_hex(self):
         from ada.fem.meshing.partitioning.strategies import partition_solid_beams
 
+        # Surfaces of objects whose override opted out keep whatever their override set.
+        skipped_surfaces: set[int] = set()
+        for obj, model in self.model_map.items():
+            if id(obj) not in self._skip_default:
+                continue
+            skipped_surfaces |= {tag for dim, tag in model.entities if dim == 2}
+            volumes = [(dim, tag) for dim, tag in model.entities if dim == 3]
+            if volumes:
+                skipped_surfaces |= {abs(t) for _, t in self.model.getBoundary(volumes, combined=False)}
+
         for dim, tag in self.model.get_entities():
-            if dim == 2:
+            if dim == 2 and tag not in skipped_surfaces:
                 self.model.mesh.set_transfinite_surface(tag)
                 self.model.mesh.setRecombine(dim, tag)
 
         for obj, model in self.model_map.items():
-            if model.geom_repr != GeomRepr.SOLID:
+            if model.geom_repr != GeomRepr.SOLID or id(obj) in self._skip_default:
                 continue
             if isinstance(obj, Beam):
                 partition_solid_beams(model, self)
