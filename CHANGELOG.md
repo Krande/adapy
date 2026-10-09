@@ -2,6 +2,16 @@
 
 
 
+## v0.113.1 (2026-10-09)
+
+### Fix
+
+* fix(fem): fea_execute_dir runs, multi-part models keep supports and loads, Code_Aster concept names (#443)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`2b9b549`](https://github.com/Krande/adapy/commit/2b9b549f1117e14ad26a513b442ed9dceaa5cf0e))
+
+
 ## v0.113.0 (2026-10-09)
 
 ### Feature
