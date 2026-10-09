@@ -1,8 +1,8 @@
 // Which of an asset provider's collections may be REQUESTED in each scope.
 //
-// Pure, on purpose, for the reason `externalModelsBinding.ts` is: the API
-// client reaches `auth/oidc.ts`, which touches `sessionStorage` at module
-// scope, so anything importing it needs a DOM. Nothing here imports it. That
+// Pure, on purpose: the API client reaches `auth/oidc.ts`, which touches
+// `sessionStorage` at module scope, so anything importing it needs a DOM.
+// Nothing here imports it. That
 // keeps the reader testable under plain node, and lets a plugin resolve a value
 // it already holds without pulling the client in. Exported to plugins as part
 // of plugin API 1.8.0 -- see `plugins/registry.ts`.
@@ -14,9 +14,9 @@
 //     "<scope url>": { "<provider id>": ["<collection>", ...] }
 //   }
 //
-// A GRANT, NOT A BINDING. `public.external_models.binding_map` says which ONE
-// collection a scope shows; this says which of a provider's collections a
-// scope may ask for. Two questions, two settings.
+// It replaced the External Models tab's per-scope binding
+// (`public.external_models.binding_map`, one collection a scope showed), which
+// is gone along with that tab.
 //
 // A PICKER FILTER, NOT A PERMISSION. A provider's request dialog narrows its
 // choice by this list; nothing on the server refuses a request for a
@@ -173,6 +173,53 @@ export interface AssetProviderCollections {
   nodeRequest: AssetNodeRequest | null;
   /** The provider's per-collection request options, when a spec declares them. */
   requestOptions: AssetRequestOptions | null;
+  /** The `change-check` entry of the provider's `asset_schedules`, when it declares one: what the
+   *  Sources tab's "Check for changes" runs (through core's `/asset-changes/check`, which builds the
+   *  job options from the live declaration). */
+  changeCheck: AssetChangeCheck | null;
+  /** `asset_change_source`: where the provider records its change feed (`source_nodes.source`), as
+   *  a template over the collection -- `{COLLECTION}` upper case, `{collection}` as published. Null
+   *  when undeclared: the feed is then read under the provider id itself. See `changeFeedSource`. */
+  changeSource: string | null;
+}
+
+/** The change-feed source to ask for one provider's nodes in one collection.
+ *
+ *  A provider whose sweep records per upstream project (one cursor each) declares a template on its
+ *  spec, e.g. `"vendor:{COLLECTION}"`; without one the feed is read under the provider id, as
+ *  before. The answer still belongs to the provider either way -- only the lookup key changes. */
+export function changeFeedSource(template: string | null | undefined, providerId: string, collection?: string | null): string {
+  if (!template || !template.trim()) return providerId;
+  if (!collection) return template.includes("{") ? providerId : template.trim();
+  return template.trim().replaceAll("{COLLECTION}", collection.toUpperCase()).replaceAll("{collection}", collection);
+}
+
+/** A provider's declared change check (`asset_schedules[kind == "change-check"]`). Only what the
+ *  browser needs: the server reads the rest of the declaration itself. */
+export interface AssetChangeCheck {
+  pluginId: string;
+  id: string;
+  label: string;
+  description: string | null;
+  requiresAdmin: boolean;
+}
+
+function parseChangeCheck(pluginId: string, spec: Record<string, unknown>): AssetChangeCheck | null {
+  const raw = spec.asset_schedules;
+  if (!pluginId || !Array.isArray(raw)) return null;
+  for (const entry of raw) {
+    if (!isRecord(entry) || entry.kind !== "change-check") continue;
+    if (typeof entry.id !== "string" || !entry.id.trim() || !isRecord(entry.options)) continue;
+    if (typeof entry.collection_option !== "string" || !entry.collection_option.trim()) continue;
+    return {
+      pluginId,
+      id: entry.id.trim(),
+      label: typeof entry.label === "string" && entry.label.trim() ? entry.label.trim() : "Check for changes",
+      description: typeof entry.description === "string" && entry.description.trim() ? entry.description.trim() : null,
+      requiresAdmin: spec.requires_admin === true,
+    };
+  }
+  return null;
 }
 
 /** A declared `asset_request_options`: `{options: [names], choices?: request}`.
@@ -296,6 +343,8 @@ export function assetProviderCollections(
       request: AssetCollectionRequest | null;
       nodeRequest: AssetNodeRequest | null;
       requestOptions: AssetRequestOptions | null;
+      changeCheck: AssetChangeCheck | null;
+      changeSource: string | null;
     }
   >();
   for (const spec of specs) {
@@ -312,6 +361,8 @@ export function assetProviderCollections(
       request: null,
       nodeRequest: null,
       requestOptions: null,
+      changeCheck: null,
+      changeSource: null,
     };
     const pluginId = typeof spec.id === "string" ? spec.id : typeof spec.slug === "string" ? spec.slug : "";
     if (pluginId && !entry.pluginIds.includes(pluginId)) entry.pluginIds.push(pluginId);
@@ -327,6 +378,10 @@ export function assetProviderCollections(
       entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, spec.requires_admin === true);
     }
     if (!entry.requestOptions) entry.requestOptions = parseRequestOptions(pluginId, spec);
+    if (!entry.changeCheck) entry.changeCheck = parseChangeCheck(pluginId, spec);
+    if (!entry.changeSource && typeof spec.asset_change_source === "string" && spec.asset_change_source.trim()) {
+      entry.changeSource = spec.asset_change_source.trim();
+    }
     if (!entry.label) entry.label = declaredLabel(spec, providerId);
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
@@ -348,6 +403,8 @@ export function assetProviderCollections(
       request: e.request,
       nodeRequest: e.nodeRequest,
       requestOptions: e.requestOptions,
+      changeCheck: e.changeCheck,
+      changeSource: e.changeSource,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
 }

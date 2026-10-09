@@ -337,6 +337,18 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
             return {"skipped": reason}
 
     options = plugin_schedule_options(schedule_row, fired_at)
+    enqueue_kwargs: dict = {}
+    if schedule_row.get("asset_provider"):
+        # A provider schedule (Admin -> Providers): options rebuilt from the provider's LIVE
+        # `asset_schedules` declaration plus the stored settings, and a change check gets a run
+        # record. See routes/asset_schedules.py.
+        from .asset_schedules import asset_schedule_dispatch
+
+        try:
+            options, enqueue_kwargs, plugin_spec = await asset_schedule_dispatch(ctx, pool, schedule_row, options)
+        except LookupError as exc:
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, str(exc))
+            return {"skipped": str(exc)}
     try:
         job_id = await enqueue_plugin_job(
             ctx,
@@ -347,6 +359,7 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
             user=SystemUser(),
             pool=pool,
             plugin_spec=plugin_spec,
+            **enqueue_kwargs,
         )
     except HTTPException as exc:
         reason = f"enqueue refused ({exc.status_code}): {exc.detail}"
@@ -367,6 +380,12 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
     # Written here rather than at each call site because every successful
     # firing, however it was triggered, makes the previous skip history.
     await db_module.update_plugin_job_schedule(pool, sched_id, last_job_id=job_id, last_skipped_reason=None)
+    if schedule_row.get("schedule_kind") == "change-check":
+        from .asset_schedules import record_scheduled_run
+
+        await record_scheduled_run(
+            pool, schedule_row, scope_obj=scope_obj, job_id=job_id, derived_key=enqueue_kwargs.get("derived_key")
+        )
     logger.info(
         "plugin-job scheduler: fired %s (%s) -> job %s",
         schedule_row["name"],

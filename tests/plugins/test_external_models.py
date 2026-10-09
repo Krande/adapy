@@ -8,7 +8,6 @@ import pytest
 
 from ada.plugins import plugin_backend_spec, reset_registry
 from ada.plugins.external_models import (
-    DEMO_PROVIDER_ID,
     OBJECT_STORE_PROVIDER_ID,
     PLUGIN_ID,
     external_model_providers,
@@ -229,10 +228,6 @@ def test_register_installs_the_builtin_provider():
     # wrapping a third-party catalogue registers from out of tree.
     assert [p["id"] for p in external_model_providers()] == [OBJECT_STORE_PROVIDER_ID]
     assert isinstance(get_external_model_provider(OBJECT_STORE_PROVIDER_ID), StubExternalModelCatalog)
-    # The OLD id still resolves. A binding is a stored string
-    # (`public.external_models.binding_map` holds "<provider>:<collection>"), so
-    # a rename that did not do this would silently unbind every scope using it.
-    assert get_external_model_provider(DEMO_PROVIDER_ID) is get_external_model_provider(OBJECT_STORE_PROVIDER_ID)
 
 
 def test_unknown_provider_error_names_what_is_registered():

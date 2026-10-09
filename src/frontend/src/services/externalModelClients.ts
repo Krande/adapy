@@ -4,8 +4,7 @@
 // pulls in `viewerApi` and, through it, the OIDC client — which touches
 // `sessionStorage` at module scope and cannot be loaded outside a browser. The
 // registry itself depends on none of that, and keeping it here is what lets it
-// be unit-tested directly, the same split `externalModelsBinding` and
-// `externalModelUpload` already have.
+// be unit-tested directly, the same split `externalModelUpload` already has.
 //
 // It is also the honest shape: this is the mirror of core's Python
 // `providers.py`, which is likewise a registry module sitting apart from the

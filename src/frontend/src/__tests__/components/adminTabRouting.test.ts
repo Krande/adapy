@@ -47,7 +47,7 @@ test("an unknown sub-tab falls back to the tab's default rather than the wrong p
 });
 
 test("ungrouped tabs still resolve unchanged", () => {
-  for (const id of ["issues", "projects", "users", "external_models", "providers", "storage", "workers", "conversion"]) {
+  for (const id of ["issues", "projects", "users", "tokens", "providers", "storage", "workers", "conversion"]) {
     assert.deepEqual(parse(id), { tab: id });
   }
 });

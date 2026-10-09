@@ -9,13 +9,12 @@ import PerformanceTab from "./PerformanceTab";
 import ProceduralTab from "./ProceduralTab";
 import {auditHash, parseAdminHash, parseTabId} from "./adminTabs";
 import type {AuditSubTab, PerformanceSubTab, ProceduralSubTab} from "./adminTabs";
-import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import IssueTargetTab from "./IssueTargetTab";
-import ExternalModelsTab from "./ExternalModelsTab";
 import ProjectsTab from "./ProjectsTab";
 import ProvidersTab from "./ProvidersTab";
 import StorageTab from "./adminStorage/StorageTab";
+import CliTokensTab from "./tokens/CliTokensTab";
 import UsersTab from "./users/UsersTab";
 import WorkersTab from "./WorkersTab";
 
@@ -173,8 +172,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "users"} onClick={() => setTab("users")}>
                         Users
                     </TabButton>
-                    <TabButton active={tab === "external_models"} onClick={() => setTab("external_models")}>
-                        External Models
+                    <TabButton active={tab === "tokens"} onClick={() => setTab("tokens")}>
+                        CLI Tokens
                     </TabButton>
                     <TabButton active={tab === "providers"} onClick={() => setTab("providers")}>
                         Providers
@@ -202,7 +201,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     ))}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    <CliTokenButton/>
                     {!embedded && (
                         <a
                             href="/"
@@ -222,7 +220,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 )}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "users" && <UsersTab onOpenAudit={openAuditForUser}/>}
-                {tab === "external_models" && <ExternalModelsTab/>}
+                {tab === "tokens" && <CliTokensTab/>}
                 {tab === "providers" && <ProvidersTab/>}
                 {tab === "storage" && <StorageTab/>}
                 {tab === "workers" && <WorkersTab/>}

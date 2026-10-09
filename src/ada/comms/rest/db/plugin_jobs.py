@@ -37,20 +37,35 @@ def _plugin_job_schedule_row(r) -> dict:
         "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         "created_by": r["created_by"],
         "archived_at": (r["archived_at"].isoformat() if r["archived_at"] else None),
+        # Set when the row was made from a provider's `asset_schedules` entry (migration 035).
+        "asset_provider": r["asset_provider"],
+        "collection": r["collection"],
+        "schedule_job": r["schedule_job"],
+        "schedule_kind": r["schedule_kind"],
     }
 
 
 _PLUGIN_JOB_SCHEDULE_COLS = (
     "id, name, cron_expr, scope, plugin_id, options, capability, enabled, "
     "last_fired_at, next_fire_at, last_skipped_reason, last_job_id, "
-    "created_at, created_by, archived_at"
+    "created_at, created_by, archived_at, asset_provider, collection, schedule_job, schedule_kind"
 )
 
 
-async def list_plugin_job_schedules(pool: asyncpg.Pool, *, include_archived: bool = False) -> list:
-    where = "" if include_archived else " WHERE archived_at IS NULL"
+async def list_plugin_job_schedules(
+    pool: asyncpg.Pool, *, include_archived: bool = False, asset_provider: Optional[str] = None
+) -> list:
+    """Every schedule, newest first. ``asset_provider`` narrows to one provider's rows."""
+    clauses, values = [], []
+    if not include_archived:
+        clauses.append("archived_at IS NULL")
+    if asset_provider is not None:
+        values.append(asset_provider)
+        clauses.append(f"asset_provider = ${len(values)}")
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = await pool.fetch(
-        f"SELECT {_PLUGIN_JOB_SCHEDULE_COLS} FROM plugin_job_schedules{where} ORDER BY created_at DESC"
+        f"SELECT {_PLUGIN_JOB_SCHEDULE_COLS} FROM plugin_job_schedules{where} ORDER BY created_at DESC",
+        *values,
     )
     return [_plugin_job_schedule_row(r) for r in rows]
 
@@ -75,14 +90,21 @@ async def create_plugin_job_schedule(
     enabled: bool = True,
     next_fire_at=None,
     created_by: Optional[str] = None,
+    asset_provider: Optional[str] = None,
+    collection: Optional[str] = None,
+    schedule_job: Optional[str] = None,
+    schedule_kind: Optional[str] = None,
 ) -> dict:
     """Insert one schedule. ``next_fire_at`` is pre-computed by the caller from
-    ``cron_expr``, which is also where the expression is validated."""
+    ``cron_expr``, which is also where the expression is validated. The ``asset_*`` /
+    ``collection`` / ``schedule_*`` fields are set for a row made from a provider's
+    ``asset_schedules`` declaration."""
     row = await pool.fetchrow(
         f"""
         INSERT INTO plugin_job_schedules
-            (name, cron_expr, scope, plugin_id, options, capability, enabled, next_fire_at, created_by)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+            (name, cron_expr, scope, plugin_id, options, capability, enabled, next_fire_at, created_by,
+             asset_provider, collection, schedule_job, schedule_kind)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING {_PLUGIN_JOB_SCHEDULE_COLS}
         """,
         name,
@@ -94,6 +116,10 @@ async def create_plugin_job_schedule(
         enabled,
         next_fire_at,
         created_by,
+        asset_provider,
+        collection,
+        schedule_job,
+        schedule_kind,
     )
     return _plugin_job_schedule_row(row)
 

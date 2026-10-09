@@ -48,7 +48,6 @@ from ada.plugins.external_models.providers import (
 __all__ = [
     "PLUGIN_ID",
     "WORKER_CAPABILITY",
-    "DEMO_PROVIDER_ID",
     "OBJECT_STORE_PROVIDER_ID",
     "register",
     "register_demo_provider",
@@ -79,14 +78,7 @@ WORKER_CAPABILITY = "external-models"
 #: for the thing that serves the deployment's real bucket -- the same S3 bucket
 #: or Azure container the viewer is configured with. The fixture it is named
 #: after is only what it falls back to when no catalogue is configured at all.
-#:
-#: `"demo"` still RESOLVES, through `PROVIDER_ALIASES`, because a binding is a
-#: stored string and renaming an id would silently unbind every scope using it.
 OBJECT_STORE_PROVIDER_ID = "object-store"
-
-#: Retained for callers that import it. It is the OLD id and resolves to
-#: `OBJECT_STORE_PROVIDER_ID`; new code should name the new one.
-DEMO_PROVIDER_ID = "demo"
 
 
 def register_demo_provider() -> None:
