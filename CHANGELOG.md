@@ -2,6 +2,16 @@
 
 
 
+## v0.115.2 (2026-10-09)
+
+### Fix
+
+* fix(calculix,code_aster): correct beam sections, every step and load, load cases, prescribed displacements, named solver failures (#449)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`f1aab89`](https://github.com/Krande/adapy/commit/f1aab89250b99564b9d9e002db5812be4ac0e947))
+
+
 ## v0.115.1 (2026-10-09)
 
 ### Fix
