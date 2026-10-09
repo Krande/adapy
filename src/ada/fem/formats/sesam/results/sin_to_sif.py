@@ -25,7 +25,7 @@ import pathlib
 from io import StringIO
 from typing import Iterator, TextIO
 
-from .sin_reader import SinFile, open_sin
+from .sin_reader import SinFile, SuperElementSpec, open_sin
 
 
 def _format_record_line(name: str, data: tuple[float, ...]) -> Iterator[str]:
@@ -82,9 +82,12 @@ def write_sif(sin: SinFile, out: TextIO) -> None:
                 out.write(line + "\n")
 
 
-def convert_sin_to_sif_text(sin_path: str | pathlib.Path) -> str:
-    """Return the full SIF text for ``sin_path``. In-memory; no disk write."""
-    sin = open_sin(sin_path)
+def convert_sin_to_sif_text(sin_path: str | pathlib.Path, *, super_element: SuperElementSpec | None = None) -> str:
+    """Return the full SIF text for ``sin_path``. In-memory; no disk write.
+
+    ``super_element``: on a superelement assembly SIN, which superelement to
+    write (see :func:`~.sin_reader.open_sin`)."""
+    sin = open_sin(sin_path, super_element=super_element)
     buf = StringIO()
     write_sif(sin, buf)
     return buf.getvalue()
@@ -93,6 +96,8 @@ def convert_sin_to_sif_text(sin_path: str | pathlib.Path) -> str:
 def convert_sin_to_sif_file(
     sin_path: str | pathlib.Path,
     sif_path: str | pathlib.Path | None = None,
+    *,
+    super_element: SuperElementSpec | None = None,
 ) -> pathlib.Path:
     """Materialise a SIF file on disk from a SIN binary.
 
@@ -100,10 +105,12 @@ def convert_sin_to_sif_file(
     Used by callers that genuinely want a SIF artefact next to the
     SIN — most adapy consumers should prefer :func:`read_sin_native`
     which keeps the conversion in memory.
+
+    ``super_element``: see :func:`convert_sin_to_sif_text`.
     """
     sin_path = pathlib.Path(sin_path)
     target = pathlib.Path(sif_path) if sif_path is not None else sin_path.with_suffix(".SIF")
-    sin = open_sin(sin_path)
+    sin = open_sin(sin_path, super_element=super_element)
     with open(target, "w") as f:
         write_sif(sin, f)
     return target

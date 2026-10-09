@@ -67,7 +67,7 @@ def _make_sif_reader(path: pathlib.Path) -> "FEAStreamReader":
 SIN_MATERIALISE_MAX_ROWS = 2_000_000
 
 
-def _sin_too_big_to_materialise(path: pathlib.Path, max_rows: int | None = None) -> bool:
+def _sin_too_big_to_materialise(path: pathlib.Path, max_rows: int | None = None, super_element=None) -> bool:
     """Whether reading ``path`` whole would hold more than ``max_rows`` result rows.
 
     Cheap: the record counts come from the pointer tables, the stored cases from
@@ -75,6 +75,9 @@ def _sin_too_big_to_materialise(path: pathlib.Path, max_rows: int | None = None)
     result value is read. Unstored combinations count as the average stored
     case's rows each, which is what superposing them materialises. A file that
     cannot be sized this way is left to the default reader.
+
+    ``super_element`` sizes that superelement of an assembly SIN (see
+    :func:`_make_sin_reader`); None sizes the default one.
     """
     from ada.fem.formats.sesam.results.read_sin import (
         _RV_TYPE_NAMES,
@@ -85,7 +88,7 @@ def _sin_too_big_to_materialise(path: pathlib.Path, max_rows: int | None = None)
 
     limit = SIN_MATERIALISE_MAX_ROWS if max_rows is None else max_rows
     try:
-        with open_sin(str(path)) as sin:
+        with open_sin(str(path), super_element=super_element) as sin:
             rows = sum(
                 int(np.count_nonzero(sin.type_blocks[name].pointer_table))
                 for name in _RV_TYPE_NAMES
@@ -106,7 +109,7 @@ def _sin_too_big_to_materialise(path: pathlib.Path, max_rows: int | None = None)
     return rows * (len(stored) + unstored) / len(stored) > limit
 
 
-def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None) -> "FEAStreamReader":
+def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None, super_element=None) -> "FEAStreamReader":
     # Pure-Python Sesam Norsam-binary reader (see
     # ada.fem.formats.sesam.results.read_sin). No Prepost.exe shell-out
     # and no SIF text intermediate — feeds the streaming bake directly.
@@ -126,22 +129,27 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None) -
     # those cases: the full-materialise adapter reads every case before it can
     # offer one, which on a deck of a few hundred combinations is hours and tens
     # of gigabytes for the sake of one case.
+    #
+    # ``super_element``: on a superelement assembly SIN, which superelement to
+    # read (a type number, (type, instance) or a label such as "SEL10.IND1").
     import os
 
     choice = os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower()
     if (
         steps is not None
         or choice in {"1", "true", "yes", "on"}
-        or (choice not in {"0", "false", "no", "off"} and _sin_too_big_to_materialise(path))
+        or (
+            choice not in {"0", "false", "no", "off"} and _sin_too_big_to_materialise(path, super_element=super_element)
+        )
     ):
         from ada.fem.formats.sesam.results.read_sin import SinStreamReader
         from ada.fem.formats.sesam.results.sin_reader import open_sin
 
-        return SinStreamReader(open_sin(str(path)), steps=steps)
+        return SinStreamReader(open_sin(str(path), super_element=super_element), steps=steps)
 
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
-    return FEAResultStreamAdapter(read_sin_file(path))
+    return FEAResultStreamAdapter(read_sin_file(path, super_element=super_element))
 
 
 def _sin_lazy_base_steps(path: pathlib.Path) -> "list[int] | None":
@@ -337,7 +345,9 @@ def is_fea_artefact_source(src_key_or_path) -> bool:
     return suffix in fea_artefact_extensions()
 
 
-def make_stream_reader(src_path: os.PathLike, *, steps: Iterable[int] | None = None) -> FEAStreamReader:
+def make_stream_reader(
+    src_path: os.PathLike, *, steps: Iterable[int] | None = None, super_element=None
+) -> FEAStreamReader:
     """Open the right streaming reader for a source file's extension.
 
     Dispatch goes through ``_STREAM_READERS``; built-ins (``.rmed`` /
@@ -348,7 +358,12 @@ def make_stream_reader(src_path: os.PathLike, *, steps: Iterable[int] | None = N
     numbers). A factory that takes ``steps`` gets them and can skip reading the
     rest (``.sin`` does); any other reader is narrowed by
     :func:`~.step_subset.restrict_to_steps`. None, the default, offers every
-    step, as before."""
+    step, as before.
+
+    ``super_element``: on a Sesam superelement assembly SIN, which
+    superelement to read (a type number, ``(type, instance)`` or a label such
+    as ``"SEL10.IND1"``). Passed to a factory that takes it (``.sin`` does);
+    other formats hold one model per file and ignore it."""
 
     _ensure_builtin_stream_readers()
     src_path = pathlib.Path(src_path)
@@ -358,19 +373,26 @@ def make_stream_reader(src_path: os.PathLike, *, steps: Iterable[int] | None = N
         raise ValueError(
             f"no streaming reader for FEA source extension {ext!r}; " f"registered: {sorted(_STREAM_READERS)}"
         )
+    extra = {}
+    if super_element is not None and _takes_keyword(factory, "super_element"):
+        extra["super_element"] = super_element
     if steps is None:
-        return factory(src_path)
+        return factory(src_path, **extra)
     steps = normalize_steps(steps)
     if _takes_steps(factory):
-        return factory(src_path, steps=steps)
-    return restrict_to_steps(factory(src_path), steps)
+        return factory(src_path, steps=steps, **extra)
+    return restrict_to_steps(factory(src_path, **extra), steps)
 
 
 def _takes_steps(factory: _StreamReaderFactory) -> bool:
+    return _takes_keyword(factory, "steps")
+
+
+def _takes_keyword(factory: _StreamReaderFactory, name: str) -> bool:
     import inspect
 
     try:
         params = inspect.signature(factory).parameters
     except (TypeError, ValueError):
         return False
-    return "steps" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())

@@ -24,7 +24,12 @@ import numpy as np
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.read_sif import SifReader
 from ada.fem.formats.sesam.results.result_catalog import semantic_name
-from ada.fem.formats.sesam.results.sin_reader import SinFile, open_sin
+from ada.fem.formats.sesam.results.sin_reader import (
+    SinFile,
+    SuperElementInfo,
+    SuperElementSpec,
+    open_sin,
+)
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
@@ -504,6 +509,11 @@ class SinMetadata:
     result_names: dict[int, str] = None
     combination_terms: dict[int, CombinationRecipe] = None
     complex_cases: frozenset[int] = None
+    #: Every superelement in the file (see :meth:`SinFile.hierarchy`).
+    super_elements: tuple[SuperElementInfo, ...] = ()
+    #: On a superelement assembly, the label (``SEL10.IND1``) of the one read;
+    #: None for a SIN that holds one superelement.
+    super_element: str | None = None
 
     def __post_init__(self) -> None:
         if self.combinations is None:
@@ -1068,7 +1078,7 @@ def _present_complex_rows(card, rows, complex_steps: frozenset[int], phase: floa
     return out
 
 
-def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
+def read_sin_metadata(sin_file: str | pathlib.Path, *, super_element: SuperElementSpec | None = None) -> SinMetadata:
     """Enumerate steps + fields in a SIN without loading any values.
 
     Walks each RV* type's pointer table reading only the first data
@@ -1077,8 +1087,12 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
     multi-GB record streams. The full record materialisation lives
     in :func:`read_sin_file` and only runs when a caller asks for
     actual values.
+
+    ``super_element``: on a superelement assembly SIN, which superelement to
+    describe (see :func:`~.sin_reader.open_sin`). The result lists every
+    superelement in ``super_elements`` either way.
     """
-    sin = open_sin(sin_file)
+    sin = open_sin(sin_file, super_element=super_element)
     try:
         types = list(sin.types)
         node_count = sin.get_count("GCOORD")
@@ -1109,12 +1123,20 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
             result_names=read_result_names(sin),
             combination_terms=terms,
             complex_cases=read_complex_result_cases(sin),
+            super_elements=sin.hierarchy(),
+            super_element=selected.label if (selected := sin.selected) is not None else None,
         )
     finally:
         sin.close()
 
 
-def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None, complex_phase: float = 0.0) -> "FEAResult":
+def read_sin_file(
+    sin_file: str | pathlib.Path,
+    *,
+    step: int | None = None,
+    complex_phase: float = 0.0,
+    super_element: SuperElementSpec | None = None,
+) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
     Pure-Python — no Prepost.exe shell-out, no on-disk SIF
@@ -1134,6 +1156,10 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None, comp
     case (RDRESREF COMPLX=1) is presented — ``R cos Φ − I sin Φ`` per
     component. 0 (the default) is the real part, −π/2 the imaginary part.
     Combinations are unaffected: their terms carry their own phases.
+
+    ``super_element``: on a superelement assembly SIN, which superelement to
+    read (see :func:`~.sin_reader.open_sin`). None reads the entry with a mesh
+    and results.
     """
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
@@ -1145,7 +1171,18 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None, comp
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
     from ada.fem.formats.sesam.results.sets import manifest_groups
 
-    sin = open_sin(sin_file)
+    sin = open_sin(sin_file, super_element=super_element)
+    if "GELMNT1" not in sin.type_blocks and sin.is_assembly():
+        # Defensive: the default pick lands on an entry with elements, so this
+        # takes an assembly whose chosen entry lost its mesh.
+        rows = sin.hierarchy()
+        sin.close()
+        readable = [r.label for r in rows if r.iref is not None and r.has_mesh]
+        listing = "\n".join(f"  {r.describe()}" for r in rows)
+        raise ValueError(
+            f"this SIN holds {len(rows)} superelements and the one opened has no mesh; "
+            f"pass super_element=<label>, one of {readable}:\n{listing}"
+        )
     name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
     reader = SinReader(sin=sin, step=step, complex_phase=complex_phase)
     reader.load()
@@ -1170,6 +1207,7 @@ def iter_sin_step_results(
     *,
     forces_elements: set[int] | None = None,
     complex_phase: float = 0.0,
+    super_element: SuperElementSpec | None = None,
 ):
     """Yield ``(step, FEAResult)`` reading the SIN once and reusing the mesh.
 
@@ -1185,9 +1223,9 @@ def iter_sin_step_results(
     subset of beam elements avoids decoding the whole model's forces every step.
     Leave ``None`` (the bake / full-materialise paths) to read all.
 
-    ``complex_phase``: see :func:`read_sin_file`.
+    ``complex_phase``, ``super_element``: see :func:`read_sin_file`.
     """
-    sin = open_sin(sin_file)
+    sin = open_sin(sin_file, super_element=super_element)
     with SinStreamReader(sin, forces_elements=forces_elements, complex_phase=complex_phase) as reader:
         for step in steps:
             yield int(step), reader._load_step(int(step))
@@ -1216,6 +1254,10 @@ class SinStreamReader:
     ``steps``: when given, only these result cases (IRES, stored or combined)
     are offered and read -- the others are never touched, which is what makes a
     bake of one case out of hundreds cost one case. See :meth:`select_steps`.
+
+    ``super_element``: on a superelement assembly SIN, which superelement to
+    read (see :meth:`SinFile.resolve_super_element`); None keeps the source's
+    active one.
     """
 
     #: Each step is decoded once per RV card and every field of that card is
@@ -1231,10 +1273,17 @@ class SinStreamReader:
         forces_elements: set[int] | None = None,
         complex_phase: float = 0.0,
         steps: "Iterable[int] | None" = None,
+        super_element: SuperElementSpec | None = None,
     ) -> None:
         from ada.fem.formats.sesam.results.sin_reader import SinFile
 
-        self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
+        if isinstance(source, SinFile):
+            self.sin = source
+        else:
+            # With a selection, skip decoding the default entry on the way.
+            self.sin = SinFile(source=source, _decode_default=super_element is None)
+        if super_element is not None:
+            self.sin.select_super_element(super_element)
         self._combinations = read_result_combination_terms(self.sin)
         # Phase (radians) at which complex result cases are presented; see
         # :attr:`SinReader.complex_phase`.
