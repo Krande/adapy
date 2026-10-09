@@ -169,21 +169,7 @@ here are some relevant links:
 
 ## Acknowledgements
 
-This project would never have been possible without the existing open source python and c++ libraries. 
-Although listed in the package dependencies (which is a long list), here are some of the packages that are at the very 
-core of adapy;
-
-* IfcOpenShell
-* OpenCascade
-* PythonOCC-Core
-* Gmsh
-* Trimesh
-
-A huge thanks to all involved in the development of the packages mentioned here and in the list of packages adapy
-depends on.
-
-If you feel that a certain package listed in the adapy dependencies should be listed here please let me know and I will 
-update the list :)
+This project would never have been possible without the existing open source python and c++ libraries adapy depends on. 
 
 
 ## Project Responsible ##
