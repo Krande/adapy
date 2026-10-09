@@ -132,8 +132,8 @@
     },
     "fea_bundle": {
         "dir": "plate_EIG_aba_shell_o1_stTrue",
-        "manifest_sha256": "981e6954ed634292f56ba393972def8120865770bfb464f2d3e6ea1d10090828",
+        "manifest_sha256": "874131de4eed35c9fa833cc63792b8dba22ae7ea389a4b9c149c21a1d34d62c8",
         "n_steps": 6
     },
-    "last_modified": 1790876083.468076
+    "last_modified": 1791549185.080527
 }

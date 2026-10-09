@@ -50,17 +50,40 @@ json-code-gen-cpp = { cmd = ["python", "scripts/codegen/codegen_ada_ext_cpp.py"]
 # Zensical has no notebook support, so the notebooks are executed and converted to Markdown pages
 # beside their sources first (gitignored; see scripts/docs/docs_notebooks.py). --execute: every viewer
 # is rendered with the current viewer bundle, never one stored in a notebook's outputs.
-docs-notebooks = { cmd = "python scripts/docs/docs_notebooks.py --execute", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
+# inputs/outputs: pixi skips the run while none of these changed and the outputs are still there.
+# src/ada and the viewer bundle are inputs because the notebooks execute against them.
+docs-notebooks = { cmd = "python scripts/docs/docs_notebooks.py --execute", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" }, inputs = [
+    "docs/notebooks/**/*.ipynb",
+    "scripts/docs/docs_notebooks.py",
+    "examples/penetration_detail.py",
+    "src/ada/**/*.py",
+    "src/ada/visit/rendering/resources/index.zip",
+], outputs = [
+    "docs/notebooks/**/*.md",
+    "docs/notebooks/**/*_files/**",
+    "docs/_static/notebook-viewer/**",
+    "docs/_static/viewer-figures/**",
+] }
 # The site without regenerating the FEA verification report (whatever docs/_static/fea-report holds).
 docs-site = { cmd = "zensical build --clean", depends-on = ["docs-notebooks"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 docs = { depends-on = ["fea-doc", "docs-site"] }
-# Live-reloading preview. Run `pixi run -e docs docs-notebooks` once first for the notebook pages.
-docs-serve = { cmd = "zensical serve", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# Live-reloading preview. Generates what the pages embed first (notebook pages, 3D figures, the FEA
+# report); each of those is cached on its inputs, so a second start goes straight to serving.
+docs-serve = { cmd = "zensical serve", depends-on = ["docs-notebooks", "fea-doc-cached"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python scripts/docs/docs_serve.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 # PYTHONUTF8: pandoc runs paradoc's Python filters as subprocesses, and on Windows they would read the
 # UTF-8 AST as cp1252 -- a byte cp1252 leaves undefined (e.g. in "ρ") then kills the export.
 fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
-fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
+# The web report into docs/_static/fea-report (verification/paradoc.toml), reusing paradoc's analysis
+# cache, and skipped outright by pixi while its inputs are unchanged.
+fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" }, inputs = [
+    "verification/report/**",
+    "verification/_assets/**",
+    "verification/scripts/**",
+    "verification/*.py",
+    "verification/paradoc.toml",
+    "src/ada/**/*.py",
+], outputs = ["docs/_static/fea-report/**"] }
 fea-doc-inspect = { cmd = "python -m paradoc.cli_app build verification --inspect --no-compile", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # The report as downloadable files, for the links on the docs page. Written to
 # docs/_static/fea-report-files/ -- beside the web bundle, not inside it: the static export

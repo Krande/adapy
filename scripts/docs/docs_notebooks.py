@@ -94,7 +94,9 @@ def find_notebooks(paths: list[str]) -> list[pathlib.Path]:
     found: list[pathlib.Path] = []
     for root in roots:
         candidates = [root] if root.suffix == ".ipynb" else root.rglob("*.ipynb")
-        found += [p for p in candidates if ".ipynb_checkpoints" not in p.parts]
+        # Not checkpoints, and not the copies an old Sphinx build or the site's static tree holds.
+        skip = {".ipynb_checkpoints", "_build", "_static"}
+        found += [p for p in candidates if p == root or not skip & set(p.relative_to(root).parts)]
     return sorted(set(found))
 
 
