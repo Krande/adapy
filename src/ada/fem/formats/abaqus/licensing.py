@@ -53,7 +53,7 @@ from typing import Callable, Iterator, Optional
 from ada.config import logger
 
 _USERS_OF = re.compile(r"^Users of (\S+?):\s*\(Total of (\d+) licenses? issued;\s*Total of (\d+) licenses? in use\)")
-# "    ofskrand ABLNOF8VY014 ABLNOF8VY014 (v62.7) (abllic022/27006 982), start Thu 10/1 20:13, 3 licenses"
+# "    user2 HOST2 HOST2 (v62.7) (licserver/27006 982), start Thu 10/1 20:13, 3 licenses"
 _CHECKOUT = re.compile(r"^\s+(\S+)\s+(\S+)\s+\S+.*?\(v[\d.]+\).*?start [^,]*(?:,\s*(\d+) licenses?)?\s*$")
 
 

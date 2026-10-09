@@ -20,24 +20,24 @@ Users of abaqus:  (Total of 25 licenses issued;  Total of 19 licenses in use)
   "abaqus" v62.7, vendor: ABAQUSLM, expiry: 31-dec-2026
   floating license
 
-    ofssumal ABLAPP124 ABLXENFET021 (v62.7) (abllic022/27006 280), start Thu 10/1 15:46, 8 licenses
-    ofssumal ABLAPP124 ABLXENFET021 (v62.7) (abllic022/27006 1062), start Thu 10/1 16:57, 8 licenses
-    ofskrand ABLNOF8VY014 ABLNOF8VY014 (v62.7) (abllic022/27006 982), start Thu 10/1 20:13, 3 licenses
+    user1 HOST1 DISPLAY1 (v62.7) (licserver/27006 280), start Thu 10/1 15:46, 8 licenses
+    user1 HOST1 DISPLAY1 (v62.7) (licserver/27006 1062), start Thu 10/1 16:57, 8 licenses
+    user2 HOST2 HOST2 (v62.7) (licserver/27006 982), start Thu 10/1 20:13, 3 licenses
 
 Users of cae:  (Total of 4 licenses issued;  Total of 1 license in use)
 
-    ofsbkaku ABLNO69VV4X3 ABLNO69VV4X3 (v62.5) (abllic022/27006 473), start Thu 10/1 14:49
+    user3 HOST3 HOST3 (v62.5) (licserver/27006 473), start Thu 10/1 14:49
 """
 
 
 def test_parses_the_abaqus_feature_and_our_own_checkouts():
-    tokens = parse_abaqus_tokens(RU, user="ofskrand", host="ABLNOF8VY014")
+    tokens = parse_abaqus_tokens(RU, user="user2", host="HOST2")
     assert tokens == AbaqusTokens(issued=25, in_use=19, mine=3)
     assert tokens.others == 16
 
 
 def test_another_users_checkout_on_our_host_is_theirs():
-    assert parse_abaqus_tokens(RU, user="someone", host="ABLNOF8VY014").mine == 0
+    assert parse_abaqus_tokens(RU, user="someone", host="HOST2").mine == 0
 
 
 def test_no_abaqus_feature_is_none():
