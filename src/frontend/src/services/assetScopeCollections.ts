@@ -173,6 +173,38 @@ export interface AssetProviderCollections {
   nodeRequest: AssetNodeRequest | null;
   /** The provider's per-collection request options, when a spec declares them. */
   requestOptions: AssetRequestOptions | null;
+  /** The `change-check` entry of the provider's `asset_schedules`, when it declares one: what the
+   *  Sources tab's "Check for changes" runs (through core's `/asset-changes/check`, which builds the
+   *  job options from the live declaration). */
+  changeCheck: AssetChangeCheck | null;
+}
+
+/** A provider's declared change check (`asset_schedules[kind == "change-check"]`). Only what the
+ *  browser needs: the server reads the rest of the declaration itself. */
+export interface AssetChangeCheck {
+  pluginId: string;
+  id: string;
+  label: string;
+  description: string | null;
+  requiresAdmin: boolean;
+}
+
+function parseChangeCheck(pluginId: string, spec: Record<string, unknown>): AssetChangeCheck | null {
+  const raw = spec.asset_schedules;
+  if (!pluginId || !Array.isArray(raw)) return null;
+  for (const entry of raw) {
+    if (!isRecord(entry) || entry.kind !== "change-check") continue;
+    if (typeof entry.id !== "string" || !entry.id.trim() || !isRecord(entry.options)) continue;
+    if (typeof entry.collection_option !== "string" || !entry.collection_option.trim()) continue;
+    return {
+      pluginId,
+      id: entry.id.trim(),
+      label: typeof entry.label === "string" && entry.label.trim() ? entry.label.trim() : "Check for changes",
+      description: typeof entry.description === "string" && entry.description.trim() ? entry.description.trim() : null,
+      requiresAdmin: spec.requires_admin === true,
+    };
+  }
+  return null;
 }
 
 /** A declared `asset_request_options`: `{options: [names], choices?: request}`.
@@ -296,6 +328,7 @@ export function assetProviderCollections(
       request: AssetCollectionRequest | null;
       nodeRequest: AssetNodeRequest | null;
       requestOptions: AssetRequestOptions | null;
+      changeCheck: AssetChangeCheck | null;
     }
   >();
   for (const spec of specs) {
@@ -312,6 +345,7 @@ export function assetProviderCollections(
       request: null,
       nodeRequest: null,
       requestOptions: null,
+      changeCheck: null,
     };
     const pluginId = typeof spec.id === "string" ? spec.id : typeof spec.slug === "string" ? spec.slug : "";
     if (pluginId && !entry.pluginIds.includes(pluginId)) entry.pluginIds.push(pluginId);
@@ -327,6 +361,7 @@ export function assetProviderCollections(
       entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, spec.requires_admin === true);
     }
     if (!entry.requestOptions) entry.requestOptions = parseRequestOptions(pluginId, spec);
+    if (!entry.changeCheck) entry.changeCheck = parseChangeCheck(pluginId, spec);
     if (!entry.label) entry.label = declaredLabel(spec, providerId);
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
@@ -348,6 +383,7 @@ export function assetProviderCollections(
       request: e.request,
       nodeRequest: e.nodeRequest,
       requestOptions: e.requestOptions,
+      changeCheck: e.changeCheck,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
 }

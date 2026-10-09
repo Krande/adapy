@@ -1,17 +1,14 @@
 import React, {useCallback, useEffect, useState} from "react";
 import {AuditSchedule, Corpus, viewerApi} from "@/services/viewerApi";
 
-import PluginJobSchedulesSection from "./PluginJobSchedulesTab";
 import {CRON_PRESETS, fmtRelative, fmtTimestamp} from "./scheduleFormat";
 
-// Admin tab — everything in this deployment that runs on a timer.
+// Admin tab — recurring AUDIT SWEEPS (M4 of the admin audit-panel design notes).
 //
-// Two kinds, two sections: recurring AUDIT SWEEPS (M4 of the admin audit-panel
-// design notes) and recurring PLUGIN JOBS. They are separate tables with
-// different payloads — a sweep names a worker pool and a corpus, a plugin job
-// names a plugin and an arbitrary options document — but they answer one
-// question, "what fires here and when", and an operator who has to look in two
-// places to answer it will eventually miss one.
+// Plugin jobs used to be scheduled here too, as a plugin id plus a free-text options document.
+// Every job that was ever scheduled that way belonged to an asset provider, so they moved to
+// Admin → Providers → Scheduled jobs, where a provider declares what it offers (`asset_schedules`)
+// and every field is a choice.
 //
 // Each audit row pairs a cron expression with a (scope, worker_pool) sweep
 // target. The API's scheduler tick claims due rows and fires the same dispatcher
@@ -360,13 +357,9 @@ const SchedulesTab: React.FC = () => (
     <div className="h-full overflow-auto">
         <SectionHeading title="Audit sweeps">
             Re-convert a corpus on a cron pattern and compare the result against its baseline.
+            Provider jobs (change checks, exports) are scheduled under Providers.
         </SectionHeading>
         <AuditSchedulesSection/>
-        <SectionHeading title="Plugin jobs">
-            Run a backend plugin on a cron pattern. The API enqueues it through the same path a
-            user pressing the button uses, so nothing has to be scheduled on the worker&apos;s machine.
-        </SectionHeading>
-        <PluginJobSchedulesSection/>
     </div>
 );
 

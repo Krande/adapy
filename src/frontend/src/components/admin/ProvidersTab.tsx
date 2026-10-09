@@ -30,6 +30,7 @@ import {
 import {useProviderNamesStore} from "@/state/providerNamesStore";
 
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
+import ProviderSchedulesSection from "./ProviderSchedulesSection";
 
 // Admin tab — which of an asset provider's collections may be REQUESTED in each
 // scope.
@@ -592,6 +593,10 @@ const ProvidersTab: React.FC = () => {
                 the providers a live pool offers does each scope use. Kept in its own component --
                 it shares the scope rows and nothing else. */}
             <ClashSpecProvidersSection rows={rows.filter((r) => !r.stale)} />
+
+            {/* The jobs each provider declares for scheduling (`asset_schedules`), per scope and
+                collection -- replaces the generic plugin-job schedules under Audit. */}
+            <ProviderSchedulesSection rows={rows.filter((r) => !r.stale)} />
         </div>
     );
 };

@@ -30,7 +30,7 @@ import {
     viewDocFor,
     type TreeViewDoc,
 } from "@/assets/treeView";
-import type { ChangeState } from "@/assets/changes";
+import type { ChangeAction, ChangeState } from "@/assets/changes";
 import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionRequest";
 import {
     assetSourceName,
@@ -79,6 +79,7 @@ import { selectTreeNode } from "@/utils/tree_view/treeNavigation";
 import AssetTree, { type SetEditing } from "./AssetTree";
 import { ancestorsOf } from "@/assets/hierarchy";
 import { formatRevision } from "./format";
+import ChangeRunsPanel from "./ChangeRunsPanel";
 import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
 import ProviderOptionsPanel from "./ProviderOptionsPanel";
@@ -1601,9 +1602,13 @@ const AssetsTab: React.FC = () => {
         if (storeScope === scope && index) void loader.syncCollectionIndexes(scope);
     }, [mode, index, scope, storeScope, loader]);
 
+    // A picked change-check run's marks (`ChangeRunsPanel`), drawn INSTEAD of the change feed's
+    // evidence marks while it is picked -- see `@/assets/changeRuns` for why one replaces the other.
+    const [runMarkOverride, setRunMarkOverride] = useState<ReadonlyMap<string, ChangeAction> | null>(null);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const hierarchy = useMemo(() => buildAssetHierarchy(forest), [forestVersion]);
-    const view = useMemo(
+    const baseView = useMemo(
         () =>
             index && collection
                 ? buildAssetView({
@@ -1622,6 +1627,10 @@ const AssetsTab: React.FC = () => {
         // `forest` changes exactly when `hierarchy` does.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [hierarchy, index, collection, mode, merged, levelLoaded, sourceAnswer, changedRows, evidenceAsked],
+    );
+    const view = useMemo(
+        () => (baseView && runMarkOverride ? { ...baseView, evidenceMarks: runMarkOverride } : baseView),
+        [baseView, runMarkOverride],
     );
 
     const revisions = useMemo(() => (index && collection ? revisionsOf(index, collection) : []), [index, collection]);
@@ -2058,6 +2067,12 @@ const AssetsTab: React.FC = () => {
         <div className="flex flex-col h-full min-h-0 text-white">
             <div className="shrink-0">
                 <RequestCollection scope={scope} onPublished={(c) => void onPublished(c)} onChanged={() => void loader.refresh(scope)} />
+                <ChangeRunsPanel
+                    scope={scope}
+                    collection={collection}
+                    onMarks={setRunMarkOverride}
+                    onSelectNode={(node) => select(node)}
+                />
             </div>
             {renderBody()}
         </div>

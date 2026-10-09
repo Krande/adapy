@@ -35,7 +35,8 @@ const { viewerApi } = await import("@/services/viewerApi");
 // shows up here as an ADDED/REMOVED diff instead of a runtime "undefined is
 // not a function" three files away from the actual mistake.
 const EXPECTED_METHODS = [
-  "adminAddMember", "adminArchiveProject", "adminAudit", "adminAuditActive",
+  "adminAddMember", "adminArchiveProject", "adminAssetScheduleChoices", "adminAssetSchedules",
+  "adminAudit", "adminAuditActive",
   "adminAuditCellHistory", "adminAuditClientMetrics", "adminAuditIssueRecheck",
   "adminAuditIssues", "adminAuditIssuesRecheckAll", "adminAuditLogSyncIssue",
   "adminAuditRunCancel", "adminAuditRunCells", "adminAuditRunCreate",
@@ -45,7 +46,8 @@ const EXPECTED_METHODS = [
   "adminAuditScheduleFireNow", "adminAuditScheduleUpdate", "adminAuditSchedulesList",
   "adminAuditSummary", "adminCancelJob", "adminClearMetrics", "adminCompressionStatus",
   "adminCopyKeysFromScope", "adminCorporaList", "adminCorpusArchive", "adminCorpusCreate",
-  "adminCorpusUpdate", "adminCreateProject", "adminDeleteBlob", "adminDownloadAuditSource",
+  "adminCorpusUpdate", "adminCreateAssetSchedule", "adminCreateProject", "adminDeleteAssetSchedule",
+  "adminDeleteBlob", "adminDownloadAuditSource",
   "adminDownloadProfile", "adminFrontendLoadHotspots", "adminFrontendLoads",
   "adminGetAuditLog", "adminGetSetting", "adminIssueTargetGet", "adminIssueTargetSet",
   "adminListCliTokens", "adminListMembers", "adminListProjects", "adminListStorage", "adminListUsers", "adminListWorkers",
@@ -57,7 +59,8 @@ const EXPECTED_METHODS = [
   "adminProvisionCiBot", "adminPruneWorkers", "adminRemoveMember", "adminRenameKey",
   "adminRenameOrMoveFolder", "adminRenderProfiles", "adminRevokeCiBot",
   "adminRevokeCliToken", "adminRevokeCliTokens", "adminSetSetting", "adminStartCompressionSweep",
-  "adminWorkerPackages", "auditLocalCreate", "auditLocalUpdate", "blobUrl", "cancelMyJob",
+  "adminUpdateAssetSchedule", "adminWorkerPackages", "assetChangeRunItems", "auditLocalCreate",
+  "auditLocalUpdate", "blobUrl", "cancelMyJob", "checkAssetChanges",
   "commitProceduralModel", "compileProceduralModel", "completeUpload", "componentsBuild",
   "componentsProfiles", "componentsSpecs", "convert", "convertStatus", "convertTargets",
   "copyEquipmentCadFromScope", "createEquipmentType", "createProceduralEngine",
@@ -68,7 +71,7 @@ const EXPECTED_METHODS = [
   "fetchProceduralImportResult", "fetchProceduralRelocations", "getBlob", "getBlobRange",
   "getEquipmentType", "getProceduralEngine", "getProceduralModel", "getPublicSetting",
   "getSystemTemplate", "importProceduralModelXlsx", "inferEquipmentBbox",
-  "listBackendPlugins", "listDetailingEngines", "listEquipmentTypes", "listFiles",
+  "listAssetChangeRuns", "listBackendPlugins", "listDetailingEngines", "listEquipmentTypes", "listFiles",
   "listFilesWithDerived", "listOverlays", "listProceduralEngines", "listProceduralModels",
   "listProceduralTemplates", "listSystemTemplates", "me", "moveKeysToFolder", "myJobs",
   "pluginBase", "pluginJob", "previewProceduralModel", "proceduralBlueprints",

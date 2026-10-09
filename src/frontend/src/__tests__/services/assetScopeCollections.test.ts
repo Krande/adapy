@@ -95,6 +95,7 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
       request: null,
       nodeRequest: null,
       requestOptions: null,
+      changeCheck: null,
     },
   ]);
 });
@@ -307,4 +308,40 @@ test("on_demand is read only when declared true -- a load may then request the n
   assert.equal(assetProviderCollections(specs(true))[0].nodeRequest?.onDemand, true);
   assert.equal(assetProviderCollections(specs())[0].nodeRequest?.onDemand, undefined);
   assert.equal(assetProviderCollections(specs("yes"))[0].nodeRequest?.onDemand, undefined, "only a real true opts in");
+});
+
+test("assetProviderCollections reads the change-check entry of asset_schedules", () => {
+  const [p] = assetProviderCollections([
+    {
+      id: "vendor-plugin",
+      asset_provider_id: "vendor",
+      asset_collections_field: "projects",
+      projects: ["ALPHA"],
+      requires_admin: true,
+      asset_schedules: [
+        { id: "sweep", kind: "job", options: { action: "sweep" }, collection_option: "project" },
+        { id: "changes", kind: "change-check", label: "Changes", options: { action: "check" }, collection_option: "project" },
+      ],
+    },
+  ]);
+  assert.deepEqual(p.changeCheck, {
+    pluginId: "vendor-plugin",
+    id: "changes",
+    label: "Changes",
+    description: null,
+    requiresAdmin: true,
+  });
+});
+
+test("assetProviderCollections ignores a change check it could not run", () => {
+  for (const asset_schedules of [
+    undefined,
+    "nope",
+    [{ id: "c", kind: "change-check", options: { action: "x" } }], // no collection_option
+    [{ kind: "change-check", options: {}, collection_option: "p" }], // no id
+    [{ id: "j", kind: "job", options: {}, collection_option: "p" }], // not a check
+  ]) {
+    const [p] = assetProviderCollections([{ id: "x", asset_provider_id: "vendor", asset_schedules }]);
+    assert.equal(p.changeCheck, null, JSON.stringify(asset_schedules));
+  }
 });

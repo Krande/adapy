@@ -53,6 +53,8 @@ from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
+from .routes.asset_schedules import admin_router as admin_asset_schedules_router
+from .routes.asset_schedules import router as asset_schedules_router
 from .routes.assets import router as assets_router
 from .routes.clash_check import router as clash_check_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
@@ -1421,6 +1423,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ``/scopes/{scope}/source-nodes`` has no fixed/parameterised sibling to
     # collide with.
     api.include_router(source_nodes_router)
+    # Change checks a provider declares (`asset_schedules`): run now, list runs, read items.
+    api.include_router(asset_schedules_router)
 
     # Core asset store (routes/assets.py). Every path is
     # ``/scopes/{scope}/assets/...`` with a fixed first segment after
@@ -2335,6 +2339,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     admin.include_router(admin_plugin_jobs_router)
+    admin.include_router(admin_asset_schedules_router)
 
     async def _plugin_schedule_loop(pool) -> None:
         """Tick every 30 s, claim due schedules, enqueue them as plugin jobs.

@@ -19,6 +19,14 @@ via the :func:`get_pool` accessor.
 from __future__ import annotations
 
 from ._common import _loads_jsonb as _loads_jsonb  # noqa: F401
+from .asset_changes import (
+    asset_change_users,
+    finish_asset_change_run,
+    get_asset_change_run,
+    insert_asset_change_run,
+    latest_asset_change_runs_for_schedules,
+    list_asset_change_runs,
+)
 from .audit_log import (  # noqa: F401
     _AUDIT_RUN_COUNTER_FOR_STATUS as _AUDIT_RUN_COUNTER_FOR_STATUS,
 )
@@ -248,6 +256,12 @@ __all__ = [
     "revoke_cli_token",
     "revoke_cli_tokens_for_sub",
     "cli_tokens_tracked_since",
+    "insert_asset_change_run",
+    "list_asset_change_runs",
+    "get_asset_change_run",
+    "latest_asset_change_runs_for_schedules",
+    "finish_asset_change_run",
+    "asset_change_users",
     "list_corpora",
     "create_corpus",
     "update_corpus",
