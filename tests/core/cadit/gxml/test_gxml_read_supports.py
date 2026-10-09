@@ -30,7 +30,6 @@ from ada.fem.concept.loads import LoadConceptPrescribedDisplacement
 from ada.fem.formats import conversion_report
 
 STAGE = "genie xml reader"
-USER_MODEL = pathlib.Path(r"C:\AibelProgs\projects\temp\genie_cae\temp\Assembly\Assembly.gnx")
 
 
 def _read(path: pathlib.Path):
@@ -450,37 +449,6 @@ def test_the_writer_writes_a_rigid_links_own_options(tmp_path):
     written = {el.get("name"): el.attrib for el in ET.parse(xml).getroot().iter("support_rigid_link")}
     assert (written["a"]["rotation_dependent"], written["a"]["include_all_edges"]) == ("false", "true")
     assert (written["b"]["rotation_dependent"], written["b"]["include_all_edges"]) == ("true", "false")
-
-
-# --- the user's model --------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not USER_MODEL.is_file(), reason="the user's GeniE workspace is not on this machine")
-def test_the_user_model_reads_its_four_rigid_link_supports():
-    """Under the support columns, at the centre of each pad (z = -1.95), each linking the pad's
-    0.65 x 0.65 m bottom face with slave rotations dependent. adapy read "no supports" here."""
-    with conversion_report.collect() as report:
-        a = ada.from_gnx(USER_MODEL)
-    links = {}
-    for part in a.get_all_parts_in_assembly(include_self=True):
-        constraints = part.concept_fem.constraints
-        assert constraints.point_constraints == {} and constraints.curve_constraints == {}
-        links.update(constraints.rigid_links)
-    held = {
-        "Mini_sup_sw_sup1_c1": ((4.225, 0.325), {"dx": "fixed", "dy": "fixed", "dz": "fixed"}),
-        "Mini_sup_se_sup2_c1": ((11.375, 0.325), {"dy": "fixed", "dz": "fixed"}),
-        "Mini_sup_nw_sup3_c1": ((4.225, 10.075), {"dz": "fixed"}),
-        "Mini_sup_ne_sup4_c1": ((11.375, 10.075), {"dz": "fixed"}),
-    }
-    assert sorted(links) == sorted(held)
-    for name, ((x, y), dofs) in held.items():
-        rl = links[name]
-        assert _p(rl.master_point) == pytest.approx((x, y, -1.95)), name
-        assert _p(rl.influence_region.lower_corner) == pytest.approx((x - 0.325, y - 0.325, -1.95)), name
-        assert _p(rl.influence_region.upper_corner) == pytest.approx((x + 0.325, y + 0.325, -1.95)), name
-        assert _dofs(rl) == dofs, name
-        assert (rl.rotation_dependent, rl.include_all_edges) == (True, True), name
-    assert not any(f.keyword.startswith("support") or f.keyword == "local_system" for f in report.findings)
 
 
 @pytest.mark.parametrize(
