@@ -73,7 +73,9 @@ docs-serve = { cmd = "zensical serve", depends-on = ["docs-notebooks", "fea-doc-
 serve = { cmd = "python scripts/docs/docs_serve.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 # PYTHONUTF8: pandoc runs paradoc's Python filters as subprocesses, and on Windows they would read the
 # UTF-8 AST as cp1252 -- a byte cp1252 leaves undefined (e.g. in "ρ") then kills the export.
-fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
+# fea-doc is the deliberate regeneration: the only task that runs Abaqus and Sesam live
+# (ADAPY_VERIFICATION_RUN_LICENSED) and re-commits their snapshots. Every other build replays them.
+fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1", "ADAPY_VERIFICATION_RUN_LICENSED" = "1" } }
 # The web report into docs/_static/fea-report (verification/paradoc.toml), reusing paradoc's analysis
 # cache, and skipped outright by pixi while its inputs are unchanged.
 fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" }, inputs = [
