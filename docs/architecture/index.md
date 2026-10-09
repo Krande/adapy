@@ -15,6 +15,7 @@ so you can go from a diagram straight to the code.
 | Page | Covers |
 |---|---|
 | [Core object model](core_model.md) | `Assembly` / `Part` / physical objects, base classes, sections, materials, placement, `Config` |
+| [Topology engine](topology_engine.md) | `ada.topology`: spaces to a cell graph, blueprints, systems and routing, penetrations and design rules, `ProceduralBuilder`, catalogs |
 | [Geometry & visualisation](geometry_and_visualisation.md) | `ada.geom`, the `ada.cad` backend layer (adacpp / pythonocc), tessellation, the GLB scene pipeline |
 | [Interoperability](interop.md) | `ada.factories`, `ada.cadit` (IFC, STEP, SAT, Genie XML, DEXPI, …), NGEOM, FE deck formats |
 | [FEA](fea.md) | `FEM`, concepts, meshing, the array-backed mesh store, solver integration, results, the viewer bake, verification |

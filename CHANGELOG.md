@@ -2,6 +2,13 @@
 
 
 
+## v0.115.0 (2026-10-09)
+
+### Feature
+
+* feat: mesh overrides that conform to their neighbours; merge_coincident and mass-cog fixes; licence-safe doc builds (#450) ([`0d7484b`](https://github.com/Krande/adapy/commit/0d7484b7441c75e98530efbdd46c040b36aafe70))
+
+
 ## v0.114.0 (2026-10-09)
 
 ### Feature

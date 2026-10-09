@@ -5,14 +5,14 @@
     "metadata": {
         "elo": 1
     },
-    "mid_span_u3": 0.0007389637175947428,
+    "mid_span_u3": 0.0007209758041426539,
     "mesh_size": 0.0625,
     "stiffened": true,
     "n_shells": 512,
     "fea_bundle": {
         "dir": "plate_static_ses_shell_o1_stTrue_h0p0625",
-        "manifest_sha256": "2fd75e60495983a86c35a7100a1a6241a7e84d453ebecaef3a2d7e7c7f3cf173",
+        "manifest_sha256": "b9fa6a16ba12128c37da045c9721afe395fa4a934636ee5ca8bfa199f84ccaf5",
         "n_steps": 1
     },
-    "last_modified": 1790877438.00135
+    "last_modified": 1791549185.630786
 }

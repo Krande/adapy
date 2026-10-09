@@ -5,9 +5,9 @@
     "metadata": {
         "elo": 1
     },
-    "mid_span_u3": 0.0007369988015852869,
+    "mid_span_u3": 0.0007207945454865694,
     "mesh_size": 0.03125,
     "stiffened": true,
     "n_shells": 2048,
-    "last_modified": 1790759738.056859
+    "last_modified": 1791549185.660297
 }

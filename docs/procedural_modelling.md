@@ -28,5 +28,5 @@ click an object to inspect it. The roof deck is left out so it doesn't hide the 
   `ada.topo_model.standard_design_rules()`, which also handles cable trays and ducts.
 
 Run it with `python examples/penetration_detail.py`, which opens the model in the viewer.
-[Topology engine](topology_engine.md) covers blueprints, routing rules, equipment and whole
+[Topology engine](architecture/topology_engine.md) covers blueprints, routing rules, equipment and whole
 models built from a document.

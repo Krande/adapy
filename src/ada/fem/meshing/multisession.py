@@ -16,6 +16,7 @@ def multisession_gmsh_tasker(fem: FEM, gmsh_tasks: List[GmshTask]):
             gs.options = gtask.options
             for obj in gtask.ada_obj:
                 gs.add_obj(obj, gtask.geom_repr)
+            gs.apply_mesh_overrides(gtask.mesh_size)
             gs.mesh(gtask.mesh_size)
 
             # TODO: Add operand type += for FEM

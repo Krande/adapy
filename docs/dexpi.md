@@ -1,4 +1,4 @@
-# DEXPI: P&ID in, routed 3D model out
+# From P&ID to 3D model
 
 [DEXPI](https://dexpi.org/) (Data Exchange in the Process Industry) is the vendor-neutral
 exchange specification for a P&ID: which equipment exists, which nozzles it has, and which piping,

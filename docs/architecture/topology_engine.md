@@ -1,4 +1,4 @@
-# Topology-based procedural modelling
+# Topology engine
 
 `ada.topology` is a domain-generic procedural engine: you describe a model as
 a set of *spaces* (boxes), the engine partitions them into a cell graph with

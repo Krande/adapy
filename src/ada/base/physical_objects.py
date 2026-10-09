@@ -21,12 +21,19 @@ if TYPE_CHECKING:
     from ada.cad import ShapeHandle
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
-    from ada.fem.meshing import GmshOptions
+    from ada.fem.meshing import GmshOptions, GmshSession
     from ada.visit.render_params import RenderParams
 
 
 class BackendGeom(Root):
     """The backend of all physical components (Beam, Plate, etc.) or aggregate of components (Part, Assembly)"""
+
+    #: Meshing rules for this one object: ``mesh_override(gs, obj, geom_repr) -> None``. Whichever session meshes the
+    #: object (``to_fem_obj``, ``Part.to_fem_obj``) calls it after partitioning and before meshing, with the object's
+    #: entities in ``gs.model_map[obj].entities``; it sets sizes, transfinite/recombine or element options on them and
+    #: the session then meshes everything at once, so the object conforms to its neighbours. See
+    #: ``ada.fem.meshing.overrides``. ``None`` (the default) keeps the default meshing.
+    mesh_override: Callable[[GmshSession, BackendGeom, GeomRepr], None] | None = None
 
     def __init__(
         self,
@@ -102,7 +109,10 @@ class BackendGeom(Root):
         name="AdaFEM",
         interactive=False,
         perform_quality_check=False,
+        use_mesh_override=True,
     ) -> FEM:
+        """Mesh this object. Its ``mesh_override``, if set, adds its rules before meshing;
+        ``use_mesh_override=False`` meshes without them."""
         from ada.fem.meshing import GmshOptions, GmshSession
 
         if isinstance(geom_repr, str):
@@ -111,6 +121,8 @@ class BackendGeom(Root):
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         with GmshSession(silent=silent, options=options) as gs:
             gs.add_obj(self, geom_repr=geom_repr)
+            if use_mesh_override:
+                gs.apply_mesh_overrides(mesh_size)
             gs.mesh(mesh_size, use_quads=use_quads, use_hex=use_hex, perform_quality_check=perform_quality_check)
             if interactive:
                 gs.open_gui()
