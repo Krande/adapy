@@ -2,6 +2,13 @@
 
 
 
+## v0.114.0 (2026-10-09)
+
+### Feature
+
+* feat: per-token CLI revocation, provider schedules and change checks, External Models retired, no npm workspaces (#447) ([`13b01e5`](https://github.com/Krande/adapy/commit/13b01e513f8396415d54e4be448b819981b7e099))
+
+
 ## v0.113.1 (2026-10-09)
 
 ### Fix
