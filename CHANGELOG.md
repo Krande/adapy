@@ -2,6 +2,16 @@
 
 
 
+## v0.111.0 (2026-10-09)
+
+### Feature
+
+* feat(gxml): GeniE supports, concept loads to FE, binary ACIS workspaces, and plates that round-trip (#435)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`ba3b4bc`](https://github.com/Krande/adapy/commit/ba3b4bcfd5b15231a4b093fd7f4f23fa24bcad8b))
+
+
 ## v0.110.0 (2026-10-08)
 
 ### Feature
