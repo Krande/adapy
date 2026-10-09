@@ -1584,7 +1584,9 @@ class Part(BackendGeom):
             fem = gs.get_fem(name=name if name is not None else f"{self.name}-FEM")
 
         for mass_shape in masses:
-            cog_absolute = to_global_points(mass_shape, mass_shape.cog)
+            # A shape given a mass but no cog carries it at its geometric centre (local, like `cog`).
+            cog = mass_shape.cog if mass_shape.cog is not None else mass_shape.bbox().volume_cog
+            cog_absolute = to_global_points(mass_shape, cog)
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 
