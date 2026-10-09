@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class StatNonLin:
     name: str
     part: Part
-    load: Load
+    loads: list[Load]
 
     @property
     def sec_str(self):
@@ -39,13 +39,18 @@ class StatNonLin:
 
         return "".join(f"_F(CHARGE={name})," for name in charges)
 
+    def get_load_str(self):
+        # Every load of the step, each on the step's ramp: with the first alone the others were defined in the
+        # deck and never applied.
+        return ",".join(f"_F(CHARGE={concept_name(load, 'load')}, FONC_MULT=bc_step)" for load in self.loads)
+
     def write(self):
         return f"""{self.name} = STAT_NON_LINE(
     MODELE=model,
     CHAM_MATER=material,{self.sec_str}
     COMPORTEMENT=(_F(DEFORMATION="PETIT", TOUT="OUI")),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
-    EXCIT=({self.get_bc_str()}_F(CHARGE={concept_name(self.load, "load")}, FONC_MULT=bc_step)),
+    EXCIT=({self.get_bc_str()}{self.get_load_str()}),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )"""
@@ -170,9 +175,7 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part) -> str:
     if len(step.loads) == 0:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
-    load = step.loads[0]
-
-    stat_non_line = StatNonLin("result", part, load)
+    stat_non_line = StatNonLin("result", part, step.loads)
     stat_non_line_str = stat_non_line.write()
     post_calc = PostCalc(stat_non_line, part)
     post_calc_str = post_calc.write()
