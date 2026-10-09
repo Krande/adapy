@@ -154,6 +154,7 @@ COPY zensical.toml ./
 COPY scripts/docs/docs_notebooks.py ./scripts/docs/
 # Included into the procedural-modelling page and rendered as its 3D figure.
 COPY examples/penetration_detail.py ./examples/
+COPY examples/mesh_overrides.py ./examples/
 
 # Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/),
 # the notebooks and then zensical into site/, via the `depends-on` chain in

@@ -2,6 +2,15 @@
 
 
 
+## v0.115.1 (2026-10-09)
+
+### Fix
+
+* fix: the docs image copies the meshing figures&#39; script; PRs build the docs image (#451)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`476c996`](https://github.com/Krande/adapy/commit/476c996189fbdc1f5ddf35e5f77ea322ca1847f6))
+
+
 ## v0.115.0 (2026-10-09)
 
 ### Feature
