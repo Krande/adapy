@@ -56,6 +56,7 @@ docs-notebooks = { cmd = "python scripts/docs/docs_notebooks.py --execute", env 
     "docs/notebooks/**/*.ipynb",
     "scripts/docs/docs_notebooks.py",
     "examples/penetration_detail.py",
+    "examples/mesh_overrides.py",
     "src/ada/**/*.py",
     "src/ada/visit/rendering/resources/index.zip",
 ], outputs = [
