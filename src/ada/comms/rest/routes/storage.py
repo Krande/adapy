@@ -45,6 +45,12 @@ from .deps import (
 
 router = APIRouter()
 
+# Storing bytes is not gated on file type: PUT blobs, upload-url and upload-complete take any
+# key outside _derived/ (raw solver output without an extension, logs, archives, ...). A file
+# no converter understands is listed with no available targets and is only downloadable.
+# The accepted-source whitelist (is_accepted_source) still guards every endpoint that
+# converts or bakes a source, e.g. PUT /derived here and the job / FEA routes.
+
 
 @router.get("/scopes/{scope}/files")
 async def api_scope_files(
@@ -245,6 +251,7 @@ async def _serve_blob_range(
         headers={
             "Accept-Ranges": "bytes",
             "Content-Range": f"bytes {start}-{end}/{size}",
+            "X-Content-Type-Options": "nosniff",
         },
     )
 
@@ -311,6 +318,9 @@ async def api_scope_blob_get(
         headers["Accept-Ranges"] = "none"
     else:
         headers["Accept-Ranges"] = "bytes"
+    # Any file type can be stored, so never let a browser sniff a blob into
+    # something it renders (an uploaded .html/.svg must stay a download).
+    headers["X-Content-Type-Options"] = "nosniff"
     return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
 
@@ -322,12 +332,7 @@ async def api_scope_blob_put(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    from ..converter import (
-        is_derived_key,
-        is_published_asset_key,
-        is_scope_state_key,
-        is_versions_artefact_key,
-    )
+    from ..converter import is_derived_key
 
     storage = ctx.storage
 
@@ -336,18 +341,7 @@ async def api_scope_blob_put(
         raise HTTPException(status_code=400, detail="empty key")
     if is_derived_key(clean):
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
-    # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
-    # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
-    # to them. Two predicates rather than one because they part company on deletability — see
-    # is_published_asset_key. The is_derived_key guard above applies to both. Viewer-written
-    # scope state (``_groups/``) is exempt for the same reason: it is never converted.
-    if (
-        not is_versions_artefact_key(clean)
-        and not is_published_asset_key(clean)
-        and not is_scope_state_key(clean)
-        and not await is_accepted_source(ctx.queue, ctx.worker_registry, clean)
-    ):
-        raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
+    # Any file type may be stored: see the note under ``router``.
 
     # Reject before reading the body so a multi-GB upload doesn't
     # buffer through Python first. Browsers always send
@@ -662,11 +656,7 @@ async def api_scope_upload_url(
     Returns 503 on local-backed deployments — operator must provide
     an S3-compatible backend with CORS configured for browser PUTs.
     """
-    from ..converter import (
-        is_derived_key,
-        is_published_asset_key,
-        is_versions_artefact_key,
-    )
+    from ..converter import is_derived_key
 
     storage = ctx.storage
 
@@ -681,16 +671,7 @@ async def api_scope_upload_url(
         raise HTTPException(status_code=400, detail="key required")
     if is_derived_key(key):
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
-    # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
-    # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
-    # to them. Two predicates rather than one because they part company on deletability — see
-    # is_published_asset_key. The is_derived_key guard above applies to both.
-    if (
-        not is_versions_artefact_key(key)
-        and not is_published_asset_key(key)
-        and not await is_accepted_source(ctx.queue, ctx.worker_registry, key)
-    ):
-        raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
+    # Any file type may be stored: see the note under ``router``.
     try:
         url = await storage.presigned_put_url(scope_obj, key, expires_in_seconds=UPLOAD_URL_TTL_SECONDS)
     except Exception as exc:
@@ -740,11 +721,7 @@ async def api_scope_upload_complete(
     succeeds; if it doesn't, the file lands but no audit / convert
     happens (storage list still surfaces it).
     """
-    from ..converter import (
-        is_derived_key,
-        is_published_asset_key,
-        is_versions_artefact_key,
-    )
+    from ..converter import is_derived_key
 
     body = await request.json()
     key = (body.get("key") or "").strip().lstrip("/")
@@ -752,16 +729,7 @@ async def api_scope_upload_complete(
         raise HTTPException(status_code=400, detail="key required")
     if is_derived_key(key):
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
-    # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
-    # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
-    # to them. Two predicates rather than one because they part company on deletability — see
-    # is_published_asset_key. The is_derived_key guard above applies to both.
-    if (
-        not is_versions_artefact_key(key)
-        and not is_published_asset_key(key)
-        and not await is_accepted_source(ctx.queue, ctx.worker_registry, key)
-    ):
-        raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
+    # Any file type may be stored: see the note under ``router``.
     meta = await ctx.storage.head(scope_obj, key)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"object not found at {key}; was the PUT successful?")

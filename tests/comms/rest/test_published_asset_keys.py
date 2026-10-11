@@ -4,13 +4,14 @@ Two coupled behaviours are pinned here, and the coupling is the point:
 
 * the three write gates (direct PUT, presign, upload-complete) accept an
   ``assets/<collection>/<subject>/<revision>/<file>`` key whatever its
-  extension, exactly as they already accept ``versions/``; and
+  extension (as they now accept any key outside ``_derived/``, see
+  test_store_any_file_type.py); and
 * unlike ``versions/``, such a key stays *deletable* — by its publisher in
   a personal scope, and by a project member in a project scope.
 
-If the write exemption were ever folded into ``is_versions_artefact_key``
+If ``is_published_asset_key`` were ever folded into ``is_versions_artefact_key``
 the first half of that would still pass and the second half would not,
-which is why the exemption is its own predicate.
+which is why it is its own predicate.
 
 Same env shim + LocalStore staging as test_user_storage_ops.py, and the
 same non-admin principal via the User.local_dev monkeypatch.
@@ -203,17 +204,19 @@ def test_put_accepts_published_asset_extensions(app_client: TestClient):
     assert {ASSET_JSON, ASSET_DB} <= _keys(app_client)
 
 
-def test_put_exemption_is_prefix_scoped_not_a_blanket_lift(app_client: TestClient):
-    """The same extensions outside assets/ (and outside versions/) still 415."""
-    for key in (
+def test_put_outside_assets_is_stored_too(app_client: TestClient):
+    """The same extensions outside assets/ are stored as well: storing is not
+    gated on file type any more (test_store_any_file_type.py)."""
+    keys = (
         "notes/assets.json",
         "data/store.db",
         "assetsx/collection/subject/rev/assets.json",  # near-miss prefix
         "nested/assets/collection/subject/rev/assets.json",  # not at the root
-    ):
+    )
+    for key in keys:
         r = app_client.put(f"/api/scopes/user:me/blobs/{key}", content=b"payload")
-        assert r.status_code == 415, f"{key}: {r.status_code} {r.text}"
-    assert not _keys(app_client)
+        assert r.status_code == 201, f"{key}: {r.status_code} {r.text}"
+    assert set(keys) <= _keys(app_client)
 
 
 def test_derived_still_refused_on_direct_put(app_client: TestClient):
@@ -227,7 +230,7 @@ def test_presign_accepts_assets_and_still_refuses_derived(presigning_client: Tes
     assert r.json()["key"] == ASSET_DB
 
     r = presigning_client.post("/api/scopes/user:me/upload-url", json={"key": "notes/assets.json"})
-    assert r.status_code == 415, r.text
+    assert r.status_code == 200, r.text
 
     r = presigning_client.post("/api/scopes/user:me/upload-url", json={"key": "_derived/x.ifc.glb"})
     assert r.status_code == 403, r.text
@@ -240,8 +243,9 @@ def test_upload_complete_accepts_assets_and_still_refuses_derived(app_client: Te
     assert r.status_code == 201, r.text
     assert r.json()["size"] == len(b"published")
 
+    _put(app_client, "notes/assets.json", b"notes")
     r = app_client.post("/api/scopes/user:me/upload-complete", json={"key": "notes/assets.json"})
-    assert r.status_code == 415, r.text
+    assert r.status_code == 201, r.text
 
     r = app_client.post("/api/scopes/user:me/upload-complete", json={"key": "_derived/x.ifc.glb"})
     assert r.status_code == 403, r.text
