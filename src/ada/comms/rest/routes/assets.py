@@ -1136,11 +1136,19 @@ async def _publish_sources(ctx: RestContext, scope_obj: Scope) -> tuple[dict, li
         if kind and kind["area"] == "published":
             by_revision.setdefault((kind["collection"], kind["subject"], kind["revision"]), []).append(entry)
 
+    # BOUNDED, like every other manifest fold in this module. Unbounded, this was one concurrent GET
+    # per published (collection, subject, revision) -- ~6,900 in a scope a few tree sweeps had filled
+    # -- and the storage client opens a NEW connection for every request it cannot serve from an idle
+    # one, so a single "Sources" load opened thousands of sockets at once. The object store ran out of
+    # file descriptors and stopped serving everyone; the survivors sat idle in the client's pool until
+    # its idle timeout closed them, a thousand TIME_WAITs a minute on the API side.
+    gate = asyncio.Semaphore(_MANIFEST_READ_CONCURRENCY)
+
     async def _manifest(coll: str, subject: str, rev: str):
         try:
-            return parse_manifest(
-                await ctx.storage.get_bytes(scope_obj, asset_key(coll, subject, rev, MANIFEST_FILENAME))
-            )
+            async with gate:
+                raw = await ctx.storage.get_bytes(scope_obj, asset_key(coll, subject, rev, MANIFEST_FILENAME))
+            return parse_manifest(raw)
         except Exception:  # noqa: BLE001 - absent or unreadable: grouped as unknown, not dropped
             return None
 
@@ -1176,7 +1184,9 @@ async def _publish_sources(ctx: RestContext, scope_obj: Scope) -> tuple[dict, li
     # A publish job's summary says which collection and revision it wrote; read it to link it.
     async def _summary(entry):
         try:
-            raw = await ctx.storage.get_bytes(scope_obj, entry.key)
+            # Same gate: one summary per publish job ever run, so this grows with every sweep.
+            async with gate:
+                raw = await ctx.storage.get_bytes(scope_obj, entry.key)
             # Derived JSON is gzip-at-rest.
             doc = json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
             return doc if isinstance(doc, dict) else None
@@ -1502,7 +1512,7 @@ async def _manifest_for_node(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"subject {node!r} at {revision} was produced by provider {manifest.provider!r}, " f"not {wanted!r}"
+                    f"subject {node!r} at {revision} was produced by provider {manifest.provider!r}, not {wanted!r}"
                 ),
             )
         return manifest, revision
