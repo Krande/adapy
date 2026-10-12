@@ -146,6 +146,41 @@ test("a subject published against the CURRENT collection tree is not in `drift`"
   assert.equal(view.drift.has("member-4"), false);
 });
 
+test("another provider's newer tree does not make a subject drift (mixed collection)", () => {
+  // Provider `alpha` published the collection tree at R1 and member-3 against it; provider
+  // `beta` then published ITS tree at R2. The index is a union, so alpha's R1 is still current
+  // for alpha's subjects; only a newer alpha index would make member-3 older.
+  const { forest } = driftFixture();
+  const summary = (provider: string, node: string, rev: string, against: string | null): ManifestSummary => ({
+    provider,
+    node,
+    delivery: "mesh",
+    producedAt: rev,
+    hierarchyRevision: against,
+    change: null,
+  });
+  const index = foldListing(
+    [
+      K(COLL, R1, MANIFEST_FILENAME),
+      K(COLL, R1, HIERARCHY_FILENAME),
+      K(COLL, R2, MANIFEST_FILENAME),
+      K(COLL, R2, HIERARCHY_FILENAME),
+      K("member-3", R1, MANIFEST_FILENAME),
+      K("member-4", R1, MANIFEST_FILENAME),
+    ],
+    new Map<string, ManifestSummary>([
+      [`${COLL}/${COLL}/${R1}`, summary("alpha", COLL, R1, null)],
+      [`${COLL}/${COLL}/${R2}`, summary("beta", COLL, R2, null)],
+      [`${COLL}/member-3/${R1}`, summary("alpha", "member-3", R1, R1)],
+      // A beta subject published against an older beta tree than beta's newest still drifts.
+      [`${COLL}/member-4/${R1}`, summary("beta", "member-4", R1, R1)],
+    ]),
+  );
+  const view = buildAssetView({ forest, index, collection: COLL, mode: { kind: "latest" }, indexRevisions: [R1, R2] });
+  assert.equal(view.drift.has("member-3"), false);
+  assert.deepEqual(view.drift.get("member-4"), { publishedAgainst: R1, shownFrom: R2 });
+});
+
 // ---------------------------------------------------------------------------
 // (c) summary.mixed — two non-collection subjects vs. a collection-only gap
 // ---------------------------------------------------------------------------

@@ -202,11 +202,13 @@ export interface FlatRow {
  * whose spine has not been pulled).
  *
  * `include` restricts the output to a subset — the tab's "assets only"
- * filter. IT MUST BE ANCESTOR-CLOSED: `depth` is the node's depth in the WHOLE
- * forest, not in the filtered one, so a kept node whose parent was dropped
- * would render indented under a row that is not there. Building the set with
+ * filter. IT MUST BE ANCESTOR-CLOSED: a kept node whose parent was dropped is
+ * never reached from a root, so it would silently vanish. Building the set with
  * `foldSubtrees` gives that closure by construction, which is why there is no
  * closure step here — a filter that needs one has computed the wrong set.
+ *
+ * `depth` is the depth the row is DRAWN at (roots of `h` are 0), not the node's
+ * depth in the forest it came from.
  *
  * `rank` reorders siblings, lowest first, source order among equals -- a search
  * puts the branches holding its shallowest hits on top. Absent, source order. */
@@ -226,10 +228,17 @@ export function flattenVisible<T>(
   const visible = (id: string) => include === undefined || include.has(id);
   const ordered = (ids: readonly string[]): readonly string[] =>
     rank ? ids.map((id, i) => ({ id, i, r: rank(id) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.id) : ids;
-  // Reversed so the stack pops in display order.
-  const stack: string[] = [...ordered([...h.roots].filter(visible))].reverse();
+  // Reversed so the stack pops in display order. Each entry carries the depth it
+  // is DRAWN at -- its distance from the row it is listed under -- not the node's
+  // depth in the forest. They differ for a hierarchy whose roots are not the
+  // forest's roots: `treeView.displayHierarchy` lifts a flattened world row's
+  // children to the top, and with forest depths those rows drew one level in
+  // from a provider's real roots beside them (a mixed collection's SITEs).
+  const stack: Array<[string, number]> = ordered([...h.roots].filter(visible))
+    .map((id): [string, number] => [id, 0])
+    .reverse();
   while (stack.length) {
-    const id = stack.pop() as string;
+    const [id, depth] = stack.pop() as [string, number];
     const node = h.byId.get(id);
     if (!node) continue;
     // Filtered before `hasChildren` is decided, so a row whose every child was
@@ -238,9 +247,9 @@ export function flattenVisible<T>(
     const kids = ordered(include === undefined ? h.childrenOf(id) : h.childrenOf(id).filter(visible));
     const hasChildren = kids.length > 0 || (expandable ? expandable(id) : false);
     const isExpanded = expanded.has(id);
-    out.push({ id, depth: node.depth, hasChildren, expanded: isExpanded && hasChildren });
+    out.push({ id, depth, hasChildren, expanded: isExpanded && hasChildren });
     if (isExpanded && kids.length) {
-      for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+      for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], depth + 1]);
     }
   }
   return out;
