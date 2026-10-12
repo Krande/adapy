@@ -577,6 +577,31 @@ def test_hits_are_batched_per_provider_collection_with_unique_file_keys():
     assert len(files) == len(set(files)) and "out/alpha/A-1__fn-1.ifc" in files
 
 
+def test_every_hit_query_keeps_negative_filters_and_exclusions(monkeypatch):
+    """The export pages through the search with the dialog's query as is: exclusions and the
+    negative operators reach it, the page size and cursor are the export's own."""
+    seen = []
+
+    async def fake_search(pool, *, scope, query):
+        seen.append(query)
+        return {"rows": [], "next_cursor": None, "counts": {}}
+
+    monkeypatch.setattr(ex.db_module, "search_attributes", fake_search)
+    query = {
+        **QUERY,
+        "where": [*QUERY["where"], {"key": "PURP", "ne": "X"}, {"key": "OWNER", "missing": True}],
+        "exclude_collections": ["BETA"],
+        "exclude_providers": ["external-csg"],
+        "limit": 5,
+        "cursor": "stale",
+    }
+    asyncio.run(ex.all_hits(None, scope="projects/p", query_body=query))
+    (q,) = seen
+    assert q.exclude_collections == ["beta"] and q.exclude_providers == ["external-csg"]
+    assert [w["op"] for w in q.where] == ["in", "in", "not_in", "missing"]
+    assert q.limit == 1000 and q.cursor is None
+
+
 RUN = {"id": "run-1", "query": QUERY, "created_at": "2026-01-01T00:00:00+00:00"}
 JOB_OPTS = {"run_id": "run-1", "target_folder": "out", "target_scope": {"kind": "shared", "id": None}}
 
