@@ -259,6 +259,11 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
         await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
         return {"skipped": reason}
 
+    if schedule_row.get("schedule_kind") == "sweep":
+        # A provider sweep is not one job but one per collection, driven by the API; it has its
+        # own guard (one running sweep per provider) and its own record. routes/asset_sweeps.py.
+        return await _fire_sweep(ctx, pool, schedule_row, scope_obj=scope_obj)
+
     # Concurrent-fire guard. A plugin job can hold a single licensed
     # workstation for minutes, so an overlapping firing does not just double
     # the load -- the two contend for one resource and the loser fails in a
@@ -393,3 +398,38 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
         job_id,
     )
     return {"job_id": job_id, "schedule": schedule_row["name"], "plugin_id": plugin_id}
+
+
+async def _fire_sweep(ctx: RestContext, pool, schedule_row: dict, *, scope_obj) -> dict:
+    """Start a provider sweep from its schedule. A sweep's "job" is the sweep run: its id goes in
+    ``last_job_id``, so the Providers tab can link the row to the run it started."""
+    from .asset_schedules import find_entry, provider_specs, settings_of
+    from .asset_sweeps import SweepRefused, start_sweep
+
+    sched_id = schedule_row["id"]
+    provider = schedule_row["asset_provider"]
+    found = find_entry((await provider_specs(ctx)).get(provider) or [], schedule_row["schedule_job"])
+    try:
+        if found is None:
+            raise SweepRefused(
+                f"provider {provider!r} is offline or no longer declares {schedule_row['schedule_job']!r}"
+            )
+        run = await start_sweep(
+            ctx,
+            pool,
+            scope=schedule_row["scope"],
+            scope_obj=scope_obj,
+            provider=provider,
+            job=schedule_row["schedule_job"],
+            settings=settings_of(found[1], schedule_row["options"] or {}),
+            user=SystemUser(),
+            via="schedule",
+            schedule_id=str(sched_id),
+        )
+    except SweepRefused as exc:
+        reason = f"{exc}; slot skipped"
+        await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+        return {"skipped": reason}
+    await db_module.update_plugin_job_schedule(pool, sched_id, last_job_id=run["id"], last_skipped_reason=None)
+    logger.info("plugin-job scheduler: fired sweep %s -> run %s", schedule_row["name"], run["id"])
+    return {"sweep_id": run["id"], "schedule": schedule_row["name"], "plugin_id": schedule_row["plugin_id"]}

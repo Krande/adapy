@@ -55,6 +55,7 @@ from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.asset_schedules import admin_router as admin_asset_schedules_router
 from .routes.asset_schedules import router as asset_schedules_router
+from .routes.asset_sweeps import admin_router as admin_asset_sweeps_router
 from .routes.assets import router as assets_router
 from .routes.clash_check import router as clash_check_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
@@ -2340,6 +2341,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     admin.include_router(admin_plugin_jobs_router)
     admin.include_router(admin_asset_schedules_router)
+    admin.include_router(admin_asset_sweeps_router)
 
     async def _plugin_schedule_loop(pool) -> None:
         """Tick every 30 s, claim due schedules, enqueue them as plugin jobs.

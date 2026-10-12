@@ -140,6 +140,61 @@ async def test_build_options_validates_collection_and_choices(monkeypatch):
         assert exc.value.status_code == 400
 
 
+BOOL_SPEC = {
+    "slug": "vendor-plugin",
+    "asset_provider_id": "vendor",
+    "job_options": [
+        {
+            "name": "with_geometry",
+            "type": "bool",
+            "enum": [False, True],
+            "labels": {"False": "Index only", "True": "Index and geometry"},
+            "default": False,
+        }
+    ],
+    "asset_schedules": [{"id": "idx", "kind": "job", "options": {"action": "index"}, "settings": ["with_geometry"]}],
+}
+
+
+def test_a_bool_setting_offers_its_labels_with_typed_values():
+    _, entry = sched.find_entry([BOOL_SPEC], "idx")
+    [setting] = sched.entry_settings(BOOL_SPEC, entry)
+    assert setting["type"] == "bool" and setting["source"] == "enum" and setting["default"] is False
+    assert setting["choices"] == [
+        {"value": False, "label": "Index only"},
+        {"value": True, "label": "Index and geometry"},
+    ]
+    # JSON-spelled keys are read too, and a bool with no label at all still reads as a word.
+    assert sched._choice_label({"false": "Off"}, False) == "Off"
+    assert sched._choice_label({}, True) == "Yes"
+
+
+@pytest.mark.asyncio
+async def test_a_bool_setting_is_validated_by_value_and_stored_typed():
+    _, entry = sched.find_entry([BOOL_SPEC], "idx")
+    kw = dict(scope="shared", provider="vendor", collection=None)
+    for sent, expected in ((False, False), ("false", False), ("False", False), (True, True), ("TRUE", True)):
+        options = await sched.build_options(None, BOOL_SPEC, entry, settings={"with_geometry": sent}, **kw)
+        assert options["with_geometry"] is expected, sent
+    for bad in ("maybe", 0, 1, "0"):
+        with pytest.raises(HTTPException) as exc:
+            await sched.build_options(None, BOOL_SPEC, entry, settings={"with_geometry": bad}, **kw)
+        assert exc.value.status_code == 400
+    # The firing path (no validation) still types what an older schedule stored as text.
+    fired = await sched.build_options(None, BOOL_SPEC, entry, settings={"with_geometry": "False"}, validate=False, **kw)
+    assert fired["with_geometry"] is False
+    # Unset is skipped; False is not unset.
+    assert "with_geometry" not in await sched.build_options(
+        None, BOOL_SPEC, entry, settings={"with_geometry": None}, **kw
+    )
+
+
+def test_same_choice_is_tolerant_only_for_bools():
+    assert sched.same_choice("false", False) and sched.same_choice(" True ", True)
+    assert not sched.same_choice(0, False) and not sched.same_choice("no", False)
+    assert sched.same_choice("3", 3) and not sched.same_choice("STRU", "PIPE")
+
+
 def test_settings_round_trip_out_of_stored_options():
     _, entry = sched.find_entry([SPEC], "changes")
     stored = {"action": "check-changes", "project": "ALPHA", "exclude_users": ["batch"], "scheduled_at": "x"}

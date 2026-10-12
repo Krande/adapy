@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import traceback as tb_module
 
 import asyncpg
@@ -93,6 +94,10 @@ async def _run_asset_publish(
     )
     published_via = str(opts.get("published_via") or "user")
 
+    # What each phase took, in the summary beside the outcome: a provider sweep records it per
+    # collection (routes/asset_sweeps.py), and "the publish was slow" is otherwise unanswerable.
+    timings: dict[str, int] = {}
+
     loop = asyncio.get_running_loop()
     sync_storage = _SyncStorageFacade(storage, scope, loop)
 
@@ -106,9 +111,11 @@ async def _run_asset_publish(
             dry_run=dry_run,
         )
 
+    t0 = time.perf_counter()
     try:
         await queue.update(job_id, stage="derive", progress=0.10)
         plan = await loop.run_in_executor(None, _derive)
+        timings["derive_ms"] = round((time.perf_counter() - t0) * 1000)
     except Exception as exc:
         logger.exception("worker: asset_publish derive failed for job %s", job_id)
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="derive", error=str(exc))
@@ -118,6 +125,7 @@ async def _run_asset_publish(
     # Occupancy is read HERE, not inside the provider: "is this revision already published" is a
     # question about the store, which core owns, and answering it per provider would give as many
     # answers as there are providers.
+    t0 = time.perf_counter()
     try:
         touched = {k.rsplit("/", 1)[0] for k in (w.key for w in plan.writes)}
         occupied: set[str] = set()
@@ -138,6 +146,8 @@ async def _run_asset_publish(
         encoding = stored_encoding(data)
         sync_storage.put_bytes(key, data, content_encoding=encoding, pre_compressed=encoding is not None)
 
+    timings["occupancy_ms"] = round((time.perf_counter() - t0) * 1000)
+    t0 = time.perf_counter()
     try:
         await queue.update(job_id, stage="publish", progress=0.60)
         outcome = await loop.run_in_executor(
@@ -166,11 +176,13 @@ async def _run_asset_publish(
         await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
         return
 
+    timings["write_ms"] = round((time.perf_counter() - t0) * 1000)
+    timings["writes"] = len(plan.writes)
+
     try:
         await queue.update(job_id, stage="upload", progress=0.95)
-        await storage.put_bytes(
-            scope, job.derived_key, json.dumps(outcome.to_dict()).encode("utf-8"), content_encoding="gzip"
-        )
+        summary = {**outcome.to_dict(), "timings": timings}
+        await storage.put_bytes(scope, job.derived_key, json.dumps(summary).encode("utf-8"), content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: asset_publish summary upload failed for job %s", job_id)
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
