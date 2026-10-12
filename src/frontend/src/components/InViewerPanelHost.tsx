@@ -2,7 +2,7 @@ import React, {Suspense, lazy, useEffect, useState} from "react";
 import {Rnd} from "react-rnd";
 import {useViewerPanelStore, ViewerPanel} from "@/state/viewerPanelStore";
 
-// In-viewer modal host for the Admin and Convert panels. Mounting
+// In-viewer modal host for the Admin, Convert and Attribute search panels. Mounting
 // them as a draggable Rnd window keeps the 3D model on-screen while
 // the operator pokes at admin tabs or kicks off a conversion — no
 // context switch, no losing the camera state.
@@ -22,13 +22,17 @@ import {useViewerPanelStore, ViewerPanel} from "@/state/viewerPanelStore";
 
 const AdminPanel = lazy(() => import("@/components/admin/AdminPanel"));
 const ConvertPage = lazy(() => import("@/components/convert/ConvertPage"));
+const AttributeSearchPanel = lazy(() => import("@/components/asset_browser/AttributeSearchPanel"));
 
 const PANEL_TITLE: Record<ViewerPanel, string> = {
     admin: "Admin panel",
     convert: "Convert files",
+    search: "Attribute search",
 };
 
-const PANEL_PATH: Record<ViewerPanel, string> = {
+// A panel with no dedicated route has no "open in new tab": the attribute search acts on the
+// viewer's own Sources tree, which a separate tab would not have.
+const PANEL_PATH: Partial<Record<ViewerPanel, string>> = {
     admin: "/admin",
     convert: "/convert",
 };
@@ -50,7 +54,7 @@ function useIsMobile(): boolean {
 
 const HeaderBar: React.FC<{
     title: string;
-    onExternal: () => void;
+    onExternal: (() => void) | null;
     onClose: () => void;
     draggable: boolean;
 }> = ({title, onExternal, onClose, draggable}) => (
@@ -63,7 +67,7 @@ const HeaderBar: React.FC<{
     >
         <span className="font-medium text-sm truncate">{title}</span>
         <div className="ml-auto flex items-center gap-1">
-            <button
+            {onExternal && <button
                 type="button"
                 onClick={onExternal}
                 title="Open in dedicated tab"
@@ -87,7 +91,7 @@ const HeaderBar: React.FC<{
                         fill="none"
                     />
                 </svg>
-            </button>
+            </button>}
             <button
                 type="button"
                 onClick={onClose}
@@ -124,13 +128,16 @@ const InViewerPanelHost: React.FC = () => {
 
     if (open === null) return null;
 
-    const openInNewTab = () => {
-        // Carry the embedded tab into the dedicated route so "open in new tab" lands on the
-        // same tab the floating panel was showing (the full-page admin reads it from the hash).
-        const hash = open === "admin" && adminTab ? `#${adminTab}` : "";
-        window.open(PANEL_PATH[open] + hash, "_blank", "noopener");
-        closePanel();
-    };
+    const path = PANEL_PATH[open];
+    const openInNewTab = path
+        ? () => {
+              // Carry the embedded tab into the dedicated route so "open in new tab" lands on the
+              // same tab the floating panel was showing (the full-page admin reads it from the hash).
+              const hash = open === "admin" && adminTab ? `#${adminTab}` : "";
+              window.open(path + hash, "_blank", "noopener");
+              closePanel();
+          }
+        : null;
 
     const body = (
         <div className="h-full w-full flex flex-col bg-gray-900 border border-gray-700 sm:rounded-sm shadow-2xl overflow-hidden">
@@ -146,6 +153,7 @@ const InViewerPanelHost: React.FC = () => {
                 }>
                     {open === "admin" && <AdminPanel embedded initialTab={adminTab ?? undefined}/>}
                     {open === "convert" && <ConvertPage/>}
+                    {open === "search" && <AttributeSearchPanel/>}
                 </Suspense>
             </div>
         </div>

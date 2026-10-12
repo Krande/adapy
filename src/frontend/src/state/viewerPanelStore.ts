@@ -8,7 +8,8 @@ import {create} from "zustand";
 
 import {AdminTabDeepLink} from "./adminPanelStore";
 
-export type ViewerPanel = "admin" | "convert";
+/** `search`: the attribute search over the scope's indexed collections, opened from the Sources tab. */
+export type ViewerPanel = "admin" | "convert" | "search";
 
 type ViewerPanelState = {
     open: ViewerPanel | null;

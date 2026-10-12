@@ -26,6 +26,7 @@ import { adminAuditApi } from "./api/adminAudit";
 import { adminCorpusApi } from "./api/adminCorpus";
 import { adminProjectsApi } from "./api/adminProjects";
 import { assetSchedulesApi } from "./api/assetSchedules";
+import { attributeSearchApi } from "./api/attributeSearch";
 import { adminStorageApi } from "./api/adminStorage";
 import { adminUsersApi } from "./api/adminUsers";
 import { workersApi } from "./api/workers";
@@ -48,6 +49,7 @@ export const viewerApi = {
   ...adminCorpusApi,
   ...adminProjectsApi,
   ...assetSchedulesApi,
+  ...attributeSearchApi,
   ...adminStorageApi,
   ...adminUsersApi,
   ...workersApi,
@@ -73,6 +75,17 @@ export type {
   SweepItemTimings,
   SweepRun,
 } from "./api/assetSchedules";
+export type {
+  SearchCollection,
+  SearchDepth,
+  SearchHit,
+  SearchPartitionFilter,
+  SearchPathEntry,
+  SearchQuery,
+  SearchResponse,
+  SearchValueCount,
+  SearchWhere,
+} from "./api/attributeSearch";
 export type {
   MovedKeyEntry,
   MoveKeysResult,

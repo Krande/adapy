@@ -1,0 +1,138 @@
+// Attribute search over the scope's attribute index -- the `ada.assets/attribute-index@1` rows a
+// provider stages beside (or instead of) its tree, ingested by core into one partition per
+// (provider, collection) of this scope (`ada/comms/rest/routes/assets.py`, `/assets/search*`).
+//
+//   search       POST  one page of matching nodes, every hit with its path root-first, and the
+//                      total per partition for the WHOLE query (not just the page)
+//   collections  GET   what has been ingested in this scope, one entry per (provider, collection)
+//   keys         GET   the attribute keys present, sorted -- what a filter row's key offers
+//   values       GET   a key's values with counts, optionally by prefix -- what a value offers
+//
+// Provider-neutral on purpose: keys, kinds and values are whatever the provider wrote, case kept.
+// Nothing here knows one provider's vocabulary from another's.
+
+import { runtime } from "@/runtime/config";
+
+import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
+
+/** One filter on an attribute. Exactly one of `eq` / `in` / `prefix`. */
+export type SearchWhere =
+  | { key: string; eq: string | number | boolean }
+  | { key: string; in: (string | number | boolean)[] }
+  | { key: string; prefix: string };
+
+export type SearchDepth = { eq: number } | { min?: number; max?: number };
+
+/** The search body (contract `POST /api/scopes/{scope}/assets/search`). `null` = no constraint;
+ *  `select: null` = every attribute of each hit. */
+export interface SearchQuery {
+  providers: string[] | null;
+  collections: string[] | null;
+  kind: string[] | null;
+  depth: SearchDepth | null;
+  where: SearchWhere[];
+  select: string[] | null;
+  limit: number;
+  cursor: string | null;
+}
+
+/** One ancestor on a hit's path, root first. */
+export interface SearchPathEntry {
+  node_id: string;
+  full_name: string;
+  kind: string | null;
+  depth: number | null;
+}
+
+/** One matching node. `node_id` is the id the provider's published tree uses for it, which is what
+ *  lets a hit be revealed in the Sources tree. */
+export interface SearchHit {
+  provider: string;
+  collection: string;
+  node_id: string;
+  parent_id: string | null;
+  full_name: string;
+  source_ref: string | null;
+  kind: string | null;
+  depth: number | null;
+  attrs: Record<string, string | number | boolean>;
+  path: SearchPathEntry[];
+}
+
+export interface SearchResponse {
+  rows: SearchHit[];
+  next_cursor: string | null;
+  /** `<provider>/<collection>` -> total matches in that partition for the whole query. */
+  counts: Record<string, number>;
+  took_ms: number;
+}
+
+export interface SearchCollection {
+  provider: string;
+  collection: string;
+  revision: string | null;
+  rows: number;
+  source_etag: string | null;
+  ingested_at: string | null;
+}
+
+export interface SearchValueCount {
+  value: string | number | boolean;
+  count: number;
+}
+
+/** Narrow a key/value lookup to one partition; both optional. */
+export interface SearchPartitionFilter {
+  provider?: string | null;
+  collection?: string | null;
+}
+
+function searchBase(scope: ScopeUrl): string {
+  return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/assets/search`;
+}
+
+function partitionParams(q: URLSearchParams, filter: SearchPartitionFilter): URLSearchParams {
+  if (filter.provider) q.set("provider", filter.provider);
+  if (filter.collection) q.set("collection", filter.collection);
+  return q;
+}
+
+export const attributeSearchApi = {
+  /** One page of hits. Pass the previous page's `next_cursor` (same query otherwise) for the next. */
+  async searchAssetAttributes(scope: ScopeUrl, query: SearchQuery, signal?: AbortSignal): Promise<SearchResponse> {
+    const r = await authedFetch(searchBase(scope), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(query),
+      signal,
+    });
+    return jsonOrThrow(r, "searchAssetAttributes");
+  },
+
+  /** Every ingested (provider, collection) in this scope. */
+  async searchCollections(scope: ScopeUrl): Promise<SearchCollection[]> {
+    const r = await authedFetch(`${searchBase(scope)}/collections`);
+    return (await jsonOrThrow<{ collections: SearchCollection[] }>(r, "searchCollections")).collections;
+  },
+
+  /** The attribute keys present (sorted), in the scope or one partition of it. */
+  async searchKeys(scope: ScopeUrl, filter: SearchPartitionFilter = {}): Promise<string[]> {
+    const q = partitionParams(new URLSearchParams(), filter);
+    const r = await authedFetch(`${searchBase(scope)}/keys${q.toString() ? `?${q}` : ""}`);
+    return (await jsonOrThrow<{ keys: string[] }>(r, "searchKeys")).keys;
+  },
+
+  /** One key's values with their counts, those starting with `prefix` when given. */
+  async searchValues(
+    scope: ScopeUrl,
+    key: string,
+    opts: SearchPartitionFilter & { prefix?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<SearchValueCount[]> {
+    const q = partitionParams(new URLSearchParams({ key }), opts);
+    if (opts.prefix) q.set("prefix", opts.prefix);
+    if (opts.limit) q.set("limit", String(opts.limit));
+    const r = await authedFetch(`${searchBase(scope)}/values?${q}`, { signal });
+    return (await jsonOrThrow<{ values: SearchValueCount[] }>(r, "searchValues")).values;
+  },
+};
