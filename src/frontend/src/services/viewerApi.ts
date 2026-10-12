@@ -68,6 +68,10 @@ export type {
   ProviderSchedules,
   ScheduleChoice,
   ScheduleSetting,
+  SweepItem,
+  SweepDefaults,
+  SweepItemTimings,
+  SweepRun,
 } from "./api/assetSchedules";
 export type {
   MovedKeyEntry,

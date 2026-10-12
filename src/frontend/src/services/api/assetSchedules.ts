@@ -66,7 +66,9 @@ export interface ScheduleSetting {
 
 export interface ProviderScheduleJob {
   id: string;
-  kind: "change-check" | "job";
+  /** `sweep`: every collection the provider offers, one job each, each published
+   *  (`routes/asset_sweeps.py`). Its schedule names no collection. */
+  kind: "change-check" | "job" | "sweep";
   label: string;
   description: string | null;
   settings: ScheduleSetting[];
@@ -113,6 +115,63 @@ export interface AssetSchedulesListing {
   frequencies: { id: string; label: string; cron: string }[];
   schedules: ProviderSchedule[];
   legacy: LegacyPluginSchedule[];
+}
+
+/** What one collection of a sweep took. The provider's own phases (`provider`, e.g. `login_ms`,
+ *  `export_ms`, `stage_ms`) and core's publish phases (`publish`: `derive_ms`, `write_ms`, ...) are
+ *  as each summary reported them; the rest is wall-clock the API measured. */
+export interface SweepItemTimings {
+  queued_ms?: number;
+  fetch_ms?: number;
+  publish_ms?: number;
+  total_ms?: number;
+  provider?: Record<string, number>;
+  login?: { mode?: string };
+  publish?: Record<string, number>;
+}
+
+export interface SweepItem {
+  position: number;
+  collection: string;
+  /** `excluded`: ticked off -- by the provider's default list or while the sweep ran -- and not run. */
+  status: "pending" | "excluded" | "fetching" | "publishing" | "done" | "unchanged" | "nothing" | "error" | "skipped";
+  fetch_job_id: string | null;
+  publish_job_id: string | null;
+  revision: string | null;
+  message: string | null;
+  error: string | null;
+  timings: SweepItemTimings;
+  /** Live, for an item in flight only: its job's queue status, stage and progress (0..1). */
+  job_status?: string;
+  stage?: string | null;
+  progress?: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+/** One sweep (`asset_sweep_runs`). `items` only on a single run's read; `counts` (items by status)
+ *  only on the listing. `interrupted`: the API process driving it is gone. */
+export interface SweepRun {
+  id: string;
+  scope: string;
+  provider: string;
+  plugin_id: string;
+  job: string;
+  settings: Record<string, unknown>;
+  schedule_id: string | null;
+  requested_by: string | null;
+  requested_via: "schedule" | "user";
+  status: "running" | "done" | "error" | "cancelled" | "interrupted";
+  total: number;
+  created_at: string | null;
+  heartbeat_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  /** A skip of the item at this position, asked for and not yet carried out. Absent on an older
+   *  API. A skipped item ends `skipped` with the message "skipped by <user>". */
+  skip_position?: number | null;
+  counts?: Partial<Record<SweepItem["status"], number>>;
+  items?: SweepItem[];
 }
 
 function scopeBase(scope: ScopeUrl): string {
@@ -196,4 +255,80 @@ export const assetSchedulesApi = {
     });
     return jsonOrThrow(r, "adminDeleteAssetSchedule");
   },
+
+  /** Run a provider's sweep once, now -- the same choices a schedule of it is made from. */
+  async adminStartAssetSweep(body: {
+    provider: string;
+    job: string;
+    scope: string;
+    settings: Record<string, unknown>;
+  }): Promise<SweepRun> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps`, json("POST", body));
+    return jsonOrThrow(r, "adminStartAssetSweep");
+  },
+
+  async adminAssetSweeps(provider?: string, limit = 10): Promise<SweepRun[]> {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (provider) q.set("provider", provider);
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps?${q}`);
+    return (await jsonOrThrow<{ runs: SweepRun[] }>(r, "adminAssetSweeps")).runs;
+  },
+
+  async adminAssetSweep(id: string): Promise<SweepRun> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps/${encodeURIComponent(id)}`);
+    return jsonOrThrow(r, "adminAssetSweep");
+  },
+
+  async adminCancelAssetSweep(id: string): Promise<unknown> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-sweeps/${encodeURIComponent(id)}/cancel`,
+      json("POST", {}),
+    );
+    return jsonOrThrow(r, "adminCancelAssetSweep");
+  },
+
+  /** Give up on the collection the sweep is on and carry on with the next one. `position` is the
+   *  item the caller SAW running: the server refuses (409) when the sweep has moved on since, so a
+   *  late click never skips the collection after the one meant. */
+  async adminSkipAssetSweepItem(id: string, position: number | null): Promise<{ skip_requested: number }> {
+    const q = position == null ? "" : `?position=${position}`;
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-sweeps/${encodeURIComponent(id)}/skip${q}`,
+      json("POST", {}),
+    );
+    return jsonOrThrow(r, "adminSkipAssetSweepItem");
+  },
+
+  /** Tick a collection the running sweep has not reached on (`run: true`) or off. 409 once the
+   *  sweep has reached it. */
+  async adminSetAssetSweepItemRun(id: string, position: number, run: boolean): Promise<{ status: string }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-sweeps/${encodeURIComponent(id)}/items/${position}`,
+      json("PATCH", { run }),
+    );
+    return jsonOrThrow(r, "adminSetAssetSweepItemRun");
+  },
+
+  /** A provider's default sweep list: every collection it offers, and which new sweeps leave out. */
+  async adminAssetSweepDefaults(provider: string): Promise<SweepDefaults> {
+    const q = new URLSearchParams({ provider });
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps/defaults?${q}`);
+    return jsonOrThrow(r, "adminAssetSweepDefaults");
+  },
+
+  async adminSetAssetSweepDefaults(provider: string, excluded: string[]): Promise<SweepDefaults> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-sweeps/defaults`,
+      json("PUT", { provider, excluded }),
+    );
+    return jsonOrThrow(r, "adminSetAssetSweepDefaults");
+  },
 };
+
+export interface SweepDefaults {
+  provider: string;
+  /** Present only on the read: every collection the provider offers now (plus any still listed as
+   *  excluded that it no longer offers). */
+  collections?: string[];
+  excluded: string[];
+}

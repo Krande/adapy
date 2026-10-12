@@ -84,6 +84,9 @@ const EXPECTED_METHODS = [
   "syncProceduralSystemType", "updateEquipmentType", "updateProceduralEngine",
   "updateSystemTemplate", "uploadEquipmentCad", "uploadFeaArtefacts",
   "uploadProceduralImportXlsx", "uploadProgress",
+  // Provider sweeps (assetSchedules), with their run checkboxes and default lists.
+  "adminAssetSweep", "adminAssetSweeps", "adminCancelAssetSweep", "adminSkipAssetSweepItem",
+  "adminStartAssetSweep", "adminAssetSweepDefaults", "adminSetAssetSweepDefaults", "adminSetAssetSweepItemRun",
 ].sort();
 
 test("viewerApi exposes exactly the pinned method set", () => {

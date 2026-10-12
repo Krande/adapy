@@ -11,6 +11,10 @@ import type {
 } from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 
+import ProviderSweepRuns from "./ProviderSweepRuns";
+import {choiceKey, choiceLabel, selectedKey, valueOfKey} from "./scheduleSettings";
+import SweepDefaults from "./SweepDefaults";
+
 // Admin → Providers → Scheduled jobs: the jobs each asset provider declares on its plugin spec
 // (`asset_schedules`), scheduled per scope and collection.
 //
@@ -21,6 +25,11 @@ import {ApiError, viewerApi} from "@/services/viewerApi";
 //
 // A change check's last run shows here; its nodes are inspected in the Sources tab ("Changes").
 // Report only: nothing a check finds is published automatically.
+//
+// A SWEEP is the exception, by declaration: a provider's `sweep` entry asks for every collection
+// it offers and publishes each, so its schedule names no collection, it can also be run once
+// without saving a schedule ("Run once now"), and its runs -- with every phase timed -- list
+// under the provider (ProviderSweepRuns).
 
 export interface ScheduleScopeRow {
     scope: string;
@@ -33,6 +42,11 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—
 function lastRunText(s: ProviderSchedule): {text: string; tone: string} {
     const run = s.last_run;
     if (s.last_skipped_reason) return {text: `skipped: ${s.last_skipped_reason}`, tone: "text-amber-300"};
+    if (s.kind === "sweep") {
+        return s.last_fired_at || s.last_job_id
+            ? {text: `swept ${fmt(s.last_fired_at)}; see Sweeps below`, tone: "text-gray-300"}
+            : {text: "not run yet", tone: "text-gray-500"};
+    }
     if (!run) return {text: s.last_job_id ? "fired; no change-check record" : "not run yet", tone: "text-gray-500"};
     if (run.status === "queued") return {text: `running since ${fmt(run.created_at)}`, tone: "text-gray-300"};
     if (run.status === "error") return {text: `failed: ${run.error ?? "unknown error"}`, tone: "text-red-300"};
@@ -49,7 +63,8 @@ function settingSummary(job: ProviderScheduleJob | undefined, settings: Record<s
         .map((s) => {
             const v = settings[s.name];
             if (v == null || v === "" || (Array.isArray(v) && !v.length)) return null;
-            return `${s.title}: ${Array.isArray(v) ? v.join(", ") : String(v)}`;
+            const label = (x: unknown) => choiceLabel(x, s.choices);
+            return `${s.title}: ${Array.isArray(v) ? v.map(label).join(", ") : label(v)}`;
         })
         .filter(Boolean);
     return parts.length ? parts.join(" · ") : "—";
@@ -72,7 +87,7 @@ const SettingField: React.FC<{
         );
     }
     if (multi) {
-        const selected = new Set((Array.isArray(value) ? value : []).map(String));
+        const selected = new Set((Array.isArray(value) ? value : []).map((v) => selectedKey(v, choices)).filter(Boolean));
         return (
             <label className="flex flex-col text-[11px] text-gray-400" title={setting.description ?? undefined}>
                 {setting.title}
@@ -81,10 +96,10 @@ const SettingField: React.FC<{
                     className="bg-gray-800 border border-gray-700 rounded-sm px-1 py-0.5 text-xs text-gray-100 min-w-[10rem]"
                     size={Math.min(5, choices.length)}
                     value={[...selected]}
-                    onChange={(e) => onChange([...e.target.selectedOptions].map((o) => o.value))}
+                    onChange={(e) => onChange([...e.target.selectedOptions].map((o) => valueOfKey(o.value, choices)))}
                 >
                     {choices.map((c) => (
-                        <option key={String(c.value)} value={String(c.value)}>
+                        <option key={choiceKey(c.value)} value={choiceKey(c.value)}>
                             {c.label}
                         </option>
                     ))}
@@ -97,12 +112,12 @@ const SettingField: React.FC<{
             {setting.title}
             <select
                 className="bg-gray-800 border border-gray-700 rounded-sm px-1 py-0.5 text-xs text-gray-100"
-                value={value == null ? "" : String(value)}
-                onChange={(e) => onChange(e.target.value || null)}
+                value={selectedKey(value, choices)}
+                onChange={(e) => onChange(valueOfKey(e.target.value, choices))}
             >
                 <option value="">(provider default)</option>
                 {choices.map((c) => (
-                    <option key={String(c.value)} value={String(c.value)}>
+                    <option key={choiceKey(c.value)} value={choiceKey(c.value)}>
                         {c.label}
                     </option>
                 ))}
@@ -153,7 +168,8 @@ const AddSchedule: React.FC<{
     rows: readonly ScheduleScopeRow[];
     frequencies: AssetSchedulesListing["frequencies"];
     onAdded: () => void;
-}> = ({provider, rows, frequencies, onAdded}) => {
+    onSwept: () => void;
+}> = ({provider, rows, frequencies, onAdded, onSwept}) => {
     const [jobId, setJobId] = useState(provider.jobs[0]?.id ?? "");
     const [scope, setScope] = useState(rows[0]?.scope ?? "");
     const [collection, setCollection] = useState(provider.collections[0] ?? "");
@@ -162,6 +178,20 @@ const AddSchedule: React.FC<{
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const job = provider.jobs.find((j) => j.id === jobId);
+    const sweep = job?.kind === "sweep";
+
+    const runOnce = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            await viewerApi.adminStartAssetSweep({provider: provider.provider, job: jobId, scope, settings});
+            onSwept();
+        } catch (e) {
+            setError(errText(e));
+        } finally {
+            setBusy(false);
+        }
+    };
 
     const add = async () => {
         setBusy(true);
@@ -171,7 +201,7 @@ const AddSchedule: React.FC<{
                 provider: provider.provider,
                 job: jobId,
                 scope,
-                collection: collection || null,
+                collection: sweep ? null : collection || null,
                 frequency,
                 settings,
             });
@@ -202,18 +232,22 @@ const AddSchedule: React.FC<{
                         </option>
                     ))}
                 </select>
-                <select
-                    className={select}
-                    value={collection}
-                    onChange={(e) => setCollection(e.target.value)}
-                    aria-label="Collection"
-                >
-                    {provider.collections.map((c) => (
-                        <option key={c} value={c}>
-                            {c}
-                        </option>
-                    ))}
-                </select>
+                {sweep ? (
+                    <span className="text-gray-400 py-0.5">every collection ({provider.collections.length})</span>
+                ) : (
+                    <select
+                        className={select}
+                        value={collection}
+                        onChange={(e) => setCollection(e.target.value)}
+                        aria-label="Collection"
+                    >
+                        {provider.collections.map((c) => (
+                            <option key={c} value={c}>
+                                {c}
+                            </option>
+                        ))}
+                    </select>
+                )}
                 <select
                     className={select}
                     value={frequency}
@@ -229,11 +263,22 @@ const AddSchedule: React.FC<{
                 <button
                     type="button"
                     className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
-                    disabled={busy || !jobId || !scope || (!!provider.collections.length && !collection)}
+                    disabled={busy || !jobId || !scope || (!sweep && !!provider.collections.length && !collection)}
                     onClick={() => void add()}
                 >
-                    {busy ? "Adding…" : "Add schedule"}
+                    {busy ? "…" : "Add schedule"}
                 </button>
+                {sweep && (
+                    <button
+                        type="button"
+                        className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-2 py-0.5 rounded-sm"
+                        disabled={busy || !jobId || !scope}
+                        onClick={() => void runOnce()}
+                        title="Sweep every collection once, now, with these settings; no schedule is saved"
+                    >
+                        Run once now
+                    </button>
+                )}
             </div>
             {job?.description && <div className="text-[11px] text-gray-500">{job.description}</div>}
             <SettingsEditor
@@ -284,7 +329,7 @@ const ScheduleRow: React.FC<{
                 {!s.declared && <div className="text-[11px] text-amber-300">the provider no longer declares this job</div>}
             </td>
             <td className="px-2 py-1.5">{scopeLabel}</td>
-            <td className="px-2 py-1.5 font-mono">{s.collection ?? "—"}</td>
+            <td className="px-2 py-1.5 font-mono">{s.kind === "sweep" ? "(every)" : (s.collection ?? "—")}</td>
             <td className="px-2 py-1.5">
                 <select
                     className="bg-gray-800 border border-gray-700 rounded-sm px-1 py-0.5 text-xs"
@@ -396,10 +441,13 @@ const ScheduleRow: React.FC<{
 const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = ({rows}) => {
     const [listing, setListing] = useState<AssetSchedulesListing | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // Bumped on every reload, so each provider's sweep list re-reads after a Run now / Run once.
+    const [refreshKey, setRefreshKey] = useState(0);
 
     const load = useCallback(async () => {
         try {
             setListing(await viewerApi.adminAssetSchedules());
+            setRefreshKey((k) => k + 1);
             setError(null);
         } catch (e) {
             setError(errText(e));
@@ -474,7 +522,19 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
                             </table>
                         </div>
                     )}
-                    <AddSchedule provider={p} rows={rows} frequencies={listing.frequencies} onAdded={() => void load()} />
+                    <AddSchedule
+                        provider={p}
+                        rows={rows}
+                        frequencies={listing.frequencies}
+                        onAdded={() => void load()}
+                        onSwept={() => void load()}
+                    />
+                    {p.jobs.some((j) => j.kind === "sweep") && (
+                        <>
+                            <SweepDefaults provider={p.provider} />
+                            <ProviderSweepRuns provider={p.provider} refreshKey={refreshKey} />
+                        </>
+                    )}
                 </div>
             ))}
             {orphanProviders.length > 0 && (
