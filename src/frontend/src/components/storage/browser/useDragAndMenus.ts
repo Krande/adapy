@@ -4,6 +4,8 @@ import {runtime} from "@/runtime/config";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {canOpenInScene} from "@/utils/scene/fileKinds";
+import {openFolderInGallery} from "@/services/galleryFolder";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {buildFileMenuItems, buildFolderMenuItems} from "../storageMenuItems";
 import {FOLDER_MIME, KEYS_MIME, basenameOf, dirnameOf} from "./helpers";
 import type {useProceduralModels} from "./useProceduralModels";
@@ -134,6 +136,7 @@ export function useDragAndMenus(p: {
                 uploadTargetRef.current = path;
                 fileInputRef.current?.click();
             },
+            onOpenInGallery: () => openFolderInGallery(scopeUrlPart(useScopeStore.getState().current), path),
             onNewSubfolder: () => {
                 setNewFolderAt(path);
                 setExpandedFolders((prev) => new Set(prev).add(path));

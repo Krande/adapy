@@ -498,7 +498,45 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
         // `out` is rebuilt every render; what matters is the claims it carries and the pending set.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pending, out.map((c) => loadKey(c.rowId, c.provider)).join("|")]);
+
+    // Loads asked for from OUTSIDE the tree (`requestRowLoad`: the attribute search's "Load
+    // geometry"), once the row is revealed and its controls exist. Only where the choice is not the
+    // user's to make: ONE provider with geometry to load. Several, and the row's detail shows them
+    // side by side as for any row, and the request is dropped. A row with no controls yet keeps it
+    // waiting: a provider asked from the detail (an on-demand request) gives it one when it publishes.
+    const rowLoads = useRowLoadRequests((s) => s.rows);
+    useEffect(() => {
+        if (!rowLoads.size) return;
+        for (const id of ids) {
+            if (!rowLoads.has(id)) continue;
+            const mine = out.filter((c) => c.rowId === id);
+            if (!mine.length || !useRowLoadRequests.getState().take(id)) continue;
+            const todo = mine.filter((c) => !c.loaded && !c.busy && !c.empty);
+            if (todo.length === 1 && mine.length === 1) void todo[0].load();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rowLoads, ids.join("|"), out.map((c) => loadKey(c.rowId, c.provider)).join("|")]);
     return out;
+}
+
+/** Rows whose geometry was asked for from outside the tree, waiting for their load controls. */
+const useRowLoadRequests = create<{ rows: ReadonlySet<string>; add: (id: string) => void; take: (id: string) => boolean }>(
+    (set, get) => ({
+        rows: new Set(),
+        add: (id) => set((s) => ({ rows: new Set([...s.rows, id]) })),
+        take: (id) => {
+            if (!get().rows.has(id)) return false;
+            set((s) => ({ rows: new Set([...s.rows].filter((r) => r !== id)) }));
+            return true;
+        },
+    }),
+);
+
+/** Load row `id`'s geometry the way its own "Load into scene" would, once the row is selected and
+ *  its detail drawn -- call after revealing it (`revealRow`). Starts only when exactly one provider
+ *  has geometry to load there; otherwise the detail shows the choice. */
+export function requestRowLoad(id: string): void {
+    useRowLoadRequests.getState().add(id);
 }
 
 /** The store's load-state key: a row and a provider, since each provider's claim loads alone. */
@@ -1558,7 +1596,7 @@ const ChangedByFilter: React.FC<{ view: AssetView; selected: string | null; onSe
 };
 
 const AssetsTab: React.FC = () => {
-    const { useAssetBrowserStore, useScopeStore } = useViewerStores();
+    const { useAssetBrowserStore, useScopeStore, useViewerPanelStore } = useViewerStores();
     const scope = scopeUrlPart(useScopeStore((s) => s.current));
     const loader = loaderFor(useAssetBrowserStore, assetsApi, sourceNodesApi);
     // Display names for provider ids, in this scope; ids stay what everything keys on.
@@ -1585,6 +1623,9 @@ const AssetsTab: React.FC = () => {
     const searchTerm = useAssetBrowserStore((s) => s.searchTerm);
     const selection = useAssetBrowserStore((s) => s.selection);
     const { setMode, select, setSearchTerm } = useAssetBrowserStore.getState();
+    // The attribute search opens in the in-viewer panel host, beside the tree it reveals hits in.
+    const searchOpen = useViewerPanelStore((s) => s.open === "search");
+    const { openPanel, closePanel } = useViewerPanelStore.getState();
 
     // A scope switch invalidates everything; the first open of the tab loads.
     useEffect(() => {
@@ -2120,6 +2161,14 @@ const AssetsTab: React.FC = () => {
                     <ModePicker mode={mode} revisions={revisions} onChange={setMode} />
                     <IconButton label="Refresh — re-read the index and rebuild the tree from nothing" onClick={() => void loader.refresh(scope)}>
                         <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" />
+                    </IconButton>
+                    <IconButton
+                        label="Attribute search — find nodes across this scope's collections by their attributes"
+                        open={searchOpen}
+                        onClick={() => (searchOpen ? closePanel() : openPanel("search"))}
+                    >
+                        <circle cx="7" cy="7" r="4.5" />
+                        <path d="M10.5 10.5 14 14M5 7h4M7 5v4" />
                     </IconButton>
                     <IconButton
                         label="Sets — named sets of branches the tree can be narrowed to, shared in this scope"

@@ -20,8 +20,29 @@ from fastapi import HTTPException
 from ada.config import logger
 
 from .converter import TARGET_FORMATS, is_derived_key
+from .converters.keys import file_sidecar_keys, is_file_sidecar_key
 from .scope import Scope
 from .storage import Storage
+
+
+def owned_file_sidecars(key: str, live_keys: set[str] | list[str]) -> list[str]:
+    """The per-file siblings beside ``key`` (``A.meta.json``, ``A.thumb.png`` for ``A.ifc``) that
+    exist and belong to it ALONE.
+
+    They are keyed by the file's stem, so an export's ``A.ifc``, ``A.glb`` and ``A.step`` share
+    them. Moving or deleting one of those must not take the provenance away from the others: the
+    siblings travel only with the last file of that stem."""
+    live = set(live_keys)
+    siblings = [s for s in file_sidecar_keys(key) if s in live]
+    if not siblings:
+        return []
+    stem_of = file_sidecar_keys(key)[0][: -len(".meta.json")]
+    for other in live:
+        if other == key or is_derived_key(other) or is_file_sidecar_key(other):
+            continue
+        if file_sidecar_keys(other)[0][: -len(".meta.json")] == stem_of:
+            return []
+    return siblings
 
 
 def derived_source_of(derived_key: str) -> tuple[str, str] | None:
@@ -173,6 +194,10 @@ async def delete_blob_cascade(storage: Storage, scope_obj: Scope, key: str) -> d
         derived_src, _label = parsed
         if derived_src == clean:
             candidates.append(k)
+    # And the per-file siblings beside it (provenance sidecar, thumbnail), when no other file of
+    # the same stem still needs them.
+    if not is_file_sidecar_key(clean):
+        candidates.extend(owned_file_sidecars(clean, scope_keys))
 
     deleted: list[str] = []
     errors: list[str] = []
@@ -240,6 +265,9 @@ async def rename_key_cascade(
         logger.exception("storage-op: rename failed for %s -> %s", old_key, new_key)
         return {"key": old_key, "reason": "rename failed"}
 
+    # Resolved BEFORE the rename changes the keyset: whether the siblings are the old key's alone.
+    file_siblings = owned_file_sidecars(old_key, live_keys) if not is_file_sidecar_key(old_key) else []
+
     live_keys.discard(old_key)
     live_keys.add(new_key)
 
@@ -263,6 +291,13 @@ async def rename_key_cascade(
             continue
         rest = k[len(old_prefix) :]
         sibling_pairs.append((k, new_prefix + rest))
+    # The per-file siblings beside the file move with it, renamed to the new stem -- unless one
+    # is already there (never overwrite another file's provenance).
+    new_siblings = dict(zip(file_sidecar_keys(old_key), file_sidecar_keys(new_key)))
+    for old_sib in file_siblings:
+        new_sib = new_siblings[old_sib]
+        if new_sib != old_sib and new_sib not in live_keys:
+            sibling_pairs.append((old_sib, new_sib))
 
     sibling_errors: list[str] = []
     for sk_old, sk_new in sibling_pairs:

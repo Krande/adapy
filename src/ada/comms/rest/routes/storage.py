@@ -59,6 +59,7 @@ async def api_scope_files(
         is_hidden_key,
         supported_targets_for,
     )
+    from ..converters.keys import is_file_sidecar_key
 
     storage = ctx.storage
 
@@ -81,7 +82,13 @@ async def api_scope_files(
             files = await storage.list_prefix(scope_obj, prefix)
         else:
             files = await storage.list(scope_obj, skip_prefixes=HIDDEN_PREFIXES)
-        rows = {f.key: {"key": f.key, "size": f.size} for f in files if not is_hidden_key(f.key)}
+        # Per-file siblings (an export's `.meta.json` / `.thumb.png`, a folder's `_export.json`)
+        # are metadata ABOUT files; they are read by key, never listed as files of their own.
+        rows = {
+            f.key: {"key": f.key, "size": f.size}
+            for f in files
+            if not is_hidden_key(f.key) and not is_file_sidecar_key(f.key)
+        }
         # A key with a pending upload gets the "uploading" fields whether or
         # not it already appears above — present-but-pending means the PUT
         # landed and /upload-complete simply hasn't run yet; absent-but-
@@ -125,6 +132,8 @@ async def api_scope_files(
                     "last_modified": f.last_modified,
                 }
             )
+        elif is_file_sidecar_key(f.key):
+            continue
         else:
             sources[f.key] = {
                 "key": f.key,

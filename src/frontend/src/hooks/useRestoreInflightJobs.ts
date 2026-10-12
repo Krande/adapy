@@ -22,6 +22,7 @@ import {useEffect} from "react";
 import {viewerApi, ApiError} from "@/services/viewerApi";
 import {useConversionStore} from "@/state/conversionStore";
 import {pollJobUntilTerminal} from "@/services/jobTracking";
+import {resumeTrackedSweeps} from "@/services/sweepTracking";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 
@@ -37,6 +38,10 @@ export function useRestoreInflightJobs(): void {
         if (!current) return;
         const scopeUrl = scopeUrlPart(current);
         if (!scopeUrl) return;
+
+        // Provider sweeps an admin chose to watch in the toast. Not scoped like the jobs below,
+        // and idempotent, so a scope change re-attaching them is harmless.
+        resumeTrackedSweeps();
 
         const cancel = {aborted: false};
 

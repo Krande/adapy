@@ -1,0 +1,928 @@
+"""Attribute-search results exported as IFC files into a folder the user chooses -- and the
+per-file provenance any file can be asked for.
+
+``POST /scopes/{scope}/assets/search/export`` takes the search (``query``) and either the hits the
+user selected or none (= every match of the query, paged through here), checks that the user may
+write to the target scope, assigns every hit its file key, and starts a RUN: one item per
+(provider, collection) batch, each one ``export_search_asset`` job (``formats/export_search.py``).
+
+CONCURRENT, BOUNDED. Unlike a provider sweep, an export holds no licensed seat -- it reads published
+blobs -- so up to :data:`EXPORT_CONCURRENCY` items are in flight at once. Each item is timed on
+its own (``queued_ms`` / ``run_ms`` seen from here, the job's phases from its summary), and a hit
+without geometry or a file that failed is that FILE's outcome, not the run's.
+
+THE DRIVER is the sweeps' (``run_driver.py``): a task in this API process, heartbeat on every poll,
+``interrupted`` when it is gone, cancel (the whole run) and skip (one item, the run goes on).
+
+``<folder>/_export.json`` (``ada.files/export@1``) lists the files in export order -- batch by
+batch, hit by hit -- and is rewritten as each item finishes, so the gallery can walk a folder in the
+order the search returned it.
+
+MISSING GEOMETRY IS ASKED ABOUT, NOT ASSUMED. ``POST .../export/preflight`` resolves every hit
+against the geometry provider's published content and writes nothing; the dialog shows what lacks
+geometry and asks whether to queue a request for it first. ``request_missing_geometry: true`` (the
+answer "yes", default false) makes each item ask the provider for its missing nodes and publish
+the answers BEFORE its export job is submitted -- here, in the driver, because that is
+orchestration (the API's jobs) and the driver already polls jobs. One item's request phase at a
+time (``request_gate``), so a run's requests do not interleave projects on a shared seat. See
+``routes/geometry_requests.py``.
+
+``GET /scopes/{scope}/files/meta?key=`` answers ``ada.files/meta@1`` for ANY file: the export's
+sidecar when there is one, else the provenance the file carries itself (an IFC's ``ADA_*`` property
+sets, a GLB's ``asset.extras.provenance``), else 404.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import pathlib
+import time
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
+
+from ada.config import logger
+
+from .. import auth as auth_module
+from .. import db as db_module
+from ..auth import User
+from ..db.attribute_index import SearchQueryError, parse_search_query
+from ..job_transport import JobRequest
+from ..run_driver import (
+    ItemSkipped,
+    RunCancelled,
+    json_of,
+    ms,
+    spawn,
+    user_label,
+    wait_for_job,
+)
+from ..scope import Scope
+from ..search_export import (
+    EXPORT_INDEX_FILENAME,
+    EXPORT_INDEX_SCHEMA,
+    EXPORT_SEARCH_KIND,
+    GEOMETRY_PROVIDER,
+    META_SCHEMA,
+    clean_folder,
+    export_file_key,
+    meta_document,
+    meta_sidecar_key,
+    thumb_sidecar_key,
+)
+from . import geometry_requests as greq
+from .deps import (
+    RestContext,
+    parse_scope,
+    require_pool,
+    resolve_project_scope,
+    rest_context,
+    scope_from_path,
+)
+
+router = APIRouter()
+
+POLL_INTERVAL_S = 3.0
+#: Items in flight at once. An export is I/O and CPU on the workers, not a licensed seat.
+EXPORT_CONCURRENCY = 4
+#: One batch's job: a few hundred IFC files is minutes, not hours.
+ITEM_TIMEOUT_S = 60 * 60
+#: Most hits one export may write. More is a folder nobody browses -- narrow the search.
+MAX_EXPORT_HITS = 2000
+#: Largest in-file provenance read the meta route does (bytes).
+META_FALLBACK_MAX_BYTES = 128 * 1024 * 1024
+DERIVED_FORMATS = ("glb", "step")
+
+
+class ExportRefused(Exception):
+    """The export cannot start, with the reason (a 4xx)."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+# --- the request ----------------------------------------------------------------------------------
+
+
+def _clean_path(raw: Any) -> list[dict]:
+    out = []
+    for p in raw or ():
+        if isinstance(p, dict) and p.get("node_id"):
+            out.append(
+                {
+                    "node_id": str(p["node_id"]),
+                    "full_name": p.get("full_name"),
+                    "kind": p.get("kind"),
+                    "depth": p.get("depth"),
+                }
+            )
+    return out
+
+
+def clean_hit(raw: Any, where_keys: list[str]) -> dict | None:
+    """A hit as the job receives it: identity, ancestors and the matched attributes only (the job
+    re-reads full attributes from the index)."""
+    if not isinstance(raw, dict):
+        return None
+    provider, collection, node_id = raw.get("provider"), raw.get("collection"), raw.get("node_id")
+    if not (isinstance(provider, str) and provider and isinstance(collection, str) and collection and node_id):
+        return None
+    attrs = raw.get("attrs") if isinstance(raw.get("attrs"), dict) else {}
+    return {
+        "provider": provider,
+        "collection": collection.lower(),
+        "node_id": str(node_id),
+        "full_name": raw.get("full_name"),
+        "source_ref": raw.get("source_ref"),
+        "kind": raw.get("kind"),
+        "depth": raw.get("depth"),
+        "path": _clean_path(raw.get("path")),
+        "attrs": {k: attrs[k] for k in where_keys if k in attrs},
+    }
+
+
+def batch_hits(hits: list[dict], folder: str) -> list[tuple[str, str, list[dict]]]:
+    """``[(provider, collection, hits)]`` in first-seen order, every hit given its file key. A node
+    named twice (selected twice, or by two pages) is written once."""
+    taken: set[str] = set()
+    seen: set[tuple[str, str, str]] = set()
+    batches: dict[tuple[str, str], list[dict]] = {}
+    for hit in hits:
+        ident = (hit["provider"], hit["collection"], hit["node_id"])
+        if ident in seen:
+            continue
+        seen.add(ident)
+        hit["file"] = export_file_key(folder, hit["collection"], hit.get("full_name"), hit["node_id"], taken)
+        batches.setdefault((hit["provider"], hit["collection"]), []).append(hit)
+    return [(p, c, h) for (p, c), h in batches.items()]
+
+
+async def all_hits(pool, *, scope: str, query_body: dict, limit: int = MAX_EXPORT_HITS) -> list[dict]:
+    """Every row of the query, paged through the search itself. Refuses (409) past ``limit``."""
+    body = {k: v for k, v in (query_body or {}).items() if k not in ("cursor", "limit", "select")}
+    body["limit"] = 1000
+    rows: list[dict] = []
+    cursor = None
+    while True:
+        try:
+            q = parse_search_query({**body, "cursor": cursor})
+        except SearchQueryError as exc:
+            raise ExportRefused(400, f"the query: {exc}") from exc
+        page = await db_module.search_attributes(pool, scope=scope, query=q)
+        total = sum(int(n) for n in (page.get("counts") or {}).values())
+        if total > limit:
+            raise ExportRefused(
+                409, f"the query matches {total} nodes; an export writes at most {limit} files -- narrow the search"
+            )
+        rows.extend(page["rows"])
+        cursor = page.get("next_cursor")
+        if not cursor:
+            return rows
+
+
+async def _writable_scope(pool, raw: str, user: User) -> Scope:
+    """The target scope, checked the way an upload is: the user must be able to reach it."""
+    from ..scope import can_access
+
+    if not isinstance(raw, str) or not raw.strip():
+        raise ExportRefused(400, "'target_scope' is required")
+    target = await resolve_project_scope(pool, parse_scope(raw.strip(), user))
+    if not await can_access(user, target, pool):
+        raise ExportRefused(403, f"you cannot write to scope {raw!r}")
+    return target
+
+
+def _scope_ref(scope: Scope) -> dict:
+    return {"kind": scope.kind, "id": scope.id}
+
+
+@router.post("/scopes/{scope}/assets/search/export")
+async def api_search_export(
+    scope: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Body: ``{query, hits|null, target_scope, target_folder, include_source_attributes, also}``.
+    Answers the run (202)."""
+    pool = require_pool(request)
+    ctx.jobs.require("export_search")
+    body = await request.json() if await request.body() else {}
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="the body must be a JSON object")
+    try:
+        run = await start_export(ctx, pool, scope=scope, scope_obj=scope_obj, body=body, user=user)
+    except ExportRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return JSONResponse(_as_wire(run, scope), status_code=202)
+
+
+async def start_export(ctx, pool, *, scope: str, scope_obj: Scope, body: dict, user) -> dict:
+    query = body.get("query") if isinstance(body.get("query"), dict) else {}
+    try:
+        parsed = parse_search_query({k: v for k, v in query.items() if k not in ("cursor", "limit")})
+    except SearchQueryError as exc:
+        raise ExportRefused(400, f"the query: {exc}") from exc
+    where_keys = [w["key"] for w in parsed.where]
+    try:
+        folder = clean_folder(str(body.get("target_folder") or ""))
+    except ValueError as exc:
+        raise ExportRefused(400, str(exc)) from exc
+    target = await _writable_scope(pool, body.get("target_scope"), user)
+    also = body.get("also") or []
+    if not isinstance(also, list) or not set(also) <= set(DERIVED_FORMATS):
+        raise ExportRefused(400, f"'also' must be a subset of {list(DERIVED_FORMATS)}")
+    include_attrs = body.get("include_source_attributes", True) is not False
+    request_missing = body.get("request_missing_geometry") is True
+    if request_missing:
+        req = await greq.geometry_node_request(ctx)
+        allowed, why = await request_permission(pool, user, req)
+        if not allowed:
+            raise ExportRefused(403 if req is not None else 409, f"missing geometry cannot be requested: {why}")
+
+    raw_hits = body.get("hits")
+    if raw_hits is None:
+        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query)
+    elif not isinstance(raw_hits, list):
+        raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
+    if len(raw_hits) > MAX_EXPORT_HITS:
+        raise ExportRefused(409, f"{len(raw_hits)} hits; an export writes at most {MAX_EXPORT_HITS} files")
+    hits = [h for h in (clean_hit(r, where_keys) for r in raw_hits) if h is not None]
+    if not hits:
+        raise ExportRefused(400, "nothing to export: no hits")
+    batches = batch_hits(hits, folder)
+    options = {
+        "include_source_attributes": include_attrs,
+        "also": list(dict.fromkeys(also)),
+        "request_missing_geometry": request_missing,
+    }
+    run = await db_module.insert_asset_export_run(
+        pool,
+        scope=scope_obj.prefix(),
+        target_scope=str(body.get("target_scope")),
+        target_folder=folder,
+        query=query,
+        options=options,
+        batches=batches,
+        requested_by=getattr(user, "sub", None),
+    )
+    job_opts = {
+        "run_id": run["id"],
+        "source_scope": scope,
+        "target_scope": _scope_ref(target),
+        "target_folder": folder,
+        "query": query,
+        "include_source_attributes": include_attrs,
+        "also": options["also"],
+        "requested_by": user_label(user),
+        "request_missing_geometry": request_missing,
+    }
+    spawn(
+        drive_export(ctx, pool, run, scope_obj=scope_obj, target=target, batches=batches, job_opts=job_opts, user=user),
+        name=f"asset-export-{run['id']}",
+    )
+    logger.info("asset export %s: %d hit(s) in %d batch(es) -> %s", run["id"], len(hits), len(batches), folder)
+    return run
+
+
+# --- the preflight ----------------------------------------------------------------------------------
+
+
+async def request_permission(pool, user, req: "greq.NodeRequest | None") -> tuple[bool, str | None]:
+    """May ``user`` run the geometry provider's request job? The plugin route's own gate, asked
+    up front so the dialog offers only what the start will accept."""
+    if req is None:
+        return False, f"no online worker of {GEOMETRY_PROVIDER!r} declares a node request"
+    from .plugin_jobs import plugin_job_requires_admin
+
+    if await plugin_job_requires_admin(req.plugin_id, pool, dict(req.spec)) and not getattr(user, "is_admin", False):
+        return False, f"the {req.plugin_id!r} job is restricted to administrators"
+    return True, None
+
+
+#: Examples of unknown nodes listed per collection in a preflight.
+PREFLIGHT_EXAMPLES = 5
+
+
+async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> dict:
+    """What an export of ``body`` would find (see the module docstring). Writes nothing."""
+    t0 = time.monotonic()
+    query = body.get("query") if isinstance(body.get("query"), dict) else {}
+    try:
+        parsed = parse_search_query({k: v for k, v in query.items() if k not in ("cursor", "limit")})
+    except SearchQueryError as exc:
+        raise ExportRefused(400, f"the query: {exc}") from exc
+    raw_hits = body.get("hits")
+    if raw_hits is None:
+        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query)
+    elif not isinstance(raw_hits, list):
+        raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
+    where_keys = [w["key"] for w in parsed.where]
+    groups: dict[str, dict[str, dict]] = {}
+    for hit in (clean_hit(r, where_keys) for r in raw_hits):
+        if hit is not None:
+            groups.setdefault(hit["collection"], {}).setdefault(hit["node_id"], hit)
+    ordered = [(c, list(h.values())) for c, h in groups.items()]
+    states = await greq.classify_in_scope(ctx.storage, scope_obj, ordered) if ordered else []
+
+    req = await greq.geometry_node_request(ctx)
+    allowed, why = await request_permission(pool, user, req)
+    sweep = None
+    try:
+        sweep = await db_module.running_asset_sweep(pool, provider=GEOMETRY_PROVIDER)
+    except Exception:  # noqa: BLE001 - a nicety for the prompt
+        logger.debug("export preflight: could not read running sweeps", exc_info=True)
+
+    collections = []
+    for (collection, _), rows in zip(ordered, states):
+        by: dict[str, list] = {}
+        for s in rows:
+            by.setdefault(s.state, []).append(s)
+        missing = len(by.get("listed", ())) + len(by.get("unpublished", ()))
+        unknown = by.get("unknown", [])
+        collections.append(
+            {
+                "collection": collection,
+                "hits": len(rows),
+                "ready": len(by.get("ready", ())),
+                "missing": missing,
+                "listed": len(by.get("listed", ())),
+                "unpublished": len(by.get("unpublished", ())),
+                "unknown": len(unknown),
+                "jobs": greq.request_estimate(missing),
+                "missing_reason": next((s.message for s in rows if s.state in greq.MISSING_STATES), None),
+                "unknown_reason": unknown[0].message if unknown else None,
+                "unknown_examples": [s.hit.get("full_name") or s.hit["node_id"] for s in unknown[:PREFLIGHT_EXAMPLES]],
+            }
+        )
+    return {
+        "geometry_provider": GEOMETRY_PROVIDER,
+        "hits": sum(c["hits"] for c in collections),
+        "ready": sum(c["ready"] for c in collections),
+        "missing": sum(c["missing"] for c in collections),
+        "unknown": sum(c["unknown"] for c in collections),
+        "jobs": sum(c["jobs"] for c in collections),
+        "collections": collections,
+        "request": {
+            "available": req is not None,
+            "allowed": allowed,
+            "reason": why,
+            "plugin_id": req.plugin_id if req else None,
+            "label": req.label if req else None,
+            "per_job": greq.NODES_PER_REQUEST,
+        },
+        "sweep_running": {"id": sweep["id"], "created_at": sweep.get("created_at")} if sweep else None,
+        "took_ms": ms(time.monotonic() - t0),
+    }
+
+
+@router.post("/scopes/{scope}/assets/search/export/preflight")
+async def api_search_export_preflight(
+    scope: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Body: ``{query, hits|null}`` as for the export. Answers per collection how many hits have
+    geometry ready, how many lack it (and could be requested), and how many the geometry
+    provider's tree does not know -- and whether this user may request them. Writes nothing."""
+    pool = require_pool(request)
+    body = await request.json() if await request.body() else {}
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="the body must be a JSON object")
+    try:
+        doc = await export_preflight(ctx, pool, scope_obj=scope_obj, body=body, user=user)
+    except ExportRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return JSONResponse(doc)
+
+
+# --- the driver -------------------------------------------------------------------------------------
+
+
+def item_outcome(summary: dict) -> tuple[str, str | None]:
+    """An item's status and message from its job's counts."""
+    counts = summary.get("counts") or {}
+    written, nogeo, failed = (int(counts.get(k) or 0) for k in ("written", "no_geometry", "failed"))
+    total = written + nogeo + failed
+    if written == total:
+        return "done", None
+    parts = [f"{written} of {total} written"]
+    if nogeo:
+        parts.append(f"{nogeo} without E3D geometry")
+    if failed:
+        parts.append(f"{failed} failed")
+    if written == 0 and failed and not nogeo:
+        return "error", "; ".join(parts)
+    return "partial", "; ".join(parts)
+
+
+def export_index_document(run: dict, files_by_position: dict[int, list[dict]], folder: str) -> dict:
+    files = []
+    for position in sorted(files_by_position):
+        for f in files_by_position[position]:
+            files.append(f)
+    return {
+        "schema": EXPORT_INDEX_SCHEMA,
+        "run_id": run["id"],
+        "query": run.get("query"),
+        "created_at": run.get("created_at"),
+        "folder": folder,
+        "files": files,
+    }
+
+
+async def drive_export(ctx, pool, run: dict, *, scope_obj: Scope, target: Scope, batches, job_opts: dict, user) -> None:
+    run_id = run["id"]
+    gate = asyncio.Semaphore(EXPORT_CONCURRENCY)
+    index_lock = asyncio.Lock()
+    # One item's geometry request at a time: each is one collection (one design project), and two
+    # in flight would make a shared seat switch projects between their jobs.
+    request_gate = asyncio.Lock()
+    files_by_position: dict[int, list[dict]] = {}
+    folder = job_opts["target_folder"]
+
+    async def write_index() -> None:
+        doc = export_index_document(run, files_by_position, folder)
+        try:
+            await ctx.storage.put_bytes(
+                target, f"{folder}/{EXPORT_INDEX_FILENAME}", json.dumps(doc, indent=1).encode("utf-8")
+            )
+        except Exception:  # noqa: BLE001 - the index is a convenience; the files are written
+            logger.warning("asset export %s: could not write %s", run_id, EXPORT_INDEX_FILENAME, exc_info=True)
+
+    async def one(position: int, provider: str, collection: str, hits: list[dict]) -> bool:
+        async with gate:
+            status = await db_module.heartbeat_asset_export_run(pool, run_id)
+            if status != "running":
+                raise RunCancelled
+            ok, files = await export_one(
+                ctx,
+                pool,
+                run_id,
+                position,
+                provider,
+                collection,
+                hits,
+                scope_obj=scope_obj,
+                job_opts=job_opts,
+                user=user,
+                request_gate=request_gate,
+            )
+        if files:
+            async with index_lock:
+                files_by_position[position] = files
+                await write_index()
+        return ok
+
+    tasks = [asyncio.create_task(one(i, p, c, h)) for i, (p, c, h) in enumerate(batches)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    if any(isinstance(r, RunCancelled) for r in results):
+        await db_module.skip_pending_asset_export_items(pool, run_id, "the export was cancelled")
+        logger.info("asset export %s: cancelled", run_id)
+        return
+    crashed = [r for r in results if isinstance(r, BaseException)]
+    if crashed:
+        logger.error("asset export %s: driver crashed: %r", run_id, crashed[0])
+        await db_module.skip_pending_asset_export_items(pool, run_id, "the export stopped early")
+        await db_module.finish_asset_export_run(pool, run_id, status="error", error=f"the export crashed: {crashed[0]}")
+        return
+    failed = sum(1 for r in results if r is False)
+    error = f"{failed} of {len(batches)} batch(es) failed" if failed else None
+    await db_module.finish_asset_export_run(pool, run_id, status="error" if failed else "done", error=error)
+    logger.info("asset export %s: finished (%s)", run_id, error or "all ok")
+
+
+async def export_one(
+    ctx,
+    pool,
+    run_id: str,
+    position: int,
+    provider: str,
+    collection: str,
+    hits: list[dict],
+    *,
+    scope_obj: Scope,
+    job_opts: dict,
+    user,
+    request_gate: asyncio.Lock | None = None,
+) -> tuple[bool, list[dict]]:
+    """One batch: (when asked) request its missing geometry, submit its job, wait, copy the
+    summary into the item. Returns ``(ok, files)`` where ``files`` are the ``_export.json`` entries
+    of what it wrote. Raises only RunCancelled."""
+    t_item = time.monotonic()
+    timings: dict = {}
+    requested: greq.RequestOutcome | None = None
+
+    async def item(**fields) -> None:
+        await db_module.update_asset_export_item(pool, run_id, position, **fields)
+
+    async def finish(status: str, **fields) -> None:
+        timings["total_ms"] = ms(time.monotonic() - t_item)
+        await item(status=status, timings=timings, finished_at=datetime.now(timezone.utc), **fields)
+
+    def wait(job_id: str, timeout_s: float):
+        return wait_for_job(
+            ctx,
+            job_id,
+            timeout_s=timeout_s,
+            beat=lambda: db_module.heartbeat_asset_export_run(pool, run_id),
+            position=position,
+            poll_s=POLL_INTERVAL_S,
+            label=f"asset export {run_id}",
+        )
+
+    await item(status="running", started_at=datetime.now(timezone.utc))
+    derived_key = f"_derived/search-export/{run_id}/{position}.json"
+    try:
+        if job_opts.get("request_missing_geometry"):
+            async with request_gate or asyncio.Lock():
+                requested = await request_geometry(
+                    ctx,
+                    pool,
+                    run_id,
+                    position,
+                    collection,
+                    hits,
+                    scope_obj=scope_obj,
+                    user=user,
+                    wait=wait,
+                    timings=timings,
+                )
+            await item(status="running", message=requested.sentence() if requested else None, timings=timings)
+        submitted = await ctx.jobs.submit(
+            JobRequest(
+                source_key=f"search-export/{run_id}/{position}",
+                target_format=EXPORT_SEARCH_KIND,
+                scope=scope_obj,
+                feature="export_search",
+                derived_prefix=derived_key.rsplit("/", 1)[0],
+                derived_key=derived_key,
+                conversion_options={
+                    **job_opts,
+                    "position": position,
+                    "provider": provider,
+                    "collection": collection,
+                    "hits": hits,
+                },
+                force_rebuild=True,
+            ),
+            before_dispatch=lambda s: ctx.audit(
+                None,
+                user,
+                scope_obj,
+                "export_search",
+                key=derived_key,
+                target_format=EXPORT_SEARCH_KIND,
+                status="queued",
+                job_id=s.job_id,
+            ),
+        )
+        await item(job_id=submitted.job_id)
+        timings["queued_ms"], timings["run_ms"] = await wait(submitted.job_id, ITEM_TIMEOUT_S)
+        summary = json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
+        if not isinstance(summary, dict):
+            raise RuntimeError("the export job answered without a summary")
+        timings["job"] = summary.get("timings") or {}
+        status, message = item_outcome(summary)
+        file_rows = summary.get("files") or []
+        if requested is not None:
+            # A hit the provider was asked for and answered "nothing" for: its words, not the
+            # resolver's "publish its geometry first" -- that was just tried.
+            for f in file_rows:
+                said = requested.nothing.get(str(f.get("node_id")))
+                if f.get("status") == "no_geometry" and said:
+                    f["error"] = f"the geometry provider has nothing for it: {said}"
+            message = "; ".join(filter(None, [requested.sentence(), message]))
+        errors = [
+            {k: f.get(k) for k in ("node_id", "full_name", "status", "error")}
+            for f in file_rows
+            if f.get("status") != "written"
+        ]
+        warnings = summary.get("warnings") or []
+        if warnings:
+            message = "; ".join(filter(None, [message, *warnings]))
+        await finish(status, files=summary.get("counts") or {}, file_errors=errors, message=message)
+        written = [
+            {
+                "file": f["file"],
+                "provider": provider,
+                "collection": collection,
+                "node_id": f.get("node_id"),
+                "full_name": f.get("full_name"),
+                "meta": f.get("meta") or meta_sidecar_key(f["file"]),
+                "thumb": f.get("thumb"),
+            }
+            for f in file_rows
+            if f.get("status") == "written"
+        ]
+        return status != "error", written
+    except RunCancelled:
+        await finish("skipped", message="the export was cancelled")
+        raise
+    except ItemSkipped as exc:
+        await db_module.clear_asset_export_skip(pool, run_id, position)
+        await finish("skipped", message=str(exc))
+        return True, []
+    except HTTPException as exc:
+        await finish("error", error=f"{exc.status_code}: {exc.detail}")
+    except Exception as exc:  # noqa: BLE001 - one batch's failure is its row's
+        logger.warning("asset export %s: batch %s/%s failed: %s", run_id, provider, collection, exc)
+        await finish("error", error=str(exc))
+    return False, []
+
+
+async def request_geometry(
+    ctx,
+    pool,
+    run_id: str,
+    position: int,
+    collection: str,
+    hits: list[dict],
+    *,
+    scope_obj: Scope,
+    user,
+    wait,
+    timings: dict,
+) -> greq.RequestOutcome:
+    """The item's request phase: which hits lack geometry, then ``geometry_requests.request_missing``
+    for them. Timed as ``request_ms`` (the request jobs, queued + run) and ``request_publish_ms``
+    (publishing their answers), with one ``request_batches`` row per job -- its node count, the
+    provider's login mode and phases -- so "one project session" is something the run shows."""
+
+    async def progress(message: str, job_id: str | None) -> None:
+        fields: dict = {"status": "requesting", "message": message, "timings": timings}
+        if job_id:
+            fields["job_id"] = job_id  # so the run's read shows the request job's live stage
+        await db_module.update_asset_export_item(pool, run_id, position, **fields)
+
+    t0 = time.monotonic()
+    await progress("checking which hits lack geometry", None)
+    [states] = await greq.classify_in_scope(ctx.storage, scope_obj, [(collection, hits)])
+    timings["request_resolve_ms"] = ms(time.monotonic() - t0)
+    req = await greq.geometry_node_request(ctx)
+    if req is None:
+        outcome = greq.RequestOutcome(
+            missing=sum(1 for s in states if s.state in greq.MISSING_STATES),
+            unknown=sum(1 for s in states if s.state == "unknown"),
+        )
+        if outcome.missing:
+            outcome.batches.append(
+                {"nodes": outcome.missing, "status": "error", "message": "no online worker declares a node request"}
+            )
+    else:
+        outcome = await greq.request_missing(
+            ctx,
+            pool,
+            scope_obj=scope_obj,
+            user=user,
+            req=req,
+            collection=collection,
+            states=states,
+            wait=wait,
+            progress=progress,
+        )
+    timings["request_ms"] = outcome.request_ms
+    timings["request_publish_ms"] = outcome.publish_ms
+    timings["request_batches"] = outcome.batches
+    timings["request"] = outcome.summary()
+    return outcome
+
+
+# --- runs -------------------------------------------------------------------------------------------
+
+
+#: Item states with a job in flight: ``requesting`` (asking the geometry provider) and ``running``.
+_IN_FLIGHT = ("requesting", "running")
+
+
+def _as_wire(run: dict, scope: str) -> dict:
+    """A run as the caller sees it: ``scope`` in the WIRE form it asked with (``user:me``), so a
+    client can call this API with it again. The row keeps the storage prefix, which is what
+    separates one user's personal runs from another's."""
+    return {**run, "scope": scope}
+
+
+async def _run_in_scope(pool, run_id: str, scope: str) -> dict:
+    run = await db_module.get_asset_export_run(pool, run_id)
+    if run is None or run["scope"] != scope:  # the scope's storage prefix, never its wire form
+        raise HTTPException(status_code=404, detail="export run not found")
+    return run
+
+
+@router.get("/scopes/{scope}/assets/search/export/runs")
+async def api_search_export_runs(
+    scope: str, request: Request, limit: int = 20, scope_obj: Scope = Depends(scope_from_path)
+) -> JSONResponse:
+    pool = require_pool(request)
+    runs = await db_module.list_asset_export_runs(pool, scope=scope_obj.prefix(), limit=max(1, min(int(limit), 100)))
+    return JSONResponse({"runs": [_as_wire(r, scope) for r in runs]})
+
+
+@router.get("/scopes/{scope}/assets/search/export/runs/{run_id}")
+async def api_search_export_run(
+    scope: str,
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """One run with its items; an item in flight carries its job's live ``stage``/``progress``."""
+    pool = require_pool(request)
+    run = await _run_in_scope(pool, run_id, scope_obj.prefix())
+    for item in run["items"]:
+        if item["status"] not in _IN_FLIGHT or not item["job_id"]:
+            continue
+        try:
+            snap = await ctx.jobs.status(item["job_id"])
+        except Exception:  # noqa: BLE001 - live progress is a nicety
+            continue
+        if snap is not None:
+            item["job_status"] = snap.status
+            item["stage"] = (snap.payload or {}).get("stage")
+            item["progress"] = (snap.payload or {}).get("progress")
+    return JSONResponse(_as_wire(run, scope))
+
+
+@router.post("/scopes/{scope}/assets/search/export/runs/{run_id}/cancel")
+async def api_search_export_cancel(
+    scope: str,
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    pool = require_pool(request)
+    run = await _run_in_scope(pool, run_id, scope_obj.prefix())
+    if not await db_module.cancel_asset_export_run(pool, run_id):
+        raise HTTPException(status_code=409, detail="that export is not running")
+    await db_module.skip_pending_asset_export_items(pool, run_id, "the export was cancelled")
+    # The jobs in flight are cancelled HERE as well as by the driver: a driver that died with its
+    # API process never sees the cancel, and its queued jobs -- geometry requests on a single-seat
+    # provider in particular -- would otherwise run for nobody. Same reasoning as a sweep's cancel.
+    cancelled_jobs = []
+    for item in run["items"]:
+        if item["status"] not in _IN_FLIGHT:
+            continue
+        batches = (item.get("timings") or {}).get("request_batches") or ()
+        job_ids = {item.get("job_id"), *(b.get("job_id") for b in batches if isinstance(b, dict))}
+        for job_id in sorted(j for j in job_ids if j):
+            try:
+                if await ctx.jobs.cancel(job_id):
+                    cancelled_jobs.append(job_id)
+            except Exception:  # noqa: BLE001 - the run is cancelled either way
+                logger.warning("export %s: could not cancel job %s", run_id, job_id, exc_info=True)
+    return JSONResponse({"cancelled": run_id, "jobs": cancelled_jobs})
+
+
+@router.post("/scopes/{scope}/assets/search/export/runs/{run_id}/skip")
+async def api_search_export_skip(
+    scope: str,
+    run_id: str,
+    request: Request,
+    position: int,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Skip ONE batch in flight (items run concurrently, so ``position`` is required); the rest of
+    the export goes on."""
+    pool = require_pool(request)
+    run = await _run_in_scope(pool, run_id, scope_obj.prefix())
+    if run["status"] != "running":
+        raise HTTPException(status_code=409, detail=f"that export is {run['status']}, not running")
+    item = next((i for i in run["items"] if i["position"] == position), None)
+    if item is None or item["status"] not in _IN_FLIGHT:
+        raise HTTPException(status_code=409, detail=f"batch {position} is not running")
+    if not await db_module.request_asset_export_skip(pool, run_id, position, by=user_label(user)):
+        raise HTTPException(status_code=409, detail="that export is not running")
+    return JSONResponse({"skip_requested": position})
+
+
+# --- per-file metadata ------------------------------------------------------------------------------
+
+
+def _meta_from_ifc_psets(key: str, found: dict) -> dict:
+    prov = found.get("provenance") or {}
+    src = found.get("source") or {}
+    query: Any = prov.get("query")
+    if isinstance(query, str):
+        try:
+            query = json.loads(query)
+        except ValueError:
+            pass
+    return meta_document(
+        file=key,
+        fmt="ifc",
+        created_by=None,
+        created_at=prov.get("exported_at"),
+        source={
+            "provider": src.get("provider") or prov.get("provider"),
+            "scope": src.get("scope") or prov.get("source_scope"),
+            "collection": src.get("collection") or prov.get("collection"),
+            "node_id": src.get("node_id"),
+            "full_name": src.get("full_name"),
+            "source_ref": src.get("source_ref"),
+            "revision": prov.get("revision"),
+        },
+        query=query,
+        matched=found.get("matched") or {},
+        run_id=prov.get("run_id"),
+        attributes={},
+        derived={},
+        elements=found.get("elements") or [],
+    )
+
+
+def _meta_from_glb(key: str, prov: dict) -> dict:
+    query: Any = prov.get("query")
+    if isinstance(query, str):
+        try:
+            query = json.loads(query)
+        except ValueError:
+            pass
+    return meta_document(
+        file=key,
+        fmt="glb",
+        created_by=None,
+        created_at=prov.get("exported_at") or prov.get("built_at"),
+        source={
+            "provider": prov.get("provider"),
+            "scope": prov.get("source_scope"),
+            "collection": prov.get("collection"),
+            "node_id": prov.get("node_id") or prov.get("node"),
+            "full_name": prov.get("full_name"),
+            "revision": prov.get("revision"),
+        },
+        query=query,
+        matched={},
+        run_id=prov.get("run_id"),
+        attributes={},
+        derived={},
+    )
+
+
+async def file_meta(storage, scope_obj: Scope, key: str) -> dict | None:
+    """The sidecar, else in-file provenance, else None."""
+    clean = key.strip().lstrip("/")
+    candidates = [clean] if clean.endswith(".meta.json") else [meta_sidecar_key(clean)]
+    for cand in candidates:
+        try:
+            doc = json_of(await storage.get_bytes(scope_obj, cand))
+        except Exception:  # noqa: BLE001 - absent or unreadable: try the file itself
+            continue
+        if isinstance(doc, dict) and doc.get("schema") == META_SCHEMA:
+            if doc.get("derived") is not None and not doc["derived"].get("thumb"):
+                thumb = thumb_sidecar_key(clean)
+                if await storage.exists(scope_obj, thumb):
+                    doc["derived"]["thumb"] = thumb
+            return {**doc, "key": clean, "origin": "sidecar"}
+
+    ext = pathlib.PurePosixPath(clean).suffix.lower()
+    if ext not in (".ifc", ".glb"):
+        return None
+    head = await storage.head(scope_obj, clean)
+    if head is None or int(head.get("size") or 0) > META_FALLBACK_MAX_BYTES:
+        return None
+    if ext == ".glb":
+        from ada.assets.build import read_glb_provenance
+
+        prov = read_glb_provenance(await storage.get_bytes(scope_obj, clean))
+        return {**_meta_from_glb(clean, prov), "key": clean, "origin": "glb"} if prov else None
+
+    import tempfile
+
+    from ..search_export import parse_ifc_provenance
+
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="ada-meta-")) / "file.ifc"
+    try:
+        await storage.stream_to_path(scope_obj, clean, tmp)
+        found = await asyncio.get_running_loop().run_in_executor(None, parse_ifc_provenance, tmp)
+    except Exception:  # noqa: BLE001 - an unreadable IFC has no provenance to report
+        logger.debug("files/meta: could not read %s", clean, exc_info=True)
+        found = None
+    finally:
+        tmp.unlink(missing_ok=True)
+        tmp.parent.rmdir()
+    return {**_meta_from_ifc_psets(clean, found), "key": clean, "origin": "ifc"} if found else None
+
+
+@router.get("/scopes/{scope}/files/meta")
+async def api_file_meta(
+    key: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """``ada.files/meta@1`` for a file of this scope (see the module docstring)."""
+    if not key or not key.strip("/"):
+        raise HTTPException(status_code=400, detail="'key' is required")
+    doc = await file_meta(ctx.storage, scope_obj, key)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"no provenance for {key!r}")
+    return JSONResponse(doc)

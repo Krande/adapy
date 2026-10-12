@@ -13,6 +13,7 @@ import {useCellBuilderStore} from '@/state/cellBuilderStore';
 import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigation';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
+import SourceJumpSection from './SourceJumpSection';
 import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 import DownloadSelectionButton from './DownloadSelectionButton';
 
@@ -372,6 +373,11 @@ const ObjectInfoBox = () => {
                 also reads metadata from the lineage store (GLB
                 extension's ``object_metadata`` field) AND hosts the
                 clicked-coordinate row that used to live above. */}
+            {/* Where an element of an exported file came from, and a jump to that node in the
+                Sources tree (switching scope when it lives in another). Any loaded model whose
+                file has a provenance record; nothing for others. Above Properties, which starts
+                folded. */}
+            {!cellCtx && <SourceJumpSection/>}
             {name && <ObjectMetadataPanel data={jsonData}/>}
             {/* Structural facts about the selected hierarchy node. Renders for
                 any tree selection, and is the ONLY section a spatial container

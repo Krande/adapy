@@ -84,6 +84,15 @@ const EXPECTED_METHODS = [
   "syncProceduralSystemType", "updateEquipmentType", "updateProceduralEngine",
   "updateSystemTemplate", "uploadEquipmentCad", "uploadFeaArtefacts",
   "uploadProceduralImportXlsx", "uploadProgress",
+  // Provider sweeps (assetSchedules), attribute search, and the search export (searchExport).
+  "adminAssetSweep", "adminAssetSweeps", "adminCancelAssetSweep", "adminSkipAssetSweepItem",
+  "adminStartAssetSweep", "blobObjectUrl", "cancelSearchExport", "exportDoc", "fileMeta",
+  "searchAssetAttributes", "searchCollections", "searchExportRun", "searchExportRuns", "searchKeys",
+  "searchValues", "skipSearchExportItem", "startSearchExport",
+  // Sweep run checkboxes and default lists, and the export's missing-geometry pre-flight.
+  "adminAssetSweepDefaults", "adminSetAssetSweepDefaults", "adminSetAssetSweepItemRun", "exportPreflight",
+  // Admin -> Database (adminDb).
+  "adminDbPrune", "adminDbSetRetention", "adminDbStorage", "adminDbTableRows",
 ].sort();
 
 test("viewerApi exposes exactly the pinned method set", () => {

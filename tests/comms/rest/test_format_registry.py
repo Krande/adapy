@@ -46,6 +46,7 @@ CHAIN_KINDS = [
     ("clash_detail_group", True),
     # Synthetic for the same reason: a published node's selection is read by its provider.
     ("export_selection_asset", True),
+    ("export_search_asset", True),
     ("utility", False),
     ("fea_artefacts", False),
     ("fea_meta", False),

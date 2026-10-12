@@ -26,7 +26,10 @@ import { adminAuditApi } from "./api/adminAudit";
 import { adminCorpusApi } from "./api/adminCorpus";
 import { adminProjectsApi } from "./api/adminProjects";
 import { assetSchedulesApi } from "./api/assetSchedules";
+import { attributeSearchApi } from "./api/attributeSearch";
+import { searchExportApi } from "./api/searchExport";
 import { adminStorageApi } from "./api/adminStorage";
+import { adminDbApi } from "./api/adminDb";
 import { adminUsersApi } from "./api/adminUsers";
 import { workersApi } from "./api/workers";
 import { metricsApi } from "./api/metrics";
@@ -48,7 +51,10 @@ export const viewerApi = {
   ...adminCorpusApi,
   ...adminProjectsApi,
   ...assetSchedulesApi,
+  ...attributeSearchApi,
+  ...searchExportApi,
   ...adminStorageApi,
+  ...adminDbApi,
   ...adminUsersApi,
   ...workersApi,
   ...metricsApi,
@@ -68,7 +74,50 @@ export type {
   ProviderSchedules,
   ScheduleChoice,
   ScheduleSetting,
+  SweepItem,
+  SweepDefaults,
+  SweepItemTimings,
+  SweepRun,
 } from "./api/assetSchedules";
+export type {
+  SearchCollection,
+  SearchDepth,
+  SearchHit,
+  SearchPartitionFilter,
+  SearchPathEntry,
+  SearchQuery,
+  SearchResponse,
+  SearchValueCount,
+  SearchWhere,
+} from "./api/attributeSearch";
+export type {
+  ExportAlso,
+  ExportDoc,
+  ExportFileCounts,
+  ExportFileError,
+  ExportHit,
+  ExportItem,
+  ExportItemStatus,
+  ExportItemTimings,
+  ExportJobTimings,
+  ExportRequest,
+  ExportRun,
+  FileMeta,
+} from "./api/searchExport";
+export type {
+  DbAreaStorage,
+  DbAttributePartition,
+  DbCollectionRef,
+  DbPruneArea,
+  DbPruneResult,
+  DbPruneSpec,
+  DbRetentionLastRun,
+  DbCell,
+  DbStorageReport,
+  DbTableColumn,
+  DbTableRows,
+  DbTableStorage,
+} from "./api/adminDb";
 export type {
   MovedKeyEntry,
   MoveKeysResult,

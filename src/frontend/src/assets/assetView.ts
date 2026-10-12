@@ -21,7 +21,7 @@
 // the tab memoises it on the forest, which keeps a mode switch over a 41k-row
 // spine to the O(n) passes below with no re-indexing.
 
-import { HIERARCHY_FILENAME, isComplete } from "./assetIndex";
+import { HIERARCHY_FILENAME, isComplete, subjectsOf } from "./assetIndex";
 import {
   classifyChanges,
   evidenceMarks,
@@ -175,6 +175,24 @@ export interface AssetView {
   readonly hasChangeOwners: boolean;
 }
 
+/** provider -> the newest of `merged` (the collection-index revisions the mode
+ *  merges, ascending) that provider published. Read off the collection
+ *  subject's own manifests; a revision with no manifest names no provider. */
+export function newestIndexByProvider(
+  index: AssetIndex,
+  collection: string,
+  merged: readonly string[],
+): ReadonlyMap<string, string> {
+  const revisions = subjectsOf(index, collection).get(collection)?.revisions ?? [];
+  const providerOf = new Map(revisions.map((r) => [r.revision, r.manifest?.provider ?? null] as const));
+  const out = new Map<string, string>();
+  for (const revision of merged) {
+    const provider = providerOf.get(revision);
+    if (provider) out.set(provider, revision);
+  }
+  return out;
+}
+
 export function buildAssetHierarchy(forest: Forest): Hierarchy<AssetNode> {
   // The forest is already de-duplicated by its merge, so index it directly.
   return buildHierarchyFrom(forest.nodes, (n) => n.parent, (n) => n);
@@ -289,10 +307,21 @@ export function buildAssetView(input: AssetViewInput): AssetView {
     return resolution.subjects.get(origin.subject)?.revision.revision ?? null;
   });
 
+  // Drift is judged against the newest merged index FROM THE SUBJECT'S OWN
+  // PROVIDER. The index is a union: a second provider publishing its tree adds a
+  // revision beside the first one's, it does not replace it, so it cannot make a
+  // subject published against the first provider's tree "older". Judged against
+  // the newest index of any provider, every top-level node of one provider read as
+  // drifted the moment another provider published its own tree for the collection.
+  // A provider with no index of its
+  // own (or an index read without manifests) falls back to the newest overall.
+  const newestIndexBy = newestIndexByProvider(input.index, collection, merged);
   const drift = new Map<string, HierarchyDrift>();
   for (const [subject, resolved] of resolution.subjects) {
     if (isCollectionSubject(subject) || !isComplete(resolved.revision)) continue;
-    const d = hierarchyDrift(resolved.revision.manifest?.hierarchyRevision ?? null, spineRevision);
+    const provider = resolved.revision.manifest?.provider;
+    const against = (provider && newestIndexBy.get(provider)) || spineRevision;
+    const d = hierarchyDrift(resolved.revision.manifest?.hierarchyRevision ?? null, against);
     if (d) drift.set(subject, d);
   }
 

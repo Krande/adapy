@@ -57,7 +57,9 @@ router = APIRouter()
 admin_router = APIRouter()
 
 CHANGE_CHECK = "change-check"
-KINDS = (CHANGE_CHECK, "job")
+#: Every collection the provider offers, one job each, each published -- see routes/asset_sweeps.py.
+SWEEP = "sweep"
+KINDS = (CHANGE_CHECK, "job", SWEEP)
 #: A setting's ``choices`` value asking core to offer the users earlier change checks reported.
 CHOICES_CHANGE_USERS = "change_users"
 CHANGES_SCHEMA = "ada.assets/changes@1"
@@ -93,8 +95,8 @@ def schedule_entries(spec: dict) -> list[dict]:
         if not sid or sid in seen or kind not in KINDS or not isinstance(options, dict):
             logger.warning("asset_schedules: ignoring a malformed entry on %s: %r", spec.get("slug"), entry)
             continue
-        if kind == CHANGE_CHECK and not entry.get("collection_option"):
-            logger.warning("asset_schedules: change-check %r on %s names no collection_option", sid, spec.get("slug"))
+        if kind in (CHANGE_CHECK, SWEEP) and not entry.get("collection_option"):
+            logger.warning("asset_schedules: %s %r on %s names no collection_option", kind, sid, spec.get("slug"))
             continue
         seen.add(sid)
         out.append(entry)
@@ -138,6 +140,44 @@ def _declared_option(spec: dict, name: str) -> dict:
     return {}
 
 
+def _choice_label(labels: dict, value: Any) -> str:
+    """A declared value's label. Keys are ``str(value)`` -- so a ``bool`` option's are Python's
+    ``"False"``/``"True"`` -- with the JSON spelling (``"false"``) accepted as well, since a
+    declaration written by hand in another language would naturally use that."""
+    for key in (str(value), json.dumps(value)):
+        if key in labels:
+            return str(labels[key])
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
+
+
+_BOOL_WORDS = {"true": True, "false": False}
+
+
+def same_choice(value: Any, choice: Any) -> bool:
+    """Whether a submitted ``value`` is the declared ``choice``. Compared by value, tolerant of
+    how a bool travelled: ``False``, ``"false"`` and ``"False"`` are all the declared ``False``
+    (a form, a query string or an older stored schedule may carry any of them). Everything else
+    compares as text, as it always has -- ``3`` and ``"3"`` are the same choice."""
+    if isinstance(choice, bool) or isinstance(value, bool):
+        as_bool = [
+            x if isinstance(x, bool) else _BOOL_WORDS.get(x.strip().lower()) if isinstance(x, str) else None
+            for x in (value, choice)
+        ]
+        return as_bool[0] is not None and as_bool[0] is as_bool[1]
+    return str(value) == str(choice)
+
+
+def typed_choice(value: Any, choices: list[dict]) -> tuple[bool, Any]:
+    """``(found, declared value)`` for a submitted value: the choice it names, in the type the
+    provider declared it, so ``"false"`` is stored -- and reaches the job -- as ``False``."""
+    for c in choices:
+        if same_choice(value, c.get("value")):
+            return True, c.get("value")
+    return False, value
+
+
 def entry_settings(spec: dict, entry: dict) -> list[dict]:
     """The settings an admin may choose for ``entry``, each merged with the spec's ``job_options``
     declaration. ``source`` says where the choices come from: ``enum`` (declared), ``spec``
@@ -160,7 +200,7 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
         elif isinstance(decl.get("enum"), list):
             setting["source"] = "enum"
             labels = decl.get("labels") if isinstance(decl.get("labels"), dict) else {}
-            setting["choices"] = [{"value": v, "label": str(labels.get(str(v), v))} for v in decl["enum"]]
+            setting["choices"] = [{"value": v, "label": _choice_label(labels, v)} for v in decl["enum"]]
         elif isinstance(decl.get("enum_from"), str):
             setting["source"] = "spec"
             setting["choices"] = [{"value": v, "label": str(v)} for v in spec.get(decl["enum_from"]) or () if v]
@@ -197,6 +237,9 @@ async def build_options(
     hand-made request cannot smuggle free text past the dropdowns."""
     options = dict(entry["options"])
     collection_option = entry.get("collection_option")
+    if collection_option and not collection and entry.get("kind") == SWEEP:
+        # A sweep's row names no collection: the driver supplies each one in turn.
+        collection_option = None
     if collection_option:
         if not collection:
             raise HTTPException(status_code=400, detail=f"{entry['id']!r} needs a collection")
@@ -215,20 +258,25 @@ async def build_options(
             if validate:
                 raise HTTPException(status_code=400, detail=f"{name!r} is not a setting of {entry['id']!r}")
             continue
-        if value is None or value == [] or value == "":
+        if value is None or (isinstance(value, (list, str)) and len(value) == 0):
+            # Unset. Note `False` is a choice, not "unset": a bool setting's off is a value.
             continue
         if validate:
-            allowed = {
-                str(c["value"])
-                for c in await setting_choices(
-                    pool, setting, scope=scope, provider=provider, collection=collection or ""
-                )
-            }
-            values = value if isinstance(value, list) else [value]
-            bad = [v for v in values if str(v) not in allowed]
-            if bad:
-                raise HTTPException(status_code=400, detail=f"{name}: {bad!r} not among its choices")
-        options[name] = value
+            choices = await setting_choices(pool, setting, scope=scope, provider=provider, collection=collection or "")
+        else:
+            # The declared choices only -- no lookup of earlier runs on the firing path. A value
+            # they do not name is passed through as stored.
+            choices = list(setting.get("choices") or ())
+        values = value if isinstance(value, list) else [value]
+        typed, bad = [], []
+        for v in values:
+            found, declared_value = typed_choice(v, choices)
+            typed.append(declared_value)
+            if not found:
+                bad.append(v)
+        if validate and bad:
+            raise HTTPException(status_code=400, detail=f"{name}: {bad!r} not among its choices")
+        options[name] = typed if isinstance(value, list) else typed[0]
     return options
 
 
@@ -600,6 +648,8 @@ async def admin_asset_schedules_create(
     if found is None:
         raise HTTPException(status_code=404, detail=f"{provider!r} declares no job {job!r}")
     spec, entry = found
+    if entry.get("kind") == SWEEP:
+        collection = None  # every collection, by definition
     cron = _frequency_cron(body.get("frequency"))
     settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
     options = await build_options(

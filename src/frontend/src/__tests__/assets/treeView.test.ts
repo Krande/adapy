@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { buildHierarchy } from "../../assets/hierarchy";
+import { buildHierarchy, flattenVisible } from "../../assets/hierarchy";
 import {
   NO_VIEW,
   displayHierarchy,
@@ -38,6 +38,31 @@ test("a flattened kind is lifted out and its children take its place", () => {
   assert.deepEqual(d.hierarchy.roots, ["site-a", "site-b", "appl"]);
   // Kinds compare case-insensitively: the provider wrote WORL, the hint says worl.
   assert.deepEqual([...d.rootKindCensus], [["SITE", 2], ["APPLDW", 1]]);
+});
+
+test("a lifted root draws at the same depth as a real root beside it (mixed collection)", () => {
+  // One provider's SITEs under a flattened world row, another's as real roots:
+  // forest depths 1 and 0, but drawn side by side they must indent alike.
+  const mixed = buildHierarchy(
+    [
+      ["world", null, "WORL"],
+      ["site-lifted", "world", "SITE"],
+      ["zone-lifted", "site-lifted", "ZONE"],
+      ["site-root", null, "SITE"],
+      ["zone-root", "site-root", "ZONE"],
+    ].map(([id, parent, kind]) => ({ id: id as string, parent: parent as string | null, data: { kind: kind as string } })),
+  );
+  const d = displayHierarchy(mixed, resolveTreeView(null, { flattenKinds: ["worl"] }), opts);
+  const rows = flattenVisible(d.hierarchy, new Set(["site-lifted", "site-root"]));
+  assert.deepEqual(
+    rows.map((r) => [r.id, r.depth]),
+    [
+      ["site-lifted", 0],
+      ["zone-lifted", 1],
+      ["site-root", 0],
+      ["zone-root", 1],
+    ],
+  );
 });
 
 test("flattening a kind that is not at the top lifts it wherever it is", () => {

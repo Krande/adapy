@@ -8,6 +8,7 @@ import {viewerApi} from "@/services/viewerApi";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
+import {hasRunView, toastSkipAction, viewToastRun} from "@/services/sweepTracking";
 
 // Shared dismiss button. Hit area is 28×28 (Apple HIG min is 44 but
 // the toast is dense; 28 still beats the 24 we shipped with and stays
@@ -403,13 +404,55 @@ import type {ConversionJob} from "@/state/conversionStore";
 
 // Single in-progress job row inside the unified toast. Pulled out so
 // the multi-job expansion can reuse the same shape.
+// A watched sweep or export run (`sweepTracking.ts`) is not a job: its dismiss only stops watching.
+// What it offers instead is "Skip <collection>" -- give up on the item that is hanging and carry
+// on -- and "View run", which opens the table that shows the run, expanded on it. Read on every
+// render (the entry is re-set on every poll, so the row re-renders with the run's latest read).
+const RunActions: React.FC<{storeKey: string}> = ({storeKey}) => {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const skip = toastSkipAction(storeKey);
+    const canView = hasRunView(storeKey);
+    if (!skip && !canView) return null;
+    const btn = "bg-gray-700 hover:bg-gray-600 text-gray-100 px-1.5 py-0.5 rounded-sm text-[11px] disabled:opacity-50";
+    return (
+        <div className="flex flex-wrap items-center gap-1">
+            {canView && (
+                <button type="button" className={btn} title="Open the run's table" onClick={() => viewToastRun(storeKey)}>
+                    View run
+                </button>
+            )}
+            {skip && (
+                <button
+                    type="button"
+                    className={btn}
+                    disabled={busy || skip.pending}
+                    title="Give up on this item and carry on with the rest (the run keeps going)"
+                    onClick={() => {
+                        setBusy(true);
+                        setErr(null);
+                        skip.run()
+                            .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+                            .finally(() => setBusy(false));
+                    }}
+                >
+                    {busy ? "…" : skip.label}
+                </button>
+            )}
+            {err && <span className="text-[11px] text-red-400 break-all">{err}</span>}
+        </div>
+    );
+};
+
 const JobRow: React.FC<{
     job: ConversionJob;
     onCancel: () => void;
     showCancel: boolean;
-}> = ({job, onCancel, showCancel}) => {
+    storeKey?: string;
+}> = ({job, onCancel, showCancel, storeKey}) => {
     const pct = Math.round((job.progress || 0) * 100);
     const isCancellable = job.status === "queued" || job.status === "running";
+    const isRun = !!storeKey && (storeKey.startsWith("sweep:") || storeKey.startsWith("export:"));
     return (
         <div className="space-y-1 min-w-0">
             <div className="flex justify-between items-center gap-2 min-w-0">
@@ -439,6 +482,7 @@ const JobRow: React.FC<{
                     style={{width: `${Math.max(pct, 4)}%`}}
                 />
             </div>
+            {isRun && <RunActions storeKey={storeKey!}/>}
         </div>
     );
 };
@@ -459,8 +503,14 @@ const ConversionRows: React.FC<{
     const [expanded, setExpanded] = useState(false);
     if (jobs.length === 0) return null;
     // Newest first by startedAt — most-recently kicked-off conversion
-    // becomes the "top" job shown in the compact view.
-    const sorted = [...jobs].sort((a, b) => b.startedAt - a.startedAt);
+    // becomes the "top" job shown in the compact view. A watched sweep or export
+    // RUN always comes first, whatever its age: it is the one row with actions
+    // (View run, Skip), and its own parallel jobs -- newer by construction --
+    // would otherwise push it into the collapsed "+N more".
+    const isRunKey = (k: string) => k.startsWith("sweep:") || k.startsWith("export:");
+    const sorted = [...jobs].sort(
+        (a, b) => Number(isRunKey(b.storeKey)) - Number(isRunKey(a.storeKey)) || b.startedAt - a.startedAt,
+    );
     const top = sorted[0];
     const extras = sorted.slice(1);
     const total = jobs.length;
@@ -469,6 +519,7 @@ const ConversionRows: React.FC<{
         <div className="space-y-1">
             <JobRow
                 job={top}
+                storeKey={top.storeKey}
                 onCancel={() => onClearJob(top.storeKey)}
                 showCancel={true}
             />
@@ -498,6 +549,7 @@ const ConversionRows: React.FC<{
                                 >
                                     <JobRow
                                         job={j}
+                                        storeKey={j.storeKey}
                                         onCancel={() => onClearJob(j.storeKey)}
                                         showCancel={true}
                                     />

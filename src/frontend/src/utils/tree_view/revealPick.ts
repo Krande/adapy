@@ -15,7 +15,7 @@
 import {buildAssetHierarchy, carriesContent} from "@/assets/assetView";
 import {ancestorsOf, type Hierarchy} from "@/assets/hierarchy";
 import {resolveCollection} from "@/assets/resolve";
-import {resolvePickRow} from "@/assets/scenePick";
+import {resolvePickRow, type PickTreeSource} from "@/assets/scenePick";
 import {levelKey, levelOwner, levelWanted} from "@/assets/spines";
 import type {AssetNode} from "@/assets/types";
 import type {TreeNodeData} from "@/components/tree_view/CustomNode";
@@ -89,20 +89,10 @@ async function revealInSources(node: TreeNodeData, idx: TreeIndices, gen: number
         if (!alive()) return;
     }
 
-    // The forest as it stands; rebuilt only when a fetched level changed it.
-    let builtAt = -1;
-    let hierarchy: Hierarchy<AssetNode> | null = null;
-    const current = (): Hierarchy<AssetNode> => {
-        const s = store.getState();
-        if (hierarchy && builtAt === s.forestVersion) return hierarchy;
-        const built = buildAssetHierarchy(s.forest);
-        hierarchy = built;
-        builtAt = s.forestVersion;
-        return built;
-    };
+    const tree = sourcesTree(store, loader, scope, alive);
 
     // The row the model was loaded at; its subject when that row is not held (yet).
-    const held = (id: string | undefined) => (id && current().byId.has(id) ? id : null);
+    const held = (id: string | undefined) => (id && tree.hierarchy().byId.has(id) ? id : null);
     const anchor = held(ref.node) ?? held(ref.subject);
     if (!anchor) return;
 
@@ -113,39 +103,61 @@ async function revealInSources(node: TreeNodeData, idx: TreeIndices, gen: number
         ...(node.id === root.id ? [] : elementPath(node, root, idx)),
     ];
 
-    const resolved = await resolvePickRow(
-        {
-            label: (id) => current().byId.get(id)?.data.label,
-            children: (id) => current().childrenOf(id),
-            ensureChildren: async (id) => {
-                const s = store.getState();
-                if (!s.index || !s.collection) return;
-                const resolution = resolveCollection(s.index, s.collection, s.mode, {carriesContent});
-                const req = levelOwner(resolution, s.forest.origins, id);
-                const h = current();
-                if (!req || !levelWanted(h.byId.get(id)?.data, req, s.levelLoaded, h.childrenOf(id).length > 0)) return;
-                await loader.loadLevel(scope, req);
-                // Already in flight when asked (the tab's own effect fetches expanded rows): the
-                // call above returned at once, so wait for that fetch to land.
-                const key = levelKey(req);
-                if (!store.getState().levelLoading.has(key)) return;
-                await new Promise<void>((resolve) => {
-                    const unsubscribe = store.subscribe((st) => {
-                        if (st.levelLoading.has(key) && alive()) return;
-                        unsubscribe();
-                        resolve();
-                    });
-                });
-            },
-            alive,
-        },
-        anchor,
-        path,
-    );
+    const resolved = await resolvePickRow(tree, anchor, path);
     if (!resolved || !alive()) return;
-    const h = current();
+    const h = tree.hierarchy();
     const open = [...ancestorsOf(h, resolved.row), ...resolved.chain.slice(0, -1)];
     store.getState().revealRow(resolved.row, open);
+}
+
+type AssetBrowserStoreHook = ReturnType<typeof getSingletonViewerStores>["useAssetBrowserStore"];
+
+/** The Sources tree as a walk reads it (`PickTreeSource`): rows and labels off the forest as it
+ *  stands (re-indexed only when a fetched level changed it), and a row's level below fetched on
+ *  demand -- or waited for, when the tab's own effect is already fetching it. Shared by a 3D pick's
+ *  reveal and the attribute search's (`revealSearchHit`). */
+export function sourcesTree(
+    store: AssetBrowserStoreHook,
+    loader: ReturnType<typeof loaderFor>,
+    scope: string,
+    alive: () => boolean,
+): PickTreeSource & {hierarchy: () => Hierarchy<AssetNode>} {
+    let builtAt = -1;
+    let hierarchy: Hierarchy<AssetNode> | null = null;
+    const current = (): Hierarchy<AssetNode> => {
+        const s = store.getState();
+        if (hierarchy && builtAt === s.forestVersion) return hierarchy;
+        const built = buildAssetHierarchy(s.forest);
+        hierarchy = built;
+        builtAt = s.forestVersion;
+        return built;
+    };
+    return {
+        hierarchy: current,
+        label: (id) => current().byId.get(id)?.data.label,
+        children: (id) => current().childrenOf(id),
+        ensureChildren: async (id) => {
+            const s = store.getState();
+            if (!s.index || !s.collection) return;
+            const resolution = resolveCollection(s.index, s.collection, s.mode, {carriesContent});
+            const req = levelOwner(resolution, s.forest.origins, id);
+            const h = current();
+            if (!req || !levelWanted(h.byId.get(id)?.data, req, s.levelLoaded, h.childrenOf(id).length > 0)) return;
+            await loader.loadLevel(scope, req);
+            // Already in flight when asked (the tab's own effect fetches expanded rows): the
+            // call above returned at once, so wait for that fetch to land.
+            const key = levelKey(req);
+            if (!store.getState().levelLoading.has(key)) return;
+            await new Promise<void>((resolve) => {
+                const unsubscribe = store.subscribe((st) => {
+                    if (st.levelLoading.has(key) && alive()) return;
+                    unsubscribe();
+                    resolve();
+                });
+            });
+        },
+        alive,
+    };
 }
 
 /** Show the element at (`modelKey`, `rangeId`) -- just picked in 3D -- in the open tree. Call

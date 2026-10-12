@@ -45,6 +45,8 @@ from .routes.admin_audit_runs import (
 from .routes.admin_audit_runs import router as admin_audit_runs_router
 from .routes.admin_audit_schedules import router as admin_audit_schedules_router
 from .routes.admin_corpora import router as admin_corpora_router
+from .routes.admin_db import retention_loop as db_retention_loop
+from .routes.admin_db import router as admin_db_router
 from .routes.admin_plugin_jobs import plugin_schedule_fire
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_projects import router as admin_projects_router
@@ -53,9 +55,12 @@ from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
+from .routes.asset_exports import router as asset_exports_router
 from .routes.asset_schedules import admin_router as admin_asset_schedules_router
 from .routes.asset_schedules import router as asset_schedules_router
+from .routes.asset_sweeps import admin_router as admin_asset_sweeps_router
 from .routes.assets import router as assets_router
+from .routes.attribute_search import router as attribute_search_router
 from .routes.clash_check import router as clash_check_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
@@ -252,6 +257,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _profile_parser_loop(app.state.db_pool),
                 name="audit-profile-parser",
             )
+        # Database retention (Admin -> Database): once a day, prune each area an admin gave a
+        # retention. Idle -- one settings read an hour -- until one is set.
+        app.state.db_retention_task = None
+        if app.state.db_pool is not None:
+            app.state.db_retention_task = asyncio.create_task(
+                db_retention_loop(app.state.db_pool),
+                name="db-retention",
+            )
         # Stale-worker GC. A pod that crashes / scales down can leave its registry entry behind
         # (unregister_worker is best-effort); without pruning these accumulate and pollute the
         # capability matrix. Drop entries unseen for WORKER_PRUNE_AFTER_S (2 days), checked hourly.
@@ -290,6 +303,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "plugin_scheduler_task",
             "issue_bot_task",
             "profile_parser_task",
+            "db_retention_task",
             "worker_prune_task",
             "worker_registry_task",
             "job_cleanup_task",
@@ -1425,6 +1439,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(source_nodes_router)
     # Change checks a provider declares (`asset_schedules`): run now, list runs, read items.
     api.include_router(asset_schedules_router)
+    # Attribute search over the index the publish job ingests (routes/attribute_search.py). Fixed
+    # `assets/search...` paths, registered before the asset store's routes all the same.
+    api.include_router(attribute_search_router)
+    # Search hits exported as IFC into a chosen folder (routes/asset_exports.py), and per-file
+    # provenance (`/scopes/{scope}/files/meta`). Fixed paths, no parameterised sibling to collide with.
+    api.include_router(asset_exports_router)
 
     # Core asset store (routes/assets.py). Every path is
     # ``/scopes/{scope}/assets/...`` with a fixed first segment after
@@ -2097,6 +2117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     admin.include_router(admin_settings_router)
     admin.include_router(admin_storage_compression_router)
+    admin.include_router(admin_db_router)
 
     admin.include_router(admin_workers_router)
 
@@ -2340,6 +2361,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     admin.include_router(admin_plugin_jobs_router)
     admin.include_router(admin_asset_schedules_router)
+    admin.include_router(admin_asset_sweeps_router)
 
     async def _plugin_schedule_loop(pool) -> None:
         """Tick every 30 s, claim due schedules, enqueue them as plugin jobs.
