@@ -903,12 +903,7 @@ async def api_asset_publish(
     staged: dict[str, str] = {}
     staging_id = body.get("staging_id")
     if staging_id:
-        prefix = staged_prefix(str(staging_id))
-        entries = await ctx.storage.list_prefix(scope_obj, prefix)
-        for entry in entries:
-            staged[entry.key[len(prefix) :]] = entry.key
-        if not staged:
-            raise HTTPException(status_code=404, detail=f"nothing staged under {prefix}")
+        staged = await staged_by_role(ctx, scope_obj, str(staging_id))
     else:
         raw = body.get("staged") or {}
         if not isinstance(raw, dict) or not raw:
@@ -926,6 +921,46 @@ async def api_asset_publish(
             staged[str(role)] = key
 
     dry_run = bool(body.get("dry_run"))
+    job_id, derived_key = await submit_asset_publish(
+        ctx,
+        scope_obj,
+        provider=provider,
+        staged=staged,
+        user=user,
+        request=request,
+        collection=body.get("collection"),
+        options=body.get("options") or {},
+        dry_run=dry_run,
+        replace=bool(body.get("replace")),
+    )
+    return JSONResponse({"job_id": job_id, "derived_key": derived_key, "dry_run": dry_run})
+
+
+async def staged_by_role(ctx: RestContext, scope_obj: Scope, staging_id: str) -> dict[str, str]:
+    """Everything under ``assets/_staging/<id>/``, by role (its filename). 404 when empty."""
+    prefix = staged_prefix(staging_id)
+    staged = {e.key[len(prefix) :]: e.key for e in await ctx.storage.list_prefix(scope_obj, prefix)}
+    if not staged:
+        raise HTTPException(status_code=404, detail=f"nothing staged under {prefix}")
+    return staged
+
+
+async def submit_asset_publish(
+    ctx: RestContext,
+    scope_obj: Scope,
+    *,
+    provider: str,
+    staged: dict[str, str],
+    user,
+    request: Request | None = None,
+    collection: str | None = None,
+    options: dict | None = None,
+    dry_run: bool = False,
+    replace: bool = False,
+) -> tuple[str, str]:
+    """Submit one ``asset_publish`` job; ``(job_id, derived_key)``. The route above and a provider
+    sweep (``routes/asset_sweeps.py``) both publish through here, so authorship is stamped the
+    same way for a click and for a scheduled firing. Authorisation is the caller's."""
     derived_key = f"_derived/assets/_publish/{provider}/{uuid.uuid4().hex[:16]}/summary.json"
     submitted = await ctx.jobs.submit(
         JobRequest(
@@ -937,10 +972,10 @@ async def api_asset_publish(
             conversion_options={
                 "provider": provider,
                 "staged": staged,
-                "collection": body.get("collection"),
-                "options": body.get("options") or {},
+                "collection": collection,
+                "options": options or {},
                 "dry_run": dry_run,
-                "replace": bool(body.get("replace")),
+                "replace": replace,
                 # Decision 6's three trust levels: this is the CORE-STAMPED one, taken from the
                 # authenticated caller and never from the request body.
                 "published_by_id": getattr(user, "sub", None) or getattr(user, "id", None) or "unknown",
@@ -959,7 +994,7 @@ async def api_asset_publish(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "dry_run": dry_run})
+    return submitted.job_id, derived_key
 
 
 @router.get("/scopes/{scope}/assets/staging")
