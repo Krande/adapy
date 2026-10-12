@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import date, datetime, time as dtime
+from datetime import date, datetime
+from datetime import time as dtime
 from typing import Any, Optional
 
 import asyncpg

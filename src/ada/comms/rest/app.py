@@ -55,11 +55,11 @@ from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
+from .routes.asset_exports import router as asset_exports_router
 from .routes.asset_schedules import admin_router as admin_asset_schedules_router
 from .routes.asset_schedules import router as asset_schedules_router
 from .routes.asset_sweeps import admin_router as admin_asset_sweeps_router
 from .routes.assets import router as assets_router
-from .routes.asset_exports import router as asset_exports_router
 from .routes.attribute_search import router as attribute_search_router
 from .routes.clash_check import router as clash_check_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name

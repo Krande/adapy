@@ -61,7 +61,15 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
-from ..run_driver import ItemSkipped, RunCancelled, json_of, ms, spawn, user_label, wait_for_job
+from ..run_driver import (
+    ItemSkipped,
+    RunCancelled,
+    json_of,
+    ms,
+    spawn,
+    user_label,
+    wait_for_job,
+)
 from ..scope import Scope
 from .asset_schedules import (
     SWEEP,
@@ -73,7 +81,13 @@ from .asset_schedules import (
     settings_of,
 )
 from .assets import staged_by_role, submit_asset_publish
-from .deps import RestContext, parse_scope, require_pool, resolve_project_scope, rest_context
+from .deps import (
+    RestContext,
+    parse_scope,
+    require_pool,
+    resolve_project_scope,
+    rest_context,
+)
 from .plugin_jobs import enqueue_plugin_job
 
 admin_router = APIRouter()
