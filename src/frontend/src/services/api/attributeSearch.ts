@@ -15,19 +15,30 @@ import { runtime } from "@/runtime/config";
 
 import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
 
-/** One filter on an attribute. Exactly one of `eq` / `in` / `prefix`. */
+/** One filter on an attribute: exactly one operator beside `key`. `ne` / `not_in` are the exact
+ *  complement of `eq` / `in` -- a node without the key matches them too; `exists` / `missing` test
+ *  the key alone. A query of only negative / presence filters cannot use the server's index (it
+ *  scans every chosen collection, under the search's statement timeout). */
 export type SearchWhere =
   | { key: string; eq: string | number | boolean }
+  | { key: string; ne: string | number | boolean }
   | { key: string; in: (string | number | boolean)[] }
-  | { key: string; prefix: string };
+  | { key: string; not_in: (string | number | boolean)[] }
+  | { key: string; prefix: string }
+  | { key: string; exists: true }
+  | { key: string; missing: true };
 
 export type SearchDepth = { eq: number } | { min?: number; max?: number };
 
 /** The search body (contract `POST /api/scopes/{scope}/assets/search`). `null` = no constraint;
- *  `select: null` = every attribute of each hit. */
+ *  `select: null` = every attribute of each hit. The `exclude_*` lists leave those providers /
+ *  collections out whatever the includes say (optional: a query stored before they existed has
+ *  none). */
 export interface SearchQuery {
   providers: string[] | null;
   collections: string[] | null;
+  exclude_providers?: string[] | null;
+  exclude_collections?: string[] | null;
   kind: string[] | null;
   depth: SearchDepth | null;
   where: SearchWhere[];

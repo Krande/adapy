@@ -27,7 +27,7 @@ const AttributeSearchPanel = lazy(() => import("@/components/asset_browser/Attri
 const PANEL_TITLE: Record<ViewerPanel, string> = {
     admin: "Admin panel",
     convert: "Convert files",
-    search: "Attribute search",
+    search: "Search all collections (attributes)",
 };
 
 // A panel with no dedicated route has no "open in new tab": the attribute search acts on the

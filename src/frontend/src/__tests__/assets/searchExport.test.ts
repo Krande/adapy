@@ -204,5 +204,20 @@ test("a query in one line", () => {
         }),
         "collections ALPHA · kind EQUI · depth 2.. · TYPE = X · TAG in [a, b] · NAME starts P-",
     );
+    assert.equal(
+        compactQuery({
+            providers: null,
+            collections: null,
+            exclude_collections: ["BETA"],
+            exclude_providers: ["prov-b"],
+            kind: null,
+            depth: null,
+            where: [{key: "A", ne: 1}, {key: "B", not_in: ["x"]}, {key: "C", exists: true}, {key: "D", missing: true}],
+            select: null,
+            limit: 200,
+            cursor: null,
+        }),
+        "not collections BETA · not providers prov-b · A != 1 · B not in [x] · has C · no D",
+    );
     assert.equal(compactQuery(null), "");
 });

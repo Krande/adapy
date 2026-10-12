@@ -1,10 +1,12 @@
 // Attribute search: find nodes across the scope's collections by the attributes their providers
 // indexed (`ada.assets/attribute-index@1`), and go from a hit to its row in the Sources tree.
 //
-// Opened from the Sources tab's toolbar into the in-viewer panel host, so the tree and the 3D view
-// stay on screen beside it: "Show in tree" opens the drawer on Sources and walks the tree to the
-// hit (`revealSearchHit`); "Load" does the same and then loads the row the way its own "Load into
-// scene" would.
+// It spans every collection of every provider in the scope, so it is NOT on the toolbar of the
+// tree's one collection: it is a section of the Sources tab of its own (`AttributeSearchSection`),
+// drawn inline there, and can be popped out into the in-viewer panel host for wide results -- the
+// tree and the 3D view stay on screen either way. "Show in tree" opens the drawer on Sources and
+// walks the tree to the hit (`revealSearchHit`); "Load" does the same and then loads the row the
+// way its own "Load into scene" would.
 //
 // Provider-neutral: every key, kind and value offered comes from the server's index (or from what
 // the user typed); nothing here names one provider's vocabulary.
@@ -17,14 +19,19 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   FILTER_OPS,
   attrKeysOf,
+  filterOptions,
   formatAttr,
   hitKey,
   newFilterRow,
+  opTakesList,
+  opTakesValue,
   partitionCounts,
+  pickSummary,
   splitList,
   totalCount,
   type FilterOp,
   type FilterRow,
+  type PickMode,
   type ScalarValue,
 } from "@/assets/attributeSearch";
 import { useProviderName } from "@/state/providerNamesStore";
@@ -60,14 +67,14 @@ const valueText = (v: ScalarValue) => (typeof v === "string" ? v : String(v));
 
 /** The part of a value field that suggestions apply to: all of it, or the last item of a list. */
 function activeToken(op: FilterOp, text: string): string {
-  if (op !== "in") return text.trim();
+  if (!opTakesList(op)) return text.trim();
   const i = text.lastIndexOf(",");
   return text.slice(i + 1).trim();
 }
 
 /** Remember the typed value of every item in `text` that names a suggestion exactly. */
 function withTyped(row: FilterRow, text: string, suggestions: readonly SearchValueCount[]): FilterRow {
-  const items = row.op === "in" ? splitList(text) : [text.trim()];
+  const items = opTakesList(row.op) ? splitList(text) : [text.trim()];
   const typed: Record<string, ScalarValue> = { ...(row.typed ?? {}) };
   for (const item of items) {
     const hit = suggestions.find((s) => valueText(s.value) === item);
@@ -76,35 +83,81 @@ function withTyped(row: FilterRow, text: string, suggestions: readonly SearchVal
   return { ...row, value: text, typed };
 }
 
+/** A provider / collection filter: "is any of" (only these) or "is none of" (every one but these),
+ *  with a type-ahead over the options -- so leaving one of ninety-five out is one tick. Nothing
+ *  ticked is every one, in either mode. */
 const MultiPick: React.FC<{
   label: string;
-  all: string;
+  /** Singular, for the summary: "every collection". */
+  noun: string;
   options: readonly { value: string; label: string; title?: string }[];
   chosen: readonly string[];
-  onChange: (next: string[]) => void;
-}> = ({ label, all, options, chosen, onChange }) => {
-  const summary = chosen.length ? (chosen.length === 1 ? options.find((o) => o.value === chosen[0])?.label ?? chosen[0] : `${chosen.length} chosen`) : all;
+  mode: PickMode;
+  onChange: (next: string[], mode: PickMode) => void;
+}> = ({ label, noun, options, chosen, mode, onChange }) => {
+  const [filter, setFilter] = useState("");
+  const shown = useMemo(() => filterOptions(options, filter), [options, filter]);
+  const labelOf = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  const summary = pickSummary(chosen, mode, noun, labelOf);
   return (
     <details className="relative">
-      <summary className={`${CONTROL} flex items-center gap-1 cursor-pointer list-none select-none min-w-[9rem]`} aria-label={label}>
+      <summary
+        className={`${CONTROL} flex items-center gap-1 cursor-pointer list-none select-none min-w-[9rem] max-w-[16rem]`}
+        aria-label={label}
+        title={chosen.length ? `${mode === "exclude" ? "Every one but" : "Only"}: ${chosen.map(labelOf).join(", ")}` : undefined}
+      >
         <span className="text-gray-400">{label}:</span>
-        <span className={`truncate ${chosen.length ? "text-blue-200" : ""}`}>{summary}</span>
+        <span className={`truncate ${chosen.length ? (mode === "exclude" ? "text-amber-200" : "text-blue-200") : ""}`}>{summary}</span>
       </summary>
-      <div className="absolute z-20 mt-1 max-h-64 w-72 overflow-auto rounded-md border border-gray-700 bg-gray-900 p-1 shadow-xl">
-        <button type="button" className="w-full text-left px-2 py-1 text-xs text-gray-300 hover:bg-gray-800 rounded" onClick={() => onChange([])}>
-          {all}
-        </button>
-        {options.map((o) => (
-          <label key={o.value} title={o.title} className="flex items-center gap-2 px-2 py-1 text-xs text-gray-100 hover:bg-gray-800 rounded cursor-pointer">
-            <input
-              type="checkbox"
-              checked={chosen.includes(o.value)}
-              onChange={(e) => onChange(e.target.checked ? [...chosen, o.value] : chosen.filter((c) => c !== o.value))}
-            />
-            <span className="truncate">{o.label}</span>
-          </label>
-        ))}
-        {!options.length && <div className="px-2 py-1 text-xs text-gray-500">Nothing indexed in this scope yet</div>}
+      <div className="absolute z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-md border border-gray-700 bg-gray-900 p-1 shadow-xl space-y-1">
+        <div className="flex items-center gap-1">
+          <select
+            aria-label={`${label} filter mode`}
+            className={`${CONTROL} w-28`}
+            value={mode}
+            onChange={(e) => onChange([...chosen], e.target.value as PickMode)}
+            title="Search only the ticked ones, or every one but the ticked ones"
+          >
+            <option value="include">is any of</option>
+            <option value="exclude">is none of</option>
+          </select>
+          <input
+            aria-label={`Find ${noun}`}
+            className={`${CONTROL} flex-1 min-w-0`}
+            placeholder="Type to find…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2 px-1 text-[11px]">
+          <button
+            type="button"
+            className="text-blue-300 hover:text-white disabled:opacity-50"
+            disabled={!shown.length}
+            title={filter ? "Tick every one listed below" : "Tick every one"}
+            onClick={() => onChange([...new Set([...chosen, ...shown.map((o) => o.value)])], mode)}
+          >
+            {filter ? "Tick shown" : "Tick all"}
+          </button>
+          <button type="button" className="text-blue-300 hover:text-white disabled:opacity-50" disabled={!chosen.length} onClick={() => onChange([], mode)}>
+            Clear ({chosen.length})
+          </button>
+          <span className="ml-auto text-gray-500">{chosen.length ? summary : `every ${noun}`}</span>
+        </div>
+        <div className="max-h-56 overflow-auto">
+          {shown.map((o) => (
+            <label key={o.value} title={o.title} className="flex items-center gap-2 px-2 py-1 text-xs text-gray-100 hover:bg-gray-800 rounded cursor-pointer">
+              <input
+                type="checkbox"
+                checked={chosen.includes(o.value)}
+                onChange={(e) => onChange(e.target.checked ? [...chosen, o.value] : chosen.filter((c) => c !== o.value), mode)}
+              />
+              <span className="truncate">{o.label}</span>
+            </label>
+          ))}
+          {!options.length && <div className="px-2 py-1 text-xs text-gray-500">Nothing indexed in this scope yet</div>}
+          {options.length > 0 && !shown.length && <div className="px-2 py-1 text-xs text-gray-500">None matches “{filter}”</div>}
+        </div>
       </div>
     </details>
   );
@@ -144,12 +197,13 @@ const FilterRowEditor: React.FC<{
   }, [scope, key, token, partition.provider, partition.collection]);
   const listId = `attr-search-values-${row.id}`;
   // For a list, each suggestion completes the LAST item, keeping the ones before it.
-  const head = row.op === "in" && row.value.includes(",") ? row.value.slice(0, row.value.lastIndexOf(",") + 1) + " " : "";
+  const head = opTakesList(row.op) && row.value.includes(",") ? row.value.slice(0, row.value.lastIndexOf(",") + 1) + " " : "";
+  const takesValue = opTakesValue(row.op);
   return (
     <div className="flex items-center gap-1.5">
       <input
         aria-label="Attribute key"
-        className={`${CONTROL} w-40`}
+        className={`${CONTROL} w-1/3 min-w-[6rem] max-w-[10rem]`}
         list={keysListId}
         placeholder="Key"
         value={row.key}
@@ -157,7 +211,7 @@ const FilterRowEditor: React.FC<{
       />
       <select
         aria-label="Operator"
-        className={`${CONTROL} w-28`}
+        className={`${CONTROL} w-24 shrink-0`}
         value={row.op}
         onChange={(e) => onChange({ ...row, op: e.target.value as FilterOp })}
         title={FILTER_OPS.find((o) => o.id === row.op)?.title}
@@ -168,17 +222,21 @@ const FilterRowEditor: React.FC<{
           </option>
         ))}
       </select>
-      <input
-        aria-label="Value"
-        className={`${CONTROL} flex-1 min-w-0`}
-        list={listId}
-        placeholder={row.op === "in" ? "Values, comma separated" : "Value"}
-        value={row.value}
-        onChange={(e) => onChange(withTyped(row, e.target.value, suggestions))}
-        onKeyDown={(e) => e.key === "Enter" && onSubmit()}
-      />
+      {takesValue ? (
+        <input
+          aria-label="Value"
+          className={`${CONTROL} flex-1 min-w-0`}
+          list={listId}
+          placeholder={opTakesList(row.op) ? "Values, comma separated" : "Value"}
+          value={row.value}
+          onChange={(e) => onChange(withTyped(row, e.target.value, suggestions))}
+          onKeyDown={(e) => e.key === "Enter" && onSubmit()}
+        />
+      ) : (
+        <span className="flex-1 min-w-0 truncate px-2 text-gray-500">{row.op === "exists" ? "any value" : "not set on the node"}</span>
+      )}
       <datalist id={listId}>
-        {suggestions.map((s) => (
+        {takesValue && suggestions.map((s) => (
           <option key={valueText(s.value)} value={head + valueText(s.value)}>
             {`${valueText(s.value)} (${s.count})`}
           </option>
@@ -200,7 +258,11 @@ const FilterRowEditor: React.FC<{
 
 type RowAction = { busy: boolean; note: string | null; error: boolean };
 
-const AttributeSearchPanel: React.FC = () => {
+const AttributeSearchPanel: React.FC<{
+  /** Drawn inside the Sources tab's section rather than filling the floating panel: bounded in
+   *  height, the results scrolling (both ways) under the form. */
+  inline?: boolean;
+}> = ({ inline = false }) => {
   const { useScopeStore } = getSingletonViewerStores();
   const scope = scopeUrlPart(useScopeStore((s) => s.current));
   const pn = useProviderName();
@@ -230,10 +292,10 @@ const AttributeSearchPanel: React.FC = () => {
   }, [scope]);
   const partition = useMemo(
     () => ({
-      provider: form.providers.length === 1 ? form.providers[0] : undefined,
-      collection: form.collections.length === 1 ? form.collections[0] : undefined,
+      provider: form.providers.length === 1 && form.providerMode !== "exclude" ? form.providers[0] : undefined,
+      collection: form.collections.length === 1 && form.collectionMode !== "exclude" ? form.collections[0] : undefined,
     }),
-    [form.providers, form.collections],
+    [form.providers, form.collections, form.providerMode, form.collectionMode],
   );
   const [keys, setKeys] = useState<string[]>([]);
   useEffect(() => {
@@ -316,23 +378,25 @@ const AttributeSearchPanel: React.FC = () => {
   }, [focus]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-gray-900 text-gray-100 text-xs">
-      <div className="shrink-0 space-y-2 border-b border-gray-800 p-3">
+    <div className={`flex min-h-0 flex-col text-gray-100 text-xs ${inline ? "max-h-[60vh]" : "h-full bg-gray-900"}`}>
+      <div className={`shrink-0 space-y-2 border-b border-gray-800 ${inline ? "py-2" : "p-3"}`}>
         <div className="flex flex-wrap items-center gap-2">
           <MultiPick
             label="Collections"
-            all="All collections"
+            noun="collection"
             options={collectionOptions}
             chosen={form.collections}
-            onChange={(c) => setForm({ collections: c })}
+            mode={form.collectionMode}
+            onChange={(c, m) => setForm({ collections: c, collectionMode: m })}
           />
-          {providerOptions.length > 1 && (
+          {(providerOptions.length > 1 || form.providers.length > 0) && (
             <MultiPick
               label="Providers"
-              all="All providers"
+              noun="provider"
               options={providerOptions}
               chosen={form.providers}
-              onChange={(p) => setForm({ providers: p })}
+              mode={form.providerMode}
+              onChange={(p, m) => setForm({ providers: p, providerMode: m })}
             />
           )}
           <input

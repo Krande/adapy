@@ -203,7 +203,9 @@ export function compactQuery(q: SearchQuery | null | undefined): string {
   if (!q) return "";
   const parts: string[] = [];
   if (q.collections?.length) parts.push(`collections ${q.collections.join(", ")}`);
+  if (q.exclude_collections?.length) parts.push(`not collections ${q.exclude_collections.join(", ")}`);
   if (q.providers?.length) parts.push(`providers ${q.providers.join(", ")}`);
+  if (q.exclude_providers?.length) parts.push(`not providers ${q.exclude_providers.join(", ")}`);
   if (q.kind?.length) parts.push(`kind ${q.kind.join(", ")}`);
   if (q.depth) {
     if ("eq" in q.depth) parts.push(`depth ${q.depth.eq}`);
@@ -211,7 +213,11 @@ export function compactQuery(q: SearchQuery | null | undefined): string {
   }
   for (const w of q.where ?? []) {
     if ("eq" in w) parts.push(`${w.key} = ${String(w.eq)}`);
+    else if ("ne" in w) parts.push(`${w.key} != ${String(w.ne)}`);
     else if ("in" in w) parts.push(`${w.key} in [${w.in.map(String).join(", ")}]`);
+    else if ("not_in" in w) parts.push(`${w.key} not in [${w.not_in.map(String).join(", ")}]`);
+    else if ("exists" in w) parts.push(`has ${w.key}`);
+    else if ("missing" in w) parts.push(`no ${w.key}`);
     else parts.push(`${w.key} starts ${w.prefix}`);
   }
   return parts.join(" · ") || "everything";
