@@ -2,11 +2,11 @@
 // indexed (`ada.assets/attribute-index@1`), and go from a hit to its row in the Sources tree.
 //
 // It spans every collection of every provider in the scope, so it is NOT on the toolbar of the
-// tree's one collection: it is a section of the Sources tab of its own (`AttributeSearchSection`),
-// drawn inline there, and can be popped out into the in-viewer panel host for wide results -- the
-// tree and the 3D view stay on screen either way. "Show in tree" opens the drawer on Sources and
-// walks the tree to the hit (`revealSearchHit`); "Load" does the same and then loads the row the
-// way its own "Load into scene" would.
+// tree's one collection: it fills its own floating, resizable window (`AttributeSearchWindow`),
+// opened from the viewer's top bar or the Sources tab's launcher row, so the tree and the 3D view
+// stay on screen beside it. Its filter area folds away to give the results the window. "Show in
+// tree" opens the drawer on Sources and walks the tree to the hit (`revealSearchHit`); "Load" does
+// the same and then loads the row the way its own "Load into scene" would.
 //
 // Provider-neutral: every key, kind and value offered comes from the server's index (or from what
 // the user typed); nothing here names one provider's vocabulary.
@@ -34,6 +34,7 @@ import {
   type PickMode,
   type ScalarValue,
 } from "@/assets/attributeSearch";
+import { compactQuery } from "@/assets/searchExport";
 import { useProviderName } from "@/state/providerNamesStore";
 import {
   attributeSearchApi,
@@ -258,11 +259,25 @@ const FilterRowEditor: React.FC<{
 
 type RowAction = { busy: boolean; note: string | null; error: boolean };
 
-const AttributeSearchPanel: React.FC<{
-  /** Drawn inside the Sources tab's section rather than filling the floating panel: bounded in
-   *  height, the results scrolling (both ways) under the form. */
-  inline?: boolean;
-}> = ({ inline = false }) => {
+const FILTERS_OPEN_KEY = "ada.assets.attributeSearch.filtersOpen";
+
+function readFiltersOpen(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(FILTERS_OPEN_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeFiltersOpen(open: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(FILTERS_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Remembered for this page only.
+  }
+}
+
+const AttributeSearchPanel: React.FC = () => {
   const { useScopeStore } = getSingletonViewerStores();
   const scope = scopeUrlPart(useScopeStore((s) => s.current));
   const pn = useProviderName();
@@ -274,6 +289,12 @@ const AttributeSearchPanel: React.FC<{
   const selected = useAttributeSearchStore((s) => s.selected);
   const resultScope = useAttributeSearchStore((s) => s.scope);
   const { setForm, run, loadMore, toggleSelected, selectAll, resetForm } = useAttributeSearchStore.getState();
+  // The filter area folds away to give the results the window; the query stays summed up in a line.
+  const [filtersOpen, setFiltersOpen] = useState(readFiltersOpen);
+  const toggleFilters = () => {
+    writeFiltersOpen(!filtersOpen);
+    setFiltersOpen(!filtersOpen);
+  };
 
   // What is indexed in this scope, and the keys in it (narrowed to one partition when exactly one
   // collection, or one provider, is chosen -- else the scope's).
@@ -378,8 +399,12 @@ const AttributeSearchPanel: React.FC<{
   }, [focus]);
 
   return (
-    <div className={`flex min-h-0 flex-col text-gray-100 text-xs ${inline ? "max-h-[60vh]" : "h-full bg-gray-900"}`}>
-      <div className={`shrink-0 space-y-2 border-b border-gray-800 ${inline ? "py-2" : "p-3"}`}>
+    <div className="flex h-full min-h-0 flex-col bg-gray-900 text-gray-100 text-xs">
+      {/* Not scrolled itself: that would clip the collection / provider pickers' drop-downs. A
+          window too short for it folds the filters away instead. */}
+      <div className="shrink-0 space-y-2 border-b border-gray-800 p-3">
+        {filtersOpen && (
+        <>
         <div className="flex flex-wrap items-center gap-2">
           <MultiPick
             label="Collections"
@@ -486,14 +511,32 @@ const AttributeSearchPanel: React.FC<{
             ))}
           </datalist>
         </div>
+        </>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={BTN_SECONDARY}
+            aria-expanded={filtersOpen}
+            title={filtersOpen ? "Fold the filters away to give the results more room" : "Show the filters"}
+            onClick={toggleFilters}
+          >
+            {filtersOpen ? "Hide filters ▴" : "Filters ▾"}
+          </button>
           <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={submit}>
             {busy && !results ? "Searching…" : "Search"}
           </button>
-          <button type="button" className={BTN_SECONDARY} disabled={busy} onClick={resetForm} title="Clear every filter and column">
-            Reset
-          </button>
+          {filtersOpen && (
+            <button type="button" className={BTN_SECONDARY} disabled={busy} onClick={resetForm} title="Clear every filter and column">
+              Reset
+            </button>
+          )}
+          {!filtersOpen && (
+            <span className="min-w-0 flex-1 truncate text-gray-400" title={compactQuery(lastQuery)}>
+              {lastQuery ? compactQuery(lastQuery) : "No search run yet"}
+            </span>
+          )}
           <span className="ml-auto" />
           {/* One model per hit into a chosen folder: the query the results answer and the picked
               hits, both from `useAttributeSearchStore`. Only once there are results of THIS scope

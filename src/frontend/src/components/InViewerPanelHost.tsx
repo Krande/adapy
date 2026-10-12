@@ -2,7 +2,7 @@ import React, {Suspense, lazy, useEffect, useState} from "react";
 import {Rnd} from "react-rnd";
 import {useViewerPanelStore, ViewerPanel} from "@/state/viewerPanelStore";
 
-// In-viewer modal host for the Admin, Convert and Attribute search panels. Mounting
+// In-viewer modal host for the Admin and Convert panels. Mounting
 // them as a draggable Rnd window keeps the 3D model on-screen while
 // the operator pokes at admin tabs or kicks off a conversion — no
 // context switch, no losing the camera state.
@@ -22,16 +22,14 @@ import {useViewerPanelStore, ViewerPanel} from "@/state/viewerPanelStore";
 
 const AdminPanel = lazy(() => import("@/components/admin/AdminPanel"));
 const ConvertPage = lazy(() => import("@/components/convert/ConvertPage"));
-const AttributeSearchPanel = lazy(() => import("@/components/asset_browser/AttributeSearchPanel"));
+// The attribute search is not hosted here: this host shows one panel at a time, and the search must
+// stay open beside Admin or Convert -- it has its own window (`AttributeSearchWindow`).
 
 const PANEL_TITLE: Record<ViewerPanel, string> = {
     admin: "Admin panel",
     convert: "Convert files",
-    search: "Search all collections (attributes)",
 };
 
-// A panel with no dedicated route has no "open in new tab": the attribute search acts on the
-// viewer's own Sources tree, which a separate tab would not have.
 const PANEL_PATH: Partial<Record<ViewerPanel, string>> = {
     admin: "/admin",
     convert: "/convert",
@@ -153,7 +151,6 @@ const InViewerPanelHost: React.FC = () => {
                 }>
                     {open === "admin" && <AdminPanel embedded initialTab={adminTab ?? undefined}/>}
                     {open === "convert" && <ConvertPage/>}
-                    {open === "search" && <AttributeSearchPanel/>}
                 </Suspense>
             </div>
         </div>

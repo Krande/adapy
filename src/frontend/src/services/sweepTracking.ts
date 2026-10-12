@@ -20,6 +20,7 @@
 import {ApiError, viewerApi, type ExportRun, type SweepRun} from "@/services/viewerApi";
 import {useConversionStore, type ConvertStatus} from "@/state/conversionStore";
 import {toastRunTarget, useRunFocusStore} from "@/state/runFocusStore";
+import {useSearchWindowStore} from "@/state/searchWindowStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 
 const POLL_MS = 5000;
@@ -313,15 +314,20 @@ export function viewToastRun(key: string): void {
     const target = toastRunTarget(key, exportScopeOf);
     if (!target) return;
     useRunFocusStore.getState().setFocus(target.focus);
+    if (target.panel === "search") {
+        useSearchWindowStore.getState().show();
+        return;
+    }
+    const panel = target.panel;
     const panels = useViewerPanelStore.getState();
     // The admin panel reads its tab once, on mount: already open on another tab, it would stay
     // there. Close it and open it again on the next tick so it mounts on Providers.
-    if (target.panel === "admin" && panels.open === "admin") {
+    if (panel === "admin" && panels.open === "admin") {
         panels.closePanel();
-        setTimeout(() => useViewerPanelStore.getState().openPanel(target.panel, target.tab ?? undefined), 0);
+        setTimeout(() => useViewerPanelStore.getState().openPanel(panel, target.tab ?? undefined), 0);
         return;
     }
-    panels.openPanel(target.panel, target.tab ?? undefined);
+    panels.openPanel(panel, target.tab ?? undefined);
 }
 
 /** Re-attach the sweeps and exports this browser was watching. Idempotent; called on app load. */

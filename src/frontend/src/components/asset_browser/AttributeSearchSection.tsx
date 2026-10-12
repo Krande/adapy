@@ -1,94 +1,46 @@
-// "Search all collections (attributes)": the attribute search as a section of the Sources tab,
-// folded like "Request from a provider" just above it.
+// "Search all collections (attributes)": one launcher row in the Sources tab, below "Request from a
+// provider", for the attribute search's own floating window (`AttributeSearchWindow`; the viewer's
+// top bar opens it too).
 //
-// ITS OWN SECTION, NOT A TOOLBAR BUTTON. The search spans every collection of every provider in the
-// scope; a button beside the tree's collection picker read as if it searched that one collection.
-//
-// INLINE, WITH A POP-OUT. The panel draws in the tab (its results scroll both ways under the form);
-// "Pop out" moves it to the in-viewer floating panel for wide results. One copy at a time: while the
-// floating one is open the section says so instead of drawing a second (the state is shared --
-// `useAttributeSearchStore` -- so nothing is lost either way).
-//
-// Whether the section is open is remembered per browser; storage can be blocked, and it then
-// simply starts folded.
+// A ROW, NOT THE SEARCH. The search spans every collection of every provider in the scope -- a
+// button beside the tree's collection picker read as if it searched that one -- and its form and
+// results need more room than the drawer has. So the drawer keeps only this: what the last search
+// found, and a way to the window.
 
-import React, { Suspense, lazy, useState } from "react";
+import React from "react";
 
-import { useViewerStores } from "@/state/AdaViewerContext";
-
-const AttributeSearchPanel = lazy(() => import("./AttributeSearchPanel"));
-
-const OPEN_KEY = "ada.assets.attributeSearch.sectionOpen";
-
-function readOpen(): boolean {
-    try {
-        return globalThis.localStorage?.getItem(OPEN_KEY) === "1";
-    } catch {
-        return false;
-    }
-}
-
-function writeOpen(open: boolean): void {
-    try {
-        globalThis.localStorage?.setItem(OPEN_KEY, open ? "1" : "0");
-    } catch {
-        // Remembered for this page only.
-    }
-}
-
-const LINK = "text-blue-300 hover:text-white";
+import { totalCount } from "@/assets/attributeSearch";
+import { useAttributeSearchStore } from "@/state/attributeSearchStore";
+import { SEARCH_WINDOW_TITLE, useSearchWindowStore } from "@/state/searchWindowStore";
 
 const AttributeSearchSection: React.FC = () => {
-    const { useViewerPanelStore } = useViewerStores();
-    const floating = useViewerPanelStore((s) => s.open === "search");
-    const { openPanel, closePanel } = useViewerPanelStore.getState();
-    const [open, setOpen] = useState(readOpen);
+    const open = useSearchWindowStore((s) => s.open);
+    const { show, hide } = useSearchWindowStore.getState();
+    const results = useAttributeSearchStore((s) => s.results);
+    const total = results ? totalCount(results.counts) : null;
 
     return (
-        <details
-            open={open}
-            onToggle={(e) => {
-                const next = e.currentTarget.open;
-                if (next !== open) {
-                    setOpen(next);
-                    writeOpen(next);
-                }
-            }}
-        >
-            <summary className="cursor-pointer text-gray-400 select-none">
-                Search all collections (attributes)
-                <span className="ml-1 text-gray-500">· every provider in this scope</span>
-            </summary>
-            <div className="mt-1.5">
-                {floating ? (
-                    <div className="text-gray-400">
-                        Open in the floating window.{" "}
-                        <button type="button" className={LINK} onClick={closePanel}>
-                            Show it here instead
-                        </button>
-                    </div>
-                ) : (
-                    <>
-                        <div className="flex items-center gap-2 text-gray-500">
-                            <span>Finds nodes by the attributes their providers indexed, across every collection.</span>
-                            <button
-                                type="button"
-                                className={`ml-auto shrink-0 ${LINK}`}
-                                title="Open the search in a floating window over the viewer -- wider, for many columns"
-                                onClick={() => openPanel("search")}
-                            >
-                                Pop out ↗
-                            </button>
-                        </div>
-                        {open && (
-                            <Suspense fallback={<div className="py-2 text-gray-400">Loading…</div>}>
-                                <AttributeSearchPanel inline />
-                            </Suspense>
-                        )}
-                    </>
-                )}
-            </div>
-        </details>
+        <div className="flex items-center gap-2">
+            <span
+                className="text-gray-400 truncate"
+                title="Finds nodes by the attributes their providers indexed, across every collection of every provider in this scope"
+            >
+                {SEARCH_WINDOW_TITLE}
+            </span>
+            {total !== null && (
+                <span className="text-gray-500 shrink-0" title="Matches of the last search">
+                    · {total.toLocaleString()} {total === 1 ? "match" : "matches"}
+                </span>
+            )}
+            <button
+                type="button"
+                className="ml-auto shrink-0 h-6 px-2 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700"
+                aria-pressed={open}
+                onClick={open ? hide : show}
+            >
+                {open ? "Close" : "Open"}
+            </button>
+        </div>
     );
 };
 

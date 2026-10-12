@@ -18,6 +18,8 @@ import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
+import AttributeSearchIcon from "./icons/AttributeSearchIcon";
+import { SEARCH_WINDOW_TITLE, useSearchWindowStore } from "@/state/searchWindowStore";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import TreeViewIcon from "./icons/TreeViewIcon";
 import SceneIcon from "./icons/SceneIcon";
@@ -173,6 +175,7 @@ const Menu = () => {
   const setIsTreeCollapsed = stores.useTreeViewStore((s) => s.setIsTreeCollapsed);
   const treeViewWidth = stores.useTreeViewStore((s) => s.treeViewWidth);
   const isDesktop = useIsDesktop();
+  const searchWindowOpen = useSearchWindowStore((s) => s.open);
 
   // On desktop the tree panel pushes the menu bar to its right so
   // the buttons aren't hidden behind it. Mobile keeps overlay
@@ -251,6 +254,20 @@ const Menu = () => {
               aria-pressed={showServerInfoBox}
             >
               <ServerIcon />
+            </button>
+          )}
+          {/* The attribute search spans every collection of every provider in the scope -- a
+              viewer-wide tool, so its entry point is here rather than in one collection's tree. */}
+          {runtime.isRestMode() && (
+            <button
+              className={navBtnClass(searchWindowOpen, "", use_node_editor_only)}
+              hidden={use_node_editor_only}
+              onClick={useSearchWindowStore.getState().toggle}
+              title={SEARCH_WINDOW_TITLE}
+              aria-label={SEARCH_WINDOW_TITLE}
+              aria-pressed={searchWindowOpen}
+            >
+              <AttributeSearchIcon />
             </button>
           )}
           <button
