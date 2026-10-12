@@ -2,6 +2,17 @@
 
 
 
+## v0.116.0 (2026-10-12)
+
+### Feature
+
+* feat: provider sweeps, attribute index and search, search-result IFC export, Database admin (#455)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`d5e23e3`](https://github.com/Krande/adapy/commit/d5e23e3196696fae963a827d64a0d5a74d971980))
+
+
 ## v0.115.2 (2026-10-09)
 
 ### Fix
