@@ -14,6 +14,7 @@ import IssueTargetTab from "./IssueTargetTab";
 import ProjectsTab from "./ProjectsTab";
 import ProvidersTab from "./ProvidersTab";
 import StorageTab from "./adminStorage/StorageTab";
+import DatabaseTab from "./database/DatabaseTab";
 import CliTokensTab from "./tokens/CliTokensTab";
 import UsersTab from "./users/UsersTab";
 import WorkersTab from "./WorkersTab";
@@ -181,6 +182,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
                         Storage
                     </TabButton>
+                    <TabButton active={tab === "database"} onClick={() => setTab("database")}>
+                        Database
+                    </TabButton>
                     <TabButton active={tab === "workers"} onClick={() => setTab("workers")}>
                         Workers
                     </TabButton>
@@ -223,6 +227,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 {tab === "tokens" && <CliTokensTab/>}
                 {tab === "providers" && <ProvidersTab/>}
                 {tab === "storage" && <StorageTab/>}
+                {tab === "database" && <DatabaseTab/>}
                 {tab === "workers" && <WorkersTab/>}
                 {tab === "conversion" && <ConversionSettingsTab/>}
                 {tab === "procedural" && (

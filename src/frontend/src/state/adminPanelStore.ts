@@ -17,6 +17,7 @@ export type AdminTab =
     | "tokens"
     | "providers"
     | "storage"
+    | "database"
     | "workers"
     | "conversion"
     | "procedural";

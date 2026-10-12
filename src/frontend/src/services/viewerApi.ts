@@ -29,6 +29,7 @@ import { assetSchedulesApi } from "./api/assetSchedules";
 import { attributeSearchApi } from "./api/attributeSearch";
 import { searchExportApi } from "./api/searchExport";
 import { adminStorageApi } from "./api/adminStorage";
+import { adminDbApi } from "./api/adminDb";
 import { adminUsersApi } from "./api/adminUsers";
 import { workersApi } from "./api/workers";
 import { metricsApi } from "./api/metrics";
@@ -53,6 +54,7 @@ export const viewerApi = {
   ...attributeSearchApi,
   ...searchExportApi,
   ...adminStorageApi,
+  ...adminDbApi,
   ...adminUsersApi,
   ...workersApi,
   ...metricsApi,
@@ -102,6 +104,20 @@ export type {
   ExportRun,
   FileMeta,
 } from "./api/searchExport";
+export type {
+  DbAreaStorage,
+  DbAttributePartition,
+  DbCollectionRef,
+  DbPruneArea,
+  DbPruneResult,
+  DbPruneSpec,
+  DbRetentionLastRun,
+  DbCell,
+  DbStorageReport,
+  DbTableColumn,
+  DbTableRows,
+  DbTableStorage,
+} from "./api/adminDb";
 export type {
   MovedKeyEntry,
   MoveKeysResult,

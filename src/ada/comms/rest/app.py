@@ -45,6 +45,8 @@ from .routes.admin_audit_runs import (
 from .routes.admin_audit_runs import router as admin_audit_runs_router
 from .routes.admin_audit_schedules import router as admin_audit_schedules_router
 from .routes.admin_corpora import router as admin_corpora_router
+from .routes.admin_db import retention_loop as db_retention_loop
+from .routes.admin_db import router as admin_db_router
 from .routes.admin_plugin_jobs import plugin_schedule_fire
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_projects import router as admin_projects_router
@@ -255,6 +257,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _profile_parser_loop(app.state.db_pool),
                 name="audit-profile-parser",
             )
+        # Database retention (Admin -> Database): once a day, prune each area an admin gave a
+        # retention. Idle -- one settings read an hour -- until one is set.
+        app.state.db_retention_task = None
+        if app.state.db_pool is not None:
+            app.state.db_retention_task = asyncio.create_task(
+                db_retention_loop(app.state.db_pool),
+                name="db-retention",
+            )
         # Stale-worker GC. A pod that crashes / scales down can leave its registry entry behind
         # (unregister_worker is best-effort); without pruning these accumulate and pollute the
         # capability matrix. Drop entries unseen for WORKER_PRUNE_AFTER_S (2 days), checked hourly.
@@ -293,6 +303,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "plugin_scheduler_task",
             "issue_bot_task",
             "profile_parser_task",
+            "db_retention_task",
             "worker_prune_task",
             "worker_registry_task",
             "job_cleanup_task",
@@ -2106,6 +2117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     admin.include_router(admin_settings_router)
     admin.include_router(admin_storage_compression_router)
+    admin.include_router(admin_db_router)
 
     admin.include_router(admin_workers_router)
 
