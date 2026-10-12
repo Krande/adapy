@@ -42,6 +42,14 @@ from .asset_sweeps import (
     skip_pending_asset_sweep_items,
     update_asset_sweep_item,
 )
+from .attribute_index import (
+    drop_attr_collection,
+    ingest_attribute_index,
+    list_attr_collections,
+    list_attr_keys,
+    list_attr_values,
+    search_attributes,
+)
 from .audit_log import (  # noqa: F401
     _AUDIT_RUN_COUNTER_FOR_STATUS as _AUDIT_RUN_COUNTER_FOR_STATUS,
 )
@@ -290,6 +298,12 @@ __all__ = [
     "clear_asset_sweep_skip",
     "set_asset_sweep_item_run",
     "asset_sweep_item_status",
+    "ingest_attribute_index",
+    "drop_attr_collection",
+    "search_attributes",
+    "list_attr_collections",
+    "list_attr_keys",
+    "list_attr_values",
     "list_corpora",
     "create_corpus",
     "update_corpus",

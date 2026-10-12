@@ -12,6 +12,12 @@ THE WRITE IS CORE'S, NOT THE PROVIDER'S. ``derive()`` returns a plan; this handl
 authorship into every manifest (the owner gate -- a provider that set ``published_by`` is refused
 by name), checks occupancy, and writes in the plan's order so manifests land last. See
 ``ada.assets.publish``.
+
+THE ATTRIBUTE INDEX IS CORE'S TOO. A staged ``attribute-index.ndjson.gz``
+(``ada.assets/attribute-index@1``) never reaches the provider's ``derive()``: core streams it into
+Postgres after the plan is written (``db/attribute_index.py``), which is what makes
+``POST /assets/search`` provider-neutral. A staging holding only that file publishes without any
+provider publisher at all.
 """
 
 from __future__ import annotations
@@ -34,6 +40,11 @@ from ada.assets.publish import (
 from ada.assets.publishers import AssetPublisherError, asset_publisher
 from ada.config import logger
 
+from ..db.attribute_index import (
+    ATTRIBUTE_INDEX_ROLE,
+    ingest_attribute_index,
+    read_attribute_index_header,
+)
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
 from ..worker.audit import _audit_done
@@ -77,12 +88,11 @@ async def _run_asset_publish(
         await _audit_done(db_pool, job_id, "error", msg, started_at)
         return
 
-    try:
-        publisher = asset_publisher(provider_id)
-    except AssetPublisherError as exc:
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
-        return
+    # The attribute index is CORE's role, not the provider's: it is split off before the provider
+    # sees the staging and ingested by core after the plan is written. A staging that holds
+    # nothing else is an attributes-only publish -- no provider publisher is asked for at all.
+    attr_key = staged.get(ATTRIBUTE_INDEX_ROLE)
+    plan_staged = {role: key for role, key in staged.items() if role != ATTRIBUTE_INDEX_ROLE}
 
     dry_run = bool(opts.get("dry_run"))
     replace_existing = bool(opts.get("replace"))
@@ -97,91 +107,170 @@ async def _run_asset_publish(
     # What each phase took, in the summary beside the outcome: a provider sweep records it per
     # collection (routes/asset_sweeps.py), and "the publish was slow" is otherwise unanswerable.
     timings: dict[str, int] = {}
+    warnings: list[str] = []
 
-    loop = asyncio.get_running_loop()
-    sync_storage = _SyncStorageFacade(storage, scope, loop)
+    if plan_staged:
+        try:
+            publisher = asset_publisher(provider_id)
+        except AssetPublisherError as exc:
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+            return
 
-    def _derive() -> PublishPlan:
-        return publisher.derive(
-            scope,
-            dict(staged),
-            storage=sync_storage,
-            collection=collection,
-            options=dict(opts.get("options") or {}),
-            dry_run=dry_run,
-        )
+        loop = asyncio.get_running_loop()
+        sync_storage = _SyncStorageFacade(storage, scope, loop)
 
-    t0 = time.perf_counter()
-    try:
-        await queue.update(job_id, stage="derive", progress=0.10)
-        plan = await loop.run_in_executor(None, _derive)
-        timings["derive_ms"] = round((time.perf_counter() - t0) * 1000)
-    except Exception as exc:
-        logger.exception("worker: asset_publish derive failed for job %s", job_id)
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="derive", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
-        return
-
-    # Occupancy is read HERE, not inside the provider: "is this revision already published" is a
-    # question about the store, which core owns, and answering it per provider would give as many
-    # answers as there are providers.
-    t0 = time.perf_counter()
-    try:
-        touched = {k.rsplit("/", 1)[0] for k in (w.key for w in plan.writes)}
-        occupied: set[str] = set()
-        for prefix in sorted(touched):
-            if not prefix.startswith(f"{ASSET_PREFIX}/"):
-                continue
-            entries = await storage.list_prefix(scope, f"{prefix}/")
-            occupied.update(e.key for e in entries)
-    except Exception as exc:
-        logger.exception("worker: asset_publish occupancy check failed for job %s", job_id)
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
-        return
-
-    def _write(key: str, data: bytes) -> None:
-        # A hierarchy spine arrives gzip-compressed from apply_publish_plan (gzip at rest): store
-        # it as-is and label it, so the blob route and presigned reads carry its Content-Encoding.
-        encoding = stored_encoding(data)
-        sync_storage.put_bytes(key, data, content_encoding=encoding, pre_compressed=encoding is not None)
-
-    timings["occupancy_ms"] = round((time.perf_counter() - t0) * 1000)
-    t0 = time.perf_counter()
-    try:
-        await queue.update(job_id, stage="publish", progress=0.60)
-        outcome = await loop.run_in_executor(
-            None,
-            lambda: apply_publish_plan(
-                plan,
-                published_by=published_by,
-                published_via=published_via,
+        def _derive() -> PublishPlan:
+            return publisher.derive(
+                scope,
+                dict(plan_staged),
+                storage=sync_storage,
+                collection=collection,
+                options=dict(opts.get("options") or {}),
                 dry_run=dry_run,
-                replace_existing=replace_existing,
-                occupied=occupied,
-                write=_write,
-                provider=str(provider_id),
-            ),
-        )
-    except PublishError as exc:
-        # The refusals core makes on purpose: the owner gate, an occupied revision, a plan whose
-        # order would leave a manifest describing blobs that are not there yet.
-        logger.error("worker: asset_publish %s refused: %s", job_id, exc)
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
-        return
-    except Exception as exc:
-        logger.exception("worker: asset_publish write failed for job %s", job_id)
-        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
-        return
+            )
 
-    timings["write_ms"] = round((time.perf_counter() - t0) * 1000)
-    timings["writes"] = len(plan.writes)
+        t0 = time.perf_counter()
+        try:
+            await queue.update(job_id, stage="derive", progress=0.10)
+            plan = await loop.run_in_executor(None, _derive)
+            timings["derive_ms"] = round((time.perf_counter() - t0) * 1000)
+        except Exception as exc:
+            logger.exception("worker: asset_publish derive failed for job %s", job_id)
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="derive", error=str(exc))
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+            return
+
+        # Occupancy is read HERE, not inside the provider: "is this revision already published"
+        # is a question about the store, which core owns, and answering it per provider would
+        # give as many answers as there are providers.
+        t0 = time.perf_counter()
+        try:
+            touched = {k.rsplit("/", 1)[0] for k in (w.key for w in plan.writes)}
+            occupied: set[str] = set()
+            for prefix in sorted(touched):
+                if not prefix.startswith(f"{ASSET_PREFIX}/"):
+                    continue
+                entries = await storage.list_prefix(scope, f"{prefix}/")
+                occupied.update(e.key for e in entries)
+        except Exception as exc:
+            logger.exception("worker: asset_publish occupancy check failed for job %s", job_id)
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+            return
+
+        def _write(key: str, data: bytes) -> None:
+            # A hierarchy spine arrives gzip-compressed from apply_publish_plan (gzip at rest):
+            # store it as-is and label it, so the blob route and presigned reads carry its
+            # Content-Encoding.
+            encoding = stored_encoding(data)
+            sync_storage.put_bytes(key, data, content_encoding=encoding, pre_compressed=encoding is not None)
+
+        timings["occupancy_ms"] = round((time.perf_counter() - t0) * 1000)
+        t0 = time.perf_counter()
+        try:
+            await queue.update(job_id, stage="publish", progress=0.60)
+            outcome = await loop.run_in_executor(
+                None,
+                lambda: apply_publish_plan(
+                    plan,
+                    published_by=published_by,
+                    published_via=published_via,
+                    dry_run=dry_run,
+                    replace_existing=replace_existing,
+                    occupied=occupied,
+                    write=_write,
+                    provider=str(provider_id),
+                ),
+            )
+        except PublishError as exc:
+            # The refusals core makes on purpose: the owner gate, an occupied revision, a plan
+            # whose order would leave a manifest describing blobs that are not there yet.
+            logger.error("worker: asset_publish %s refused: %s", job_id, exc)
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+            return
+        except Exception as exc:
+            logger.exception("worker: asset_publish write failed for job %s", job_id)
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="publish", error=str(exc))
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+            return
+
+        timings["write_ms"] = round((time.perf_counter() - t0) * 1000)
+        timings["writes"] = len(plan.writes)
+        summary = outcome.to_dict()
+    else:
+        summary = None
+
+    # The attribute index, after the provider's plan is written. A failure here does not undo a
+    # publish that already landed -- it is reported beside it, and the staged index is left
+    # staged (the honest state: it was not consumed). For an attributes-only publish the index IS
+    # the publish, and its failure is the job's.
+    attributes: dict | None = None
+    attr_consumed = False
+    if attr_key:
+        await queue.update(job_id, stage="ingest", progress=0.80)
+        try:
+            if dry_run or db_pool is None:
+                header = await read_attribute_index_header((await storage.open_stream(scope, attr_key)).stream)
+                attributes = {
+                    "provider": provider_id,
+                    "collection": header["collection"],
+                    "revision": header.get("revision"),
+                    "source_etag": header.get("source_etag"),
+                    "ingested": False,
+                }
+                if db_pool is None and not dry_run:
+                    warnings.append(
+                        "this worker has no database pool (DATABASE_URL unset): the attribute index was NOT "
+                        "ingested and stays staged -- publish it again from a worker with a database"
+                    )
+            else:
+                ingested = await ingest_attribute_index(
+                    db_pool,
+                    scope=scope.prefix(),
+                    provider=str(provider_id),
+                    chunks=(await storage.open_stream(scope, attr_key)).stream,
+                )
+                phase = ingested.pop("timings")
+                timings["ingest_ms"] = phase.get("ingest_ms", 0)
+                timings["ingest_rows"] = ingested["rows"]
+                timings["index_ms"] = phase.get("index_ms", 0)
+                timings["swap_ms"] = phase.get("swap_ms", 0)
+                warnings.extend(ingested.pop("warnings"))
+                attributes = {**ingested, "ingested": True}
+                attr_consumed = True
+        except Exception as exc:
+            if summary is None:
+                logger.exception("worker: asset_publish attribute ingest failed for job %s", job_id)
+                await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ingest", error=str(exc))
+                await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+                return
+            logger.exception("worker: asset_publish %s published, but its attribute index failed", job_id)
+            attributes = {"ingested": False, "error": str(exc)}
+            warnings.append(f"the attribute index was not ingested: {exc}")
+
+    if summary is None:
+        # Attributes-only: the outcome a caller (and a sweep) reads names the collection and
+        # revision the index header gave.
+        assert attributes is not None
+        summary = {
+            "collection": attributes.get("collection"),
+            "revision": attributes.get("revision"),
+            "subjects": [],
+            "written": [],
+            "dry_run": dry_run,
+            "replaced": [],
+            "counts": {"attribute_rows": attributes.get("rows", 0)},
+        }
+    if attributes is not None:
+        summary["attributes"] = attributes
+    if warnings:
+        summary["warnings"] = warnings
 
     try:
         await queue.update(job_id, stage="upload", progress=0.95)
-        summary = {**outcome.to_dict(), "timings": timings}
+        summary = {**summary, "timings": timings}
         await storage.put_bytes(scope, job.derived_key, json.dumps(summary).encode("utf-8"), content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: asset_publish summary upload failed for job %s", job_id)
@@ -191,7 +280,8 @@ async def _run_asset_publish(
 
     # After the summary, so a publish is never reported as failed over its own cleanup; a key that
     # cannot be removed stays listed as staged, which is the honest state for it.
-    for key in consumed_staging(staged, dry_run=dry_run):
+    cleared = staged if attr_consumed or not attr_key else plan_staged
+    for key in consumed_staging(cleared, dry_run=dry_run):
         try:
             await storage.delete(scope, key)
         except Exception:
@@ -199,12 +289,13 @@ async def _run_asset_publish(
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     logger.info(
-        "worker: asset_publish %s -> %s@%s (%d subject(s)%s) job %s",
+        "worker: asset_publish %s -> %s@%s (%d subject(s)%s%s) job %s",
         provider_id,
-        outcome.collection,
-        outcome.revision,
-        len(outcome.subjects),
-        ", dry run" if outcome.dry_run else "",
+        summary.get("collection"),
+        summary.get("revision"),
+        len(summary.get("subjects") or []),
+        f", {attributes['rows']} attribute row(s)" if attributes and attributes.get("ingested") else "",
+        ", dry run" if dry_run else "",
         job_id,
     )
     await _audit_done(db_pool, job_id, "done", None, started_at)

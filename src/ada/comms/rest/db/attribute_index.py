@@ -1,0 +1,991 @@
+"""The provider-neutral attribute index: ingest of ``attribute-index.ndjson.gz`` and the search
+behind ``POST /scopes/{scope}/assets/search``. See migration 037 for the storage layout.
+
+INGEST STREAMS. An index of a large collection is a gigabyte of NDJSON (a hundred megabytes
+gzipped): it is decompressed as it arrives, split into lines, parsed a batch at a time on a
+thread (so the worker's event loop keeps answering its heartbeats) and COPYed in batches into a
+table nobody reads yet. Nothing ever holds the whole file, or all of its rows.
+
+THE SWAP IS ONE TRANSACTION. The loaded table is indexed and analysed while it is still
+standalone; then the old partition is detached and dropped and the new one renamed into its name
+and attached, together. A search that started before the swap finishes against the old rows; one
+that starts after it sees only the new ones. Two ingests of the same collection are serialised on
+a session advisory lock keyed by the partition, which is also what makes clearing a crashed
+ingest's leftover table safe.
+
+SEARCH NEVER INTERPOLATES WHAT A CALLER SENT. Keys and values travel as bind parameters --
+equality and IN as a JSON containment object (``attrs @> $n::jsonb``, which the GIN
+``jsonb_path_ops`` index answers), prefix as ``attrs->>$k LIKE $p`` with the LIKE wildcards in the
+prefix escaped. The only identifiers spliced into SQL are partition names this module generated,
+checked against their own grammar before use.
+
+PAGINATION IS A KEYSET over (provider, collection, node_id), walked partition by partition in
+that order with ``node_id > $last ORDER BY node_id`` on each -- the btree on node_id makes a page of
+a broad query as cheap as a page of a narrow one. The cursor is opaque base64 carrying the last
+row's position, a fingerprint of the filters (a cursor replayed against a different query is
+refused rather than silently skipping rows) and the per-partition totals counted for the first
+page, so later pages do not count again.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import hashlib
+import json
+import re
+import secrets
+import time
+import zlib
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterable, AsyncIterator, Iterable, Optional
+
+import asyncpg
+
+from ._common import _loads_jsonb
+
+ATTRIBUTE_INDEX_SCHEMA = "ada.assets/attribute-index@1"
+#: The staged role (its filename under ``assets/_staging/<id>/``) a provider stages the index as.
+ATTRIBUTE_INDEX_ROLE = "attribute-index.ndjson.gz"
+
+#: Lines parsed and COPYed per round trip. Bounds memory at a batch, not a file.
+INGEST_BATCH_ROWS = 20_000
+#: A key with more distinct values than this is not histogrammed at ingest (``high_card_keys``):
+#: its values are answered by scanning. Bounds ingest memory at keys x this.
+VALUE_STATS_MAX_DISTINCT = 2_000
+#: A value longer than this is never a useful autocomplete entry; its key is treated as high-card.
+VALUE_STATS_MAX_LEN = 200
+
+SEARCH_DEFAULT_LIMIT = 200
+SEARCH_MAX_LIMIT = 1000
+#: Most values one ``in`` filter may list, and most filters one query may carry.
+SEARCH_MAX_IN_VALUES = 1000
+SEARCH_MAX_WHERE = 32
+#: Ceiling on any one search statement: a pathological query fails instead of holding a
+#: connection of the API's pool.
+SEARCH_STATEMENT_TIMEOUT = "30s"
+#: Ancestor walks stop here; a parent cycle in a provider's data ends instead of spinning.
+PATH_MAX_DEPTH = 256
+
+_GZIP_MAGIC = b"\x1f\x8b"
+_PARTITION_RE = re.compile(r"^attr_p_[a-z0-9_]{1,40}_[0-9a-f]{16}$")
+_BUILD_PREFIX = "attr_n_"
+_NODE_COLUMNS = ("node_id", "parent_id", "full_name", "source_ref", "kind", "depth", "attrs")
+_SELECT_COLUMNS = "node_id, parent_id, full_name, source_ref, kind, depth, attrs"
+
+
+class AttributeIndexError(ValueError):
+    """The staged index is not an ``ada.assets/attribute-index@1`` file core can ingest."""
+
+
+class SearchQueryError(ValueError):
+    """A search body (or cursor) that cannot be answered as asked -- a 400, worded for the caller."""
+
+
+# --- naming -----------------------------------------------------------------------------------
+
+
+def part_key_for(scope: str, provider: str, collection: str) -> str:
+    """The partition's list value: stable per (scope, provider, collection), opaque, fixed length.
+
+    A hash rather than the names themselves because a scope key carries project ids and user subs
+    that have no business in a table name, and because a collection name is whatever its provider
+    calls it -- any length, any alphabet.
+    """
+    raw = "\x00".join((scope, provider, collection)).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def partition_name_for(provider: str, collection: str, part_key: str) -> str:
+    """``attr_p_<readable slug>_<part_key>``: the slug is for a human reading ``\\d+``, the hash
+    makes it unique. Lower-case ``[a-z0-9_]`` only and at most 63 bytes, so it is a valid
+    identifier quoted or not and never truncated by Postgres into a collision."""
+    slug = re.sub(r"[^a-z0-9]+", "_", f"{provider}_{collection}".lower()).strip("_")[:40] or "x"
+    return f"attr_p_{slug}_{part_key}"
+
+
+def _ident(name: str) -> str:
+    """A partition name this module generated, quoted. Anything else is refused: the one place a
+    name is spliced into SQL is guarded by the grammar that produced it."""
+    if not (_PARTITION_RE.match(name) or re.match(r"^attr_n_[0-9a-f]{16}_[0-9a-f]{8}$", name)):
+        raise ValueError(f"not an attribute-index table name: {name!r}")
+    return f'"{name}"'
+
+
+def _lock_id(part_key: str) -> int:
+    """A signed int8 advisory-lock key for one partition."""
+    n = int(part_key, 16)
+    return n - (1 << 64) if n >= (1 << 63) else n
+
+
+# --- reading the staged file ------------------------------------------------------------------
+
+
+async def _gunzip(chunks: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
+    """Decompress a gzip byte stream as it arrives (every member of a multi-member file); bytes
+    that do not start with the gzip magic pass through untouched, so applying this twice peels a
+    file the store compressed again at rest and costs nothing on one it did not. A stream that
+    ends inside a member is an error: a truncated upload must not ingest as a shorter index."""
+    it = chunks.__aiter__()
+    buf = b""
+    exhausted = False
+
+    async def fill(n: int) -> None:
+        nonlocal buf, exhausted
+        while len(buf) < n and not exhausted:
+            try:
+                buf += bytes(await it.__anext__())
+            except StopAsyncIteration:
+                exhausted = True
+
+    await fill(2)
+    if buf[:2] != _GZIP_MAGIC:
+        if buf:
+            yield buf
+        async for chunk in it:
+            yield bytes(chunk)
+        return
+
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    while True:
+        if not buf:
+            await fill(1)
+            if not buf:
+                break
+        if d.eof:
+            # One member ended; what follows is the next member, or trailing padding.
+            await fill(2)
+            if buf[:2] != _GZIP_MAGIC:
+                return
+            d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        out = d.decompress(buf)
+        if out:
+            yield out
+        buf = d.unused_data if d.eof else b""
+    if not d.eof:
+        raise AttributeIndexError("the attribute index ends inside a gzip member (truncated upload?)")
+
+
+async def _lines(chunks: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
+    """Non-blank lines of a byte stream, without holding more than one partial line."""
+    buf = b""
+    async for chunk in chunks:
+        buf += chunk
+        if b"\n" not in chunk:
+            continue
+        *complete, buf = buf.split(b"\n")
+        for line in complete:
+            if line.strip():
+                yield line
+    if buf.strip():
+        yield buf
+
+
+def ndjson_lines(chunks: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
+    """The lines of a (possibly gzipped, possibly twice) NDJSON byte stream."""
+    return _lines(_gunzip(_gunzip(chunks)))
+
+
+def parse_header(line: bytes) -> dict:
+    try:
+        header = json.loads(line)
+    except ValueError as exc:
+        raise AttributeIndexError(f"the first line of the attribute index is not JSON: {exc}") from exc
+    if not isinstance(header, dict) or header.get("schema") != ATTRIBUTE_INDEX_SCHEMA:
+        got = header.get("schema") if isinstance(header, dict) else type(header).__name__
+        raise AttributeIndexError(f"the attribute index header names schema {got!r}, not {ATTRIBUTE_INDEX_SCHEMA!r}")
+    collection = header.get("collection")
+    if not isinstance(collection, str) or not collection.strip():
+        raise AttributeIndexError("the attribute index header names no 'collection'")
+    # Collections are case-insensitive and keyed lower-case, as the asset tree and
+    # `assets/_options/<collection>.json` key them: one provider writing `alpha` and another `ALPHA`
+    # name the same collection. Attribute KEYS stay verbatim -- they are case-sensitive.
+    header["collection"] = collection.strip().lower()
+    exclude = header.get("index_exclude") or []
+    if not isinstance(exclude, list) or not all(isinstance(e, str) for e in exclude):
+        raise AttributeIndexError("'index_exclude' must be a list of key names or 'prefix*' patterns")
+    return header
+
+
+async def read_attribute_index_header(chunks: AsyncIterable[bytes]) -> dict:
+    """Just the header line -- what a dry run reports, without reading the rest."""
+    lines = ndjson_lines(chunks)
+    try:
+        first = await lines.__anext__()
+    except StopAsyncIteration:
+        raise AttributeIndexError("the attribute index is empty") from None
+    finally:
+        await lines.aclose()
+    return parse_header(first)
+
+
+def _exclusion(patterns: Iterable[str]):
+    exact = {p for p in patterns if not p.endswith("*")}
+    prefixes = tuple(p[:-1] for p in patterns if p.endswith("*"))
+
+    def excluded(key: str) -> bool:
+        return key in exact or (bool(prefixes) and key.startswith(prefixes))
+
+    return excluded
+
+
+def _value_text(v: Any) -> str:
+    """A value as ``attrs->>key`` renders it -- what the values endpoint lists and matches."""
+    if isinstance(v, str):
+        return v
+    return json.dumps(v, ensure_ascii=False)
+
+
+@dataclass
+class _ValueStats:
+    """Per-key value histogram, bounded: a key that outgrows it is dropped to ``high``."""
+
+    keys: Counter = field(default_factory=Counter)
+    values: dict[str, Counter] = field(default_factory=dict)
+    high: set[str] = field(default_factory=set)
+
+    def add(self, attrs: dict) -> None:
+        for k, v in attrs.items():
+            self.keys[k] += 1
+            if k in self.high:
+                continue
+            text = _value_text(v)
+            counter = self.values.setdefault(k, Counter())
+            if len(text) > VALUE_STATS_MAX_LEN or (text not in counter and len(counter) >= VALUE_STATS_MAX_DISTINCT):
+                self.high.add(k)
+                del self.values[k]
+                continue
+            counter[text] += 1
+
+
+def _clean_text(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    s = v if isinstance(v, str) else str(v)
+    return s.replace("\x00", "") if "\x00" in s else s
+
+
+def _parse_batch(lines: list[bytes], excluded, stats: _ValueStats) -> tuple[list[tuple], int]:
+    """Lines -> COPY records. Runs on a thread. Malformed lines are counted, not fatal: one bad
+    node in a million is the provider's bug to fix, not a reason to leave the collection unsearchable."""
+    records: list[tuple] = []
+    skipped = 0
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            skipped += 1
+            continue
+        if not isinstance(obj, dict):
+            skipped += 1
+            continue
+        node_id = obj.get("node_id")
+        if not isinstance(node_id, str) or not node_id:
+            skipped += 1
+            continue
+        raw = obj.get("attrs")
+        attrs = {}
+        if isinstance(raw, dict):
+            for k, v in raw.items():
+                if v is None or v == "" or excluded(k):
+                    continue
+                attrs[k] = v
+        stats.add(attrs)
+        depth = obj.get("depth")
+        if isinstance(depth, bool) or not isinstance(depth, (int, float)):
+            depth = None
+        doc = json.dumps(attrs, ensure_ascii=False, separators=(",", ":"))
+        if "\\u0000" in doc:  # jsonb refuses NUL; a provider string carrying one loses it
+            doc = doc.replace("\\u0000", "")
+        records.append(
+            (
+                _clean_text(node_id),
+                _clean_text(obj.get("parent_id")),
+                _clean_text(obj.get("full_name")),
+                _clean_text(obj.get("source_ref")),
+                _clean_text(obj.get("kind")),
+                int(depth) if depth is not None else None,
+                doc,
+            )
+        )
+    return records, skipped
+
+
+# --- ingest -----------------------------------------------------------------------------------
+
+
+async def _drop_leftovers(conn, part_key: str) -> None:
+    """Build tables a crashed ingest of this partition left behind. Safe under the partition's
+    advisory lock: no live ingest of it can own one."""
+    names = await conn.fetch(
+        "SELECT relname FROM pg_class WHERE relkind = 'r' AND relname LIKE $1",
+        f"attr\\_n\\_{part_key}\\_%",
+    )
+    for r in names:
+        await conn.execute(f"DROP TABLE IF EXISTS {_ident(r['relname'])}")
+
+
+async def ingest_attribute_index(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: str,
+    chunks: AsyncIterable[bytes],
+    batch_rows: int = INGEST_BATCH_ROWS,
+) -> dict:
+    """Stream one ``attribute-index.ndjson.gz`` into its collection's partition, replacing it.
+
+    ``provider`` is the publishing job's provider -- the authorised one; a header naming another is
+    reported in ``warnings`` and ignored. Returns what was ingested and the phase timings
+    (``ingest_ms`` download + parse + COPY, ``index_ms`` indexes + analyse, ``swap_ms``).
+    """
+    t0 = time.perf_counter()
+    lines = ndjson_lines(chunks)
+    try:
+        first = await lines.__anext__()
+    except StopAsyncIteration:
+        raise AttributeIndexError("the attribute index is empty") from None
+    header = parse_header(first)
+    warnings: list[str] = []
+    if header.get("provider") and header["provider"] != provider:
+        warnings.append(
+            f"the attribute index header names provider {header['provider']!r}; indexed under the "
+            f"publishing provider {provider!r}"
+        )
+    collection = str(header["collection"])
+    excluded = _exclusion(header.get("index_exclude") or [])
+    part_key = part_key_for(scope, provider, collection)
+    canonical = partition_name_for(provider, collection, part_key)
+    build = f"{_BUILD_PREFIX}{part_key}_{secrets.token_hex(4)}"
+    loop = asyncio.get_running_loop()
+    stats = _ValueStats()
+    rows = skipped = duplicates = 0
+    timings: dict[str, int] = {}
+
+    async with pool.acquire() as conn:
+        await conn.execute("SELECT pg_advisory_lock($1)", _lock_id(part_key))
+        try:
+            await _drop_leftovers(conn, part_key)
+            # The partition constraint holds by construction (DEFAULT + CHECK), so ATTACH does
+            # not scan the table to prove it.
+            await conn.execute(
+                f"""
+                CREATE TABLE {_ident(build)} (
+                    part_key    TEXT NOT NULL DEFAULT '{part_key}' CHECK (part_key = '{part_key}'),
+                    node_id     TEXT COLLATE "C" NOT NULL,
+                    parent_id   TEXT COLLATE "C",
+                    full_name   TEXT COLLATE "C",
+                    source_ref  TEXT,
+                    kind        TEXT,
+                    depth       INT,
+                    attrs       JSONB NOT NULL DEFAULT '{{}}'::jsonb
+                )
+                """
+            )
+            try:
+
+                async def flush(batch: list[bytes]) -> None:
+                    nonlocal rows, skipped
+                    records, bad = await loop.run_in_executor(None, _parse_batch, batch, excluded, stats)
+                    skipped += bad
+                    if records:
+                        await conn.copy_records_to_table(build, records=records, columns=list(_NODE_COLUMNS))
+                        rows += len(records)
+
+                batch: list[bytes] = []
+                async for line in lines:
+                    batch.append(line)
+                    if len(batch) >= batch_rows:
+                        await flush(batch)
+                        batch = []
+                if batch:
+                    await flush(batch)
+                timings["ingest_ms"] = round((time.perf_counter() - t0) * 1000)
+
+                t1 = time.perf_counter()
+                await conn.execute("SET maintenance_work_mem = '256MB'")
+                b = _ident(build)
+                try:
+                    await conn.execute(f"CREATE UNIQUE INDEX ON {b} (node_id)")
+                except asyncpg.UniqueViolationError:
+                    # A node listed twice: keep its first line, say how many were dropped.
+                    status = await conn.execute(
+                        f"DELETE FROM {b} a USING {b} d WHERE a.node_id = d.node_id AND a.ctid > d.ctid"
+                    )
+                    duplicates = int(status.split()[-1])
+                    rows -= duplicates
+                    warnings.append(f"{duplicates} duplicate node_id line(s) dropped (first one kept)")
+                    await conn.execute(f"CREATE UNIQUE INDEX ON {b} (node_id)")
+                await conn.execute(f"CREATE INDEX ON {b} USING gin (attrs jsonb_path_ops)")
+                await conn.execute(f"CREATE INDEX ON {b} (full_name)")
+                await conn.execute(f"CREATE INDEX ON {b} (kind, depth)")
+                await conn.execute(f"ANALYZE {b}")
+                await conn.execute("RESET maintenance_work_mem")
+                timings["index_ms"] = round((time.perf_counter() - t1) * 1000)
+
+                t2 = time.perf_counter()
+                keys = sorted(stats.keys)
+                high = sorted(stats.high)
+                value_records = [(part_key, k, v, n) for k, counter in stats.values.items() for v, n in counter.items()]
+                async with conn.transaction():
+                    await conn.execute("SET LOCAL lock_timeout = '60s'")
+                    await _detach_and_drop(conn, canonical)
+                    await conn.execute(f"ALTER TABLE {b} RENAME TO {_ident(canonical)}")
+                    await conn.execute(
+                        f"ALTER TABLE attr_nodes ATTACH PARTITION {_ident(canonical)} FOR VALUES IN ('{part_key}')"
+                    )
+                    await conn.execute("DELETE FROM attr_values WHERE part_key = $1", part_key)
+                    if value_records:
+                        await conn.copy_records_to_table(
+                            "attr_values", records=value_records, columns=["part_key", "key", "value", "n"]
+                        )
+                    await conn.execute(
+                        """
+                        INSERT INTO attr_collections
+                            (scope, provider, collection, revision, rows, source_etag, depth_base, ingested_at,
+                             partition_name, part_key, keys, high_card_keys)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
+                        ON CONFLICT (scope, provider, collection) DO UPDATE SET
+                            revision = EXCLUDED.revision, rows = EXCLUDED.rows, source_etag = EXCLUDED.source_etag,
+                            depth_base = EXCLUDED.depth_base, ingested_at = EXCLUDED.ingested_at,
+                            partition_name = EXCLUDED.partition_name, part_key = EXCLUDED.part_key,
+                            keys = EXCLUDED.keys, high_card_keys = EXCLUDED.high_card_keys
+                        """,
+                        scope,
+                        provider,
+                        collection,
+                        _str_or_none(header.get("revision")),
+                        rows,
+                        _str_or_none(header.get("source_etag")),
+                        _str_or_none(header.get("depth_base")),
+                        canonical,
+                        part_key,
+                        keys,
+                        high,
+                    )
+                timings["swap_ms"] = round((time.perf_counter() - t2) * 1000)
+            except BaseException:
+                try:
+                    await conn.execute(f"DROP TABLE IF EXISTS {_ident(build)}")
+                except Exception:  # noqa: BLE001 - the next ingest of this partition clears it
+                    pass
+                raise
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock($1)", _lock_id(part_key))
+
+    return {
+        "provider": provider,
+        "collection": collection,
+        "revision": _str_or_none(header.get("revision")),
+        "source_etag": _str_or_none(header.get("source_etag")),
+        "rows": rows,
+        "skipped": skipped,
+        "duplicates": duplicates,
+        "keys": len(keys),
+        "partition": canonical,
+        "warnings": warnings,
+        "timings": timings,
+    }
+
+
+def _str_or_none(v: Any) -> Optional[str]:
+    return None if v is None else str(v)
+
+
+async def _detach_and_drop(conn, name: str) -> None:
+    exists = await conn.fetchval("SELECT to_regclass($1) IS NOT NULL", name)
+    if not exists:
+        return
+    attached = await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = $1::regclass AND inhparent = 'attr_nodes'::regclass)",
+        name,
+    )
+    if attached:
+        await conn.execute(f"ALTER TABLE attr_nodes DETACH PARTITION {_ident(name)}")
+    await conn.execute(f"DROP TABLE {_ident(name)}")
+
+
+async def drop_attr_collection(pool: asyncpg.Pool, *, scope: str, provider: str, collection: str) -> bool:
+    """Remove one collection's index (partition, histogram, catalogue row). True when it existed."""
+    collection = collection.lower()
+    part_key = part_key_for(scope, provider, collection)
+    async with pool.acquire() as conn:
+        await conn.execute("SELECT pg_advisory_lock($1)", _lock_id(part_key))
+        try:
+            await _drop_leftovers(conn, part_key)
+            async with conn.transaction():
+                await _detach_and_drop(conn, partition_name_for(provider, collection, part_key))
+                await conn.execute("DELETE FROM attr_values WHERE part_key = $1", part_key)
+                status = await conn.execute(
+                    "DELETE FROM attr_collections WHERE scope = $1 AND provider = $2 AND collection = $3",
+                    scope,
+                    provider,
+                    collection,
+                )
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock($1)", _lock_id(part_key))
+    return status.split()[-1] != "0"
+
+
+# --- the search query ---------------------------------------------------------------------------
+
+
+@dataclass
+class SearchQuery:
+    providers: Optional[list[str]] = None
+    collections: Optional[list[str]] = None
+    kind: Optional[list[str]] = None
+    depth_eq: Optional[int] = None
+    depth_min: Optional[int] = None
+    depth_max: Optional[int] = None
+    #: ``{"key", "op": "eq"|"in"|"prefix", "values": [...]}`` -- eq is an in of one.
+    where: list[dict] = field(default_factory=list)
+    select: Optional[list[str]] = None
+    limit: int = SEARCH_DEFAULT_LIMIT
+    cursor: Optional[str] = None
+
+    def fingerprint(self) -> str:
+        """What a cursor is valid for: the filters, not the page size or the projection."""
+        doc = [
+            self.providers,
+            self.collections,
+            self.kind,
+            self.depth_eq,
+            self.depth_min,
+            self.depth_max,
+            self.where,
+        ]
+        return hashlib.sha1(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:12]
+
+    @property
+    def filtered(self) -> bool:
+        return (
+            bool(self.kind or self.where)
+            or self.depth_eq is not None
+            or self.depth_min is not None
+            or (self.depth_max is not None)
+        )
+
+
+def _str_list(body: dict, name: str) -> Optional[list[str]]:
+    v = body.get(name)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        v = [v]
+    if not isinstance(v, list) or not all(isinstance(x, str) and x for x in v):
+        raise SearchQueryError(f"{name!r} must be a list of non-empty strings or null")
+    return list(dict.fromkeys(v)) or None
+
+
+def _int(v: Any, what: str) -> int:
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise SearchQueryError(f"{what} must be an integer")
+    return v
+
+
+def _scalar(v: Any, what: str):
+    if isinstance(v, (str, bool, int, float)) and v is not None:
+        return v
+    raise SearchQueryError(f"{what} must be a string, number or boolean")
+
+
+def parse_search_query(body: Any) -> SearchQuery:
+    """The contract's search body, validated. Raises :class:`SearchQueryError` (a 400)."""
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        raise SearchQueryError("the search body must be a JSON object")
+    collections = _str_list(body, "collections")
+    q = SearchQuery(
+        providers=_str_list(body, "providers"),
+        # Collections are keyed lower-case (see parse_header); a filter naming `ALPHA` means `alpha`.
+        collections=list(dict.fromkeys(c.lower() for c in collections)) if collections else None,
+        kind=_str_list(body, "kind"),
+        select=_str_list(body, "select"),
+    )
+    depth = body.get("depth")
+    if depth is not None:
+        if not isinstance(depth, dict) or not set(depth) <= {"eq", "min", "max"} or not depth:
+            raise SearchQueryError('\'depth\' must be {"eq": n} or {"min": n, "max": m}')
+        if "eq" in depth and depth["eq"] is not None:
+            q.depth_eq = _int(depth["eq"], "depth.eq")
+        if depth.get("min") is not None:
+            q.depth_min = _int(depth["min"], "depth.min")
+        if depth.get("max") is not None:
+            q.depth_max = _int(depth["max"], "depth.max")
+    where = body.get("where") or []
+    if not isinstance(where, list):
+        raise SearchQueryError("'where' must be a list of {key, eq|in|prefix}")
+    if len(where) > SEARCH_MAX_WHERE:
+        raise SearchQueryError(f"at most {SEARCH_MAX_WHERE} 'where' filters")
+    for i, w in enumerate(where):
+        if not isinstance(w, dict):
+            raise SearchQueryError(f"where[{i}] must be an object")
+        key = w.get("key")
+        if not isinstance(key, str) or not key or len(key) > 200:
+            raise SearchQueryError(f"where[{i}].key must be a non-empty string")
+        ops = [op for op in ("eq", "in", "prefix") if op in w]
+        if len(ops) != 1 or set(w) - {"key", "eq", "in", "prefix"}:
+            raise SearchQueryError(f"where[{i}] needs exactly one of 'eq', 'in' or 'prefix' beside 'key'")
+        op = ops[0]
+        if op == "eq":
+            values = [_scalar(w["eq"], f"where[{i}].eq")]
+        elif op == "in":
+            raw = w["in"]
+            if not isinstance(raw, list) or not raw:
+                raise SearchQueryError(f"where[{i}].in must be a non-empty list")
+            if len(raw) > SEARCH_MAX_IN_VALUES:
+                raise SearchQueryError(f"where[{i}].in lists more than {SEARCH_MAX_IN_VALUES} values")
+            values = list(dict.fromkeys(_scalar(v, f"where[{i}].in[]") for v in raw))
+        else:
+            p = w["prefix"]
+            if not isinstance(p, str) or not p:
+                raise SearchQueryError(f"where[{i}].prefix must be a non-empty string")
+            values = [p]
+        q.where.append({"key": key, "op": "prefix" if op == "prefix" else "in", "values": values})
+    limit = body.get("limit")
+    if limit is not None:
+        q.limit = max(1, min(_int(limit, "limit"), SEARCH_MAX_LIMIT))
+    cursor = body.get("cursor")
+    if cursor is not None and not isinstance(cursor, str):
+        raise SearchQueryError("'cursor' must be the opaque string a previous page returned")
+    q.cursor = cursor or None
+    return q
+
+
+def _candidates(v: Any) -> list[Any]:
+    """The JSON values an equality on ``v`` matches. Containment is type-exact, but a caller
+    typing ``3`` into a search box means the attribute whether its provider wrote it as a number or
+    a string -- and the values endpoint lists both as the text ``"3"``."""
+    out: list[Any] = [v]
+    if isinstance(v, bool):
+        out.append("true" if v else "false")
+    elif isinstance(v, (int, float)):
+        out.append(_value_text(v))
+    elif isinstance(v, str):
+        s = v.strip()
+        if s in ("true", "false"):
+            out.append(s == "true")
+        else:
+            try:
+                n = int(s)
+            except ValueError:
+                try:
+                    n = float(s)
+                except ValueError:
+                    n = None
+            if n is not None and n == n and n not in (float("inf"), float("-inf")):
+                out.append(n)
+    seen, uniq = set(), []
+    for c in out:
+        tag = (type(c).__name__, c)
+        if tag not in seen:
+            seen.add(tag)
+            uniq.append(c)
+    return uniq
+
+
+def escape_like(prefix: str) -> str:
+    return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def build_filters(q: SearchQuery, first_arg: int = 1) -> tuple[str, list[Any]]:
+    """``(where_sql, args)`` for one partition's rows; ``$first_arg`` on. ``TRUE`` when unfiltered.
+
+    Equality and ``in`` become containment objects ORed per filter (each a GIN probe); prefixes
+    come after them, so the planner applies them to what the index already narrowed.
+    """
+    clauses: list[str] = []
+    args: list[Any] = []
+
+    def arg(v: Any, cast: str = "") -> str:
+        args.append(v)
+        return f"${first_arg + len(args) - 1}{cast}"
+
+    if q.kind:
+        clauses.append(f"kind = ANY({arg(q.kind, '::text[]')})")
+    if q.depth_eq is not None:
+        clauses.append(f"depth = {arg(q.depth_eq, '::int')}")
+    if q.depth_min is not None:
+        clauses.append(f"depth >= {arg(q.depth_min, '::int')}")
+    if q.depth_max is not None:
+        clauses.append(f"depth <= {arg(q.depth_max, '::int')}")
+    for w in q.where:
+        if w["op"] != "in":
+            continue
+        probes = [
+            f"attrs @> {arg(json.dumps({w['key']: c}, ensure_ascii=False), '::jsonb')}"
+            for v in w["values"]
+            for c in _candidates(v)
+        ]
+        clauses.append(probes[0] if len(probes) == 1 else "(" + " OR ".join(probes) + ")")
+    for w in q.where:
+        if w["op"] != "prefix":
+            continue
+        key = arg(w["key"], "::text")
+        clauses.append(f"attrs->>{key} LIKE {arg(escape_like(w['values'][0]) + '%', '::text')}")
+    return (" AND ".join(clauses) if clauses else "TRUE"), args
+
+
+def encode_cursor(doc: dict) -> str:
+    raw = json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def decode_cursor(cursor: str, fingerprint: str) -> dict:
+    try:
+        doc = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+    except (ValueError, TypeError) as exc:
+        raise SearchQueryError("'cursor' is not one this API issued") from exc
+    if not isinstance(doc, dict) or doc.get("v") != 1 or not all(isinstance(doc.get(k), str) for k in "pcn"):
+        raise SearchQueryError("'cursor' is not one this API issued")
+    if doc.get("f") != fingerprint:
+        raise SearchQueryError("'cursor' belongs to a different query; start again without one")
+    return doc
+
+
+# --- reading the index ------------------------------------------------------------------------
+
+
+def _label(provider: str, collection: str) -> str:
+    return f"{provider}/{collection}"
+
+
+async def _partitions(
+    conn, scope: str, providers: Optional[list[str]] = None, collections: Optional[list[str]] = None
+) -> list[dict]:
+    if collections is not None:
+        collections = sorted({c.lower() for c in collections})  # stored lower-case (see parse_header)
+    rows = await conn.fetch(
+        """
+        SELECT provider, collection, revision, rows, source_etag, ingested_at, partition_name, part_key, keys,
+               high_card_keys
+        FROM attr_collections
+        WHERE scope = $1 AND ($2::text[] IS NULL OR provider = ANY($2)) AND ($3::text[] IS NULL OR collection = ANY($3))
+        """,
+        scope,
+        providers,
+        collections,
+    )
+    parts = [dict(r) for r in rows if _PARTITION_RE.match(r["partition_name"])]
+    parts.sort(key=lambda p: (p["provider"], p["collection"]))
+    return parts
+
+
+async def _paths(conn, part: dict, rows: list[dict]) -> None:
+    """Ancestors of each row (root first, the row itself excluded), one recursive walk per
+    partition for the whole page."""
+    starts = [r for r in rows if r["parent_id"]]
+    for r in rows:
+        r["path"] = []
+    if not starts:
+        return
+    table = _ident(part["partition_name"])
+    found = await conn.fetch(
+        f"""
+        WITH RECURSIVE anc AS (
+            SELECT s.start, n.node_id, n.parent_id, n.full_name, n.kind, n.depth, 1 AS lvl
+            FROM unnest($1::text[], $2::text[]) AS s(start, pid)
+            JOIN {table} n ON n.node_id = s.pid COLLATE "C"
+            UNION ALL
+            SELECT a.start, n.node_id, n.parent_id, n.full_name, n.kind, n.depth, a.lvl + 1
+            FROM anc a JOIN {table} n ON n.node_id = a.parent_id
+            WHERE a.lvl < {PATH_MAX_DEPTH}
+        )
+        SELECT start, node_id, full_name, kind, depth, lvl FROM anc
+        """,
+        [r["node_id"] for r in starts],
+        [r["parent_id"] for r in starts],
+    )
+    by_start: dict[str, list] = {}
+    for f in found:
+        by_start.setdefault(f["start"], []).append(f)
+    for r in starts:
+        chain = sorted(by_start.get(r["node_id"], []), key=lambda f: -f["lvl"])
+        r["path"] = [
+            {"node_id": f["node_id"], "full_name": f["full_name"], "kind": f["kind"], "depth": f["depth"]}
+            for f in chain
+        ]
+
+
+async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuery) -> dict:
+    """One page of the contract's search response for ``scope``."""
+    t0 = time.perf_counter()
+    fp = query.fingerprint()
+    cur = decode_cursor(query.cursor, fp) if query.cursor else None
+    where_sql, args = build_filters(query)
+    after_arg = len(args) + 1
+    limit_arg = len(args) + 2
+
+    out_rows: list[dict] = []
+    next_cursor = None
+    async with pool.acquire() as conn, conn.transaction(readonly=True):
+        await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
+        parts = await _partitions(conn, scope, query.providers, query.collections)
+
+        counts: dict[str, int]
+        if cur and isinstance(cur.get("counts"), dict):
+            counts = {str(k): int(v) for k, v in cur["counts"].items()}
+        else:
+            counts = {}
+            for part in parts:
+                label = _label(part["provider"], part["collection"])
+                if not query.filtered:
+                    counts[label] = int(part["rows"])
+                    continue
+                counts[label] = int(
+                    await conn.fetchval(
+                        f"SELECT COUNT(*) FROM {_ident(part['partition_name'])} WHERE {where_sql}", *args
+                    )
+                )
+
+        position = (cur["p"], cur["c"]) if cur else None
+        page: list[tuple[dict, dict]] = []
+        for part in parts:
+            pos = (part["provider"], part["collection"])
+            if position is not None and pos < position:
+                continue
+            label = _label(*pos)
+            if counts.get(label) == 0:
+                continue
+            need = query.limit + 1 - len(page)
+            after = cur["n"] if position is not None and pos == position else None
+            sql = (
+                f"SELECT {_SELECT_COLUMNS} FROM {_ident(part['partition_name'])} WHERE {where_sql}"
+                + (f" AND node_id > ${after_arg}::text" if after is not None else "")
+                + f" ORDER BY node_id LIMIT ${limit_arg if after is not None else after_arg}::int"
+            )
+            params = [*args, after, need] if after is not None else [*args, need]
+            for r in await conn.fetch(sql, *params):
+                page.append((part, dict(r)))
+            if len(page) > query.limit:
+                break
+
+        if len(page) > query.limit:
+            page = page[: query.limit]
+            last_part, last_row = page[-1]
+            next_cursor = encode_cursor(
+                {
+                    "v": 1,
+                    "f": fp,
+                    "p": last_part["provider"],
+                    "c": last_part["collection"],
+                    "n": last_row["node_id"],
+                    "counts": counts,
+                }
+            )
+
+        by_part: dict[str, tuple[dict, list[dict]]] = {}
+        for part, r in page:
+            by_part.setdefault(part["part_key"], (part, []))[1].append(r)
+        for part, rows in by_part.values():
+            await _paths(conn, part, rows)
+
+    select = set(query.select) if query.select else None
+    for part, r in page:
+        attrs = _loads_jsonb(r["attrs"]) or {}
+        if select is not None:
+            attrs = {k: v for k, v in attrs.items() if k in select}
+        out_rows.append(
+            {
+                "provider": part["provider"],
+                "collection": part["collection"],
+                "node_id": r["node_id"],
+                "parent_id": r["parent_id"],
+                "full_name": r["full_name"],
+                "source_ref": r["source_ref"],
+                "kind": r["kind"],
+                "depth": r["depth"],
+                "attrs": attrs,
+                "path": r.get("path", []),
+            }
+        )
+    return {
+        "rows": out_rows,
+        "next_cursor": next_cursor,
+        "counts": counts,
+        "took_ms": round((time.perf_counter() - t0) * 1000),
+    }
+
+
+def _iso(v) -> Optional[str]:
+    return v.isoformat() if v is not None else None
+
+
+async def list_attr_collections(pool: asyncpg.Pool, *, scope: str) -> list[dict]:
+    async with pool.acquire() as conn:
+        parts = await _partitions(conn, scope)
+    return [
+        {
+            "provider": p["provider"],
+            "collection": p["collection"],
+            "revision": p["revision"],
+            "rows": int(p["rows"]),
+            "source_etag": p["source_etag"],
+            "ingested_at": _iso(p["ingested_at"]),
+        }
+        for p in parts
+    ]
+
+
+async def list_attr_keys(
+    pool: asyncpg.Pool, *, scope: str, provider: Optional[str] = None, collection: Optional[str] = None
+) -> list[str]:
+    """Every attribute key of the matching collections, sorted (byte order: keys are case-sensitive)."""
+    async with pool.acquire() as conn:
+        parts = await _partitions(conn, scope, [provider] if provider else None, [collection] if collection else None)
+    keys: set[str] = set()
+    for p in parts:
+        keys.update(p["keys"] or [])
+    return sorted(keys)
+
+
+async def list_attr_values(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    key: str,
+    prefix: Optional[str] = None,
+    limit: int = 50,
+    provider: Optional[str] = None,
+    collection: Optional[str] = None,
+) -> list[dict]:
+    """The commonest values of ``key`` (as text) across the matching collections, most frequent
+    first. From the ingest histogram where the key has one; by scanning the partition where its
+    values were too many to histogram."""
+    limit = max(1, min(int(limit), 1000))
+    like = escape_like(prefix) + "%" if prefix else None
+    totals: Counter = Counter()
+    async with pool.acquire() as conn, conn.transaction(readonly=True):
+        await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
+        parts = await _partitions(conn, scope, [provider] if provider else None, [collection] if collection else None)
+        tracked = [p["part_key"] for p in parts if key in (p["keys"] or []) and key not in (p["high_card_keys"] or [])]
+        scanned = [p for p in parts if key in (p["high_card_keys"] or [])]
+        if tracked:
+            for r in await conn.fetch(
+                """
+                SELECT value, SUM(n)::bigint AS n FROM attr_values
+                WHERE part_key = ANY($1::text[]) AND key = $2 AND ($3::text IS NULL OR value LIKE $3)
+                GROUP BY value
+                """,
+                tracked,
+                key,
+                like,
+            ):
+                totals[r["value"]] += int(r["n"])
+        for p in scanned:
+            for r in await conn.fetch(
+                f"""
+                SELECT attrs->>$1::text AS value, COUNT(*) AS n FROM {_ident(p["partition_name"])}
+                WHERE attrs->>$1::text IS NOT NULL AND ($2::text IS NULL OR attrs->>$1::text LIKE $2)
+                GROUP BY 1 ORDER BY n DESC LIMIT $3
+                """,
+                key,
+                like,
+                limit,
+            ):
+                totals[r["value"]] += int(r["n"])
+    ranked = sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+    return [{"value": v, "count": n} for v, n in ranked]
