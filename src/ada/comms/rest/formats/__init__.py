@@ -17,6 +17,7 @@ from . import (
     convert,
     engine_build,
     equipment,
+    export_search,
     export_selection,
     fea,
     parity,
@@ -61,6 +62,9 @@ register(clash_check_group.ClashCheckGroupHandler())
 register(clash_detail.ClashDetailGroupHandler())
 # Synthetic for the same reason: a published node's selection is read by its provider.
 register(export_selection.ExportSelectionAssetHandler())
+# Synthetic as well: attribute-search hits, each read through the geometry provider's concepts
+# and written as IFC into the user's target scope.
+register(export_search.ExportSearchAssetHandler())
 # Source-backed kinds that are not registry conversions.
 register(utility.UtilityHandler())
 register(fea.FeaArtefactsHandler())

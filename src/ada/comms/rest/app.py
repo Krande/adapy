@@ -57,6 +57,7 @@ from .routes.asset_schedules import admin_router as admin_asset_schedules_router
 from .routes.asset_schedules import router as asset_schedules_router
 from .routes.asset_sweeps import admin_router as admin_asset_sweeps_router
 from .routes.assets import router as assets_router
+from .routes.asset_exports import router as asset_exports_router
 from .routes.attribute_search import router as attribute_search_router
 from .routes.clash_check import router as clash_check_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
@@ -1430,6 +1431,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Attribute search over the index the publish job ingests (routes/attribute_search.py). Fixed
     # `assets/search...` paths, registered before the asset store's routes all the same.
     api.include_router(attribute_search_router)
+    # Search hits exported as IFC into a chosen folder (routes/asset_exports.py), and per-file
+    # provenance (`/scopes/{scope}/files/meta`). Fixed paths, no parameterised sibling to collide with.
+    api.include_router(asset_exports_router)
 
     # Core asset store (routes/assets.py). Every path is
     # ``/scopes/{scope}/assets/...`` with a fixed first segment after

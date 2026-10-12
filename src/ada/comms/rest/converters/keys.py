@@ -427,6 +427,29 @@ def _target_formats() -> frozenset[str]:
     return TARGET_FORMATS
 
 
+#: Per-file siblings written BESIDE a user file (not under ``_derived/``): the export provenance
+#: sidecar and its thumbnail, ``x/A.ifc`` -> ``x/A.meta.json`` / ``x/A.thumb.png``
+#: (``ada.comms.rest.search_export.sidecar_key``). Hidden from listings, carried by rename/move,
+#: removed with the file.
+FILE_SIDECAR_SUFFIXES: tuple[str, ...] = (".meta.json", ".thumb.png")
+#: A folder-level list of what an export wrote (``<folder>/_export.json``); hidden from listings.
+EXPORT_INDEX_FILENAME = "_export.json"
+
+
+def is_file_sidecar_key(key: str) -> bool:
+    """A per-file sibling or an export index -- metadata about files, not a file to list."""
+    name = key.rsplit("/", 1)[-1]
+    return name == EXPORT_INDEX_FILENAME or name.endswith(FILE_SIDECAR_SUFFIXES)
+
+
+def file_sidecar_keys(key: str) -> list[str]:
+    """The per-file siblings ``key`` may have (its last extension replaced by each suffix)."""
+    head, _, name = key.rpartition("/")
+    stem = name.rsplit(".", 1)[0] if "." in name.lstrip(".") else name
+    base = f"{head}/{stem}" if head else stem
+    return [f"{base}{suffix}" for suffix in FILE_SIDECAR_SUFFIXES]
+
+
 def stats_sidecar_key(glb_key: str) -> str:
     """The quantity take-off written ALONGSIDE a converted GLB.
 
