@@ -27,6 +27,7 @@ import { adminCorpusApi } from "./api/adminCorpus";
 import { adminProjectsApi } from "./api/adminProjects";
 import { assetSchedulesApi } from "./api/assetSchedules";
 import { attributeSearchApi } from "./api/attributeSearch";
+import { searchExportApi } from "./api/searchExport";
 import { adminStorageApi } from "./api/adminStorage";
 import { adminUsersApi } from "./api/adminUsers";
 import { workersApi } from "./api/workers";
@@ -50,6 +51,7 @@ export const viewerApi = {
   ...adminProjectsApi,
   ...assetSchedulesApi,
   ...attributeSearchApi,
+  ...searchExportApi,
   ...adminStorageApi,
   ...adminUsersApi,
   ...workersApi,
@@ -86,6 +88,20 @@ export type {
   SearchValueCount,
   SearchWhere,
 } from "./api/attributeSearch";
+export type {
+  ExportAlso,
+  ExportDoc,
+  ExportFileCounts,
+  ExportFileError,
+  ExportHit,
+  ExportItem,
+  ExportItemStatus,
+  ExportItemTimings,
+  ExportJobTimings,
+  ExportRequest,
+  ExportRun,
+  FileMeta,
+} from "./api/searchExport";
 export type {
   MovedKeyEntry,
   MoveKeysResult,

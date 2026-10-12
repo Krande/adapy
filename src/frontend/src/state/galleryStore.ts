@@ -42,6 +42,13 @@ interface GalleryState {
     // Transient — not persisted.
     mobileBarHeight: number;
     setMobileBarHeight: (h: number) => void;
+
+    // A folder the FILES walk is narrowed to (`scope` = the scope it was opened for; the filter only
+    // applies while that scope is current). Set by "Open in gallery" on a folder or an export run;
+    // null = the whole scope, the gallery's own behaviour. Transient -- not persisted: a filter
+    // silently surviving a reload would read as files gone missing.
+    folderFilter: {scope: string; folder: string} | null;
+    setFolderFilter: (f: {scope: string; folder: string} | null) => void;
 }
 
 export const useGalleryStore = create<GalleryState>()(
@@ -63,6 +70,9 @@ export const useGalleryStore = create<GalleryState>()(
 
             mobileBarHeight: 0,
             setMobileBarHeight: (mobileBarHeight) => set({mobileBarHeight}),
+
+            folderFilter: null,
+            setFolderFilter: (folderFilter) => set({folderFilter}),
         }),
         {
             name: "ada-gallery",

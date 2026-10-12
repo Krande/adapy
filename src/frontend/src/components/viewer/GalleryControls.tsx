@@ -14,6 +14,9 @@ import {canOpenInScene} from "@/utils/scene/fileKinds";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import FilePickerModal from "@/components/common/FilePickerModal";
+import {galleryFolderOrder} from "@/assets/searchExport";
+import {searchExportApi, type ExportDoc} from "@/services/api/searchExport";
+import GalleryProvenance from "./GalleryProvenance";
 
 // Gallery HUD. Three "walk" types (dropdown):
 //   - "files": cycles the current scope's loadable files (clear → load).
@@ -64,14 +67,39 @@ const GalleryControls: React.FC = () => {
     const isGeomWalk = walk === "geoms";
 
     // ---- Files walk -------------------------------------------------------
+    // A folder filter ("Open in gallery" on a folder or an export run) narrows the walk to the files
+    // under that folder -- sidecars never -- in the order its `_export.json` lists them when it has
+    // one (`galleryFolderOrder`). It applies only while the scope it was opened for is current; with
+    // none the walk is the whole scope, as it always was.
+    const folderFilter = useGalleryStore((s) => s.folderFilter);
+    const setFolderFilter = useGalleryStore((s) => s.setFolderFilter);
+    const folder = folderFilter && folderFilter.scope === scopeKey ? folderFilter.folder : null;
+    const [exportDoc, setExportDoc] = useState<ExportDoc | null>(null);
+    // Re-read when the listing changes too: a running export rewrites the doc as items finish.
+    useEffect(() => setExportDoc(null), [scopeKey, folder]);
+    useEffect(() => {
+        if (folder === null || !enabled) return;
+        const ctl = new AbortController();
+        searchExportApi
+            .exportDoc(scopeKey, folder, ctl.signal)
+            .then((d) => !ctl.signal.aborted && setExportDoc(d))
+            .catch(() => {
+                // No doc (or unreadable): the walk is alphabetical instead.
+            });
+        return () => ctl.abort();
+    }, [scopeKey, folder, enabled, fileObjects]);
+
     // The gallery walks only files the viewer can actually mount.
     const files = useMemo(
         () =>
-            fileObjects
-                .map((f) => f.name)
-                .filter((n) => canOpenInScene(n)),
-        [fileObjects],
+            folder !== null
+                ? galleryFolderOrder(fileObjects.map((f) => f.name), folder, exportDoc, canOpenInScene)
+                : fileObjects
+                      .map((f) => f.name)
+                      .filter((n) => canOpenInScene(n)),
+        [fileObjects, folder, exportDoc],
     );
+    const fileSet = useMemo(() => new Set(files), [files]);
 
     const [index, setIndex] = useState(0);
 
@@ -103,7 +131,8 @@ const GalleryControls: React.FC = () => {
     useEffect(() => {
         if (!enabled || isGeomWalk || files.length === 0 || loadBusy) return;
         const anyShown = files.some((f) => loadedSources.has(f));
-        if (!anyShown) void go(index);
+        // A folder walk starts at its first file, not wherever the whole-scope walk had got to.
+        if (!anyShown) void go(folder !== null ? 0 : index);
         // Only re-evaluate on enable / file-list change, not on every index tick.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, isGeomWalk, files]);
@@ -319,8 +348,33 @@ const GalleryControls: React.FC = () => {
                 : "no geoms in scene"
             : (selectedName ?? `geom ${geomIndex + 1}`) + spikeSuffix
         : empty
-          ? "no viewable files in this scope"
+          ? folder !== null
+              ? "no viewable files in this folder"
+              : "no viewable files in this scope"
           : (current ?? "");
+
+    // The folder the walk is narrowed to, with a way back to the whole scope.
+    const folderChip = folder !== null && !isGeomWalk && (
+        <div className="flex items-center gap-1 text-[11px] text-gray-300">
+            <span className="text-gray-500">Folder</span>
+            <span className="truncate font-mono" title={folder}>
+                {folder}/
+            </span>
+            {exportDoc && <span className="text-gray-500" title="Ordered as the export wrote them">· export order</span>}
+            <button
+                type="button"
+                onClick={() => setFolderFilter(null)}
+                title="Walk the whole scope again"
+                aria-label="Clear the folder filter"
+                className="ml-auto rounded-sm px-1 text-gray-400 hover:bg-gray-700 hover:text-white"
+            >
+                ×
+            </button>
+        </div>
+    );
+    const provenance = folder !== null && !isGeomWalk && !empty && (
+        <GalleryProvenance scope={scopeKey} files={files} index={index} doc={exportDoc} onJump={(n) => void go(n)} />
+    );
 
     const walkSelector = (
         <select
@@ -471,6 +525,8 @@ const GalleryControls: React.FC = () => {
                 >
                     {nameCopied ? "✓ copied" : primaryLabel}
                 </button>
+                {folderChip}
+                {provenance}
                 {toolsDrawer}
             </div>
 
@@ -517,6 +573,9 @@ const GalleryControls: React.FC = () => {
                     </button>
                 </div>
                 {geomControls}
+                {/* The provenance card is the desktop card's only: both bars are always mounted (one
+                    hidden by CSS), and a second card would fetch everything twice. */}
+                {folderChip}
                 {toolsDrawer}
             </div>
 
@@ -525,7 +584,7 @@ const GalleryControls: React.FC = () => {
                 scope={scopeKey}
                 title="Jump to file"
                 initialKey={current ?? undefined}
-                filter={(f) => canOpenInScene(f.key)}
+                filter={(f) => (folder !== null ? fileSet.has(f.key) : canOpenInScene(f.key))}
                 onCancel={() => setFilePickerOpen(false)}
                 onPick={jumpToFile}
             />

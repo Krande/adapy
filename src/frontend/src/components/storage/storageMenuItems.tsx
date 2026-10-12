@@ -150,6 +150,9 @@ export interface FolderMenuContext {
     onMoveInto?: () => void;
     onNewSubfolder?: () => void;
     onUploadHere?: () => void;
+    /** Walk this folder's files in the gallery (an export's output, typically). Read-only, so
+     *  offered whatever `canMutate` says. */
+    onOpenInGallery?: () => void;
     onDelete?: () => void;
 }
 
@@ -301,6 +304,14 @@ export function buildFolderMenuItems(
             key: "upload-here",
             label: "Upload here…",
             onClick: ctx.onUploadHere,
+        });
+    }
+    if (ctx.onOpenInGallery && ctx.fileCount > 0) {
+        items.push({
+            key: "open-in-gallery",
+            label: "Open in gallery",
+            title: "Step through the files under this folder one at a time (in export order when it is an export's folder).",
+            onClick: ctx.onOpenInGallery,
         });
     }
     if (!ctx.canMutate) return items;
