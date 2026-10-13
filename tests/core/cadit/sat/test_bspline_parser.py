@@ -105,6 +105,66 @@ def test_exactcur_multiline_knot_vector_parses():
     assert getattr(curve, "weights_data", None) is None
 
 
+def test_lawintcur_knot_vector_over_three_lines_is_not_a_rational_control_point():
+    """A ``lawintcur full nubs`` edge whose 12 knot pairs wrap over THREE lines, the last of
+    them exactly four numbers (two pairs). The reader looked for knots on two lines at most and
+    took ``4.937 1 5.2 3`` for a 4-value -- so rational -- control point: a stray point at
+    (4.9, 1, 5.2), the real points' z read as weights, and a GeniE flat plate drawn with a sliver
+    reaching towards the origin that blew up the model's bounding box. The knots are that plate's
+    edge record as GeniE wrote it; the control points are moved to x=0..5.2, y=0, z=10."""
+    from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_lawintcur
+    from ada.geom.curves import BSplineCurveWithKnots, RationalBSplineCurveWithKnots
+
+    data_lines = [
+        "lawintcur full nubs 3 open 12",
+        "0 3 0.64999999999997726 1 1 1 1.4374999999999978 1 2.0620000000000096 1",
+        "2.5875000000000035 1 3.5749999999999864 1 4.0624999999999982 1 4.2249999999999641 1 4.6874999999999982 1",
+        "4.93700000000001 1 5.2000000000001574 3",
+        "0 0 10",
+        "0.216667 0 10",
+        "0.55 0 10",
+        "1.029167 0 10",
+        "1.499833 0 10",
+        "2.029 0 10",
+        "2.7415 0 10",
+        "3.408333 0 10",
+        "3.954167 0 10",
+        "4.325 0 10",
+        "4.6165 0 10",
+        "4.9415 0 10",
+        "5.112333 0 10",
+        "5.2 0 10",
+        "3.8089332446704598e-12",
+        "null_surface",
+    ]
+    curve = create_bspline_curve_from_lawintcur(data_lines)
+    # nubs: not rational, whatever a line's token count suggests.
+    assert isinstance(curve, BSplineCurveWithKnots) and not isinstance(curve, RationalBSplineCurveWithKnots)
+    assert len(curve.knots) == 12 and curve.knots[-1] == pytest.approx(5.2)
+    assert len(curve.control_points_list) == 14
+    assert sum(curve.knot_multiplicities) == len(curve.control_points_list) + curve.degree + 1
+    # Every control point is on the plate's edge (y = 0, z = 10) -- the knot row is not one of them.
+    assert [round(float(cp[0]), 3) for cp in curve.control_points_list[:2]] == [0.0, 0.217]
+    assert all(float(cp[1]) == 0.0 and float(cp[2]) == 10.0 for cp in curve.control_points_list)
+
+
+def test_a_nubs_row_with_a_fourth_number_does_not_make_the_curve_rational():
+    """Rational or not is the header's word (``nurbs`` / ``nubs``), never a row's token count."""
+    from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_exactcur
+    from ada.geom.curves import RationalBSplineCurveWithKnots
+
+    data_lines = [
+        "exactcur full nubs 1 open 2",
+        "0 2 1 2",
+        "0 0 0 7",
+        "1 0 0 7",
+        "0",
+    ]
+    curve = create_bspline_curve_from_exactcur(data_lines)
+    assert not isinstance(curve, RationalBSplineCurveWithKnots)
+    assert [list(map(float, cp)) for cp in curve.control_points_list] == [[0, 0, 0], [1, 0, 0]]
+
+
 # xfail, not skip: a skip is invisible and stays invisible, while an xfail is reported every
 # run and turns into a failure the day the reader learns this case -- which is the day someone
 # needs to know.
