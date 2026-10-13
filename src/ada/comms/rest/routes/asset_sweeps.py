@@ -29,9 +29,11 @@ and the whole item (``total_ms``). A sweep is a measurement before it is anythin
 
 IN-PROCESS, WITH A HEARTBEAT. The driver is a task in the API process that started it. It stamps
 the run's heartbeat on every poll, and a listing reports a running sweep with an old heartbeat as
-``interrupted`` (see ``db/asset_sweeps.py``): a restart loses the sweep, and says so, rather
-than leaving it "running" for ever. Its jobs are not lost -- a fetch that finishes still stages,
-and ``GET /assets/staging`` lists it. The polling, heartbeat, cancel and skip machinery is shared
+``interrupted`` (see ``db/asset_sweeps.py``): a restart loses the DRIVER, and says so, rather
+than leaving it "running" for ever. ``POST /asset-sweeps/{id}/resume`` gives the same run a new
+driver: what finished is kept, what was in flight runs again, the rest runs as it would have
+(:func:`resume_sweep`). Its jobs are not lost either -- a fetch that finishes still stages, and
+``GET /assets/staging`` lists it. The polling, heartbeat, cancel and skip machinery is shared
 with the search-result export (``run_driver.py``).
 
 SKIP CURRENT. Cancel stops the whole sweep; ``POST /asset-sweeps/{id}/skip`` stops only the
@@ -584,6 +586,78 @@ async def admin_asset_sweep_cancel(
             pool, run_id, item["position"], status="skipped", message="the sweep was cancelled"
         )
     return JSONResponse({"cancelled": run_id, "jobs": cancelled_jobs})
+
+
+async def resume_sweep(ctx: RestContext, pool, run_id: str, *, user) -> dict:
+    """Drive an INTERRUPTED sweep on from where it stopped. Returns the run. Raises
+    :class:`SweepRefused` (and LookupError when there is no such run).
+
+    The same run goes on -- its finished collections, their timings and its settings are kept --
+    under a new driver in THIS process: the collections not reached run as the old driver would
+    have run them, and the ones in flight when it died run again from the start, since their
+    jobs' answers were never recorded. Those jobs are cancelled first, as a cancel of the sweep
+    would: one still queued would otherwise run for nobody, holding the provider's worker.
+
+    The provider must be online and declare the sweep still, and no other sweep of it may be
+    running -- the same guards a new sweep has."""
+    run = await db_module.get_asset_sweep_run(pool, run_id)
+    if run is None:
+        raise LookupError(run_id)
+    if run["status"] != "interrupted":
+        raise SweepRefused(f"only an interrupted sweep can be resumed; this one is {run['status']}")
+    provider = run["provider"]
+    specs = (await provider_specs(ctx)).get(provider)
+    if not specs:
+        raise SweepRefused(f"no online worker advertises provider {provider!r}")
+    found = find_entry(specs, run["job"])
+    if found is None or found[1].get("kind") != SWEEP:
+        raise SweepRefused(f"provider {provider!r} no longer declares the sweep {run['job']!r}")
+    spec, entry = found
+    busy = await db_module.running_asset_sweep(pool, provider=provider)
+    if busy is not None and busy["id"] != run_id:
+        raise SweepRefused(f"a {provider} sweep is already running (started {busy['created_at']})")
+    scope_obj = await _scope_of(pool, run["scope"], user)
+    rearmed = await db_module.resume_asset_sweep_run(pool, run_id)
+    if rearmed is None:
+        # Between the read and here: someone else resumed it, or it was cancelled.
+        raise SweepRefused("that sweep is no longer interrupted -- refresh and look again")
+    for item in rearmed:
+        for job_id in (item.get("fetch_job_id"), item.get("publish_job_id")):
+            if not job_id:
+                continue
+            try:
+                await ctx.jobs.cancel(job_id)
+            except Exception:  # noqa: BLE001 - it runs again either way
+                logger.warning("asset sweep %s: could not cancel job %s", run_id, job_id, exc_info=True)
+    run = await db_module.get_asset_sweep_run(pool, run_id)
+    collections = [i["collection"] for i in sorted(run.pop("items"), key=lambda i: i["position"])]
+    spawn(
+        _drive(ctx, pool, run, scope_obj=scope_obj, spec=spec, entry=entry, collections=collections, user=user),
+        name=f"asset-sweep-{run_id}",
+    )
+    logger.info(
+        "asset sweep %s: resumed by %s (%d collection(s) in flight run again)", run_id, user_label(user), len(rearmed)
+    )
+    return {**run, "resumed": [i["collection"] for i in rearmed]}
+
+
+@admin_router.post("/asset-sweeps/{run_id}/resume")
+async def admin_asset_sweep_resume(
+    run_id: str,
+    request: Request,
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Go on with an ``interrupted`` sweep (its driver died with its API process). 409 when the
+    sweep is not interrupted, its provider is offline, or another sweep of it is running."""
+    pool = require_pool(request)
+    try:
+        run = await resume_sweep(ctx, pool, run_id, user=user)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="sweep not found") from exc
+    except SweepRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(run, status_code=202)
 
 
 #: Item states in which a sweep's collection is "the one in flight".

@@ -484,6 +484,135 @@ async def test_cancel_also_cancels_the_jobs_in_flight_even_without_a_driver(monk
     assert cancelled == ["live"] and updated == [(1, "skipped")]
 
 
+# --- resuming an interrupted sweep -----------------------------------------------------------------
+
+
+def _resume_world(monkeypatch, *, status="interrupted", specs=None, busy=None, rearmed=None):
+    """Fakes for :func:`sweeps.resume_sweep`; answers what it did."""
+    seen = {"cancelled": [], "spawned": None}
+    items = [
+        {"position": 1, "collection": "BETA", "status": "pending"},
+        {"position": 0, "collection": "ALPHA", "status": "done"},
+    ]
+
+    async def get_run(pool, run_id):
+        # After the re-arm the run reads `running` again (its heartbeat is fresh).
+        live = "running" if seen.get("rearmed") else status
+        return {**RUN, "scope": "shared", "job": "project-sweep", "status": live, "items": list(items)}
+
+    async def provider_specs(ctx):
+        return {"vendor": [SPEC]} if specs is None else specs
+
+    async def running(pool, provider):
+        return busy
+
+    async def scope_of(pool, scope, user):
+        return Scope.shared()
+
+    async def rearm(pool, run_id):
+        seen["rearmed"] = True
+        return [{"position": 1, "collection": "BETA", "fetch_job_id": "old-fetch", "publish_job_id": None}] if rearmed is None else rearmed
+
+    async def cancel(job_id):
+        seen["cancelled"].append(job_id)
+        return True
+
+    def spawn(coro, name):
+        seen["spawned"] = (name, coro.cr_frame.f_locals.get("collections"))
+        coro.close()
+
+    monkeypatch.setattr(dbm, "get_asset_sweep_run", get_run)
+    monkeypatch.setattr(dbm, "running_asset_sweep", running)
+    monkeypatch.setattr(dbm, "resume_asset_sweep_run", rearm)
+    monkeypatch.setattr(sweeps, "provider_specs", provider_specs)
+    monkeypatch.setattr(sweeps, "_scope_of", scope_of)
+    monkeypatch.setattr(sweeps, "spawn", spawn)
+    ctx = SimpleNamespace(jobs=SimpleNamespace(cancel=cancel))
+    return ctx, seen
+
+
+@pytest.mark.asyncio
+async def test_resume_gives_the_same_run_a_new_driver_over_every_collection(monkeypatch):
+    ctx, seen = _resume_world(monkeypatch)
+    run = await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+    assert run["id"] == "run-1" and run["status"] == "running" and run["resumed"] == ["BETA"]
+    # The job that was in flight is cancelled; it runs again under the new driver.
+    assert seen["cancelled"] == ["old-fetch"]
+    # Every collection, in position order: the driver passes over what is not `pending`.
+    assert seen["spawned"] == ("asset-sweep-run-1", ["ALPHA", "BETA"])
+
+
+@pytest.mark.asyncio
+async def test_resume_refuses_what_is_not_interrupted_or_cannot_run(monkeypatch):
+    ctx, _ = _resume_world(monkeypatch, status="running")
+    with pytest.raises(sweeps.SweepRefused, match="only an interrupted sweep"):
+        await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+    ctx, _ = _resume_world(monkeypatch, status="cancelled")
+    with pytest.raises(sweeps.SweepRefused, match="this one is cancelled"):
+        await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+    ctx, _ = _resume_world(monkeypatch, specs={})
+    with pytest.raises(sweeps.SweepRefused, match="no online worker"):
+        await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+    ctx, _ = _resume_world(monkeypatch, busy={"id": "other", "created_at": "earlier"})
+    with pytest.raises(sweeps.SweepRefused, match="already running"):
+        await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+
+
+@pytest.mark.asyncio
+async def test_two_resumes_of_one_sweep_start_one_driver(monkeypatch):
+    # The second finds the run already re-armed (the database answers None): refused, not doubled.
+    async def already(pool, run_id):
+        return None
+
+    ctx, seen = _resume_world(monkeypatch)
+    monkeypatch.setattr(dbm, "resume_asset_sweep_run", already)
+    with pytest.raises(sweeps.SweepRefused, match="no longer interrupted"):
+        await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+    assert seen["spawned"] is None and seen["cancelled"] == []
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_resume_rearms_only_an_interrupted_sweep_against_postgres():
+    pool = await dbm.init_pool(POSTGRES_URL)
+    provider = f"test-{uuid.uuid4().hex[:8]}"
+    try:
+        run = await dbm.insert_asset_sweep_run(
+            pool,
+            scope="shared",
+            provider=provider,
+            plugin_id="vendor-plugin",
+            job="project-sweep",
+            settings={},
+            collections=["ALPHA", "BETA", "GAMMA", "DELTA"],
+            requested_by="tester",
+            requested_via="user",
+            excluded=frozenset({"DELTA"}),
+        )
+        rid = run["id"]
+        await dbm.update_asset_sweep_item(pool, rid, 0, status="done", revision="r1", timings={"total_ms": 5})
+        await dbm.update_asset_sweep_item(pool, rid, 1, status="publishing", fetch_job_id="f1", publish_job_id="p1")
+        # A live driver: not interrupted, nothing moves.
+        assert await dbm.resume_asset_sweep_run(pool, rid) is None
+        await pool.execute("UPDATE asset_sweep_runs SET heartbeat_at = NOW() - INTERVAL '1 hour' WHERE id = $1", rid)
+        assert (await dbm.get_asset_sweep_run(pool, rid))["status"] == "interrupted"
+
+        [moved] = await dbm.resume_asset_sweep_run(pool, rid)
+        assert moved == {"position": 1, "collection": "BETA", "fetch_job_id": "f1", "publish_job_id": "p1"}
+        full = await dbm.get_asset_sweep_run(pool, rid)
+        assert full["status"] == "running"
+        assert [i["status"] for i in full["items"]] == ["done", "pending", "pending", "excluded"]
+        from ada.comms.rest.db.asset_sweeps import RESUMED_ITEM
+
+        assert full["items"][0]["timings"] == {"total_ms": 5} and full["items"][1]["message"] == RESUMED_ITEM
+        assert (await dbm.running_asset_sweep(pool, provider=provider))["id"] == rid
+        # A second resume finds a live heartbeat.
+        assert await dbm.resume_asset_sweep_run(pool, rid) is None
+    finally:
+        await pool.execute("DELETE FROM asset_sweep_runs WHERE provider = $1", provider)
+        await dbm.close_pool(pool)
+
+
 @pytest.mark.asyncio
 async def test_width_is_the_declared_parallelism_capped_by_live_workers():
     rows = [{"capabilities": ["vendor", "base"]}, {"capabilities": ["VENDOR"]}, {"capabilities": ["other"]}]

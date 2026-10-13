@@ -57,7 +57,7 @@ const EXPECTED_METHODS = [
   "adminPluginJobScheduleRunNow", "adminPluginJobScheduleUpdate",
   "adminPluginJobSchedulesList", "adminProfileStats", "adminProfileUrl",
   "adminProvisionCiBot", "adminPruneWorkers", "adminRemoveMember", "adminRenameKey",
-  "adminRenameOrMoveFolder", "adminRenderProfiles", "adminRevokeCiBot",
+  "adminRenameOrMoveFolder", "adminRenderProfiles", "adminResumeAssetSweep", "adminRevokeCiBot",
   "adminRevokeCliToken", "adminRevokeCliTokens", "adminSetSetting", "adminStartCompressionSweep",
   "adminUpdateAssetSchedule", "adminWorkerPackages", "assetChangeRunItems", "auditLocalCreate",
   "auditLocalUpdate", "blobUrl", "cancelMyJob", "checkAssetChanges",
