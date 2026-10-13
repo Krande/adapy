@@ -15,6 +15,7 @@ import ObjectMetadataPanel from './ObjectMetadataPanel';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
 import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
+import FemConceptSelectionInfo from './FemConceptSelectionInfo';
 import DownloadSelectionButton from './DownloadSelectionButton';
 
 // 1500 ms is the smallest hold that still feels intentional vs a
@@ -377,6 +378,9 @@ const ObjectInfoBox = () => {
                 Sources tree (switching scope when it lives in another). Any loaded model whose
                 file has a provenance record; nothing for others. Above Properties, which starts
                 folded. */}
+            {/* Selected FEM concepts (masses, supports, loads, equipment): drawn on the FEM
+                overlay, not tree rows, so they have their own section. */}
+            <FemConceptSelectionInfo/>
             {!cellCtx && <SourceJumpSection/>}
             {name && <ObjectMetadataPanel data={jsonData}/>}
             {/* Structural facts about the selected hierarchy node. Renders for

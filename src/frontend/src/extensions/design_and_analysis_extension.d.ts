@@ -252,6 +252,10 @@ export interface FemConcepts {
    * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
    */
   scenarios?: LoadScenario[];
+  /**
+   * Equipment placed in the model: one box per distinct placement, with its mass and the load cases that place it there.
+   */
+  equipment?: EquipmentGlyph[];
   [k: string]: unknown;
 }
 export interface MassGlyph {
@@ -348,10 +352,44 @@ export interface LoadGlyph {
   points?: Vec31[];
   direction?: Vec34;
   /**
-   * Force magnitude / pressure / acceleration magnitude (drives arrow color/label).
+   * Force magnitude / pressure / acceleration magnitude (drives arrow color/label). For a line load, the intensity at its start.
    */
   magnitude?: number;
+  /**
+   * Line load intensity at its end, along the same direction, where it differs from the start.
+   */
+  end_magnitude?: number;
   moment?: Vec35;
+  /**
+   * The equipment this load was resolved from, when the analysis model generated it rather than a user applying it.
+   */
+  generated_by?: string;
+  [k: string]: unknown;
+}
+export interface EquipmentGlyph {
+  /**
+   * Equipment name.
+   */
+  name?: string;
+  /**
+   * Equipment mass, kg.
+   */
+  mass: number;
+  origin: Vec31;
+  /**
+   * The placed frame's x, y and z directions, unit vectors in model coordinates.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  axes: [Vec31, Vec31, Vec31];
+  box_min: Vec31;
+  box_max: Vec31;
+  cog?: Vec31;
+  /**
+   * The load cases that place the equipment here.
+   */
+  load_cases?: string[];
   [k: string]: unknown;
 }
 /**
@@ -528,5 +566,9 @@ export interface FemConcepts1 {
    * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
    */
   scenarios?: LoadScenario[];
+  /**
+   * Equipment placed in the model: one box per distinct placement, with its mass and the load cases that place it there.
+   */
+  equipment?: EquipmentGlyph[];
   [k: string]: unknown;
 }

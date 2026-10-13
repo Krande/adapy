@@ -11,6 +11,7 @@ from ada.fem.concept.constraints import (
     ConstraintConcepts,
     SectionSupport,
 )
+from ada.fem.concept.equipment import EquipmentConcepts
 from ada.fem.concept.loads import LoadConcepts
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ class ConceptFEM:
     loads: LoadConcepts = field(default_factory=LoadConcepts)
     constraints: ConstraintConcepts = field(default_factory=ConstraintConcepts)
     steps: dict[str, StepImplicitStatic] = field(default_factory=dict)
+    equipment: EquipmentConcepts = field(default_factory=EquipmentConcepts)
 
     def add_step(self, step: StepImplicitStatic) -> StepImplicitStatic:
         if step.name in self.steps:
@@ -39,6 +41,7 @@ class ConceptFEM:
     def __post_init__(self):
         self.loads.parent_fem = self
         self.constraints.parent_fem = self
+        self.equipment.parent_fem = self
 
 
 @dataclass

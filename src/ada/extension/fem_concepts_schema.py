@@ -58,9 +58,34 @@ class LoadGlyph(BaseModel):
     points: Optional[List[Vec3]] = Field(None, description="Surface load polygon vertices.")
     direction: Optional[Vec3] = Field(None, description="Normalized force / acceleration direction.")
     magnitude: Optional[float] = Field(
-        None, description="Force magnitude / pressure / acceleration magnitude (drives arrow color/label)."
+        None,
+        description="Force magnitude / pressure / acceleration magnitude (drives arrow color/label). For a line load, the intensity at its start.",
+    )
+    end_magnitude: Optional[float] = Field(
+        None,
+        description="Line load intensity at its end, along the same direction, where it differs from the start.",
     )
     moment: Optional[Vec3] = Field(None, description="Applied moment vector, if any.")
+    generated_by: Optional[str] = Field(
+        None,
+        description="The equipment this load was resolved from, when the analysis model generated it rather than a user applying it.",
+    )
+
+
+class EquipmentGlyph(BaseModel):
+    name: Optional[str] = Field(None, description="Equipment name.")
+    mass: float = Field(..., description="Equipment mass, kg.")
+    origin: Vec3 = Field(..., description="Origin of the equipment's placed frame.")
+    axes: List[Vec3] = Field(
+        ...,
+        description="The placed frame's x, y and z directions, unit vectors in model coordinates.",
+        max_length=3,
+        min_length=3,
+    )
+    box_min: Vec3 = Field(..., description="Lower corner of the equipment box, in the placed frame.")
+    box_max: Vec3 = Field(..., description="Upper corner of the equipment box, in the placed frame.")
+    cog: Optional[Vec3] = Field(None, description="Centre of gravity in model coordinates.")
+    load_cases: Optional[List[str]] = Field(None, description="The load cases that place the equipment here.")
 
 
 class Kind(Enum):
@@ -90,4 +115,8 @@ class FemConcepts(BaseModel):
     scenarios: Optional[List[LoadScenario]] = Field(
         None,
         description="Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.",
+    )
+    equipment: Optional[List[EquipmentGlyph]] = Field(
+        None,
+        description="Equipment placed in the model: one box per distinct placement, with its mass and the load cases that place it there.",
     )
