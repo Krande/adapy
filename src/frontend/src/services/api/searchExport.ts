@@ -39,7 +39,15 @@ export interface ExportHit {
 
 export type ExportAlso = "glb" | "step";
 
+/** What a file is made of: `design` -- the design system's own geometry as IFC (exact; requested
+ *  from it first when missing, which is slow); `mesh` -- the hit's triangles as its own provider
+ *  published them, as a GLB (quick, for looking at). A mesh file can ask for its design geometry
+ *  afterwards (`requestDesignGeometry`). */
+export type ExportGeometry = "design" | "mesh";
+
 export interface ExportRequest {
+  /** Default `design`. A `mesh` export takes neither `also` nor `request_missing_geometry`. */
+  geometry?: ExportGeometry;
   /** The search body exactly as sent to `/assets/search`; cursor and limit are ignored. */
   query: SearchQuery;
   /** The hits to export; null = every match of `query` (the server pages through it). */
@@ -132,6 +140,12 @@ export interface ExportJobTimings {
 }
 
 export interface ExportItemTimings {
+  /** A mesh export's build phase: resolving the hits against their provider's publish, the builds (wall-clock), and
+   *  how many of them were already built. */
+  build_resolve_ms?: number;
+  build_ms?: number;
+  builds?: number;
+  builds_cached?: number;
   queued_ms?: number;
   run_ms?: number;
   total_ms?: number;
@@ -186,7 +200,7 @@ export interface ExportRun {
   total: number;
   hits: number;
   query: SearchQuery | null;
-  options: { include_source_attributes: boolean; also: ExportAlso[]; request_missing_geometry?: boolean };
+  options: { include_source_attributes: boolean; also: ExportAlso[]; request_missing_geometry?: boolean; geometry?: ExportGeometry };
   requested_by: string | null;
   created_at: string | null;
   heartbeat_at: string | null;
@@ -223,7 +237,16 @@ export interface FileMeta {
   matched: Record<string, unknown> | null;
   run_id: string | null;
   attributes: { elements: number; with_attrs: number; without_attrs: number } | null;
-  derived: { glb: string | null; step: string | null; thumb: string | null } | null;
+  /** `mesh`: the quick-look GLB a design file was requested from (only then). */
+  derived: { glb: string | null; step: string | null; thumb: string | null; mesh?: string | null } | null;
+  /** Where the geometry came from. `kind` is absent on files written before mesh exports (= design). */
+  geometry?: {
+    kind?: ExportGeometry;
+    provider: string | null;
+    subject: string | null;
+    revision: string | null;
+    node: string | null;
+  } | null;
   /** Every element of the file that carries an `ADA_Source` set, by IFC name: the levels root
    *  first, the hit, then the members matched to an index row. Absent on files written before it
    *  was recorded, and on GLB provenance. */
@@ -316,6 +339,18 @@ export const searchExportApi = {
       post(),
     );
     return jsonOrThrow(r, "skipSearchExportItem");
+  },
+
+  /** Ask for the design system's own geometry of the node a MESH file came from: a one-hit design
+   *  export (requesting the geometry first when it is missing and the user may) that writes
+   *  `<stem>.ifc` beside the GLB. Answers the run, which lives in the file's SOURCE scope
+   *  (`run.scope`); `requesting` says whether a request will be made. */
+  async requestDesignGeometry(scope: ScopeUrl, key: string): Promise<ExportRun & { requesting: boolean }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/files/request-geometry`,
+      post({ key }),
+    );
+    return jsonOrThrow(r, "requestDesignGeometry");
   },
 
   /** A file's provenance; null when it has none (404). */

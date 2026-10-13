@@ -6,7 +6,14 @@ carries its ancestors (``path``, root first). The file written for it holds the 
 above it, one empty spatial level per ancestor (SITE -> ZONE -> ... -> hit), so a file opened on
 its own still says where in the plant its steel sits.
 
-GEOMETRY IS ALWAYS THE DESIGN SYSTEM'S OWN CSG (a user decision). It comes through the provider
+A MESH EXPORT IS THE QUICK LOOK (``geometry: "mesh"``, a user decision): the hit's triangles as
+its own provider published them, cut by the ordinary asset build (the one "Load into scene" runs),
+written as ``<stem>.glb`` with the same sidecar -- no IFC, there is nothing in triangles to make
+beams of. Its ``meta.geometry.kind`` is ``mesh``, and "request design geometry" on it runs a
+one-hit design export into the same folder: ``<stem>.ifc`` beside ``<stem>.glb``. The two share a
+stem and so a sidecar, which becomes the IFC's and names the mesh as ``derived.mesh``.
+
+DESIGN GEOMETRY IS THE DESIGN SYSTEM'S OWN CSG (a user decision). It comes through the provider
 seam every other "read a node into objects" path uses (``ada.assets.concepts``) from the provider
 that publishes the E3D export (:data:`GEOMETRY_PROVIDER`), never from a mesh another provider
 published for the same node. A hit from another provider (web3d) is re-addressed by NODE ID -- the
@@ -51,6 +58,9 @@ __all__ = [
     "EXPORT_INDEX_SCHEMA",
     "EXPORT_SEARCH_KIND",
     "ElementRef",
+    "GEOMETRY_DESIGN",
+    "GEOMETRY_KINDS",
+    "GEOMETRY_MESH",
     "GEOMETRY_PROVIDER",
     "META_SCHEMA",
     "NoGeometry",
@@ -59,6 +69,7 @@ __all__ = [
     "export_file_key",
     "matched_attributes",
     "meta_document",
+    "mesh_elements",
     "meta_sidecar_key",
     "parse_ifc_provenance",
     "patch_step_description",
@@ -76,6 +87,15 @@ __all__ = [
 EXPORT_SEARCH_KIND = "export_search_asset"
 #: The provider whose concepts reader turns the E3D export into ada objects.
 GEOMETRY_PROVIDER = "external-csg"
+#: What an export writes per hit: ``design`` -- the design system's own geometry
+#: (:data:`GEOMETRY_PROVIDER`) as IFC, exact, and slow when it has to be requested first; ``mesh``
+#: -- the hit's triangles as the hit's OWN provider published them (the one whose attribute index
+#: found it), built into a GLB: quick, for looking at, and no beams or plates, so no IFC. A mesh
+#: file's ``meta.geometry.kind`` says which it is, and is what offers "request design geometry"
+#: for it afterwards.
+GEOMETRY_DESIGN = "design"
+GEOMETRY_MESH = "mesh"
+GEOMETRY_KINDS = (GEOMETRY_DESIGN, GEOMETRY_MESH)
 META_SCHEMA = "ada.files/meta@1"
 EXPORT_INDEX_SCHEMA = "ada.files/export@1"
 #: The folder-level list of what an export wrote, in export order.
@@ -153,16 +173,18 @@ def clean_folder(folder: str) -> str:
     return "/".join(parts)
 
 
-def export_file_key(folder: str, collection: str, full_name: str | None, node_id: str, taken: set[str]) -> str:
-    """``<folder>/<collection>/<safe(full_name)>.ifc``, unique within ``taken`` (which it extends):
+def export_file_key(
+    folder: str, collection: str, full_name: str | None, node_id: str, taken: set[str], ext: str = "ifc"
+) -> str:
+    """``<folder>/<collection>/<safe(full_name)>.<ext>``, unique within ``taken`` (which it extends):
     two full names that sanitise alike get the node id appended rather than overwrite each other."""
     base = f"{folder}/{safe_stem(collection, 'collection')}/{safe_stem(full_name, node_id)}"
-    key = f"{base}.ifc"
+    key = f"{base}.{ext}"
     if key in taken:
-        key = f"{base}__{safe_stem(node_id, 'node')[:24]}.ifc"
+        key = f"{base}__{safe_stem(node_id, 'node')[:24]}.{ext}"
     n = 2
     while key in taken:
-        key = f"{base}__{n}.ifc"
+        key = f"{base}__{n}.{ext}"
         n += 1
     taken.add(key)
     return key
@@ -518,6 +540,31 @@ def element_sources(model: WrappedModel) -> list[dict]:
     return out
 
 
+def mesh_elements(hit: Mapping[str, Any], *, provider: str, collection: str, scope: str | None) -> list[dict]:
+    """:func:`element_sources` for a mesh GLB, which has no model to walk: one entry per ancestor
+    (root first) and the hit, named by full name -- the names the GLB's own tree uses -- so a
+    selected element still finds its node in the source tree."""
+    out: list[dict] = []
+    path = [p for p in (hit.get("path") or ()) if isinstance(p, Mapping)]
+    for role, entry in [*(("level", p) for p in path), ("hit", hit)]:
+        out.append(
+            {
+                "name": _name(entry),
+                "guid": None,
+                "role": role,
+                "source": _source_values(
+                    provider=provider,
+                    collection=collection,
+                    scope=scope,
+                    node_id=entry.get("node_id"),
+                    full_name=entry.get("full_name"),
+                    source_ref=entry.get("source_ref"),
+                ),
+            }
+        )
+    return out
+
+
 def write_ifc(model: WrappedModel, out_path: pathlib.Path) -> pathlib.Path:
     """The IFC, with the in-memory writer (the streamer only suits a freshly built model)."""
     from .selection_export import _mark_added
@@ -572,7 +619,11 @@ def meta_document(
             "with_attrs": int(attributes.get("with_attrs") or 0),
             "without_attrs": int(attributes.get("without_attrs") or 0),
         },
-        "derived": {k: derived.get(k) for k in ("glb", "step", "thumb")},
+        # ``mesh`` links a design IFC to the quick-look GLB it was requested from; present only then.
+        "derived": {
+            **{k: derived.get(k) for k in ("glb", "step", "thumb")},
+            **{k: derived[k] for k in ("mesh",) if derived.get(k)},
+        },
         "elements": [dict(e) for e in elements or ()],
     }
 

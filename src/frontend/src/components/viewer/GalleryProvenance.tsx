@@ -20,6 +20,8 @@ import {compactQuery, hitFromMeta, thumbSidecarKey} from "@/assets/searchExport"
 import {searchExportApi, type ExportDoc, type FileMeta} from "@/services/api/searchExport";
 import {revealInSourceScope} from "@/utils/tree_view/revealInSourceScope";
 
+import {designSiblingOf, RequestDesignGeometryButton} from "./RequestDesignGeometryButton";
+
 const WINDOW = 6;
 
 const base = (k: string) => k.slice(k.lastIndexOf("/") + 1);
@@ -166,6 +168,8 @@ const GalleryProvenance: React.FC<{
                         </div>
                     )}
                     <div className="text-gray-500">
+                        {meta.geometry?.kind === "mesh" ? `${meta.geometry.provider ?? "published"} mesh · ` : ""}
+                        {designSiblingOf(meta, current) ? `design geometry: ${base(designSiblingOf(meta, current)!)} · ` : ""}
                         {src.revision ? `revision ${src.revision}` : "revision ?"}
                         {meta.attributes &&
                             ` · ${meta.attributes.elements} element${meta.attributes.elements === 1 ? "" : "s"}, ${meta.attributes.with_attrs} with attributes` +
@@ -193,6 +197,7 @@ const GalleryProvenance: React.FC<{
                         >
                             Show in source tree
                         </button>
+                        {current && <RequestDesignGeometryButton scope={scope} fileKey={current} meta={meta} />}
                         {revealNote && <span className="truncate text-amber-300" title={revealNote}>{revealNote}</span>}
                     </div>
                 </div>

@@ -37,12 +37,15 @@ from ada.config import logger
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job
 from ..search_export import (
     EXPORT_SEARCH_KIND,
+    GEOMETRY_DESIGN,
+    GEOMETRY_MESH,
     GEOMETRY_PROVIDER,
     GlbProvenance,
     NoGeometry,
     apply_source_attributes,
     element_sources,
     matched_attributes,
+    mesh_elements,
     meta_document,
     meta_sidecar_key,
     patch_step_description,
@@ -177,8 +180,9 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         if not hits or not collection:
             await self._fail(job, ctx, f"{EXPORT_SEARCH_KIND} needs 'collection' and 'hits' with file keys")
             return
+        export = self._export_mesh if opts.get("geometry") == GEOMETRY_MESH else self._export
         try:
-            summary = await self._export(job, ctx, opts, hits, provider, collection, target_scope)
+            summary = await export(job, ctx, opts, hits, provider, collection, target_scope)
         except Exception as exc:  # noqa: BLE001 - the batch's failure, reported as the job's
             logger.exception("worker: %s failed for job %s", EXPORT_SEARCH_KIND, job.job_id)
             await self._fail(job, ctx, str(exc), tb_module.format_exc())
@@ -317,7 +321,9 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                 await loop.run_in_executor(None, write_ifc, model, ifc_path)
                 timings["ifc_ms"] += _ms(t)
 
-                derived: dict[str, str | None] = {"glb": None, "step": None, "thumb": None}
+                # ``mesh``: the quick-look GLB this design file was requested from, when it was (it shares
+                # this file's stem, so its sidecar is this one from now on).
+                derived: dict[str, str | None] = {"glb": None, "step": None, "thumb": None, "mesh": hit.get("mesh_file")}
                 local: dict[str, pathlib.Path] = {}
                 t = time.perf_counter()
                 glb_path = None
@@ -403,6 +409,7 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                         "path": hit.get("path") or [],
                     },
                     geometry={
+                        "kind": GEOMETRY_DESIGN,
                         "provider": manifest.provider,
                         "subject": manifest.subject,
                         "revision": manifest.revision,
@@ -446,6 +453,151 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
             "schema": BATCH_SCHEMA,
             "provider": provider,
             "collection": collection,
+            "files": files,
+            "counts": counts,
+            "timings": timings,
+            "warnings": warnings,
+        }
+
+    async def _export_mesh(self, job, ctx, opts, hits, provider, collection, target_scope) -> dict | None:
+        """``geometry: "mesh"``: each hit's GLB as the asset build cut it from what the hit's own
+        provider published.
+
+        The API built every hit before submitting this (``routes/asset_exports.py``), so a hit
+        arrives with ``mesh`` -- the build's ``glb_key`` and what it was built from -- or with
+        ``mesh_error``, the build's reason there is nothing to draw (a ``no_geometry`` row). The
+        GLB is copied with the export's provenance in ``asset.extras``, beside its sidecar and
+        thumbnail; nothing is converted.
+        """
+        from ada.assets.build import patch_glb_provenance
+
+        loop = asyncio.get_running_loop()
+        query = opts.get("query") or {}
+        run_id = opts.get("run_id")
+        source_scope = _source_scope_wire(opts.get("source_scope"), ctx.scope)
+        created_by = opts.get("requested_by")
+        timings = {k: 0 for k in ("read_ms", "thumb_ms", "upload_ms")}
+        warnings: list[str] = []
+        files: list[dict] = []
+
+        revision = None
+        if ctx.db_pool is not None:
+            from .. import db as db_module
+
+            with contextlib.suppress(Exception):
+                for c in await db_module.list_attr_collections(ctx.db_pool, scope=ctx.scope.prefix()):
+                    if (c["provider"], c["collection"]) == (provider, collection):
+                        revision = c.get("revision")
+
+        thumb_note_logged = False
+        for n, hit in enumerate(hits):
+            if await self._cancelled(job, ctx):
+                logger.info("worker: %s job %s cancelled after %d file(s)", EXPORT_SEARCH_KIND, job.job_id, n)
+                return None
+            await ctx.queue.update(job.job_id, stage=f"file {n + 1}/{len(hits)}", progress=n / max(1, len(hits)))
+            key = str(hit["file"])
+            row = {"file": key, "node_id": hit.get("node_id"), "full_name": hit.get("full_name"), "status": "written"}
+            mesh = hit.get("mesh") if isinstance(hit.get("mesh"), dict) else None
+            if mesh is None or not mesh.get("glb_key"):
+                row.update(status="no_geometry", error=str(hit.get("mesh_error") or f"{provider} published no mesh for it"))
+                files.append(row)
+                continue
+            work = pathlib.Path(tempfile.mkdtemp(prefix="ada-search-export-"))
+            try:
+                t = time.perf_counter()
+                data = await ctx.storage.get_bytes(ctx.scope, str(mesh["glb_key"]))
+                if data[:2] == b"\x1f\x8b":
+                    import gzip
+
+                    data = gzip.decompress(data)
+                timings["read_ms"] += _ms(t)
+                provenance = {
+                    "provider": provider,
+                    "collection": collection,
+                    "source_scope": source_scope,
+                    "revision": revision,
+                    "geometry_kind": GEOMETRY_MESH,
+                    "geometry_provider": mesh.get("provider") or provider,
+                    "geometry_subject": mesh.get("subject"),
+                    "geometry_revision": mesh.get("revision"),
+                    "query": json.dumps(query, ensure_ascii=False, sort_keys=True),
+                    "exported_at": datetime.now(timezone.utc).isoformat(),
+                    "exporter": _exporter_version(),
+                    "run_id": run_id,
+                    "node_id": hit.get("node_id"),
+                    "full_name": hit.get("full_name"),
+                }
+                glb_path = work / pathlib.PurePosixPath(key).name
+                glb_path.write_bytes(patch_glb_provenance(data, GlbProvenance(provenance)))
+
+                t = time.perf_counter()
+                thumb = work / "thumb.png"
+                note = await loop.run_in_executor(None, _render_thumb, glb_path, thumb)
+                if note is not None and not thumb_note_logged:
+                    warnings.append(note)
+                    thumb_note_logged = True
+                timings["thumb_ms"] += _ms(t)
+
+                t = time.perf_counter()
+                await ctx.storage.put_path(target_scope, key, glb_path, content_encoding=None)
+                derived: dict[str, str | None] = {"glb": key, "thumb": None}
+                if note is None:
+                    derived["thumb"] = thumb_sidecar_key(key)
+                    await ctx.storage.put_path(target_scope, derived["thumb"], thumb, content_encoding=None)
+                meta = meta_document(
+                    file=key,
+                    fmt="glb",
+                    created_by=created_by,
+                    source={
+                        "provider": provider,
+                        "scope": source_scope,
+                        "collection": collection,
+                        "node_id": hit.get("node_id"),
+                        "full_name": hit.get("full_name"),
+                        "source_ref": hit.get("source_ref"),
+                        "revision": revision,
+                        "path": hit.get("path") or [],
+                    },
+                    geometry={
+                        "kind": GEOMETRY_MESH,
+                        "provider": mesh.get("provider") or provider,
+                        "subject": mesh.get("subject"),
+                        "revision": mesh.get("revision"),
+                        "node": mesh.get("node"),
+                    },
+                    query=query,
+                    matched=matched_attributes(query, hit.get("attrs")),
+                    run_id=run_id,
+                    attributes={},
+                    derived=derived,
+                    elements=mesh_elements(hit, provider=provider, collection=collection, scope=source_scope),
+                )
+                await ctx.storage.put_bytes(
+                    target_scope,
+                    meta_sidecar_key(key),
+                    json.dumps(meta, indent=1).encode("utf-8"),
+                    content_encoding=None,
+                )
+                timings["upload_ms"] += _ms(t)
+                row.update(meta=meta_sidecar_key(key), thumb=derived["thumb"], glb=key)
+                files.append(row)
+            except Exception as exc:  # noqa: BLE001 - one file's failure is its row
+                logger.warning("worker: %s %s failed: %s", EXPORT_SEARCH_KIND, key, exc, exc_info=True)
+                row.update(status="error", error=f"{type(exc).__name__}: {exc}")
+                files.append(row)
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+
+        counts = {
+            "written": sum(1 for f in files if f["status"] == "written"),
+            "no_geometry": sum(1 for f in files if f["status"] == "no_geometry"),
+            "failed": sum(1 for f in files if f["status"] == "error"),
+        }
+        return {
+            "schema": BATCH_SCHEMA,
+            "provider": provider,
+            "collection": collection,
+            "geometry": GEOMETRY_MESH,
             "files": files,
             "counts": counts,
             "timings": timings,

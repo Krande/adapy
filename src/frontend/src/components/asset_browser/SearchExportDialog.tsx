@@ -10,6 +10,12 @@
 // target's existing folders offered (`folderSuggestions` over its listing), so adding to an earlier
 // export's folder is one pick.
 //
+// GEOMETRY. "Design geometry" writes IFCs from the design system's own geometry -- exact, but
+// whatever it has not published yet must be requested from it first (the preflight's prompt), which
+// is the slow path. "Published mesh" writes the hits' triangles as GLBs, cut from what the hits' own
+// provider already published: a quick look, no preflight, nothing requested. A mesh file asks for
+// its design geometry later, one node at a time, from its provenance (GalleryProvenance).
+//
 // AFTER. The run is watched in the global toast at once (`trackExport`) and opened in the panel's
 // Export runs list; the dialog closes. Nothing here waits for the run.
 
@@ -25,7 +31,7 @@ import {
     type GeometryPrompt,
 } from "@/assets/searchExport";
 import type {SearchHit, SearchQuery} from "@/services/api/attributeSearch";
-import {searchExportApi, type ExportAlso, type ExportHit, type ExportRun} from "@/services/api/searchExport";
+import {searchExportApi, type ExportAlso, type ExportGeometry, type ExportHit, type ExportRun} from "@/services/api/searchExport";
 import {viewerApi, ApiError} from "@/services/viewerApi";
 import {trackExport} from "@/services/sweepTracking";
 import {useScopeStore} from "@/state/scopeStore";
@@ -69,6 +75,8 @@ const SearchExportDialog: React.FC<{
     const [target, setTarget] = useState(() => (targets.some((t) => t.url === scope) ? scope : (targets[0]?.url ?? "user:me")));
     const [folder, setFolder] = useState(defaultExportFolder);
     const [which, setWhich] = useState<"selected" | "all">(picked.length ? "selected" : "all");
+    const [geometry, setGeometry] = useState<ExportGeometry>("design");
+    const mesh = geometry === "mesh";
     const [withAttrs, setWithAttrs] = useState(true);
     const [also, setAlso] = useState<ExportAlso[]>([]);
     const [busy, setBusy] = useState(false);
@@ -76,8 +84,8 @@ const SearchExportDialog: React.FC<{
     const [error, setError] = useState<string | null>(null);
     /** The missing-geometry question, once the preflight found something to ask about. */
     const [prompt, setPrompt] = useState<GeometryPrompt | null>(null);
-    // The answer was about THESE hits: another choice of hits asks again.
-    useEffect(() => setPrompt(null), [which]);
+    // The answer was about THESE hits and this geometry: another choice asks again.
+    useEffect(() => setPrompt(null), [which, geometry]);
 
     // The target's folders, for the suggestions. A listing that fails only loses the suggestions.
     const [keys, setKeys] = useState<string[]>([]);
@@ -119,10 +127,10 @@ const SearchExportDialog: React.FC<{
                 target_scope: target,
                 target_folder: f.folder,
                 include_source_attributes: withAttrs,
-                also,
-                request_missing_geometry: requestMissing,
+                // A mesh export is the GLB: nothing derived, nothing requested.
+                ...(mesh ? {geometry, also: [], request_missing_geometry: false} : {also, request_missing_geometry: requestMissing}),
             });
-            const what = requestMissing ? "Request geometry + export" : "Export";
+            const what = mesh ? "Mesh export" : requestMissing ? "Request geometry + export" : "Export";
             trackExport(scope, run.id, `${what} ${run.hits || count} → ${target}/${f.folder}`);
             onStarted(run);
             onClose();
@@ -140,6 +148,11 @@ const SearchExportDialog: React.FC<{
         const f = normalizeFolder(folder);
         if (!f.ok) {
             setError(f.error);
+            return;
+        }
+        // The preflight is about design-system geometry; a mesh export asks nobody for anything.
+        if (mesh) {
+            await start(false);
             return;
         }
         setBusy(true);
@@ -176,7 +189,30 @@ const SearchExportDialog: React.FC<{
                 <div className="px-4 py-2 border-b border-gray-700 font-medium">Export results</div>
                 <div className="p-4 space-y-3">
                     <div className="text-gray-400">
-                        One IFC per hit, written under the folder by collection, each with its provenance beside it.
+                        One {mesh ? "GLB" : "IFC"} per hit, written under the folder by collection, each with its provenance beside it.
+                    </div>
+
+                    <div className="space-y-1">
+                        <div className={LABEL}>Geometry</div>
+                        <label className="flex items-start gap-2" title="The design system's own geometry, as IFC">
+                            <input type="radio" name="export-geometry" className="mt-0.5" checked={!mesh} onChange={() => setGeometry("design")} />
+                            <span>
+                                Design geometry (IFC)
+                                <span className="block text-gray-500">
+                                    Exact. Anything the design system has not exported yet is requested from it first -- slow.
+                                </span>
+                            </span>
+                        </label>
+                        <label className="flex items-start gap-2" title="The hits' triangles as their own provider published them, as GLB">
+                            <input type="radio" name="export-geometry" className="mt-0.5" checked={mesh} onChange={() => setGeometry("mesh")} />
+                            <span>
+                                Published mesh (GLB)
+                                <span className="block text-gray-500">
+                                    Quick look from what the results' provider already published. Request a file's design geometry from its
+                                    provenance later.
+                                </span>
+                            </span>
+                        </label>
                     </div>
 
                     <div className="space-y-1">
@@ -222,6 +258,7 @@ const SearchExportDialog: React.FC<{
                         </datalist>
                     </div>
 
+                    {!mesh && (
                     <div className="space-y-1">
                         <div className={LABEL}>Options</div>
                         <label className="flex items-center gap-2" title="Write each element's source attributes into the IFC as property sets">
@@ -239,6 +276,7 @@ const SearchExportDialog: React.FC<{
                             </label>
                         </div>
                     </div>
+                    )}
 
                     {prompt && (
                         <div role="alertdialog" aria-label="Missing geometry" className="rounded-md border border-amber-700/70 bg-amber-950/40 p-2 space-y-2">

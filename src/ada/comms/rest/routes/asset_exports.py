@@ -65,9 +65,13 @@ from ..search_export import (
     EXPORT_INDEX_FILENAME,
     EXPORT_INDEX_SCHEMA,
     EXPORT_SEARCH_KIND,
+    GEOMETRY_DESIGN,
+    GEOMETRY_KINDS,
+    GEOMETRY_MESH,
     GEOMETRY_PROVIDER,
     META_SCHEMA,
     clean_folder,
+    sidecar_key,
     export_file_key,
     meta_document,
     meta_sidecar_key,
@@ -146,10 +150,11 @@ def clean_hit(raw: Any, where_keys: list[str]) -> dict | None:
     }
 
 
-def batch_hits(hits: list[dict], folder: str) -> list[tuple[str, str, list[dict]]]:
+def batch_hits(hits: list[dict], folder: str, ext: str = "ifc") -> list[tuple[str, str, list[dict]]]:
     """``[(provider, collection, hits)]`` in first-seen order, every hit given its file key. A node
-    named twice (selected twice, or by two pages) is written once."""
-    taken: set[str] = set()
+    named twice (selected twice, or by two pages) is written once. A hit that already names its
+    ``file`` (a design file requested for a mesh one, which takes its stem) keeps it."""
+    taken: set[str] = {h["file"] for h in hits if h.get("file")}
     seen: set[tuple[str, str, str]] = set()
     batches: dict[tuple[str, str], list[dict]] = {}
     for hit in hits:
@@ -157,7 +162,10 @@ def batch_hits(hits: list[dict], folder: str) -> list[tuple[str, str, list[dict]
         if ident in seen:
             continue
         seen.add(ident)
-        hit["file"] = export_file_key(folder, hit["collection"], hit.get("full_name"), hit["node_id"], taken)
+        if not hit.get("file"):
+            hit["file"] = export_file_key(
+                folder, hit["collection"], hit.get("full_name"), hit["node_id"], taken, ext=ext
+            )
         batches.setdefault((hit["provider"], hit["collection"]), []).append(hit)
     return [(p, c, h) for (p, c), h in batches.items()]
 
@@ -223,7 +231,18 @@ async def api_search_export(
     return JSONResponse(_as_wire(run, scope), status_code=202)
 
 
-async def start_export(ctx, pool, *, scope: str, scope_obj: Scope, body: dict, user) -> dict:
+async def start_export(
+    ctx,
+    pool,
+    *,
+    scope: str,
+    scope_obj: Scope,
+    body: dict,
+    user,
+    preset_files: dict[str, tuple[str, str | None]] | None = None,
+) -> dict:
+    """``preset_files``: ``{node_id: (file, mesh_file)}`` for hits whose file key is already decided
+    (:func:`api_file_request_geometry`); every other hit gets one from :func:`batch_hits`."""
     query = body.get("query") if isinstance(body.get("query"), dict) else {}
     try:
         parsed = parse_search_query({k: v for k, v in query.items() if k not in ("cursor", "limit")})
@@ -235,11 +254,23 @@ async def start_export(ctx, pool, *, scope: str, scope_obj: Scope, body: dict, u
     except ValueError as exc:
         raise ExportRefused(400, str(exc)) from exc
     target = await _writable_scope(pool, body.get("target_scope"), user)
+    geometry = str(body.get("geometry") or GEOMETRY_DESIGN)
+    if geometry not in GEOMETRY_KINDS:
+        raise ExportRefused(400, f"'geometry' must be one of {list(GEOMETRY_KINDS)}")
+    mesh = geometry == GEOMETRY_MESH
     also = body.get("also") or []
     if not isinstance(also, list) or not set(also) <= set(DERIVED_FORMATS):
         raise ExportRefused(400, f"'also' must be a subset of {list(DERIVED_FORMATS)}")
     include_attrs = body.get("include_source_attributes", True) is not False
     request_missing = body.get("request_missing_geometry") is True
+    if mesh:
+        # A mesh export IS the GLB, built from what the hit's provider published: nothing to convert
+        # and nothing to request. Said rather than ignored, so a client sending both learns why.
+        if also or request_missing:
+            raise ExportRefused(
+                400, "a mesh export writes GLBs only: 'also' and 'request_missing_geometry' are for design exports"
+            )
+        ctx.jobs.require("asset_build")
     if request_missing:
         req = await greq.geometry_node_request(ctx)
         allowed, why = await request_permission(pool, user, req)
@@ -256,8 +287,14 @@ async def start_export(ctx, pool, *, scope: str, scope_obj: Scope, body: dict, u
     hits = [h for h in (clean_hit(r, where_keys) for r in raw_hits) if h is not None]
     if not hits:
         raise ExportRefused(400, "nothing to export: no hits")
-    batches = batch_hits(hits, folder)
+    for hit in hits:
+        # The design request for a mesh file names the file it writes (the mesh's stem) and the mesh.
+        # Never from the body: a key there could name anything in the target scope.
+        if hit["node_id"] in (preset_files or {}):
+            hit["file"], hit["mesh_file"] = preset_files[hit["node_id"]]
+    batches = batch_hits(hits, folder, ext="glb" if mesh else "ifc")
     options = {
+        "geometry": geometry,
         "include_source_attributes": include_attrs,
         "also": list(dict.fromkeys(also)),
         "request_missing_geometry": request_missing,
@@ -274,6 +311,8 @@ async def start_export(ctx, pool, *, scope: str, scope_obj: Scope, body: dict, u
     )
     job_opts = {
         "run_id": run["id"],
+        "geometry": geometry,
+        "write_index": body.get("write_index") is not False,
         "source_scope": scope,
         "target_scope": _scope_ref(target),
         "target_folder": folder,
@@ -416,7 +455,10 @@ def item_outcome(summary: dict) -> tuple[str, str | None]:
         return "done", None
     parts = [f"{written} of {total} written"]
     if nogeo:
-        parts.append(f"{nogeo} without E3D geometry")
+        if summary.get("geometry") == GEOMETRY_MESH:
+            parts.append(f"{nogeo} without a mesh from {summary.get('provider') or 'its provider'}")
+        else:
+            parts.append(f"{nogeo} without E3D geometry")
     if failed:
         parts.append(f"{failed} failed")
     if written == 0 and failed and not nogeo:
@@ -476,7 +518,7 @@ async def drive_export(ctx, pool, run: dict, *, scope_obj: Scope, target: Scope,
                 user=user,
                 request_gate=request_gate,
             )
-        if files:
+        if files and job_opts.get("write_index", True):
             async with index_lock:
                 files_by_position[position] = files
                 await write_index()
@@ -557,6 +599,11 @@ async def export_one(
                     timings=timings,
                 )
             await item(status="running", message=requested.sentence() if requested else None, timings=timings)
+        if job_opts.get("geometry") == GEOMETRY_MESH:
+            hits = await build_meshes(
+                ctx, pool, run_id, position, provider, collection, hits, scope_obj=scope_obj, user=user, timings=timings
+            )
+            await item(status="running", timings=timings)
         submitted = await ctx.jobs.submit(
             JobRequest(
                 source_key=f"search-export/{run_id}/{position}",
@@ -637,6 +684,114 @@ async def export_one(
         logger.warning("asset export %s: batch %s/%s failed: %s", run_id, provider, collection, exc)
         await finish("error", error=str(exc))
     return False, []
+
+
+#: Mesh builds of one item in flight at once. Each reads its site GLB (cached after the first) and
+#: cuts one node out of it; no seat stands behind them.
+MESH_BUILDS_IN_FLIGHT = 8
+#: One node's mesh build: minutes for the first of a site (the site GLB download), seconds after.
+MESH_BUILD_TIMEOUT_S = 30 * 60
+
+
+async def build_meshes(
+    ctx,
+    pool,
+    run_id: str,
+    position: int,
+    provider: str,
+    collection: str,
+    hits: list[dict],
+    *,
+    scope_obj: Scope,
+    user,
+    timings: dict,
+) -> list[dict]:
+    """The mesh item's build phase: each hit resolved against what ``provider`` -- the hits' own,
+    whose attribute index found them -- published in the collection, and built through the ordinary
+    asset build (``assets.submit_node_build`` -- the same job and the same derived key "Load into
+    scene" uses, so a node already looked at is not built again).
+
+    Returns the hits, each with ``mesh`` (``{glb_key, provider, subject, revision, node}``) or
+    ``mesh_error`` -- the export job writes the first and reports the second per file. Timed as
+    ``build_resolve_ms`` and ``build_ms`` (wall-clock over the item's builds), with how many were
+    already built (``builds_cached``)."""
+    from .assets import submit_node_build
+
+    async def progress(message: str) -> None:
+        await db_module.update_asset_export_item(
+            pool, run_id, position, status="running", message=message, timings=timings
+        )
+
+    t0 = time.monotonic()
+    await progress(f"finding the {provider} meshes")
+    [states] = await greq.classify_in_scope(ctx.storage, scope_obj, [(collection, hits)], provider=provider)
+    timings["build_resolve_ms"] = ms(time.monotonic() - t0)
+
+    gate = asyncio.Semaphore(MESH_BUILDS_IN_FLIGHT)
+    done = 0
+    cached = 0
+    ready = [s for s in states if s.state == "ready"]
+
+    async def one(state) -> dict:
+        nonlocal done, cached
+        hit = dict(state.hit)
+        if state.state != "ready":
+            hit["mesh_error"] = state.message or f"{provider} published no mesh covering it"
+            return hit
+        async with gate:
+            try:
+                answer = await submit_node_build(
+                    ctx,
+                    scope_obj,
+                    asked_provider=provider,
+                    collection=collection,
+                    node=str(state.node_id),
+                    subject=str(state.subject or state.node_id),
+                    user=user,
+                )
+                if answer.get("job_id"):
+                    await wait_for_job(
+                        ctx,
+                        answer["job_id"],
+                        timeout_s=MESH_BUILD_TIMEOUT_S,
+                        beat=lambda: db_module.heartbeat_asset_export_run(pool, run_id),
+                        position=position,
+                        poll_s=POLL_INTERVAL_S,
+                        label=f"asset export {run_id} mesh",
+                    )
+                else:
+                    cached += 1
+                summary = json_of(await ctx.storage.get_bytes(scope_obj, answer["derived_key"]))
+            except (RunCancelled, ItemSkipped):
+                raise
+            except HTTPException as exc:
+                hit["mesh_error"] = f"the mesh build was refused: {exc.detail}"
+                return hit
+            except Exception as exc:  # noqa: BLE001 - one node's build is its file's outcome
+                hit["mesh_error"] = f"the mesh build failed: {exc}"
+                return hit
+            finally:
+                done += 1
+                if done % 5 == 0 or done == len(ready):
+                    await progress(f"built {done} of {len(ready)} {provider} mesh(es)")
+        if not isinstance(summary, dict) or not summary.get("ok") or not summary.get("glb_key"):
+            hit["mesh_error"] = (summary or {}).get("error") or "the mesh build drew nothing"
+            return hit
+        hit["mesh"] = {
+            "glb_key": summary["glb_key"],
+            "provider": answer.get("provider") or provider,
+            "subject": answer.get("subject"),
+            "revision": answer.get("revision"),
+            "node": answer.get("node"),
+        }
+        return hit
+
+    t1 = time.monotonic()
+    out = list(await asyncio.gather(*(one(s) for s in states)))
+    timings["build_ms"] = ms(time.monotonic() - t1)
+    timings["builds"] = len(ready)
+    timings["builds_cached"] = cached
+    return out
 
 
 async def request_geometry(
@@ -926,3 +1081,76 @@ async def api_file_meta(
     if doc is None:
         raise HTTPException(status_code=404, detail=f"no provenance for {key!r}")
     return JSONResponse(doc)
+
+
+@router.post("/scopes/{scope}/files/request-geometry")
+async def api_file_request_geometry(
+    scope: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Body: ``{key}`` -- a mesh file a search export wrote (``meta.geometry.kind == "mesh"``).
+
+    Starts a ONE-HIT design export of the node the file came from: the design system's geometry is
+    requested first when it is missing (and the user may run the request), then written as
+    ``<stem>.ifc`` beside the mesh GLB, in the same folder. The two share a stem and therefore a
+    sidecar, which from then on is the IFC's and names the mesh as ``derived.mesh``. Answers the
+    export run (202), which shows in the scope's export runs like any other."""
+    pool = require_pool(request)
+    ctx.jobs.require("export_search")
+    body = await request.json() if await request.body() else {}
+    key = str((body or {}).get("key") or "").strip().lstrip("/")
+    if not key:
+        raise HTTPException(status_code=400, detail="'key' is required")
+    meta = await file_meta(ctx.storage, scope_obj, key)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"no provenance for {key!r}")
+    geometry = meta.get("geometry") or {}
+    if geometry.get("kind") != GEOMETRY_MESH:
+        raise HTTPException(status_code=409, detail=f"{key!r} is not a mesh export: it has its design geometry already")
+    src = meta.get("source") or {}
+    if not (src.get("provider") and src.get("collection") and src.get("node_id") and src.get("scope")):
+        raise HTTPException(status_code=409, detail=f"{key!r} does not say which node it came from")
+
+    from ..scope import can_access
+
+    source_obj = await resolve_project_scope(pool, parse_scope(str(src["scope"]), user))
+    if not await can_access(user, source_obj, pool):
+        raise HTTPException(status_code=403, detail=f"you cannot read the source scope {src['scope']!r}")
+    req = await greq.geometry_node_request(ctx)
+    may_request, _why = await request_permission(pool, user, req)
+    folder = key.rsplit("/", 1)[0] if "/" in key else ""
+    hit = {
+        "provider": src["provider"],
+        "collection": src["collection"],
+        "node_id": src["node_id"],
+        "full_name": src.get("full_name"),
+        "source_ref": src.get("source_ref"),
+        "path": src.get("path") or [],
+        "attrs": {},
+    }
+    try:
+        run = await start_export(
+            ctx,
+            pool,
+            scope=str(src["scope"]),
+            scope_obj=source_obj,
+            body={
+                "query": meta.get("query") if isinstance(meta.get("query"), dict) else {},
+                "hits": [hit],
+                "target_scope": scope,
+                "target_folder": folder,
+                "geometry": GEOMETRY_DESIGN,
+                "include_source_attributes": True,
+                "request_missing_geometry": may_request,
+                # One file into a folder another run indexed: that run's _export.json stays its own.
+                "write_index": False,
+            },
+            user=user,
+            preset_files={str(src["node_id"]): (sidecar_key(key, ".ifc"), key)},
+        )
+    except ExportRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return JSONResponse({**_as_wire(run, str(src["scope"])), "requesting": may_request}, status_code=202)

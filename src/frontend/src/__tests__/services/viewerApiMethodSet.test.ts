@@ -79,7 +79,7 @@ const EXPECTED_METHODS = [
   "proceduralEquipmentTypes", "proceduralOpeningTypes", "proceduralSystemTypes",
   "proposeProceduralRelocations", "putBlob", "putDerivedBlob", "recordRenderProfile",
   "recordViewLoad", "renameKey", "renameOrMoveFolder", "renameProceduralModel",
-  "requestDownloadUrl", "requestUploadUrl", "resolveProceduralEngine", "resultMeta",
+  "requestDesignGeometry", "requestDownloadUrl", "requestUploadUrl", "resolveProceduralEngine", "resultMeta",
   "resyncProceduralEquipmentTypes", "runUtility", "syncProceduralEquipmentType",
   "syncProceduralSystemType", "updateEquipmentType", "updateProceduralEngine",
   "updateSystemTemplate", "uploadEquipmentCad", "uploadFeaArtefacts",

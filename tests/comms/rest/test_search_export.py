@@ -840,3 +840,250 @@ def test_listing_hides_the_siblings():
     )
     assert not is_file_sidecar_key("x/A.ifc") and not is_file_sidecar_key("x/export.json")
     assert file_sidecar_keys("x/A.ifc") == ["x/A.meta.json", "x/A.thumb.png"]
+
+
+# --- the mesh export (web3d GLBs) ------------------------------------------------------------------------
+
+
+def _tiny_glb() -> bytes:
+    import struct
+
+    doc = json.dumps({"asset": {"version": "2.0"}, "scenes": [{"nodes": []}], "scene": 0}).encode()
+    doc += b" " * (-len(doc) % 4)
+    return struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(doc)) + struct.pack("<I4s", len(doc), b"JSON") + doc
+
+
+def test_mesh_file_keys_are_glbs_and_a_preset_key_is_kept():
+    hits = [ex.clean_hit(r, []) for r in ({**HIT, "node_id": "fn-1"}, {**HIT, "node_id": "fn-2", "full_name": "/X"})]
+    hits[1]["file"] = "out/alpha/X.ifc"
+    [(_, _, batch)] = ex.batch_hits(hits, "out", ext="glb")
+    assert [h["file"] for h in batch] == ["out/alpha/STRU-1.glb", "out/alpha/X.ifc"]
+
+
+def test_a_mesh_export_refuses_derived_formats_and_requests(monkeypatch):
+    async def writable(pool, raw, user):
+        return Scope.shared()
+
+    async def go(body):
+        return await ex.start_export(
+            SimpleNamespace(jobs=SimpleNamespace(require=lambda f: None)),
+            None,
+            scope="shared",
+            scope_obj=Scope.shared(),
+            body={"query": QUERY, "hits": [HIT], "target_scope": "shared", "target_folder": "out", **body},
+            user=None,
+        )
+
+    monkeypatch.setattr(ex, "_writable_scope", writable)
+    for body in ({"geometry": "mesh", "also": ["step"]}, {"geometry": "mesh", "request_missing_geometry": True}):
+        with pytest.raises(ex.ExportRefused) as err:
+            asyncio.run(go(body))
+        assert err.value.status == 400 and "GLBs only" in err.value.detail
+    with pytest.raises(ex.ExportRefused) as err:
+        asyncio.run(go({"geometry": "voxels"}))
+    assert "'geometry'" in err.value.detail
+
+
+def test_the_mesh_batch_job_copies_the_built_glb_with_provenance_and_a_sidecar(monkeypatch):
+    from ada.assets.build import read_glb_provenance
+
+    store, queue = _Store(), _Queue()
+    source = Scope.shared()
+
+    async def no_audit(*a, **k):
+        return None
+
+    monkeypatch.setattr(job_mod, "_audit_done", no_audit)
+    monkeypatch.setattr(job_mod, "_render_thumb", lambda glb, out: "no offscreen renderer")
+    glb_key = "_derived/assets/web3d/alpha/fn-site/r1/fn-hit/abc/model.glb"
+    store.blobs[("shared", glb_key)] = gzip.compress(_tiny_glb())
+    mesh = {"glb_key": glb_key, "provider": "web3d", "subject": "fn-site", "revision": "r1", "node": "fn-hit"}
+    hits = [
+        {**HIT, "file": "out/alpha/STRU-1.glb", "attrs": {"FUNC": "MS"}, "mesh": mesh},
+        {**HIT, "node_id": "fn-gone", "full_name": "/GONE", "file": "out/alpha/GONE.glb", "mesh_error": "not in web3d"},
+    ]
+    job = SimpleNamespace(
+        job_id="j1",
+        derived_key="_derived/search-export/run-1/0.json",
+        conversion_options={
+            "run_id": "run-1",
+            "geometry": "mesh",
+            "source_scope": "shared",
+            "target_scope": {"kind": "user", "id": "someone"},
+            "target_folder": "out",
+            "query": QUERY,
+            "provider": "web3d",
+            "collection": "alpha",
+            "hits": hits,
+            "requested_by": "tester",
+        },
+    )
+    ctx = SimpleNamespace(scope=source, storage=store, queue=queue, db_pool=None, started_at=0.0)
+    asyncio.run(job_mod.ExportSearchAssetHandler().run(job, ctx))
+
+    assert queue.updates[-1]["status"] == "done", queue.updates[-1]
+    summary = json.loads(asyncio.run(store.get_bytes(source, job.derived_key)))
+    assert summary["geometry"] == "mesh"
+    assert summary["counts"] == {"written": 1, "no_geometry": 1, "failed": 0}
+    assert summary["files"][1]["error"] == "not in web3d"
+    assert ex.item_outcome(summary)[1] == "1 of 2 written; 1 without a mesh from web3d"
+    glb = store.blobs[("users/someone", "out/alpha/STRU-1.glb")]
+    prov = read_glb_provenance(glb)
+    assert prov["geometry_kind"] == "mesh" and prov["node_id"] == "fn-hit" and prov["source_scope"] == "shared"
+    meta = json.loads(store.blobs[("users/someone", "out/alpha/STRU-1.meta.json")])
+    assert meta["format"] == "glb" and meta["geometry"]["kind"] == "mesh" and meta["geometry"]["subject"] == "fn-site"
+    assert meta["derived"] == {"glb": "out/alpha/STRU-1.glb", "step": None, "thumb": None}
+    assert [(e["role"], e["source"]["node_id"]) for e in meta["elements"]] == [
+        ("level", "fn-site"),
+        ("level", "fn-zone"),
+        ("hit", "fn-hit"),
+    ]
+    assert not any(k[1].endswith(".ifc") for k in store.blobs)
+
+
+class _Request:
+    def __init__(self, body):
+        self._body = json.dumps(body).encode()
+        self.app = SimpleNamespace(state=SimpleNamespace(db_pool=object()))
+
+    async def body(self):
+        return self._body
+
+    async def json(self):
+        return json.loads(self._body)
+
+
+def _request_geometry(monkeypatch, meta, *, may_request=True):
+    """Call the route with its collaborators faked; answers (response or exception, start_export kwargs)."""
+    from fastapi import HTTPException
+
+    started = {}
+
+    async def fake_meta(storage, scope_obj, key):
+        return meta
+
+    async def fake_start(ctx, pool, **kw):
+        started.update(kw)
+        return {"id": "run-9", "scope": "shared", "hits": 1}
+
+    async def resolve(pool, scope):
+        return Scope.shared()
+
+    async def allowed(*a, **k):
+        return True
+
+    async def node_request(ctx):
+        return SimpleNamespace(plugin_id="p")
+
+    async def permission(pool, user, req):
+        return may_request, None if may_request else "admins only"
+
+    monkeypatch.setattr(ex, "file_meta", fake_meta)
+    monkeypatch.setattr(ex, "start_export", fake_start)
+    monkeypatch.setattr(ex, "resolve_project_scope", resolve)
+    monkeypatch.setattr(ex, "parse_scope", lambda raw, user: raw)
+    monkeypatch.setattr("ada.comms.rest.scope.can_access", allowed)
+    monkeypatch.setattr(ex.greq, "geometry_node_request", node_request)
+    monkeypatch.setattr(ex, "request_permission", permission)
+    ctx = SimpleNamespace(jobs=SimpleNamespace(require=lambda f: None), storage=None)
+    try:
+        out = asyncio.run(
+            ex.api_file_request_geometry(
+                "user:me", _Request({"key": "out/alpha/STRU-1.glb"}), scope_obj=Scope.user("me"), user=None, ctx=ctx
+            )
+        )
+    except HTTPException as exc:
+        return exc, started
+    return json.loads(out.body), started
+
+
+MESH_META = {
+    "file": "out/alpha/STRU-1.glb",
+    "format": "glb",
+    "geometry": {"kind": "mesh", "provider": "web3d"},
+    "query": QUERY,
+    "source": {**HIT, "scope": "shared"},
+}
+
+
+def test_requesting_design_geometry_for_a_mesh_file_exports_its_node_beside_it(monkeypatch):
+    out, started = _request_geometry(monkeypatch, MESH_META)
+    assert out["id"] == "run-9" and out["requesting"] is True
+    body = started["body"]
+    assert started["scope"] == "shared" and body["target_scope"] == "user:me"
+    assert body["geometry"] == "design" and body["request_missing_geometry"] is True
+    assert body["target_folder"] == "out/alpha" and body["write_index"] is False
+    assert [h["node_id"] for h in body["hits"]] == ["fn-hit"] and body["hits"][0]["path"] == HIT["path"]
+    # The IFC takes the mesh's stem, so the two share one sidecar.
+    assert started["preset_files"] == {"fn-hit": ("out/alpha/STRU-1.ifc", "out/alpha/STRU-1.glb")}
+
+
+def test_requesting_design_geometry_without_request_rights_still_exports_what_is_there(monkeypatch):
+    out, started = _request_geometry(monkeypatch, MESH_META, may_request=False)
+    assert out["requesting"] is False and started["body"]["request_missing_geometry"] is False
+
+
+def test_a_design_file_cannot_ask_for_its_design_geometry_again(monkeypatch):
+    err, started = _request_geometry(monkeypatch, {**MESH_META, "format": "ifc", "geometry": {"kind": "design"}})
+    assert err.status_code == 409 and "design geometry already" in err.detail and not started
+
+
+def test_the_sidecar_names_the_mesh_only_when_there_is_one():
+    doc = se.meta_document(
+        file="a.ifc", fmt="ifc", created_by=None, source={}, query=None, matched={}, run_id=None,
+        attributes={}, derived={"glb": None, "mesh": "a.glb"},
+    )
+    assert doc["derived"]["mesh"] == "a.glb"
+    plain = se.meta_document(
+        file="a.ifc", fmt="ifc", created_by=None, source={}, query=None, matched={}, run_id=None,
+        attributes={}, derived={},
+    )
+    assert "mesh" not in plain["derived"]
+
+
+def test_a_mesh_item_builds_each_ready_hit_then_submits_its_job(export_world, monkeypatch):
+    from ada.comms.rest.routes import assets as assets_routes
+    from ada.comms.rest.routes import geometry_requests as greq
+
+    w = export_world()
+    hits = [ex.clean_hit(r, []) for r in (HIT, {**HIT, "node_id": "fn-gone", "full_name": "/GONE"})]
+    [(provider, collection, batch)] = ex.batch_hits(hits, "out", ext="glb")
+    asked = []
+
+    async def classify(storage, scope_obj, groups, provider=None):
+        asked.append(provider)
+        [(_, hs)] = groups
+        return [
+            [
+                greq.HitState(hit=hs[0], state="ready", node_id="fn-hit", subject="fn-site", revision="r1"),
+                greq.HitState(hit=hs[1], state="unknown", message="web3d has no node '/GONE'"),
+            ]
+        ]
+
+    async def build(ctx, scope_obj, *, asked_provider, collection, node, subject, **kw):
+        key = f"_derived/assets/web3d/{collection}/{subject}/r1/{node}/fp/summary.json"
+        summary = {"ok": True, "glb_key": key.replace("summary.json", "model.glb")}
+        await w.store.put_bytes(scope_obj, key, json.dumps(summary).encode())
+        return {"derived_key": key, "provider": "web3d", "subject": subject, "revision": "r1", "node": node, "job_id": None}
+
+    monkeypatch.setattr(greq, "classify_in_scope", classify)
+    monkeypatch.setattr(assets_routes, "submit_node_build", build)
+    asyncio.run(
+        ex.drive_export(
+            w.ctx,
+            None,
+            RUN,
+            scope_obj=Scope.shared(),
+            target=Scope.shared(),
+            batches=[(provider, collection, batch)],
+            job_opts={**JOB_OPTS, "geometry": "mesh"},
+            user=None,
+        )
+    )
+    assert asked == ["web3d"]
+    [req] = w.submitted
+    sent = req.conversion_options["hits"]
+    assert sent[0]["mesh"]["glb_key"].endswith("/fn-hit/fp/model.glb") and sent[0]["mesh"]["subject"] == "fn-site"
+    assert sent[1]["mesh_error"] == "web3d has no node '/GONE'" and "mesh" not in sent[1]
+    timings = w.items[0]["timings"]
+    assert timings["builds"] == 1 and timings["builds_cached"] == 1 and "build_ms" in timings
