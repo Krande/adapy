@@ -4,6 +4,8 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useMeStore} from "@/state/meStore";
+import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
@@ -137,6 +139,14 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
+        } else if (shift && key === "p" && !ctrl && !event.altKey) {
+            // Shift+P: the admin panel, toggled -- the same floating window as Options' "Admin panel"
+            // button, and offered to the same people: for anyone else the key does nothing.
+            if (!useMeStore.getState().isAdmin) return;
+            const {open, openPanel, closePanel} = useViewerPanelStore.getState();
+            event.preventDefault();
+            if (open === "admin") closePanel();
+            else openPanel("admin");
         } else if (shift && key === "t" && !ctrl && !event.altKey) {
             // Shift+T: open the tree at the selected element and focus it for the arrow keys (or,
             // open but unfocused, just focus it there). Closing is Shift+T or Esc from INSIDE the
