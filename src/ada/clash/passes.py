@@ -69,6 +69,10 @@ class ClashPass:
     fn: Callable[..., Iterable[Any]] | None = None
     #: Ordering in the panel and in the run. Lower runs first.
     priority: int = 0
+    #: The checker that owns this pass, for a pass core runs (no capability) that is NOT one of
+    #: core's checker's searches. ``None`` is core's checker. Without it a capability-free pass
+    #: would join every default check -- an engine of its own run as an extra search of core's.
+    checker: str | None = None
 
 
 _REGISTRY: dict[str, ClashPass] = {}
@@ -102,20 +106,27 @@ def list_passes() -> list[dict]:
             "capability": p.capability,
             "needs_backend": p.needs_backend,
             "priority": p.priority,
+            "checker": p.checker,
         }
         for p in all_passes()
     ]
 
 
+def _cores_own(p: ClashPass) -> bool:
+    """One of core's checker's searches: runs wherever core runs and belongs to no other checker."""
+    return p.capability is None and p.checker is None
+
+
 def selected_passes(names: Iterable[str] | None) -> tuple[ClashPass, ...]:
     """The passes a check was asked for.
 
-    ``None`` means every pass core can run BY ITSELF -- the capability-bearing ones are opt-in,
-    because a pass routed to a pool that is not there would otherwise make every default check
-    report a failure for something nobody asked for.
+    ``None`` means every pass core's checker runs BY ITSELF -- the capability-bearing ones are
+    opt-in, because a pass routed to a pool that is not there would otherwise make every default
+    check report a failure for something nobody asked for; and a pass another checker owns is that
+    checker's, not an extra search of core's.
     """
     if names is None:
-        return tuple(p for p in all_passes() if p.capability is None)
+        return tuple(p for p in all_passes() if _cores_own(p))
     wanted = {str(n) for n in names}
     return tuple(p for p in all_passes() if p.name in wanted)
 
@@ -197,7 +208,7 @@ def passes_for(checker_name: str | None) -> tuple[ClashPass, ...]:
     if checker is None:
         return ()
     if checker.name == BUILTIN_CHECKER and not checker.passes:
-        return tuple(p for p in all_passes() if p.capability is None)
+        return tuple(p for p in all_passes() if _cores_own(p))
     wanted = set(checker.passes)
     return tuple(p for p in all_passes() if p.name in wanted)
 

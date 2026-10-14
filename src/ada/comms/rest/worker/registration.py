@@ -161,7 +161,8 @@ def _clash_checkers_for_heartbeat(capabilities: list[str]) -> list[dict]:
     """
     try:
         import ada.clash.identify  # noqa: F401,PLC0415 - registers core's passes, which core's checker lists
-        from ada.clash.passes import BUILTIN_CHECKER, list_checkers
+        from ada.clash.builtin_names import CORE_CHECKERS
+        from ada.clash.passes import list_checkers
     except Exception:
         logger.exception("worker: ada.clash unavailable for the clash_checkers heartbeat (non-fatal)")
         return []
@@ -171,7 +172,7 @@ def _clash_checkers_for_heartbeat(capabilities: list[str]) -> list[dict]:
 
     out: list[dict] = []
     for entry in list_checkers():
-        is_core = entry["name"] == BUILTIN_CHECKER
+        is_core = entry["name"] in CORE_CHECKERS
         out.append(
             {
                 **entry,
