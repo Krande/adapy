@@ -22,7 +22,7 @@ import GalleryProvenance from "./GalleryProvenance";
 // Gallery HUD. Three "walk" types (dropdown):
 //   - "files": cycles the current scope's loadable files (clear → load). In a folder an export
 //     wrote, a merged file (a whole collection's hits) is walked hit by hit -- each isolated and
-//     framed in turn -- before going on to the next file; Shift+arrows / « File » skip files.
+//     framed in turn -- before going on to the next file; PageUp/PageDown / « File » skip files; Shift+W toggles the gallery.
 //   - "geoms": cycles every geom in the scene, selecting + framing each,
 //     ordered by scene or mesh density.
 //   - "tree": the same, in model-tree hierarchy order.
@@ -288,19 +288,22 @@ const GalleryControls: React.FC = () => {
     // Files walk over merged files: straight to the next / previous file's first hit.
     const stepFile = useCallback((delta: 1 | -1) => void go(stopOfAdjacentFile(stops, index, delta)), [go, stops, index]);
 
-    // Left/Right arrows cycle prev/next while gallery mode is active (the camera
-    // controls don't bind arrow keys, so there's no conflict). Ignored while
-    // typing or while a file load is in flight; preventDefault stops scrolling.
+    // ←/→ step prev/next; PageUp/PageDown step whole files when the walk goes through the hits
+    // inside files. Unmodified keys only (Shift+arrows select tree siblings), and not a key another
+    // handler already took. Ignored while typing or while a file load is in flight.
     useEffect(() => {
         if (!enabled) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            const arrow = e.key === "ArrowLeft" || e.key === "ArrowRight";
+            const page = e.key === "PageUp" || e.key === "PageDown";
+            if (!arrow && !page) return;
+            if (e.defaultPrevented || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+            if (page && (isGeomWalk || !hasJoints)) return;
             const t = e.target as HTMLElement | null;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (!isGeomWalk && useLoadQueueStore.getState().current) return; // a load is already running
             e.preventDefault();
-            // Shift skips to the next file when the walk steps through the hits inside files.
-            if (e.shiftKey && !isGeomWalk && hasJoints) stepFile(e.key === "ArrowRight" ? 1 : -1);
+            if (page) stepFile(e.key === "PageDown" ? 1 : -1);
             else step(e.key === "ArrowRight" ? 1 : -1);
         };
         window.addEventListener("keydown", onKey);
@@ -443,14 +446,14 @@ const GalleryControls: React.FC = () => {
         "rounded-sm border border-gray-600 px-1.5 py-0.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default";
     const jointBar = hasJoints && !isGeomWalk && currentStop && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300">
-            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(-1)} title="Previous file (Shift+←)">
+            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(-1)} title="Previous file (PageUp)">
                 « File
             </button>
             <span className="tabular-nums text-gray-400" title={current ?? ""}>
                 file {currentStop.fileIndex + 1}/{files.length}
                 {currentStop.joint ? ` · hit ${currentStop.jointIndex + 1}/${currentStop.joints}` : ""}
             </span>
-            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(1)} title="Next file (Shift+→)">
+            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(1)} title="Next file (PageDown)">
                 File »
             </button>
             {currentStop.joint && (

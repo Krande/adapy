@@ -36,6 +36,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Shift", "F"], description: "Center the view on the selection" },
       { keys: ["Shift", "A"], description: "Zoom to fit the whole model" },
       { keys: ["Shift", "Q"], description: "Toggle the Options menu" },
+      { keys: ["Shift", "W"], description: "Toggle gallery mode" },
       { keys: ["Shift", "P"], description: "Toggle the Admin panel (administrators only)" },
       { keys: ["Shift", "T"], description: "Open the tree at the selected element and focus it for arrow-key navigation; pressed while the tree is focused, close it" },
       {
@@ -60,6 +61,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       { keys: ["←"], description: "Previous item" },
       { keys: ["→"], description: "Next item" },
+      { keys: ["PageUp"], description: "Previous file (when a file is walked hit by hit)" },
+      { keys: ["PageDown"], description: "Next file (when a file is walked hit by hit)" },
     ],
   },
   {

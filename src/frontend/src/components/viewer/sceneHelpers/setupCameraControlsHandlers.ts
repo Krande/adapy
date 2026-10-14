@@ -4,6 +4,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useGalleryStore} from "@/state/galleryStore";
 import {useMeStore} from "@/state/meStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
@@ -136,6 +137,10 @@ export function setupCameraControlsHandlers(
                 event.preventDefault();
                 void cb.compilePreviewSelected();
             }
+        } else if (shift && key === "w" && !ctrl && !event.altKey) {
+            // Shift+W: gallery mode on / off.
+            event.preventDefault();
+            useGalleryStore.getState().toggle();
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
