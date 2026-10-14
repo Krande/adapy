@@ -385,6 +385,10 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_asset_build(req)
         if req.feature == "asset_publish":
             return self._submit_asset_publish(req)
+        if req.target_format == "clash_contacts":
+            # A convex-contact run (check / annotate) or a detail from one: the same kind behind
+            # both features, told apart by its own mode (formats/clash_contacts.py).
+            return self._submit_clash_contacts(req)
         if req.feature == "clash_check":
             return self._submit_clash_check(req)
         if req.feature == "clash_detail":
@@ -516,6 +520,27 @@ class LocalJobTransport(_BaseTransport):
             storage=self._storage,
             scope=req.scope,
         )
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_clash_contacts(self, req: JobRequest) -> SubmittedJob:
+        """The ``clash_contacts`` kind's local engine (``local_jobs.start_clash_contacts``)."""
+        try:
+            job = local_jobs.start_clash_contacts(
+                options=dict(req.conversion_options or {}),
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
         return SubmittedJob(
             job_id=job.job_id,
             derived_key=job.derived_key,

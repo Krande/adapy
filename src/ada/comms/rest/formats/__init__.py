@@ -12,6 +12,7 @@ from . import (
     clash_check,
     clash_check_asset,
     clash_check_group,
+    clash_contacts,
     clash_detail,
     component,
     convert,
@@ -60,6 +61,9 @@ register(clash_check_asset.ClashCheckAssetHandler())
 # nodes, each read through the storage facade (see the module docstring); its detail likewise.
 register(clash_check_group.ClashCheckGroupHandler())
 register(clash_detail.ClashDetailGroupHandler())
+# Synthetic: a convex-contact run measures the viewer GLB and reads a target's members through the
+# storage facade; a detail reads both back from the run (see the module docstring).
+register(clash_contacts.ClashContactsHandler())
 # Synthetic for the same reason: a published node's selection is read by its provider.
 register(export_selection.ExportSelectionAssetHandler())
 # Synthetic as well: attribute-search hits, each read through the geometry provider's concepts

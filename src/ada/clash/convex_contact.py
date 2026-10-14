@@ -1,15 +1,20 @@
-"""Convex-contact clash checking: members whose solids touch or overlap, measured.
+"""The convex-contact clash check: core's checker for members whose SOLIDS touch or overlap.
 
-WHAT IT ANSWERS. Core's own checker looks at axes and at surface distances, which is the right
-answer for a model whose members meet exactly. A detail model -- parts modelled as fabricated, that
-merely touch or overlap by millimetres -- needs the solids themselves: which members' solids come
-within a security margin of each other, and the contact a connection is sized from (the nearest
-point on each, the contact normal, the penetration depth and the contact-patch area).
+TWO CHECKS, TWO QUESTIONS. Core's own checker (``adapy``) is a CONNECTIVITY check: shared nodes, axes
+that meet, plates beside beams -- which members are meant to connect. The convex-contact check answers
+a different question: which members' solids actually touch or overlap, and by how much -- the contact
+a connection is sized from (nearest points, normal, penetration depth, contact patch).
 
-HOW. Each member is tessellated through the active CAD backend, and adacpp (``adacpp.clash``) takes
-each member's convex hull and measures every pair with coal's GJK/EPA and contact patch -- compiled
-C++, the same code the browser runs through adacpp's wasm module, so a check gives the same contacts
-on a worker and in a browser. Nothing here needs trimesh or scipy.
+ITS INPUT IS THE VIEWER GLB, NOT THE MEMBER MODEL. The solids it measures are the ones the viewer
+shows, read straight out of the GLB by adacpp (``adacpp.clash.find_glb_contacts``) -- the same bytes
+and the same C++ in a browser (wasm) and on a worker, so both find the same clashes. A run is a
+sidecar document (``ada.clash.sidecar``); ``ada.clash.contacts`` runs it and hands its clashes to a
+builder; ``/scopes/{scope}/clash-contacts`` is its REST surface. It is therefore NOT a pass over a
+rebuilt member model: :func:`convex_contact_pass` refuses, by name, to run inside ``run_clash_check``.
+
+The checker is still registered (:func:`register`) -- so the panel offers it and routing knows it as
+core's -- and this module keeps the ROLE rules a detail applies to a run's clash once its members are
+bound (:func:`found_from_contact`):
 
 ROLES. A contact names which member is INCOMING (the one whose end is at the contact) and which is
 LANDING: the member end nearest the contact point is the incoming member's, and that end is the
@@ -19,10 +24,6 @@ the roles left unset.
 
 ORDER. The contact is written incoming-first: ``near_points[0]`` is on the incoming member and
 ``normal`` points from incoming towards landing. ``penetration_depth`` is the overlap, positive.
-
-A CHECKER OF ITS OWN, and capability-free: it runs wherever core runs and adacpp carries the pass,
-which is every adacpp-backed process -- including the browser's. It is registered only where adacpp
-does carry it (:func:`register`), so a process without it does not offer a checker that would fail.
 """
 
 from __future__ import annotations
@@ -39,81 +40,19 @@ __all__ = [
     "DEFAULT_SECURITY_MARGIN",
     "available",
     "convex_contact_pass",
-    "find_convex_contacts",
-    "member_points",
+    "found_from_contact",
     "register",
 ]
 
 DEFAULT_SECURITY_MARGIN = 0.01
 DEFAULT_MIN_CONTACT_AREA = 1e-6
 
-_END_NAMES = ("start", "end")
-
 
 def available() -> bool:
-    """Whether the installed adacpp carries the convex-contact pass, hulls included."""
-    try:
-        import adacpp.clash  # noqa: PLC0415 - probing an optional backend
+    """Whether the installed adacpp can run the check (it measures the viewer GLB)."""
+    from ada.clash.contacts import available as _available
 
-        return hasattr(adacpp.clash, "find_convex_contacts") and hasattr(adacpp.clash, "convex_hull")
-    except Exception:  # noqa: BLE001 - an adacpp that cannot import is one that cannot answer
-        return False
-
-
-def member_points(member) -> np.ndarray:
-    """The tessellated solid's vertices of ``member`` in world coordinates, ``(n, 3)`` float64.
-
-    The vertices alone: adacpp takes the convex hull from them, so the triangles are not needed.
-    """
-    from ada.base.types import GeomRepr
-    from ada.visit.tessellate import tessellate_shape
-
-    mesh = tessellate_shape(member.shape_global(GeomRepr.SOLID))
-    return np.asarray(mesh.positions, dtype=np.float64).reshape(-1, 3)
-
-
-def find_convex_contacts(
-    members: Sequence[Any],
-    security_margin: float = DEFAULT_SECURITY_MARGIN,
-    min_contact_area: float = DEFAULT_MIN_CONTACT_AREA,
-) -> list[dict]:
-    """Every touching / overlapping pair among ``members``, as plain dicts.
-
-    One dict per contact: ``i`` / ``j`` (indices into ``members``, ``i < j``) and the contact as adacpp
-    measured it, in ITS order -- ``near1`` on member ``i``, ``near2`` on member ``j``, ``normal`` from
-    ``i`` towards ``j``, ``penetration_depth`` signed (negative is overlap) and ``contact_area``. A
-    member that cannot be tessellated is logged and touches nothing.
-    """
-    import adacpp.clash  # noqa: PLC0415 - guarded by available()
-
-    points = []
-    for member in members:
-        try:
-            points.append(member_points(member))
-        except Exception as exc:  # noqa: BLE001 - one bad member must not cost the whole check
-            logger.warning(f"clash: could not tessellate {getattr(member, 'name', member)!r}: {exc}")
-            points.append(np.zeros((0, 3)))
-
-    r = adacpp.clash.find_convex_contacts(
-        points, security_margin=float(security_margin), min_contact_area=float(min_contact_area)
-    )
-    for i, j, reason in r["failures"]:
-        logger.warning(f"clash: no contact measured between {members[i].name!r} and {members[j].name!r}: {reason}")
-    for k in r["degenerate"]:
-        logger.debug(f"clash: {members[k].name!r} has no solid hull (its geometry spans no volume)")
-
-    return [
-        {
-            "i": int(i),
-            "j": int(j),
-            "near1": tuple(float(v) for v in r["near1"][q]),
-            "near2": tuple(float(v) for v in r["near2"][q]),
-            "normal": tuple(float(v) for v in r["normal"][q]),
-            "penetration_depth": float(r["penetration_depth"][q]),
-            "contact_area": float(r["contact_area"][q]),
-        }
-        for q, (i, j) in enumerate(r["pairs"].tolist())
-    ]
+    return _available()
 
 
 def _anchors(member) -> list[tuple[np.ndarray, str | None]] | None:
@@ -156,7 +95,11 @@ def _incoming_angle(incoming, end: str, normal: np.ndarray) -> float | None:
 
 
 def found_from_contact(members: Sequence[Any], c: dict, security_margin: float):
-    """One measured contact as the ``_Found`` a clash pass returns, written incoming-first."""
+    """One measured contact as the ``_Found`` a clash pass returns, written incoming-first.
+
+    ``c`` is the contact in the engine's order: ``i`` / ``j`` index ``members``, ``near1`` is on member
+    ``i``, ``normal`` points from ``i`` to ``j`` and ``penetration_depth`` is signed (negative overlap).
+    """
     from ada.clash.identify import _Found
 
     m1, m2 = members[c["i"]], members[c["j"]]
@@ -202,44 +145,24 @@ def found_from_contact(members: Sequence[Any], c: dict, security_margin: float):
     )
 
 
-def _option(options, key: str, default: float) -> float:
-    raw = (getattr(options, "checker_options", None) or {}).get(key)
-    if raw is None or raw == "":
-        return default
-    return float(raw)
-
-
 def convex_contact_pass(part, options, *, beams=None, plates=None) -> Iterable[Any]:
-    """The pass: one contact per pair of members whose solids touch or overlap.
-
-    ``beams`` / ``plates`` are the members core collected from ``part``; a caller passing neither
-    gets the walk.
-    """
-    if beams is None and plates is None:
-        from ada import Beam, Plate
-
-        beams = list(part.get_all_physical_objects(by_type=Beam))
-        plates = list(part.get_all_physical_objects(by_type=Plate))
-    members = [*(beams or ()), *(plates or ())]
-    if len(members) < 2:
-        return []
-    security_margin = _option(options, "security_margin", DEFAULT_SECURITY_MARGIN)
-    min_contact_area = _option(options, "min_contact_area", DEFAULT_MIN_CONTACT_AREA)
-    contacts = find_convex_contacts(members, security_margin, min_contact_area)
-    logger.debug(f"clash: convex-contact pass found {len(contacts)} contacts among {len(members)} members")
-    return [found_from_contact(members, c, security_margin) for c in contacts]
+    """Refuses: the convex-contact check measures the viewer GLB, not a rebuilt member model."""
+    raise ValueError(
+        "the convex-contact check runs on the viewer GLB, not on a member model: run it through "
+        "POST /scopes/{scope}/clash-contacts (or in the browser), which keeps the run as a sidecar"
+    )
 
 
 _registered = False
 
 
 def register() -> bool:
-    """Register the pass and its checker -- only where adacpp carries the pass. Idempotent."""
+    """Register the checker (and its pass name) -- only where adacpp can run the check. Idempotent."""
     global _registered
     if _registered:
         return True
     if not available():
-        logger.debug("clash: adacpp has no convex-contact pass here, so the convex-contact checker is not offered")
+        logger.debug("clash: adacpp cannot measure a viewer GLB here, so the convex-contact checker is not offered")
         return False
     from ada.clash.passes import (
         ClashChecker,
@@ -253,8 +176,7 @@ def register() -> bool:
             name=CONVEX_CONTACT_PASS,
             label="Solids touching or overlapping: contact normal, penetration depth and contact patch",
             checker=CONVEX_CONTACT_CHECKER,
-            # The members are tessellated through the CAD backend.
-            needs_backend=True,
+            needs_backend=False,
             fn=convex_contact_pass,
             priority=30,
         )
@@ -265,9 +187,10 @@ def register() -> bool:
             label="Convex contact",
             passes=(CONVEX_CONTACT_PASS,),
             description=(
-                "Interference between each member's convex hull: finds members whose solids touch or "
-                "overlap, with the contact normal, penetration depth and contact-patch area a connection "
-                "is sized from. For detail models, where parts meet as fabricated."
+                "Interference between the members' solids as the viewer shows them: finds members that "
+                "touch or overlap, with the contact normal, penetration depth, contact-patch area and "
+                "patch outline a connection is sized from. For detail models, where parts meet as "
+                "fabricated. Runs in the browser or on a worker; each run is kept beside its model."
             ),
             options=(
                 {

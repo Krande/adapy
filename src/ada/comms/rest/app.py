@@ -62,6 +62,7 @@ from .routes.asset_sweeps import admin_router as admin_asset_sweeps_router
 from .routes.assets import router as assets_router
 from .routes.attribute_search import router as attribute_search_router
 from .routes.clash_check import router as clash_check_router
+from .routes.clash_contacts import router as clash_contacts_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
     RestContext,
@@ -1455,6 +1456,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Decision 10 / Phase 6). Every path is ``/scopes/{scope}/clash-check...`` or
     # ``/scopes/{scope}/clash-detail``, neither colliding with any fixed/parameterised sibling.
     api.include_router(clash_check_router)
+    # Convex-contact clash runs on the viewer GLB: ``/scopes/{scope}/clash-contacts...``.
+    api.include_router(clash_contacts_router)
 
     # A selection as a STEP/IFC download (routes/export_selection.py). One fixed path,
     # ``/scopes/{scope}/export-selection``, with no parameterised sibling to collide with.

@@ -44,6 +44,9 @@ CHAIN_KINDS = [
     # Synthetic with no single source at all: a group's members come from several files and nodes.
     ("clash_check_group", True),
     ("clash_detail_group", True),
+    # Synthetic: a convex-contact run reads the viewer GLB, a target's members and its own run
+    # through the storage facade.
+    ("clash_contacts", True),
     # Synthetic for the same reason: a published node's selection is read by its provider.
     ("export_selection_asset", True),
     ("export_search_asset", True),
@@ -96,8 +99,9 @@ def test_every_chain_kind_resolves_to_its_own_handler(kind, synthetic):
     handler = registry.resolve(_job(kind))
     assert handler.kind == kind
     assert handler.needs_source is (not synthetic)
-    # The one cache-exempt kind, as before: its output is a DB side-effect, not the blob.
-    assert handler.skip_cached_short_circuit is (kind == "equipment_bbox")
+    # The cache-exempt kinds: equipment_bbox's output is a DB side-effect, not the blob, and a
+    # clash_contacts annotate job's derived key is the run it rewrites.
+    assert handler.skip_cached_short_circuit is (kind in ("equipment_bbox", "clash_contacts"))
 
 
 def test_registered_kinds_are_exactly_the_chain_plus_the_convert_fallback():
