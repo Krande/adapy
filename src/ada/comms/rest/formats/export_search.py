@@ -323,7 +323,12 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
 
                 # ``mesh``: the quick-look GLB this design file was requested from, when it was (it shares
                 # this file's stem, so its sidecar is this one from now on).
-                derived: dict[str, str | None] = {"glb": None, "step": None, "thumb": None, "mesh": hit.get("mesh_file")}
+                derived: dict[str, str | None] = {
+                    "glb": None,
+                    "step": None,
+                    "thumb": None,
+                    "mesh": hit.get("mesh_file"),
+                }
                 local: dict[str, pathlib.Path] = {}
                 t = time.perf_counter()
                 glb_path = None
@@ -499,7 +504,9 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
             row = {"file": key, "node_id": hit.get("node_id"), "full_name": hit.get("full_name"), "status": "written"}
             mesh = hit.get("mesh") if isinstance(hit.get("mesh"), dict) else None
             if mesh is None or not mesh.get("glb_key"):
-                row.update(status="no_geometry", error=str(hit.get("mesh_error") or f"{provider} published no mesh for it"))
+                row.update(
+                    status="no_geometry", error=str(hit.get("mesh_error") or f"{provider} published no mesh for it")
+                )
                 files.append(row)
                 continue
             work = pathlib.Path(tempfile.mkdtemp(prefix="ada-search-export-"))

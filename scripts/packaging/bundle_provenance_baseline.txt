@@ -78,3 +78,11 @@ shrink-0 px-1.5 py-0.5 rounded-sm cursor-pointer text-gray-400 hover:text-red-30
 # @xyflow/react's node/edge predicates.
 in n&&!(
 in n)&&!(
+# The same shape from the search-query summary: `if ("eq" in q.depth) parts.push(...)` and
+# `if ("eq" in w) ... else if ("ne" in w)` minify to
+#     t.depth&&("eq"in t.depth?e.push(`depth ...`):...)  and  "eq"in n?e.push(`...`):"ne"in n?...
+# and STRING_RE takes the code between the quote of "eq" and the backtick.
+# src/frontend/src/assets/searchExport.ts:211
+in t.depth?e.push(
+# src/frontend/src/assets/searchExport.ts:215
+in n?e.push(

@@ -511,7 +511,11 @@ def _resume_world(monkeypatch, *, status="interrupted", specs=None, busy=None, r
 
     async def rearm(pool, run_id):
         seen["rearmed"] = True
-        return [{"position": 1, "collection": "BETA", "fetch_job_id": "old-fetch", "publish_job_id": None}] if rearmed is None else rearmed
+        return (
+            [{"position": 1, "collection": "BETA", "fetch_job_id": "old-fetch", "publish_job_id": None}]
+            if rearmed is None
+            else rearmed
+        )
 
     async def cancel(job_id):
         seen["cancelled"].append(job_id)

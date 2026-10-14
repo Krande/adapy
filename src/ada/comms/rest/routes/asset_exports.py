@@ -71,10 +71,10 @@ from ..search_export import (
     GEOMETRY_PROVIDER,
     META_SCHEMA,
     clean_folder,
-    sidecar_key,
     export_file_key,
     meta_document,
     meta_sidecar_key,
+    sidecar_key,
     thumb_sidecar_key,
 )
 from . import geometry_requests as greq

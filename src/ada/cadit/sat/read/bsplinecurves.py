@@ -43,7 +43,9 @@ def get_degree_and_closure(dline: list[str], has_extra_zero) -> tuple[int, bool]
     return degree, closed_curve
 
 
-def _read_knot_vector(data_lines: list[str], dline: list[str], has_extra_zero: bool) -> tuple[list[float], list[int], int]:
+def _read_knot_vector(
+    data_lines: list[str], dline: list[str], has_extra_zero: bool
+) -> tuple[list[float], list[int], int]:
     """``(knots, multiplicities, first control-point line)`` of an ``exactcur`` / ``lawintcur`` block.
 
     The header ends with the number of distinct knots. Their (value, multiplicity) pairs can wrap

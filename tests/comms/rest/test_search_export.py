@@ -1030,13 +1030,27 @@ def test_a_design_file_cannot_ask_for_its_design_geometry_again(monkeypatch):
 
 def test_the_sidecar_names_the_mesh_only_when_there_is_one():
     doc = se.meta_document(
-        file="a.ifc", fmt="ifc", created_by=None, source={}, query=None, matched={}, run_id=None,
-        attributes={}, derived={"glb": None, "mesh": "a.glb"},
+        file="a.ifc",
+        fmt="ifc",
+        created_by=None,
+        source={},
+        query=None,
+        matched={},
+        run_id=None,
+        attributes={},
+        derived={"glb": None, "mesh": "a.glb"},
     )
     assert doc["derived"]["mesh"] == "a.glb"
     plain = se.meta_document(
-        file="a.ifc", fmt="ifc", created_by=None, source={}, query=None, matched={}, run_id=None,
-        attributes={}, derived={},
+        file="a.ifc",
+        fmt="ifc",
+        created_by=None,
+        source={},
+        query=None,
+        matched={},
+        run_id=None,
+        attributes={},
+        derived={},
     )
     assert "mesh" not in plain["derived"]
 
@@ -1064,7 +1078,14 @@ def test_a_mesh_item_builds_each_ready_hit_then_submits_its_job(export_world, mo
         key = f"_derived/assets/web3d/{collection}/{subject}/r1/{node}/fp/summary.json"
         summary = {"ok": True, "glb_key": key.replace("summary.json", "model.glb")}
         await w.store.put_bytes(scope_obj, key, json.dumps(summary).encode())
-        return {"derived_key": key, "provider": "web3d", "subject": subject, "revision": "r1", "node": node, "job_id": None}
+        return {
+            "derived_key": key,
+            "provider": "web3d",
+            "subject": subject,
+            "revision": "r1",
+            "node": node,
+            "job_id": None,
+        }
 
     monkeypatch.setattr(greq, "classify_in_scope", classify)
     monkeypatch.setattr(assets_routes, "submit_node_build", build)
