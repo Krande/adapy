@@ -39,6 +39,20 @@ import {
   type WireGeometryPlan,
   type WireGeometryProvider,
 } from "@/services/api/clashCheck";
+import {
+  CONTACT_ORIGIN,
+  contactRunsApi,
+  contactTargetFor,
+  glbKeyForSource,
+  runBrowserContactFlow,
+  runContactDetailFlow,
+  runToResultDoc,
+  runWorkerContactFlow,
+  type ContactFlowDeps,
+  type ContactRunDoc,
+  type ContactRunSummary,
+  type ContactTarget,
+} from "@/services/clash/contactRuns";
 import type { CollectionRequestDeps } from "@/assets/collectionRequest";
 import type { AssetNodeRequest } from "@/services/assetScopeCollections";
 import { conversionApi } from "@/services/api/conversion";
@@ -1186,6 +1200,11 @@ interface ClashCheckState {
 
   jobId: string | null;
   derivedKey: string | null;
+  /** The stored convex-contact RUN the result came from (``_clash/...``), when it came from one --
+   *  the thing a detail is made from. Mutually exclusive with `derivedKey` (a `result@` document). */
+  runKey: string | null;
+  /** The current target's convex-contact runs, newest first -- they outlive the page. */
+  contactRuns: readonly ContactRunSummary[];
   cached: boolean;
   result: ClashResult | null;
   busy: boolean;
@@ -1293,6 +1312,10 @@ interface ClashCheckState {
   loadCapabilities: (scope: string) => Promise<void>;
   toggleOriginHidden: (origin: string) => void;
   runCheck: (scope: string) => Promise<void>;
+  /** List the current target's convex-contact runs. Best effort: none is an answer. */
+  loadContactRuns: (scope: string) => Promise<void>;
+  /** Reopen a stored convex-contact run as the result. */
+  openContactRun: (scope: string, key: string) => Promise<void>;
   runDetail: (scope: string, jointIds: readonly string[], spec: string) => Promise<void>;
   /** Detail every joint that has a matching generator, one job per spec. */
   runDetailAll: (scope: string, only?: readonly string[] | null) => Promise<void>;
@@ -1315,6 +1338,74 @@ function realFlowDeps(scope: string): ClashFlowDeps {
       trackJob({ ...opts, scopeUrl: scope });
     },
   };
+}
+
+/** The live deps of a convex-contact run. The wasm worker is imported on first use: a check on a
+ *  worker, or a test of this store, never loads it. */
+function realContactDeps(scope: string): ContactFlowDeps {
+  return {
+    api: contactRunsApi,
+    async measure(glb, opts) {
+      const { findGlbContacts } = await import("@/utils/clashContacts/clashContacts");
+      return findGlbContacts(glb, opts);
+    },
+    async jobStatus(jobId) {
+      const status = await conversionApi.convertStatus(jobId);
+      return { status: status.status, error: status.error };
+    },
+    trackJob: (opts) => trackJob({ ...opts, scopeUrl: scope }),
+  };
+}
+
+/** One detail hand-off, from whichever document the result came from: a stored convex-contact RUN
+ *  (`runKey`: the stored contacts are the input) or a `result@` document (`derivedKey`: the worker
+ *  re-identifies the joints). */
+async function detailOnce(
+  state: { derivedKey: string | null; runKey: string | null },
+  scope: string,
+  ids: readonly string[],
+  spec: string,
+): Promise<{ derivedKey: string; glbKey: string | null; stats: DetailStats }> {
+  if (state.runKey && !state.derivedKey) {
+    const r = await runContactDetailFlow(realContactDeps(scope), scope, state.runKey, ids, spec);
+    return { derivedKey: r.derivedKey, glbKey: r.glbKey, stats: parseDetailStats(r.stats) };
+  }
+  return runClashDetailFlow(realFlowDeps(scope), scope, state.derivedKey as string, ids, spec);
+}
+
+/** The convex-contact checker's settings from the form, with its defaults. */
+export function contactRunOptions(checkerOptions: Readonly<Record<string, unknown>> | undefined): ContactRunDoc["options"] {
+  const num = (k: string, d: number) => {
+    const v = checkerOptions?.[k];
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : d;
+  };
+  return {
+    security_margin: num("security_margin", 0.01),
+    min_contact_area: num("min_contact_area", 1e-6),
+    line_contact_thickness: num("line_contact_thickness", 1e-3),
+  };
+}
+
+/** A stored run as the panel's result. */
+export function contactRunToResult(run: ContactRunDoc, runKey: string | null): ClashResult {
+  return parseClashResult(runToResultDoc(run, runKey));
+}
+
+/** The GLB a node target's viewer loaded -- known for a built node (its `glbKey`); a provider's mesh
+ *  delivery is an external URL, not a stored GLB, and is measured in the browser only. */
+async function nodeGlbKey(target: Extract<ContactTarget, { kind: "node" }>): Promise<string | null> {
+  const { useAssetBrowserStore } = await import("@/state/assetBrowserStore");
+  const hit = useAssetBrowserStore
+    .getState()
+    .loaded.find(
+      (l) =>
+        l.ref.collection === target.collection &&
+        l.ref.subject === target.subject &&
+        (l.ref.node ?? null) === (target.node ?? null) &&
+        (!target.revision || l.revision === target.revision),
+    );
+  return hit?.glbKey ?? null;
 }
 
 /** The answer the open `geometryPrompt` is waiting for. One at a time: `runCheck` refuses to start
@@ -1380,6 +1471,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
 
   jobId: null,
   derivedKey: null,
+  runKey: null,
+  contactRuns: [],
   cached: false,
   result: null,
   busy: false,
@@ -1412,6 +1505,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       assetTarget: target,
       result: null,
       derivedKey: null,
+      runKey: null,
+      contactRuns: [],
       cached: false,
       error: null,
       selectedGroup: null,
@@ -1444,6 +1539,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         assetTarget: null,
         result: null,
         derivedKey: null,
+        runKey: null,
+        contactRuns: [],
         cached: false,
         error: null,
         selectedGroup: null,
@@ -1544,6 +1641,38 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     if (get().busy) return;
     set({ busy: true, error: null, browserStage: null });
     try {
+      // The convex-contact CLASH check measures the viewer GLB -- in this browser (adacpp's wasm
+      // module) or on a worker (the same C++ on the same stored bytes) -- and the run is kept beside
+      // the model, so it outlives this page and a detail is made from it (`services/clash/contactRuns`).
+      if (get().checker === CONTACT_ORIGIN) {
+        const target = contactTargetFor(sourceKey, assetTarget as never);
+        if (!target) {
+          throw new Error(
+            "A clash check measures one model's GLB, and a group spans several: check its models one at a time.",
+          );
+        }
+        const glbKey = target.kind === "file" ? glbKeyForSource(target.source_key) : await nodeGlbKey(target);
+        if (!glbKey) {
+          throw new Error("This node's geometry is not a stored GLB (a provider's mesh delivery), so it cannot be checked.");
+        }
+        const req = { target, glbKey, upAxis: "z" as const, options: contactRunOptions(get().checkerOptions[CONTACT_ORIGIN]) };
+        const { run, runKey } = inBrowser
+          ? await runBrowserContactFlow(realContactDeps(scope), scope, req, (stage) => set({ browserStage: stage }))
+          : await runWorkerContactFlow(realContactDeps(scope), scope, req);
+        set({
+          result: contactRunToResult(run, runKey),
+          runKey,
+          derivedKey: null,
+          cached: false,
+          busy: false,
+          browserStage: null,
+          selectedGroup: null,
+          selectedJoints: [],
+          selectedJoint: null,
+        });
+        void get().loadContactRuns(scope);
+        return;
+      }
       // The browser runs core's checker only; a contributed engine lives on its pool.
       if (
         sourceKey &&
@@ -1612,18 +1741,49 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     }
   },
 
+  loadContactRuns: async (scope) => {
+    const target = contactTargetFor(get().sourceKey, get().assetTarget as never);
+    if (!target) {
+      set({ contactRuns: [] });
+      return;
+    }
+    try {
+      const runs = await contactRunsApi.listRuns(scope, target);
+      // Still the same target? A slow listing must not land on the next model's panel.
+      const now = contactTargetFor(get().sourceKey, get().assetTarget as never);
+      if (JSON.stringify(now) === JSON.stringify(target)) set({ contactRuns: runs });
+    } catch {
+      set({ contactRuns: [] });
+    }
+  },
+
+  openContactRun: async (scope, key) => {
+    if (get().busy) return;
+    set({ busy: true, error: null });
+    try {
+      const run = await contactRunsApi.getRun(scope, key);
+      set({
+        result: contactRunToResult(run, key),
+        runKey: key,
+        derivedKey: null,
+        cached: true,
+        busy: false,
+        checker: CONTACT_ORIGIN,
+        selectedGroup: null,
+        selectedJoints: [],
+        selectedJoint: null,
+      });
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
   runDetail: async (scope, jointIds, spec) => {
-    const { derivedKey } = get();
-    if (!derivedKey || get().detailBusy) return;
+    const { derivedKey, runKey } = get();
+    if ((!derivedKey && !runKey) || get().detailBusy) return;
     set({ detailBusy: true, detailError: null, detailSpec: spec, detailDerivedKey: null, detailGlbKey: null });
     try {
-      const { derivedKey: detailKey, glbKey, stats } = await runClashDetailFlow(
-        realFlowDeps(scope),
-        scope,
-        derivedKey,
-        jointIds,
-        spec,
-      );
+      const { derivedKey: detailKey, glbKey, stats } = await detailOnce(get(), scope, jointIds, spec);
       set((s) => ({
         detailBusy: false,
         detailDerivedKey: detailKey,
@@ -1637,8 +1797,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   },
 
   runDetailAll: async (scope, only) => {
-    const { derivedKey, result } = get();
-    if (!derivedKey || !result || get().detailBusy) return;
+    const { derivedKey, runKey, result } = get();
+    if ((!derivedKey && !runKey) || !result || get().detailBusy) return;
     const batches = detailBatches(result, only ?? null, effectiveSpecProviders(get()));
     if (batches.length === 0) {
       set({ detailError: "No joint in this result has a generator that could detail it." });
@@ -1659,13 +1819,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     for (const batch of batches) {
       set({ detailSpec: batch.spec.spec });
       try {
-        const { derivedKey: detailKey, glbKey, stats } = await runClashDetailFlow(
-          realFlowDeps(scope),
-          scope,
-          derivedKey,
-          batch.jointIds,
-          batch.spec.spec,
-        );
+        const { derivedKey: detailKey, glbKey, stats } = await detailOnce(get(), scope, batch.jointIds, batch.spec.spec);
         done += 1;
         set((s) => ({
           detailDerivedKey: detailKey,
@@ -1703,6 +1857,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       selectedJoint: null,
       jobId: null,
       derivedKey: null,
+      runKey: null,
+      contactRuns: [],
       cached: false,
       result: null,
       busy: false,

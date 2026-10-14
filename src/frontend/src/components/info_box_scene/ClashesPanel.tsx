@@ -12,6 +12,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
+import { CONTACT_ORIGIN } from "@/services/clash/contactRuns";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import { useProviderName } from "@/state/providerNamesStore";
@@ -258,11 +259,20 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
   const browserStage = useClashCheckStore((s) => s.browserStage);
   const geometryPrompt = useClashCheckStore((s) => s.geometryPrompt);
   const geometryStage = useClashCheckStore((s) => s.geometryStage);
-  // Only IFC: the member scan is an IFC reader, so for anything else the option would be a
-  // checkbox that silently did nothing.
-  // The browser runs core's checker only; a contributed engine's code lives on its pool.
-  // A node or a group is read on the server whatever this says, so the option is not offered.
-  const browserPossible = isCore && !assetTarget && browserClashCheckSupports(sourceKey ?? "");
+  const loadContactRuns = useClashCheckStore((s) => s.loadContactRuns);
+  // The convex-contact CLASH check measures the viewer GLB, so it can run in the browser for any
+  // one model -- a file or a node -- but not a group, which spans several GLBs.
+  const isContact = checker === CONTACT_ORIGIN;
+  const contactPossible = isContact && (Boolean(sourceKey) || assetTarget?.kind === "node");
+  // Core's connectivity check in the browser: only IFC -- the member scan is an IFC reader, so for
+  // anything else the option would be a checkbox that silently did nothing. A node or a group is
+  // read on the server whatever this says, so the option is not offered for them.
+  const browserPossible = contactPossible || (isCore && !assetTarget && browserClashCheckSupports(sourceKey ?? ""));
+
+  // A clash run outlives the page: list the target's runs whenever the target (or the engine) changes.
+  useEffect(() => {
+    if (contactPossible) void loadContactRuns(scope);
+  }, [contactPossible, sourceKey, assetTarget, scope, loadContactRuns]);
 
   return (
     <div className="flex flex-col gap-1 pb-1 border-b border-gray-700">
@@ -303,7 +313,11 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
         {browserPossible && (
           <label
             className="flex items-center gap-1 text-[11px] text-gray-300"
-            title="Read the members with the wasm IFC scan and run the same ada.clash rules in the browser — no upload, no worker job. Costs a one-time pyodide load; produces no server-side result, so detailing a joint still needs a server run."
+            title={
+              isContact
+                ? "Measure the model's GLB in the browser with the same compiled clash check a worker runs — no worker job for the check itself. The run is saved beside the model; a worker then resolves which generators could detail each clash."
+                : "Read the members with the wasm IFC scan and run the same compiled beam-to-beam pass in the browser — no upload, no worker job. Produces no server-side result, so detailing a joint still needs a server run."
+            }
           >
             <input type="checkbox" checked={inBrowser} onChange={(e) => setInBrowser(e.target.checked)} />
             in browser
@@ -327,7 +341,35 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
           : "Run clash check"}
       </button>
       <GeometryRequestStep />
+      {contactPossible && <ContactRunHistory scope={scope} />}
     </div>
+  );
+};
+
+/** The target's stored clash runs, newest first -- reopen one instead of measuring again. */
+const ContactRunHistory: React.FC<{ scope: string }> = ({ scope }) => {
+  const runs = useClashCheckStore((s) => s.contactRuns);
+  const runKey = useClashCheckStore((s) => s.runKey);
+  const busy = useClashCheckStore((s) => s.busy);
+  const openContactRun = useClashCheckStore((s) => s.openContactRun);
+  if (runs.length === 0) return null;
+  return (
+    <label className="flex items-center gap-1 text-[11px] text-gray-300" title="Clash runs kept beside this model">
+      previous runs
+      <select
+        className="flex-1 min-w-0 bg-gray-800 text-gray-200 rounded-sm px-1 py-0.5"
+        value={runKey ?? ""}
+        disabled={busy}
+        onChange={(e) => e.target.value && void openContactRun(scope, e.target.value)}
+      >
+        <option value="">—</option>
+        {runs.map((r) => (
+          <option key={r.key} value={r.key}>
+            {`${r.created_at.replace("T", " ").replace("Z", "")} · ${r.contacts} clash${r.contacts === 1 ? "" : "es"} · ${r.engine === "wasm" ? "browser" : "worker"}`}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 };
 
