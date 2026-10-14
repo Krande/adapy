@@ -104,6 +104,72 @@ class SweepRefused(Exception):
     """A sweep that could not start: state said no (the provider is offline, already sweeping)."""
 
 
+#: The job name of a run that requests chosen collections through the provider's own
+#: ``asset_collection_request`` (the Sources tab's "Request <collection>"), driven as a sweep.
+COLLECTION_REQUEST = "collection-request"
+
+
+def collection_request_entry(spec: dict) -> dict | None:
+    """``asset_collection_request`` as a sweep entry: the same fixed options and collection option
+    the Sources tab's request sends, so a run of it asks each collection exactly what a click would.
+    None when the spec declares no collection request."""
+    decl = spec.get("asset_collection_request")
+    if not isinstance(decl, dict):
+        return None
+    option = decl.get("collection_option")
+    if not (isinstance(option, str) and option.strip()):
+        return None
+    return {
+        "id": COLLECTION_REQUEST,
+        "kind": SWEEP,
+        "label": str(decl.get("label") or "Request collection"),
+        "options": dict(decl.get("options") or {}) if isinstance(decl.get("options"), dict) else {},
+        "collection_option": option.strip(),
+    }
+
+
+async def advertised_provider_specs(ctx: RestContext, provider: str) -> list[dict]:
+    """Every live spec of ``provider`` -- not only those declaring schedules (``provider_specs``):
+    a collection request is declared beside them, and a provider may declare it without any."""
+    out = []
+    for spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
+        if isinstance(spec, dict) and spec.get("asset_provider_id") == provider:
+            out.append(spec)
+    return out
+
+
+async def sweep_entry(ctx: RestContext, provider: str, job: str) -> tuple[list[dict], tuple[dict, dict] | None]:
+    """``(specs, (spec, entry) | None)`` for ``job`` of ``provider``: a declared sweep, or
+    :data:`COLLECTION_REQUEST` -- the first spec declaring a collection request."""
+    if job == COLLECTION_REQUEST:
+        specs = await advertised_provider_specs(ctx, provider)
+        for spec in specs:
+            entry = collection_request_entry(spec)
+            if entry is not None:
+                return specs, (spec, entry)
+        return specs, None
+    specs = (await provider_specs(ctx)).get(provider) or []
+    found = find_entry(specs, job)
+    return specs, found if found is not None and found[1].get("kind") == SWEEP else None
+
+
+def offered_names(offered: list[str], wanted: list[str]) -> tuple[list[str], list[str]]:
+    """``(names, unknown)``: each of ``wanted`` in the provider's own spelling (core indexes
+    collections lower-case, a provider may offer ``ALPHA``), in ``wanted`` order, and those it does not
+    offer. With nothing offered (a provider that lists none), the names go through as they are."""
+    if not offered:
+        return list(dict.fromkeys(wanted)), []
+    by_lower = {c.lower(): c for c in offered}
+    names, unknown = [], []
+    for c in wanted:
+        name = by_lower.get(str(c).lower())
+        if name is None:
+            unknown.append(str(c))
+        elif name not in names:
+            names.append(name)
+    return names, unknown
+
+
 _ms = ms
 _json_of = json_of
 _Cancelled = RunCancelled
@@ -145,19 +211,30 @@ async def start_sweep(
     user,
     via: str,
     schedule_id: str | None = None,
+    collections: list[str] | None = None,
 ) -> dict:
-    """Record a sweep and start driving it. Returns the run. Raises :class:`SweepRefused`."""
-    specs = (await provider_specs(ctx)).get(provider)
+    """Record a sweep and start driving it. Returns the run. Raises :class:`SweepRefused`.
+
+    ``collections``: only these (matched to the provider's spelling, refused when it does not offer
+    one), in that order -- and then the provider's default exclusions do not apply: somebody named
+    exactly what to run. ``job`` may be :data:`COLLECTION_REQUEST`."""
+    specs, found = await sweep_entry(ctx, provider, job)
     if not specs:
         raise SweepRefused(f"no online worker advertises provider {provider!r}")
-    found = find_entry(specs, job)
-    if found is None or found[1].get("kind") != SWEEP:
-        raise SweepRefused(f"provider {provider!r} declares no sweep {job!r}")
+    if found is None:
+        what = "no collection request" if job == COLLECTION_REQUEST else f"no sweep {job!r}"
+        raise SweepRefused(f"provider {provider!r} declares {what}")
     spec, entry = found
     busy = await db_module.running_asset_sweep(pool, provider=provider)
     if busy is not None:
         raise SweepRefused(f"a {provider} sweep is already running (started {busy['created_at']})")
-    collections = _all_collections(specs)
+    chosen = collections is not None
+    if chosen:
+        collections, unknown = offered_names(_all_collections(specs), collections)
+        if unknown:
+            raise SweepRefused(f"provider {provider!r} does not offer {', '.join(unknown)}")
+    else:
+        collections = _all_collections(specs)
     if not collections:
         raise SweepRefused(f"provider {provider!r} offers no collections to sweep")
     plugin_id = str(spec.get("slug") or spec.get("id") or "")
@@ -172,7 +249,7 @@ async def start_sweep(
         requested_by=getattr(user, "sub", None),
         requested_via=via,
         schedule_id=schedule_id,
-        excluded=frozenset(await default_excluded(pool, provider)),
+        excluded=frozenset() if chosen else frozenset(await default_excluded(pool, provider)),
     )
     spawn(
         _drive(ctx, pool, run, scope_obj=scope_obj, spec=spec, entry=entry, collections=collections, user=user),
@@ -535,9 +612,19 @@ async def admin_asset_sweep(run_id: str, request: Request, ctx: RestContext = De
     ``progress``: a whole-project fetch is tens of minutes, and "fetching" alone cannot be told
     apart from stuck."""
     pool = require_pool(request)
-    run = await db_module.get_asset_sweep_run(pool, run_id)
+    run = await sweep_with_progress(ctx, pool, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="sweep not found")
+    return JSONResponse(run)
+
+
+async def sweep_with_progress(ctx: RestContext, pool, run_id: str) -> dict | None:
+    """The run with its items, each one in flight carrying its job's live ``stage`` / ``progress``;
+    None when there is no such run. Shared by the admin read and a requester's read of a
+    collection request it started (``asset_exports``)."""
+    run = await db_module.get_asset_sweep_run(pool, run_id)
+    if run is None:
+        return None
     for item in run["items"]:
         job_id = {"fetching": item["fetch_job_id"], "publishing": item["publish_job_id"]}.get(item["status"])
         if not job_id:
@@ -550,7 +637,7 @@ async def admin_asset_sweep(run_id: str, request: Request, ctx: RestContext = De
             item["job_status"] = snap.status
             item["stage"] = (snap.payload or {}).get("stage")
             item["progress"] = (snap.payload or {}).get("progress")
-    return JSONResponse(run)
+    return run
 
 
 @admin_router.post("/asset-sweeps/{run_id}/cancel")
@@ -606,11 +693,10 @@ async def resume_sweep(ctx: RestContext, pool, run_id: str, *, user) -> dict:
     if run["status"] != "interrupted":
         raise SweepRefused(f"only an interrupted sweep can be resumed; this one is {run['status']}")
     provider = run["provider"]
-    specs = (await provider_specs(ctx)).get(provider)
+    specs, found = await sweep_entry(ctx, provider, run["job"])
     if not specs:
         raise SweepRefused(f"no online worker advertises provider {provider!r}")
-    found = find_entry(specs, run["job"])
-    if found is None or found[1].get("kind") != SWEEP:
+    if found is None:
         raise SweepRefused(f"provider {provider!r} no longer declares the sweep {run['job']!r}")
     spec, entry = found
     busy = await db_module.running_asset_sweep(pool, provider=provider)

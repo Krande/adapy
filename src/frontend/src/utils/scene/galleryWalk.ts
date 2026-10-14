@@ -13,6 +13,9 @@ import {computeRangeStats, DEFAULT_SPIKE_THRESHOLDS} from "@/utils/mesh_select/m
 import type {SpikeThresholds} from "@/utils/mesh_select/meshStats";
 import {useOptionsStore} from "@/state/optionsStore";
 import type {GeomWalkOrder} from "@/state/galleryStore";
+import type {ExportJoint} from "@/services/api/searchExport";
+import type {TreeNodeData} from "@/components/tree_view/CustomNode";
+import {jointNameMatches} from "@/assets/searchExport";
 
 // Geom-level gallery walk: enumerate every draw-range (geom) currently
 // in the scene, then select + frame them one at a time. The walk order
@@ -192,6 +195,105 @@ export async function focusGeomEntry(
     const camera = getViewerRuntime().camera.current;
     if (controls && camera) centerViewOnSelection(controls, camera, 1.5);
     requestRender();
+}
+
+// ---- One hit inside a merged export file --------------------------------------------------------
+// A merged export file holds a whole collection's hits; the gallery's folder walk steps through
+// them one at a time. A hit is found by the draw-range ids the file gives for it (a merged mesh
+// GLB numbers each hit's objects in one run), else by its node's name in the model tree -- every
+// draw range under that node.
+
+export interface JointRanges {
+    mesh: CustomBatchedMesh;
+    ids: string[];
+}
+
+function rangesById(meshes: CustomBatchedMesh[], [lo, hi]: [number, number]): JointRanges[] {
+    const out: JointRanges[] = [];
+    for (const mesh of meshes) {
+        const ids = [...mesh.drawRanges.keys()].filter((id) => {
+            const n = Number(id);
+            return Number.isFinite(n) && n >= lo && n <= hi;
+        });
+        if (ids.length) out.push({mesh, ids});
+    }
+    return out;
+}
+
+function rangesByName(meshes: CustomBatchedMesh[], joint: ExportJoint): JointRanges[] {
+    const tree = useTreeViewStore.getState().treeData;
+    if (!tree) return [];
+    // Breadth first, so the shallowest node of that name wins (the hit, not a same-named object
+    // inside it). The synthetic container above the models is never one.
+    let root: TreeNodeData | null = null;
+    const queue: TreeNodeData[] = [...(tree.children ?? [])];
+    for (let i = 0; i < queue.length; i++) {
+        const node = queue[i];
+        if (jointNameMatches(node.name, joint)) {
+            root = node;
+            break;
+        }
+        queue.push(...(node.children ?? []));
+    }
+    if (!root) return [];
+    const wanted = new Map<string, Set<string>>();
+    const walk: TreeNodeData[] = [root];
+    while (walk.length) {
+        const node = walk.pop()!;
+        if (node.rangeId != null && node.model_key != null) {
+            const key = String(node.model_key);
+            if (!wanted.has(key)) wanted.set(key, new Set());
+            wanted.get(key)!.add(String(node.rangeId));
+        }
+        walk.push(...(node.children ?? []));
+    }
+    const out: JointRanges[] = [];
+    for (const mesh of meshes) {
+        const want = wanted.get(mesh.unique_key);
+        if (!want) continue;
+        const ids = [...want].filter((id) => mesh.drawRanges.has(id));
+        if (ids.length) out.push({mesh, ids});
+    }
+    return out;
+}
+
+/** The draw ranges in the scene that are `joint`; empty when it is not (yet) loaded. */
+export function jointRanges(joint: ExportJoint): JointRanges[] {
+    const meshes = allBatchedMeshes();
+    if (joint.ids) {
+        const byId = rangesById(meshes, joint.ids);
+        if (byId.length) return byId;
+    }
+    return rangesByName(meshes, joint);
+}
+
+/** Select `joint`'s objects, optionally hide everything else, and frame it. False when the scene
+ *  has nothing that is it (the file is still loading, or the hit is not in it). */
+export function focusJoint(joint: ExportJoint, opts: {hideUnselected: boolean}): boolean {
+    const parts = jointRanges(joint);
+    if (!parts.length) return false;
+    const sel = useSelectedObjectStore.getState();
+    sel.clearSelectedObjects();
+    unhideAllRanges();
+    if (opts.hideUnselected) {
+        const keep = new Map(parts.map((p) => [p.mesh, new Set(p.ids)] as const));
+        for (const mesh of allBatchedMeshes()) {
+            const kept = keep.get(mesh);
+            const toHide = [...mesh.drawRanges.keys()].filter((id) => !kept?.has(id));
+            if (toHide.length) mesh.hideBatchDrawRange(toHide);
+        }
+    }
+    sel.addBatchofMeshes(parts.flatMap((p) => p.ids.map((id) => [p.mesh, id] as [CustomBatchedMesh, string])));
+    const info = useObjectInfoStore.getState();
+    info.setName(joint.name);
+    info.setFileName(useModelState.getState().loadedSourceName ?? null);
+    info.setJsonData(null);
+    info.setFaceIndex(null);
+    const controls = getViewerRuntime().controls.current;
+    const camera = getViewerRuntime().camera.current;
+    if (controls && camera) centerViewOnSelection(controls, camera, 1.5);
+    requestRender();
+    return true;
 }
 
 // Leave a geom walk cleanly: drop the isolation and the selection so the

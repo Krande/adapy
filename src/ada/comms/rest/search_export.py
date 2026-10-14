@@ -16,7 +16,7 @@ stem and so a sidecar, which becomes the IFC's and names the mesh as ``derived.m
 DESIGN GEOMETRY IS THE DESIGN SYSTEM'S OWN CSG (a user decision). It comes through the provider
 seam every other "read a node into objects" path uses (``ada.assets.concepts``) from the provider
 that publishes the E3D export (:data:`GEOMETRY_PROVIDER`), never from a mesh another provider
-published for the same node. A hit from another provider (web3d) is re-addressed by NODE ID -- the
+published for the same node. A hit from another provider (a mesh one) is re-addressed by NODE ID -- the
 collections share ``fn-<sha1>`` ids derived from the full name -- and then by full name: the
 geometry provider's spine either has a readable subject covering that node, or the hit has no
 geometry to export, which is a per-file outcome (``no_geometry``), never a failed run.
@@ -67,7 +67,9 @@ __all__ = [
     "apply_source_attributes",
     "element_sources",
     "export_file_key",
+    "export_merged_key",
     "matched_attributes",
+    "merged_mesh_elements",
     "meta_document",
     "mesh_elements",
     "meta_sidecar_key",
@@ -76,9 +78,11 @@ __all__ = [
     "resolve_geometry",
     "safe_stem",
     "sidecar_key",
+    "stamp_matched",
     "thumb_sidecar_key",
     "typed_attrs",
     "typed_value",
+    "wrap_all_in_context",
     "wrap_in_context",
     "write_ifc",
 ]
@@ -158,6 +162,13 @@ def meta_sidecar_key(key: str) -> str:
 
 def thumb_sidecar_key(key: str) -> str:
     return sidecar_key(key, ".thumb.png")
+
+
+def joint_thumb_key(key: str, n: int) -> str:
+    """The thumbnail of the ``n``-th hit in a merged file: ``x/A.ifc`` -> ``x/A.j0003.thumb.png``.
+    A ``.thumb.png`` like the file's own, so listings hide it and it goes with the file
+    (``converters.keys.joint_thumb_keys``)."""
+    return sidecar_key(key, f".j{n:04d}.thumb.png")
 
 
 def clean_folder(folder: str) -> str:
@@ -257,7 +268,14 @@ def resolve_geometry(index: Any, collection: str, hit: Mapping[str, Any], *, pro
 
     catalog = index.catalog(collection, provider)
     if not catalog.spines:
-        raise NoGeometry(f"provider {provider!r} published nothing in collection {collection!r}", reason="unpublished")
+        # Said as what is missing and how to get it: the user reading this per hit has just exported
+        # from a search, whose index is filled by a different job than the tree the export needs.
+        raise NoGeometry(
+            f"provider {provider!r} has no published project tree for collection {collection!r} -- the search "
+            f"index is filled separately; request the collection's tree from {provider!r} (the Sources tab's "
+            f"collection request, or its sweep for the tree) and export again",
+            reason="unpublished",
+        )
 
     candidates: list[str] = []
     if hit.get("node_id"):
@@ -343,6 +361,11 @@ class WrappedModel:
     def hit(self) -> ElementRef:
         return next(e for e in self.elements if e.role == "hit")
 
+    @property
+    def hits(self) -> list[ElementRef]:
+        """Every hit, in the order they were wrapped (one, unless :func:`wrap_all_in_context`)."""
+        return [e for e in self.elements if e.role == "hit"]
+
 
 def _name(entry: Mapping[str, Any]) -> str:
     return str(entry.get("full_name") or entry.get("node_id") or "level")
@@ -357,39 +380,85 @@ def wrap_in_context(part: Any, hit: Mapping[str, Any], *, units: Any = None) -> 
     after the hit and holds it directly. The hit part keeps its own name -- the geometry
     provider's -- and its sub-parts and objects are listed as ``part`` / ``member`` elements.
     """
+    return wrap_all_in_context([(part, hit)], units=units)
+
+
+def _level_key(entry: Mapping[str, Any]) -> str:
+    return str(entry.get("node_id") or entry.get("full_name") or "")
+
+
+def wrap_all_in_context(
+    items: Sequence[tuple[Any, Mapping[str, Any]]], *, name: str | None = None, units: Any = None
+) -> WrappedModel:
+    """Every ``(part, hit)`` of ``items`` placed as :func:`wrap_in_context` places one, in ONE
+    assembly -- a whole collection's hits as one file.
+
+    Ancestors are SHARED: two hits under the same zone hang off one zone part, matched by node id
+    (full name when there is none), so the merged file's tree is the source tree cut down to the
+    hits rather than one copy of the site per hit. When every hit has the same root, the assembly
+    IS that root, as it is for one hit; otherwise it is named ``name`` and each root is a part of
+    it. Elements are listed level by level as they are first met, each hit followed by its parts
+    and members, so :attr:`WrappedModel.hits` is in ``items`` order.
+    """
     import ada
 
-    path = [p for p in (hit.get("path") or ()) if isinstance(p, Mapping)]
-    root = path[0] if path else None
-    asm = ada.Assembly(_name(root) if root else _name(hit), units=units or getattr(part, "units", "m"))
+    if not items:
+        raise ValueError("nothing to wrap")
+    paths = [[p for p in (hit.get("path") or ()) if isinstance(p, Mapping)] for _, hit in items]
+    roots = {_level_key(path[0]) if path else None for path in paths}
+    shared_root = len(roots) == 1 and None not in roots
+    units = units or getattr(items[0][0], "units", "m")
     elements: list[ElementRef] = []
-    if root is not None:
+    levels: dict[tuple[str, ...], Any] = {}
+    if shared_root:
+        root = paths[0][0]
+        asm = ada.Assembly(_name(root), units=units)
         elements.append(ElementRef(asm, "level", root.get("node_id"), root.get("full_name"), root.get("source_ref")))
-    parent = asm
+        levels[(_level_key(root),)] = asm
+    else:
+        asm = ada.Assembly(_name(items[0][1]) if len(items) == 1 else str(name or "export"), units=units)
     used = {asm.name}
-    for level in path[1:]:
-        name = _name(level)
-        if name in used:
-            name = f"{name} [{level.get('node_id')}]"
-        used.add(name)
-        child = ada.Part(name)
-        parent.add_part(child)
-        elements.append(
-            ElementRef(child, "level", level.get("node_id"), level.get("full_name"), level.get("source_ref"))
-        )
-        parent = child
-    if part.name in used:
-        part.name = f"{part.name} [{hit.get('node_id')}]"
-    parent.add_part(part)
-    elements.append(ElementRef(part, "hit", hit.get("node_id"), hit.get("full_name"), hit.get("source_ref")))
 
-    for sub in part.get_all_subparts(include_self=False):
-        elements.append(ElementRef(sub, "part", None, str(sub.name).split(" [", 1)[0]))
-    for obj in part.get_all_physical_objects():
-        meta = getattr(obj, "metadata", None) or {}
-        ref = meta.get("RefNo") or meta.get("source_ref")
-        elements.append(ElementRef(obj, "member", None, str(obj.name), str(ref) if ref else None))
+    for (part, hit), path in zip(items, paths):
+        parent = asm
+        chain: tuple[str, ...] = ()
+        below = path
+        if shared_root:
+            chain = (_level_key(path[0]),)
+            below = path[1:]
+        for level in below:
+            chain = chain + (_level_key(level),)
+            child = levels.get(chain)
+            if child is None:
+                level_name = _name(level)
+                if level_name in used:
+                    level_name = f"{level_name} [{level.get('node_id')}]"
+                used.add(level_name)
+                child = ada.Part(level_name)
+                parent.add_part(child)
+                levels[chain] = child
+                elements.append(
+                    ElementRef(child, "level", level.get("node_id"), level.get("full_name"), level.get("source_ref"))
+                )
+            parent = child
+        if part.name in used:
+            part.name = f"{part.name} [{hit.get('node_id')}]"
+        used.add(part.name)
+        parent.add_part(part)
+        elements.append(ElementRef(part, "hit", hit.get("node_id"), hit.get("full_name"), hit.get("source_ref")))
+
+        for sub in part.get_all_subparts(include_self=False):
+            elements.append(ElementRef(sub, "part", None, str(sub.name).split(" [", 1)[0]))
+        for obj in part.get_all_physical_objects():
+            meta = getattr(obj, "metadata", None) or {}
+            ref = meta.get("RefNo") or meta.get("source_ref")
+            elements.append(ElementRef(obj, "member", None, str(obj.name), str(ref) if ref else None))
     return WrappedModel(assembly=asm, elements=elements)
+
+
+def export_merged_key(folder: str, collection: str, ext: str = "ifc") -> str:
+    """``<folder>/<safe(collection)>.<ext>``: the one file a merged export writes per collection."""
+    return f"{folder}/{safe_stem(collection, 'collection')}.{ext}"
 
 
 def _set_pset(obj: Any, name: str, values: Mapping[str, Any]) -> None:
@@ -458,6 +527,13 @@ def stamp_provenance(
             )
     if matched:
         _set_pset(model.hit.obj, PSET_MATCHED, dict(matched))
+
+
+def stamp_matched(element: ElementRef, matched: Mapping[str, Any]) -> None:
+    """``ADA_MatchedAttributes`` on one hit -- what :func:`stamp_provenance` does for the only hit,
+    for each hit of a merged file."""
+    if matched:
+        _set_pset(element.obj, PSET_MATCHED, dict(matched))
 
 
 def apply_source_attributes(
@@ -562,6 +638,23 @@ def mesh_elements(hit: Mapping[str, Any], *, provider: str, collection: str, sco
                 ),
             }
         )
+    return out
+
+
+def merged_mesh_elements(
+    hits: Sequence[Mapping[str, Any]], *, provider: str, collection: str, scope: str | None
+) -> list[dict]:
+    """:func:`mesh_elements` for a merged mesh GLB: every ancestor once, as its tree holds it once,
+    then each hit."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for hit in hits:
+        for entry in mesh_elements(hit, provider=provider, collection=collection, scope=scope):
+            ident = f"{entry['role']}:{entry['source'].get('node_id') or entry['name']}"
+            if ident in seen:
+                continue
+            seen.add(ident)
+            out.append(entry)
     return out
 
 

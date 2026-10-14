@@ -91,6 +91,8 @@ const EXPECTED_METHODS = [
   "searchValues", "skipSearchExportItem", "startSearchExport",
   // Sweep run checkboxes and default lists, and the export's missing-geometry pre-flight.
   "adminAssetSweepDefaults", "adminSetAssetSweepDefaults", "adminSetAssetSweepItemRun", "exportPreflight",
+  // The mesh export's preflight and the tree request it offers.
+  "meshExportPreflight", "requestTrees", "treeRequestRun",
   // Admin -> Database (adminDb).
   "adminDbPrune", "adminDbSetRetention", "adminDbStorage", "adminDbTableRows",
 ].sort();

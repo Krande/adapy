@@ -11,12 +11,14 @@
 // A file with no provenance (hand-uploaded) shows no card at all.
 //
 // THUMBNAILS. Each written file may have a `.thumb.png` beside it; the listing hides those, so they
-// are fetched by key (with auth, hence object URLs). Only a window around the current file is
-// drawn -- an export can hold two thousand files -- and a file without one gets its name as a chip.
+// are fetched by key (with auth, hence object URLs). Only a window around the current stop is
+// drawn -- an export can hold two thousand files -- and one without a picture gets its name as a
+// chip. A merged file is one stop PER HIT inside it (`galleryStops`), each with that hit's own
+// thumbnail, so the strip shows the hits rather than one picture of the whole collection.
 
 import React, {useEffect, useMemo, useRef, useState} from "react";
 
-import {compactQuery, hitFromMeta, thumbSidecarKey} from "@/assets/searchExport";
+import {compactQuery, hitFromMeta, thumbSidecarKey, type GalleryStop} from "@/assets/searchExport";
 import {searchExportApi, type ExportDoc, type FileMeta} from "@/services/api/searchExport";
 import {revealInSourceScope} from "@/utils/tree_view/revealInSourceScope";
 
@@ -48,12 +50,14 @@ const Thumb: React.FC<{url: string | null | undefined; name: string; current: bo
 
 const GalleryProvenance: React.FC<{
     scope: string;
-    files: readonly string[];
+    stops: readonly GalleryStop[];
     index: number;
     doc: ExportDoc | null;
     onJump: (index: number) => void;
-}> = ({scope, files, index, doc, onJump}) => {
-    const current = files[index] ?? null;
+}> = ({scope, stops, index, doc, onJump}) => {
+    const stop = stops[index] ?? null;
+    const current = stop?.file ?? null;
+    const joint = stop?.joint ?? null;
 
     // ---- Provenance of the file on screen ------------------------------------
     const [meta, setMeta] = useState<FileMeta | null>(null);
@@ -93,15 +97,13 @@ const GalleryProvenance: React.FC<{
     };
 
     // ---- Thumbnails around it --------------------------------------------------
-    const thumbOf = useMemo(() => {
-        const m = new Map<string, string | null>();
-        for (const f of doc?.files ?? []) m.set(f.file, f.thumb);
-        return (k: string) => (m.has(k) ? m.get(k)! : thumbSidecarKey(k));
-    }, [doc]);
+    // A stop with no word on its thumbnail (a file the doc does not list) looks beside the file.
+    const thumbOf = (s: GalleryStop) => (s.thumb === undefined ? thumbSidecarKey(s.file) : s.thumb);
     const lo = Math.max(0, index - WINDOW);
-    const hi = Math.min(files.length, index + WINDOW + 1);
-    const windowKeys = files.slice(lo, hi);
-    // key -> object URL (null = none); kept across steps, released when the walk goes away.
+    const hi = Math.min(stops.length, index + WINDOW + 1);
+    const windowStops = stops.slice(lo, hi);
+    const windowKeys = windowStops.map((s) => s.id);
+    // stop id -> object URL (null = none); kept across steps, released when the walk goes away.
     const [urls, setUrls] = useState<ReadonlyMap<string, string | null>>(new Map());
     const asked = useRef(new Set<string>());
     const live = useRef(new Set<string>());
@@ -113,10 +115,11 @@ const GalleryProvenance: React.FC<{
     }, [scope, doc]);
     useEffect(() => {
         const ctl = new AbortController();
-        for (const k of windowKeys) {
+        for (const s of windowStops) {
+            const k = s.id;
             if (asked.current.has(k)) continue;
             asked.current.add(k);
-            const t = thumbOf(k);
+            const t = thumbOf(s);
             if (!t) {
                 setUrls((m) => new Map(m).set(k, null));
                 continue;
@@ -132,9 +135,9 @@ const GalleryProvenance: React.FC<{
                 });
         }
         return () => ctl.abort();
-        // windowKeys is derived from (files, index); keyed on its content.
+        // windowStops is derived from (stops, index); keyed on its content.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [scope, windowKeys.join("\n"), thumbOf]);
+    }, [scope, windowKeys.join("\n")]);
     useEffect(
         () => () => {
             for (const u of live.current) URL.revokeObjectURL(u);
@@ -147,10 +150,22 @@ const GalleryProvenance: React.FC<{
     return (
         <div className="flex flex-col gap-1 border-t border-gray-700 pt-1 text-[11px]">
             <div className="flex gap-1 overflow-x-auto pb-0.5">
-                {windowKeys.map((k, n) => (
-                    <Thumb key={k} url={urls.get(k)} name={k} current={lo + n === index} onClick={() => onJump(lo + n)} />
+                {windowStops.map((s, n) => (
+                    <Thumb
+                        key={s.id}
+                        url={urls.get(s.id)}
+                        name={s.joint ? s.joint.name : s.file}
+                        current={lo + n === index}
+                        onClick={() => onJump(lo + n)}
+                    />
                 ))}
             </div>
+            {joint && (
+                <div className="flex flex-wrap items-baseline gap-x-2 text-gray-300">
+                    <span className="text-gray-400">hit {stop!.jointIndex + 1} of {stop!.joints}</span>
+                    <span className="font-mono break-all text-gray-100">{joint.full_name ?? joint.name}</span>
+                </div>
+            )}
             {metaError && <div className="text-amber-300 truncate" title={metaError}>provenance: {metaError}</div>}
             {meta && src && (
                 <div className="space-y-0.5 text-gray-300">

@@ -269,6 +269,20 @@ export function untrackSweep(runId: string): void {
     remember(runId, null);
 }
 
+/** Show a tree request -- the mesh export's "request the project trees", a collection request
+ *  driven like a sweep -- in the toast. Read through its own scope-checked route, since the sweep
+ *  reads behind it are an admin's; no skip is offered for the same reason. Not remembered across a
+ *  reload: it is a one-off the user waits on, not a run they come back to. */
+export function trackTreeRequest(scope: string, runId: string, label: string): void {
+    const key = `trees:${runId}`;
+    seed(key, label);
+    void pollRun(
+        key,
+        async () => ({state: sweepToastState(await viewerApi.treeRequestRun(scope, runId))}),
+        () => {},
+    );
+}
+
 export function isExportTracked(runId: string): boolean {
     return !!useConversionStore.getState().jobs[exportStoreKey(runId)];
 }

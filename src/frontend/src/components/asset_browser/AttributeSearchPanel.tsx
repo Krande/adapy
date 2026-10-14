@@ -34,7 +34,7 @@ import {
   type PickMode,
   type ScalarValue,
 } from "@/assets/attributeSearch";
-import { compactQuery } from "@/assets/searchExport";
+import { compactQuery, exportQuery, selectedTotal } from "@/assets/searchExport";
 import { useProviderName } from "@/state/providerNamesStore";
 import {
   attributeSearchApi,
@@ -388,7 +388,20 @@ const AttributeSearchPanel: React.FC = () => {
   // Export: the dialog, and the runs list below the results. The list shows the searched scope's
   // runs -- or, sent here by the toast's "View run" on an export of another scope, that scope's.
   const lastQuery = useAttributeSearchStore((s) => s.lastQuery);
-  const canExport = !!results && !!lastQuery && resultScope === scope && total > 0;
+  // Collections left out of the export, by clicking their count. About THESE results: a new search
+  // starts with every collection in.
+  const [deselected, setDeselected] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => setDeselected(new Set()), [lastQuery]);
+  const toggleCollection = (c: string) =>
+    setDeselected((cur) => {
+      const next = new Set(cur);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
+  const withHits = counts.filter((c) => c.count > 0).map((c) => c.collection);
+  const exportTotal = selectedTotal(counts, deselected);
+  const canExport = !!results && !!lastQuery && resultScope === scope && exportTotal > 0;
   const [exporting, setExporting] = useState(false);
   const [started, setStarted] = useState<{ id: string; n: number } | null>(null);
   const focus = useRunFocusStore((s) => s.focus);
@@ -563,12 +576,48 @@ const AttributeSearchPanel: React.FC = () => {
           <span className="text-gray-500" title={`${results.pages} page(s), ${results.totalTookMs} ms on the server in all`}>
             {results.tookMs} ms
           </span>
-          {counts.map((c) => (
-            <span key={`${c.provider}/${c.collection}`} className="rounded-full bg-gray-800 px-2 py-0.5" title={`${pn(c.provider)} / ${c.collection}`}>
-              {c.collection}
-              {providerOptions.length > 1 ? ` · ${pn(c.provider)}` : ""}: {c.count.toLocaleString()}
+          {/* Each collection's count, clickable: a click leaves that collection out of the export
+              (and back in). A collection with no matches has nothing to leave out. */}
+          {counts.map((c) => {
+            const out = deselected.has(c.collection);
+            const label = `${c.collection}${providerOptions.length > 1 ? ` · ${pn(c.provider)}` : ""}: ${c.count.toLocaleString()}`;
+            return c.count > 0 ? (
+              <button
+                key={`${c.provider}/${c.collection}`}
+                type="button"
+                aria-pressed={!out}
+                className={`rounded-full px-2 py-0.5 border ${
+                  out ? "border-gray-700 bg-transparent text-gray-500 line-through" : "border-gray-700 bg-gray-800 hover:bg-gray-700"
+                }`}
+                title={`${pn(c.provider)} / ${c.collection} -- ${out ? "left out of the export; click to include it" : "click to leave it out of the export"}`}
+                onClick={() => toggleCollection(c.collection)}
+              >
+                {label}
+              </button>
+            ) : (
+              <span key={`${c.provider}/${c.collection}`} className="rounded-full bg-gray-800 px-2 py-0.5 text-gray-500" title={`${pn(c.provider)} / ${c.collection}`}>
+                {label}
+              </span>
+            );
+          })}
+          {withHits.length > 1 && (
+            <span className="inline-flex items-center gap-2">
+              <button type="button" className="text-blue-300 hover:text-white" onClick={() => setDeselected(new Set(withHits))}>
+                Deselect all
+              </button>
+              {deselected.size > 0 && (
+                <button type="button" className="text-blue-300 hover:text-white" onClick={() => setDeselected(new Set())}>
+                  Select all
+                </button>
+              )}
             </span>
-          ))}
+          )}
+          {deselected.size > 0 && (
+            <span className="text-gray-400">
+              exporting <b className="text-gray-100">{exportTotal.toLocaleString()}</b> from{" "}
+              {withHits.filter((c) => !deselected.has(c)).length} of {withHits.length} collections
+            </span>
+          )}
           {resultScope && resultScope !== scope && <span className="text-amber-300">from scope {resultScope} -- search again for this one</span>}
         </div>
       )}
@@ -664,9 +713,11 @@ const AttributeSearchPanel: React.FC = () => {
       {exporting && lastQuery && (
         <SearchExportDialog
           scope={scope}
-          query={lastQuery}
-          picked={useAttributeSearchStore.getState().selectedHits()}
-          total={total}
+          query={exportQuery(lastQuery, deselected)}
+          picked={useAttributeSearchStore.getState().selectedHits().filter((h) => !deselected.has(h.collection))}
+          total={exportTotal}
+          leftOut={[...deselected]}
+          collections={[...new Set(withHits.filter((c) => !deselected.has(c)))]}
           onClose={() => setExporting(false)}
           onStarted={(run) => {
             setRunsScope(scope);

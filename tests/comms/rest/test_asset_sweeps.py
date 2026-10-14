@@ -649,3 +649,90 @@ async def test_parallel_lanes_run_every_collection_exactly_once(world, monkeypat
     projects = sorted(e["options"]["project"] for e in w.enqueued)
     assert projects == sorted(n for i, n in enumerate(names) if i != 3)
     assert w.finished == ("done", None) and all(w.items[i]["status"] == "done" for i in w.items)
+
+
+# --- a collection request over chosen collections (the export's "request the trees") ----------------
+
+SPEC_WITH_REQUEST = {
+    **SPEC,
+    "asset_collection_request": {
+        "options": {"action": "stage-tree", "schema_version": 1},
+        "collection_option": "project",
+        "label": "Request project tree (vendor)",
+    },
+}
+
+
+def test_the_collection_request_is_a_sweep_entry_asking_what_the_sources_tab_asks():
+    entry = sweeps.collection_request_entry(SPEC_WITH_REQUEST)
+    assert entry == {
+        "id": "collection-request",
+        "kind": "sweep",
+        "label": "Request project tree (vendor)",
+        "options": {"action": "stage-tree", "schema_version": 1},
+        "collection_option": "project",
+    }
+    assert sweeps.collection_request_entry(SPEC) is None
+
+
+def test_chosen_collections_take_the_providers_spelling_and_unknown_ones_are_named():
+    assert sweeps.offered_names(["ALPHA", "BETA"], ["beta", "alpha", "BETA"]) == (["BETA", "ALPHA"], [])
+    assert sweeps.offered_names(["ALPHA"], ["alpha", "zeta"]) == (["ALPHA"], ["zeta"])
+    assert sweeps.offered_names([], ["x"]) == (["x"], [])
+
+
+@pytest.mark.asyncio
+async def test_a_collection_request_runs_only_the_chosen_collections_and_ignores_the_default_list(monkeypatch):
+    inserted, spawned = {}, {}
+
+    async def advertised(kind):
+        return {"a": SPEC_WITH_REQUEST}
+
+    async def idle(pool, provider):
+        return None
+
+    async def setting(pool, key):
+        raise AssertionError("the default list does not apply to named collections")
+
+    async def insert(pool, **kw):
+        inserted.update(kw)
+        return {"id": "r1", **kw}
+
+    def spawn(coro, name):
+        spawned.update(coro.cr_frame.f_locals)
+        coro.close()
+
+    ctx = SimpleNamespace(jobs=SimpleNamespace(advertised_specs=advertised))
+    monkeypatch.setattr(sweeps, "spawn", spawn)
+    monkeypatch.setattr(dbm, "running_asset_sweep", idle)
+    monkeypatch.setattr(dbm, "get_setting", setting)
+    monkeypatch.setattr(dbm, "insert_asset_sweep_run", insert)
+    kw = dict(scope="shared", scope_obj=Scope.shared(), provider="vendor", settings={}, user=None, via="export")
+    await sweeps.start_sweep(ctx, None, job=sweeps.COLLECTION_REQUEST, collections=["beta"], **kw)
+    assert inserted["job"] == "collection-request"
+    assert inserted["collections"] == ["BETA"] and inserted["excluded"] == frozenset()
+    assert spawned["entry"]["options"] == {"action": "stage-tree", "schema_version": 1}
+
+    with pytest.raises(sweeps.SweepRefused, match="does not offer zeta"):
+        await sweeps.start_sweep(ctx, None, job=sweeps.COLLECTION_REQUEST, collections=["zeta"], **kw)
+
+    async def without_request(kind):
+        return {"a": SPEC}
+
+    ctx = SimpleNamespace(jobs=SimpleNamespace(advertised_specs=without_request))
+    with pytest.raises(sweeps.SweepRefused, match="declares no collection request"):
+        await sweeps.start_sweep(ctx, None, job=sweeps.COLLECTION_REQUEST, collections=["beta"], **kw)
+
+
+@pytest.mark.asyncio
+async def test_a_collection_request_item_asks_the_provider_with_the_requests_own_options(world):
+    w = world(fetch_summaries={"BETA": {"asset_staging_id": "stg-b"}})
+    entry = sweeps.collection_request_entry(SPEC_WITH_REQUEST)
+    run = {"id": "r1", "provider": "vendor", "plugin_id": "vendor-plugin", "settings": {}}
+    ok = await sweeps._sweep_one(
+        w.ctx, None, run, 0, "BETA", scope_obj=Scope.shared(), spec=SPEC_WITH_REQUEST, entry=entry, user=None
+    )
+    assert ok and w.items[0]["status"] == "done"
+    options = w.enqueued[0]["options"]
+    assert options["action"] == "stage-tree" and options["project"] == "BETA" and "sweep_target" not in options
+    assert w.published[0]["provider"] == "vendor"

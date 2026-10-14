@@ -15,9 +15,10 @@ import {searchExportApi, type FileMeta} from "@/services/api/searchExport";
 import {trackExport} from "@/services/sweepTracking";
 import {ApiError} from "@/services/viewerApi";
 
-/** The record is a mesh export's whose design geometry has not been written yet. */
+/** The record is a mesh export's whose design geometry has not been written yet. A merged file
+ *  holds a whole collection's nodes, and design geometry is requested one node at a time. */
 export function wantsDesignGeometry(meta: FileMeta | null | undefined): boolean {
-    return meta?.geometry?.kind === "mesh";
+    return meta?.geometry?.kind === "mesh" && !meta.geometry.merged;
 }
 
 /** The design file written for the mesh file `key`, when its record says there is one. */

@@ -72,6 +72,7 @@ from ..search_export import (
     META_SCHEMA,
     clean_folder,
     export_file_key,
+    export_merged_key,
     meta_document,
     meta_sidecar_key,
     sidecar_key,
@@ -96,6 +97,10 @@ EXPORT_CONCURRENCY = 4
 ITEM_TIMEOUT_S = 60 * 60
 #: Most hits one export may write. More is a folder nobody browses -- narrow the search.
 MAX_EXPORT_HITS = 2000
+#: Most hits a MERGED export may take. The folder argument above is gone -- it is one file per
+#: collection -- so what bounds it is the work: every hit is still read (or built) one at a time,
+#: inside its batch's ITEM_TIMEOUT_S, and a collection's file holds all of its hits at once.
+MAX_MERGED_EXPORT_HITS = 10000
 #: Largest in-file provenance read the meta route does (bytes).
 META_FALLBACK_MAX_BYTES = 128 * 1024 * 1024
 DERIVED_FORMATS = ("glb", "step")
@@ -150,23 +155,39 @@ def clean_hit(raw: Any, where_keys: list[str]) -> dict | None:
     }
 
 
-def batch_hits(hits: list[dict], folder: str, ext: str = "ifc") -> list[tuple[str, str, list[dict]]]:
+def batch_hits(
+    hits: list[dict], folder: str, ext: str = "ifc", *, merge: bool = False
+) -> list[tuple[str, str, list[dict]]]:
     """``[(provider, collection, hits)]`` in first-seen order, every hit given its file key. A node
     named twice (selected twice, or by two pages) is written once. A hit that already names its
-    ``file`` (a design file requested for a mesh one, which takes its stem) keeps it."""
+    ``file`` (a design file requested for a mesh one, which takes its stem) keeps it.
+
+    ``merge``: every hit of a batch gets the batch's ONE file, ``<folder>/<collection>.<ext>``
+    (:func:`export_merged_key`) -- with the provider appended when two providers' batches share a
+    collection name, so neither overwrites the other."""
     taken: set[str] = {h["file"] for h in hits if h.get("file")}
     seen: set[tuple[str, str, str]] = set()
     batches: dict[tuple[str, str], list[dict]] = {}
+    merged_keys: dict[tuple[str, str], str] = {}
     for hit in hits:
         ident = (hit["provider"], hit["collection"], hit["node_id"])
         if ident in seen:
             continue
         seen.add(ident)
-        if not hit.get("file"):
+        batch = (hit["provider"], hit["collection"])
+        if merge:
+            if batch not in merged_keys:
+                key = export_merged_key(folder, hit["collection"], ext)
+                if key in taken:
+                    key = export_merged_key(folder, f"{hit['collection']}__{hit['provider']}", ext)
+                taken.add(key)
+                merged_keys[batch] = key
+            hit["file"] = merged_keys[batch]
+        elif not hit.get("file"):
             hit["file"] = export_file_key(
                 folder, hit["collection"], hit.get("full_name"), hit["node_id"], taken, ext=ext
             )
-        batches.setdefault((hit["provider"], hit["collection"]), []).append(hit)
+        batches.setdefault(batch, []).append(hit)
     return [(p, c, h) for (p, c), h in batches.items()]
 
 
@@ -263,6 +284,18 @@ async def start_export(
         raise ExportRefused(400, f"'also' must be a subset of {list(DERIVED_FORMATS)}")
     include_attrs = body.get("include_source_attributes", True) is not False
     request_missing = body.get("request_missing_geometry") is True
+    merge = body.get("merge") is True
+    # A mesh export's "request trees, then export": a collection with no published tree asks its
+    # provider for one first (`request_collection_tree`), inside the run.
+    request_trees = body.get("request_trees") is True
+    if request_trees and not mesh:
+        raise ExportRefused(
+            400, "'request_trees' is for mesh exports; a design export asks with 'request_missing_geometry'"
+        )
+    if merge and preset_files:
+        # A preset file is ONE node's file (a design request for a mesh file); a merge has none.
+        raise ExportRefused(400, "a merged export writes one file per collection; it takes no preset files")
+    cap = MAX_MERGED_EXPORT_HITS if merge else MAX_EXPORT_HITS
     if mesh:
         # A mesh export IS the GLB, built from what the hit's provider published: nothing to convert
         # and nothing to request. Said rather than ignored, so a client sending both learns why.
@@ -279,22 +312,34 @@ async def start_export(
 
     raw_hits = body.get("hits")
     if raw_hits is None:
-        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query)
+        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query, limit=cap)
     elif not isinstance(raw_hits, list):
         raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
-    if len(raw_hits) > MAX_EXPORT_HITS:
-        raise ExportRefused(409, f"{len(raw_hits)} hits; an export writes at most {MAX_EXPORT_HITS} files")
+    if len(raw_hits) > cap:
+        what = "a merged export takes" if merge else "an export writes"
+        raise ExportRefused(409, f"{len(raw_hits)} hits; {what} at most {cap}")
     hits = [h for h in (clean_hit(r, where_keys) for r in raw_hits) if h is not None]
     if not hits:
         raise ExportRefused(400, "nothing to export: no hits")
+    if request_trees:
+        # Gated up front, as the providers' own jobs are: a run that would refuse every request
+        # halfway through is worse than a refusal now.
+        for provider in dict.fromkeys(h["provider"] for h in hits):
+            permission = await collection_request_permission(ctx, pool, user, provider)
+            if not permission["allowed"]:
+                raise ExportRefused(
+                    403 if permission["available"] else 409, f"trees cannot be requested: {permission['reason']}"
+                )
     for hit in hits:
         # The design request for a mesh file names the file it writes (the mesh's stem) and the mesh.
         # Never from the body: a key there could name anything in the target scope.
         if hit["node_id"] in (preset_files or {}):
             hit["file"], hit["mesh_file"] = preset_files[hit["node_id"]]
-    batches = batch_hits(hits, folder, ext="glb" if mesh else "ifc")
+    batches = batch_hits(hits, folder, ext="glb" if mesh else "ifc", merge=merge)
     options = {
         "geometry": geometry,
+        "merge": merge,
+        "request_trees": request_trees,
         "include_source_attributes": include_attrs,
         "also": list(dict.fromkeys(also)),
         "request_missing_geometry": request_missing,
@@ -312,6 +357,8 @@ async def start_export(
     job_opts = {
         "run_id": run["id"],
         "geometry": geometry,
+        "merge": merge,
+        "request_trees": request_trees,
         "write_index": body.get("write_index") is not False,
         "source_scope": scope,
         "target_scope": _scope_ref(target),
@@ -359,10 +406,17 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
         raise ExportRefused(400, f"the query: {exc}") from exc
     raw_hits = body.get("hits")
     if raw_hits is None:
-        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query)
+        # Up to the LARGEST cap a run may take: the preflight writes nothing and does not know
+        # whether the export will be merged, and refusing here at the per-file cap is what made a
+        # merged export of a few thousand hits skip its preflight altogether. The start enforces the run's cap.
+        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query, limit=MAX_MERGED_EXPORT_HITS)
     elif not isinstance(raw_hits, list):
         raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
     where_keys = [w["key"] for w in parsed.where]
+    if str(body.get("geometry") or GEOMETRY_DESIGN) == GEOMETRY_MESH:
+        return await mesh_preflight(
+            ctx, pool, scope_obj=scope_obj, hits=raw_hits, where_keys=where_keys, user=user, t0=t0
+        )
     groups: dict[str, dict[str, dict]] = {}
     for hit in (clean_hit(r, where_keys) for r in raw_hits):
         if hit is not None:
@@ -419,6 +473,165 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
         "sweep_running": {"id": sweep["id"], "created_at": sweep.get("created_at")} if sweep else None,
         "took_ms": ms(time.monotonic() - t0),
     }
+
+
+async def collection_request_permission(ctx, pool, user, provider: str) -> dict:
+    """``{available, allowed, reason, label, plugin_id}`` of ``provider``'s collection request --
+    what the mesh preflight offers for a collection it has published no tree of. The plugin route's
+    own admin gate, asked up front."""
+    from .asset_sweeps import sweep_entry
+    from .plugin_jobs import plugin_job_requires_admin
+
+    _, found = await sweep_entry(ctx, provider, "collection-request")
+    if found is None:
+        return {
+            "available": False,
+            "allowed": False,
+            "reason": f"no online worker of {provider!r} declares a collection request",
+            "label": None,
+            "plugin_id": None,
+        }
+    spec, entry = found
+    plugin_id = str(spec.get("slug") or spec.get("id") or "")
+    allowed, reason = True, None
+    if await plugin_job_requires_admin(plugin_id, pool, dict(spec)) and not getattr(user, "is_admin", False):
+        allowed, reason = False, f"the {plugin_id!r} job is restricted to administrators"
+    return {"available": True, "allowed": allowed, "reason": reason, "label": entry["label"], "plugin_id": plugin_id}
+
+
+async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys: list[str], user, t0: float) -> dict:
+    """The preflight of a MESH export: each hit against ITS OWN provider's published tree -- the
+    tree the mesh is cut from -- rather than the design system's geometry.
+
+    The case it exists for: a search index is filled by one job (a provider's attribute sweep) and
+    the tree a mesh export needs by another, so a fresh index answers thousands of hits a mesh export
+    cannot draw. Per (provider, collection): ``ready`` hits, ``no_tree`` when the provider has
+    published nothing in the collection (a COLLECTION request -- its project tree -- is the fix,
+    offered as ``tree_request``), and ``unknown`` for nodes its tree does not hold."""
+    groups: dict[tuple[str, str], dict[str, dict]] = {}
+    for hit in (clean_hit(r, where_keys) for r in hits):
+        if hit is not None:
+            groups.setdefault((hit["provider"], hit["collection"]), {}).setdefault(hit["node_id"], hit)
+    by_provider: dict[str, list[tuple[str, list[dict]]]] = {}
+    for (provider, collection), nodes in groups.items():
+        by_provider.setdefault(provider, []).append((collection, list(nodes.values())))
+
+    collections: list[dict] = []
+    requests: dict[str, dict] = {}
+    sweeps: dict[str, dict | None] = {}
+    for provider, ordered in by_provider.items():
+        states = await greq.classify_in_scope(ctx.storage, scope_obj, ordered, provider=provider)
+        for (collection, _), rows in zip(ordered, states):
+            by: dict[str, list] = {}
+            for s in rows:
+                by.setdefault(s.state, []).append(s)
+            unknown = by.get("unknown", []) + by.get("listed", [])
+            collections.append(
+                {
+                    "provider": provider,
+                    "collection": collection,
+                    "hits": len(rows),
+                    "ready": len(by.get("ready", ())),
+                    "no_tree": len(by.get("unpublished", ())),
+                    "unknown": len(unknown),
+                    "unknown_reason": unknown[0].message if unknown else None,
+                    "unknown_examples": [
+                        s.hit.get("full_name") or s.hit["node_id"] for s in unknown[:PREFLIGHT_EXAMPLES]
+                    ],
+                }
+            )
+        if any(c["no_tree"] for c in collections if c["provider"] == provider):
+            requests[provider] = await collection_request_permission(ctx, pool, user, provider)
+            try:
+                sweeps[provider] = await db_module.running_asset_sweep(pool, provider=provider)
+            except Exception:  # noqa: BLE001 - a nicety for the prompt
+                sweeps[provider] = None
+    return {
+        "geometry": GEOMETRY_MESH,
+        "hits": sum(c["hits"] for c in collections),
+        "ready": sum(c["ready"] for c in collections),
+        "no_tree": sum(c["no_tree"] for c in collections),
+        "unknown": sum(c["unknown"] for c in collections),
+        "collections": collections,
+        "tree_requests": [
+            {
+                "provider": provider,
+                "collections": [c["collection"] for c in collections if c["provider"] == provider and c["no_tree"]],
+                **request,
+                "sweep_running": (
+                    {"id": sweeps[provider]["id"], "created_at": sweeps[provider].get("created_at")}
+                    if sweeps.get(provider)
+                    else None
+                ),
+            }
+            for provider, request in requests.items()
+        ],
+        "took_ms": ms(time.monotonic() - t0),
+    }
+
+
+@router.post("/scopes/{scope}/assets/search/export/request-trees")
+async def api_search_export_request_trees(
+    scope: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Body ``{provider, collections}``: request those collections' project trees from ``provider``
+    -- its declared collection request, the Sources tab's "Request <collection>", once per
+    collection -- as ONE run driven like a sweep (``asset_sweeps``): one row per collection, its
+    jobs' timings, cancel and skip, and the sweep runs list to watch it in. Answers the run (202).
+
+    Gated as the provider's job is: refused (403) when it is restricted to administrators and the
+    user is not one, and (409) while a sweep of the same provider runs -- one run per provider."""
+    from .asset_sweeps import COLLECTION_REQUEST, SweepRefused, start_sweep
+
+    pool = require_pool(request)
+    body = await request.json() if await request.body() else {}
+    provider = str((body or {}).get("provider") or "").strip()
+    wanted = (body or {}).get("collections")
+    if not provider or not isinstance(wanted, list) or not wanted or not all(isinstance(c, str) for c in wanted):
+        raise HTTPException(status_code=400, detail="'provider' and a non-empty list of 'collections' are required")
+    permission = await collection_request_permission(ctx, pool, user, provider)
+    if not permission["available"]:
+        raise HTTPException(status_code=409, detail=permission["reason"])
+    if not permission["allowed"]:
+        raise HTTPException(status_code=403, detail=permission["reason"])
+    try:
+        run = await start_sweep(
+            ctx,
+            pool,
+            scope=scope,
+            scope_obj=scope_obj,
+            provider=provider,
+            job=COLLECTION_REQUEST,
+            settings={},
+            user=user,
+            via="export",
+            collections=wanted,
+        )
+    except SweepRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(run, status_code=202)
+
+
+@router.get("/scopes/{scope}/assets/search/export/request-trees/{run_id}")
+async def api_search_export_request_trees_run(
+    scope: str,
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """A tree request started from this scope, with its items' live progress -- what the toast
+    polls. Only a collection request of THIS scope: the sweep reads behind it are an admin's."""
+    from .asset_sweeps import COLLECTION_REQUEST, sweep_with_progress
+
+    run = await sweep_with_progress(ctx, require_pool(request), run_id)
+    if run is None or run.get("job") != COLLECTION_REQUEST or run.get("scope") != scope:
+        raise HTTPException(status_code=404, detail="no such tree request in this scope")
+    return JSONResponse(run)
 
 
 @router.post("/scopes/{scope}/assets/search/export/preflight")
@@ -601,7 +814,17 @@ async def export_one(
             await item(status="running", message=requested.sentence() if requested else None, timings=timings)
         if job_opts.get("geometry") == GEOMETRY_MESH:
             hits = await build_meshes(
-                ctx, pool, run_id, position, provider, collection, hits, scope_obj=scope_obj, user=user, timings=timings
+                ctx,
+                pool,
+                run_id,
+                position,
+                provider,
+                collection,
+                hits,
+                scope_obj=scope_obj,
+                user=user,
+                timings=timings,
+                request_tree=bool(job_opts.get("request_trees")),
             )
             await item(status="running", timings=timings)
         submitted = await ctx.jobs.submit(
@@ -657,6 +880,25 @@ async def export_one(
         if warnings:
             message = "; ".join(filter(None, [message, *warnings]))
         await finish(status, files=summary.get("counts") or {}, file_errors=errors, message=message)
+        merged = summary.get("merged")
+        if isinstance(merged, dict) and merged.get("file"):
+            # One file for the batch: one entry in the folder's index, saying how many hits it holds.
+            written = [
+                {
+                    "file": merged["file"],
+                    "provider": provider,
+                    "collection": collection,
+                    "node_id": None,
+                    "full_name": collection,
+                    "hits": merged.get("hits"),
+                    "meta": merged.get("meta") or meta_sidecar_key(merged["file"]),
+                    "thumb": merged.get("thumb"),
+                    # The hits inside it, in file order, each with its own thumbnail: what the
+                    # gallery steps through within the file.
+                    "joints": merged.get("joints") or [],
+                }
+            ]
+            return status != "error", written
         written = [
             {
                 "file": f["file"],
@@ -668,7 +910,7 @@ async def export_one(
                 "thumb": f.get("thumb"),
             }
             for f in file_rows
-            if f.get("status") == "written"
+            if f.get("status") == "written" and not f.get("merged")
         ]
         return status != "error", written
     except RunCancelled:
@@ -693,6 +935,107 @@ MESH_BUILDS_IN_FLIGHT = 8
 MESH_BUILD_TIMEOUT_S = 30 * 60
 
 
+async def request_collection_tree(
+    ctx,
+    pool,
+    run_id: str,
+    position: int,
+    provider: str,
+    collection: str,
+    *,
+    scope_obj: Scope,
+    user,
+    timings: dict,
+) -> str | None:
+    """Ask ``provider`` for ``collection``'s project tree -- its declared collection request, the
+    Sources tab's "Request <collection>" -- and publish the answer, inside this export item. Returns
+    None when a tree was published, else what the provider (or the lack of one) said instead, which
+    becomes every hit's reason. Timed as ``tree_request_ms``.
+
+    The same two jobs a sweep runs for one collection (``asset_sweeps._sweep_one``), driven here so
+    the export that needs the tree is the run the user watches: "request trees, then export" is one
+    run in the toast, not a request to wait for and an export to remember to start."""
+    from .asset_schedules import build_options, job_keys
+    from .asset_sweeps import (
+        COLLECTION_REQUEST,
+        FETCH_TIMEOUT_S,
+        PUBLISH_TIMEOUT_S,
+        _all_collections,
+        _provider_options,
+        offered_names,
+        sweep_entry,
+    )
+    from .assets import staged_by_role, submit_asset_publish
+    from .plugin_jobs import enqueue_plugin_job
+
+    specs, found = await sweep_entry(ctx, provider, COLLECTION_REQUEST)
+    if found is None:
+        return f"no online worker of {provider!r} declares a collection request"
+    spec, entry = found
+    plugin_id = str(spec.get("slug") or spec.get("id") or "")
+    names, _ = offered_names(_all_collections(specs), [collection])
+    name = names[0] if names else collection
+    t0 = time.monotonic()
+    await db_module.update_asset_export_item(
+        pool, run_id, position, status="requesting", message=f"requesting the {name} project tree from {provider}"
+    )
+
+    def wait(job_id: str, timeout_s: float):
+        return wait_for_job(
+            ctx,
+            job_id,
+            timeout_s=timeout_s,
+            beat=lambda: db_module.heartbeat_asset_export_run(pool, run_id),
+            position=position,
+            poll_s=POLL_INTERVAL_S,
+            label=f"asset export {run_id} tree",
+        )
+
+    try:
+        options = await build_options(
+            pool, spec, entry, scope=scope_obj.prefix(), provider=provider, collection=name, settings={}, validate=False
+        )
+        options = {
+            **await _provider_options(ctx, scope_obj, provider, name),
+            **options,
+            "requested_at": datetime.now(timezone.utc).isoformat(),
+        }
+        derived_key, _ = job_keys(plugin_id, options)
+        job_id = await enqueue_plugin_job(
+            ctx,
+            plugin_id=plugin_id,
+            options=options,
+            scope_obj=scope_obj,
+            user=user,
+            pool=pool,
+            derived_key=derived_key,
+            plugin_spec=spec,
+        )
+        await wait(job_id, FETCH_TIMEOUT_S)
+        summary = json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
+        if not isinstance(summary, dict):
+            return f"{provider}'s tree request answered without a summary"
+        if summary.get("asset_nothing") is True or summary.get("asset_unchanged") is True:
+            return f"{provider} had no tree to give for {name}: {summary.get('message') or 'nothing staged'}"
+        staging_id = summary.get("asset_staging_id")
+        if not isinstance(staging_id, str) or not staging_id.strip():
+            return f"{provider}'s tree request finished without anything staged to publish"
+        await db_module.update_asset_export_item(
+            pool, run_id, position, status="requesting", message=f"publishing the {name} project tree"
+        )
+        staged = await staged_by_role(ctx, scope_obj, staging_id.strip())
+        publish_job, _ = await submit_asset_publish(ctx, scope_obj, provider=provider, staged=staged, user=user)
+        await wait(publish_job, PUBLISH_TIMEOUT_S)
+        return None
+    except (RunCancelled, ItemSkipped):
+        raise
+    except Exception as exc:  # noqa: BLE001 - the request failing is the hits' reason, not the run's crash
+        logger.warning("asset export %s: tree request of %s/%s failed: %s", run_id, provider, name, exc)
+        return f"requesting the {name} project tree from {provider} failed: {exc}"
+    finally:
+        timings["tree_request_ms"] = ms(time.monotonic() - t0)
+
+
 async def build_meshes(
     ctx,
     pool,
@@ -705,6 +1048,7 @@ async def build_meshes(
     scope_obj: Scope,
     user,
     timings: dict,
+    request_tree: bool = False,
 ) -> list[dict]:
     """The mesh item's build phase: each hit resolved against what ``provider`` -- the hits' own,
     whose attribute index found them -- published in the collection, and built through the ordinary
@@ -726,6 +1070,17 @@ async def build_meshes(
     await progress(f"finding the {provider} meshes")
     [states] = await greq.classify_in_scope(ctx.storage, scope_obj, [(collection, hits)], provider=provider)
     timings["build_resolve_ms"] = ms(time.monotonic() - t0)
+    if request_tree and any(s.state == "unpublished" for s in states):
+        # ``request_trees``: the collection has no tree to cut from -- ask for it, then look again.
+        why_not = await request_collection_tree(
+            ctx, pool, run_id, position, provider, collection, scope_obj=scope_obj, user=user, timings=timings
+        )
+        await progress(f"finding the {provider} meshes")
+        [states] = await greq.classify_in_scope(ctx.storage, scope_obj, [(collection, hits)], provider=provider)
+        if why_not:
+            for s in states:
+                if s.state == "unpublished":
+                    s.message = why_not
 
     gate = asyncio.Semaphore(MESH_BUILDS_IN_FLIGHT)
     done = 0
@@ -1110,6 +1465,12 @@ async def api_file_request_geometry(
     geometry = meta.get("geometry") or {}
     if geometry.get("kind") != GEOMETRY_MESH:
         raise HTTPException(status_code=409, detail=f"{key!r} is not a mesh export: it has its design geometry already")
+    if geometry.get("merged"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{key!r} merges {len(geometry.get('nodes') or [])} nodes into one file; design geometry is "
+            "requested one node at a time -- export the ones you need without merging",
+        )
     src = meta.get("source") or {}
     if not (src.get("provider") and src.get("collection") and src.get("node_id") and src.get("scope")):
         raise HTTPException(status_code=409, detail=f"{key!r} does not say which node it came from")

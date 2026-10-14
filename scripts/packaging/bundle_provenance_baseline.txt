@@ -82,7 +82,7 @@ in n)&&!(
 # `if ("eq" in w) ... else if ("ne" in w)` minify to
 #     t.depth&&("eq"in t.depth?e.push(`depth ...`):...)  and  "eq"in n?e.push(`...`):"ne"in n?...
 # and STRING_RE takes the code between the quote of "eq" and the backtick.
-# src/frontend/src/assets/searchExport.ts:211
+# src/frontend/src/assets/searchExport.ts:335
 in t.depth?e.push(
-# src/frontend/src/assets/searchExport.ts:215
+# src/frontend/src/assets/searchExport.ts:339
 in n?e.push(

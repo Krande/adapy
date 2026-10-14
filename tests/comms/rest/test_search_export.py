@@ -34,7 +34,7 @@ from ada.comms.rest.scope import Scope
 QUERY = {"where": [{"key": "FUNC", "eq": "MS"}, {"key": "GTYP", "in": ["HEB", "IPE"]}]}
 
 HIT = {
-    "provider": "web3d",
+    "provider": "vendor-a",
     "collection": "alpha",
     "node_id": "fn-hit",
     "full_name": "/STRU-1",
@@ -137,12 +137,12 @@ def _psets(ifc_path):
 
 def test_ifc_carries_provenance_source_and_typed_attributes_on_every_element(tmp_path):
     model = se.wrap_in_context(_geometry_part(), HIT)
-    counts = se.apply_source_attributes(model, ROWS, provider="web3d", collection="alpha", scope="project:p-alpha")
+    counts = se.apply_source_attributes(model, ROWS, provider="vendor-a", collection="alpha", scope="project:p-alpha")
     se.stamp_provenance(
         model,
-        provider="web3d",
+        provider="vendor-a",
         collection="alpha",
-        provenance={"provider": "web3d", "collection": "alpha", "run_id": "run-1", "query": json.dumps(QUERY)},
+        provenance={"provider": "vendor-a", "collection": "alpha", "run_id": "run-1", "query": json.dumps(QUERY)},
         matched={"FUNC": "MS"},
         scope="project:p-alpha",
     )
@@ -159,7 +159,7 @@ def test_ifc_carries_provenance_source_and_typed_attributes_on_every_element(tmp
     # selected element is enough to find its node in the source tree.
     sources = [p["ADA_Source"] for p in psets.values() if "ADA_Source" in p]
     assert len(sources) == 5 and {s["scope"] for s in sources} == {"project:p-alpha"}
-    assert all(s["provider"] == "web3d" and s["collection"] == "alpha" for s in sources)
+    assert all(s["provider"] == "vendor-a" and s["collection"] == "alpha" for s in sources)
     # The same sets, listed by IFC name for the sidecar: levels root first, the hit, then members.
     listed = se.element_sources(model)
     assert [(e["name"], e["role"]) for e in listed] == [
@@ -170,7 +170,7 @@ def test_ifc_carries_provenance_source_and_typed_attributes_on_every_element(tmp
         ("BM-1", "member"),
     ]
     assert listed[4]["source"] == {
-        "provider": "web3d",
+        "provider": "vendor-a",
         "scope": "project:p-alpha",
         "collection": "alpha",
         "node_id": "fn-bm",
@@ -201,7 +201,7 @@ def test_ifc_carries_provenance_source_and_typed_attributes_on_every_element(tmp
 
 def test_source_attributes_can_be_left_out_but_matching_still_counts(tmp_path):
     model = se.wrap_in_context(_geometry_part(), HIT)
-    counts = se.apply_source_attributes(model, ROWS, provider="web3d", collection="alpha", include_attributes=False)
+    counts = se.apply_source_attributes(model, ROWS, provider="vendor-a", collection="alpha", include_attributes=False)
     assert counts["with_attrs"] == 5
     assert all("ADA_SourceAttributes" not in (e.obj.metadata or {}) for e in model.elements)
 
@@ -212,7 +212,7 @@ def test_meta_document_schema():
         fmt="ifc",
         created_by="tester",
         source={
-            "provider": "web3d",
+            "provider": "vendor-a",
             "scope": "shared",
             "collection": "alpha",
             "node_id": "fn-hit",
@@ -287,7 +287,7 @@ def test_resolve_geometry_by_shared_id_then_narrowest_cover():
 
 def test_resolve_geometry_says_why_there_is_none():
     index = SimpleNamespace(catalog=lambda c, p: _catalog([]))
-    with pytest.raises(se.NoGeometry, match="published nothing"):
+    with pytest.raises(se.NoGeometry, match="no published project tree for collection"):
         se.resolve_geometry(index, "alpha", HIT)
     listed_only = _spine("alpha", "alpha", [("fn-hit", "/STRU-1")], readable=False)
     index = SimpleNamespace(catalog=lambda c, p: _catalog([listed_only]))
@@ -388,7 +388,7 @@ def test_the_batch_job_writes_files_sidecars_and_reports_no_geometry(monkeypatch
             "target_scope": {"kind": "user", "id": "someone"},
             "target_folder": "out",
             "query": QUERY,
-            "provider": "web3d",
+            "provider": "vendor-a",
             "collection": "alpha",
             "hits": hits,
             "also": [],
@@ -549,17 +549,23 @@ def export_world(monkeypatch):
 def _hits():
     rows = [
         {
-            "provider": "web3d",
+            "provider": "vendor-a",
             "collection": "ALPHA",
             "node_id": "fn-1",
             "full_name": "/A-1",
             "path": [],
             "attrs": {"FUNC": "MS", "X": 1},
         },
-        {"provider": "web3d", "collection": "alpha", "node_id": "fn-2", "full_name": "/A-2", "path": []},
-        {"provider": "web3d", "collection": "beta", "node_id": "fn-3", "full_name": "/B-1", "path": []},
+        {"provider": "vendor-a", "collection": "alpha", "node_id": "fn-2", "full_name": "/A-2", "path": []},
+        {"provider": "vendor-a", "collection": "beta", "node_id": "fn-3", "full_name": "/B-1", "path": []},
         {"provider": "external-csg", "collection": "alpha", "node_id": "fn-1", "full_name": "/A-1", "path": []},
-        {"provider": "web3d", "collection": "alpha", "node_id": "fn-1", "full_name": "/A-1", "path": []},  # duplicate
+        {
+            "provider": "vendor-a",
+            "collection": "alpha",
+            "node_id": "fn-1",
+            "full_name": "/A-1",
+            "path": [],
+        },  # duplicate
     ]
     hits = [ex.clean_hit(r, ["FUNC"]) for r in rows]
     return ex.batch_hits(hits, "out")
@@ -568,8 +574,8 @@ def _hits():
 def test_hits_are_batched_per_provider_collection_with_unique_file_keys():
     batches = _hits()
     assert [(p, c, len(h)) for p, c, h in batches] == [
-        ("web3d", "alpha", 2),
-        ("web3d", "beta", 1),
+        ("vendor-a", "alpha", 2),
+        ("vendor-a", "beta", 1),
         ("external-csg", "alpha", 1),
     ]
     assert batches[0][2][0]["attrs"] == {"FUNC": "MS"}  # only the matched keys travel
@@ -757,7 +763,7 @@ def test_meta_answers_the_sidecar_then_in_file_provenance_then_nothing(tmp_path)
     model = se.wrap_in_context(_geometry_part(), HIT)
     se.stamp_provenance(
         model,
-        provider="web3d",
+        provider="vendor-a",
         collection="alpha",
         provenance={"run_id": "r2", "query": json.dumps(QUERY)},
         matched={"FUNC": "MS"},
@@ -788,7 +794,7 @@ def test_meta_answers_the_sidecar_then_in_file_provenance_then_nothing(tmp_path)
         + body
     )
     glb = patch_glb_provenance(
-        glb, se.GlbProvenance({"provider": "web3d", "collection": "alpha", "node_id": "fn-hit", "run_id": "r3"})
+        glb, se.GlbProvenance({"provider": "vendor-a", "collection": "alpha", "node_id": "fn-hit", "run_id": "r3"})
     )
     asyncio.run(store.put_bytes(scope, "loose/Z.glb", glb))
     got = asyncio.run(ex.file_meta(store, scope, "loose/Z.glb"))
@@ -830,6 +836,27 @@ def test_rename_and_delete_carry_the_per_file_siblings():
     assert {"done/A2.meta.json", "done/A2.thumb.png"} <= set(result["deleted"])
 
 
+def test_a_merged_files_hit_thumbnails_go_with_it():
+    from ada.comms.rest.converters.keys import joint_thumb_keys
+
+    assert se.joint_thumb_key("out/alpha.glb", 3) == "out/alpha.j0003.thumb.png"
+    live = {"out/alpha.glb", "out/alpha.j0000.thumb.png", "out/alpha.j0001.thumb.png", "out/alphabet.j0000.thumb.png"}
+    assert joint_thumb_keys("out/alpha.glb", live) == ["out/alpha.j0000.thumb.png", "out/alpha.j0001.thumb.png"]
+
+    store = _Store()
+    scope = Scope.shared()
+    for key in ("out/alpha.glb", "out/alpha.meta.json", "out/alpha.j0000.thumb.png", "out/alpha.j0001.thumb.png"):
+        asyncio.run(store.put_bytes(scope, key, b"x"))
+    moved = asyncio.run(
+        storage_ops.rename_key_cascade(store, scope, "out/alpha.glb", "done/a2.glb", {k for (_, k) in store.blobs})
+    )
+    keys = {k for (_, k) in store.blobs}
+    assert moved["siblings_moved"] == 3
+    assert {"done/a2.meta.json", "done/a2.j0000.thumb.png", "done/a2.j0001.thumb.png"} <= keys
+    result = asyncio.run(storage_ops.delete_blob_cascade(store, scope, "done/a2.glb"))
+    assert {"done/a2.j0000.thumb.png", "done/a2.j0001.thumb.png"} <= set(result["deleted"])
+
+
 def test_listing_hides_the_siblings():
     from ada.comms.rest.converters.keys import file_sidecar_keys, is_file_sidecar_key
 
@@ -842,7 +869,7 @@ def test_listing_hides_the_siblings():
     assert file_sidecar_keys("x/A.ifc") == ["x/A.meta.json", "x/A.thumb.png"]
 
 
-# --- the mesh export (web3d GLBs) ------------------------------------------------------------------------
+# --- the mesh export (vendor-a GLBs) ------------------------------------------------------------------------
 
 
 def _tiny_glb() -> bytes:
@@ -895,12 +922,18 @@ def test_the_mesh_batch_job_copies_the_built_glb_with_provenance_and_a_sidecar(m
 
     monkeypatch.setattr(job_mod, "_audit_done", no_audit)
     monkeypatch.setattr(job_mod, "_render_thumb", lambda glb, out: "no offscreen renderer")
-    glb_key = "_derived/assets/web3d/alpha/fn-site/r1/fn-hit/abc/model.glb"
+    glb_key = "_derived/assets/vendor-a/alpha/fn-site/r1/fn-hit/abc/model.glb"
     store.blobs[("shared", glb_key)] = gzip.compress(_tiny_glb())
-    mesh = {"glb_key": glb_key, "provider": "web3d", "subject": "fn-site", "revision": "r1", "node": "fn-hit"}
+    mesh = {"glb_key": glb_key, "provider": "vendor-a", "subject": "fn-site", "revision": "r1", "node": "fn-hit"}
     hits = [
         {**HIT, "file": "out/alpha/STRU-1.glb", "attrs": {"FUNC": "MS"}, "mesh": mesh},
-        {**HIT, "node_id": "fn-gone", "full_name": "/GONE", "file": "out/alpha/GONE.glb", "mesh_error": "not in web3d"},
+        {
+            **HIT,
+            "node_id": "fn-gone",
+            "full_name": "/GONE",
+            "file": "out/alpha/GONE.glb",
+            "mesh_error": "not in vendor-a",
+        },
     ]
     job = SimpleNamespace(
         job_id="j1",
@@ -912,7 +945,7 @@ def test_the_mesh_batch_job_copies_the_built_glb_with_provenance_and_a_sidecar(m
             "target_scope": {"kind": "user", "id": "someone"},
             "target_folder": "out",
             "query": QUERY,
-            "provider": "web3d",
+            "provider": "vendor-a",
             "collection": "alpha",
             "hits": hits,
             "requested_by": "tester",
@@ -925,8 +958,8 @@ def test_the_mesh_batch_job_copies_the_built_glb_with_provenance_and_a_sidecar(m
     summary = json.loads(asyncio.run(store.get_bytes(source, job.derived_key)))
     assert summary["geometry"] == "mesh"
     assert summary["counts"] == {"written": 1, "no_geometry": 1, "failed": 0}
-    assert summary["files"][1]["error"] == "not in web3d"
-    assert ex.item_outcome(summary)[1] == "1 of 2 written; 1 without a mesh from web3d"
+    assert summary["files"][1]["error"] == "not in vendor-a"
+    assert ex.item_outcome(summary)[1] == "1 of 2 written; 1 without a mesh from vendor-a"
     glb = store.blobs[("users/someone", "out/alpha/STRU-1.glb")]
     prov = read_glb_provenance(glb)
     assert prov["geometry_kind"] == "mesh" and prov["node_id"] == "fn-hit" and prov["source_scope"] == "shared"
@@ -1000,7 +1033,7 @@ def _request_geometry(monkeypatch, meta, *, may_request=True):
 MESH_META = {
     "file": "out/alpha/STRU-1.glb",
     "format": "glb",
-    "geometry": {"kind": "mesh", "provider": "web3d"},
+    "geometry": {"kind": "mesh", "provider": "vendor-a"},
     "query": QUERY,
     "source": {**HIT, "scope": "shared"},
 }
@@ -1070,17 +1103,17 @@ def test_a_mesh_item_builds_each_ready_hit_then_submits_its_job(export_world, mo
         return [
             [
                 greq.HitState(hit=hs[0], state="ready", node_id="fn-hit", subject="fn-site", revision="r1"),
-                greq.HitState(hit=hs[1], state="unknown", message="web3d has no node '/GONE'"),
+                greq.HitState(hit=hs[1], state="unknown", message="vendor-a has no node '/GONE'"),
             ]
         ]
 
     async def build(ctx, scope_obj, *, asked_provider, collection, node, subject, **kw):
-        key = f"_derived/assets/web3d/{collection}/{subject}/r1/{node}/fp/summary.json"
+        key = f"_derived/assets/vendor-a/{collection}/{subject}/r1/{node}/fp/summary.json"
         summary = {"ok": True, "glb_key": key.replace("summary.json", "model.glb")}
         await w.store.put_bytes(scope_obj, key, json.dumps(summary).encode())
         return {
             "derived_key": key,
-            "provider": "web3d",
+            "provider": "vendor-a",
             "subject": subject,
             "revision": "r1",
             "node": node,
@@ -1101,10 +1134,572 @@ def test_a_mesh_item_builds_each_ready_hit_then_submits_its_job(export_world, mo
             user=None,
         )
     )
-    assert asked == ["web3d"]
+    assert asked == ["vendor-a"]
     [req] = w.submitted
     sent = req.conversion_options["hits"]
     assert sent[0]["mesh"]["glb_key"].endswith("/fn-hit/fp/model.glb") and sent[0]["mesh"]["subject"] == "fn-site"
-    assert sent[1]["mesh_error"] == "web3d has no node '/GONE'" and "mesh" not in sent[1]
+    assert sent[1]["mesh_error"] == "vendor-a has no node '/GONE'" and "mesh" not in sent[1]
     timings = w.items[0]["timings"]
     assert timings["builds"] == 1 and timings["builds_cached"] == 1 and "build_ms" in timings
+
+
+# --- merged exports: one file per collection -----------------------------------------------------------
+
+HIT_2 = {**HIT, "node_id": "fn-hit2", "full_name": "/STRU-2"}
+HIT_OTHER_ZONE = {
+    **HIT,
+    "node_id": "fn-hit3",
+    "full_name": "/STRU-3",
+    "path": [HIT["path"][0], {"node_id": "fn-zone-b", "full_name": "/ZONE-B", "kind": "ZONE", "depth": 2}],
+}
+
+
+def _part(name: str) -> ada.Part:
+    p = ada.Part(name)
+    p.add_beam(ada.Beam(f"BM-{name}", (0, 0, 0), (1, 0, 0), "IPE300"))
+    return p
+
+
+def test_merged_hits_share_their_levels_in_one_assembly():
+    model = se.wrap_all_in_context(
+        [(_part("STRU-1"), HIT), (_part("STRU-2"), HIT_2), (_part("STRU-3"), HIT_OTHER_ZONE)], name="alpha"
+    )
+    asm = model.assembly
+    # One site (the shared root IS the assembly), two zones, three hits.
+    assert asm.name == "/SITE-A"
+    assert set(asm.parts) == {"/ZONE-A", "/ZONE-B"}
+    assert set(asm.parts["/ZONE-A"].parts) == {"STRU-1", "STRU-2"} and set(asm.parts["/ZONE-B"].parts) == {"STRU-3"}
+    assert [e.node_id for e in model.elements if e.role == "level"] == ["fn-site", "fn-zone", "fn-zone-b"]
+    assert [e.node_id for e in model.hits] == ["fn-hit", "fn-hit2", "fn-hit3"]
+
+
+def test_merged_hits_under_different_roots_hang_off_an_assembly_named_for_the_batch():
+    other_site = {**HIT_2, "path": [{"node_id": "fn-site-b", "full_name": "/SITE-B"}]}
+    model = se.wrap_all_in_context([(_part("STRU-1"), HIT), (_part("STRU-2"), other_site)], name="alpha")
+    assert model.assembly.name == "alpha" and set(model.assembly.parts) == {"/SITE-A", "/SITE-B"}
+
+
+def test_a_merged_batch_gives_every_hit_its_collections_one_file():
+    hits = [ex.clean_hit(r, []) for r in (HIT, HIT_2, {**HIT, "provider": "other", "node_id": "fn-x"})]
+    batches = ex.batch_hits(hits, "out", ext="glb", merge=True)
+    assert [(p, c, [h["file"] for h in hs]) for p, c, hs in batches] == [
+        ("vendor-a", "alpha", ["out/alpha.glb", "out/alpha.glb"]),
+        # Another provider's batch of the same collection does not overwrite the first's file.
+        ("other", "alpha", ["out/alpha__other.glb"]),
+    ]
+
+
+def test_a_merged_export_takes_a_higher_cap_and_no_preset_files(monkeypatch):
+    async def writable(pool, raw, user):
+        return Scope.shared()
+
+    monkeypatch.setattr(ex, "_writable_scope", writable)
+    ctx = SimpleNamespace(jobs=SimpleNamespace(require=lambda f: None))
+    body = {"query": QUERY, "target_scope": "shared", "target_folder": "out", "merge": True}
+    too_many = [{**HIT, "node_id": f"fn-{i}"} for i in range(ex.MAX_MERGED_EXPORT_HITS + 1)]
+    with pytest.raises(ex.ExportRefused) as err:
+        asyncio.run(
+            ex.start_export(
+                ctx, None, scope="shared", scope_obj=Scope.shared(), body={**body, "hits": too_many}, user=None
+            )
+        )
+    assert err.value.status == 409 and "merged export takes at most" in err.value.detail
+    with pytest.raises(ex.ExportRefused) as err:
+        asyncio.run(
+            ex.start_export(
+                ctx,
+                None,
+                scope="shared",
+                scope_obj=Scope.shared(),
+                body={**body, "hits": [HIT]},
+                user=None,
+                preset_files={"fn-hit": ("a.ifc", None)},
+            )
+        )
+    assert err.value.status == 400 and "preset" in err.value.detail
+
+
+def _merge_job(monkeypatch, hits, *, geometry=None):
+    store, queue = _Store(), _Queue()
+    source = Scope.shared()
+
+    async def no_audit(*a, **k):
+        return None
+
+    monkeypatch.setattr(job_mod, "_audit_done", no_audit)
+    monkeypatch.setattr(job_mod, "_render_thumb", lambda glb, out: "no offscreen renderer")
+    monkeypatch.setattr(job_mod, "_thumbnail_unavailable", lambda: "no offscreen renderer")
+    job = SimpleNamespace(
+        job_id="j1",
+        derived_key="_derived/search-export/run-1/0.json",
+        conversion_options={
+            "run_id": "run-1",
+            "merge": True,
+            **({"geometry": geometry} if geometry else {}),
+            "source_scope": "shared",
+            "target_scope": {"kind": "user", "id": "someone"},
+            "target_folder": "out",
+            "query": QUERY,
+            "provider": "vendor-a",
+            "collection": "alpha",
+            "hits": hits,
+            "also": [],
+            "requested_by": "tester",
+        },
+    )
+    ctx = SimpleNamespace(scope=source, storage=store, queue=queue, db_pool=None, started_at=0.0)
+    return store, queue, job, ctx, source
+
+
+def test_the_merged_design_job_writes_one_ifc_holding_every_hit(monkeypatch):
+    def fake_resolve(index, collection, hit, **kw):
+        if hit["node_id"] == "fn-missing":
+            raise se.NoGeometry("provider 'external-csg' has no node '/GONE' in 'alpha'")
+        return SimpleNamespace(provider="external-csg", subject="fn-zone", revision="r9"), hit["node_id"]
+
+    monkeypatch.setattr(job_mod, "resolve_geometry", fake_resolve)
+    monkeypatch.setattr(
+        "ada.assets.concepts.part_for_manifest", lambda m, storage, node: _part(node.replace("fn-", "P-"))
+    )
+    key = "out/alpha.ifc"
+    hits = [
+        {**HIT, "file": key, "attrs": {"FUNC": "MS"}},
+        {**HIT_2, "file": key, "attrs": {"FUNC": "MS"}},
+        {**HIT, "node_id": "fn-missing", "full_name": "/GONE", "file": key},
+    ]
+    store, queue, job, ctx, source = _merge_job(monkeypatch, hits)
+    asyncio.run(job_mod.ExportSearchAssetHandler().run(job, ctx))
+
+    assert queue.updates[-1]["status"] == "done", queue.updates[-1]
+    summary = json.loads(asyncio.run(store.get_bytes(source, job.derived_key)))
+    assert summary["counts"] == {"written": 2, "no_geometry": 1, "failed": 0}
+    assert summary["merged"]["file"] == key and summary["merged"]["hits"] == 2
+    assert [f["file"] for f in summary["files"]] == [key] * 3
+    # ONE file in the target, with both hits under the one site and zone.
+    written = [k for (s, k) in store.blobs if s == "users/someone" and k.endswith(".ifc")]
+    assert written == [key]
+    ifc = pathlib.Path(tempfile.mkdtemp()) / "alpha.ifc"
+    ifc.write_bytes(store.blobs[("users/someone", key)])
+    psets, _ = _psets(ifc)
+    assert psets["/SITE-A"]["ADA_Provenance"]["merged_hits"] == 2
+    matched = {name for name, p in psets.items() if "ADA_MatchedAttributes" in p}
+    assert matched == {"P-hit", "P-hit2"}
+    meta = json.loads(store.blobs[("users/someone", "out/alpha.meta.json")])
+    assert meta["geometry"]["merged"] is True and meta["geometry"]["nodes"] == ["fn-hit", "fn-hit2"]
+    assert meta["source"]["node_id"] is None and meta["source"]["full_name"] == "alpha"
+    assert [(e["role"], e["source"]["node_id"]) for e in meta["elements"]] == [
+        ("level", "fn-site"),
+        ("level", "fn-zone"),
+        ("hit", "fn-hit"),
+        ("hit", "fn-hit2"),
+    ]
+    # Its hits, by the names their parts have in the file (what the viewer's tree shows).
+    assert [(j["node_id"], j["name"]) for j in meta["joints"]] == [("fn-hit", "P-hit"), ("fn-hit2", "P-hit2")]
+    assert summary["merged"]["joints"] == meta["joints"]
+
+
+def _box_glb(offset: float, hit: str = "/STRU-1") -> bytes:
+    """A built GLB as the asset build writes one: mesh node ``node0`` and, in the scene's extras,
+    the hit's ancestors and two plates in ``id_hierarchy`` with a draw range each."""
+    import trimesh
+
+    box = trimesh.creation.box(extents=(1, 1, 1))  # 12 triangles = 36 indices
+    box.apply_translation((offset, 0, 0))
+    scene = trimesh.Scene()
+    scene.add_geometry(box, node_name="node0", geom_name="node0")
+    extras = {
+        "id_hierarchy": {
+            "1": ["/SITE-A", "*"],
+            "2": ["/ZONE-A", "1"],
+            "3": [hit, "2"],
+            "4": [f"PLATE 1 of {hit}", "3"],
+            "5": [f"PLATE 2 of {hit}", "3"],
+        },
+        "draw_ranges_node0": {"4": [0, 18], "5": [18, 18]},
+        "up_axis": "Z",
+    }
+    return job_mod._with_scene_extras(scene.export(file_type="glb"), extras)
+
+
+def _run_mesh_merge(monkeypatch, *, thumbs: bool = False):
+    key = "out/alpha.glb"
+    hits = []
+    store_blobs = {}
+    for n, hit in enumerate((HIT, HIT_2)):
+        glb_key = f"_derived/assets/vendor-a/alpha/fn-site/r1/{hit['node_id']}/abc/model.glb"
+        store_blobs[("shared", glb_key)] = gzip.compress(_box_glb(n * 3.0, hit["full_name"]))
+        mesh = {
+            "glb_key": glb_key,
+            "provider": "vendor-a",
+            "subject": "fn-site",
+            "revision": "r1",
+            "node": hit["node_id"],
+        }
+        hits.append({**hit, "file": key, "attrs": {"FUNC": "MS"}, "mesh": mesh})
+    hits.append({**HIT, "node_id": "fn-gone", "full_name": "/GONE", "file": key, "mesh_error": "not in vendor-a"})
+    store, queue, job, ctx, source = _merge_job(monkeypatch, hits, geometry="mesh")
+    rendered: list[str] = []
+    if thumbs:
+
+        def render(glb, out):
+            rendered.append(pathlib.Path(glb).name)
+            pathlib.Path(out).write_bytes(b"png")
+            return None
+
+        monkeypatch.setattr(job_mod, "_thumbnail_unavailable", lambda: None)
+        monkeypatch.setattr(job_mod, "_render_thumb", render)
+    store.blobs.update(store_blobs)
+    asyncio.run(job_mod.ExportSearchAssetHandler().run(job, ctx))
+    return key, store, queue, job, source, rendered
+
+
+def test_the_merged_mesh_job_writes_one_glb_with_a_node_per_hit(monkeypatch):
+    import struct
+
+    key, store, queue, job, source, _ = _run_mesh_merge(monkeypatch)
+
+    assert queue.updates[-1]["status"] == "done", queue.updates[-1]
+    summary = json.loads(asyncio.run(store.get_bytes(source, job.derived_key)))
+    assert summary["geometry"] == "mesh" and summary["counts"] == {"written": 2, "no_geometry": 1, "failed": 0}
+    assert ex.item_outcome(summary)[1] == "2 of 3 written; 1 without a mesh from vendor-a"
+    glb = store.blobs[("users/someone", key)]
+    (json_len,) = struct.unpack_from("<I", glb, 12)
+    doc = json.loads(glb[20 : 20 + json_len])
+    # One mesh per hit, named as the viewer pairs meshes with their draw ranges.
+    assert sorted(n["name"] for n in doc["nodes"] if "mesh" in n) == ["node1", "node2"]
+    assert len(doc["meshes"]) == 2
+    extras = doc["scenes"][doc.get("scene", 0)]["extras"]
+    assert extras["up_axis"] == "Z"
+    tree = extras["id_hierarchy"]
+    by_name = {name: (gid, parent) for gid, (name, parent) in tree.items()}
+    # The ancestors the two joints share are ONE entry each; each joint and its plates are its own.
+    assert [name for name, _ in tree.values()].count("/SITE-A") == 1
+    assert by_name["/STRU-1"][1] == by_name["/STRU-2"][1] == by_name["/ZONE-A"][0]
+    # Every plate is still its own clickable element: a range per plate, in its own mesh.
+    for node, hit in (("node1", "/STRU-1"), ("node2", "/STRU-2")):
+        ranges = extras[f"draw_ranges_{node}"]
+        assert ranges == {by_name[f"PLATE 1 of {hit}"][0]: [0, 18], by_name[f"PLATE 2 of {hit}"][0]: [18, 18]}
+    meta = json.loads(store.blobs[("users/someone", "out/alpha.meta.json")])
+    assert meta["format"] == "glb" and meta["geometry"]["merged"] is True
+    assert [(e["role"], e["source"]["node_id"]) for e in meta["elements"]] == [
+        ("level", "fn-site"),
+        ("level", "fn-zone"),
+        ("hit", "fn-hit"),
+        ("hit", "fn-hit2"),
+    ]
+    # The hits inside the file, each with the run of ids that are its objects -- exactly its
+    # plates' ranges, none of the shared ancestors -- in the sidecar and in the batch's merged entry.
+    joints = summary["merged"]["joints"]
+    assert meta["joints"] == joints
+    assert [(j["node_id"], j["name"], j["thumb"]) for j in joints] == [
+        ("fn-hit", "/STRU-1", None),
+        ("fn-hit2", "/STRU-2", None),
+    ]
+    for joint, node in zip(joints, ("node1", "node2")):
+        lo, hi = joint["ids"]
+        assert {gid for gid in tree if lo <= int(gid) <= hi} >= set(extras[f"draw_ranges_{node}"])
+        assert by_name["/SITE-A"][0] not in {str(i) for i in range(lo, hi + 1)}
+    assert joints[0]["ids"][1] < joints[1]["ids"][0]
+
+
+def test_a_merged_mesh_file_has_a_thumbnail_per_hit(monkeypatch):
+    key, store, queue, job, source, rendered = _run_mesh_merge(monkeypatch, thumbs=True)
+    summary = json.loads(asyncio.run(store.get_bytes(source, job.derived_key)))
+    joints = summary["merged"]["joints"]
+    assert [j["thumb"] for j in joints] == ["out/alpha.j0000.thumb.png", "out/alpha.j0001.thumb.png"]
+    for j in joints:
+        assert store.blobs[("users/someone", j["thumb"])] == b"png"
+    # Rendered from each hit's own GLB, and once from the merged file for the file's own picture.
+    assert sorted(rendered) == ["alpha.glb", "hit-0.glb", "hit-1.glb"]
+    assert summary["merged"]["thumb"] == "out/alpha.thumb.png"
+    # Each hit's row names its own picture.
+    assert [f.get("thumb") for f in summary["files"] if f["status"] == "written"] == [j["thumb"] for j in joints]
+
+
+def test_a_hit_is_cut_out_of_a_merged_glb_by_its_name(tmp_path):
+    import trimesh
+
+    parts = []
+    for n, hit in enumerate(("/STRU-1", "/STRU-2")):
+        path = tmp_path / f"hit-{n}.glb"
+        path.write_bytes(_box_glb(n * 3.0, hit))
+        parts.append(({"full_name": hit}, path))
+    merged = tmp_path / "alpha.glb"
+    job_mod._merge_glbs(parts, merged, "alpha")
+    cuts = job_mod._cut_subtrees(merged, ["/STRU-2", "PLATE 1 of /STRU-1", "/NOPE"], tmp_path)
+    assert cuts[2] is None
+    whole = trimesh.load(str(cuts[0]), file_type="glb", force="mesh", process=False)
+    assert len(whole.faces) == 12 and whole.bounds[0][0] > 2.0  # the second box, all of it
+    plate = trimesh.load(str(cuts[1]), file_type="glb", force="mesh", process=False)
+    assert len(plate.faces) == 6 and plate.bounds[1][0] < 1.0  # one plate of the first
+
+
+def test_a_merged_file_cannot_request_design_geometry(monkeypatch):
+    merged = {**MESH_META, "geometry": {"kind": "mesh", "merged": True, "nodes": ["fn-hit", "fn-hit2"]}}
+    err, started = _request_geometry(monkeypatch, merged)
+    assert err.status_code == 409 and "merges 2 nodes" in err.detail and not started
+
+
+# --- the mesh preflight and the tree request ----------------------------------------------------------
+
+VENDOR_SPEC = {
+    "slug": "vendor-a-plugin",
+    "asset_provider_id": "vendor-a",
+    "asset_collections_field": "projects",
+    "projects": ["ALPHA", "BETA"],
+    "asset_collection_request": {"options": {"action": "stage-tree"}, "collection_option": "project", "label": "Tree"},
+}
+
+
+def _mesh_preflight_world(monkeypatch, *, admin_only=False, sweep=None):
+    async def classify(storage, scope_obj, groups, provider="external-csg"):
+        out = []
+        for collection, hits in groups:
+            state = "ready" if collection == "alpha" else "unpublished"
+            out.append([ex.greq.HitState(hit=h, state=state, message=f"{collection}: {state}") for h in hits])
+        return out
+
+    async def advertised(kind):
+        return {"w": VENDOR_SPEC}
+
+    async def requires_admin(plugin_id, pool, spec):
+        return admin_only
+
+    async def running(pool, provider):
+        return sweep
+
+    monkeypatch.setattr(ex.greq, "classify_in_scope", classify)
+    monkeypatch.setattr("ada.comms.rest.routes.plugin_jobs.plugin_job_requires_admin", requires_admin)
+    monkeypatch.setattr(dbm, "running_asset_sweep", running)
+    return SimpleNamespace(storage=None, jobs=SimpleNamespace(advertised_specs=advertised))
+
+
+def test_the_mesh_preflight_names_the_collections_without_a_tree_and_offers_their_request(monkeypatch):
+    ctx = _mesh_preflight_world(monkeypatch)
+    hits = [HIT, HIT_2, {**HIT, "collection": "beta", "node_id": "fn-b"}]
+    pre = asyncio.run(
+        ex.export_preflight(
+            ctx, None, scope_obj=Scope.shared(), body={"query": QUERY, "hits": hits, "geometry": "mesh"}, user=None
+        )
+    )
+    assert pre["geometry"] == "mesh"
+    assert (pre["hits"], pre["ready"], pre["no_tree"], pre["unknown"]) == (3, 2, 1, 0)
+    assert [(c["collection"], c["ready"], c["no_tree"]) for c in pre["collections"]] == [
+        ("alpha", 2, 0),
+        ("beta", 0, 1),
+    ]
+    [req] = pre["tree_requests"]
+    assert req["provider"] == "vendor-a" and req["collections"] == ["beta"]
+    assert req["available"] and req["allowed"] and req["label"] == "Tree" and req["sweep_running"] is None
+
+
+def test_the_mesh_preflight_says_when_the_tree_request_is_not_this_users(monkeypatch):
+    ctx = _mesh_preflight_world(monkeypatch, admin_only=True, sweep={"id": "s1", "created_at": "earlier"})
+    hits = [{**HIT, "collection": "beta"}]
+    pre = asyncio.run(
+        ex.export_preflight(
+            ctx, None, scope_obj=Scope.shared(), body={"query": QUERY, "hits": hits, "geometry": "mesh"}, user=None
+        )
+    )
+    [req] = pre["tree_requests"]
+    assert req["allowed"] is False and "administrators" in req["reason"]
+    assert req["sweep_running"] == {"id": "s1", "created_at": "earlier"}
+
+
+def _request_trees(monkeypatch, body, *, admin_only=False, refuse=None):
+    from fastapi import HTTPException
+
+    from ada.comms.rest.routes import asset_sweeps as sweeps
+
+    ctx = _mesh_preflight_world(monkeypatch, admin_only=admin_only)
+    started = {}
+
+    async def start(ctx, pool, **kw):
+        if refuse:
+            raise sweeps.SweepRefused(refuse)
+        started.update(kw)
+        return {"id": "run-t", "job": kw["job"], "collections": kw["collections"]}
+
+    monkeypatch.setattr(sweeps, "start_sweep", start)
+    try:
+        out = asyncio.run(
+            ex.api_search_export_request_trees("shared", _Request(body), scope_obj=Scope.shared(), user=None, ctx=ctx)
+        )
+    except HTTPException as exc:
+        return exc, started
+    return json.loads(out.body), started
+
+
+def test_requesting_the_trees_starts_one_collection_request_run(monkeypatch):
+    out, started = _request_trees(monkeypatch, {"provider": "vendor-a", "collections": ["beta"]})
+    assert out["id"] == "run-t"
+    assert started["job"] == "collection-request" and started["collections"] == ["beta"] and started["via"] == "export"
+
+
+def test_the_tree_request_is_gated_like_the_providers_job(monkeypatch):
+    err, started = _request_trees(monkeypatch, {"provider": "vendor-a", "collections": ["beta"]}, admin_only=True)
+    assert err.status_code == 403 and not started
+    err, _ = _request_trees(monkeypatch, {"provider": "vendor-a", "collections": []})
+    assert err.status_code == 400
+    err, _ = _request_trees(
+        monkeypatch, {"provider": "vendor-a", "collections": ["beta"]}, refuse="a vendor-a sweep is already running"
+    )
+    assert err.status_code == 409 and "already running" in err.detail
+
+
+# --- request trees, then export (one run) --------------------------------------------------------------
+
+
+def _tree_item_world(export_world, monkeypatch, *, why_not=None):
+    from ada.comms.rest.routes import assets as assets_routes
+    from ada.comms.rest.routes import geometry_requests as greq
+
+    w = export_world()
+    asked_trees = []
+    published = {"done": False}
+
+    async def classify(storage, scope_obj, groups, provider=None):
+        [(_, hs)] = groups
+        if published["done"]:
+            return [
+                [
+                    greq.HitState(hit=h, state="ready", node_id=h["node_id"], subject="fn-site", revision="r1")
+                    for h in hs
+                ]
+            ]
+        return [[greq.HitState(hit=h, state="unpublished", message="no tree") for h in hs]]
+
+    async def request_tree(ctx, pool, run_id, position, provider, collection, **kw):
+        asked_trees.append((provider, collection))
+        published["done"] = why_not is None
+        return why_not
+
+    async def build(ctx, scope_obj, *, asked_provider, collection, node, subject, **kw):
+        key = f"_derived/assets/vendor-a/{collection}/{subject}/r1/{node}/fp/summary.json"
+        await w.store.put_bytes(scope_obj, key, json.dumps({"ok": True, "glb_key": key + ".glb"}).encode())
+        return {
+            "derived_key": key,
+            "provider": "vendor-a",
+            "subject": subject,
+            "revision": "r1",
+            "node": node,
+            "job_id": None,
+        }
+
+    monkeypatch.setattr(greq, "classify_in_scope", classify)
+    monkeypatch.setattr(ex, "request_collection_tree", request_tree)
+    monkeypatch.setattr(assets_routes, "submit_node_build", build)
+    hits = [ex.clean_hit(HIT, [])]
+    [(provider, collection, batch)] = ex.batch_hits(hits, "out", ext="glb")
+    asyncio.run(
+        ex.drive_export(
+            w.ctx,
+            None,
+            RUN,
+            scope_obj=Scope.shared(),
+            target=Scope.shared(),
+            batches=[(provider, collection, batch)],
+            job_opts={**JOB_OPTS, "geometry": "mesh", "request_trees": True},
+            user=None,
+        )
+    )
+    return w, asked_trees
+
+
+def test_a_collection_with_no_tree_asks_for_it_then_builds_its_meshes(export_world, monkeypatch):
+    w, asked = _tree_item_world(export_world, monkeypatch)
+    assert asked == [("vendor-a", "alpha")]
+    [req] = w.submitted
+    assert req.conversion_options["hits"][0]["mesh"]["glb_key"].endswith(".glb")
+
+
+def test_a_tree_the_provider_could_not_give_is_every_hits_reason(export_world, monkeypatch):
+    w, asked = _tree_item_world(export_world, monkeypatch, why_not="vendor-a had no tree to give for ALPHA: no sites")
+    assert asked == [("vendor-a", "alpha")]
+    [req] = w.submitted
+    assert req.conversion_options["hits"][0]["mesh_error"] == "vendor-a had no tree to give for ALPHA: no sites"
+
+
+def _request_tree_world(monkeypatch, summary):
+    from ada.comms.rest.routes import assets as assets_routes
+    from ada.comms.rest.routes import plugin_jobs
+
+    store, items, enqueued, published = _Store(), {}, [], []
+
+    async def advertised(kind):
+        return {"w": VENDOR_SPEC}
+
+    async def status(job_id):
+        return SimpleNamespace(status="done", payload={})
+
+    async def enqueue(ctx, **kw):
+        enqueued.append(kw)
+        await store.put_bytes(Scope.shared(), kw["derived_key"], json.dumps(summary).encode())
+        return "fetch-1"
+
+    async def staged(ctx, scope_obj, staging_id):
+        return {"tree": f"assets/_staging/{staging_id}/tree.json"}
+
+    async def publish(ctx, scope_obj, *, provider, staged, user):
+        published.append((provider, staged))
+        return "publish-1", "_derived/pub.json"
+
+    async def update(pool, run_id, position, **fields):
+        items.update(fields)
+
+    async def beat(pool, run_id):
+        return RunBeat("running", None, "Tester")
+
+    monkeypatch.setattr(plugin_jobs, "enqueue_plugin_job", enqueue)
+    monkeypatch.setattr(assets_routes, "staged_by_role", staged)
+    monkeypatch.setattr(assets_routes, "submit_asset_publish", publish)
+    monkeypatch.setattr(dbm, "update_asset_export_item", update)
+    monkeypatch.setattr(dbm, "heartbeat_asset_export_run", beat)
+    monkeypatch.setattr(ex, "POLL_INTERVAL_S", 0)
+    ctx = SimpleNamespace(storage=store, jobs=SimpleNamespace(advertised_specs=advertised, status=status))
+    timings: dict = {}
+    why_not = asyncio.run(
+        ex.request_collection_tree(
+            ctx, None, "run-1", 0, "vendor-a", "alpha", scope_obj=Scope.shared(), user=None, timings=timings
+        )
+    )
+    return why_not, enqueued, published, items, timings
+
+
+def test_the_tree_request_asks_with_the_providers_own_options_and_publishes_the_answer(monkeypatch):
+    why_not, enqueued, published, items, timings = _request_tree_world(monkeypatch, {"asset_staging_id": "stg-1"})
+    assert why_not is None
+    [job] = enqueued
+    # The provider's spelling of the collection, under its collection option, as a click would send.
+    assert job["options"]["action"] == "stage-tree" and job["options"]["project"] == "ALPHA"
+    assert published == [("vendor-a", {"tree": "assets/_staging/stg-1/tree.json"})]
+    assert items["status"] == "requesting" and "tree_request_ms" in timings
+
+
+def test_a_tree_request_with_nothing_staged_says_so(monkeypatch):
+    why_not, _, published, _, _ = _request_tree_world(monkeypatch, {"asset_nothing": True, "message": "no sites"})
+    assert why_not == "vendor-a had no tree to give for ALPHA: no sites" and not published
+
+
+def test_requesting_trees_is_for_mesh_exports_and_gated_like_the_providers_job(monkeypatch):
+    async def writable(pool, raw, user):
+        return Scope.shared()
+
+    monkeypatch.setattr(ex, "_writable_scope", writable)
+    _mesh_preflight_world(monkeypatch, admin_only=True)
+
+    async def advertised(kind):
+        return {"w": VENDOR_SPEC}
+
+    ctx = SimpleNamespace(jobs=SimpleNamespace(require=lambda f: None, advertised_specs=advertised))
+    base = {"query": QUERY, "hits": [HIT], "target_scope": "shared", "target_folder": "out", "request_trees": True}
+    with pytest.raises(ex.ExportRefused) as err:
+        asyncio.run(ex.start_export(ctx, None, scope="shared", scope_obj=Scope.shared(), body=base, user=None))
+    assert err.value.status == 400 and "mesh exports" in err.value.detail
+    with pytest.raises(ex.ExportRefused) as err:
+        asyncio.run(
+            ex.start_export(
+                ctx, None, scope="shared", scope_obj=Scope.shared(), body={**base, "geometry": "mesh"}, user=None
+            )
+        )
+    assert err.value.status == 403 and "administrators" in err.value.detail

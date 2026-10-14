@@ -11,15 +11,18 @@ import {SerializerTessellatorSelect} from "@/components/convert/SerializerTessel
 import type {SerializerSelection} from "@/services/conversion/serializerMatrix";
 import {boolOptionFor, boolOptionSupported} from "@/services/conversion/serializerMatrix";
 import {canOpenInScene} from "@/utils/scene/fileKinds";
-import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
+import {collectGeomEntries, focusGeomEntry, focusJoint, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import FilePickerModal from "@/components/common/FilePickerModal";
-import {galleryFolderOrder} from "@/assets/searchExport";
+import {galleryFolderOrder, galleryStops, stopOfAdjacentFile, type GalleryStop} from "@/assets/searchExport";
+import {useTreeViewStore} from "@/state/treeViewStore";
 import {searchExportApi, type ExportDoc} from "@/services/api/searchExport";
 import GalleryProvenance from "./GalleryProvenance";
 
 // Gallery HUD. Three "walk" types (dropdown):
-//   - "files": cycles the current scope's loadable files (clear → load).
+//   - "files": cycles the current scope's loadable files (clear → load). In a folder an export
+//     wrote, a merged file (a whole collection's hits) is walked hit by hit -- each isolated and
+//     framed in turn -- before going on to the next file; Shift+arrows / « File » skip files.
 //   - "geoms": cycles every geom in the scene, selecting + framing each,
 //     ordered by scene or mesh density.
 //   - "tree": the same, in model-tree hierarchy order.
@@ -100,42 +103,95 @@ const GalleryControls: React.FC = () => {
         [fileObjects, folder, exportDoc],
     );
     const fileSet = useMemo(() => new Set(files), [files]);
+    // The stops: one per file, except a merged export file, which is one per hit inside it (in a
+    // folder walk, where the export's doc lists them) -- so Next goes through a collection's hits
+    // and then on to the next collection.
+    const stops = useMemo(() => galleryStops(files, folder !== null ? exportDoc : null), [files, folder, exportDoc]);
+    const hasJoints = useMemo(() => stops.some((s) => s.joint), [stops]);
 
     const [index, setIndex] = useState(0);
+    // The hit to focus once its file is in the scene (and its tree built); null when there is none.
+    const [pendingJoint, setPendingJoint] = useState<GalleryStop | null>(null);
+    const jointFocused = useRef(false);
 
     const go = useCallback(
         async (next: number) => {
-            if (files.length === 0) return;
-            const wrapped = (next + files.length) % files.length;
+            if (stops.length === 0) return;
+            const wrapped = (next + stops.length) % stops.length;
+            const stop = stops[wrapped];
             setIndex(wrapped);
+            setPendingJoint(stop.joint ? stop : null);
+            // Another hit of the file on screen: no reload, just focus it (the effect below).
+            if (useModelState.getState().loadedSourceNames.has(stop.file)) return;
             // Gallery = one at a time: clear the scene, then load the pick.
+            if (jointFocused.current) {
+                jointFocused.current = false;
+                endGeomWalk();
+            }
             await clear_loaded_model();
-            useLoadQueueStore.getState().enqueue({name: files[wrapped]});
+            useLoadQueueStore.getState().enqueue({name: stop.file});
         },
-        [files],
+        [stops],
     );
 
-    // Keep the index anchored to whatever is actually shown: when a gallery file
-    // is in the scene point at it; when the file list changes (scope switch /
-    // refresh) clamp into range.
+    // Focus the pending hit when it can be: its file loaded, and -- for one found by name -- the
+    // model tree built. Re-tried as either lands.
+    const treeData = useTreeViewStore((s) => s.treeData);
     useEffect(() => {
-        if (files.length === 0) return;
-        const at = files.findIndex((f) => loadedSources.has(f));
-        if (at >= 0) setIndex(at);
-        else setIndex((i) => Math.min(i, files.length - 1));
-    }, [files, loadedSources]);
+        if (!enabled || isGeomWalk || !pendingJoint?.joint || !loadedSources.has(pendingJoint.file)) return;
+        if (focusJoint(pendingJoint.joint, {hideUnselected})) {
+            jointFocused.current = true;
+            setPendingJoint(null);
+        }
+    }, [enabled, isGeomWalk, pendingJoint, loadedSources, treeData, hideUnselected]);
+
+    // Keep the index anchored to whatever is actually shown: when a gallery file
+    // is in the scene point at it (its current hit, or its first); when the list
+    // changes (scope switch / refresh) clamp into range.
+    useEffect(() => {
+        if (stops.length === 0) return;
+        setIndex((i) => {
+            if (stops[i] && loadedSources.has(stops[i].file)) return i;
+            const at = stops.findIndex((s) => loadedSources.has(s.file));
+            return at >= 0 ? at : Math.min(i, stops.length - 1);
+        });
+    }, [stops, loadedSources]);
 
     // Auto-load the current pick when the FILES walk turns on with nothing from
     // the scope's files already in the scene — otherwise the HUD shows a path but
     // the viewer stays empty until the user clicks Next/Prev.
     useEffect(() => {
-        if (!enabled || isGeomWalk || files.length === 0 || loadBusy) return;
+        if (!enabled || isGeomWalk || stops.length === 0 || loadBusy) return;
         const anyShown = files.some((f) => loadedSources.has(f));
         // A folder walk starts at its first file, not wherever the whole-scope walk had got to.
         if (!anyShown) void go(folder !== null ? 0 : index);
         // Only re-evaluate on enable / file-list change, not on every index tick.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, isGeomWalk, files]);
+
+    // A doc read after the file was loaded turns its one stop into its hits: focus the current.
+    useEffect(() => {
+        if (!enabled || isGeomWalk || !hasJoints) return;
+        const stop = stops[index];
+        if (stop?.joint && loadedSources.has(stop.file) && !jointFocused.current) setPendingJoint(stop);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasJoints]);
+
+    // The Isolate toggle re-applies to the hit on screen.
+    useEffect(() => {
+        if (!enabled || isGeomWalk || !jointFocused.current) return;
+        const stop = stops[index];
+        if (stop?.joint) setPendingJoint(stop);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hideUnselected]);
+
+    // Leaving the files walk (or the gallery) drops a hit's isolation + selection.
+    useEffect(() => {
+        if ((!enabled || isGeomWalk) && jointFocused.current) {
+            jointFocused.current = false;
+            endGeomWalk();
+        }
+    }, [enabled, isGeomWalk]);
 
     // ---- Geoms / tree walk ------------------------------------------------
     const [geomEntries, setGeomEntries] = useState<GeomEntry[]>([]);
@@ -229,6 +285,8 @@ const GalleryControls: React.FC = () => {
         },
         [isGeomWalk, goGeom, geomIndex, go, index],
     );
+    // Files walk over merged files: straight to the next / previous file's first hit.
+    const stepFile = useCallback((delta: 1 | -1) => void go(stopOfAdjacentFile(stops, index, delta)), [go, stops, index]);
 
     // Left/Right arrows cycle prev/next while gallery mode is active (the camera
     // controls don't bind arrow keys, so there's no conflict). Ignored while
@@ -241,11 +299,13 @@ const GalleryControls: React.FC = () => {
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (!isGeomWalk && useLoadQueueStore.getState().current) return; // a load is already running
             e.preventDefault();
-            step(e.key === "ArrowRight" ? 1 : -1);
+            // Shift skips to the next file when the walk steps through the hits inside files.
+            if (e.shiftKey && !isGeomWalk && hasJoints) stepFile(e.key === "ArrowRight" ? 1 : -1);
+            else step(e.key === "ArrowRight" ? 1 : -1);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [enabled, step, isGeomWalk]);
+    }, [enabled, step, stepFile, isGeomWalk, hasJoints]);
 
     // ---- Tools drawer (re-convert; FILES walk only) -----------------------
     const [toolsOpen, setToolsOpen] = useState(false);
@@ -261,7 +321,8 @@ const GalleryControls: React.FC = () => {
     // rather than quietly converting without them.
     const [faceRegions, setFaceRegions] = useState(false);
 
-    const current = files[index] ?? null;
+    const currentStop: GalleryStop | null = stops[index] ?? null;
+    const current = currentStop?.file ?? null;
     const currentExt = current ? (current.slice(current.lastIndexOf(".")).toLowerCase()) : "";
 
     // Whether the backend offers face regions for THIS source + the currently selected serializer.
@@ -325,14 +386,16 @@ const GalleryControls: React.FC = () => {
             const base = key.split("/").pop() ?? key;
             let at = files.indexOf(key);
             if (at < 0) at = files.findIndex((n) => (n.split("/").pop() ?? n) === base);
-            if (at >= 0) void go(at);
+            // A merged file is entered at its first hit.
+            const stop = at >= 0 ? stops.findIndex((s) => s.fileIndex === at) : -1;
+            if (stop >= 0) void go(stop);
         },
-        [files, go],
+        [files, stops, go],
     );
 
     if (!enabled) return null;
 
-    const count = isGeomWalk ? geomEntries.length : files.length;
+    const count = isGeomWalk ? geomEntries.length : stops.length;
     const activeIndex = isGeomWalk ? geomIndex : index;
     const empty = count === 0;
     const navBusy = !isGeomWalk && !!loadBusy;
@@ -351,7 +414,7 @@ const GalleryControls: React.FC = () => {
           ? folder !== null
               ? "no viewable files in this folder"
               : "no viewable files in this scope"
-          : (current ?? "");
+          : (currentStop?.joint?.name ?? current ?? "");
 
     // The folder the walk is narrowed to, with a way back to the whole scope.
     const folderChip = folder !== null && !isGeomWalk && (
@@ -373,7 +436,30 @@ const GalleryControls: React.FC = () => {
         </div>
     );
     const provenance = folder !== null && !isGeomWalk && !empty && (
-        <GalleryProvenance scope={scopeKey} files={files} index={index} doc={exportDoc} onJump={(n) => void go(n)} />
+        <GalleryProvenance scope={scopeKey} stops={stops} index={index} doc={exportDoc} onJump={(n) => void go(n)} />
+    );
+    // Walking the hits inside merged files: where in the file, and a step to the next file.
+    const fileBtn =
+        "rounded-sm border border-gray-600 px-1.5 py-0.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default";
+    const jointBar = hasJoints && !isGeomWalk && currentStop && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300">
+            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(-1)} title="Previous file (Shift+←)">
+                « File
+            </button>
+            <span className="tabular-nums text-gray-400" title={current ?? ""}>
+                file {currentStop.fileIndex + 1}/{files.length}
+                {currentStop.joint ? ` · hit ${currentStop.jointIndex + 1}/${currentStop.joints}` : ""}
+            </span>
+            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(1)} title="Next file (Shift+→)">
+                File »
+            </button>
+            {currentStop.joint && (
+                <label className="flex items-center gap-1" title="Hide the rest of the file while a hit is shown">
+                    <input type="checkbox" checked={hideUnselected} onChange={() => toggleHideUnselected()} />
+                    <span>Isolate</span>
+                </label>
+            )}
+        </div>
     );
 
     const walkSelector = (
@@ -525,6 +611,7 @@ const GalleryControls: React.FC = () => {
                 >
                     {nameCopied ? "✓ copied" : primaryLabel}
                 </button>
+                {jointBar}
                 {folderChip}
                 {provenance}
                 {toolsDrawer}
@@ -573,6 +660,7 @@ const GalleryControls: React.FC = () => {
                     </button>
                 </div>
                 {geomControls}
+                {jointBar}
                 {/* The provenance card is the desktop card's only: both bars are always mounted (one
                     hidden by CSS), and a second card would fetch everything twice. */}
                 {folderChip}
