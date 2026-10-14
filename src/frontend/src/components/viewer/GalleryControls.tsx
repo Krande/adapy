@@ -14,7 +14,14 @@ import {canOpenInScene} from "@/utils/scene/fileKinds";
 import {collectGeomEntries, focusGeomEntry, focusJoint, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import FilePickerModal from "@/components/common/FilePickerModal";
-import {galleryFolderOrder, galleryStops, stopOfAdjacentFile, type GalleryStop} from "@/assets/searchExport";
+import {
+    docFromMeta,
+    exportFolderCandidates,
+    galleryFolderOrder,
+    galleryStops,
+    stopOfAdjacentFile,
+    type GalleryStop,
+} from "@/assets/searchExport";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {searchExportApi, type ExportDoc} from "@/services/api/searchExport";
 import GalleryProvenance from "./GalleryProvenance";
@@ -91,22 +98,26 @@ const GalleryControls: React.FC = () => {
             });
         return () => ctl.abort();
     }, [scopeKey, folder, enabled, fileObjects]);
+    // A merged file's own sidecar, when "Search result gallery" found no folder index listing it.
+    const [metaDoc, setMetaDoc] = useState<{scope: string; folder: string; doc: Pick<ExportDoc, "files">} | null>(null);
+    const doc: Pick<ExportDoc, "files"> | null =
+        exportDoc ?? (metaDoc && metaDoc.scope === scopeKey && metaDoc.folder === folder ? metaDoc.doc : null);
 
     // The gallery walks only files the viewer can actually mount.
     const files = useMemo(
         () =>
             folder !== null
-                ? galleryFolderOrder(fileObjects.map((f) => f.name), folder, exportDoc, canOpenInScene)
+                ? galleryFolderOrder(fileObjects.map((f) => f.name), folder, doc, canOpenInScene)
                 : fileObjects
                       .map((f) => f.name)
                       .filter((n) => canOpenInScene(n)),
-        [fileObjects, folder, exportDoc],
+        [fileObjects, folder, doc],
     );
     const fileSet = useMemo(() => new Set(files), [files]);
     // The stops: one per file, except a merged export file, which is one per hit inside it (in a
     // folder walk, where the export's doc lists them) -- so Next goes through a collection's hits
     // and then on to the next collection.
-    const stops = useMemo(() => galleryStops(files, folder !== null ? exportDoc : null), [files, folder, exportDoc]);
+    const stops = useMemo(() => galleryStops(files, folder !== null ? doc : null), [files, folder, doc]);
     const hasJoints = useMemo(() => stops.some((s) => s.joint), [stops]);
 
     const [index, setIndex] = useState(0);
@@ -382,6 +393,41 @@ const GalleryControls: React.FC = () => {
     // straight to a file instead of stepping Prev/Next through a long scope. The picker returns a blob
     // key; map it back to the gallery's file list (by exact name or basename) and load it via `go` —
     // which works in both walks (in the geoms walk, loading a new file rebuilds the geom list).
+    // "Search result gallery": walk the export the file on screen came from -- the folder whose
+    // index lists it, else the file's own hits from its sidecar.
+    const [searchGalleryMsg, setSearchGalleryMsg] = useState<string | null>(null);
+    const openSearchGallery = useCallback(async () => {
+        const file = fileObjects.map((f) => f.name).find((f) => loadedSources.has(f));
+        if (!file) {
+            setSearchGalleryMsg("load an exported file from this scope first");
+            return;
+        }
+        setSearchGalleryMsg("looking for the export…");
+        try {
+            for (const candidate of exportFolderCandidates(file)) {
+                const found = await searchExportApi.exportDoc(scopeKey, candidate).catch(() => null);
+                if (found?.files.some((f) => f.file === file)) {
+                    setWalk("files");
+                    setFolderFilter({scope: scopeKey, folder: candidate});
+                    setSearchGalleryMsg(null);
+                    return;
+                }
+            }
+            const own = docFromMeta(file, await searchExportApi.fileMeta(scopeKey, file).catch(() => null));
+            if (!own) {
+                setSearchGalleryMsg("this file is not a search export result");
+                return;
+            }
+            const parent = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "";
+            setMetaDoc({scope: scopeKey, folder: parent, doc: own});
+            setWalk("files");
+            setFolderFilter({scope: scopeKey, folder: parent});
+            setSearchGalleryMsg(null);
+        } catch (e) {
+            setSearchGalleryMsg(e instanceof Error ? e.message : String(e));
+        }
+    }, [fileObjects, loadedSources, scopeKey, setWalk, setFolderFilter]);
+
     const [filePickerOpen, setFilePickerOpen] = useState(false);
     const jumpToFile = useCallback(
         (key: string) => {
@@ -439,7 +485,7 @@ const GalleryControls: React.FC = () => {
         </div>
     );
     const provenance = folder !== null && !isGeomWalk && !empty && (
-        <GalleryProvenance scope={scopeKey} stops={stops} index={index} doc={exportDoc} onJump={(n) => void go(n)} />
+        <GalleryProvenance scope={scopeKey} stops={stops} index={index} doc={doc} onJump={(n) => void go(n)} />
     );
     // Walking the hits inside merged files: where in the file, and a step to the next file.
     const fileBtn =
@@ -524,6 +570,17 @@ const GalleryControls: React.FC = () => {
             </button>
             {toolsOpen && (
                 <div className="mt-1 flex flex-col gap-1">
+                    {!isGeomWalk && (
+                        <button
+                            type="button"
+                            onClick={() => void openSearchGallery()}
+                            title="Walk the search export this file came from, hit by hit"
+                            className="rounded-sm border border-gray-600 px-2 py-0.5 text-left hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+                        >
+                            Search result gallery
+                        </button>
+                    )}
+                    {searchGalleryMsg && <span className="truncate text-[10px] text-gray-400">{searchGalleryMsg}</span>}
                     {current && (
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <SerializerTessellatorSelect

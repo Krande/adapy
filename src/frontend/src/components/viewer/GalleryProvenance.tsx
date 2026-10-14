@@ -52,7 +52,7 @@ const GalleryProvenance: React.FC<{
     scope: string;
     stops: readonly GalleryStop[];
     index: number;
-    doc: ExportDoc | null;
+    doc: Pick<ExportDoc, "files"> | null;
     onJump: (index: number) => void;
 }> = ({scope, stops, index, doc, onJump}) => {
     const stop = stops[index] ?? null;

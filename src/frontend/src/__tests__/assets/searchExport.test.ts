@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
     compactQuery,
+    docFromMeta,
+    exportFolderCandidates,
     exportQuery,
     exportTargetScopes,
     folderSuggestions,
@@ -213,6 +215,26 @@ test("gallery stops: a merged file is one stop per hit, with that hit's thumbnai
     assert.equal(stopOfAdjacentFile(stops, 2, -1), 0);
     assert.equal(stopOfAdjacentFile(stops, 0, -1), 3);
     assert.equal(stopOfAdjacentFile([], 0, 1), 0);
+});
+
+test("an export index is looked for in the file's own folder first, then above", () => {
+    assert.deepEqual(exportFolderCandidates("e/run/alpha/a.ifc"), ["e/run/alpha", "e/run", "e"]);
+    assert.deepEqual(exportFolderCandidates("e/run/x/y/z/a.glb"), ["e/run/x/y/z", "e/run/x/y", "e/run/x"]);
+    assert.deepEqual(exportFolderCandidates("a.glb"), []);
+});
+
+test("a merged file's sidecar stands in for a missing index; one without hits does not", () => {
+    const joints = [{node_id: "1", full_name: "/J1", name: "J1", thumb: "e/alpha.j0000.thumb.png"}];
+    const meta = {
+        source: {provider: "p", collection: "alpha", node_id: null, full_name: "alpha"},
+        derived: {glb: "e/alpha.glb", step: null, thumb: "e/alpha.thumb.png"},
+        joints,
+    } as unknown as FileMeta;
+    const doc = docFromMeta("e/alpha.glb", meta)!;
+    assert.equal(doc.files.length, 1);
+    assert.deepEqual(galleryStops(["e/alpha.glb"], doc).map((s) => [s.joint?.name, s.thumb]), [["J1", "e/alpha.j0000.thumb.png"]]);
+    assert.equal(docFromMeta("e/a.glb", {...meta, joints: []} as FileMeta), null);
+    assert.equal(docFromMeta("e/a.glb", null), null);
 });
 
 test("a hit is found in the tree by name, ignoring a leading slash and then case", () => {

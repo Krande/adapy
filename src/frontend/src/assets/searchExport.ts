@@ -291,6 +291,38 @@ export function stopOfAdjacentFile(stops: readonly GalleryStop[], at: number, de
   return i < 0 ? at : i;
 }
 
+/** The folders an export index for `key` may sit in, nearest first: an export writes per-hit files
+ *  one level below its folder and merged files directly in it. */
+export function exportFolderCandidates(key: string, depth = 3): string[] {
+  const parts = key.split("/").slice(0, -1);
+  const out: string[] = [];
+  for (let n = parts.length; n > 0 && out.length < depth; n--) out.push(parts.slice(0, n).join("/"));
+  return out;
+}
+
+/** A one-file export doc from a merged file's own sidecar, for walking its hits when no folder
+ *  index lists it; null when the sidecar names no hits. */
+export function docFromMeta(file: string, meta: FileMeta | null): Pick<ExportDoc, "files"> | null {
+  const joints = meta?.joints ?? [];
+  if (!joints.length) return null;
+  const s = meta?.source;
+  return {
+    files: [
+      {
+        file,
+        collection: s?.collection ?? "",
+        provider: s?.provider ?? "",
+        node_id: s?.node_id ?? "",
+        full_name: s?.full_name ?? "",
+        meta: metaSidecarKey(file),
+        thumb: meta?.derived?.thumb ?? null,
+        hits: joints.length,
+        joints,
+      },
+    ],
+  };
+}
+
 /** A tree node a hit is found by when its file does not give its ids: same name, ignoring a
  *  leading `/`, surrounding space and, failing that, case. */
 export function jointNameMatches(nodeName: string, joint: Pick<ExportJoint, "name" | "full_name">): boolean {
