@@ -16,9 +16,8 @@ import {persist} from "zustand/middleware";
 // "hideUnselected" optionally isolates the current geom during a geom
 // walk (hides everything else) so it reads clearly.
 //
-// The enabled flag and the walk preferences persist (viewing
-// preferences); the per-walk index is transient and lives in the
-// GalleryControls component (it depends on the current scope / scene).
+// The walk preferences persist; gallery mode itself does not -- every page load starts with it
+// off. The per-walk index is transient and lives in GalleryControls.
 export type GalleryWalk = "files" | "geoms";
 export type GeomWalkOrder = "scene" | "density" | "tree" | "distorted";
 
@@ -76,13 +75,13 @@ export const useGalleryStore = create<GalleryState>()(
         }),
         {
             name: "ada-gallery",
-            // Persist only the viewing preferences; mobileBarHeight is transient runtime layout.
             partialize: (s) => ({
-                enabled: s.enabled,
                 walk: s.walk,
                 geomOrder: s.geomOrder,
                 hideUnselected: s.hideUnselected,
             }),
+            // Gallery mode is opt-in per page load, including over an `enabled` stored by older builds.
+            merge: (persisted, current) => ({...current, ...(persisted as Partial<GalleryState>), enabled: false}),
         },
     ),
 );
