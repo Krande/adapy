@@ -1,14 +1,9 @@
 // The gallery's folder walk, annotated: where the file on screen came from, and a strip of its
 // neighbours to jump between.
 //
-// PROVENANCE. A file an export wrote carries where it came from -- a `.meta.json` sidecar, or the
-// same facts inside the file itself -- served as one record by `/files/meta`: the provider's
-// collection and node, its revision, the query that found it and what of it matched, how many of
-// its elements came with attributes. The card shows that, and "Show in source tree" walks the
-// Sources tree to the node it was exported from (`revealSearchHit`, the search panel's own reveal)
-// -- switching to the node's scope first when it is another one, since the tree shows the current
-// scope (`revealInSourceScope`); a scope the user cannot open is said instead.
-// A file with no provenance (hand-uploaded) shows no card at all.
+// PROVENANCE. From the file's `/files/meta` record: its project (collection) and node name, and
+// "Go to source tree" to that node -- the hit's own for a hit inside a merged file -- switching to
+// the node's scope first when it is another one (`revealInSourceScope`).
 //
 // THUMBNAILS. Each written file may have a `.thumb.png` beside it; the listing hides those, so they
 // are fetched by key (with auth, hence object URLs). Only a window around the current stop is
@@ -18,13 +13,16 @@
 
 import React, {useEffect, useMemo, useRef, useState} from "react";
 
-import {compactQuery, hitFromMeta, thumbSidecarKey, type GalleryStop} from "@/assets/searchExport";
+import {hitFromJoint, hitFromMeta, stripWindow, thumbSidecarKey, type GalleryStop} from "@/assets/searchExport";
 import {searchExportApi, type ExportDoc, type FileMeta} from "@/services/api/searchExport";
+import {useGalleryStore} from "@/state/galleryStore";
 import {revealInSourceScope} from "@/utils/tree_view/revealInSourceScope";
 
-import {designSiblingOf, RequestDesignGeometryButton} from "./RequestDesignGeometryButton";
+import {RequestDesignGeometryButton} from "./RequestDesignGeometryButton";
 
-const WINDOW = 6;
+/** Thumbnails drawn: one row, or the expanded grid. */
+const STRIP_SIZE = 15;
+const GRID_SIZE = 90;
 
 const base = (k: string) => k.slice(k.lastIndexOf("/") + 1);
 const stem = (k: string) => base(k).replace(/\.[^.]+$/, "");
@@ -33,6 +31,7 @@ const stem = (k: string) => base(k).replace(/\.[^.]+$/, "");
 const Thumb: React.FC<{url: string | null | undefined; name: string; current: boolean; onClick: () => void}> = ({url, name, current, onClick}) => (
     <button
         type="button"
+        data-current={current || undefined}
         onClick={onClick}
         title={name}
         className={
@@ -76,13 +75,14 @@ const GalleryProvenance: React.FC<{
         return () => ctl.abort();
     }, [scope, current]);
 
-    const hit = useMemo(() => hitFromMeta(meta), [meta]);
+    // A hit inside a merged file is found by its own path; a file of one hit by its provenance.
+    const hit = useMemo(() => (joint ? hitFromJoint(joint, meta) : hitFromMeta(meta)), [joint, meta]);
     // The tree shows the CURRENT scope; a node of another scope is revealed after switching to it
     // (`revealInSourceScope`), or the reason it cannot be is shown.
     const sourceScope = meta?.source?.scope ?? scope;
     const revealable = !!hit;
     const [revealNote, setRevealNote] = useState<string | null>(null);
-    useEffect(() => setRevealNote(null), [current]);
+    useEffect(() => setRevealNote(null), [current, joint]);
     const reveal = async () => {
         if (!hit) return;
         setRevealNote(sourceScope !== scope ? `switching to ${sourceScope}…` : "opening…");
@@ -99,9 +99,24 @@ const GalleryProvenance: React.FC<{
     // ---- Thumbnails around it --------------------------------------------------
     // A stop with no word on its thumbnail (a file the doc does not list) looks beside the file.
     const thumbOf = (s: GalleryStop) => (s.thumb === undefined ? thumbSidecarKey(s.file) : s.thumb);
-    const lo = Math.max(0, index - WINDOW);
-    const hi = Math.min(stops.length, index + WINDOW + 1);
+    const expanded = useGalleryStore((s) => s.expanded);
+    const toggleExpanded = useGalleryStore((s) => s.toggleExpanded);
+    const gridHeight = useGalleryStore((s) => s.gridHeight);
+    const [lo, hi] = stripWindow(stops.length, index, expanded ? GRID_SIZE : STRIP_SIZE);
     const windowStops = stops.slice(lo, hi);
+    // Keep the current thumbnail in view as the walk moves (only then: scrolling by hand stays put).
+    const stripRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        const strip = stripRef.current;
+        const el = strip?.querySelector<HTMLElement>("[data-current]");
+        if (!strip || !el) return;
+        const r = el.getBoundingClientRect();
+        const box = strip.getBoundingClientRect();
+        if (r.left < box.left) strip.scrollLeft -= box.left - r.left;
+        else if (r.right > box.right) strip.scrollLeft += r.right - box.right;
+        if (r.top < box.top) strip.scrollTop -= box.top - r.top;
+        else if (r.bottom > box.bottom) strip.scrollTop += r.bottom - box.bottom;
+    }, [index, expanded]);
     const windowKeys = windowStops.map((s) => s.id);
     // stop id -> object URL (null = none); kept across steps, released when the walk goes away.
     const [urls, setUrls] = useState<ReadonlyMap<string, string | null>>(new Map());
@@ -145,11 +160,27 @@ const GalleryProvenance: React.FC<{
         },
         [],
     );
-    const matched = Object.entries(meta?.matched ?? {});
     const src = meta?.source;
+    const project = src?.collection ?? null;
+    const name = joint ? (joint.full_name ?? joint.name) : (src?.full_name ?? null);
+    const noReveal = joint
+        ? "This export predates per-hit source paths -- export again to enable it"
+        : "The provenance does not name the source node";
     return (
-        <div className="flex flex-col gap-1 border-t border-gray-700 pt-1 text-[11px]">
-            <div className="flex gap-1 overflow-x-auto pb-0.5">
+        <div className="flex min-w-0 flex-col gap-1 border-t border-gray-700 pt-1 text-[11px]">
+            <div className="flex items-center justify-between text-[10px] text-gray-500">
+                <span className="tabular-nums">
+                    {stops.length ? `${lo + 1}–${hi} of ${stops.length}` : ""}
+                </span>
+                <button type="button" onClick={toggleExpanded} className="rounded-sm px-1 hover:bg-gray-700 hover:text-gray-200">
+                    {expanded ? "Collapse ▴" : "Expand ▾"}
+                </button>
+            </div>
+            <div
+                ref={stripRef}
+                className={expanded ? "flex flex-wrap content-start gap-1 overflow-y-auto pb-0.5" : "flex gap-1 overflow-x-auto pb-0.5"}
+                style={expanded ? {maxHeight: gridHeight} : undefined}
+            >
                 {windowStops.map((s, n) => (
                     <Thumb
                         key={s.id}
@@ -160,42 +191,17 @@ const GalleryProvenance: React.FC<{
                     />
                 ))}
             </div>
-            {joint && (
-                <div className="flex flex-wrap items-baseline gap-x-2 text-gray-300">
-                    <span className="text-gray-400">hit {stop!.jointIndex + 1} of {stop!.joints}</span>
-                    <span className="font-mono break-all text-gray-100">{joint.full_name ?? joint.name}</span>
-                </div>
-            )}
             {metaError && <div className="text-amber-300 truncate" title={metaError}>provenance: {metaError}</div>}
-            {meta && src && (
+            {(project || name) && (
                 <div className="space-y-0.5 text-gray-300">
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="text-gray-400">{src.collection}</span>
-                        <span className="font-mono break-all text-gray-100">{src.full_name}</span>
+                    <div className="truncate">
+                        <span className="text-gray-500">Project: </span>
+                        {project ?? "?"}
                     </div>
-                    {matched.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                            {matched.map(([k, v]) => (
-                                <span key={k} className="rounded-sm bg-gray-800 px-1">
-                                    {k} = {String(v)}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-                    <div className="text-gray-500">
-                        {meta.geometry?.kind === "mesh" ? `${meta.geometry.provider ?? "published"} mesh · ` : ""}
-                        {designSiblingOf(meta, current) ? `design geometry: ${base(designSiblingOf(meta, current)!)} · ` : ""}
-                        {src.revision ? `revision ${src.revision}` : "revision ?"}
-                        {meta.attributes &&
-                            ` · ${meta.attributes.elements} element${meta.attributes.elements === 1 ? "" : "s"}, ${meta.attributes.with_attrs} with attributes` +
-                                (meta.attributes.without_attrs ? `, ${meta.attributes.without_attrs} without` : "")}
-                        {meta.origin && meta.origin !== "sidecar" && ` · read from the ${meta.origin.toUpperCase()}`}
+                    <div className="truncate font-mono" title={name ?? ""}>
+                        <span className="font-sans text-gray-500">Name: </span>
+                        {name ?? "?"}
                     </div>
-                    {meta.query && (
-                        <div className="truncate text-gray-500" title={compactQuery(meta.query)}>
-                            query: {compactQuery(meta.query)}
-                        </div>
-                    )}
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
@@ -203,16 +209,16 @@ const GalleryProvenance: React.FC<{
                             onClick={() => void reveal()}
                             title={
                                 !revealable
-                                    ? "The provenance does not name the source node"
+                                    ? noReveal
                                     : sourceScope !== scope
-                                      ? `Switch to scope ${sourceScope} and open the Sources tree at the node this file was exported from`
-                                      : "Open the Sources tree at the node this file was exported from"
+                                      ? `Switch to scope ${sourceScope} and open the Sources tree at this node`
+                                      : "Open the Sources tree at this node"
                             }
                             className="rounded-sm border border-gray-600 px-1.5 py-0.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
                         >
-                            Show in source tree
+                            Go to source tree
                         </button>
-                        {current && <RequestDesignGeometryButton scope={scope} fileKey={current} meta={meta} />}
+                        {current && !joint && meta && <RequestDesignGeometryButton scope={scope} fileKey={current} meta={meta} />}
                         {revealNote && <span className="truncate text-amber-300" title={revealNote}>{revealNote}</span>}
                     </div>
                 </div>

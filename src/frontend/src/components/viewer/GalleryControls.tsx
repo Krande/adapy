@@ -17,7 +17,9 @@ import FilePickerModal from "@/components/common/FilePickerModal";
 import {
     docFromMeta,
     exportFolderCandidates,
+    filterByProjects,
     galleryFolderOrder,
+    galleryProjects,
     galleryStops,
     stopOfAdjacentFile,
     type GalleryStop,
@@ -104,7 +106,7 @@ const GalleryControls: React.FC = () => {
         exportDoc ?? (metaDoc && metaDoc.scope === scopeKey && metaDoc.folder === folder ? metaDoc.doc : null);
 
     // The gallery walks only files the viewer can actually mount.
-    const files = useMemo(
+    const folderFiles = useMemo(
         () =>
             folder !== null
                 ? galleryFolderOrder(fileObjects.map((f) => f.name), folder, doc, canOpenInScene)
@@ -112,6 +114,50 @@ const GalleryControls: React.FC = () => {
                       .map((f) => f.name)
                       .filter((n) => canOpenInScene(n)),
         [fileObjects, folder, doc],
+    );
+    // Projects (collections) left out of a folder walk; all are in when the folder is opened.
+    const projects = useMemo(() => (folder !== null ? galleryProjects(folderFiles, doc) : []), [folder, folderFiles, doc]);
+    const [hiddenProjects, setHiddenProjects] = useState<ReadonlySet<string>>(new Set());
+    const [projectsOpen, setProjectsOpen] = useState(false);
+    useEffect(() => setHiddenProjects(new Set()), [scopeKey, folder]);
+    const files = useMemo(
+        () => (folder !== null ? filterByProjects(folderFiles, doc, hiddenProjects) : folderFiles),
+        [folder, folderFiles, doc, hiddenProjects],
+    );
+    // The desktop panel: a fixed width, resized from its bottom-left corner (it is anchored top-right,
+    // so dragging left widens it); dragging down grows the expanded thumbnail grid.
+    const panelWidth = useGalleryStore((s) => s.panelWidth);
+    const setPanelSize = useGalleryStore((s) => s.setPanelSize);
+    const startResize = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            e.preventDefault();
+            const handle = e.currentTarget;
+            handle.setPointerCapture(e.pointerId);
+            const {panelWidth: w0, gridHeight: h0} = useGalleryStore.getState();
+            const x0 = e.clientX;
+            const y0 = e.clientY;
+            const maxWidth = window.innerWidth - 24;
+            const move = (ev: PointerEvent) =>
+                setPanelSize({width: Math.min(maxWidth, w0 + (x0 - ev.clientX)), gridHeight: h0 + (ev.clientY - y0)});
+            const up = () => {
+                handle.removeEventListener("pointermove", move);
+                handle.removeEventListener("pointerup", up);
+                handle.removeEventListener("pointercancel", up);
+            };
+            handle.addEventListener("pointermove", move);
+            handle.addEventListener("pointerup", up);
+            handle.addEventListener("pointercancel", up);
+        },
+        [setPanelSize],
+    );
+    const toggleProject = useCallback(
+        (name: string) =>
+            setHiddenProjects((h) => {
+                const next = new Set(h);
+                if (!next.delete(name)) next.add(name);
+                return next;
+            }),
+        [],
     );
     const fileSet = useMemo(() => new Set(files), [files]);
     // The stops: one per file, except a merged export file, which is one per hit inside it (in a
@@ -484,6 +530,48 @@ const GalleryControls: React.FC = () => {
             </button>
         </div>
     );
+    const shownProjects = projects.length - projects.filter((p) => hiddenProjects.has(p.name)).length;
+    const projectFilter = folder !== null && !isGeomWalk && projects.length > 1 && (
+        <div className="text-[11px] text-gray-300">
+            <button
+                type="button"
+                onClick={() => setProjectsOpen((v) => !v)}
+                className="flex w-full items-center justify-between text-gray-400 hover:text-gray-200"
+            >
+                <span>
+                    Projects {shownProjects}/{projects.length}
+                </span>
+                <span>{projectsOpen ? "▾" : "▸"}</span>
+            </button>
+            {projectsOpen && (
+                <div className="mt-0.5 flex flex-col gap-0.5">
+                    <div className="flex gap-2 text-[10px]">
+                        <button type="button" className="text-blue-300 hover:underline" onClick={() => setHiddenProjects(new Set())}>
+                            All
+                        </button>
+                        <button
+                            type="button"
+                            className="text-blue-300 hover:underline"
+                            onClick={() => setHiddenProjects(new Set(projects.map((p) => p.name)))}
+                        >
+                            None
+                        </button>
+                    </div>
+                    <div className="grid max-h-40 grid-cols-2 gap-x-3 overflow-y-auto">
+                        {projects.map((p) => (
+                            <label key={p.name} className="flex min-w-0 items-center gap-1">
+                                <input type="checkbox" checked={!hiddenProjects.has(p.name)} onChange={() => toggleProject(p.name)} />
+                                <span className="truncate" title={p.name}>
+                                    {p.name}
+                                </span>
+                                <span className="ml-auto text-gray-500 tabular-nums">{p.files}</span>
+                            </label>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
     const provenance = folder !== null && !isGeomWalk && !empty && (
         <GalleryProvenance scope={scopeKey} stops={stops} index={index} doc={doc} onJump={(n) => void go(n)} />
     );
@@ -630,7 +718,16 @@ const GalleryControls: React.FC = () => {
     return (
         <>
             {/* Desktop: compact top-right card. */}
-            <div className="hidden md:flex pointer-events-auto absolute right-3 top-3 z-20 max-w-[42vw] flex-col gap-1 rounded-md border border-gray-600 bg-gray-900/85 px-2 py-1.5 text-xs text-gray-100 shadow-lg backdrop-blur-sm">
+            <div
+                className="hidden md:flex pointer-events-auto absolute right-3 top-3 z-20 flex-col gap-1 rounded-md border border-gray-600 bg-gray-900/85 px-2 py-1.5 text-xs text-gray-100 shadow-lg backdrop-blur-sm"
+                style={{width: `min(${panelWidth}px, calc(100vw - 1.5rem))`}}
+            >
+                <div
+                    onPointerDown={startResize}
+                    title="Drag to resize"
+                    aria-label="Resize the gallery panel"
+                    className="absolute bottom-0 left-0 h-3 w-3 cursor-nesw-resize rounded-bl-md border-b-2 border-l-2 border-gray-500 hover:border-blue-400"
+                />
                 <div className="flex items-center gap-2">
                     {walkSelector}
                     <button
@@ -673,6 +770,7 @@ const GalleryControls: React.FC = () => {
                 </button>
                 {jointBar}
                 {folderChip}
+                {projectFilter}
                 {provenance}
                 {toolsDrawer}
             </div>
@@ -724,6 +822,7 @@ const GalleryControls: React.FC = () => {
                 {/* The provenance card is the desktop card's only: both bars are always mounted (one
                     hidden by CSS), and a second card would fetch everything twice. */}
                 {folderChip}
+                {projectFilter}
                 {toolsDrawer}
             </div>
 

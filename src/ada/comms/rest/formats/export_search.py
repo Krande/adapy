@@ -891,6 +891,7 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                         "node_id": hit.get("node_id"),
                         "full_name": hit.get("full_name"),
                         "name": str(element.obj.name),
+                        "path": hit.get("path") or [],
                         "thumb": None,
                     }
                     for (_, hit), element in zip(items, model.hits)
@@ -1090,6 +1091,7 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                         "node_id": hit.get("node_id"),
                         "full_name": hit.get("full_name"),
                         "name": _hit_name(hit),
+                        "path": hit.get("path") or [],
                         "ids": span or None,
                         "thumb": None,
                     }

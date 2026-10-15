@@ -48,7 +48,18 @@ interface GalleryState {
     // silently surviving a reload would read as files gone missing.
     folderFilter: {scope: string; folder: string} | null;
     setFolderFilter: (f: {scope: string; folder: string} | null) => void;
+
+    /** The desktop panel's width (px), and the thumbnail grid's height (px) when expanded. */
+    panelWidth: number;
+    gridHeight: number;
+    setPanelSize: (size: {width?: number; gridHeight?: number}) => void;
+    /** Thumbnails over several rows instead of one. */
+    expanded: boolean;
+    toggleExpanded: () => void;
 }
+
+export const GALLERY_PANEL_MIN_WIDTH = 360;
+export const GALLERY_GRID_MIN_HEIGHT = 120;
 
 export const useGalleryStore = create<GalleryState>()(
     persist(
@@ -72,6 +83,17 @@ export const useGalleryStore = create<GalleryState>()(
 
             folderFilter: null,
             setFolderFilter: (folderFilter) => set({folderFilter}),
+
+            panelWidth: 560,
+            gridHeight: 260,
+            setPanelSize: ({width, gridHeight}) =>
+                set((s) => ({
+                    panelWidth: width === undefined ? s.panelWidth : Math.max(GALLERY_PANEL_MIN_WIDTH, Math.round(width)),
+                    gridHeight:
+                        gridHeight === undefined ? s.gridHeight : Math.max(GALLERY_GRID_MIN_HEIGHT, Math.round(gridHeight)),
+                })),
+            expanded: false,
+            toggleExpanded: () => set((s) => ({expanded: !s.expanded})),
         }),
         {
             name: "ada-gallery",
@@ -79,6 +101,9 @@ export const useGalleryStore = create<GalleryState>()(
                 walk: s.walk,
                 geomOrder: s.geomOrder,
                 hideUnselected: s.hideUnselected,
+                panelWidth: s.panelWidth,
+                gridHeight: s.gridHeight,
+                expanded: s.expanded,
             }),
             // Gallery mode is opt-in per page load, including over an `enabled` stored by older builds.
             merge: (persisted, current) => ({...current, ...(persisted as Partial<GalleryState>), enabled: false}),

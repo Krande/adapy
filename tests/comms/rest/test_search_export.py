@@ -1296,6 +1296,8 @@ def test_the_merged_design_job_writes_one_ifc_holding_every_hit(monkeypatch):
     # Its hits, by the names their parts have in the file (what the viewer's tree shows).
     assert [(j["node_id"], j["name"]) for j in meta["joints"]] == [("fn-hit", "P-hit"), ("fn-hit2", "P-hit2")]
     assert summary["merged"]["joints"] == meta["joints"]
+    # Each hit keeps its path, so it can be found in the source tree.
+    assert [j["path"] for j in meta["joints"]] == [hits[0]["path"], hits[1]["path"]]
 
 
 def _box_glb(offset: float, hit: str = "/STRU-1") -> bytes:
@@ -1395,6 +1397,7 @@ def test_the_merged_mesh_job_writes_one_glb_with_a_node_per_hit(monkeypatch):
         ("fn-hit", "/STRU-1", None),
         ("fn-hit2", "/STRU-2", None),
     ]
+    assert all(j["path"] for j in joints)
     for joint, node in zip(joints, ("node1", "node2")):
         lo, hi = joint["ids"]
         assert {gid for gid in tree if lo <= int(gid) <= hi} >= set(extras[f"draw_ranges_{node}"])

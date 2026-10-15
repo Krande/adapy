@@ -356,6 +356,8 @@ export interface ExportJoint {
   full_name: string | null;
   /** Its node's name in the file's tree. */
   name: string;
+  /** Its ancestors in the source tree, root first. Absent on exports written before it was kept. */
+  path?: SearchPathEntry[];
   /** `[first, last]` draw-range ids (inclusive) that are its objects, when the file says so (a
    *  merged mesh GLB); otherwise it is found by `name`. */
   ids?: [number, number] | null;

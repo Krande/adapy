@@ -291,6 +291,56 @@ export function stopOfAdjacentFile(stops: readonly GalleryStop[], at: number, de
   return i < 0 ? at : i;
 }
 
+/** `[lo, hi)` of a `size`-wide window around `index`, shifted inward at the ends so it keeps its
+ *  size while the list is long enough. */
+export function stripWindow(length: number, index: number, size: number): [number, number] {
+  const n = Math.min(size, length);
+  const lo = Math.max(0, Math.min(index - Math.floor(n / 2), length - n));
+  return [lo, lo + n];
+}
+
+/** The projects (collections) of a folder walk, in export order, with how many files each has. */
+export function galleryProjects(files: readonly string[], doc: Pick<ExportDoc, "files"> | null): { name: string; files: number }[] {
+  const byFile = new Map((doc?.files ?? []).map((f) => [f.file, f.collection] as const));
+  const counts = new Map<string, number>();
+  for (const f of files) {
+    const c = byFile.get(f);
+    if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+  return [...counts].map(([name, n]) => ({ name, files: n }));
+}
+
+/** `files` without those of the `hidden` projects; files the doc does not list are kept. */
+export function filterByProjects(
+  files: readonly string[],
+  doc: Pick<ExportDoc, "files"> | null,
+  hidden: ReadonlySet<string>,
+): string[] {
+  if (!hidden.size) return [...files];
+  const byFile = new Map((doc?.files ?? []).map((f) => [f.file, f.collection] as const));
+  return files.filter((f) => !hidden.has(byFile.get(f) ?? ""));
+}
+
+/** A search hit for one hit of a merged file, to find it in the source tree; null when the export
+ *  predates per-hit paths or the file's provenance does not name its provider and collection. */
+export function hitFromJoint(joint: ExportJoint, meta: FileMeta | null): SearchHit | null {
+  const s = meta?.source;
+  if (!s?.provider || !s.collection || !joint.node_id || !joint.path?.length) return null;
+  const parent = joint.path[joint.path.length - 1];
+  return {
+    provider: s.provider,
+    collection: s.collection,
+    node_id: joint.node_id,
+    parent_id: parent?.node_id ?? null,
+    full_name: joint.full_name ?? joint.name,
+    source_ref: null,
+    kind: null,
+    depth: null,
+    attrs: {},
+    path: joint.path,
+  };
+}
+
 /** The folders an export index for `key` may sit in, nearest first: an export writes per-hit files
  *  one level below its folder and merged files directly in it. */
 export function exportFolderCandidates(key: string, depth = 3): string[] {

@@ -7,6 +7,10 @@ import {
     exportFolderCandidates,
     exportQuery,
     exportTargetScopes,
+    filterByProjects,
+    galleryProjects,
+    hitFromJoint,
+    stripWindow,
     folderSuggestions,
     galleryFolderOrder,
     galleryStops,
@@ -215,6 +219,48 @@ test("gallery stops: a merged file is one stop per hit, with that hit's thumbnai
     assert.equal(stopOfAdjacentFile(stops, 2, -1), 0);
     assert.equal(stopOfAdjacentFile(stops, 0, -1), 3);
     assert.equal(stopOfAdjacentFile([], 0, 1), 0);
+});
+
+test("the thumbnail window keeps its size at both ends of the walk", () => {
+    assert.deepEqual(stripWindow(100, 50, 15), [43, 58]);
+    assert.deepEqual(stripWindow(100, 0, 15), [0, 15]);
+    assert.deepEqual(stripWindow(100, 99, 15), [85, 100]);
+    assert.deepEqual(stripWindow(5, 4, 15), [0, 5]);
+    assert.deepEqual(stripWindow(0, 0, 15), [0, 0]);
+});
+
+test("the projects of a walk, and the walk without the unchecked ones", () => {
+    const doc = {
+        files: ["a1", "a2", "b1"].map((f) => ({
+            file: `e/${f}.glb`,
+            collection: f[0] === "a" ? "alpha" : "beta",
+            provider: "p",
+            node_id: "",
+            full_name: f,
+            meta: "",
+            thumb: null,
+        })),
+    };
+    const files = ["e/a1.glb", "e/b1.glb", "e/a2.glb", "e/hand.glb"];
+    assert.deepEqual(galleryProjects(files, doc), [
+        {name: "alpha", files: 2},
+        {name: "beta", files: 1},
+    ]);
+    assert.deepEqual(filterByProjects(files, doc, new Set(["alpha"])), ["e/b1.glb", "e/hand.glb"]);
+    assert.deepEqual(filterByProjects(files, doc, new Set()), files);
+});
+
+test("a hit inside a merged file is found by its own path, when the export kept it", () => {
+    const meta = {source: {provider: "p", collection: "alpha", scope: "shared"}} as unknown as FileMeta;
+    const path = [{node_id: "fn-site", full_name: "/SITE", kind: "SITE", depth: 1}];
+    const hit = hitFromJoint({node_id: "fn-1", full_name: "/J1", name: "J1", path, thumb: null}, meta)!;
+    assert.equal(hit.collection, "alpha");
+    assert.equal(hit.node_id, "fn-1");
+    assert.equal(hit.parent_id, "fn-site");
+    assert.deepEqual(hit.path, path);
+    // An older export has no per-hit path: nothing to walk.
+    assert.equal(hitFromJoint({node_id: "fn-1", full_name: "/J1", name: "J1", thumb: null}, meta), null);
+    assert.equal(hitFromJoint({node_id: "fn-1", full_name: "/J1", name: "J1", path, thumb: null}, null), null);
 });
 
 test("an export index is looked for in the file's own folder first, then above", () => {
