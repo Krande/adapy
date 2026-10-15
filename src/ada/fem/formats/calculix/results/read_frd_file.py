@@ -52,6 +52,8 @@ class ElemShape(Enum):
     HEX20 = "hexahedron20"
     TETRA = "tetra"
     TETRA10 = "tetra10"
+    #: A two-node truss: ccx writes a T3D2 to the .frd as itself (type 11), not as the brick it solves it with.
+    LINE = "line"
 
     @staticmethod
     def get_type_from_elem_array_shape(elements: np.ndarray) -> ElemShape:
@@ -68,6 +70,8 @@ class ElemShape(Enum):
             return ElemShape.WEDGE15
         elif shape[1] == 14:
             return ElemShape.TETRA10
+        elif shape[1] == 6:
+            return ElemShape.LINE
         else:
             raise NotImplementedError(f"{shape=}")
 
@@ -87,6 +91,10 @@ class ElemShape(Enum):
             return SolidShapes.WEDGE15
         elif shape == ElemShape.TETRA10:
             return SolidShapes.TETRA10
+        elif shape == ElemShape.LINE:
+            from ada.fem.shapes.definitions import LineShapes
+
+            return LineShapes.LINE
         else:
             raise NotImplementedError(f"{shape=}")
 

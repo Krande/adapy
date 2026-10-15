@@ -34,7 +34,10 @@ if TYPE_CHECKING:
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_only=False):
     """Write a Calculix input file stack"""
 
+    from ada.fem.cavities import refuse_fluid_cavities
+
     check_compatibility(assembly)
+    refuse_fluid_cavities(assembly, "calculix")
 
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
@@ -403,7 +406,12 @@ def shell_sec_str(part):
 
 
 def beam_sec_str(part, report: bool = True):
-    beam_secs = [beam_str(sec, report) for sec in part.fem.sections.lines]
+    from ada.fem.formats.abaqus.write.write_sections import truss_section_str
+
+    beam_secs = [
+        truss_section_str(sec, sec.material.name) if sec.is_axial_only else beam_str(sec, report)
+        for sec in part.fem.sections.lines
+    ]
     return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
 
 
