@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.core.utils import bool2text
-from ada.fem.steps import Step, StepEigen, StepImplicitStatic
+from ada.fem.steps import Step, StepEigen, StepImplicitDynamic, StepImplicitStatic
 
 if TYPE_CHECKING:
     from .writer import DeckContext
@@ -26,7 +26,7 @@ def steps_str(steps: list[Step], deck: DeckContext) -> str:
 
     from .write_loads import STAGE
 
-    applied = general_step_loads(steps, STAGE)
+    applied = general_step_loads(steps, STAGE, types=(Step.TYPES.STATIC, Step.TYPES.DYNAMIC))
     out = []
     for step in steps:
         if has_load_cases(step):
@@ -49,7 +49,7 @@ def _outputs_str(step: Step, deck: DeckContext | None = None) -> tuple[str, str]
         nodal += fi.nodal
         elem += fi.element
     nodal_str = "*node file\n" + ", ".join(nodal) if len(nodal) > 0 else "** No nodal output"
-    if deck is not None and "RF" in nodal and step.type == Step.TYPES.STATIC:
+    if deck is not None and "RF" in nodal and step.type in (Step.TYPES.STATIC, Step.TYPES.DYNAMIC):
         nodal_str = reaction_totals_str(deck) + nodal_str
     elem_str = "*el file\n" + ", ".join(elem) if len(elem) > 0 else "** No elem output"
     return nodal_str, elem_str
@@ -197,6 +197,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
     step_type_map = {
         Step.TYPES.STATIC: static_step,
         Step.TYPES.EIGEN: eigen_step,
+        Step.TYPES.DYNAMIC: dynamic_step,
     }
 
     step_str_writer = step_type_map.get(step.type, None)
@@ -211,7 +212,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
 **
 ** BOUNDARY CONDITIONS
 **
-{_bcs_str(step, deck, {step.name} if step.type == Step.TYPES.STATIC else None)}
+{_bcs_str(step, deck, {step.name} if step.type in (Step.TYPES.STATIC, Step.TYPES.DYNAMIC) else None)}
 **
 ** LOADS
 **
@@ -231,6 +232,28 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
 def static_step(step: StepImplicitStatic):
     return f"""*Step, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
 *Static
+ {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
+
+
+def dynamic_step(step: StepImplicitDynamic) -> str:
+    """An implicit dynamic ``*STEP`` (``*DYNAMIC``, Hilber-Hughes-Taylor; CalculiX manual 7.32).
+
+    ``step.options.CALCULIX`` gives the ``ALPHA`` and ``DIRECT`` parameters (:class:`..options.CalculixStepOptions`).
+    The Abaqus ``application`` (``dyn_type``) has no CalculiX counterpart and is not written. The data line is the
+    initial increment, step time, minimum and maximum increment, as for ``*STATIC``.
+    """
+    from .write_loads import ccx_number
+
+    opts = step.options.CALCULIX
+    params = ""
+    if opts.alpha is not None:
+        if not -1.0 / 3.0 <= opts.alpha <= 0.0:
+            raise ValueError(f"step {step.name!r}: the HHT alpha must lie in [-1/3, 0], got {opts.alpha}")
+        params += f", ALPHA={ccx_number(opts.alpha)}"
+    if opts.direct:
+        params += ", DIRECT"
+    return f"""*Step, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
+*Dynamic{params}
  {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
 
 

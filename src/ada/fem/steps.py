@@ -46,7 +46,11 @@ class StepSolverOptions:
 
     @property
     def CALCULIX(self):
-        return NotImplementedError()
+        if self._CALCULIX is None:
+            from .formats.calculix.options import CalculixStepOptions
+
+            self._CALCULIX = CalculixStepOptions()
+        return self._CALCULIX
 
     @property
     def ABAQUS(self):
@@ -74,7 +78,7 @@ class Step(FemBase):
         step_type,
         nl_geom=False,
         total_time=None,
-        solver_options: StepSolverOptions = StepSolverOptions(),
+        solver_options: StepSolverOptions | None = None,
         use_default_outputs=True,
         metadata=None,
         parent: "FEM" = None,
@@ -86,7 +90,8 @@ class Step(FemBase):
         self._total_time = total_time
         self._step_type = step_type
         self._nl_geom = nl_geom
-        self._solver_options = solver_options
+        # A fresh set per step: a shared default instance let one step's solver options change every other step's.
+        self._solver_options = StepSolverOptions() if solver_options is None else solver_options
         self._bcs: Dict[str, Bc] = dict()
         self._loads: List[Load] = []
         self._load_cases = dict()
@@ -305,7 +310,7 @@ class StepExplicit(Step):
         target_dt: float = None,
         mass_damping: float = None,
         nl_geom=False,
-        solver_options: StepSolverOptions = StepSolverOptions(),
+        solver_options: StepSolverOptions | None = None,
         use_default_outputs=True,
         metadata=None,
         parent: "FEM" = None,
