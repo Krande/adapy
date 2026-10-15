@@ -106,11 +106,11 @@ const SearchExportDialog: React.FC<{
     const [target, setTarget] = useState(() => (targets.some((t) => t.url === scope) ? scope : (targets[0]?.url ?? "user:me")));
     const [folder, setFolder] = useState(defaultExportFolder);
     const [which, setWhich] = useState<"selected" | "all">(picked.length ? "selected" : "all");
-    const [geometry, setGeometry] = useState<ExportGeometry>("design");
+    const [geometry, setGeometry] = useState<ExportGeometry>("mesh");
     const mesh = geometry === "mesh";
     const [withAttrs, setWithAttrs] = useState(true);
     /** One file per collection rather than one per hit. */
-    const [merge, setMerge] = useState(false);
+    const [merge, setMerge] = useState(true);
     const [also, setAlso] = useState<ExportAlso[]>([]);
     const [busy, setBusy] = useState(false);
     const [checking, setChecking] = useState(false);
