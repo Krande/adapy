@@ -31,7 +31,7 @@ from .lines import BeamTheory, LineTheory
 from .shells import ShellTheory
 
 if TYPE_CHECKING:
-    from ada.fem import Elem
+    from ada.fem import FEM, Elem
 
 __all__ = [
     "ABAQUS",
@@ -43,6 +43,7 @@ __all__ = [
     "ShellTheory",
     "as_formulation",
     "formulation",
+    "refuse_section_theories",
     "resolve",
     "use",
 ]
@@ -134,12 +135,15 @@ def resolve(
     default: Callable[[Any], str],
     accepts: Callable[[Any, str], bool],
     stage: str,
+    accepts_source: Callable[[Any, str], bool] | None = None,
 ) -> str:
     """The type ``target``'s writer writes ``elem`` as. See the module docstring for the order.
 
     ``default(shape)`` is the writer's default for a shape; ``accepts(shape, name)`` says whether
     ``name`` is a formulation of that shape in ``target``. A caller's rule naming something
     ``target`` does not accept for the shape is an error, not something to quietly replace.
+    ``accepts_source``, when given, replaces ``accepts`` for the source formulation (step 2): the
+    element's section may rule out a type the shape has (an ``S4R`` on a membrane section).
     """
     from ada.fem.formats import conversion_report
 
@@ -156,7 +160,8 @@ def resolve(
                 stage, "Formulation", f"{source} -> {chosen}", "element formulation chosen by the caller's rule"
             )
         return chosen
-    if source is not None and FAMILY.get(target) == source.family and accepts(shape, source.name):
+    source_ok = accepts if accepts_source is None else accepts_source
+    if source is not None and FAMILY.get(target) == source.family and source_ok(shape, source.name):
         return source.name
     written = default(shape)
     if source is not None and source.name != str(written).upper():
@@ -167,3 +172,23 @@ def resolve(
             f"no {target} form of the source formulation: written as the default for the shape",
         )
     return written
+
+
+def refuse_section_theories(fems, writer: str, allowed=()) -> None:
+    """Raise :class:`~ada.fem.exceptions.IncompatibleElements` for a section of ``fems`` whose theory ``writer`` has
+    no element for -- a membrane, truss or cable section other than those in ``allowed`` (theory values) -- rather
+    than writing it as a bending shell or a beam, which is a different structure.
+    """
+    from ada.fem.exceptions import IncompatibleElements
+
+    for fem in fems:
+        fem: FEM
+        for sec in fem.sections:
+            theory = sec.theory
+            if theory in (None, ShellTheory.SHELL, LineTheory.BEAM) or theory.value in allowed:
+                continue
+            raise IncompatibleElements(
+                f"{writer} writer: section {sec.name!r} ({sec.elset.name}) is a {theory.value} section, and {writer} "
+                f"has no {theory.value} element; writing it as a {'shell' if sec.is_membrane else 'beam'} would add "
+                f"stiffness the model does not have"
+            )

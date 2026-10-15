@@ -25,7 +25,7 @@ from .sets import FemSet
 from .surfaces import Surface
 
 if TYPE_CHECKING:
-    from ada import FEM, Node
+    from ada import FEM, Assembly, Node
 
 #: The molar gas constant, J/(mol K) (CODATA 2018, exact).
 UNIVERSAL_GAS_CONSTANT = 8.314462618
@@ -287,3 +287,18 @@ def enclosed_volume(region: CavityRegion, check: bool = True) -> float:
     if check:
         check_closed(region)
     return abs(signed_volume(oriented_facets(region)))
+
+
+def refuse_fluid_cavities(assembly: Assembly, writer: str) -> None:
+    """Raise :class:`~ada.fem.exceptions.model_definition.UnsupportedFeature` when the model holds a fluid cavity:
+    ``writer`` has no gas-filled cavity, and solving the model without the gas is a different structure."""
+    from .exceptions.model_definition import UnsupportedFeature
+
+    names = [
+        name for p in assembly.get_all_parts_in_assembly(include_self=True) for name in p.fem.fluid_cavities.keys()
+    ]
+    if names:
+        raise UnsupportedFeature(
+            f"{writer} writer: {writer} has no gas-filled cavity, and the model holds {', '.join(map(repr, names))}. "
+            "Write it to Abaqus or OpenCourant, or replace the gas with a pressure load."
+        )

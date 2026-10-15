@@ -11,7 +11,30 @@ if TYPE_CHECKING:
 
 def materials_str(assembly: "Assembly"):
     all_mat = [mat for p in assembly.get_all_parts_in_assembly(True) for mat in p.materials]
-    return "\n".join([material_str(mat) for mat in all_mat])
+    return "\n".join([material_str(mat) for mat in all_mat] + cable_materials(assembly))
+
+
+def cable_materials(assembly: "Assembly") -> list[str]:
+    """The tension-only copy (``*No Compression``) of each material a cable section uses, once per material.
+
+    ``*No Compression`` is a material option in Abaqus, not a section one, so a cable whose material also serves
+    beams, shells or trusses gets a material of its own: the same elasticity, density and expansion, plus the option.
+    """
+    from .write_sections import cable_material_name
+
+    out, seen = [], set()
+    for p in assembly.get_all_parts_in_assembly(True):
+        for fem_sec in p.fem.sections.lines:
+            if not fem_sec.is_cable:
+                continue
+            name = cable_material_name(fem_sec)
+            if name == fem_sec.material.name or name in seen:
+                continue
+            seen.add(name)
+            mat = fem_sec.material.copy_to(name)
+            mat.metadata["no_compression"] = True
+            out.append(material_str(mat))
+    return out
 
 
 def material_str(material: "Material") -> str:

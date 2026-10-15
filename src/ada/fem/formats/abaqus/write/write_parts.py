@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from ada.config import Config
 from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_couplings
 
+from .write_cavities import fluid_cavities_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_masses import masses_str
@@ -59,6 +60,7 @@ def write_abaqus_part_str(part: "Part") -> str:
 {sections_str(fem)}
 {masses_str(fem, False)}
 {surfaces_str(fem, False)}
+{fluid_cavities_str(fem, False)}
 {constraints_str(fem, False)}
 {springs_str(fem)}""".rstrip()
 

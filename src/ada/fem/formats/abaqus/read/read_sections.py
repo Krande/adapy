@@ -213,9 +213,14 @@ def get_solid_sections_from_inp(bulk_str, fem: FEM):
         # Abaqus/CAE writes the section's name in the comment directly above the block and
         # nowhere else. Reading it from this block's own comments is what keeps one section
         # from inheriting another's name.
-        name = comment_property(block, "Section").get("Section") or next(secnames)
+        # adapy's writer adds the profile and theory of a truss section to the same line.
+        props = comment_property(block, "Section", "Profile", "Theory")
+        name = props.get("Section") or next(secnames)
         elset = block.params.get("ELSET")
         mat = a.materials.get_by_name(block.params.get("MATERIAL"))
+        truss = truss_section(block, name, elset, mat, fem, props.get("Profile"))
+        if truss is not None:
+            return truss
         return FemSection(
             name=name,
             sec_type=ElemType.SOLID,
@@ -227,12 +232,73 @@ def get_solid_sections_from_inp(bulk_str, fem: FEM):
     return map(grab_solid, iter_keywords(bulk_str, "SOLID SECTION"))
 
 
+def truss_section(
+    block: KeywordBlock, name: str, elset_name: str, mat, fem: FEM, profile: str | None = None
+) -> FemSection | None:
+    """A ``*Solid Section`` on truss elements (``T3D2``, ``T3D3``) as a truss section -- a cable when its material is
+    tension-only (``*No Compression``) -- with its area (the data line) as a general section; None for any other
+    ``*Solid Section``."""
+    from ada import Section
+    from ada.fem.formulations import LineTheory
+    from ada.sections import GeneralProperties
+
+    try:
+        elset = fem.sets.get_elset_from_name(elset_name)
+    except (KeyError, ValueError):
+        return None
+    members = list(elset.members) if elset is not None else []
+    if not members or not all(_is_truss(el) for el in members):
+        return None
+    area = float(block.data_lines[0].split(",")[0]) if block.data_lines and block.data_lines[0].strip(", ") else 1.0
+    profile = profile or f"{name}_area"
+    section = Section(profile, "GENBEAM", genprops=GeneralProperties(Ax=area), parent=fem)
+    no_compression = mat is not None and mat.metadata.get("no_compression", False) is True
+    return FemSection(
+        name=name,
+        sec_type=ElemType.LINE,
+        elset=elset,
+        material=mat,
+        section=section,
+        theory=LineTheory.CABLE if no_compression else LineTheory.TRUSS,
+        parent=fem,
+    )
+
+
+def _is_truss(el) -> bool:
+    from ada.fem.formulations import as_formulation
+
+    form = as_formulation(getattr(el, "formulation", None))
+    return form is not None and form.name.upper().startswith("T3D")
+
+
 def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
     a = fem.parent.get_assembly()
     sh_name = Counter(1, "sh")
-    return filter(
-        lambda x: x is not None,
-        (get_shell_section(block, sh_name, fem, a) for block in iter_keywords(bulk_str, "SHELL SECTION")),
+    shells = (get_shell_section(block, sh_name, fem, a) for block in iter_keywords(bulk_str, "SHELL SECTION"))
+    membranes = (get_membrane_section(block, sh_name, fem, a) for block in iter_keywords(bulk_str, "MEMBRANE SECTION"))
+    return filter(lambda x: x is not None, chain(shells, membranes))
+
+
+def get_membrane_section(block: KeywordBlock, sh_name, fem: "FEM", a: "Assembly"):
+    """A ``*Membrane Section`` (data line: the thickness) as a membrane shell section."""
+    from ada.fem.formulations import ShellTheory
+
+    validate(block)
+    if not block.data_lines:
+        logger.warning("abaqus read: *Membrane Section (line %d) has no data line — skipping", block.lineno)
+        return None
+    name = comment_property(block, "Section").get("Section") or next(sh_name)
+    elset = fem.sets.get_elset_from_name(block.params.get("ELSET"))
+    mat = a.materials.get_by_name(block.params.get("MATERIAL"))
+    thickness = float(block.data_lines[0].split(",")[0])
+    return FemSection(
+        name=name,
+        sec_type=ElemType.SHELL,
+        thickness=thickness,
+        elset=elset,
+        material=mat,
+        theory=ShellTheory.MEMBRANE,
+        parent=fem,
     )
 
 

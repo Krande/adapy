@@ -106,3 +106,49 @@ class AbaqusPointTypes:
     masses = ["MASS", "ROTARYI"]
 
     all = [spring1n, masses]
+
+
+# ---- section theories ------------------------------------------------------------------------------------------
+#: The Abaqus element type of each shape for a section whose theory is not the default one (Abaqus Analysis User's
+#: Guide, "Membrane elements" and "Truss elements"); Calculix has the same names. A shape missing here has no element
+#: of that theory.
+THEORY_ELEMENT_TYPES = {
+    "membrane": {"TRIANGLE": "M3D3", "TRIANGLE6": "M3D6", "QUAD": "M3D4", "QUAD8": "M3D8"},
+    "truss": {"LINE": "T3D2", "LINE3": "T3D3"},
+    "cable": {"LINE": "T3D2", "LINE3": "T3D3"},
+}
+#: The reduced-integration form of a membrane type, where one exists.
+REDUCED_MEMBRANES = {"M3D4": "M3D4R", "M3D8": "M3D8R"}
+#: The leading letters of every element type of a theory. A source formulation of another theory's family is not
+#: written on a section of this one: an S4R read from a deck is not a membrane, an M3D4 not a bending shell.
+_THEORY_FAMILIES = {"membrane": ("M3D",), "truss": ("T3D",), "cable": ("T3D",)}
+_SPECIAL_FAMILIES = ("M3D", "T3D")
+
+
+def section_theory(elem) -> str | None:
+    """The value of the theory of ``elem``'s section (``"membrane"``, ``"truss"``, ...), or None without one."""
+    fem_sec = getattr(elem, "fem_sec", None)
+    theory = getattr(fem_sec, "theory", None)
+    return None if theory is None else theory.value
+
+
+def is_default_theory(theory: str | None) -> bool:
+    return theory in (None, "shell", "beam")
+
+
+def theory_element_type(theory: str, shape, use_reduced_integration: bool = False) -> str:
+    """The Abaqus type of a ``shape`` element on a section of ``theory``; raises when there is none."""
+    name = THEORY_ELEMENT_TYPES[theory].get(shape.value.upper())
+    if name is None:
+        raise IncompatibleElements(f"Abaqus has no {theory} element of shape {shape}")
+    if use_reduced_integration:
+        name = REDUCED_MEMBRANES.get(name, name)
+    return name
+
+
+def theory_accepts(theory: str | None, name: str) -> bool:
+    """Whether an element type ``name`` belongs to a section of ``theory``."""
+    name = str(name).upper()
+    if is_default_theory(theory):
+        return not name.startswith(_SPECIAL_FAMILIES)
+    return name.startswith(_THEORY_FAMILIES[theory])
