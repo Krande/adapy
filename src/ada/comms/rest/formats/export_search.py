@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ada.config import logger
+from ada.visit.gltf.materials import default_black_materials_glb
 
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job
 from ..search_export import (
@@ -1036,7 +1037,7 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
 
                         data = gzip.decompress(data)
                     path = work / f"hit-{n}.glb"
-                    path.write_bytes(data)
+                    path.write_bytes(default_black_materials_glb(data))
                     parts.append((hit, path))
                 except Exception as exc:  # noqa: BLE001 - one hit's failure is its row
                     row.update(status="error", error=f"{type(exc).__name__}: {exc}")
@@ -1267,6 +1268,7 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                     import gzip
 
                     data = gzip.decompress(data)
+                data = default_black_materials_glb(data)
                 timings["read_ms"] += _ms(t)
                 provenance = {
                     "provider": provider,
