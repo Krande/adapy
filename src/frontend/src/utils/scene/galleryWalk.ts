@@ -132,6 +132,9 @@ function hideAllExcept(keepMesh: CustomBatchedMesh, keepRangeId: string): void {
     requestRender();
 }
 
+/** How much of the view a framed gallery stop fills: under 1 leaves an air gap around it. */
+export const GALLERY_FILL = 0.8;
+
 // Select the entry, populate the Object Info panel, optionally isolate
 // it, and frame the camera on it (fit object).
 // True only while the mesh is still attached to the live scene. A scope switch disposes the old
@@ -193,7 +196,7 @@ export async function focusGeomEntry(
     if (!meshIsLive(mesh)) return;
     const controls = getViewerRuntime().controls.current;
     const camera = getViewerRuntime().camera.current;
-    if (controls && camera) centerViewOnSelection(controls, camera, 1.5);
+    if (controls && camera) centerViewOnSelection(controls, camera, GALLERY_FILL);
     requestRender();
 }
 
@@ -291,7 +294,7 @@ export function focusJoint(joint: ExportJoint, opts: {hideUnselected: boolean}):
     info.setFaceIndex(null);
     const controls = getViewerRuntime().controls.current;
     const camera = getViewerRuntime().camera.current;
-    if (controls && camera) centerViewOnSelection(controls, camera, 1.5);
+    if (controls && camera) centerViewOnSelection(controls, camera, GALLERY_FILL);
     requestRender();
     return true;
 }
