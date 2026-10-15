@@ -424,6 +424,12 @@ export const searchExportApi = {
     return jsonOrThrow(r, "cancelSearchExport");
   },
 
+  /** Remove a run from the list; the files it wrote stay. 409 while it runs. */
+  async deleteSearchExport(scope: ScopeUrl, runId: string): Promise<{ deleted: string }> {
+    const r = await authedFetch(`${exportBase(scope)}/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+    return jsonOrThrow(r, "deleteSearchExport");
+  },
+
   /** Drive the run again over what it did not finish -- and, with `retryFailed`, what it did not
    *  write -- into the same run and folder. Idempotent: a running run, or one with nothing left,
    *  answers `rerun: false` with why. */

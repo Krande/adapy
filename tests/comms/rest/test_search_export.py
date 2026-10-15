@@ -831,6 +831,33 @@ def test_rerunning_a_complete_run_does_nothing(monkeypatch):
     assert body["rerun"] is False and "nothing to re-export" in body["reason"] and not spawned and not restarts
 
 
+def test_removing_a_run_refuses_a_running_one_and_an_unknown_one(monkeypatch):
+    from fastapi import HTTPException
+
+    deleted = []
+
+    async def get_run(pool, run_id, with_hits=False):
+        return {"scope": "shared"} if run_id != "gone" else None
+
+    async def delete(pool, run_id):
+        deleted.append(run_id)
+        return run_id != "busy"
+
+    monkeypatch.setattr(dbm, "get_asset_export_run", get_run)
+    monkeypatch.setattr(dbm, "delete_asset_export_run", delete)
+
+    def call(run_id):
+        return asyncio.run(ex.api_search_export_delete("shared", run_id, _Request({}), scope_obj=Scope.shared()))
+
+    assert json.loads(call("run-1").body) == {"deleted": "run-1"}
+    with pytest.raises(HTTPException) as busy:
+        call("busy")
+    assert busy.value.status_code == 409
+    with pytest.raises(HTTPException) as gone:
+        call("gone")
+    assert gone.value.status_code == 404 and deleted == ["run-1", "busy"]
+
+
 def test_a_rerun_without_retrying_failures_resumes_only_the_unfinished(monkeypatch):
     _, spawned, restarts = _rerun(monkeypatch, _stored_run(), body={"retry_failed": False})
     assert restarts == [[3]] and len(spawned) == 1

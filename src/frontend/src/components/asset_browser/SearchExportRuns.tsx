@@ -10,7 +10,8 @@
 // -- offered per running item, since up to four run at once. "Open in gallery" walks the folder the
 // run wrote, in its export order (`openFolderInGallery`), switching to the target scope if needed.
 // "Rerun" drives the same run again over what did not finish -- with "Retry failed", also over what
-// did not write every file; the server makes it idempotent. A file that did not come out (no geometry, or an error) is listed under its item, expandable.
+// did not write every file; the server makes it idempotent. "Remove" drops a run that is not running
+// from the list; its files stay. A file that did not come out (no geometry, or an error) is listed under its item, expandable.
 
 import React, {useCallback, useEffect, useRef, useState} from "react";
 
@@ -283,7 +284,8 @@ const SearchExportRuns: React.FC<{
     /** Per run, whether a rerun also retries failed items (default yes). */
     const [retry, setRetry] = useState<Record<string, boolean>>({});
     const retryFailed = (id: string) => retry[id] ?? true;
-    const act = async (fn: () => Promise<unknown>, id: string) => {
+    /** `reopen`: refresh the open run afterwards -- not after removing it. */
+    const act = async (fn: () => Promise<unknown>, id: string, reopen = true) => {
         try {
             await fn();
             setError(null);
@@ -291,7 +293,7 @@ const SearchExportRuns: React.FC<{
             setError(errText(e));
         }
         await load();
-        if (open?.id === id) await openRun(id);
+        if (reopen && open?.id === id) await openRun(id);
     };
 
     return (
@@ -392,6 +394,23 @@ const SearchExportRuns: React.FC<{
                                     >
                                         Open in gallery
                                     </button>
+                                    {r.status !== "running" && (
+                                        <button
+                                            type="button"
+                                            className={BTN}
+                                            title="Remove this run from the list. The files it wrote stay in the folder."
+                                            onClick={() => {
+                                                if (!window.confirm(`Remove the run into ${r.target_folder} from the list? Its files stay.`)) return;
+                                                void act(async () => {
+                                                    await searchExportApi.deleteSearchExport(scope, r.id);
+                                                    untrackExport(r.id);
+                                                    if (open?.id === r.id) setOpen(null);
+                                                }, r.id, false);
+                                            }}
+                                        >
+                                            Remove
+                                        </button>
+                                    )}
                                     {r.error && <span className="text-red-300 break-words">{r.error}</span>}
                                 </div>
                                 {open?.id === r.id && (

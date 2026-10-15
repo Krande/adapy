@@ -1364,6 +1364,21 @@ async def api_search_export_skip(
     return JSONResponse({"skip_requested": position})
 
 
+@router.delete("/scopes/{scope}/assets/search/export/runs/{run_id}")
+async def api_search_export_delete(
+    scope: str,
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+) -> JSONResponse:
+    """Remove a run from the list: its row and items. The files it wrote stay. 409 while it runs."""
+    pool = require_pool(request)
+    await _run_in_scope(pool, run_id, scope_obj.prefix())
+    if not await db_module.delete_asset_export_run(pool, run_id):
+        raise HTTPException(status_code=409, detail="that export is running; cancel it first")
+    return JSONResponse({"deleted": run_id})
+
+
 #: Item outcomes a re-run retries only when asked to: the item finished, but not every file came out.
 FAILED_ITEM_STATES = ("partial", "error")
 

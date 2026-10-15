@@ -30,6 +30,7 @@ from .asset_changes import (
 from .asset_exports import (
     cancel_asset_export_run,
     clear_asset_export_skip,
+    delete_asset_export_run,
     finish_asset_export_run,
     get_asset_export_run,
     heartbeat_asset_export_run,
@@ -320,6 +321,7 @@ __all__ = [
     "cancel_asset_export_run",
     "request_asset_export_skip",
     "restart_asset_export_run",
+    "delete_asset_export_run",
     "clear_asset_export_skip",
     "update_asset_export_item",
     "skip_pending_asset_export_items",
