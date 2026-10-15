@@ -9,8 +9,9 @@ time history); and, from the explicit step, pressure (``/PLOAD``) and gravity (`
 loads with their amplitudes as ``/FUNCT`` time curves, and mass-proportional damping
 (``/DAMP``). Anything else raises
 ``NotImplementedError`` or ``IncompatibleElements`` rather than being silently dropped --
-a membrane or cable section among them: a Radioss shell always bends, and its truss carries
-compression.
+a cable section among them: a Radioss truss carries compression. A membrane section is a
+shell with one integration point through its thickness (``N = 1``): its stress resultant
+has no moment, so it carries no bending -- the usual Radioss form of an airbag fabric.
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ DECK_VERSION = 2026
 DEFAULT_ANIM_FRAMES = 50
 #: Integration points through the shell thickness.
 SHELL_NIP = 5
+#: Integration points through a membrane: one mid-surface point, so no bending.
+MEMBRANE_NIP = 1
 #: Variables of a cavity's ``/TH/MONV`` time history, in the solver's order: gas mass, volume, (absolute)
 #: pressure, surface area, temperature, open vent area and vent outflow velocity.
 MONV_TH_VARIABLES = ("MASS", "VOL", "P", "A", "T", "AO", "UO")
@@ -177,10 +180,14 @@ class _StarterDeck:
     def _parts_and_elements(self):
         from ada.fem.formulations import refuse_section_theories
 
-        refuse_section_theories([self.fem], "opencourant", allowed=("truss",))
+        refuse_section_theories([self.fem], "opencourant", allowed=("truss", "membrane"))
         for sec in self.fem.sections:
             sec_type = str(getattr(sec.type, "value", sec.type)).lower()
             is_truss = sec_type == "line" and sec.is_axial_only
+            if sec.is_membrane and sec.pretension != 0.0:
+                raise NotImplementedError(
+                    f"membrane section {sec.name!r}: the OpenCourant writer has no initial membrane stress yet"
+                )
             if sec_type != "shell" and not is_truss:
                 raise IncompatibleElements(
                     f"OpenCourant writer v1 supports shell and truss sections only (got {sec_type!r})"
@@ -695,7 +702,10 @@ def _truss_prop_str(prop_id: int, sec: FemSection) -> str:
 
 def _shell_prop_str(prop_id: int, sec: FemSection) -> str:
     # Ishell=24 (QEPH: under-integrated with physical hourglass stabilisation), Ish3n=2 (C0 triangle,
-    # large rotations), Iplas=1 (iterative plasticity projection), N points through the thickness.
+    # large rotations), Iplas=1 (iterative plasticity projection), N points through the thickness --
+    # one for a membrane: a single mid-surface point gives no moment, and the starter zeroes the
+    # transverse shear (ccoef3), so the section carries membrane forces only.
+    n_ip = MEMBRANE_NIP if sec.is_membrane else SHELL_NIP
     return "\n".join(
         [
             f"/PROP/SHELL/{prop_id}",
@@ -709,7 +719,7 @@ def _shell_prop_str(prop_id: int, sec: FemSection) -> str:
             comment(
                 "        N                         Thick              Ashear              Ithick     Iplas      Ipos"
             ),
-            i10(SHELL_NIP) + " " * 10 + f20(sec.thickness) + f20(0) + " " * 10 + i10(1) + i10(1) + i10(0),
+            i10(n_ip) + " " * 10 + f20(sec.thickness) + f20(0) + " " * 10 + i10(1) + i10(1) + i10(0),
         ]
     )
 

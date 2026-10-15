@@ -119,7 +119,7 @@ def test_writers_without_the_elements_refuse_them(fem_format, tmp_path):
         a.to_fem("c", fem_format, scratch_dir=tmp_path, overwrite=True)
 
 
-def test_opencourant_writes_a_truss_and_refuses_a_cable_and_a_membrane(tmp_path):
+def test_opencourant_writes_a_truss_and_a_membrane_and_refuses_a_cable(tmp_path):
     a, _, _ = two_bar_truss("truss")
     a.to_fem("t", "opencourant", scratch_dir=tmp_path, overwrite=True)
     deck = (tmp_path / "t" / "t_0000.rad").read_text()
@@ -132,6 +132,12 @@ def test_opencourant_writes_a_truss_and_refuses_a_cable_and_a_membrane(tmp_path)
     a, _, _ = two_bar_truss("cable")
     with pytest.raises(IncompatibleElements, match="cable section"):
         a.to_fem("c", "opencourant", scratch_dir=tmp_path, overwrite=True)
+    # a membrane is a shell with one integration point through the thickness: no bending
     a, _, _ = membrane_square()
-    with pytest.raises(IncompatibleElements, match="membrane section"):
-        a.to_fem("m", "opencourant", scratch_dir=tmp_path, overwrite=True)
+    a.to_fem("m", "opencourant", scratch_dir=tmp_path, overwrite=True)
+    deck = (tmp_path / "m" / "m_0000.rad").read_text()
+    rows = [r for r in deck.split("/PROP/SHELL/1\n")[1].splitlines() if not r.startswith("#")]
+    assert int(rows[3][:10]) == 1 and float(rows[3][20:40]) == pytest.approx(0.002)
+    a, _, _ = membrane_square(pretension=100.0)
+    with pytest.raises(NotImplementedError):
+        a.to_fem("mp", "opencourant", scratch_dir=tmp_path, overwrite=True)

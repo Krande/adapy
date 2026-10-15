@@ -248,7 +248,7 @@ bending shell, a beam or no gas.
 | Abaqus | `M3D*`, `*Membrane Section` | `T3D*`, `*Solid Section` (area) | `T3D*` on a `*No Compression` copy of the material | `*Fluid Cavity` + `*Fluid Behavior` |
 | CalculiX | `M3D*`, `*Membrane Section` | `T3D*`, `*Solid Section` | refused; `options.CALCULIX.cable_as_truss` writes a truss | refused |
 | Code_Aster | `MEMBRANE` (`ELAS_MEMBRANE`; `ELAS_MEMBRANE_SV` + `GROT_GDEP` in an nlgeom step) | `BARRE` | `CABLE`, solved with `STAT_NON_LINE` | refused |
-| OpenCourant | refused | `/PROP/TRUSS`, `/TRUSS` | refused | `/MONVOL/GAS` (adiabatic) |
+| OpenCourant | `/PROP/SHELL` with one integration point (`N = 1`: no bending); no pretension yet | `/PROP/TRUSS`, `/TRUSS` | refused | `/MONVOL/GAS` (adiabatic) on a shell-group surface, `CavityVent` vent holes, `/TH/MONV` history (read by `read_th`) |
 | Sesam, Usfos | refused | refused | refused | refused |
 
 A membrane has no stiffness across itself until it is in tension: a pressure on a flat membrane
