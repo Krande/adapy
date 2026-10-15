@@ -11,7 +11,8 @@ A :class:`~ada.fem.FluidCavity` is written as a surface-based pneumatic fluid ca
 * ``*Initial Conditions, type=FLUID PRESSURE`` (relative to the ambient pressure) and ``type=TEMPERATURE`` on the
   reference node.
 
-A cable section's pretension is ``*Initial Conditions, type=STRESS``, the axial stress ``N / A`` on its elements.
+A cable section's pretension is ``*Initial Conditions, type=STRESS``, the axial stress ``N / A`` on its elements; a
+membrane's the in-plane stresses ``S11 = S22 = N / t`` (``S12 = 0``).
 """
 
 from __future__ import annotations
@@ -113,6 +114,19 @@ def model_initial_conditions_str(assembly: Assembly) -> str:
             )
         )
     for p in assembly.get_all_parts_in_assembly(include_self=True):
+        for fem_sec in p.fem.sections.shells:
+            if not fem_sec.is_membrane or fem_sec.pretension == 0.0:
+                continue
+            elset = get_instance_name(fem_sec.elset, True)
+            stress = format_number(fem_sec.pretension / fem_sec.thickness)
+            blocks.append(
+                render_block(
+                    "Initial Conditions",
+                    [("type", "STRESS")],
+                    [f"{elset}, {stress}, {stress}, 0.0"],
+                    [f"Membrane: {fem_sec.name}  pretension {format_number(fem_sec.pretension)} per unit length"],
+                )
+            )
         for fem_sec in p.fem.sections.lines:
             if not fem_sec.is_cable or fem_sec.pretension == 0.0:
                 continue

@@ -28,6 +28,9 @@ TheoryLike = Union[ShellTheory, LineTheory, Literal["shell", "membrane", "beam",
 #: ``EC_SUR_E``, whose own default this is). Small but not zero, so a slack cable does not leave its nodes unsupported.
 CABLE_COMPRESSION_RATIO = 1.0e-4
 
+#: The theories a section may be pre-tensioned in.
+_TENSIONED = (LineTheory.CABLE, ShellTheory.MEMBRANE)
+
 
 class FemSection(FemBase):
     """The properties of an element set: material, and a cross-section (lines) or thickness (shells).
@@ -37,9 +40,19 @@ class FemSection(FemBase):
     default), a truss (:attr:`LineTheory.TRUSS`) or a tension-only cable (:attr:`LineTheory.CABLE`). A truss or cable
     takes its area from ``section.properties.Ax`` and needs no ``local_y`` / ``local_z``.
 
-    ``pretension`` is the initial axial force of a cable (N, positive in tension), and ``compression_ratio`` the
-    ratio of a cable's compression stiffness to its tension stiffness for a solver that asks for one. Both are for
-    cables only.
+    ``pretension`` is the initial tension of a cable (axial force, N) or of a membrane (in-plane force per unit
+    length, the same in every direction, N/m), positive in tension. It is what a cable or membrane starts the
+    analysis with, and how each solver takes it differs:
+
+    * Abaqus: an initial stress (``*Initial Conditions, type=STRESS``, ``pretension / area`` or ``/ thickness``),
+      which the first step brings into equilibrium with the rest of the structure;
+    * Code_Aster: ``N_INIT``, the tension the element's tangent stiffness starts from in a nonlinear analysis --
+      not a load: measured (18.1.7), a cable with ``N_INIT`` of 1000 N beside an unstressed truss moved nothing. It is
+      what lets a flat membrane or a straight slack cable take load across itself in the first iteration;
+    * CalculiX: not written (reported). OpenCourant, Sesam and Usfos have no cable or membrane at all.
+
+    ``compression_ratio`` is the ratio of a cable's compression stiffness to its tension stiffness, for a solver that
+    asks for one (Code_Aster's ``EC_SUR_E``), cables only.
     """
 
     id_count = Counter()
@@ -71,8 +84,10 @@ class FemSection(FemBase):
         if isinstance(sec_type, str):
             sec_type = GeomRepr.from_str(sec_type)
         self._theory = _resolve_theory(sec_type, theory)
-        if self._theory != LineTheory.CABLE and (pretension != 0.0 or compression_ratio != CABLE_COMPRESSION_RATIO):
-            raise ValueError(f"FemSection {name!r}: pretension and compression_ratio are for cable sections only")
+        if self._theory != LineTheory.CABLE and compression_ratio != CABLE_COMPRESSION_RATIO:
+            raise ValueError(f"FemSection {name!r}: compression_ratio is for cable sections only")
+        if self._theory not in _TENSIONED and pretension != 0.0:
+            raise ValueError(f"FemSection {name!r}: pretension is for cable and membrane sections only")
         if compression_ratio < 0.0:
             raise ValueError(f"FemSection {name!r}: compression_ratio cannot be negative")
         self._pretension = float(pretension)
@@ -141,8 +156,9 @@ class FemSection(FemBase):
             raise ValueError("A beam section needs local_y or local_z")
         if isinstance(theory, LineTheory) and theory.is_axial_only and self._section is None:
             raise ValueError(f"A {theory.value} section needs a section to take its area from")
-        if theory != LineTheory.CABLE:
+        if theory not in _TENSIONED:
             self._pretension = 0.0
+        if theory != LineTheory.CABLE:
             self._compression_ratio = CABLE_COMPRESSION_RATIO
         self._theory = theory
 
@@ -172,8 +188,8 @@ class FemSection(FemBase):
 
     @pretension.setter
     def pretension(self, value: float):
-        if self._theory != LineTheory.CABLE:
-            raise ValueError("pretension is for cable sections only")
+        if self._theory not in _TENSIONED:
+            raise ValueError("pretension is for cable and membrane sections only")
         self._pretension = float(value)
 
     @property

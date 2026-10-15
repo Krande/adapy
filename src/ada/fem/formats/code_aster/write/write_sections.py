@@ -135,6 +135,7 @@ def write_membrane_section(fem_sec: FemSection, large_strain: bool = False) -> t
                 GROUP_MA=("{sec_name}"),
                 EPAIS={t},
                 VECT_1={local_x},
+                N_INIT={fem_sec.pretension!r},
             ),
 """
     return material, mat_, sec_str

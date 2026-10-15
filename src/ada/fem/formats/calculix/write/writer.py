@@ -38,6 +38,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
     check_compatibility(assembly)
     refuse_fluid_cavities(assembly, "calculix")
+    report_unwritten_pretension(assembly)
 
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
@@ -81,6 +82,23 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
             f.write("** No steps\n")
 
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
+
+
+def report_unwritten_pretension(assembly: Assembly) -> None:
+    """A membrane's pretension is not written (CalculiX takes an initial stress per integration point only); nor is a
+    cable's, which is written as a truss (``write_elements.truss_element_type`` reports that)."""
+    from ada.fem.formats import conversion_report
+
+    for p in assembly.get_all_parts_in_assembly(include_self=True):
+        for sec in p.fem.sections.shells:
+            if sec.is_membrane and sec.pretension != 0.0:
+                conversion_report.current().omitted(
+                    "calculix writer",
+                    "*MEMBRANE SECTION",
+                    sec.name,
+                    "a membrane's pretension is not written",
+                    pretension=sec.pretension,
+                )
 
 
 def all_steps(assembly: Assembly) -> list:

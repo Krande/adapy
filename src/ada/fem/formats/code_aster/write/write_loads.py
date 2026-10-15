@@ -155,8 +155,9 @@ def pressure_load_str(load: LoadPressure) -> str:
     except ValueError as e:
         raise UnsupportedLoadType(f"pressure load {load.name!r} has no Code_Aster FORCE_COQUE form: {e}") from e
 
-    rows = []
+    rows, membrane_rows = [], []
     for fem_set, side in groups:
+        membranes = 0
         for el in fem_set.members:
             el_type = getattr(el, "type", None)
             if el_type is None or not isinstance(el_type, ShellShapes):
@@ -164,8 +165,19 @@ def pressure_load_str(load: LoadPressure) -> str:
                     f"pressure load {load.name!r} acts on a {el_type} element; FORCE_COQUE is a shell load "
                     f"and the solid form (PRES_REP) is not established here"
                 )
+            fem_sec = getattr(el, "fem_sec", None)
+            membranes += fem_sec is not None and fem_sec.is_membrane
         pres = _pressure_sign(side) * load.magnitude
-        rows.append(f"        _F(GROUP_MA='{fem_set.name}', PRES={pres}),")
+        if membranes == 0:
+            rows.append(f"        _F(GROUP_MA='{fem_set.name}', PRES={pres}),")
+        elif membranes == len(fem_set.members):
+            # MEMBRANE has no FORCE_COQUE; its pressure is PRES_REP, the face pressure, the same way round.
+            membrane_rows.append(f"        _F(GROUP_MA='{fem_set.name}', PRES={pres}),")
+        else:
+            raise UnsupportedLoadType(
+                f"pressure load {load.name!r} acts on element set {fem_set.name!r} of both membranes and shells, "
+                "which Code_Aster loads with different keywords (PRES_REP, FORCE_COQUE); split the set"
+            )
 
     # VERI_NORM='NON' because the group loaded here is the shell model itself, not a skin. The
     # default 'OUI' runs Code_Aster's boundary-orientation check, which wants the named cells to be
@@ -174,8 +186,13 @@ def pressure_load_str(load: LoadPressure) -> str:
     # it off also keeps the load's direction tied to the element normals as meshed, rather than to
     # whatever outward orientation the check would have imposed, which is what makes the sign above
     # reproducible.
-    return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',\n    FORCE_COQUE=(\n{1}\n    ),\n)".format(
-        concept_name(load, "load"), "\n".join(rows)
+    keywords = ""
+    if rows:
+        keywords += "\n    FORCE_COQUE=(\n{0}\n    ),".format("\n".join(rows))
+    if membrane_rows:
+        keywords += "\n    PRES_REP=(\n{0}\n    ),".format("\n".join(membrane_rows))
+    return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',{1}\n)".format(
+        concept_name(load, "load"), keywords
     )
 
 

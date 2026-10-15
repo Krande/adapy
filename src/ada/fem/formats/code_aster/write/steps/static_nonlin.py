@@ -70,12 +70,23 @@ class StatNonLin:
             out += f'_F(RELATION="CABLE", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(cables)}),'
         return out
 
+    @property
+    def max_iterations(self) -> int:
+        """Newton iterations per increment: 8, or 50 with membranes or cables in the model. A flat membrane loaded
+        across itself starts from no out-of-plane stiffness and Newton converges slowly out of it -- measured
+        (18.1.7), a pressurised square membrane pre-stretched through its edges took 31 iterations in its first
+        increment and 2 to 5 in the next ones."""
+        sections = self.part.fem.sections
+        if any(fs.is_membrane for fs in sections.shells) or any(fs.is_cable for fs in sections.lines):
+            return 50
+        return 8
+
     def write(self):
         return f"""{self.name} = STAT_NON_LINE(
     MODELE=model,
     CHAM_MATER=material,{self.sec_str}
     COMPORTEMENT=({self.comportement_str()}),
-    CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
+    CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI={self.max_iterations},),
     EXCIT=({self.get_bc_str()}{self.loads_str()}),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
@@ -116,7 +127,14 @@ class PostCalc:
 
         has_solids = len(self.part.fem.sections.solids) > 0
 
-        contrainte_fields = [f for f in stress_fields(self.part) if f != "SIPO_ELNO"]
+        sections = self.part.fem.sections
+        if any(fs.is_axial_only or fs.is_membrane for fs in sections):
+            # Trusses, cables and membranes compute SIEF_ELNO alone; each family is asked for what it computes.
+            contrainte_fields = [f for f in stress_fields(self.part) if f != "SIPO_ELNO"]
+        else:
+            contrainte_fields = ["SIGM_ELNO"]
+            if len(sections.shells) > 0 or len(sections.lines) > 0:
+                contrainte_fields.extend(["EFGE_ELNO", "EFGE_NOEU"])
         contrainte_str = ", ".join([f'"{field}"' for field in contrainte_fields])
 
         post_calc_str = f"""
