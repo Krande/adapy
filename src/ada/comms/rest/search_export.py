@@ -307,6 +307,14 @@ def resolve_geometry(index: Any, collection: str, hit: Mapping[str, Any], *, pro
             reason="listed",
             node_id=listed,
         )
+    if not any(s.subject == collection for s in catalog.spines):
+        # Node publishes without the collection's own tree say nothing about the nodes they leave out.
+        raise NoGeometry(
+            f"provider {provider!r} has published some nodes of {collection!r} but not its project tree, "
+            f"and {full_name or hit.get('node_id')!r} is not among them -- request the collection's tree "
+            f"from {provider!r} and export again",
+            reason="unpublished",
+        )
     raise NoGeometry(
         f"provider {provider!r} has no node {full_name or hit.get('node_id')!r} in {collection!r} -- "
         f"its geometry has not been exported from the design system",

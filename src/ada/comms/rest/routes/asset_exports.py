@@ -506,7 +506,7 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
     The case it exists for: a search index is filled by one job (a provider's attribute sweep) and
     the tree a mesh export needs by another, so a fresh index answers thousands of hits a mesh export
     cannot draw. Per (provider, collection): ``ready`` hits, ``no_tree`` when the provider has
-    published nothing in the collection (a COLLECTION request -- its project tree -- is the fix,
+    published no project tree of the collection (a COLLECTION request -- its project tree -- is the fix,
     offered as ``tree_request``), and ``unknown`` for nodes its tree does not hold."""
     groups: dict[tuple[str, str], dict[str, dict]] = {}
     for hit in (clean_hit(r, where_keys) for r in hits):

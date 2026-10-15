@@ -299,6 +299,18 @@ def test_resolve_geometry_says_why_there_is_none():
         se.resolve_geometry(index, "alpha", HIT)
 
 
+def test_a_hit_outside_node_publishes_wants_the_collections_tree():
+    # Only a node of the collection is published: the missing hit is a missing tree, which a
+    # tree request can add -- not a node the tree lacks.
+    node_only = _spine("fn-other", "fn-other", [("fn-other", "/X")])
+    index = SimpleNamespace(catalog=lambda c, p: _catalog([node_only]))
+    with pytest.raises(se.NoGeometry, match="not its project tree") as caught:
+        se.resolve_geometry(index, "alpha", HIT)
+    assert caught.value.reason == "unpublished"
+    published = {**HIT, "node_id": "fn-other", "full_name": "/X"}
+    assert se.resolve_geometry(index, "alpha", published)[1] == "fn-other"
+
+
 # --- the batch job -----------------------------------------------------------------------------------
 
 
