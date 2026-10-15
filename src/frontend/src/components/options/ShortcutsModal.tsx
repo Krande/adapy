@@ -59,10 +59,10 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     context: "Gallery walk",
     when: "Active while stepping through a files/geometry gallery",
     shortcuts: [
-      { keys: ["←"], description: "Previous item" },
-      { keys: ["→"], description: "Next item" },
-      { keys: ["PageUp"], description: "Previous file (when a file is walked hit by hit)" },
-      { keys: ["PageDown"], description: "Next file (when a file is walked hit by hit)" },
+      { keys: ["←"], description: "Previous item (back onto the previous project's page at its start)" },
+      { keys: ["→"], description: "Next item (onto the next project's page at its end)" },
+      { keys: ["PageUp"], description: "Previous project (previous file within one project)" },
+      { keys: ["PageDown"], description: "Next project (next file within one project)" },
     ],
   },
   {

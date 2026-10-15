@@ -25,10 +25,12 @@ import {
     meshPrompt,
     metaSidecarKey,
     normalizeFolder,
+    projectPages,
     queryForCollection,
     rerunnable,
     selectedTotal,
     stopOfAdjacentFile,
+    stopOfAdjacentProject,
     thumbSidecarKey,
 } from "@/assets/searchExport";
 import type {SearchQuery} from "@/services/api/attributeSearch";
@@ -220,6 +222,27 @@ test("gallery stops: a merged file is one stop per hit, with that hit's thumbnai
     assert.equal(stopOfAdjacentFile(stops, 2, -1), 0);
     assert.equal(stopOfAdjacentFile(stops, 0, -1), 3);
     assert.equal(stopOfAdjacentFile([], 0, 1), 0);
+
+    // One page per project, in walk order; a file the doc does not list is a page of its own.
+    assert.deepEqual(projectPages(stops), [
+        {project: "alpha", lo: 0, hi: 2},
+        {project: "beta", lo: 2, hi: 3},
+        {project: null, lo: 3, hi: 4},
+    ]);
+    // "Next project" turns to the next page's first stop, wrapping.
+    assert.equal(stopOfAdjacentProject(stops, 1, 1), 2);
+    assert.equal(stopOfAdjacentProject(stops, 3, 1), 0);
+    assert.equal(stopOfAdjacentProject(stops, 0, -1), 3);
+});
+
+test("one-file-per-hit exports page by project, and a single project steps files", () => {
+    const entry = (file: string, collection: string) => ({file, collection, provider: "p", node_id: "", full_name: file, meta: "", thumb: null});
+    const doc = {files: [entry("a/1.glb", "a"), entry("a/2.glb", "a"), entry("b/1.glb", "b")]};
+    const stops = galleryStops(["a/1.glb", "a/2.glb", "b/1.glb"], doc);
+    assert.deepEqual(projectPages(stops).map((p) => [p.project, p.lo, p.hi]), [["a", 0, 2], ["b", 2, 3]]);
+    assert.equal(stopOfAdjacentProject(stops, 0, 1), 2);
+    const one = galleryStops(["a/1.glb", "a/2.glb"], doc);
+    assert.equal(stopOfAdjacentProject(one, 0, 1), 1);
 });
 
 test("the thumbnail window keeps its size at both ends of the walk", () => {

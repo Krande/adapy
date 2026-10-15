@@ -21,7 +21,8 @@ import {
     galleryFolderOrder,
     galleryProjects,
     galleryStops,
-    stopOfAdjacentFile,
+    projectPages,
+    stopOfAdjacentProject,
     type GalleryStop,
 } from "@/assets/searchExport";
 import {useTreeViewStore} from "@/state/treeViewStore";
@@ -31,7 +32,8 @@ import GalleryProvenance from "./GalleryProvenance";
 // Gallery HUD. Three "walk" types (dropdown):
 //   - "files": cycles the current scope's loadable files (clear → load). In a folder an export
 //     wrote, a merged file (a whole collection's hits) is walked hit by hit -- each isolated and
-//     framed in turn -- before going on to the next file; PageUp/PageDown / « File » skip files; Shift+W toggles the gallery.
+//     framed in turn -- before going on to the next file. The strip pages by project; PageUp/PageDown
+//     / « Project » flip projects; Shift+W toggles the gallery.
 //   - "geoms": cycles every geom in the scene, selecting + framing each,
 //     ordered by scene or mesh density.
 //   - "tree": the same, in model-tree hierarchy order.
@@ -342,11 +344,12 @@ const GalleryControls: React.FC = () => {
         },
         [isGeomWalk, goGeom, geomIndex, go, index],
     );
-    // Files walk over merged files: straight to the next / previous file's first hit.
-    const stepFile = useCallback((delta: 1 | -1) => void go(stopOfAdjacentFile(stops, index, delta)), [go, stops, index]);
+    // Straight to the next / previous project's first stop (a file's, when there is one project).
+    const stepFile = useCallback((delta: 1 | -1) => void go(stopOfAdjacentProject(stops, index, delta)), [go, stops, index]);
+    const manyProjects = useMemo(() => projectPages(stops).length > 1, [stops]);
 
-    // ←/→ step prev/next; PageUp/PageDown step whole files when the walk goes through the hits
-    // inside files. Unmodified keys only (Shift+arrows select tree siblings), and not a key another
+    // ←/→ step prev/next -- past a project's last stop onto the next project's page; PageUp/PageDown
+    // step whole projects (or files, inside one project of merged files). Unmodified keys only (Shift+arrows select tree siblings), and not a key another
     // handler already took. Ignored while typing or while a file load is in flight.
     useEffect(() => {
         if (!enabled) return;
@@ -355,7 +358,7 @@ const GalleryControls: React.FC = () => {
             const page = e.key === "PageUp" || e.key === "PageDown";
             if (!arrow && !page) return;
             if (e.defaultPrevented || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-            if (page && (isGeomWalk || !hasJoints)) return;
+            if (page && (isGeomWalk || !(hasJoints || manyProjects))) return;
             const t = e.target as HTMLElement | null;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (!isGeomWalk && useLoadQueueStore.getState().current) return; // a load is already running
@@ -365,7 +368,7 @@ const GalleryControls: React.FC = () => {
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [enabled, step, stepFile, isGeomWalk, hasJoints]);
+    }, [enabled, step, stepFile, isGeomWalk, hasJoints, manyProjects]);
 
     // ---- Tools drawer (re-convert; FILES walk only) -----------------------
     const [toolsOpen, setToolsOpen] = useState(false);
@@ -575,20 +578,21 @@ const GalleryControls: React.FC = () => {
     const provenance = folder !== null && !isGeomWalk && !empty && (
         <GalleryProvenance scope={scopeKey} stops={stops} index={index} doc={doc} onJump={(n) => void go(n)} />
     );
-    // Walking the hits inside merged files: where in the file, and a step to the next file.
+    // Walking the hits inside merged files: where in the file, and a step to the next project.
+    const stepWord = manyProjects ? "Project" : "File";
     const fileBtn =
         "rounded-sm border border-gray-600 px-1.5 py-0.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default";
     const jointBar = hasJoints && !isGeomWalk && currentStop && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300">
-            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(-1)} title="Previous file (PageUp)">
-                « File
+            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(-1)} title={`Previous ${stepWord.toLowerCase()} (PageUp)`}>
+                « {stepWord}
             </button>
             <span className="tabular-nums text-gray-400" title={current ?? ""}>
                 file {currentStop.fileIndex + 1}/{files.length}
                 {currentStop.joint ? ` · hit ${currentStop.jointIndex + 1}/${currentStop.joints}` : ""}
             </span>
-            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(1)} title="Next file (PageDown)">
-                File »
+            <button type="button" className={fileBtn} disabled={navBusy} onClick={() => stepFile(1)} title={`Next ${stepWord.toLowerCase()} (PageDown)`}>
+                {stepWord} »
             </button>
             {currentStop.joint && (
                 <label className="flex items-center gap-1" title="Hide the rest of the file while a hit is shown">

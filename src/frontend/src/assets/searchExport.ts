@@ -270,6 +270,8 @@ export interface GalleryStop {
   joints: number;
   /** The thumbnail to show: a key, null for none, undefined to look beside the file. */
   thumb: string | null | undefined;
+  /** Its project (collection) as the doc lists it; null for a file the doc does not list. */
+  project: string | null;
   /** A stable id for React lists. */
   id: string;
 }
@@ -283,19 +285,40 @@ export function galleryStops(files: readonly string[], doc: Pick<ExportDoc, "fil
   files.forEach((file, fileIndex) => {
     const entry = byFile.get(file);
     const joints = entry?.joints ?? [];
+    const project = entry?.collection ?? null;
     if (!joints.length) {
-      out.push({ file, fileIndex, joint: null, jointIndex: 0, joints: 0, thumb: entry ? entry.thumb : undefined, id: file });
+      out.push({ file, fileIndex, joint: null, jointIndex: 0, joints: 0, thumb: entry ? entry.thumb : undefined, project, id: file });
       return;
     }
     joints.forEach((joint, jointIndex) =>
-      out.push({ file, fileIndex, joint, jointIndex, joints: joints.length, thumb: joint.thumb, id: `${file}#${jointIndex}` }),
+      out.push({ file, fileIndex, joint, jointIndex, joints: joints.length, thumb: joint.thumb, project, id: `${file}#${jointIndex}` }),
     );
   });
   return out;
 }
 
+/** The gallery's pages: each run of stops of one project, `[lo, hi)`, in walk order. */
+export function projectPages(stops: readonly GalleryStop[]): { project: string | null; lo: number; hi: number }[] {
+  const pages: { project: string | null; lo: number; hi: number }[] = [];
+  stops.forEach((s, i) => {
+    const last = pages[pages.length - 1];
+    if (last && last.project === s.project) last.hi = i + 1;
+    else pages.push({ project: s.project, lo: i, hi: i + 1 });
+  });
+  return pages;
+}
+
+/** The first stop of the page `delta` pages from the one holding `at` -- the "next project" step.
+ *  Wraps around. With a single page it steps files instead (`stopOfAdjacentFile`). */
+export function stopOfAdjacentProject(stops: readonly GalleryStop[], at: number, delta: 1 | -1): number {
+  const pages = projectPages(stops);
+  if (pages.length < 2) return stopOfAdjacentFile(stops, at, delta);
+  const page = Math.max(0, pages.findIndex((p) => at >= p.lo && at < p.hi));
+  return pages[(page + delta + pages.length) % pages.length].lo;
+}
+
 /** The stop `delta` files away from `at`, landing on the next file's FIRST hit (or the previous
- *  file's first, going back) -- the "next project" step. Wraps around. */
+ *  file's first, going back). Wraps around. */
 export function stopOfAdjacentFile(stops: readonly GalleryStop[], at: number, delta: 1 | -1): number {
   if (!stops.length) return 0;
   const files = stops[stops.length - 1].fileIndex + 1;

@@ -10,10 +10,21 @@
 // drawn -- an export can hold two thousand files -- and one without a picture gets its name as a
 // chip. A merged file is one stop PER HIT inside it (`galleryStops`), each with that hit's own
 // thumbnail, so the strip shows the hits rather than one picture of the whole collection.
+//
+// PAGES. The strip (or grid) holds one project at a time (`projectPages`); stepping past its last
+// stop turns to the next project's page, and ‹ › / PageUp / PageDown flip whole projects.
 
 import React, {useEffect, useMemo, useRef, useState} from "react";
 
-import {hitFromJoint, hitFromMeta, stripWindow, thumbSidecarKey, type GalleryStop} from "@/assets/searchExport";
+import {
+    hitFromJoint,
+    hitFromMeta,
+    projectPages,
+    stopOfAdjacentProject,
+    stripWindow,
+    thumbSidecarKey,
+    type GalleryStop,
+} from "@/assets/searchExport";
 import {searchExportApi, type ExportDoc, type FileMeta} from "@/services/api/searchExport";
 import {useGalleryStore} from "@/state/galleryStore";
 import {revealInSourceScope} from "@/utils/tree_view/revealInSourceScope";
@@ -102,8 +113,14 @@ const GalleryProvenance: React.FC<{
     const expanded = useGalleryStore((s) => s.expanded);
     const toggleExpanded = useGalleryStore((s) => s.toggleExpanded);
     const gridHeight = useGalleryStore((s) => s.gridHeight);
-    const [lo, hi] = stripWindow(stops.length, index, expanded ? GRID_SIZE : STRIP_SIZE);
+    // One project per page: the strip shows the current project's stops only.
+    const pages = useMemo(() => projectPages(stops), [stops]);
+    const pageAt = Math.max(0, pages.findIndex((p) => index >= p.lo && index < p.hi));
+    const page = pages[pageAt] ?? {project: null, lo: 0, hi: stops.length};
+    const [wlo, whi] = stripWindow(page.hi - page.lo, index - page.lo, expanded ? GRID_SIZE : STRIP_SIZE);
+    const [lo, hi] = [page.lo + wlo, page.lo + whi];
     const windowStops = stops.slice(lo, hi);
+    const flip = (delta: 1 | -1) => onJump(stopOfAdjacentProject(stops, index, delta));
     // Keep the current thumbnail in view as the walk moves (only then: scrolling by hand stays put).
     const stripRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
@@ -168,10 +185,28 @@ const GalleryProvenance: React.FC<{
         : "The provenance does not name the source node";
     return (
         <div className="flex min-w-0 flex-col gap-1 border-t border-gray-700 pt-1 text-[11px]">
-            <div className="flex items-center justify-between text-[10px] text-gray-500">
-                <span className="tabular-nums">
-                    {stops.length ? `${lo + 1}–${hi} of ${stops.length}` : ""}
-                </span>
+            <div className="flex items-center justify-between gap-2 text-[10px] text-gray-500">
+                {pages.length > 1 ? (
+                    <span className="flex min-w-0 items-center gap-1">
+                        <button type="button" onClick={() => flip(-1)} title="Previous project (PageUp)" className="rounded-sm px-1 hover:bg-gray-700 hover:text-gray-200">
+                            ‹
+                        </button>
+                        <span className="truncate text-gray-300" title={page.project ?? ""}>
+                            {page.project ?? "other files"}
+                        </span>
+                        <span className="tabular-nums">
+                            ({pageAt + 1}/{pages.length})
+                        </span>
+                        <button type="button" onClick={() => flip(1)} title="Next project (PageDown)" className="rounded-sm px-1 hover:bg-gray-700 hover:text-gray-200">
+                            ›
+                        </button>
+                        <span className="tabular-nums">
+                            · {wlo + 1}–{whi} of {page.hi - page.lo}
+                        </span>
+                    </span>
+                ) : (
+                    <span className="tabular-nums">{stops.length ? `${lo + 1}–${hi} of ${stops.length}` : ""}</span>
+                )}
                 <button type="button" onClick={toggleExpanded} className="rounded-sm px-1 hover:bg-gray-700 hover:text-gray-200">
                     {expanded ? "Collapse ▴" : "Expand ▾"}
                 </button>
