@@ -365,6 +365,24 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
                                         Skip current
                                     </button>
                                 ))}
+                            {r.status === "interrupted" && (
+                                <button
+                                    type="button"
+                                    className="border border-blue-700 text-blue-200 hover:bg-blue-900/40 px-1.5 rounded-sm"
+                                    title="Go on from where it stopped: finished collections are kept, the ones in flight when it stopped run again"
+                                    onClick={() =>
+                                        void viewerApi
+                                            .adminResumeAssetSweep(r.id)
+                                            .then(() => {
+                                                setError(null);
+                                                return load().then(() => (open?.id === r.id ? openRun(r.id) : undefined));
+                                            })
+                                            .catch((e) => setError(errText(e)))
+                                    }
+                                >
+                                    Resume
+                                </button>
+                            )}
                             {(r.status === "running" || r.status === "interrupted") && (
                                 <button
                                     type="button"

@@ -139,6 +139,50 @@ def test_equality_on_a_number_typed_as_text_matches_either_spelling():
     assert [json.loads(a) for a in args] == [{"W": "3"}, {"W": 3}]
 
 
+def test_negative_filters_are_the_exact_complement_of_the_positive_ones():
+    body = {
+        "where": [
+            {"key": "TYPE", "eq": "EQUI"},
+            {"key": "W", "ne": "3"},
+            {"key": "F", "not_in": ["MS", True]},
+            {"key": "H", "exists": True},
+            {"key": "G", "missing": True},
+        ]
+    }
+    sql, args = ai.build_filters(ai.parse_search_query(body))
+    assert sql == (
+        "attrs @> $1::jsonb AND attrs ? $2::text AND NOT (attrs ? $3::text)"
+        " AND NOT (attrs @> $4::jsonb OR attrs @> $5::jsonb)"
+        " AND NOT (attrs @> $6::jsonb OR attrs @> $7::jsonb OR attrs @> $8::jsonb)"
+    )
+    # ne "3" excludes both spellings eq "3" matches; not_in true excludes the text "true" too
+    assert [json.loads(a) for a in args[3:5]] == [{"W": "3"}, {"W": 3}]
+    assert [json.loads(a) for a in args[5:]] == [{"F": "MS"}, {"F": True}, {"F": "true"}]
+    assert args[1:3] == ["H", "G"]
+    eq_sql, _ = ai.build_filters(ai.parse_search_query({"where": [{"key": "W", "eq": "3"}]}))
+    ne_sql, _ = ai.build_filters(ai.parse_search_query({"where": [{"key": "W", "ne": "3"}]}))
+    assert ne_sql == f"NOT {eq_sql}"
+    single, _ = ai.build_filters(ai.parse_search_query({"where": [{"key": "W", "ne": "x"}]}))
+    assert single == "NOT (attrs @> $1::jsonb)"
+
+
+def test_exclusions_are_parsed_lower_cased_and_bound_into_the_cursor():
+    q = ai.parse_search_query({"exclude_collections": ["ALPHA", "alpha", "Beta"], "exclude_providers": "p"})
+    assert q.exclude_collections == ["alpha", "beta"] and q.exclude_providers == ["p"]
+    assert ai.build_filters(q) == ("TRUE", [])  # exclusions pick partitions, not rows
+    base = ai.parse_search_query(CANONICAL)
+    fps = {
+        base.fingerprint(),
+        ai.parse_search_query({**CANONICAL, "exclude_collections": ["alpha"]}).fingerprint(),
+        ai.parse_search_query({**CANONICAL, "exclude_providers": ["p"]}).fingerprint(),
+        ai.parse_search_query({**CANONICAL, "where": [{"key": "TYPE", "ne": "EQUI"}]}).fingerprint(),
+        ai.parse_search_query({**CANONICAL, "where": [{"key": "TYPE", "exists": True}]}).fingerprint(),
+    }
+    assert len(fps) == 5
+    # no exclusions: the fingerprint is what it was before they existed (live cursors stay valid)
+    assert ai.parse_search_query({**CANONICAL, "exclude_collections": []}).fingerprint() == base.fingerprint()
+
+
 def test_depth_range_kind_and_unfiltered():
     sql, args = ai.build_filters(ai.parse_search_query({"kind": ["EQUI"], "depth": {"min": 1, "max": 4}}))
     assert sql == "kind = ANY($1::text[]) AND depth >= $2::int AND depth <= $3::int"
@@ -157,6 +201,13 @@ def test_depth_range_kind_and_unfiltered():
         {"where": [{"key": "A", "in": []}]},
         {"where": [{"key": "A", "eq": {"nested": 1}}]},
         {"where": [{"key": "A", "regex": ".*"}]},
+        {"where": [{"key": "A", "ne": "x", "eq": "x"}]},
+        {"where": [{"key": "A", "not_in": []}]},
+        {"where": [{"key": "A", "ne": ["x"]}]},
+        {"where": [{"key": "A", "exists": False}]},
+        {"where": [{"key": "A", "missing": "yes"}]},
+        {"exclude_collections": [""]},
+        {"exclude_providers": [3]},
         {"depth": {"eq": "3"}},
         {"depth": {"between": [1, 2]}},
         {"providers": [1]},
@@ -444,6 +495,70 @@ async def test_ingest_search_page_path_and_reingest(pg, monkeypatch):
     assert (
         await pg.pool.fetchval("SELECT COUNT(*) FROM pg_class WHERE relkind = 'r' AND relname LIKE 'attr\\_n\\_%'") == 0
     )
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_negative_filters_presence_and_exclusions(pg):
+    """ne / not_in also match nodes lacking the key and exclude both spellings of a value;
+    exists / missing test the key; excluded partitions are neither counted nor searched, and a
+    cursor does not survive a change of exclusions."""
+    alpha = _nodes("alpha", 40, seed=3, extra={"FLAG": True})
+    beta = _nodes("beta", 30, seed=4, extra={"FLAG": "true"})
+    gamma = _nodes("gamma", 20, seed=5)
+    for name, nodes in (("alpha", alpha), ("beta", beta), ("gamma", gamma)):
+        await _ingest(pg, name, nodes)
+    everything = {"alpha": alpha, "beta": beta, "gamma": gamma}
+
+    async def ids(body: dict) -> set[tuple[str, str]]:
+        rows, pages = await _all_pages(pg, body, 1000)
+        assert sum(pages[0]["counts"].values()) == len(rows)
+        return {(r["collection"], r["node_id"]) for r in rows}
+
+    def want(pred, only=("alpha", "beta", "gamma")) -> set[tuple[str, str]]:
+        return {(c, n["node_id"]) for c in only for n in everything[c] if pred(n["attrs"])}
+
+    # FLAG is a bool in ALPHA and the text "true" in BETA: eq matches both, ne neither -- only the
+    # nodes without a FLAG (sites, zones, all of GAMMA)
+    for v in (True, "true"):
+        assert await ids({"where": [{"key": "FLAG", "eq": v}]}) == want(lambda a: "FLAG" in a)
+        assert await ids({"where": [{"key": "FLAG", "ne": v}]}) == want(lambda a: "FLAG" not in a)
+    # a number and its text spelling: ne 7 / ne "7" drop WEIGHT 7 from every collection, keep the rest
+    for v in (7, "7"):
+        assert await ids({"where": [{"key": "WEIGHT", "ne": v}]}) == want(lambda a: a.get("WEIGHT") != 7)
+    # not_in with a positive filter beside it: the normal, index-led case
+    body = {"where": [{"key": "TYPE", "eq": "EQUI"}, {"key": "FUNC", "not_in": ["MS", "PS"]}]}
+    assert await ids(body) == want(lambda a: a.get("TYPE") == "EQUI" and a.get("FUNC") not in ("MS", "PS"))
+    body = {"where": [{"key": "FUNC", "not_in": ["MS", "PS"]}]}
+    assert await ids(body) == want(lambda a: a.get("FUNC") not in ("MS", "PS"))  # incl. keyless nodes
+    # key presence
+    assert await ids({"where": [{"key": "OWNER", "exists": True}]}) == want(lambda a: "OWNER" in a)
+    assert await ids({"where": [{"key": "OWNER", "missing": True}]}) == want(lambda a: "OWNER" not in a)
+
+    # exclusions: case-insensitive, never counted
+    q = {"where": [{"key": "TYPE", "eq": "PIPE"}], "exclude_collections": ["BETA"]}
+    res = await ai.search_attributes(pg.pool, scope=pg.scope, query=ai.parse_search_query(q))
+    assert set(res["counts"]) == {f"{pg.provider}/alpha", f"{pg.provider}/gamma"}
+    assert await ids(q) == want(lambda a: a.get("TYPE") == "PIPE", only=("alpha", "gamma"))
+    # an exclusion beats an inclusion
+    q2 = {"collections": ["alpha", "beta"], "exclude_collections": ["alpha"]}
+    res = await ai.search_attributes(pg.pool, scope=pg.scope, query=ai.parse_search_query(q2))
+    assert res["counts"] == {f"{pg.provider}/beta": len(beta)}
+    res = await ai.search_attributes(
+        pg.pool, scope=pg.scope, query=ai.parse_search_query({"exclude_providers": [pg.provider]})
+    )
+    assert res["rows"] == [] and res["counts"] == {}
+
+    # a cursor from one set of exclusions is refused under another
+    first = await ai.search_attributes(pg.pool, scope=pg.scope, query=ai.parse_search_query({**q, "limit": 3}))
+    assert first["next_cursor"]
+    with pytest.raises(ai.SearchQueryError, match="different query"):
+        await ai.search_attributes(
+            pg.pool,
+            scope=pg.scope,
+            query=ai.parse_search_query({**q, "exclude_collections": ["gamma"], "cursor": first["next_cursor"]}),
+        )
 
 
 @needs_postgres

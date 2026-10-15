@@ -164,17 +164,9 @@ def _declared_capabilities() -> list[str]:
             "worker: capabilities disabled by ADA_WORKER_DISABLED_CAPABILITIES: %s",
             ",".join(dropped),
         )
-    # A capability may be SHARDED: one plugin addressing several pools by
-    # suffixing the capability with an option value (`cad`, `cad-alpha`), so a
-    # worker can hold both. Those are distinct tokens, so disabling `cad` leaves
-    # `cad-alpha` serving -- and the "names nothing this worker advertises"
-    # warning below does not fire, because `cad` did match. The operator gets a
-    # line confirming a capability was disabled and reasonably believes the pool
-    # is out of service while half of it still pulls jobs.
-    #
-    # Prefix-matching by default would be worse (`web3d` must not vanish because
-    # somebody disabled `web`), so the shards are named instead and left for the
-    # operator to disable deliberately.
+    # A sharded capability (`<token>-<suffix>`) is a distinct token, so disabling
+    # `<token>` leaves its shards serving. Name them rather than prefix-match: a
+    # prefix would also disable unrelated capabilities that merely start with it.
     for token in sorted(disabled):
         siblings = sorted(c for c in kept if capability_token(c).startswith(f"{token}-"))
         if siblings:

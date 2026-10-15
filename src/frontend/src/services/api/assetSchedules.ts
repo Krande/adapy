@@ -287,6 +287,17 @@ export const assetSchedulesApi = {
     return jsonOrThrow(r, "adminCancelAssetSweep");
   },
 
+  /** Go on with an `interrupted` sweep under a new driver: what finished is kept, the collections
+   *  that were in flight (`resumed`) run again, the rest run as they would have. 409 when it is not
+   *  interrupted, its provider is offline, or another sweep of it is running. */
+  async adminResumeAssetSweep(id: string): Promise<SweepRun & { resumed: string[] }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-sweeps/${encodeURIComponent(id)}/resume`,
+      json("POST", {}),
+    );
+    return jsonOrThrow(r, "adminResumeAssetSweep");
+  },
+
   /** Give up on the collection the sweep is on and carry on with the next one. `position` is the
    *  item the caller SAW running: the server refuses (409) when the sweep has moved on since, so a
    *  late click never skips the collection after the one meant. */

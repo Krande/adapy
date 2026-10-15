@@ -204,8 +204,8 @@ def _read_global_loads(global_elem: ET.Element, cases: dict[str, LoadConceptCase
                 _add(el, cases, _environmental_load)
         elif group.tag == "equipment_loads":
             for el in group:
-                if el.tag in _BOOKKEEPING_EQUIPMENT:
-                    continue
+                if el.tag in _BOOKKEEPING_EQUIPMENT or el.tag == "placed_shape":
+                    continue  # a placed shape is read_equipment's, with the loads GeniE resolved it into
                 reason = (
                     "an equipment load has no concept load class (GeniE resolves it to line loads or masses "
                     "at meshing); it is not read"

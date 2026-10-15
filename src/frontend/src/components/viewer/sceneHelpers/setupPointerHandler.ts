@@ -21,6 +21,10 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSceneMenuStore} from "@/state/sceneMenuStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {selectedLeafNodes} from "@/utils/tree_view/treeNavigation";
+import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {pickFemConcept} from "@/components/viewer/FemConceptsController";
+import type {FemConceptRef} from "@/utils/fem/femSelection";
 
 // A second click/tap inside this window + radius counts as a double.
 // 350ms matches the OS-level double-tap threshold on iOS / Android and
@@ -134,6 +138,20 @@ export function setupPointerHandler(
             await focusJoint(jointId, {revealPanel: true});
             return;
         }
+
+        // 0b) A FEM concept glyph (mass, support, load arrow, constraint node, equipment box). The
+        //     point glyphs are drawn over the structure, so -- like the joint markers -- they are
+        //     asked before the geometry. An equipment box is a volume the structure is often
+        //     inside or behind: it wins only when it is nearer than the surface under the cursor,
+        //     or a deck could never be clicked through the box standing on it.
+        const additive = e.shiftKey || useSelectedObjectStore.getState().additiveMode;
+        const femPick = pickFemConcept(e, camera, renderer);
+        if (femPick && (!femPick.solid || femBoxInFront(e, femPick.distance, camera, renderer))) {
+            selectFemConcept(femPick.ref, additive, e);
+            return;
+        }
+        // Anything else clicked replaces the FEM selection, as it replaces any other.
+        if (!additive) useFemConceptsStore.getState().clearConceptSelection();
 
         // 1) Try GPU point picking first so points in front of meshes are prioritized
         if (useOptionsStore.getState().useGpuPointPicking) {
@@ -302,6 +320,40 @@ export function setupPointerHandler(
         container.removeEventListener("click", () => {
         });
     };
+}
+
+/** Select a picked FEM concept and show it in the Selected Object Info panel. A plain click
+ *  replaces the whole selection, geometry included; an additive one toggles the concept in. */
+function selectFemConcept(ref: FemConceptRef, additive: boolean, e: MouseEvent): void {
+    const info = useObjectInfoStore.getState();
+    if (!additive) {
+        handleClickEmptySpace(e);
+        // The panel describes the concept now, not the last object clicked.
+        info.setName(null);
+        info.setJsonData(null);
+        info.setSelectedNodeId(null);
+        info.setClickCoordinate(null);
+    }
+    useFemConceptsStore.getState().selectConcept(ref, additive);
+    if (!info.show_info_box) info.toggle();
+}
+
+/** Is the equipment box hit at `boxDistance` in front of the geometry under the cursor? */
+function femBoxInFront(
+    e: MouseEvent,
+    boxDistance: number,
+    camera: THREE.PerspectiveCamera,
+    renderer: THREE.WebGLRenderer,
+): boolean {
+    let pick: ReturnType<typeof gpuMeshPicker.pickAt> = null;
+    try {
+        pick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
+    } catch {
+        pick = null;
+    }
+    if (!pick) return true;
+    const surface = raycastPointOnMesh(e, camera, renderer, pick.mesh)?.point ?? pick.worldPosition;
+    return boxDistance <= camera.position.distanceTo(surface);
 }
 
 /**

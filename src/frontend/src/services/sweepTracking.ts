@@ -20,6 +20,7 @@
 import {ApiError, viewerApi, type ExportRun, type SweepRun} from "@/services/viewerApi";
 import {useConversionStore, type ConvertStatus} from "@/state/conversionStore";
 import {toastRunTarget, useRunFocusStore} from "@/state/runFocusStore";
+import {useSearchWindowStore} from "@/state/searchWindowStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 
 const POLL_MS = 5000;
@@ -268,6 +269,20 @@ export function untrackSweep(runId: string): void {
     remember(runId, null);
 }
 
+/** Show a tree request -- the mesh export's "request the project trees", a collection request
+ *  driven like a sweep -- in the toast. Read through its own scope-checked route, since the sweep
+ *  reads behind it are an admin's; no skip is offered for the same reason. Not remembered across a
+ *  reload: it is a one-off the user waits on, not a run they come back to. */
+export function trackTreeRequest(scope: string, runId: string, label: string): void {
+    const key = `trees:${runId}`;
+    seed(key, label);
+    void pollRun(
+        key,
+        async () => ({state: sweepToastState(await viewerApi.treeRequestRun(scope, runId))}),
+        () => {},
+    );
+}
+
 export function isExportTracked(runId: string): boolean {
     return !!useConversionStore.getState().jobs[exportStoreKey(runId)];
 }
@@ -313,15 +328,20 @@ export function viewToastRun(key: string): void {
     const target = toastRunTarget(key, exportScopeOf);
     if (!target) return;
     useRunFocusStore.getState().setFocus(target.focus);
+    if (target.panel === "search") {
+        useSearchWindowStore.getState().show();
+        return;
+    }
+    const panel = target.panel;
     const panels = useViewerPanelStore.getState();
     // The admin panel reads its tab once, on mount: already open on another tab, it would stay
     // there. Close it and open it again on the next tick so it mounts on Providers.
-    if (target.panel === "admin" && panels.open === "admin") {
+    if (panel === "admin" && panels.open === "admin") {
         panels.closePanel();
-        setTimeout(() => useViewerPanelStore.getState().openPanel(target.panel, target.tab ?? undefined), 0);
+        setTimeout(() => useViewerPanelStore.getState().openPanel(panel, target.tab ?? undefined), 0);
         return;
     }
-    panels.openPanel(target.panel, target.tab ?? undefined);
+    panels.openPanel(panel, target.tab ?? undefined);
 }
 
 /** Re-attach the sweeps and exports this browser was watching. Idempotent; called on app load. */

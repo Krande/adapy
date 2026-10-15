@@ -43,6 +43,34 @@ def get_degree_and_closure(dline: list[str], has_extra_zero) -> tuple[int, bool]
     return degree, closed_curve
 
 
+def _read_knot_vector(
+    data_lines: list[str], dline: list[str], has_extra_zero: bool
+) -> tuple[list[float], list[int], int]:
+    """``(knots, multiplicities, first control-point line)`` of an ``exactcur`` / ``lawintcur`` block.
+
+    The header ends with the number of distinct knots. Their (value, multiplicity) pairs can wrap
+    across ANY number of physical lines, and only after all of them do the control points begin --
+    so knot tokens are accumulated until that many pairs are read, never guessed from line shapes.
+    Guessing went wrong both ways: reading one knot line took the rest of the vector for control
+    points, and "a line that is not 3 tokens is still knots" took a wrapped knot line of exactly 4
+    tokens (two pairs) for a RATIONAL control point -- a stray point near the origin with the next
+    rows' z values as weights (a GeniE plate's lawintcur edges drew a sliver to (5, 1, 5)).
+    """
+    u_closure_idx = 5 if has_extra_zero else 4
+    num_distinct_knots = int(dline[u_closure_idx + 1])
+
+    knot_tokens: list[str] = []
+    ctrl_point_line_idx = len(data_lines)
+    for i in range(1, len(data_lines)):
+        knot_tokens.extend(data_lines[i].split())
+        if len(knot_tokens) >= 2 * num_distinct_knots:
+            ctrl_point_line_idx = i + 1
+            break
+
+    knots_in = [float(x) for x in knot_tokens[: 2 * num_distinct_knots]]
+    return knots_in[0::2], [int(x) for x in knots_in[1::2]], ctrl_point_line_idx
+
+
 def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> geo_cu.BSplineCurveWithKnots | None:
     """Create a B-spline curve from a lawintcur data string."""
     logger.debug(f"create_bspline_curve_from_lawintcur called with {len(data_lines)} lines")
@@ -65,15 +93,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> geo_cu.BSpline
 
     degree, closed_curve = get_degree_and_closure(dline, has_extra_zero)
 
-    # Extract knots and multiplicities
-    knots_in = [float(x) for x in data_lines[1].split()]
-    ctrl_point_line_idx = 2
-    if len(data_lines[2].split()) != 3:
-        knots_in += [float(x) for x in data_lines[2].split()]
-        ctrl_point_line_idx = 3
-
-    knots = knots_in[0::2]
-    mult = [int(x) for x in knots_in[1::2]]
+    knots, mult, ctrl_point_line_idx = _read_knot_vector(data_lines, dline, has_extra_zero)
 
     # Adjust knot multiplicities to satisfy IFC requirements
     mult[0] = degree + 1  # Start multiplicity
@@ -99,11 +119,12 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> geo_cu.BSpline
             "Mismatch in number of control points. Expected {}, got {}.".format(num_control_points, len(control_points))
         )
 
-    # Extract weights if present
+    # Weights only where the header says the curve is rational: a `nubs` row is x y z, and taking
+    # a fourth number for a weight is how a misread line becomes a curve through a stray point.
     weights = None
-    if len(control_points[0]) == 4:
+    if curve_type == "nurbs" and all(len(cp) == 4 for cp in control_points):
         weights = [cp[-1] for cp in control_points]
-        control_points = [cp[:3] for cp in control_points]
+    control_points = [cp[:3] for cp in control_points]
 
     # Create the B-spline curve
     if weights:
@@ -145,27 +166,7 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineC
 
     degree, closed_curve = get_degree_and_closure(dline, should_bump)
 
-    # The header ends with the number of distinct knots. Its (value,
-    # multiplicity) pairs can wrap across several physical lines, and only
-    # after all of them do the control points begin. Accumulate knot tokens
-    # line by line until we have all ``num_distinct_knots`` pairs, so the
-    # split is independent of where the source wraps — reading only
-    # ``data_lines[1]`` mis-read a multi-line knot vector as control points.
-    u_closure_idx = 5 if should_bump else 4
-    num_distinct_knots = int(dline[u_closure_idx + 1])
-
-    knot_tokens: list[str] = []
-    ctrl_point_line_idx = len(data_lines)
-    for i in range(1, len(data_lines)):
-        knot_tokens.extend(data_lines[i].split())
-        if len(knot_tokens) >= 2 * num_distinct_knots:
-            ctrl_point_line_idx = i + 1
-            break
-
-    knots_in = [float(x) for x in knot_tokens[: 2 * num_distinct_knots]]
-    logger.debug(f"knots_in len: {len(knots_in)}")
-    knots = knots_in[0::2]
-    mult = [int(x) for x in knots_in[1::2]]
+    knots, mult, ctrl_point_line_idx = _read_knot_vector(data_lines, dline, should_bump)
     logger.debug(f"knots len: {len(knots)}, mult len: {len(mult)}")
 
     # Adjust knot multiplicities to satisfy IFC requirements
@@ -194,11 +195,12 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineC
         )
         return None
 
-    # Extract weights if present
+    # Weights only where the header says the curve is rational: a `nubs` row is x y z, and taking
+    # a fourth number for a weight is how a misread line becomes a curve through a stray point.
     weights = None
-    if len(control_points[0]) == 4:
+    if curve_type == "nurbs" and all(len(cp) == 4 for cp in control_points):
         weights = [cp[-1] for cp in control_points]
-        control_points = [cp[:3] for cp in control_points]
+    control_points = [cp[:3] for cp in control_points]
 
     # Create the B-spline curve
     if weights:

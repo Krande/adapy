@@ -7,6 +7,7 @@ import {useViewerStores} from '@/state/AdaViewerContext';
 import {scopeUrlPart} from '@/state/scopeStore';
 import {ancestorChain, buildTreeIndices} from '@/utils/tree_view/treeGraph';
 import {revealInSourceScope} from '@/utils/tree_view/revealInSourceScope';
+import {RequestDesignGeometryButton} from '@/components/viewer/RequestDesignGeometryButton';
 
 /**
  * "Show in source tree" for an element of an exported file.
@@ -92,10 +93,13 @@ const SourceJumpSection: React.FC = () => {
     const file = root?.source_name ?? null;
     const modelKey = root?.model_key ?? '';
     const [meta, setMeta] = useState<FileMeta | null>(null);
+    // The scope the record was read in -- the file's own; a later switch must not re-address it.
+    const [metaScope, setMetaScope] = useState(scope);
     useEffect(() => {
         setMeta(null);
         if (!isStoredFile(file)) return;
         let live = true;
+        setMetaScope(scope);
         void recordFor(scope, modelKey, file).then((m) => {
             if (live) setMeta(m);
         });
@@ -150,6 +154,14 @@ const SourceJumpSection: React.FC = () => {
                 >
                     Show in source tree
                 </button>
+                {meta && file && (
+                    <RequestDesignGeometryButton
+                        scope={metaScope}
+                        fileKey={file}
+                        meta={meta}
+                        className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-[11px] rounded-sm px-2 py-1"
+                    />
+                )}
                 {note && (
                     <span className="truncate text-amber-300" title={note}>
                         {note}

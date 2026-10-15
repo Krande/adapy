@@ -22,6 +22,7 @@
 import { runtime } from "@/runtime/config";
 
 import { ApiError, authedFetch, jsonOrThrow, readDetail, type ScopeUrl } from "./client";
+import type { SweepRun } from "./assetSchedules";
 import type { SearchPathEntry, SearchQuery } from "./attributeSearch";
 
 /** A hit as the export takes it -- what the search returned, minus nothing it needs. */
@@ -39,7 +40,15 @@ export interface ExportHit {
 
 export type ExportAlso = "glb" | "step";
 
+/** What a file is made of: `design` -- the design system's own geometry as IFC (exact; requested
+ *  from it first when missing, which is slow); `mesh` -- the hit's triangles as its own provider
+ *  published them, as a GLB (quick, for looking at). A mesh file can ask for its design geometry
+ *  afterwards (`requestDesignGeometry`). */
+export type ExportGeometry = "design" | "mesh";
+
 export interface ExportRequest {
+  /** Default `design`. A `mesh` export takes neither `also` nor `request_missing_geometry`. */
+  geometry?: ExportGeometry;
   /** The search body exactly as sent to `/assets/search`; cursor and limit are ignored. */
   query: SearchQuery;
   /** The hits to export; null = every match of `query` (the server pages through it). */
@@ -53,6 +62,11 @@ export interface ExportRequest {
    *  answers, before writing the files -- the user's answer to the preflight's prompt. Default
    *  false. */
   request_missing_geometry?: boolean;
+  /** One file per collection holding all of its hits, instead of one per hit. Default false. */
+  merge?: boolean;
+  /** Mesh exports: a collection whose provider published no project tree asks for it first, inside
+   *  the run ("request trees, then export"). Default false. */
+  request_trees?: boolean;
 }
 
 /** One collection of a preflight: how its hits stand against the geometry provider's published
@@ -97,6 +111,44 @@ export interface ExportPreflight {
   took_ms: number;
 }
 
+/** One (provider, collection) of a mesh preflight: its hits against the provider's published tree. */
+export interface MeshPreflightCollection {
+  provider: string;
+  collection: string;
+  hits: number;
+  ready: number;
+  /** Hits of a collection the provider has published no project tree for. */
+  no_tree: number;
+  /** Hits its tree does not hold (or holds without geometry). */
+  unknown: number;
+  unknown_reason: string | null;
+  unknown_examples: string[];
+}
+
+/** A provider's collection request, as the mesh preflight offers it for its collections with no tree. */
+export interface TreeRequestOffer {
+  provider: string;
+  collections: string[];
+  available: boolean;
+  allowed: boolean;
+  reason: string | null;
+  label: string | null;
+  plugin_id: string | null;
+  sweep_running: { id: string; created_at: string | null } | null;
+}
+
+/** `POST /assets/search/export/preflight` with `geometry: "mesh"`. */
+export interface MeshPreflight {
+  geometry: "mesh";
+  hits: number;
+  ready: number;
+  no_tree: number;
+  unknown: number;
+  collections: MeshPreflightCollection[];
+  tree_requests: TreeRequestOffer[];
+  took_ms: number;
+}
+
 /** One request job of an item's geometry request. */
 export interface ExportRequestBatch {
   nodes: number;
@@ -132,6 +184,12 @@ export interface ExportJobTimings {
 }
 
 export interface ExportItemTimings {
+  /** A mesh export's build phase: resolving the hits against their provider's publish, the builds (wall-clock), and
+   *  how many of them were already built. */
+  build_resolve_ms?: number;
+  build_ms?: number;
+  builds?: number;
+  builds_cached?: number;
   queued_ms?: number;
   run_ms?: number;
   total_ms?: number;
@@ -186,7 +244,13 @@ export interface ExportRun {
   total: number;
   hits: number;
   query: SearchQuery | null;
-  options: { include_source_attributes: boolean; also: ExportAlso[]; request_missing_geometry?: boolean };
+  options: {
+    include_source_attributes: boolean;
+    also: ExportAlso[];
+    request_missing_geometry?: boolean;
+    geometry?: ExportGeometry;
+    merge?: boolean;
+  };
   requested_by: string | null;
   created_at: string | null;
   heartbeat_at: string | null;
@@ -223,11 +287,25 @@ export interface FileMeta {
   matched: Record<string, unknown> | null;
   run_id: string | null;
   attributes: { elements: number; with_attrs: number; without_attrs: number } | null;
-  derived: { glb: string | null; step: string | null; thumb: string | null } | null;
+  /** `mesh`: the quick-look GLB a design file was requested from (only then). */
+  derived: { glb: string | null; step: string | null; thumb: string | null; mesh?: string | null } | null;
+  /** Where the geometry came from. `kind` is absent on files written before mesh exports (= design). */
+  geometry?: {
+    kind?: ExportGeometry;
+    provider: string | null;
+    subject: string | null;
+    revision: string | null;
+    node: string | null;
+    /** The file holds a whole collection's hits (a merged export); `nodes` are theirs. */
+    merged?: boolean;
+    nodes?: string[];
+  } | null;
   /** Every element of the file that carries an `ADA_Source` set, by IFC name: the levels root
    *  first, the hit, then the members matched to an index row. Absent on files written before it
    *  was recorded, and on GLB provenance. */
   elements?: FileMetaElement[] | null;
+  /** A merged file: the hits inside it, in file order. */
+  joints?: ExportJoint[] | null;
   origin: "sidecar" | "ifc" | "glb" | null;
 }
 
@@ -266,7 +344,25 @@ export interface ExportDoc {
     full_name: string;
     meta: string;
     thumb: string | null;
+    /** A merged file only: how many hits it holds, and those hits in file order. */
+    hits?: number;
+    joints?: ExportJoint[];
   }[];
+}
+
+/** One hit inside a merged export file. */
+export interface ExportJoint {
+  node_id: string | null;
+  full_name: string | null;
+  /** Its node's name in the file's tree. */
+  name: string;
+  /** Its ancestors in the source tree, root first. Absent on exports written before it was kept. */
+  path?: SearchPathEntry[];
+  /** `[first, last]` draw-range ids (inclusive) that are its objects, when the file says so (a
+   *  merged mesh GLB); otherwise it is found by `name`. */
+  ids?: [number, number] | null;
+  /** Its own thumbnail's key, when one was rendered. */
+  thumb: string | null;
 }
 
 function exportBase(scope: ScopeUrl): string {
@@ -286,6 +382,25 @@ export const searchExportApi = {
   async exportPreflight(scope: ScopeUrl, body: Pick<ExportRequest, "query" | "hits">): Promise<ExportPreflight> {
     const r = await authedFetch(`${exportBase(scope)}/preflight`, post(body));
     return jsonOrThrow(r, "exportPreflight");
+  },
+
+  /** The preflight of a MESH export: each hit against its own provider's published project tree. */
+  async meshExportPreflight(scope: ScopeUrl, body: Pick<ExportRequest, "query" | "hits">): Promise<MeshPreflight> {
+    const r = await authedFetch(`${exportBase(scope)}/preflight`, post({ ...body, geometry: "mesh" }));
+    return jsonOrThrow(r, "meshExportPreflight");
+  },
+
+  /** Ask `provider` for the project trees of `collections` (its collection request, once each), as one
+   *  run driven like a sweep. 403 when its job is admin-only, 409 while a sweep of it runs. */
+  async requestTrees(scope: ScopeUrl, provider: string, collections: string[]): Promise<SweepRun> {
+    const r = await authedFetch(`${exportBase(scope)}/request-trees`, post({ provider, collections }));
+    return jsonOrThrow(r, "requestTrees");
+  },
+
+  /** A tree request started from `scope`, with its items' live progress. */
+  async treeRequestRun(scope: ScopeUrl, runId: string): Promise<SweepRun> {
+    const r = await authedFetch(`${exportBase(scope)}/request-trees/${encodeURIComponent(runId)}`);
+    return jsonOrThrow(r, "treeRequestRun");
   },
 
   /** Start an export of `body.hits` (or every match) from `scope`. 409 over the hit cap. */
@@ -309,6 +424,27 @@ export const searchExportApi = {
     return jsonOrThrow(r, "cancelSearchExport");
   },
 
+  /** Remove a run from the list; the files it wrote stay. 409 while it runs. */
+  async deleteSearchExport(scope: ScopeUrl, runId: string): Promise<{ deleted: string }> {
+    const r = await authedFetch(`${exportBase(scope)}/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+    return jsonOrThrow(r, "deleteSearchExport");
+  },
+
+  /** Drive the run again over what it did not finish -- and, with `retryFailed`, what it did not
+   *  write -- into the same run and folder. Idempotent: a running run, or one with nothing left,
+   *  answers `rerun: false` with why. */
+  async rerunSearchExport(
+    scope: ScopeUrl,
+    runId: string,
+    retryFailed = true,
+  ): Promise<ExportRun & { rerun: boolean; reason: string | null }> {
+    const r = await authedFetch(
+      `${exportBase(scope)}/runs/${encodeURIComponent(runId)}/rerun`,
+      post({ retry_failed: retryFailed }),
+    );
+    return jsonOrThrow(r, "rerunSearchExport");
+  },
+
   /** Skip the running item at `position` and carry on. 409 when that item is not running. */
   async skipSearchExportItem(scope: ScopeUrl, runId: string, position: number): Promise<{ skip_requested: number }> {
     const r = await authedFetch(
@@ -316,6 +452,18 @@ export const searchExportApi = {
       post(),
     );
     return jsonOrThrow(r, "skipSearchExportItem");
+  },
+
+  /** Ask for the design system's own geometry of the node a MESH file came from: a one-hit design
+   *  export (requesting the geometry first when it is missing and the user may) that writes
+   *  `<stem>.ifc` beside the GLB. Answers the run, which lives in the file's SOURCE scope
+   *  (`run.scope`); `requesting` says whether a request will be made. */
+  async requestDesignGeometry(scope: ScopeUrl, key: string): Promise<ExportRun & { requesting: boolean }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/files/request-geometry`,
+      post({ key }),
+    );
+    return jsonOrThrow(r, "requestDesignGeometry");
   },
 
   /** A file's provenance; null when it has none (404). */

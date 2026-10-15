@@ -223,6 +223,46 @@ async def cancel_asset_sweep_run(pool: asyncpg.Pool, run_id: str) -> bool:
     return row is not None
 
 
+#: The message on an item that was in flight when its sweep's driver died, and runs again on resume.
+RESUMED_ITEM = "runs again: it was in flight when the sweep was interrupted"
+
+
+async def resume_asset_sweep_run(pool: asyncpg.Pool, run_id: str) -> Optional[list[dict]]:
+    """Re-arm an INTERRUPTED sweep (``running`` with a stale heartbeat) for a new driver.
+
+    Stamps the heartbeat -- so the run reads ``running`` again and a second resume of it is refused
+    -- clears a skip request nobody acted on, and puts every item that was in flight back to
+    ``pending``: its job's answer was never recorded, so the collection runs again from the start.
+    Done, failed and skipped items are kept as they are. Returns the items that were in flight
+    (their old job ids, for the caller to cancel), or None when the run is not interrupted -- not
+    running at all, or its driver is still alive."""
+    async with pool.acquire() as conn, conn.transaction():
+        row = await conn.fetchrow(
+            f"""
+            UPDATE asset_sweep_runs SET heartbeat_at = NOW(), skip_position = NULL, skip_requested_by = NULL
+            WHERE id = $1 AND status = 'running'
+              AND heartbeat_at < NOW() - INTERVAL '{HEARTBEAT_STALE_S} seconds'
+            RETURNING id
+            """,
+            run_id,
+        )
+        if row is None:
+            return None
+        rows = await conn.fetch(
+            """
+            UPDATE asset_sweep_items i SET status = 'pending', message = $2, error = NULL,
+                started_at = NULL, finished_at = NULL
+            FROM (SELECT position, fetch_job_id, publish_job_id FROM asset_sweep_items
+                  WHERE run_id = $1 AND status IN ('fetching', 'publishing') FOR UPDATE) old
+            WHERE i.run_id = $1 AND i.position = old.position
+            RETURNING i.position, i.collection, old.fetch_job_id, old.publish_job_id
+            """,
+            run_id,
+            RESUMED_ITEM,
+        )
+    return [dict(r) for r in rows]
+
+
 async def update_asset_sweep_item(pool: asyncpg.Pool, run_id: str, position: int, **fields: Any) -> None:
     allowed = (
         "status",

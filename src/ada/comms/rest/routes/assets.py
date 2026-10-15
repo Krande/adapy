@@ -762,6 +762,37 @@ async def api_asset_build(
     if not collection or not node:
         raise HTTPException(status_code=400, detail="'collection' and 'node' are required")
 
+    answer = await submit_node_build(
+        ctx,
+        scope_obj,
+        asked_provider=asked_provider,
+        collection=collection,
+        node=node,
+        subject=subject,
+        revision=revision,
+        force=bool(body.get("force")),
+        request=request,
+        user=user,
+    )
+    return JSONResponse(answer)
+
+
+async def submit_node_build(
+    ctx: RestContext,
+    scope_obj: Scope,
+    *,
+    asked_provider: str,
+    collection: str,
+    node: str,
+    subject: str,
+    revision: str | None = None,
+    force: bool = False,
+    request: Request | None = None,
+    user: User | None = None,
+) -> dict:
+    """:func:`api_asset_build`'s work, for callers that are not the route (the search export's
+    mesh path builds the nodes it writes). Answers ``{derived_key, capability, provider, subject,
+    revision, node, fingerprint, job_id, cached}``; raises HTTPException as the route would."""
     ctx.jobs.require("asset_build")
 
     # WHICH PROVIDER'S PUBLISH. One subject can carry publishes from several providers, so a
@@ -832,8 +863,8 @@ async def api_asset_build(
         "node": node,
         "fingerprint": fingerprint,
     }
-    if not bool(body.get("force")) and await ctx.storage.exists(scope_obj, derived_key):
-        return JSONResponse({**answer, "job_id": None, "cached": True})
+    if not force and await ctx.storage.exists(scope_obj, derived_key):
+        return {**answer, "job_id": None, "cached": True}
 
     submitted = await ctx.jobs.submit(
         JobRequest(
@@ -870,7 +901,7 @@ async def api_asset_build(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({**answer, "job_id": submitted.job_id, "cached": False})
+    return {**answer, "job_id": submitted.job_id, "cached": False}
 
 
 @router.post("/scopes/{scope}/assets/publish")

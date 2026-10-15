@@ -48,7 +48,7 @@ REQ = greq.node_request_of(SPEC)
 
 def _hit(n: int, collection: str = "alpha") -> dict:
     return {
-        "provider": "web3d",
+        "provider": "vendor-a",
         "collection": collection,
         "node_id": f"fn-{n}",
         "full_name": f"/STRU-{n}",
@@ -269,7 +269,7 @@ def test_missing_nodes_are_requested_back_to_back_published_then_exported(monkey
         return out
 
     w = _World(monkeypatch, answers=[_ok("s0", "fresh"), _ok("s1")], states_for=states_for)
-    w.drive([("web3d", "alpha", hits)])
+    w.drive([("vendor-a", "alpha", hits)])
 
     # Four missing nodes in jobs of two: both enqueued before either is waited for, each answer
     # published, and only then the export job.
@@ -291,7 +291,7 @@ def test_a_provider_answering_nothing_is_the_files_reason(monkeypatch):
     hits = [_hit(1), _hit(2)]
     nothing = {"asset_nothing": True, "message": "no element named /STRU-1 in the source"}
     w = _World(monkeypatch, answers=[nothing], states_for=lambda c, hs: _states(hs, "unpublished"))
-    w.drive([("web3d", "alpha", hits)])
+    w.drive([("vendor-a", "alpha", hits)])
     assert w.published == [] and w.events[-1] == "export"
     item = w.items[0]
     assert item["timings"]["request_batches"][0]["status"] == "nothing"
@@ -304,21 +304,21 @@ def test_a_provider_answering_nothing_is_the_files_reason(monkeypatch):
 def test_unknown_and_ready_hits_are_not_requested(monkeypatch):
     hits = [_hit(1), _hit(2)]
     w = _World(monkeypatch, answers=[], states_for=lambda c, hs: _states(hs, "unknown"))
-    w.drive([("web3d", "alpha", hits)])
+    w.drive([("vendor-a", "alpha", hits)])
     assert w.enqueued == [] and w.events == ["export"]
     assert w.items[0]["timings"]["request"]["unknown"] == 2
 
 
 def test_without_the_option_nothing_is_requested(monkeypatch):
     w = _World(monkeypatch, answers=[], states_for=lambda c, hs: _states(hs))
-    w.drive([("web3d", "alpha", [_hit(1)])], request=False)
+    w.drive([("vendor-a", "alpha", [_hit(1)])], request=False)
     assert w.enqueued == [] and w.events == ["export"] and "request_ms" not in w.items[0]["timings"]
 
 
 def test_skipping_during_the_request_cancels_every_request_job_and_writes_nothing(monkeypatch):
     monkeypatch.setattr(greq, "NODES_PER_REQUEST", 1)
     w = _World(monkeypatch, answers=["hold", "hold"], states_for=lambda c, hs: _states(hs), skip_on_job="req-0")
-    w.drive([("web3d", "alpha", [_hit(1), _hit(2)])])
+    w.drive([("vendor-a", "alpha", [_hit(1), _hit(2)])])
     assert sorted(w.cancelled) == ["req-0", "req-1"]
     assert "export" not in w.events and w.items[0]["status"] == "skipped"
     assert w.items[0]["message"] == "skipped by Tester" and w.finished == ("done", None)
@@ -331,14 +331,14 @@ def test_cancelling_the_run_during_the_request_stops_it(monkeypatch):
         return RunBeat("cancelled" if w.enqueued else "running")
 
     monkeypatch.setattr(dbm, "heartbeat_asset_export_run", cancelled)
-    w.drive([("web3d", "alpha", [_hit(1)])])
+    w.drive([("vendor-a", "alpha", [_hit(1)])])
     assert w.cancelled == ["req-0"] and "export" not in w.events
     assert w.items[0]["status"] == "skipped" and w.finished is None
 
 
 def test_collections_request_one_at_a_time(monkeypatch):
     w = _World(monkeypatch, answers=[_ok("a"), _ok("b")], states_for=lambda c, hs: _states(hs))
-    w.drive([("web3d", "alpha", [_hit(1)]), ("web3d", "beta", [_hit(2, "beta")])])
+    w.drive([("vendor-a", "alpha", [_hit(1)]), ("vendor-a", "beta", [_hit(2, "beta")])])
     # Never two collections' requests interleaved: each enqueue is followed by its own publish.
     reqs = [e for e in w.events if not e.startswith("export")]
     assert reqs == ["enqueue req-0", "publish a", "enqueue req-1", "publish b"]

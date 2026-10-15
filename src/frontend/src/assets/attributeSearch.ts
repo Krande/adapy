@@ -31,13 +31,43 @@ import type {
   SearchWhere,
 } from "@/services/api/attributeSearch";
 
-export type FilterOp = "eq" | "in" | "prefix";
+export type FilterOp = "eq" | "ne" | "in" | "not_in" | "prefix" | "exists" | "missing";
 
+// The negative operators are the exact complement of their positive twin: "not equal" matches a
+// node whose value differs OR that has no such attribute at all (add "has key" to rule those out).
 export const FILTER_OPS: readonly { id: FilterOp; label: string; title: string }[] = [
   { id: "eq", label: "equals", title: "The attribute has exactly this value" },
+  {
+    id: "ne",
+    label: "not equal",
+    title: "The attribute has another value, or the node does not have this attribute at all",
+  },
   { id: "in", label: "any of", title: "The attribute has one of these values (comma separated)" },
+  {
+    id: "not_in",
+    label: "not any of",
+    title: "The attribute has none of these values (comma separated), or the node does not have it at all",
+  },
   { id: "prefix", label: "starts with", title: "The attribute's value starts with this text" },
+  { id: "exists", label: "has key", title: "The node has this attribute, whatever its value" },
+  { id: "missing", label: "lacks key", title: "The node does not have this attribute" },
 ];
+
+const OP_IDS: readonly string[] = FILTER_OPS.map((o) => o.id);
+
+/** Whether `op` takes a comma-separated list of values. */
+export function opTakesList(op: FilterOp): boolean {
+  return op === "in" || op === "not_in";
+}
+
+/** Whether `op` takes a value at all ("has key" / "lacks key" do not). */
+export function opTakesValue(op: FilterOp): boolean {
+  return op !== "exists" && op !== "missing";
+}
+
+/** How a provider / collection choice applies: only the chosen ones, or every one but them. Either
+ *  way, nothing chosen means every one -- so excluding one of ninety-five is one tick, not 94. */
+export type PickMode = "include" | "exclude";
 
 export type ScalarValue = string | number | boolean;
 
@@ -55,10 +85,13 @@ export type DepthMode = "any" | "eq" | "range";
 
 /** Everything the panel's form holds -- what is remembered per browser as "the last query". */
 export interface SearchForm {
-  /** Collection names to search; empty = every ingested collection. */
+  /** Collection names chosen; empty = every ingested collection. */
   collections: string[];
-  /** Provider ids to search; empty = every provider. */
+  /** Whether `collections` are the ones searched or the ones left out. */
+  collectionMode: PickMode;
+  /** Provider ids chosen; empty = every provider. */
   providers: string[];
+  providerMode: PickMode;
   /** Kinds, comma separated; blank = any kind. */
   kind: string;
   depthMode: DepthMode;
@@ -83,7 +116,9 @@ export function newFilterRow(key = ""): FilterRow {
 export function emptyForm(): SearchForm {
   return {
     collections: [],
+    collectionMode: "include",
     providers: [],
+    providerMode: "include",
     kind: "",
     depthMode: "any",
     depthEq: "",
@@ -129,10 +164,13 @@ export function buildQuery(form: SearchForm, cursor: string | null = null): Buil
   for (const row of form.rows) {
     const key = row.key.trim();
     if (!key) continue;
-    if (row.op === "in") {
+    if (row.op === "exists" || row.op === "missing") {
+      where.push(row.op === "exists" ? { key, exists: true } : { key, missing: true });
+    } else if (opTakesList(row.op)) {
       const items = splitList(row.value);
       if (!items.length) return { ok: false, error: `"${key}": give at least one value` };
-      where.push({ key, in: items.map((v) => typedValue(row, v)) });
+      const values = items.map((v) => typedValue(row, v));
+      where.push(row.op === "in" ? { key, in: values } : { key, not_in: values });
     } else if (row.op === "prefix") {
       const p = row.value.trim();
       if (!p) return { ok: false, error: `"${key}": give the start of the value` };
@@ -140,7 +178,7 @@ export function buildQuery(form: SearchForm, cursor: string | null = null): Buil
     } else {
       const v = row.value.trim();
       if (!v) return { ok: false, error: `"${key}": give a value` };
-      where.push({ key, eq: typedValue(row, v) });
+      where.push(row.op === "ne" ? { key, ne: typedValue(row, v) } : { key, eq: typedValue(row, v) });
     }
   }
 
@@ -163,11 +201,15 @@ export function buildQuery(form: SearchForm, cursor: string | null = null): Buil
 
   const kinds = splitList(form.kind);
   const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(form.limit) || DEFAULT_LIMIT));
+  const picked = (names: readonly string[], mode: PickMode, want: PickMode) =>
+    names.length && mode === want ? [...names] : null;
   return {
     ok: true,
     query: {
-      providers: form.providers.length ? [...form.providers] : null,
-      collections: form.collections.length ? [...form.collections] : null,
+      providers: picked(form.providers, form.providerMode, "include"),
+      collections: picked(form.collections, form.collectionMode, "include"),
+      exclude_providers: picked(form.providers, form.providerMode, "exclude"),
+      exclude_collections: picked(form.collections, form.collectionMode, "exclude"),
       kind: kinds.length ? kinds : null,
       depth,
       where,
@@ -177,6 +219,27 @@ export function buildQuery(form: SearchForm, cursor: string | null = null): Buil
       cursor,
     },
   };
+}
+
+/** The options whose value or label contains `text`, ignoring case -- the type-ahead of a
+ *  provider / collection pick. Blank text keeps them all. */
+export function filterOptions<T extends { value: string; label: string }>(options: readonly T[], text: string): T[] {
+  const t = text.trim().toLowerCase();
+  if (!t) return [...options];
+  return options.filter((o) => o.value.toLowerCase().includes(t) || o.label.toLowerCase().includes(t));
+}
+
+/** A pick in a few words: `every collection`, `ALPHA`, `3 of them`, `all but ALPHA`, `all but 2`. */
+export function pickSummary(
+  chosen: readonly string[],
+  mode: PickMode,
+  noun: string,
+  labelOf: (value: string) => string = (v) => v,
+): string {
+  if (!chosen.length) return `every ${noun}`;
+  const what = chosen.length === 1 ? labelOf(chosen[0]) : `${chosen.length}`;
+  if (mode === "exclude") return `all but ${what}`;
+  return chosen.length === 1 ? what : `${what} chosen`;
 }
 
 /** A hit's identity across pages and partitions. */
@@ -334,7 +397,7 @@ export function parseStoredForm(raw: string | null): SearchForm | null {
     ? o.rows.flatMap((r): FilterRow[] => {
         if (!r || typeof r !== "object") return [];
         const x = r as Record<string, unknown>;
-        const op: FilterOp = x.op === "in" || x.op === "prefix" ? x.op : "eq";
+        const op: FilterOp = typeof x.op === "string" && OP_IDS.includes(x.op) ? (x.op as FilterOp) : "eq";
         const typed: Record<string, ScalarValue> = {};
         if (x.typed && typeof x.typed === "object") {
           for (const [k, tv] of Object.entries(x.typed as Record<string, unknown>)) {
@@ -346,9 +409,13 @@ export function parseStoredForm(raw: string | null): SearchForm | null {
     : base.rows;
   const depthMode: DepthMode = o.depthMode === "eq" || o.depthMode === "range" ? o.depthMode : "any";
   const limit = typeof o.limit === "number" && o.limit > 0 ? Math.min(MAX_LIMIT, Math.floor(o.limit)) : DEFAULT_LIMIT;
+  // A form stored before exclusions existed has no modes: its picks were the ones searched.
+  const mode = (x: unknown): PickMode => (x === "exclude" ? "exclude" : "include");
   return {
     collections: strs(o.collections),
+    collectionMode: mode(o.collectionMode),
     providers: strs(o.providers),
+    providerMode: mode(o.providerMode),
     kind: str(o.kind),
     depthMode,
     depthEq: str(o.depthEq),

@@ -297,13 +297,12 @@ def test_beam_parameters_run_over_the_whole_segmented_beam(example_files, tmp_pa
     np.testing.assert_array_equal(_resultant(cases["LC1"])[0], (0.0, 0.0, -1000.0))
     np.testing.assert_array_equal(_resultant(cases["LC2"])[0], (0.0, 0.0, -2000.0))
 
-    # the rotation field and the placed equipment: one named finding each, nothing read
+    # the rotation field: one named finding, nothing read. The placed equipment is the equipment
+    # reader's (test_gxml_read_equipment) and is never an applied load of LC4.
     assert cases["LC3"].loads == [] and cases["LC4"].loads == []
     found = _findings(report)
-    assert set(found) == {("omitted", "rotation_field"), ("omitted", "placed_shape")}
+    assert set(found) == {("omitted", "rotation_field")}
     assert found[("omitted", "rotation_field")].count == 1
-    assert found[("omitted", "placed_shape")].count == 1
-    assert found[("omitted", "placed_shape")].subject == "Eq1 in load case LC4"
 
 
 # --- the round trip through adapy's own GeniE writer ------------------------------------------

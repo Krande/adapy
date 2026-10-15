@@ -130,6 +130,25 @@ test("opens the collection with the newest publish, and unions its indexes oldes
   assert.deepEqual(s.forest.origins.get("area-1"), { subject: "plant-a", revision: R2 });
 });
 
+test("a collection chosen while the first load is in flight does not leave the tree loading", async () => {
+  const { api, gates } = makeApi();
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api);
+  const key = `plant-a|index|${R2}`;
+  const marker = () => {};
+  gates.set(key, marker);
+  const first = loader.loadCollections(SCOPE);
+  // Held inside the first collection's index merge (the fetch replaced the marker with its release).
+  while (gates.get(key) === marker) await new Promise((r) => setTimeout(r, 1));
+  assert.equal(useAssetBrowserStore.getState().indexLoading, true);
+  const switched = loader.chooseCollection(SCOPE, "old-b");
+  gates.get(key)!();
+  await Promise.all([first, switched]);
+  const s = useAssetBrowserStore.getState();
+  assert.equal(s.collection, "old-b");
+  assert.ok(s.index);
+  assert.equal(s.indexLoading, false);
+});
+
 test("run mode narrows the admitted indexes without refetching them", async () => {
   const { api, calls } = makeApi();
   const loader = createAssetBrowserLoader(useAssetBrowserStore, api);

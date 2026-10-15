@@ -211,8 +211,65 @@ def native_to_glb(
     )
     stats.update(walk)
     _check_mesh_emit_stats(stats, "GLB")
+    try:
+        _add_design_extension(part, out_path)
+    except Exception as exc:  # noqa: BLE001 - the geometry is written; its model data is a nicety
+        logger.warning("native NGEOM->GLB: design extension not added: %s", exc)
     logger.info("native NGEOM->GLB: %s", stats)
     return stats
+
+
+_GLB_MAGIC = b"glTF"
+_GLB_JSON_CHUNK = b"JSON"
+
+
+def _add_design_extension(part: Part, glb_path: pathlib.Path) -> None:
+    """Give a native GLB the design block of its ``ADA_EXT_data`` the Python writer gives its own.
+
+    The C++ emitter writes geometry, names and colours and leaves ``design_objects`` empty, which
+    left a Genie model in the viewer without its groups, per-object properties and FEM concepts
+    (masses, supports, loads, equipment) -- they exist only on the Python side. Only the JSON
+    chunk is rewritten; the binary chunk is copied through.
+
+    The GLB is in metres whatever the model's units, and the FEM concepts are in model
+    coordinates, so a model in other units goes without them rather than with glyphs in the
+    wrong place.
+    """
+    import json
+    import struct
+
+    from ada.visit.scene_handling.scene_from_part import build_design_data_extension
+
+    data = glb_path.read_bytes()
+    if len(data) < 20 or data[:4] != _GLB_MAGIC:
+        raise ValueError("not a GLB")
+    json_len, chunk_type = struct.unpack_from("<I4s", data, 12)
+    if chunk_type != _GLB_JSON_CHUNK:
+        raise ValueError("first GLB chunk is not JSON")
+    doc = json.loads(data[20 : 20 + json_len].decode("utf-8"))
+    ada_ext = doc.setdefault("extensions", {}).setdefault("ADA_EXT_data", {})
+    if ada_ext.get("design_objects"):
+        return
+
+    face_nodes = [n["name"] for n in doc.get("nodes", []) if "mesh" in n and n.get("name")]
+    design = build_design_data_extension(part, face_nodes=face_nodes)
+    if _unit_scale(part) != 1.0 and design.fem_concepts is not None:
+        logger.info("native NGEOM->GLB: FEM concepts left out of a model not in metres")
+        design.fem_concepts = None
+    ada_ext["design_objects"] = [design.model_dump(mode="json", exclude_none=True)]
+    used = doc.setdefault("extensionsUsed", [])
+    if "ADA_EXT_data" not in used:
+        used.append("ADA_EXT_data")
+
+    body = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    body += b" " * (-len(body) % 4)  # JSON chunks pad with spaces
+    rest = data[20 + json_len :]
+    out = bytearray(_GLB_MAGIC)
+    out += struct.pack("<II", 2, 12 + 8 + len(body) + len(rest))
+    out += struct.pack("<I4s", len(body), _GLB_JSON_CHUNK)
+    out += body
+    out += rest
+    glb_path.write_bytes(bytes(out))
 
 
 def native_to_mesh(part: Part, out_path: str | pathlib.Path, fmt: str, *, pipeline: str = "libtess2") -> dict:

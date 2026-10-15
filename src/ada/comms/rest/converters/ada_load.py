@@ -41,7 +41,7 @@ def _via_gltf_to_glb(src_path: pathlib.Path, on_progress: ProgressFn) -> bytes:
 
 # Bumped when the pickled Assembly schema changes incompatibly, so stale cache entries from
 # older code are ignored rather than mis-loaded.
-_ASM_CACHE_VERSION = "1"
+_ASM_CACHE_VERSION = "2"  # 2: ConceptFEM carries equipment
 
 
 def _asm_cache_path(src_path: pathlib.Path, ext: str) -> pathlib.Path | None:

@@ -157,6 +157,9 @@ class HitState:
     #: The id the geometry provider's tree lists the node under, when it does.
     node_id: str | None = None
     message: str | None = None
+    #: The subject whose publish covers the node (``ready`` only) -- what a build of it names.
+    subject: str | None = None
+    revision: str | None = None
 
 
 def classify_hits(
@@ -166,7 +169,7 @@ def classify_hits(
     out = []
     for hit in hits:
         try:
-            _, node = resolve_geometry(index, collection, hit, provider=provider)
+            manifest, node = resolve_geometry(index, collection, hit, provider=provider)
         except NoGeometry as exc:
             state = getattr(exc, "reason", "unknown")
             message = str(exc)
@@ -174,7 +177,15 @@ def classify_hits(
                 message = _unknown_reason(index.catalog(collection, provider), hit) or message
             out.append(HitState(hit=hit, state=state, node_id=getattr(exc, "node_id", None), message=message))
             continue
-        out.append(HitState(hit=hit, state="ready", node_id=node))
+        out.append(
+            HitState(
+                hit=hit,
+                state="ready",
+                node_id=node,
+                subject=getattr(manifest, "subject", None),
+                revision=getattr(manifest, "revision", None),
+            )
+        )
     return out
 
 

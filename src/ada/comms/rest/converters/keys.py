@@ -5,6 +5,7 @@ keys, the hidden and published prefixes, and the key predicates the routes gate 
 from __future__ import annotations
 
 import pathlib
+import re
 from typing import TYPE_CHECKING
 
 from .registry import ConverterRegistry, UnsupportedFormat
@@ -448,6 +449,16 @@ def file_sidecar_keys(key: str) -> list[str]:
     stem = name.rsplit(".", 1)[0] if "." in name.lstrip(".") else name
     base = f"{head}/{stem}" if head else stem
     return [f"{base}{suffix}" for suffix in FILE_SIDECAR_SUFFIXES]
+
+
+_JOINT_THUMB_RE = re.compile(r"\.j\d+\.thumb\.png$")
+
+
+def joint_thumb_keys(key: str, live_keys) -> list[str]:
+    """The per-hit thumbnails of a merged export file among ``live_keys``: ``x/A.ifc`` ->
+    ``x/A.j0000.thumb.png``, ... (``ada.comms.rest.search_export.joint_thumb_key``)."""
+    base = file_sidecar_keys(key)[0][: -len(".meta.json")]
+    return sorted(k for k in live_keys if k.startswith(base) and _JOINT_THUMB_RE.fullmatch(k[len(base) :]) is not None)
 
 
 def stats_sidecar_key(glb_key: str) -> str:

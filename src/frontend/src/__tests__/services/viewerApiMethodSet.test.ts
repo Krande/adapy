@@ -57,7 +57,7 @@ const EXPECTED_METHODS = [
   "adminPluginJobScheduleRunNow", "adminPluginJobScheduleUpdate",
   "adminPluginJobSchedulesList", "adminProfileStats", "adminProfileUrl",
   "adminProvisionCiBot", "adminPruneWorkers", "adminRemoveMember", "adminRenameKey",
-  "adminRenameOrMoveFolder", "adminRenderProfiles", "adminRevokeCiBot",
+  "adminRenameOrMoveFolder", "adminRenderProfiles", "adminResumeAssetSweep", "adminRevokeCiBot",
   "adminRevokeCliToken", "adminRevokeCliTokens", "adminSetSetting", "adminStartCompressionSweep",
   "adminUpdateAssetSchedule", "adminWorkerPackages", "assetChangeRunItems", "auditLocalCreate",
   "auditLocalUpdate", "blobUrl", "cancelMyJob", "checkAssetChanges",
@@ -79,7 +79,7 @@ const EXPECTED_METHODS = [
   "proceduralEquipmentTypes", "proceduralOpeningTypes", "proceduralSystemTypes",
   "proposeProceduralRelocations", "putBlob", "putDerivedBlob", "recordRenderProfile",
   "recordViewLoad", "renameKey", "renameOrMoveFolder", "renameProceduralModel",
-  "requestDownloadUrl", "requestUploadUrl", "resolveProceduralEngine", "resultMeta",
+  "requestDesignGeometry", "requestDownloadUrl", "requestUploadUrl", "resolveProceduralEngine", "resultMeta",
   "resyncProceduralEquipmentTypes", "runUtility", "syncProceduralEquipmentType",
   "syncProceduralSystemType", "updateEquipmentType", "updateProceduralEngine",
   "updateSystemTemplate", "uploadEquipmentCad", "uploadFeaArtefacts",
@@ -88,9 +88,11 @@ const EXPECTED_METHODS = [
   "adminAssetSweep", "adminAssetSweeps", "adminCancelAssetSweep", "adminSkipAssetSweepItem",
   "adminStartAssetSweep", "blobObjectUrl", "cancelSearchExport", "exportDoc", "fileMeta",
   "searchAssetAttributes", "searchCollections", "searchExportRun", "searchExportRuns", "searchKeys",
-  "searchValues", "skipSearchExportItem", "startSearchExport",
+  "searchValues", "skipSearchExportItem", "startSearchExport", "rerunSearchExport", "deleteSearchExport",
   // Sweep run checkboxes and default lists, and the export's missing-geometry pre-flight.
   "adminAssetSweepDefaults", "adminSetAssetSweepDefaults", "adminSetAssetSweepItemRun", "exportPreflight",
+  // The mesh export's preflight and the tree request it offers.
+  "meshExportPreflight", "requestTrees", "treeRequestRun",
   // Admin -> Database (adminDb).
   "adminDbPrune", "adminDbSetRetention", "adminDbStorage", "adminDbTableRows",
 ].sort();
