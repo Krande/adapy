@@ -133,6 +133,12 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
 
     part = parts[0]
 
+    from ada.fem.cavities import refuse_fluid_cavities
+    from ada.fem.formulations import refuse_section_theories
+
+    refuse_section_theories([p.fem for p in assembly.get_all_parts_in_assembly(include_self=True)], "sesam")
+    refuse_fluid_cavities(assembly, "sesam")
+
     thick_map = dict()
 
     now = datetime.datetime.now()

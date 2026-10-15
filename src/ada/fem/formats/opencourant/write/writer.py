@@ -3,8 +3,11 @@
 ``<name>_0000.rad`` is the starter (model) deck and ``<name>_0001.rad`` the engine
 (run control) deck. Version 1 covers explicit shell models: 3/4-node shells, elastic
 or Johnson-Cook plastic metals, fixed BCs, initial velocities and shell-to-shell
-contact (``/INTER/TYPE7``). Anything else raises ``NotImplementedError`` rather than
-being silently dropped.
+contact (``/INTER/TYPE7``); two-node trusses (``/PROP/TRUSS``, ``/TRUSS``); and gas-filled
+cavities (``/MONVOL/GAS`` on a ``/SURF/SEG`` of their shells). Anything else raises
+``NotImplementedError`` or ``IncompatibleElements`` rather than being silently dropped --
+a membrane or cable section among them: a Radioss shell always bends, and its truss carries
+compression.
 """
 
 from __future__ import annotations
@@ -128,6 +131,7 @@ class _StarterDeck:
         self._boundary_conditions()
         self._initial_velocities()
         self._interactions()
+        self._fluid_cavities()
         self.blocks.append("/END\n")
         return "\n".join(self.blocks)
 
@@ -155,16 +159,22 @@ class _StarterDeck:
         self.blocks.append("\n".join(rows))
 
     def _parts_and_elements(self):
+        from ada.fem.formulations import refuse_section_theories
+
+        refuse_section_theories([self.fem], "opencourant", allowed=("truss",))
         for sec in self.fem.sections:
             sec_type = str(getattr(sec.type, "value", sec.type)).lower()
-            if sec_type != "shell":
-                raise IncompatibleElements(f"OpenCourant writer v1 supports shell sections only (got {sec_type!r})")
+            is_truss = sec_type == "line" and sec.is_axial_only
+            if sec_type != "shell" and not is_truss:
+                raise IncompatibleElements(
+                    f"OpenCourant writer v1 supports shell and truss sections only (got {sec_type!r})"
+                )
             elements = list(sec.elset.members)
             if not elements:
                 continue
             mat_id = self._material(sec.material)
             prop_id = self.ids.next("prop")
-            self.blocks.append(_shell_prop_str(prop_id, sec))
+            self.blocks.append(_truss_prop_str(prop_id, sec) if is_truss else _shell_prop_str(prop_id, sec))
             part_id = self.ids.next("part")
             self._part_of_section[sec.name] = part_id
             self.blocks.append(
@@ -177,7 +187,9 @@ class _StarterDeck:
                     ]
                 )
             )
-            self.blocks.append(_shell_elements_str(part_id, elements))
+            self.blocks.append(
+                _truss_elements_str(part_id, elements) if is_truss else _shell_elements_str(part_id, elements)
+            )
 
     def _material(self, mat: Material) -> int:
         if mat.name in self._mat_ids:
@@ -294,6 +306,62 @@ class _StarterDeck:
                 gid = self._grnod(f"surfnodes:{secondary.name}", f"{secondary.name}_nodes", sec_nodes)
                 self._type7(f"{inter.name}:{secondary.name}->{main.name}", gid, sid, friction)
 
+    def _fluid_cavities(self):
+        """Each cavity as ``/MONVOL/GAS``: an adiabatic ideal gas (``p V^gamma`` constant) in the volume its surface
+        encloses, with no vents. Card layout per the 2020+ ``CONTROLVOL/monvol_gas.cfg`` (OpenRadioss reader
+        configuration) and the starter's reader (``hm_read_monvol_type3``): a scale factor of 0 takes the default, and
+        ``I_equi = 0`` takes the gas's initial state from ``Pini``, ``Tini`` and the enclosed volume.
+        """
+        from ada.config import logger
+
+        cavities = list(self.fem.fluid_cavities.values()) + list(self.afem.fluid_cavities.values())
+        for cav in cavities:
+            gas = cav.gas
+            if not gas.adiabatic:
+                logger.warning(
+                    f"fluid cavity {cav.name!r}: /MONVOL/GAS compresses its gas adiabatically; the cavity's gas is "
+                    "isothermal, which OpenCourant has no form for"
+                )
+                from ada.fem.formats import conversion_report
+
+                conversion_report.current().approximated(
+                    "opencourant writer",
+                    "/MONVOL/GAS",
+                    cav.name,
+                    "an isothermal gas written as /MONVOL/GAS, which is adiabatic (p V^gamma constant)",
+                    gamma=gas.gamma,
+                )
+            if cav.additional_volume > 0.0:
+                raise NotImplementedError(f"fluid cavity {cav.name!r}: an additional volume has no /MONVOL/GAS field")
+            sid = self._surface(f"cavity:{cav.name}", f"{cav.name}_surf", cav.shell_elements())
+            self.blocks.append(
+                "\n".join(
+                    [
+                        f"/MONVOL/GAS/{self.ids.next('monvol')}",
+                        title(cav.name),
+                        comment("surf_IDex    I_equi"),
+                        i10(sid) + i10(0),
+                        comment(
+                            "            Ascalet             AscaleP             AscaleS             AscaleA"
+                            "             AscaleD"
+                        ),
+                        f20(0) + f20(0) + f20(0) + f20(0) + f20(0),
+                        comment(
+                            "              Gamma                  Mu              Trelax                Tini"
+                            "                Rhoi"
+                        ),
+                        f20(gas.gamma) + f20(0) + f20(0) + f20(gas.initial_temperature) + f20(_ambient_density(gas)),
+                        comment(
+                            "               Pext                Pini                Pmax                Vinc"
+                            "                Mini"
+                        ),
+                        f20(gas.ambient_pressure) + f20(gas.initial_pressure) + f20(0) + f20(0) + f20(0),
+                        comment("    Nvent"),
+                        i10(0),
+                    ]
+                )
+            )
+
     def _type7(self, label: str, grnod_id: int, surf_id: int, friction: float):
         iid = self.ids.next("inter")
         self.blocks.append(
@@ -370,6 +438,36 @@ def _shell_elements_str(part_id: int, elements: list[Elem]) -> str:
         out.append(f"/SH3N/{part_id}")
         out += [i10(el.id) + "".join(i10(n.id) for n in el.nodes) for el in trias]
     return "\n".join(out)
+
+
+def _ambient_density(gas) -> float:
+    """``Rhoi`` of ``/MONVOL/GAS``: the starter takes the gas's ``cv`` as ``Pext / ((gamma - 1) Rhoi Tini)``
+    (``hm_read_monvol_type3``), so the density that makes it the ideal gas's ``R / (M (gamma - 1))`` is the gas's at
+    the external pressure and the initial temperature. With ``I_equi = 0`` it is not the gas's mass."""
+    return gas.ambient_pressure / (gas.specific_gas_constant * gas.initial_temperature)
+
+
+def _truss_elements_str(part_id: int, elements: list[Elem]) -> str:
+    """``/TRUSS/part_ID``: element id and its two nodes per row (``ELEM/truss.cfg``)."""
+    other = [el for el in elements if len(el.nodes) != 2]
+    if other:
+        raise IncompatibleElements(f"part {part_id}: a Radioss truss has two nodes (element {other[0].id})")
+    return "\n".join([f"/TRUSS/{part_id}"] + [i10(el.id) + "".join(i10(n.id) for n in el.nodes) for el in elements])
+
+
+def _truss_prop_str(prop_id: int, sec: FemSection) -> str:
+    """``/PROP/TRUSS``: the cross-section area and no initial gap (``PROP/prop_p2_trus.cfg``)."""
+    area = sec.area
+    if area is None or area <= 0.0:
+        raise ValueError(f"truss section {sec.name!r} has no cross-section area")
+    return "\n".join(
+        [
+            f"/PROP/TRUSS/{prop_id}",
+            title(sec.name),
+            comment("               AREA             GAP_ini"),
+            f20(area) + f20(0),
+        ]
+    )
 
 
 def _shell_prop_str(prop_id: int, sec: FemSection) -> str:
