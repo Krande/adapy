@@ -3,8 +3,11 @@
 ``<name>_0000.rad`` is the starter (model) deck and ``<name>_0001.rad`` the engine
 (run control) deck. Version 1 covers explicit shell models: 3/4-node shells, elastic
 or Johnson-Cook plastic metals, fixed BCs, initial velocities and shell-to-shell
-contact (``/INTER/TYPE7``); two-node trusses (``/PROP/TRUSS``, ``/TRUSS``); and gas-filled
-cavities (``/MONVOL/GAS`` on a ``/SURF/SEG`` of their shells). Anything else raises
+contact (``/INTER/TYPE7``); two-node trusses (``/PROP/TRUSS``, ``/TRUSS``); gas-filled
+cavities (``/MONVOL/GAS`` on a shell-group surface, with vent holes and a ``/TH/MONV``
+time history); and, from the explicit step, pressure (``/PLOAD``) and gravity (``/GRAV``)
+loads with their amplitudes as ``/FUNCT`` time curves, and mass-proportional damping
+(``/DAMP``). Anything else raises
 ``NotImplementedError`` or ``IncompatibleElements`` rather than being silently dropped --
 a membrane or cable section among them: a Radioss shell always bends, and its truss carries
 compression.
@@ -19,6 +22,7 @@ from typing import TYPE_CHECKING, Iterable
 from ada.config import logger
 from ada.fem.exceptions.element_support import IncompatibleElements
 from ada.fem.formats.utils import get_fem_model_from_assembly
+from ada.fem.loads import Load, LoadGravity, LoadPressure
 from ada.fem.shapes.definitions import ShellShapes
 from ada.fem.steps import StepExplicit
 
@@ -35,6 +39,7 @@ if TYPE_CHECKING:
         PredefinedField,
         Surface,
     )
+    from ada.fem.common import Amplitude
 
 #: Input-deck format version. The bundled keyword configuration knows 2026.
 DECK_VERSION = 2026
@@ -42,6 +47,11 @@ DECK_VERSION = 2026
 DEFAULT_ANIM_FRAMES = 50
 #: Integration points through the shell thickness.
 SHELL_NIP = 5
+#: Variables of a cavity's ``/TH/MONV`` time history, in the solver's order: gas mass, volume, (absolute)
+#: pressure, surface area, temperature, open vent area and vent outflow velocity.
+MONV_TH_VARIABLES = ("MASS", "VOL", "P", "A", "T", "AO", "UO")
+#: ``DeltaPdef`` of a vent that opens on time only (never on an over-pressure).
+VENT_NEVER_ON_PRESSURE = 1.0e30
 #: Johnson-Cook hardening exponent used when only yield and tensile strength are known.
 JC_HARDENING_EXPONENT = 0.3
 #: Plastic strain at which the Johnson-Cook curve reaches the tensile strength.
@@ -54,22 +64,23 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
     part = get_fem_model_from_assembly(assembly)
-    deck = _StarterDeck(name, part.fem, assembly.fem)
+    steps = [s for s in assembly.fem.steps + part.fem.steps if isinstance(s, StepExplicit)]
+    if len(steps) > 1:
+        logger.warning(f"OpenCourant writes one run; only the first explicit step {steps[0].name!r} is used")
+    step = steps[0] if steps else None
+    deck = _StarterDeck(name, part.fem, assembly.fem, step)
     starter_path = analysis_dir / f"{name}_0000.rad"
     starter_path.write_text(deck.render())
 
     if model_data_only:
         return starter_path
 
-    steps = [s for s in assembly.fem.steps + part.fem.steps if isinstance(s, StepExplicit)]
-    if len(steps) == 0:
+    if step is None:
         # A model without an analysis (e.g. ``ada convert --to opencourant``) is still a valid
         # starter deck; the engine deck only exists to run a step.
         logger.info("No StepExplicit on the model: wrote the OpenCourant starter deck only")
         return starter_path
-    if len(steps) > 1:
-        logger.warning(f"OpenCourant writes one run; only the first explicit step {steps[0].name!r} is used")
-    (analysis_dir / f"{name}_0001.rad").write_text(engine_deck_str(name, steps[0]))
+    (analysis_dir / f"{name}_0001.rad").write_text(engine_deck_str(name, step))
     return starter_path
 
 
@@ -93,6 +104,7 @@ def engine_deck_str(name: str, step: StepExplicit) -> str:
         "/ANIM/ELEM/EPSP",
         "/ANIM/ELEM/ENER",
         "/ANIM/SHELL/THIC",
+        "/ANIM/SHELL/TENS/STRESS/MEMB",
         "/PRINT/-100",
     ]
     if step.target_dt is not None:
@@ -112,10 +124,12 @@ class _Ids:
 
 
 class _StarterDeck:
-    def __init__(self, name: str, fem: FEM, assembly_fem: FEM):
+    def __init__(self, name: str, fem: FEM, assembly_fem: FEM, step: StepExplicit | None = None):
         self.name = name
         self.fem = fem
         self.afem = assembly_fem
+        self.step = step
+        self._funct_cache: dict[str, int] = {}
         self.ids = _Ids()
         self.blocks: list[str] = []
         self._mat_ids: dict[str, int] = {}
@@ -132,6 +146,8 @@ class _StarterDeck:
         self._initial_velocities()
         self._interactions()
         self._fluid_cavities()
+        self._step_loads()
+        self._damping()
         self.blocks.append("/END\n")
         return "\n".join(self.blocks)
 
@@ -230,6 +246,108 @@ class _StarterDeck:
         self.blocks.append("\n".join(rows))
         return sid
 
+    def _shell_group_surface(self, key: str, label: str, elements: Iterable[Elem]) -> int:
+        """A surface made of shell elements (``/SURF/GRSHEL`` / ``/SURF/GRSH3N`` on element groups). A monitored
+        volume needs one: its starter refuses a segment surface (``/SURF/SEG``) as not made of shells. The solver
+        orients the facets itself."""
+        if key in self._surf_cache:
+            return self._surf_cache[key]
+        elements = list(elements)
+        families = (
+            ("GRSHEL", "SHEL", [el for el in elements if el.type == ShellShapes.QUAD]),
+            ("GRSH3N", "SH3N", [el for el in elements if el.type == ShellShapes.TRI]),
+        )
+        other = [el for el in elements if el.type not in (ShellShapes.QUAD, ShellShapes.TRI)]
+        if other:
+            raise IncompatibleElements(f"surface {label!r}: element {other[0].id} is not a 3/4-node shell")
+        surf_ids = []
+        for group_kw, list_kw, members in families:
+            if not members:
+                continue
+            gid = self.ids.next(group_kw.lower())
+            self.blocks.append(
+                "\n".join(
+                    [f"/{group_kw}/{list_kw}/{gid}", title(f"{label}_{list_kw.lower()}")]
+                    + int_rows(el.id for el in members)
+                )
+            )
+            sid = self.ids.next("surf")
+            self.blocks.append("\n".join([f"/SURF/{group_kw}/{sid}", title(f"{label}_{list_kw.lower()}"), i10(gid)]))
+            surf_ids.append(sid)
+        if not surf_ids:
+            raise ValueError(f"surface {label!r} has no shell elements")
+        if len(surf_ids) == 1:
+            sid = surf_ids[0]
+        else:
+            sid = self.ids.next("surf")
+            self.blocks.append("\n".join([f"/SURF/SURF/{sid}", title(label)] + int_rows(surf_ids)))
+        self._surf_cache[key] = sid
+        return sid
+
+    def _pressure_segments(self, surface: Surface) -> int:
+        """``/SURF/SEG`` of a pressure load's facets. A positive ``/PLOAD`` pushes along its segment's normal (checked
+        on a pressurised sphere), while an adapy pressure pushes *into* the face it names, so each segment is wound
+        against that face: a shell's positive face reversed, its negative face as the element runs."""
+        from ada.fem.cavities import _is_reversed
+        from ada.fem.surfaces import surface_facets
+
+        key = f"pload:{surface.name}"
+        if key in self._surf_cache:
+            return self._surf_cache[key]
+        sid = self.ids.next("surf")
+        self._surf_cache[key] = sid
+        rows = [f"/SURF/SEG/{sid}", title(surface.name)]
+        for k, facet in enumerate(surface_facets(surface), start=1):
+            if not isinstance(facet.shape, ShellShapes):
+                raise NotImplementedError(
+                    f"pressure {surface.name!r}: OpenCourant pressure loads are written on shell faces "
+                    f"(element {facet.element.id} is {facet.element.type})"
+                )
+            n_corners = 3 if facet.shape == ShellShapes.TRI else 4
+            ns = [int(n) for n in facet.node_ids[:n_corners]]
+            if not _is_reversed(facet):
+                ns = ns[::-1]
+            if len(ns) == 3:
+                ns = ns + [ns[2]]
+            rows.append(i10(k) + "".join(i10(n) for n in ns))
+        self.blocks.append("\n".join(rows))
+        return sid
+
+    def _all_nodes_group(self) -> int:
+        return self._grnod("all-nodes", "all_nodes", (n.id for n in self.fem.nodes))
+
+    # ---- time curves -----------------------------------------------------------------
+    def _funct(self, amplitude: Amplitude | None) -> int:
+        """``/FUNCT`` of an amplitude (time, factor); None is a constant factor of 1. An amplitude named by its
+        string is looked up on the model."""
+        if isinstance(amplitude, str):
+            known = {**self.fem.amplitudes, **self.afem.amplitudes}
+            if amplitude not in known:
+                raise ValueError(f"amplitude {amplitude!r} is not defined on the model")
+            amplitude = known[amplitude]
+        key = "constant-one" if amplitude is None else f"amp:{amplitude.name}"
+        if key in self._funct_cache:
+            return self._funct_cache[key]
+        if amplitude is None:
+            points = [(0.0, 1.0), (1.0, 1.0)]  # extrapolated flat beyond the last point
+            label = "constant"
+        else:
+            points = list(zip(amplitude.x, amplitude.y))
+            if len(points) < 2:
+                raise ValueError(f"amplitude {amplitude.name!r} needs at least two (time, factor) points")
+            if any(b[0] <= a[0] for a, b in zip(points, points[1:])):
+                raise ValueError(f"amplitude {amplitude.name!r}: times must increase")
+            label = amplitude.name
+        fid = self.ids.next("funct")
+        self._funct_cache[key] = fid
+        self.blocks.append(
+            "\n".join(
+                [f"/FUNCT/{fid}", title(label), comment("                  X                   Y")]
+                + [f20(x) + f20(y) for x, y in points]
+            )
+        )
+        return fid
+
     # ---- loads, BCs, contact ---------------------------------------------------------
     def _all_bcs(self) -> list[Bc]:
         bcs = list(self.fem.bcs) + list(self.afem.bcs)
@@ -308,13 +426,16 @@ class _StarterDeck:
 
     def _fluid_cavities(self):
         """Each cavity as ``/MONVOL/GAS``: an adiabatic ideal gas (``p V^gamma`` constant) in the volume its surface
-        encloses, with no vents. Card layout per the 2020+ ``CONTROLVOL/monvol_gas.cfg`` (OpenRadioss reader
-        configuration) and the starter's reader (``hm_read_monvol_type3``): a scale factor of 0 takes the default, and
-        ``I_equi = 0`` takes the gas's initial state from ``Pini``, ``Tini`` and the enclosed volume.
+        encloses, vented through its :class:`~ada.fem.cavities.CavityVent` openings, with a ``/TH/MONV`` time history
+        (:data:`MONV_TH_VARIABLES`). Card layout per the 2020+ ``CONTROLVOL/monvol_gas.cfg`` (OpenRadioss reader
+        configuration) and the starter's reader (``hm_read_monvol_type3``): a scale factor of 0 takes the default,
+        ``I_equi = 0`` takes the gas's initial state from ``Pini``, ``Tini`` and the enclosed volume, and ``Mini`` is
+        the gas's mass -- the vents' outflow density is ``Mini / V``, so a zero mass would vent at an unbounded speed.
         """
         from ada.config import logger
 
         cavities = list(self.fem.fluid_cavities.values()) + list(self.afem.fluid_cavities.values())
+        monvol_ids = []
         for cav in cavities:
             gas = cav.gas
             if not gas.adiabatic:
@@ -333,11 +454,26 @@ class _StarterDeck:
                 )
             if cav.additional_volume > 0.0:
                 raise NotImplementedError(f"fluid cavity {cav.name!r}: an additional volume has no /MONVOL/GAS field")
-            sid = self._surface(f"cavity:{cav.name}", f"{cav.name}_surf", cav.shell_elements())
+            sid = self._shell_group_surface(f"cavity:{cav.name}", f"{cav.name}_surf", cav.shell_elements())
+            mass = gas.mass(cav.volume())
+            vent_rows = []
+            for vent in cav.vents:
+                vent_rows += [
+                    comment(" surf_IDv               Avent                      Ideleted"),
+                    i10(0) + f20(vent.area) + " " * 20 + i10(0),
+                    comment("              Tvent           DeltaPdef          DeltatPdef"),
+                    f20(vent.open_time) + f20(VENT_NEVER_ON_PRESSURE) + f20(0),
+                    comment(
+                        "  fct_IDt   fct_IDP   fct_IDA                       Fscalet             FscaleP             FscaleA"
+                    ),
+                    i10(0) + i10(0) + i10(0) + " " * 10 + f20(0) + f20(0) + f20(0),
+                ]
+            monvol_id = self.ids.next("monvol")
+            monvol_ids.append(monvol_id)
             self.blocks.append(
                 "\n".join(
                     [
-                        f"/MONVOL/GAS/{self.ids.next('monvol')}",
+                        f"/MONVOL/GAS/{monvol_id}",
                         title(cav.name),
                         comment("surf_IDex    I_equi"),
                         i10(sid) + i10(0),
@@ -355,12 +491,99 @@ class _StarterDeck:
                             "               Pext                Pini                Pmax                Vinc"
                             "                Mini"
                         ),
-                        f20(gas.ambient_pressure) + f20(gas.initial_pressure) + f20(0) + f20(0) + f20(0),
+                        f20(gas.ambient_pressure) + f20(gas.initial_pressure) + f20(0) + f20(0) + f20(mass),
                         comment("    Nvent"),
-                        i10(0),
+                        i10(len(cav.vents)),
                     ]
+                    + vent_rows
                 )
             )
+        if monvol_ids:
+            self.blocks.append(
+                "\n".join(
+                    [
+                        f"/TH/MONV/{self.ids.next('th_monv')}",
+                        title("fluid cavities"),
+                        comment("      var       var       var       var       var       var       var"),
+                        "".join(f"{v:<10s}" for v in MONV_TH_VARIABLES),
+                        comment("      Obj"),
+                    ]
+                    + int_rows(monvol_ids)
+                )
+            )
+
+    def _step_loads(self):
+        """The explicit step's loads: ``/PLOAD`` on a segment surface per pressure, ``/GRAV`` on every node per gravity
+        load, each scaled in time by its amplitude's ``/FUNCT`` (constant without one)."""
+        if self.step is None:
+            return
+        loads: list[Load] = list(self.step.loads)
+        for load in loads:
+            fid = self._funct(load.amplitude)
+            if isinstance(load, LoadPressure):
+                if load.distribution != LoadPressure.P_DIST_TYPES.UNIFORM:
+                    raise NotImplementedError(f"pressure {load.name!r}: only a uniform pressure is supported")
+                sid = self._pressure_segments(load.surface)
+                self.blocks.append(
+                    "\n".join(
+                        [
+                            f"/PLOAD/{self.ids.next('load')}",
+                            title(load.name),
+                            comment(
+                                "  surf_ID  functIDT sensor_ID    Ipinch      Idel   Itypfun            Ascale_x"
+                                "            Fscale_y"
+                            ),
+                            i10(sid) + i10(fid) + i10(0) + i10(0) + i10(0) + i10(0) + f20(0) + f20(load.magnitude),
+                        ]
+                    )
+                )
+            elif isinstance(load, LoadGravity) or load.type == Load.TYPES.GRAVITY:
+                dofs = [int(i) for i, d in enumerate(load.dof or [0, 0, 1], start=1) if d]
+                if len(dofs) != 1 or dofs[0] > 3:
+                    raise NotImplementedError(f"gravity {load.name!r}: one translational direction is supported")
+                gid = self._all_nodes_group()
+                self.blocks.append(
+                    "\n".join(
+                        [
+                            f"/GRAV/{self.ids.next('load')}",
+                            title(load.name),
+                            comment(
+                                "funct_IDT       DIR   skew_ID sensor_ID  grnod_ID                      Ascale_x"
+                                "            Fscale_Y"
+                            ),
+                            i10(fid)
+                            + f"{'XYZ'[dofs[0] - 1]:>10s}"
+                            + i10(0)
+                            + i10(0)
+                            + i10(gid)
+                            + " " * 10
+                            + f20(0)
+                            + f20(load.magnitude),
+                        ]
+                    )
+                )
+            else:
+                raise NotImplementedError(
+                    f"load {load.name!r} ({load.type}): the OpenCourant writer supports pressure and gravity loads"
+                )
+
+    def _damping(self):
+        """``/DAMP``: mass-proportional Rayleigh damping (``alpha``) on every node over the whole run."""
+        if self.step is None or not self.step.mass_damping:
+            return
+        gid = self._all_nodes_group()
+        self.blocks.append(
+            "\n".join(
+                [
+                    f"/DAMP/{self.ids.next('damp')}",
+                    title(f"{self.step.name}_damping"),
+                    comment(
+                        "              Alpha                Beta  grnod_id   skew_id              Tstart               Tstop"
+                    ),
+                    f20(self.step.mass_damping) + f20(0) + i10(gid) + i10(0) + f20(0) + f20(0),
+                ]
+            )
+        )
 
     def _type7(self, label: str, grnod_id: int, surf_id: int, friction: float):
         iid = self.ids.next("inter")

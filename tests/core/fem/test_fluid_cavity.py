@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import ada
-from ada.fem import Elem, FemSet, FluidCavity, IdealGas, Surface
+from ada.fem import CavityVent, Elem, FemSet, FluidCavity, IdealGas, Surface
 from ada.fem.cavities import (
     UNIVERSAL_GAS_CONSTANT,
     check_closed,
@@ -220,12 +220,15 @@ def test_abaqus_writes_an_isothermal_cavity_without_the_adiabatic_flag(tmp_path)
 
 
 def test_opencourant_writes_a_monvol_gas(tmp_path):
-    a, _, _ = _box_with_cavity(adiabatic=True)
+    a, p, _ = _box_with_cavity(adiabatic=True)
     a.to_fem("cav", "opencourant", scratch_dir=tmp_path, overwrite=True)
     deck = (tmp_path / "cav" / "cav_0000.rad").read_text()
-    surf = deck.split("/SURF/SEG/1\n")[1].splitlines()
-    assert surf[0] == "cav_surf"
-    assert [int(surf[1][i : i + 10]) for i in range(0, 50, 10)] == [1, 1, 4, 3, 2]
+    # a monitored volume needs a surface made of shells: a group of the box's quads, not a segment list
+    group = deck.split("/GRSHEL/SHEL/1\n")[1].splitlines()
+    assert group[0] == "cav_surf_shel"
+    assert [int(group[1][i : i + 10]) for i in range(0, 60, 10)] == [1, 2, 3, 4, 5, 6]
+    assert "/SURF/GRSHEL/1\ncav_surf_shel\n         1" in deck
+    assert "/SURF/SEG/" not in deck
     rows = [r for r in deck.split("/MONVOL/GAS/1\n")[1].splitlines() if not r.startswith("#")]
     assert rows[0] == "cav"
     assert [int(rows[1][i : i + 10]) for i in (0, 10)] == [1, 0]  # surf_IDex, I_equi
@@ -233,8 +236,39 @@ def test_opencourant_writes_a_monvol_gas(tmp_path):
     gas = _gas(adiabatic=True)
     rho_ext = 101_325.0 * AIR / (UNIVERSAL_GAS_CONSTANT * 293.15)
     assert f20(rows[3]) == pytest.approx([1.4, 0.0, 0.0, 293.15, rho_ext])
-    assert f20(rows[4]) == pytest.approx([101_325.0, gas.initial_pressure, 0.0, 0.0, 0.0])
+    # Mini is the gas's mass: the vents' outflow density is Mini / V
+    mass = gas.initial_density * 24.0
+    assert f20(rows[4]) == pytest.approx([101_325.0, gas.initial_pressure, 0.0, 0.0, mass])
     assert int(rows[5]) == 0  # no vents
+    th = deck.split("/TH/MONV/1\n")[1].splitlines()
+    assert th[2].split() == ["MASS", "VOL", "P", "A", "T", "AO", "UO"]
+    assert int(th[4]) == 1
+
+
+def test_opencourant_writes_a_cavity_vent(tmp_path):
+    a, p, fs = closed_box(theory="shell")
+    vent = CavityVent(area=0.05, open_time=0.2)
+    p.fem.add_fluid_cavity(FluidCavity("cav", fs, ada.Node((1.0, 1.5, 2.0)), _gas(adiabatic=True), vents=[vent]))
+    a.to_fem("cav", "opencourant", scratch_dir=tmp_path, overwrite=True)
+    deck = (tmp_path / "cav" / "cav_0000.rad").read_text()
+    rows = [r for r in deck.split("/MONVOL/GAS/1\n")[1].split("/TH/")[0].splitlines() if not r.startswith("#")]
+    assert int(rows[5]) == 1
+    assert int(rows[6][:10]) == 0 and float(rows[6][10:30]) == pytest.approx(0.05)  # area, no vent surface
+    # opens at its time only, never on an over-pressure
+    assert [float(rows[7][i : i + 20]) for i in (0, 20)] == pytest.approx([0.2, 1.0e30])
+
+
+def test_a_vent_needs_an_area_and_a_time_not_before_the_start(tmp_path):
+    with pytest.raises(ValueError):
+        CavityVent(area=0.0)
+    with pytest.raises(ValueError):
+        CavityVent(area=0.1, open_time=-1.0)
+    a, p, fs = closed_box()
+    p.fem.add_fluid_cavity(FluidCavity("vented", fs, ada.Node((0, 0, 0)), _gas(), vents=[CavityVent(0.1)]))
+    with pytest.raises(NotImplementedError):  # the Abaqus writer has no fluid exchange for a vent yet
+        a.to_fem("cav", "abaqus", scratch_dir=tmp_path, overwrite=True)
+    with pytest.raises(TypeError):
+        FluidCavity("cav", fs, ada.Node((0, 0, 0)), _gas(), vents=[0.1])
 
 
 @pytest.mark.parametrize("fem_format", ["calculix", "code_aster", "sesam", "usfos"])

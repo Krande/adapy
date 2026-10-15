@@ -112,6 +112,27 @@ class IdealGas:
         return self.initial_temperature * (initial_volume / volume) ** (self.gamma - 1.0)
 
 
+@dataclass(frozen=True)
+class CavityVent:
+    """An opening through which a cavity's gas escapes to the ambient pressure -- a vent hole, a relief port, a tear.
+
+    The outflow is isentropic through ``area`` (choked when the pressure ratio exceeds the critical one); a discharge
+    coefficient goes into the area.
+
+    :param area: effective (discharge) area of the opening, m^2.
+    :param open_time: analysis time at which the opening appears, s. Closed before.
+    """
+
+    area: float
+    open_time: float = 0.0
+
+    def __post_init__(self):
+        if self.area <= 0.0:
+            raise ValueError("a vent's area must be positive (m^2)")
+        if self.open_time < 0.0:
+            raise ValueError("a vent's open_time cannot be negative (s)")
+
+
 #: What a cavity is bounded by: an element-based ``Surface``, or an element set of shells (or membranes).
 CavityRegion = Union[Surface, FemSet]
 
@@ -128,6 +149,7 @@ class FluidCavity(FemBase):
     :param gas: the gas and its initial state.
     :param additional_volume: volume of gas outside the meshed surface that is connected to it (piping, a
         reservoir), m^3.
+    :param vents: openings the gas escapes through (:class:`CavityVent`); none by default, so the gas's mass is fixed.
     """
 
     def __init__(
@@ -137,6 +159,7 @@ class FluidCavity(FemBase):
         ref_node: Node,
         gas: IdealGas,
         additional_volume: float = 0.0,
+        vents: Iterable[CavityVent] = (),
         metadata: dict | None = None,
         parent: FEM | None = None,
     ):
@@ -151,6 +174,10 @@ class FluidCavity(FemBase):
         self._ref_node = ref_node
         self._gas = gas
         self._additional_volume = float(additional_volume)
+        self._vents = tuple(vents)
+        for vent in self._vents:
+            if not isinstance(vent, CavityVent):
+                raise TypeError(f"FluidCavity {name!r}: vents are CavityVent objects, got {type(vent).__name__}")
 
     @property
     def surface(self) -> CavityRegion:
@@ -167,6 +194,10 @@ class FluidCavity(FemBase):
     @property
     def additional_volume(self) -> float:
         return self._additional_volume
+
+    @property
+    def vents(self) -> tuple[CavityVent, ...]:
+        return self._vents
 
     def volume(self) -> float:
         """The volume the cavity holds in the undeformed mesh: what the surface encloses plus ``additional_volume``."""

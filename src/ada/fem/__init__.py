@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .base import FEM
-from .cavities import FluidCavity, IdealGas
+from .cavities import CavityVent, FluidCavity, IdealGas
 from .common import Amplitude, Csys
 from .constraints import Bc, Constraint, PredefinedField
 from .elements import Connector, Elem, Mass, Spring
@@ -60,6 +60,7 @@ __all__ = [
     "LoadCase",
     "FemSection",
     "Spring",
+    "CavityVent",
     "FluidCavity",
     "IdealGas",
     "LineTheory",

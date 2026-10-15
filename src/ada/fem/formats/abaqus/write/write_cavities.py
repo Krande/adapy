@@ -47,6 +47,11 @@ def fluid_cavities_str(fem: FEM, on_assembly_level: bool) -> str:
         return "** No Fluid Cavities"
     blocks = []
     for cavity in fem.fluid_cavities.values():
+        if cavity.vents:
+            raise NotImplementedError(
+                f"fluid cavity {cavity.name!r}: the Abaqus writer has no fluid exchange for its vents yet; "
+                "write it to OpenCourant, or leave the vents out"
+            )
         if isinstance(cavity.surface, FemSet):
             set_ref = get_instance_name(cavity.surface, on_assembly_level)
             blocks.append(

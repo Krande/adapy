@@ -108,6 +108,9 @@ class Step(FemBase):
         if isinstance(load, LoadPressure):
             if load.surface.parent is None:
                 self.parent.add_surface(load.surface)
+        # an amplitude may also be named by its string (as the readers leave it)
+        if getattr(load.amplitude, "parent", True) is None and self.parent is not None:
+            self.parent.add_amplitude(load.amplitude)
         load.parent = self
         self._loads.append(load)
 
@@ -289,6 +292,9 @@ class StepExplicit(Step):
         the writer pick a default (about 50 frames over ``total_time``).
     :param target_dt: Target stable time step for selective mass scaling. ``None`` disables
         mass scaling, so the solver runs at the element-governed stable time step.
+    :param mass_damping: Mass-proportional (Rayleigh ``alpha``) damping on every node, 1/s. It damps a mode of
+        circular frequency ``w`` at the ratio ``alpha / (2 w)``; a large value turns a slow load ramp into a
+        quasi-static solution. ``None`` adds no damping.
     """
 
     def __init__(
@@ -297,12 +303,15 @@ class StepExplicit(Step):
         total_time: float = None,
         output_interval: float = None,
         target_dt: float = None,
+        mass_damping: float = None,
         nl_geom=False,
         solver_options: StepSolverOptions = StepSolverOptions(),
         use_default_outputs=True,
         metadata=None,
         parent: "FEM" = None,
     ):
+        if mass_damping is not None and mass_damping < 0.0:
+            raise ValueError(f"explicit step {name!r}: mass_damping cannot be negative")
         super(StepExplicit, self).__init__(
             name,
             Step.TYPES.EXPLICIT,
@@ -315,6 +324,7 @@ class StepExplicit(Step):
         )
         self.output_interval = output_interval
         self.target_dt = target_dt
+        self.mass_damping = mass_damping
 
 
 class StepEigen(Step):
