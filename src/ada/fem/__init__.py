@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from .base import FEM
+from .cavities import FluidCavity, IdealGas
 from .common import Amplitude, Csys
 from .constraints import Bc, Constraint, PredefinedField
 from .elements import Connector, Elem, Mass, Spring
+from .formulations import LineTheory, ShellTheory
 from .interactions import Interaction, InteractionProperty
+from .interface_mesh import InterfaceMesh, interface_mesh
 from .loads import (
     LineLoadSegment,
     Load,
@@ -57,4 +60,10 @@ __all__ = [
     "LoadCase",
     "FemSection",
     "Spring",
+    "FluidCavity",
+    "IdealGas",
+    "LineTheory",
+    "ShellTheory",
+    "InterfaceMesh",
+    "interface_mesh",
 ]
