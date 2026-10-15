@@ -47,10 +47,12 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
     # participation factors (global axes) the writer dumped next to the
     # .rmed, so they surface through FEAResult.get_eig_summary.
     eigen_mode_data = None
-    if mr.is_eigen_analysis:
+    if "eigen" in (mr.field_kinds or {}).values():
         from ada.fem.formats.code_aster.results.results import get_eigen_data
 
         eigen_mode_data = get_eigen_data(rmed_file)
+
+    from ada.fem.formats.code_aster.results.analysis_kind import result_kind
 
     return FEAResult(
         rmed_file.stem,
@@ -60,6 +62,7 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
         results_file_path=rmed_file,
         software_version=software_version,
         eigen_mode_data=eigen_mode_data,
+        analysis_kind=result_kind((mr.field_kinds or {}).values()),
     )
 
 
@@ -73,6 +76,8 @@ class MedReader:
 
     _dim: int = None
     is_eigen_analysis: bool = False
+    #: ``{MED field name: "static" | "eigen" | "transient"}`` (:mod:`.analysis_kind`).
+    field_kinds: dict = None
 
     def __post_init__(self):
         if isinstance(self.rmed_file, str):
@@ -138,8 +143,12 @@ class MedReader:
         return blocks
 
     def get_results(self) -> list[ElementFieldData | NodalFieldData]:
+        from .analysis_kind import companion_commands, field_kind
+
         fields = self.f.get("CHA")
         results = []
+        commands = companion_commands(self.rmed_file)
+        self.field_kinds = {}
 
         for name, data in fields.items():
             nom = data.attrs.get("NOM")
@@ -167,8 +176,11 @@ class MedReader:
                 # step 999.999 when this applied to two cases or more only.
                 time_steps = [int(data[key].attrs["NDT"]) for key in time_step]
 
-            if name == "modes___DEPL":
-                self.is_eigen_analysis = True
+            pdts = [float(data[key].attrs["PDT"]) for key in time_step]
+            kind = self.field_kinds[name] = field_kind(name, pdts, commands)
+            # A mode's PDT is its frequency. Per field: a deck of a static and an eigen step prints both, and the
+            # static fields are no modes.
+            self.is_eigen_analysis = kind == "eigen"
 
             # MED field can contain multiple types of data
             for i, key in enumerate(time_step):
