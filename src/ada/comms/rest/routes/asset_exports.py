@@ -1364,14 +1364,19 @@ async def api_search_export_skip(
     return JSONResponse({"skip_requested": position})
 
 
-def rerun_plan(run: dict) -> list[tuple[int, str, str, list[dict], int]]:
+#: Item outcomes a re-run retries only when asked to: the item finished, but not every file came out.
+FAILED_ITEM_STATES = ("partial", "error")
+
+
+def rerun_plan(run: dict, *, retry_failed: bool = True) -> list[tuple[int, str, str, list[dict], int]]:
     """``[(position, provider, collection, hits, carried_written)]``: what a re-run drives -- every
-    item not ``done``. A merged item is driven whole (its one file holds every hit); otherwise only
-    the hits without a written file, counting in the ones the item wrote."""
+    item that did not finish, and with ``retry_failed`` every item not ``done``. A merged item is
+    driven whole (its one file holds every hit); otherwise only the hits without a written file,
+    counting in the ones the item wrote."""
     merged = bool((run.get("options") or {}).get("merge"))
     plan = []
     for item in run.get("items") or ():
-        if item.get("status") == "done":
+        if item.get("status") == "done" or (not retry_failed and item.get("status") in FAILED_ITEM_STATES):
             continue
         hits = list(item.get("hit_rows") or ())
         carried = 0
@@ -1393,11 +1398,14 @@ async def api_search_export_rerun(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Re-export what a finished run did not write, into the same run, folder and files
-    (:func:`rerun_plan`). Idempotent: a running run, or one with nothing left to write, is answered
+    """Body ``{retry_failed}`` (default true). Drive a run again over what it did not finish -- and,
+    with ``retry_failed``, what it did not write -- into the same run, folder and files
+    (:func:`rerun_plan`). Idempotent: a running run, or one with nothing left to do, is answered
     as it is, with ``rerun: false`` and why. A mesh run requests fresh trees when the user may."""
     pool = require_pool(request)
     ctx.jobs.require("export_search")
+    body = await request.json() if await request.body() else {}
+    retry_failed = not (isinstance(body, dict) and body.get("retry_failed") is False)
     run = await db_module.get_asset_export_run(pool, run_id, with_hits=True)
     if run is None or run["scope"] != scope_obj.prefix():
         raise HTTPException(status_code=404, detail="export run not found")
@@ -1408,9 +1416,13 @@ async def api_search_export_rerun(
 
     if run["status"] == "running":
         return answer(False, "the export is running")
-    plan = rerun_plan(run)
+    plan = rerun_plan(run, retry_failed=retry_failed)
     if not plan:
-        return answer(False, "nothing to re-export: every file was written")
+        if retry_failed:
+            return answer(False, "nothing to re-export: every file was written")
+        return answer(
+            False, "nothing unfinished: every item ran to the end (tick 'Retry failed' to retry its failures)"
+        )
     try:
         target = await _writable_scope(pool, run["target_scope"], user)
     except ExportRefused as exc:

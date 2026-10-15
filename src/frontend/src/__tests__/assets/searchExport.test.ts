@@ -535,4 +535,7 @@ test("a finished run with an item not done can be re-run; a running one cannot",
     assert.equal(rerunnable({status: "done", counts: {done: 2, partial: 1}}), true);
     assert.equal(rerunnable({status: "interrupted", counts: {done: 1, running: 1}}), true);
     assert.equal(rerunnable({status: "running", counts: {error: 1}}), false);
+    // Without retrying failures, only items that did not run to the end.
+    assert.equal(rerunnable({status: "done", counts: {done: 2, partial: 1, error: 1}}, false), false);
+    assert.equal(rerunnable({status: "interrupted", counts: {partial: 1, pending: 2}}, false), true);
 });

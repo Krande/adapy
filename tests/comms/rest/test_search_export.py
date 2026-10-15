@@ -725,6 +725,8 @@ def test_a_rerun_drives_only_what_was_not_written():
     merged = ex.rerun_plan(_run_with_items(merge=True))
     assert [(pos, len(hs), n) for pos, _, _, hs, n in merged] == [(1, 3, 0), (2, 3, 0), (3, 2, 0)]
     assert ex.rerun_plan({"options": {}, "items": [{"position": 0, "status": "done", "hit_rows": [{}]}]}) == []
+    # Without retrying failures, only what did not run to the end.
+    assert [pos for pos, *_ in ex.rerun_plan(_run_with_items(), retry_failed=False)] == [3]
 
 
 def test_a_rerun_merges_into_the_folder_index_and_counts_what_was_written(export_world):
@@ -765,7 +767,7 @@ def test_the_index_replaces_a_rewritten_file_in_place():
     assert [(f["file"], f.get("hits")) for f in doc["files"]] == [("x.glb", 3), ("y.glb", None)]
 
 
-def _rerun(monkeypatch, run, *, restarted=True):
+def _rerun(monkeypatch, run, *, restarted=True, body=None):
     from fastapi import HTTPException  # noqa: F401 - the route raises it
 
     spawned, restarts = [], []
@@ -790,7 +792,9 @@ def _rerun(monkeypatch, run, *, restarted=True):
     monkeypatch.setattr(ex, "spawn", lambda coro, name: (spawned.append(coro), coro.close()))
     ctx = SimpleNamespace(jobs=SimpleNamespace(require=lambda f: None), storage=_Store())
     out = asyncio.run(
-        ex.api_search_export_rerun("shared", "run-1", _Request({}), scope_obj=Scope.shared(), user=None, ctx=ctx)
+        ex.api_search_export_rerun(
+            "shared", "run-1", _Request(body or {}), scope_obj=Scope.shared(), user=None, ctx=ctx
+        )
     )
     return json.loads(out.body), spawned, restarts
 
@@ -825,6 +829,15 @@ def test_rerunning_a_complete_run_does_nothing(monkeypatch):
     run["items"] = [run["items"][0]]
     body, spawned, restarts = _rerun(monkeypatch, run)
     assert body["rerun"] is False and "nothing to re-export" in body["reason"] and not spawned and not restarts
+
+
+def test_a_rerun_without_retrying_failures_resumes_only_the_unfinished(monkeypatch):
+    _, spawned, restarts = _rerun(monkeypatch, _stored_run(), body={"retry_failed": False})
+    assert restarts == [[3]] and len(spawned) == 1
+    run = _stored_run()
+    run["items"] = run["items"][:3]  # done, partial, error: all ran to the end
+    body, spawned, restarts = _rerun(monkeypatch, run, body={"retry_failed": False})
+    assert body["rerun"] is False and "Retry failed" in body["reason"] and not spawned and not restarts
 
 
 def test_item_outcomes():

@@ -9,8 +9,8 @@
 // ACTIONS. Cancel stops the whole run. Skip gives up on ONE running item and lets the rest go on
 // -- offered per running item, since up to four run at once. "Open in gallery" walks the folder the
 // run wrote, in its export order (`openFolderInGallery`), switching to the target scope if needed.
-// "Re-run failures" drives the same run again over what it did not write; the server makes it
-// idempotent. A file that did not come out (no geometry, or an error) is listed under its item, expandable.
+// "Rerun" drives the same run again over what did not finish -- with "Retry failed", also over what
+// did not write every file; the server makes it idempotent. A file that did not come out (no geometry, or an error) is listed under its item, expandable.
 
 import React, {useCallback, useEffect, useRef, useState} from "react";
 
@@ -278,8 +278,11 @@ const SearchExportRuns: React.FC<{
         return () => clearInterval(t);
     }, [running, expanded, openId, load, openRun]);
 
-    /** The run whose re-run is being asked for: one request per click. */
+    /** The run whose rerun is being asked for: one request per click. */
     const [rerunning, setRerunning] = useState<string | null>(null);
+    /** Per run, whether a rerun also retries failed items (default yes). */
+    const [retry, setRetry] = useState<Record<string, boolean>>({});
+    const retryFailed = (id: string) => retry[id] ?? true;
     const act = async (fn: () => Promise<unknown>, id: string) => {
         try {
             await fn();
@@ -349,22 +352,36 @@ const SearchExportRuns: React.FC<{
                                     )}
                                     {r.skip_position != null && r.status === "running" && <span className="text-amber-300">skipping…</span>}
                                     {rerunnable(r) && (
-                                        <button
-                                            type="button"
-                                            className={BTN}
-                                            disabled={rerunning === r.id}
-                                            title="Export again only what this run did not write, into the same folder (a mesh run asks for fresh trees first)"
-                                            onClick={() => {
-                                                setRerunning(r.id);
-                                                void act(async () => {
-                                                    const out = await searchExportApi.rerunSearchExport(scope, r.id);
-                                                    if (out.rerun) trackExport(scope, r.id, `Re-run ${r.target_scope}/${r.target_folder}`);
-                                                    else if (out.reason) throw new Error(out.reason);
-                                                }, r.id).finally(() => setRerunning(null));
-                                            }}
-                                        >
-                                            Re-run failures
-                                        </button>
+                                        <span className="inline-flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                className={BTN}
+                                                disabled={rerunning === r.id || !rerunnable(r, retryFailed(r.id))}
+                                                title={
+                                                    retryFailed(r.id)
+                                                        ? "Run again what did not finish and what did not write every file, into the same folder (a mesh run asks for fresh trees first)"
+                                                        : "Run again only what did not finish, into the same folder"
+                                                }
+                                                onClick={() => {
+                                                    setRerunning(r.id);
+                                                    void act(async () => {
+                                                        const out = await searchExportApi.rerunSearchExport(scope, r.id, retryFailed(r.id));
+                                                        if (out.rerun) trackExport(scope, r.id, `Rerun ${r.target_scope}/${r.target_folder}`);
+                                                        else if (out.reason) throw new Error(out.reason);
+                                                    }, r.id).finally(() => setRerunning(null));
+                                                }}
+                                            >
+                                                Rerun
+                                            </button>
+                                            <label className="inline-flex items-center gap-1 text-gray-400" title="Also retry items that finished without writing every file">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={retryFailed(r.id)}
+                                                    onChange={(e) => setRetry((cur) => ({...cur, [r.id]: e.target.checked}))}
+                                                />
+                                                Retry failed
+                                            </label>
+                                        </span>
                                     )}
                                     <button
                                         type="button"

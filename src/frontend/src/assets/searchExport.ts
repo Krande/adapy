@@ -155,10 +155,16 @@ export function meshPrompt(pre: MeshPreflight): MeshPrompt {
   };
 }
 
-/** Whether a run has items a re-run would drive: finished, with any item not `done`. */
-export function rerunnable(run: Pick<ExportRun, "status" | "counts">): boolean {
+/** Item outcomes that ran to the end without writing every file: a rerun retries them only when asked. */
+const FAILED_ITEM_STATES = new Set(["partial", "error"]);
+
+/** Whether a rerun would drive anything: the run is not running and has an item that did not
+ *  finish -- or, with `retryFailed`, any item not `done`. */
+export function rerunnable(run: Pick<ExportRun, "status" | "counts">, retryFailed = true): boolean {
   if (run.status === "running") return false;
-  return Object.entries(run.counts ?? {}).some(([status, n]) => status !== "done" && (n ?? 0) > 0);
+  return Object.entries(run.counts ?? {}).some(
+    ([status, n]) => status !== "done" && (retryFailed || !FAILED_ITEM_STATES.has(status)) && (n ?? 0) > 0,
+  );
 }
 
 /** "logins: 1 (adopted ×4)" from an item's request jobs: how many opened a session of their own,

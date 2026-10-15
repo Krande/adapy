@@ -424,10 +424,18 @@ export const searchExportApi = {
     return jsonOrThrow(r, "cancelSearchExport");
   },
 
-  /** Re-export what the run did not write, into the same run and folder. Idempotent: a running run,
-   *  or one with nothing left, answers `rerun: false` with why. */
-  async rerunSearchExport(scope: ScopeUrl, runId: string): Promise<ExportRun & { rerun: boolean; reason: string | null }> {
-    const r = await authedFetch(`${exportBase(scope)}/runs/${encodeURIComponent(runId)}/rerun`, post());
+  /** Drive the run again over what it did not finish -- and, with `retryFailed`, what it did not
+   *  write -- into the same run and folder. Idempotent: a running run, or one with nothing left,
+   *  answers `rerun: false` with why. */
+  async rerunSearchExport(
+    scope: ScopeUrl,
+    runId: string,
+    retryFailed = true,
+  ): Promise<ExportRun & { rerun: boolean; reason: string | null }> {
+    const r = await authedFetch(
+      `${exportBase(scope)}/runs/${encodeURIComponent(runId)}/rerun`,
+      post({ retry_failed: retryFailed }),
+    );
     return jsonOrThrow(r, "rerunSearchExport");
   },
 
