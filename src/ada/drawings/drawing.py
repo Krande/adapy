@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -23,8 +24,16 @@ from ada.drawings.annotations import (
 )
 from ada.drawings.linework import Linework, LineworkOptions, get_linework_backend
 from ada.drawings.scene import BeamStyle, DrawingItem, collect, sphere_mesh
-from ada.drawings.svg import GroupStyle, SheetContent, write_svg
-from ada.drawings.view import Projector, SectionPlane, Units, View, ViewName, pick_scale
+from ada.drawings.svg import GroupStyle, SheetContent, write_composite_svg, write_svg
+from ada.drawings.view import (
+    Projector,
+    SectionPlane,
+    Units,
+    View,
+    ViewName,
+    pick_scale,
+    scale_label,
+)
 
 
 @dataclass
@@ -107,6 +116,7 @@ class Drawing:
         self._sources.append(_Source(objects, group, beam_style))
         self._items = None
         self._linework = None
+        self._scale_used = None
         return self
 
     def annotate(self, *annotations: Annotation | SheetItem) -> "Drawing":
@@ -134,14 +144,21 @@ class Drawing:
 
     # ------------------------------------------------------------------------------- geometry
     def items(self) -> list[DrawingItem]:
+        """The drawable items, tessellated to about 0.1 mm on paper at the drawing's scale."""
         if self._items is None:
-            self.skipped = []
-            items: list[DrawingItem] = []
-            for src in self._sources:
-                bs = src.beam_style or self.beam_style
-                items += collect(src.objects, src.group, bs, -1.0, self.skipped)
-            self._items = items
+            if self.scale is None and self._scale_used is None:
+                self._items = self._collect(-1.0)  # the kernel's default, to size the drawing
+                _ = self.scale_used
+            self._items = self._collect(0.1 / self.projector().k)
         return self._items
+
+    def _collect(self, deflection: float) -> list[DrawingItem]:
+        self.skipped = []
+        items: list[DrawingItem] = []
+        for src in self._sources:
+            bs = src.beam_style or self.beam_style
+            items += collect(src.objects, src.group, bs, deflection, self.skipped)
+        return items
 
     def _screen_extent(self) -> tuple[np.ndarray, np.ndarray]:
         pts = []
@@ -238,7 +255,7 @@ class Drawing:
                 PathPrim(np.array([[2, 2], [w - 2, 2], [w - 2, h - 2], [2, h - 2]]), "sheet-frame", True)
             )
         sheet.css = "\n".join(st.css(g) for g, st in self.styles.items())
-        sheet.metadata = {"scale": f"1:{_scale_text(self.scale_used)}", "units": self.units}
+        sheet.metadata = {"scale": scale_label(self.scale_used), "units": self.units}
         if self.view.name:
             sheet.metadata["view"] = self.view.name
         return sheet
@@ -270,7 +287,7 @@ class Drawing:
         bars = [s for s in self.sheet_items if isinstance(s, ScaleBar)]
         captions = [s for s in self.sheet_items if isinstance(s, Caption)]
         blocks = [s for s in self.sheet_items if isinstance(s, TitleBlock)]
-        scale_txt = f"1:{_scale_text(self.scale_used)}"
+        scale_txt = scale_label(self.scale_used)
         for sb in bars:
             width = float(hi[0] - lo[0])
             length = sb.length or nice_length(0.25 * max(width, 20.0) / pr.k)
@@ -341,11 +358,46 @@ def _bounds(content, prims) -> tuple[np.ndarray, np.ndarray]:
     return lo, hi
 
 
-def _scale_text(s: float) -> str:
-    return str(int(s)) if abs(s - round(s)) < 1e-9 else f"{s:g}"
-
-
 def _num(v: float) -> str:
     if abs(v - round(v)) < 1e-9:
         return str(int(round(v)))
     return f"{v:g}" if v >= 0.01 else f"{v:.3g}"
+
+
+class Sheet:
+    """Several drawings on one SVG sheet, side by side (``"row"``) or stacked (``"column"``),
+    e.g. a general arrangement next to a section detail at a larger scale. Each drawing keeps
+    its own scale, caption and annotations."""
+
+    def __init__(
+        self,
+        name: str,
+        drawings: list[Drawing],
+        layout: Literal["row", "column"] = "row",
+        align: Literal["start", "center", "end"] = "center",
+        gap: float = 10.0,
+    ):
+        self.name = name
+        self.drawings = list(drawings)
+        self.layout = layout
+        self.align = align
+        self.gap = gap
+
+    def to_svg(self, path: str | pathlib.Path | None = None) -> str:
+        sheets = [d.sheet() for d in self.drawings]
+        row = self.layout == "row"
+        across = max((s.height if row else s.width) for s in sheets) if sheets else 0.0
+        placed, pos = [], 0.0
+        for s in sheets:
+            extent = s.height if row else s.width
+            off = {"start": 0.0, "center": 0.5 * (across - extent), "end": across - extent}[self.align]
+            placed.append((s, pos, off) if row else (s, off, pos))
+            pos += (s.width if row else s.height) + self.gap
+        total = max(pos - self.gap, 0.0)
+        w, h = (total, across) if row else (across, total)
+        svg = write_composite_svg(placed, w, h, self.name)
+        if path is not None:
+            p = pathlib.Path(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(svg, encoding="utf-8")
+        return svg

@@ -34,7 +34,7 @@ from ada.drawings.annotations import (
     Text,
     TitleBlock,
 )
-from ada.drawings.drawing import Drawing
+from ada.drawings.drawing import Drawing, Sheet
 from ada.drawings.linework import (
     Linework,
     LineworkBackend,
@@ -58,6 +58,7 @@ __all__ = [
     "ScaleBar",
     "SectionPlane",
     "SectionSymbol",
+    "Sheet",
     "Text",
     "TitleBlock",
     "View",

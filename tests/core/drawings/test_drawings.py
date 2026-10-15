@@ -20,11 +20,18 @@ from ada.drawings import (
     RadiusDimension,
     ScaleBar,
     SectionPlane,
+    Sheet,
     TitleBlock,
     View,
 )
 from ada.drawings.anchors import bbox_point, beam_end
-from ada.drawings.annotations import DimensionFormat, LayoutContext, TextPrim, text_box
+from ada.drawings.annotations import (
+    AngleDimension,
+    DimensionFormat,
+    LayoutContext,
+    TextPrim,
+    text_box,
+)
 from ada.drawings.mesh_ops import (
     chain_segments,
     clip_mesh,
@@ -32,7 +39,7 @@ from ada.drawings.mesh_ops import (
     slice_mesh,
     weld,
 )
-from ada.drawings.view import Projector, pick_scale
+from ada.drawings.view import Projector, pick_scale, scale_label
 
 SVG_NS = "{http://www.w3.org/2000/svg}"
 
@@ -82,7 +89,8 @@ def test_projector_scale_and_flip():
 
 def test_pick_scale():
     assert pick_scale((10.0, 5.0), (380.0, 260.0), "m") == 50.0
-    assert pick_scale((0.1, 0.1), (380.0, 260.0), "m") == 1.0
+    assert pick_scale((0.1, 0.1), (380.0, 260.0), "m") == 0.5  # enlarged, 2:1
+    assert scale_label(50.0) == "1:50" and scale_label(0.2) == "5:1"
 
 
 # ---------------------------------------------------------------------------------- mesh ops
@@ -327,3 +335,32 @@ def test_section_svg_has_cut_fill():
 def test_drawings_do_not_import_ifcopenshell():
     code = "import sys, ada.drawings; sys.exit(1 if 'ifcopenshell' in sys.modules else 0)"
     assert subprocess.run([sys.executable, "-c", code]).returncode == 0
+
+
+def test_short_dimension_text_side():
+    ctx = _ctx()
+    after = LinearDimension((0, 0, 0), (0.05, 0, 0), "horizontal", offset=-8).layout(ctx)
+    before = LinearDimension((0, 0, 3), (0.05, 0, 3), "horizontal", offset=-8, short_text="before").layout(ctx)
+    ta = [p for p in after if isinstance(p, TextPrim)][0]
+    tb = [p for p in before if isinstance(p, TextPrim)][0]
+    assert ta.x > 5.0 and tb.x < 0.0  # 0.05 m = 5 mm at 1:10: text past the right / left end
+
+
+def test_angle_dimension_arms():
+    ctx = _ctx()
+    prims = AngleDimension((0, 0, 0), (1, 0, 0), (0, 0, 1), radius=10, arms=True).layout(ctx)
+    assert [p.text for p in prims if isinstance(p, TextPrim)] == ["90°"]
+    assert sum(1 for p in prims if getattr(p, "cls", "") == "dimension extension") == 2
+
+
+def test_sheet_composes_drawings():
+    bm = ada.Beam("tube", (0, 0, 0), (2, 0, 0), "OD120x4")
+    side = Drawing("side", view="front", scale=20).add(bm).annotate(Caption("SIDE"))
+    sec = Drawing("cut", view="right", scale=2, section=SectionPlane((1, 0, 0), (-1, 0, 0))).add(bm)
+    svg = Sheet("both", [side, sec], gap=10).to_svg()
+    root = ET.fromstring(svg.encode())
+    groups = [el for el in root.iter(f"{SVG_NS}g") if el.get("class") == "drawing"]
+    assert len(groups) == 2
+    w = float(root.get("width")[:-2])
+    assert w == pytest.approx(side.sheet().width + sec.sheet().width + 10, abs=1e-2)
+    assert len([el for el in root.iter(f"{SVG_NS}marker") if el.get("id") == "dim-end"]) == 1

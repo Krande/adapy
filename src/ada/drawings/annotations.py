@@ -144,6 +144,8 @@ class LinearDimension:
     from the drawing's centre at the default distance; ``"outside"`` puts the line just beyond
     the drawing's extent on that side. A dimension that would hit text already placed steps out
     one tier at a time. ``text`` replaces the measured value; ``prefix``/``suffix`` wrap it.
+    A dimension too short for its text draws the arrows from outside and puts the text past
+    the end that reads last (``short_text="after"``) or first (``"before"``).
     """
 
     p1: PointLike
@@ -154,6 +156,7 @@ class LinearDimension:
     prefix: str = ""
     suffix: str = ""
     size: TextSize = "regular"
+    short_text: Literal["after", "before"] = "after"
 
     def layout(self, ctx: LayoutContext) -> list:
         a0, b0 = ctx.p(self.p1), ctx.p(self.p2)
@@ -220,8 +223,11 @@ class LinearDimension:
             prims.append(PathPrim(np.array([a - d * (ARROW + 3.0), a]), "dimension", marker_end="dim-end"))
             prims.append(PathPrim(np.array([b + d * (ARROW + 3.0), b]), "dimension", marker_end="dim-end"))
             prims.append(PathPrim(np.array([a, b]), "dimension"))
-            far = b if float((b - a) @ ur) >= 0 else a
-            pos = far + ur * (ARROW + 4.0 + 0.5 * tw) + up * 1.0
+            last, first = (b, a) if float((b - a) @ ur) >= 0 else (a, b)
+            if self.short_text == "after":
+                pos = last + ur * (ARROW + 4.0 + 0.5 * tw) + up * 1.0
+            else:
+                pos = first - ur * (ARROW + 4.0 + 0.5 * tw) + up * 1.0
             prims.append(TextPrim(pos[0], pos[1], label, h, "text dimension-text", "middle", ang))
         return prims
 
@@ -252,7 +258,7 @@ class RadiusDimension:
             a, b = c - d * r, c + d * r
             prims.append(PathPrim(np.array([a, b]), "dimension", marker_start="dim-start", marker_end="dim-end"))
             ur, ang = _readable(d)
-            pos = c + _text_up(ang) * 1.0
+            pos = c + ur * (0.5 * r) + _text_up(ang) * 1.0  # half-way out: clear of what sits at the centre
             prims.append(TextPrim(pos[0], pos[1], label, h, "text dimension-text", "middle", ang))
         else:
             rim = c + d * r
@@ -279,7 +285,8 @@ class RadiusDimension:
 @dataclass
 class AngleDimension:
     """Angle at ``vertex`` between the directions to ``p1`` and ``p2`` (as seen on the sheet).
-    ``radius`` is the arc radius in paper mm."""
+    ``radius`` is the arc radius in paper mm; ``arms`` draws both directions out from the vertex
+    (for an angle between lines the drawing does not show, e.g. an axis and the horizontal)."""
 
     vertex: PointLike
     p1: PointLike
@@ -288,6 +295,7 @@ class AngleDimension:
     text: str | None = None
     precision: int = 0
     size: TextSize = "regular"
+    arms: bool = False
 
     def layout(self, ctx: LayoutContext) -> list:
         v, a, b = ctx.p(self.vertex), ctx.p(self.p1), ctx.p(self.p2)
@@ -300,7 +308,9 @@ class AngleDimension:
         prims: list = [PathPrim(arc, "dimension", marker_start="dim-start", marker_end="dim-end")]
         for p, t in ((a, t1), (b, t1 + sweep)):
             e = v + np.array([math.cos(t), -math.sin(t)]) * (self.radius + 1.5)
-            if np.linalg.norm(p - v) < self.radius:
+            if self.arms:
+                prims.append(PathPrim(np.array([v, e]), "dimension extension"))
+            elif np.linalg.norm(p - v) < self.radius:
                 prims.append(PathPrim(np.array([p, e]), "dimension extension"))
         h = TEXT_SIZES[self.size]
         tm = t1 + 0.5 * sweep

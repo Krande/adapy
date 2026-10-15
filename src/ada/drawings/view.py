@@ -41,8 +41,31 @@ _NAMED: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]]
     "iso": ((-1.0, 1.0, -1.0), (0.0, 0.0, 1.0)),
 }
 
-#: Preferred scale denominators, used when a drawing picks its own scale.
-STANDARD_SCALES = (1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 150, 200, 250, 500, 1000, 2000, 2500, 5000, 10000)
+#: Preferred scale denominators, used when a drawing picks its own scale (0.2 is 5:1).
+STANDARD_SCALES = (
+    0.1,
+    0.2,
+    0.5,
+    1,
+    2,
+    5,
+    10,
+    20,
+    25,
+    50,
+    75,
+    100,
+    125,
+    150,
+    200,
+    250,
+    500,
+    1000,
+    2000,
+    2500,
+    5000,
+    10000,
+)
 
 
 def _unit(v: Sequence[float]) -> np.ndarray:
@@ -173,3 +196,11 @@ def pick_scale(extent_units: tuple[float, float], max_paper_mm: tuple[float, flo
         if w * mpu / s <= max_paper_mm[0] and h * mpu / s <= max_paper_mm[1]:
             return float(s)
     return float(STANDARD_SCALES[-1])
+
+
+def scale_label(scale: float) -> str:
+    """``50`` -> ``"1:50"``, ``0.2`` -> ``"5:1"``."""
+    if scale >= 1:
+        return f"1:{int(round(scale))}" if abs(scale - round(scale)) < 1e-9 else f"1:{scale:g}"
+    inv = 1.0 / scale
+    return f"{int(round(inv))}:1" if abs(inv - round(inv)) < 1e-6 else f"{inv:g}:1"

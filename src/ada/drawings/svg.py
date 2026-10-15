@@ -140,19 +140,23 @@ def path_svg(p: PathPrim) -> str:
     return f'<{tag} class="{p.cls}" points="{_pts(p.points)}"{attrs}/>'
 
 
-def write_svg(sheet: SheetContent) -> str:
-    w, h = sheet.width, sheet.height
-    meta = "".join(f' data-{k}="{escape(v)}"' for k, v in sheet.metadata.items())
-    out = [
+def _open(w: float, h: float, title: str, css: str, metadata: dict[str, str]) -> list[str]:
+    meta = "".join(f' data-{k}="{escape(v)}"' for k, v in metadata.items())
+    return [
         '<?xml version="1.0" encoding="UTF-8"?>',
         f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="{_f(w)}mm" height="{_f(h)}mm" '
         f'viewBox="0 0 {_f(w)} {_f(h)}"{meta}>',
-        f"<title>{escape(sheet.title)}</title>",
-        f"<defs>{_MARKERS}<style>{DEFAULT_CSS}{sheet.css}</style></defs>",
+        f"<title>{escape(title)}</title>",
+        f"<defs>{_MARKERS}<style>{DEFAULT_CSS}{css}</style></defs>",
         f'<rect class="sheet" x="0" y="0" width="{_f(w)}" height="{_f(h)}"/>',
     ]
+
+
+def sheet_body(sheet: SheetContent) -> list[str]:
+    """The drawing's elements (cut fills, linework layers, annotations) without the document."""
+    out = []
     if sheet.regions:
-        out.append('<g id="cut-fill">')
+        out.append('<g class="cut-fills">')
         for loops, group in sheet.regions:
             d = _path_d(loops)
             if d:
@@ -162,11 +166,11 @@ def write_svg(sheet: SheetContent) -> str:
         rows = [(p, g) for p, k, g in sheet.strokes if k == layer]
         if not rows:
             continue
-        out.append(f'<g id="{layer}">')
+        out.append(f'<g class="layer-{layer}">')
         for pts, group in rows:
             out.append(f'<polyline class="{layer} {css_ident(group)}" points="{_pts(pts)}"/>')
         out.append("</g>")
-    out.append('<g id="annotation">')
+    out.append('<g class="annotation">')
     for pr in sheet.prims:
         if isinstance(pr, TextPrim):
             continue
@@ -175,5 +179,25 @@ def write_svg(sheet: SheetContent) -> str:
         if isinstance(pr, TextPrim):
             out.append(text_svg(pr))
     out.append("</g>")
+    return out
+
+
+def write_svg(sheet: SheetContent) -> str:
+    out = _open(sheet.width, sheet.height, sheet.title, sheet.css, sheet.metadata)
+    out += sheet_body(sheet)
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
+def write_composite_svg(
+    sheets: list[tuple[SheetContent, float, float]], width: float, height: float, title: str
+) -> str:
+    """Several drawings on one sheet: (content, x, y) places each drawing's top-left corner."""
+    css = "\n".join(dict.fromkeys(s.css for s, _, _ in sheets if s.css))
+    out = _open(width, height, title, css, {})
+    for k, (s, x, y) in enumerate(sheets):
+        out.append(f'<g class="drawing" id="drawing-{k}" transform="translate({_f(x)} {_f(y)})">')
+        out += sheet_body(s)
+        out.append("</g>")
     out.append("</svg>")
     return "\n".join(out) + "\n"

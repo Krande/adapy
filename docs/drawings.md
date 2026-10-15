@@ -79,6 +79,13 @@ objects: `beam_end`, `beam_point`, `bbox_point`. Offsets and text heights are in
 
 `DimensionFormat(unit, precision, show_unit)` sets how values print.
 
+## Several drawings on one sheet
+
+`Sheet(name, [d1, d2], layout="row")` puts drawings side by side, or stacked with
+`layout="column"`, in one SVG. Each drawing keeps its own scale. This is how you show a general
+arrangement next to a section detail at a larger scale, such as 1:50 beside 1:2. Enlarged scales
+print as `5:1`.
+
 ## Styling
 
 The SVG uses the classes `cut`, `cut-fill`, `projection`, `hidden`, `centerline`, `wire`,
