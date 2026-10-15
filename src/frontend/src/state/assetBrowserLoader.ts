@@ -64,6 +64,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
   const indexSlices = new Map<string, readonly AssetNode[]>(); // `${collection}@${revision}`
   const indexHints = new Map<string, TreeViewHints | null>(); // same key: that index's `view`
   let generation = 0; // bumped on scope/collection change; stale responses are dropped
+  let collectionsLoad = 0; // the latest loadCollections: only it clears `indexLoading`
 
   const alive = (gen: number, scope: string, collection: string | null) => {
     const s = store.getState();
@@ -123,6 +124,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
 
   async function loadCollections(scope: string): Promise<void> {
     const gen = ++generation;
+    const load = ++collectionsLoad;
     const s = store.getState();
     s.setIndexLoading(true);
     try {
@@ -137,7 +139,8 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     } catch (e) {
       if (alive(gen, scope, null)) store.getState().setIndexError(message(e));
     } finally {
-      if (gen === generation) store.getState().setIndexLoading(false);
+      // Not keyed on `generation`: a collection chosen meanwhile bumps it, and the flag then stuck on.
+      if (load === collectionsLoad) store.getState().setIndexLoading(false);
     }
   }
 
