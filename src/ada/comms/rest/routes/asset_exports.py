@@ -230,6 +230,25 @@ def _scope_ref(scope: Scope) -> dict:
     return {"kind": scope.kind, "id": scope.id}
 
 
+def export_job_opts(run_id: str, options: dict, *, scope: str, target: Scope, folder: str, query: Any, user) -> dict:
+    """What every item's job is given, from the run's stored ``options``."""
+    return {
+        "run_id": run_id,
+        "geometry": options.get("geometry") or GEOMETRY_DESIGN,
+        "merge": bool(options.get("merge")),
+        "request_trees": bool(options.get("request_trees")),
+        "write_index": True,
+        "source_scope": scope,
+        "target_scope": _scope_ref(target),
+        "target_folder": folder,
+        "query": query,
+        "include_source_attributes": options.get("include_source_attributes", True) is not False,
+        "also": list(options.get("also") or []),
+        "requested_by": user_label(user),
+        "request_missing_geometry": bool(options.get("request_missing_geometry")),
+    }
+
+
 @router.post("/scopes/{scope}/assets/search/export")
 async def api_search_export(
     scope: str,
@@ -354,21 +373,8 @@ async def start_export(
         batches=batches,
         requested_by=getattr(user, "sub", None),
     )
-    job_opts = {
-        "run_id": run["id"],
-        "geometry": geometry,
-        "merge": merge,
-        "request_trees": request_trees,
-        "write_index": body.get("write_index") is not False,
-        "source_scope": scope,
-        "target_scope": _scope_ref(target),
-        "target_folder": folder,
-        "query": query,
-        "include_source_attributes": include_attrs,
-        "also": options["also"],
-        "requested_by": user_label(user),
-        "request_missing_geometry": request_missing,
-    }
+    job_opts = export_job_opts(run["id"], options, scope=scope, target=target, folder=folder, query=query, user=user)
+    job_opts["write_index"] = body.get("write_index") is not False
     spawn(
         drive_export(ctx, pool, run, scope_obj=scope_obj, target=target, batches=batches, job_opts=job_opts, user=user),
         name=f"asset-export-{run['id']}",
@@ -506,8 +512,9 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
     The case it exists for: a search index is filled by one job (a provider's attribute sweep) and
     the tree a mesh export needs by another, so a fresh index answers thousands of hits a mesh export
     cannot draw. Per (provider, collection): ``ready`` hits, ``no_tree`` when the provider has
-    published no project tree of the collection (a COLLECTION request -- its project tree -- is the fix,
-    offered as ``tree_request``), and ``unknown`` for nodes its tree does not hold."""
+    published no project tree of the collection, and ``unknown`` for nodes its tree does not hold.
+    Both are offered a COLLECTION request (``tree_requests``): a fresh tree is the fix for the first,
+    and for the second when the tree is older than the node."""
     groups: dict[tuple[str, str], dict[str, dict]] = {}
     for hit in (clean_hit(r, where_keys) for r in hits):
         if hit is not None:
@@ -540,7 +547,7 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
                     ],
                 }
             )
-        if any(c["no_tree"] for c in collections if c["provider"] == provider):
+        if any(c["no_tree"] or c["unknown"] for c in collections if c["provider"] == provider):
             requests[provider] = await collection_request_permission(ctx, pool, user, provider)
             try:
                 sweeps[provider] = await db_module.running_asset_sweep(pool, provider=provider)
@@ -556,7 +563,9 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
         "tree_requests": [
             {
                 "provider": provider,
-                "collections": [c["collection"] for c in collections if c["provider"] == provider and c["no_tree"]],
+                "collections": [
+                    c["collection"] for c in collections if c["provider"] == provider and (c["no_tree"] or c["unknown"])
+                ],
                 **request,
                 "sweep_running": (
                     {"id": sweeps[provider]["id"], "created_at": sweeps[provider].get("created_at")}
@@ -679,11 +688,23 @@ def item_outcome(summary: dict) -> tuple[str, str | None]:
     return "partial", "; ".join(parts)
 
 
-def export_index_document(run: dict, files_by_position: dict[int, list[dict]], folder: str) -> dict:
-    files = []
+def export_index_document(
+    run: dict, files_by_position: dict[int, list[dict]], folder: str, seed: list[dict] | None = None
+) -> dict:
+    """``seed``: the folder's entries before a re-run. A re-written file replaces its entry; a new
+    one goes after the last entry of its (provider, collection), else at the end."""
+    files = list(seed or ())
     for position in sorted(files_by_position):
         for f in files_by_position[position]:
-            files.append(f)
+            same = next((i for i, e in enumerate(files) if e.get("file") == f.get("file")), None)
+            if same is not None:
+                files[same] = f
+                continue
+            batch = (f.get("provider"), f.get("collection"))
+            last = max(
+                (i for i, e in enumerate(files) if (e.get("provider"), e.get("collection")) == batch), default=None
+            )
+            files.insert(len(files) if last is None else last + 1, f)
     return {
         "schema": EXPORT_INDEX_SCHEMA,
         "run_id": run["id"],
@@ -694,8 +715,25 @@ def export_index_document(run: dict, files_by_position: dict[int, list[dict]], f
     }
 
 
-async def drive_export(ctx, pool, run: dict, *, scope_obj: Scope, target: Scope, batches, job_opts: dict, user) -> None:
+async def drive_export(
+    ctx,
+    pool,
+    run: dict,
+    *,
+    scope_obj: Scope,
+    target: Scope,
+    batches,
+    job_opts: dict,
+    user,
+    positions: list[int] | None = None,
+    carried: dict[int, int] | None = None,
+    index_seed: list[dict] | None = None,
+) -> None:
+    """``positions``: each batch's item (a re-run drives some items of a run); default 0..n-1.
+    ``carried``: per position, files a previous pass of the item already wrote. ``index_seed``: the
+    folder index the re-written files are merged into."""
     run_id = run["id"]
+    positions = positions if positions is not None else list(range(len(batches)))
     gate = asyncio.Semaphore(EXPORT_CONCURRENCY)
     index_lock = asyncio.Lock()
     # One item's geometry request at a time: each is one collection (one design project), and two
@@ -705,7 +743,7 @@ async def drive_export(ctx, pool, run: dict, *, scope_obj: Scope, target: Scope,
     folder = job_opts["target_folder"]
 
     async def write_index() -> None:
-        doc = export_index_document(run, files_by_position, folder)
+        doc = export_index_document(run, files_by_position, folder, index_seed)
         try:
             await ctx.storage.put_bytes(
                 target, f"{folder}/{EXPORT_INDEX_FILENAME}", json.dumps(doc, indent=1).encode("utf-8")
@@ -730,6 +768,7 @@ async def drive_export(ctx, pool, run: dict, *, scope_obj: Scope, target: Scope,
                 job_opts=job_opts,
                 user=user,
                 request_gate=request_gate,
+                carried_written=(carried or {}).get(position, 0),
             )
         if files and job_opts.get("write_index", True):
             async with index_lock:
@@ -737,7 +776,7 @@ async def drive_export(ctx, pool, run: dict, *, scope_obj: Scope, target: Scope,
                 await write_index()
         return ok
 
-    tasks = [asyncio.create_task(one(i, p, c, h)) for i, (p, c, h) in enumerate(batches)]
+    tasks = [asyncio.create_task(one(i, p, c, h)) for i, (p, c, h) in zip(positions, batches)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     if any(isinstance(r, RunCancelled) for r in results):
         await db_module.skip_pending_asset_export_items(pool, run_id, "the export was cancelled")
@@ -768,10 +807,12 @@ async def export_one(
     job_opts: dict,
     user,
     request_gate: asyncio.Lock | None = None,
+    carried_written: int = 0,
 ) -> tuple[bool, list[dict]]:
     """One batch: (when asked) request its missing geometry, submit its job, wait, copy the
     summary into the item. Returns ``(ok, files)`` where ``files`` are the ``_export.json`` entries
-    of what it wrote. Raises only RunCancelled."""
+    of what it wrote. ``carried_written``: files of this item a previous pass wrote, counted in.
+    Raises only RunCancelled."""
     t_item = time.monotonic()
     timings: dict = {}
     requested: greq.RequestOutcome | None = None
@@ -861,6 +902,10 @@ async def export_one(
         if not isinstance(summary, dict):
             raise RuntimeError("the export job answered without a summary")
         timings["job"] = summary.get("timings") or {}
+        if carried_written:
+            counts = dict(summary.get("counts") or {})
+            counts["written"] = int(counts.get("written") or 0) + carried_written
+            summary["counts"] = counts
         status, message = item_outcome(summary)
         file_rows = summary.get("files") or []
         if requested is not None:
@@ -928,6 +973,9 @@ async def export_one(
     return False, []
 
 
+#: Hit states a fresh collection tree can resolve: no tree, a tree without the node, a node
+#: listed without geometry.
+TREE_REQUEST_STATES = ("unpublished", "unknown", "listed")
 #: Mesh builds of one item in flight at once. Each reads its site GLB (cached after the first) and
 #: cuts one node out of it; no seat stands behind them.
 MESH_BUILDS_IN_FLIGHT = 8
@@ -1070,8 +1118,9 @@ async def build_meshes(
     await progress(f"finding the {provider} meshes")
     [states] = await greq.classify_in_scope(ctx.storage, scope_obj, [(collection, hits)], provider=provider)
     timings["build_resolve_ms"] = ms(time.monotonic() - t0)
-    if request_tree and any(s.state == "unpublished" for s in states):
-        # ``request_trees``: the collection has no tree to cut from -- ask for it, then look again.
+    if request_tree and any(s.state in TREE_REQUEST_STATES for s in states):
+        # ``request_trees``: no tree to cut from, or one without these hits -- ask for a fresh one,
+        # then look again.
         why_not = await request_collection_tree(
             ctx, pool, run_id, position, provider, collection, scope_obj=scope_obj, user=user, timings=timings
         )
@@ -1313,6 +1362,96 @@ async def api_search_export_skip(
     if not await db_module.request_asset_export_skip(pool, run_id, position, by=user_label(user)):
         raise HTTPException(status_code=409, detail="that export is not running")
     return JSONResponse({"skip_requested": position})
+
+
+def rerun_plan(run: dict) -> list[tuple[int, str, str, list[dict], int]]:
+    """``[(position, provider, collection, hits, carried_written)]``: what a re-run drives -- every
+    item not ``done``. A merged item is driven whole (its one file holds every hit); otherwise only
+    the hits without a written file, counting in the ones the item wrote."""
+    merged = bool((run.get("options") or {}).get("merge"))
+    plan = []
+    for item in run.get("items") or ():
+        if item.get("status") == "done":
+            continue
+        hits = list(item.get("hit_rows") or ())
+        carried = 0
+        failed = {str(e.get("node_id")) for e in item.get("file_errors") or () if e.get("node_id") is not None}
+        if not merged and failed and not item.get("error"):
+            hits = [h for h in hits if str(h.get("node_id")) in failed]
+            carried = int((item.get("files") or {}).get("written") or 0)
+        if hits:
+            plan.append((int(item["position"]), item["provider"], item["collection"], hits, carried))
+    return plan
+
+
+@router.post("/scopes/{scope}/assets/search/export/runs/{run_id}/rerun")
+async def api_search_export_rerun(
+    scope: str,
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Re-export what a finished run did not write, into the same run, folder and files
+    (:func:`rerun_plan`). Idempotent: a running run, or one with nothing left to write, is answered
+    as it is, with ``rerun: false`` and why. A mesh run requests fresh trees when the user may."""
+    pool = require_pool(request)
+    ctx.jobs.require("export_search")
+    run = await db_module.get_asset_export_run(pool, run_id, with_hits=True)
+    if run is None or run["scope"] != scope_obj.prefix():
+        raise HTTPException(status_code=404, detail="export run not found")
+
+    def answer(rerun: bool, reason: str | None = None) -> JSONResponse:
+        shown = {**run, "items": [{k: v for k, v in i.items() if k != "hit_rows"} for i in run["items"]]}
+        return JSONResponse({**_as_wire(shown, scope), "rerun": rerun, "reason": reason})
+
+    if run["status"] == "running":
+        return answer(False, "the export is running")
+    plan = rerun_plan(run)
+    if not plan:
+        return answer(False, "nothing to re-export: every file was written")
+    try:
+        target = await _writable_scope(pool, run["target_scope"], user)
+    except ExportRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    options = dict(run.get("options") or {})
+    if options.get("geometry") == GEOMETRY_MESH:
+        ctx.jobs.require("asset_build")
+        providers = dict.fromkeys(provider for _, provider, _, _, _ in plan)
+        allowed = [await collection_request_permission(ctx, pool, user, p) for p in providers]
+        options["request_trees"] = options.get("request_trees") or all(a["allowed"] for a in allowed)
+    if not await db_module.restart_asset_export_run(pool, run_id, [p for p, *_ in plan]):
+        return answer(False, "the export is running")
+    folder = run["target_folder"]
+    seed = None
+    try:
+        doc = json_of(await ctx.storage.get_bytes(target, f"{folder}/{EXPORT_INDEX_FILENAME}"))
+        seed = doc.get("files") if isinstance(doc, dict) else None
+    except Exception:  # noqa: BLE001 - no index yet: the re-run writes one
+        seed = None
+    job_opts = export_job_opts(
+        run_id, options, scope=scope, target=target, folder=folder, query=run.get("query") or {}, user=user
+    )
+    spawn(
+        drive_export(
+            ctx,
+            pool,
+            run,
+            scope_obj=scope_obj,
+            target=target,
+            batches=[(p, c, h) for _, p, c, h, _ in plan],
+            job_opts=job_opts,
+            user=user,
+            positions=[pos for pos, *_ in plan],
+            carried={pos: n for pos, _, _, _, n in plan if n},
+            index_seed=seed or [],
+        ),
+        name=f"asset-export-{run_id}-rerun",
+    )
+    logger.info("asset export %s: re-run of %d item(s)", run_id, len(plan))
+    run = await db_module.get_asset_export_run(pool, run_id, with_hits=True) or run
+    return answer(True)
 
 
 # --- per-file metadata ------------------------------------------------------------------------------

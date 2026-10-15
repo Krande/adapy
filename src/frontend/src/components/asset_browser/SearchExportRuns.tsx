@@ -9,11 +9,12 @@
 // ACTIONS. Cancel stops the whole run. Skip gives up on ONE running item and lets the rest go on
 // -- offered per running item, since up to four run at once. "Open in gallery" walks the folder the
 // run wrote, in its export order (`openFolderInGallery`), switching to the target scope if needed.
-// A file that did not come out (no geometry, or an error) is listed under its item, expandable.
+// "Re-run failures" drives the same run again over what it did not write; the server makes it
+// idempotent. A file that did not come out (no geometry, or an error) is listed under its item, expandable.
 
 import React, {useCallback, useEffect, useRef, useState} from "react";
 
-import {loginSummary} from "@/assets/searchExport";
+import {loginSummary, rerunnable} from "@/assets/searchExport";
 import {duration} from "@/components/admin/ProviderSweepRuns";
 import {searchExportApi, type ExportItem, type ExportRun} from "@/services/api/searchExport";
 import {ApiError} from "@/services/viewerApi";
@@ -277,6 +278,8 @@ const SearchExportRuns: React.FC<{
         return () => clearInterval(t);
     }, [running, expanded, openId, load, openRun]);
 
+    /** The run whose re-run is being asked for: one request per click. */
+    const [rerunning, setRerunning] = useState<string | null>(null);
     const act = async (fn: () => Promise<unknown>, id: string) => {
         try {
             await fn();
@@ -345,6 +348,24 @@ const SearchExportRuns: React.FC<{
                                         </button>
                                     )}
                                     {r.skip_position != null && r.status === "running" && <span className="text-amber-300">skipping…</span>}
+                                    {rerunnable(r) && (
+                                        <button
+                                            type="button"
+                                            className={BTN}
+                                            disabled={rerunning === r.id}
+                                            title="Export again only what this run did not write, into the same folder (a mesh run asks for fresh trees first)"
+                                            onClick={() => {
+                                                setRerunning(r.id);
+                                                void act(async () => {
+                                                    const out = await searchExportApi.rerunSearchExport(scope, r.id);
+                                                    if (out.rerun) trackExport(scope, r.id, `Re-run ${r.target_scope}/${r.target_folder}`);
+                                                    else if (out.reason) throw new Error(out.reason);
+                                                }, r.id).finally(() => setRerunning(null));
+                                            }}
+                                        >
+                                            Re-run failures
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         className={BTN}

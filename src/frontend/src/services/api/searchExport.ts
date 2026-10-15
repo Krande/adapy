@@ -424,6 +424,13 @@ export const searchExportApi = {
     return jsonOrThrow(r, "cancelSearchExport");
   },
 
+  /** Re-export what the run did not write, into the same run and folder. Idempotent: a running run,
+   *  or one with nothing left, answers `rerun: false` with why. */
+  async rerunSearchExport(scope: ScopeUrl, runId: string): Promise<ExportRun & { rerun: boolean; reason: string | null }> {
+    const r = await authedFetch(`${exportBase(scope)}/runs/${encodeURIComponent(runId)}/rerun`, post());
+    return jsonOrThrow(r, "rerunSearchExport");
+  },
+
   /** Skip the running item at `position` and carry on. 409 when that item is not running. */
   async skipSearchExportItem(scope: ScopeUrl, runId: string, position: number): Promise<{ skip_requested: number }> {
     const r = await authedFetch(

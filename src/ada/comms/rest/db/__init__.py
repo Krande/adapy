@@ -37,6 +37,7 @@ from .asset_exports import (
     list_asset_export_runs,
     lookup_attr_rows,
     request_asset_export_skip,
+    restart_asset_export_run,
     skip_pending_asset_export_items,
     update_asset_export_item,
 )
@@ -318,6 +319,7 @@ __all__ = [
     "finish_asset_export_run",
     "cancel_asset_export_run",
     "request_asset_export_skip",
+    "restart_asset_export_run",
     "clear_asset_export_skip",
     "update_asset_export_item",
     "skip_pending_asset_export_items",

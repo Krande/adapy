@@ -14,6 +14,7 @@ import type {
   ExportJoint,
   ExportPreflight,
   ExportRequestBatch,
+  ExportRun,
   FileMeta,
   MeshPreflight,
 } from "@/services/api/searchExport";
@@ -104,7 +105,7 @@ export interface MeshPrompt {
   readyCollections: string[];
   /** Collections with nothing to write -- what "export what is ready" leaves out. */
   emptyCollections: string[];
-  /** Per provider: its collection request for the collections with no tree. */
+  /** Per provider: its collection request for the collections with no tree, or hits outside it. */
   requests: {
     provider: string;
     collections: string[];
@@ -152,6 +153,12 @@ export function meshPrompt(pre: MeshPreflight): MeshPrompt {
       .filter((c) => c.unknown > 0)
       .map((c) => ({ collection: c.collection, count: c.unknown, reason: c.unknown_reason, examples: c.unknown_examples })),
   };
+}
+
+/** Whether a run has items a re-run would drive: finished, with any item not `done`. */
+export function rerunnable(run: Pick<ExportRun, "status" | "counts">): boolean {
+  if (run.status === "running") return false;
+  return Object.entries(run.counts ?? {}).some(([status, n]) => status !== "done" && (n ?? 0) > 0);
 }
 
 /** "logins: 1 (adopted ×4)" from an item's request jobs: how many opened a session of their own,

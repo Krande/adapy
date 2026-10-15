@@ -26,6 +26,7 @@ import {
     metaSidecarKey,
     normalizeFolder,
     queryForCollection,
+    rerunnable,
     selectedTotal,
     stopOfAdjacentFile,
     thumbSidecarKey,
@@ -527,4 +528,11 @@ test("per-collection design checks add up too", () => {
     const all = mergePreflights([part("alpha", 2, 1), part("beta", 0, 5)]);
     assert.deepEqual([all.hits, all.ready, all.missing, all.jobs], [8, 2, 6, 2]);
     assert.equal(all.collections.length, 2);
+});
+
+test("a finished run with an item not done can be re-run; a running one cannot", () => {
+    assert.equal(rerunnable({status: "done", counts: {done: 3}}), false);
+    assert.equal(rerunnable({status: "done", counts: {done: 2, partial: 1}}), true);
+    assert.equal(rerunnable({status: "interrupted", counts: {done: 1, running: 1}}), true);
+    assert.equal(rerunnable({status: "running", counts: {error: 1}}), false);
 });

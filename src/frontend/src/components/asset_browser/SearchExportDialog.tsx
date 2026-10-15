@@ -468,7 +468,7 @@ const SearchExportDialog: React.FC<{
                             })}
                             {meshAsk.unknown.length > 0 && (
                                 <div className="space-y-1">
-                                    <div className="text-gray-300">Not in their provider's tree (a tree request will not add these):</div>
+                                    <div className="text-gray-300">Not in their provider's tree (a fresh tree request adds them if the tree is out of date):</div>
                                     {meshAsk.unknown.map((u) => (
                                         <div key={u.collection} className="pl-2 text-gray-400 break-words">
                                             <span className="text-gray-200">
@@ -532,7 +532,7 @@ const SearchExportDialog: React.FC<{
                             type="button"
                             className="h-7 px-3 rounded-md text-xs font-semibold bg-blue-400 text-gray-950 hover:bg-blue-300 disabled:opacity-50"
                             disabled={busy || !meshAsk.requests.length || meshAsk.requests.some((r) => r.cannot != null)}
-                            title="One run, in the background: each collection with no tree asks its provider for it, then its meshes are built and written. Follow it in the toast."
+                            title="One run, in the background: each collection with no tree, or a tree without some hits, asks its provider for a fresh one, then its meshes are built and written. Follow it in the toast."
                             onClick={() => void start(false, [], true)}
                         >
                             {busy ? "Starting…" : "Request trees, then export all"}

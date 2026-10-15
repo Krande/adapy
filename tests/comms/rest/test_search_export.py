@@ -692,6 +692,141 @@ def test_a_failed_batch_fails_the_run_not_the_others(export_world):
     assert w.finished == ("error", "1 of 3 batch(es) failed")
 
 
+def _run_with_items(*, merge=False):
+    hits = [{"node_id": f"fn-{i}", "file": f"out/a/{i}.glb"} for i in range(3)]
+    return {
+        "options": {"merge": merge},
+        "items": [
+            {"position": 0, "provider": "p", "collection": "a", "status": "done", "hit_rows": hits[:1]},
+            {
+                "position": 1,
+                "provider": "p",
+                "collection": "b",
+                "status": "partial",
+                "error": None,
+                "files": {"written": 2, "no_geometry": 1},
+                "file_errors": [{"node_id": "fn-2", "status": "no_geometry"}],
+                "hit_rows": hits,
+            },
+            {"position": 2, "provider": "p", "collection": "c", "status": "error", "error": "boom", "hit_rows": hits},
+            {"position": 3, "provider": "p", "collection": "d", "status": "skipped", "hit_rows": hits[:2]},
+        ],
+    }
+
+
+def test_a_rerun_drives_only_what_was_not_written():
+    plan = ex.rerun_plan(_run_with_items())
+    assert [(pos, c, [h["node_id"] for h in hs], n) for pos, _, c, hs, n in plan] == [
+        (1, "b", ["fn-2"], 2),
+        (2, "c", ["fn-0", "fn-1", "fn-2"], 0),
+        (3, "d", ["fn-0", "fn-1"], 0),
+    ]
+    # A merged file holds every hit of its collection: the item is driven whole.
+    merged = ex.rerun_plan(_run_with_items(merge=True))
+    assert [(pos, len(hs), n) for pos, _, _, hs, n in merged] == [(1, 3, 0), (2, 3, 0), (3, 2, 0)]
+    assert ex.rerun_plan({"options": {}, "items": [{"position": 0, "status": "done", "hit_rows": [{}]}]}) == []
+
+
+def test_a_rerun_merges_into_the_folder_index_and_counts_what_was_written(export_world):
+    w = export_world()
+    [first, second, third] = _hits()
+    seed = [
+        {"file": "out/alpha/A-1.ifc", "provider": "vendor-a", "collection": "alpha", "old": True},
+        {"file": "out/beta/B-1.ifc", "provider": "vendor-a", "collection": "beta"},
+    ]
+    retry = (first[0], first[1], first[2][1:])  # alpha's second hit only
+    asyncio.run(
+        ex.drive_export(
+            w.ctx,
+            None,
+            RUN,
+            scope_obj=Scope.shared(),
+            target=Scope.shared(),
+            batches=[retry],
+            job_opts=JOB_OPTS,
+            user=None,
+            positions=[0],
+            carried={0: 1},
+            index_seed=seed,
+        )
+    )
+    assert [r.conversion_options["position"] for r in w.submitted] == [0]
+    assert w.items[0]["status"] == "done" and w.items[0]["files"]["written"] == 2
+    index = json.loads(w.store.blobs[("shared", "out/_export.json")])
+    assert [f["file"] for f in index["files"]] == ["out/alpha/A-1.ifc", "out/alpha/A-2.ifc", "out/beta/B-1.ifc"]
+    assert index["files"][0].get("old")  # what the re-run did not write is kept as it was
+
+
+def test_the_index_replaces_a_rewritten_file_in_place():
+    seed = [{"file": "x.glb", "provider": "p", "collection": "a", "hits": 1}, {"file": "y.glb", "provider": "p"}]
+    doc = ex.export_index_document(
+        RUN, {0: [{"file": "x.glb", "provider": "p", "collection": "a", "hits": 3}]}, "o", seed
+    )
+    assert [(f["file"], f.get("hits")) for f in doc["files"]] == [("x.glb", 3), ("y.glb", None)]
+
+
+def _rerun(monkeypatch, run, *, restarted=True):
+    from fastapi import HTTPException  # noqa: F401 - the route raises it
+
+    spawned, restarts = [], []
+
+    async def get_run(pool, run_id, with_hits=False):
+        return run
+
+    async def restart(pool, run_id, positions):
+        restarts.append(positions)
+        return restarted
+
+    async def writable(pool, raw, user):
+        return Scope.shared()
+
+    async def permission(ctx, pool, user, provider):
+        return {"allowed": True, "available": True}
+
+    monkeypatch.setattr(dbm, "get_asset_export_run", get_run)
+    monkeypatch.setattr(dbm, "restart_asset_export_run", restart)
+    monkeypatch.setattr(ex, "_writable_scope", writable)
+    monkeypatch.setattr(ex, "collection_request_permission", permission)
+    monkeypatch.setattr(ex, "spawn", lambda coro, name: (spawned.append(coro), coro.close()))
+    ctx = SimpleNamespace(jobs=SimpleNamespace(require=lambda f: None), storage=_Store())
+    out = asyncio.run(
+        ex.api_search_export_rerun("shared", "run-1", _Request({}), scope_obj=Scope.shared(), user=None, ctx=ctx)
+    )
+    return json.loads(out.body), spawned, restarts
+
+
+def _stored_run(status="done", **kw):
+    run = _run_with_items(**kw)
+    return {
+        **run,
+        "id": "run-1",
+        "scope": "shared",
+        "status": status,
+        "target_scope": "shared",
+        "target_folder": "out",
+        "query": {},
+        "options": {**run["options"], "geometry": "mesh"},
+    }
+
+
+def test_rerunning_a_run_restarts_its_failed_items_once(monkeypatch):
+    body, spawned, restarts = _rerun(monkeypatch, _stored_run())
+    assert body["rerun"] is True and restarts == [[1, 2, 3]] and len(spawned) == 1
+    assert all("hit_rows" not in i for i in body["items"])
+    # A second click while it runs, or a lost race for the restart: answered, not started again.
+    body, spawned, _ = _rerun(monkeypatch, _stored_run(status="running"))
+    assert body["rerun"] is False and "running" in body["reason"] and not spawned
+    body, spawned, _ = _rerun(monkeypatch, _stored_run(), restarted=False)
+    assert body["rerun"] is False and not spawned
+
+
+def test_rerunning_a_complete_run_does_nothing(monkeypatch):
+    run = _stored_run()
+    run["items"] = [run["items"][0]]
+    body, spawned, restarts = _rerun(monkeypatch, run)
+    assert body["rerun"] is False and "nothing to re-export" in body["reason"] and not spawned and not restarts
+
+
 def test_item_outcomes():
     assert ex.item_outcome({"counts": {"written": 2}}) == ("done", None)
     assert ex.item_outcome({"counts": {"written": 0, "no_geometry": 2}})[0] == "partial"
@@ -1466,11 +1601,11 @@ VENDOR_SPEC = {
 }
 
 
-def _mesh_preflight_world(monkeypatch, *, admin_only=False, sweep=None):
+def _mesh_preflight_world(monkeypatch, *, admin_only=False, sweep=None, missing="unpublished"):
     async def classify(storage, scope_obj, groups, provider="external-csg"):
         out = []
         for collection, hits in groups:
-            state = "ready" if collection == "alpha" else "unpublished"
+            state = "ready" if collection == "alpha" else missing
             out.append([ex.greq.HitState(hit=h, state=state, message=f"{collection}: {state}") for h in hits])
         return out
 
@@ -1506,6 +1641,19 @@ def test_the_mesh_preflight_names_the_collections_without_a_tree_and_offers_thei
     [req] = pre["tree_requests"]
     assert req["provider"] == "vendor-a" and req["collections"] == ["beta"]
     assert req["available"] and req["allowed"] and req["label"] == "Tree" and req["sweep_running"] is None
+
+
+def test_the_mesh_preflight_offers_a_fresh_tree_for_hits_outside_the_published_one(monkeypatch):
+    ctx = _mesh_preflight_world(monkeypatch, missing="unknown")
+    hits = [HIT, {**HIT, "collection": "beta", "node_id": "fn-b"}]
+    pre = asyncio.run(
+        ex.export_preflight(
+            ctx, None, scope_obj=Scope.shared(), body={"query": QUERY, "hits": hits, "geometry": "mesh"}, user=None
+        )
+    )
+    assert (pre["no_tree"], pre["unknown"]) == (0, 1)
+    [req] = pre["tree_requests"]
+    assert req["collections"] == ["beta"]
 
 
 def test_the_mesh_preflight_says_when_the_tree_request_is_not_this_users(monkeypatch):
@@ -1565,7 +1713,7 @@ def test_the_tree_request_is_gated_like_the_providers_job(monkeypatch):
 # --- request trees, then export (one run) --------------------------------------------------------------
 
 
-def _tree_item_world(export_world, monkeypatch, *, why_not=None):
+def _tree_item_world(export_world, monkeypatch, *, why_not=None, state="unpublished"):
     from ada.comms.rest.routes import assets as assets_routes
     from ada.comms.rest.routes import geometry_requests as greq
 
@@ -1582,7 +1730,7 @@ def _tree_item_world(export_world, monkeypatch, *, why_not=None):
                     for h in hs
                 ]
             ]
-        return [[greq.HitState(hit=h, state="unpublished", message="no tree") for h in hs]]
+        return [[greq.HitState(hit=h, state=state, message="no tree") for h in hs]]
 
     async def request_tree(ctx, pool, run_id, position, provider, collection, **kw):
         asked_trees.append((provider, collection))
@@ -1623,6 +1771,13 @@ def _tree_item_world(export_world, monkeypatch, *, why_not=None):
 
 def test_a_collection_with_no_tree_asks_for_it_then_builds_its_meshes(export_world, monkeypatch):
     w, asked = _tree_item_world(export_world, monkeypatch)
+    assert asked == [("vendor-a", "alpha")]
+    [req] = w.submitted
+    assert req.conversion_options["hits"][0]["mesh"]["glb_key"].endswith(".glb")
+
+
+def test_a_tree_without_the_hit_is_requested_afresh(export_world, monkeypatch):
+    w, asked = _tree_item_world(export_world, monkeypatch, state="unknown")
     assert asked == [("vendor-a", "alpha")]
     [req] = w.submitted
     assert req.conversion_options["hits"][0]["mesh"]["glb_key"].endswith(".glb")
