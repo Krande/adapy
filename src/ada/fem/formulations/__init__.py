@@ -27,8 +27,30 @@ import functools
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Sequence, Union
 
+from .lines import BeamTheory, LineTheory
+from .shells import ShellTheory
+
 if TYPE_CHECKING:
     from ada.fem import Elem
+
+__all__ = [
+    "ABAQUS",
+    "FAMILY",
+    "FEM_THEORY_KEY",
+    "BeamTheory",
+    "Formulation",
+    "LineTheory",
+    "ShellTheory",
+    "as_formulation",
+    "formulation",
+    "resolve",
+    "use",
+]
+
+#: The metadata key a concept (a ``Plate``, a ``Beam``) names its FEM section theory under, for the mesher to give the
+#: sections it makes of it: ``plate.metadata[FEM_THEORY_KEY] = ShellTheory.MEMBRANE`` meshes the plate as a membrane,
+#: ``beam.metadata[FEM_THEORY_KEY] = LineTheory.CABLE`` the beam as a cable.
+FEM_THEORY_KEY = "fem_theory"
 
 #: The naming family of Abaqus's element types. Calculix reads and writes the same names.
 ABAQUS = "abaqus"

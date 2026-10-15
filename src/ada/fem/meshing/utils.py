@@ -123,6 +123,15 @@ def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data
     add_shell_section(set_name, fem_sec_name, normal, thickness, elements, model_obj, fem)
 
 
+def concept_fem_theory(model_obj):
+    """The FEM section theory a concept asks to be meshed with: ``model_obj.metadata[FEM_THEORY_KEY]``
+    (:data:`ada.fem.formulations.FEM_THEORY_KEY`), or None for the default (shell / beam)."""
+    from ada.fem.formulations import FEM_THEORY_KEY
+
+    metadata = getattr(model_obj, "metadata", None) or {}
+    return metadata.get(FEM_THEORY_KEY)
+
+
 def add_shell_section(
     set_name,
     fem_sec_name,
@@ -135,7 +144,8 @@ def add_shell_section(
 ):
     fem_set = FemSet(set_name, elements, FemSet.TYPES.ELSET)
     props = dict(local_z=normal, thickness=thickness, int_points=5, is_rigid=is_rigid)
-    fem_sec = FemSection(fem_sec_name, ElemType.SHELL, fem_set, model_obj.material, **props)
+    theory = concept_fem_theory(model_obj)
+    fem_sec = FemSection(fem_sec_name, ElemType.SHELL, fem_set, model_obj.material, theory=theory, **props)
     add_sec_to_fem(fem, fem_sec, fem_set)
 
 
@@ -160,7 +170,16 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     fem_sec = fem.sections.name_map.get(fem_sec_name, None)
     if fem_sec is None:
         local_z = to_global_vectors(beam, beam.ori[2])
-        fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, local_z, refs=[beam])
+        fem_sec = FemSection(
+            fem_sec_name,
+            ElemType.LINE,
+            fem_set,
+            beam.material,
+            beam.section,
+            local_z,
+            refs=[beam],
+            theory=concept_fem_theory(beam),
+        )
         add_sec_to_fem(fem, fem_sec, fem_set)
 
     add_beam_ecc_to_elements(beam, elements)
