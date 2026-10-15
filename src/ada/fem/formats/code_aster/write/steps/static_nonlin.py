@@ -53,16 +53,56 @@ class StatNonLin:
         # Every load of the step; only the first used to be applied.
         return "".join(f"_F(CHARGE={concept_name(ld, 'load')}, FONC_MULT=bc_step)," for ld in self.loads)
 
+    def comportement_str(self) -> str:
+        """Small strains everywhere, but for the cables (``RELATION='CABLE'``, which Code_Aster solves with large
+        displacements only) and, in a geometrically nonlinear step, the membranes (``ELAS_MEMBRANE_SV`` with
+        ``GROT_GDEP``: a membrane carries out-of-plane load only as it deflects)."""
+        out = '_F(DEFORMATION="PETIT", TOUT="OUI"),'
+        sections = self.part.fem.sections
+        nl_geom = self.step is not None and self.step.nl_geom is True
+        membranes = [fs.elset.name for fs in sections.shells if fs.is_membrane]
+        if nl_geom and membranes:
+            # A membrane in GROT_GDEP takes a hyperelastic relation only (<MEMBRANE_3>, measured, 18.1.7);
+            # Saint Venant-Kirchhoff is the one that is linear elastic at small strain.
+            out += f'_F(RELATION="ELAS_MEMBRANE_SV", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(membranes)}),'
+        cables = [fs.elset.name for fs in sections.lines if fs.is_cable]
+        if cables:
+            out += f'_F(RELATION="CABLE", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(cables)}),'
+        return out
+
     def write(self):
         return f"""{self.name} = STAT_NON_LINE(
     MODELE=model,
     CHAM_MATER=material,{self.sec_str}
-    COMPORTEMENT=(_F(DEFORMATION="PETIT", TOUT="OUI")),
+    COMPORTEMENT=({self.comportement_str()}),
     CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
     EXCIT=({self.get_bc_str()}{self.loads_str()}),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )"""
+
+
+def _group_tuple(names) -> str:
+    return "(" + "".join(f"'{n}'," for n in names) + ")"
+
+
+def _has_bending_shells(part: Part) -> bool:
+    return any(not fs.is_membrane for fs in part.fem.sections.shells)
+
+
+def _deformation_str(part: Part) -> str:
+    """The strains to compute: on every element, unless the model has trusses, cables or membranes -- CABLE computes
+    no ``EPSI_ELGA`` (<CALCUL_37>, measured, 18.1.7) -- where they are asked for on the beams, shells and solids
+    only, and not at all without any."""
+    sections = part.fem.sections
+    special = [fs for fs in sections if fs.is_axial_only or fs.is_membrane]
+    fields = '\n    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),'
+    if not special:
+        return fields
+    others = [fs.elset.name for fs in sections if not (fs.is_axial_only or fs.is_membrane)]
+    if not others:
+        return ""
+    return f"{fields}\n    GROUP_MA={_group_tuple(others)},"
 
 
 @dataclass
@@ -72,22 +112,21 @@ class PostCalc:
 
     def write(self):
         # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
+        from .fields import stress_fields
+
         has_solids = len(self.part.fem.sections.solids) > 0
-        has_shells_or_beams = len(self.part.fem.sections.shells) > 0 or len(self.part.fem.sections.lines) > 0
 
-        contrainte_fields = ["SIGM_ELNO"]
-        if has_shells_or_beams:
-            contrainte_fields.extend(["EFGE_ELNO", "EFGE_NOEU"])
-
+        contrainte_fields = [f for f in stress_fields(self.part) if f != "SIPO_ELNO"]
         contrainte_str = ", ".join([f'"{field}"' for field in contrainte_fields])
 
         post_calc_str = f"""
 {self.stat_non_line.name} = CALC_CHAMP(
     reuse={self.stat_non_line.name}, RESULTAT={self.stat_non_line.name},
-    CONTRAINTE=({contrainte_str}),
-    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),
+    CONTRAINTE=({contrainte_str}),{_deformation_str(self.part)}
 )"""
-        if has_solids:
+        if has_solids or not _has_bending_shells(self.part):
+            # The layer extraction is a shell's: a model of solids, or of beams, trusses, cables and membranes only,
+            # has no layers to extract.
             return post_calc_str
 
         return (
@@ -141,7 +180,7 @@ class ImprResu:
 
     @property
     def post_calc_include(self):
-        if len(self.part.fem.sections.solids) > 0:
+        if len(self.part.fem.sections.solids) > 0 or not _has_bending_shells(self.part):
             return ""
 
         return f"""_F(
@@ -162,9 +201,9 @@ class ImprResu:
 
     def write(self):
         # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
-        has_shells_or_beams = len(self.part.fem.sections.shells) > 0 or len(self.part.fem.sections.lines) > 0
+        from .fields import stress_fields
 
-        if has_shells_or_beams:
+        if "EFGE_ELNO" in stress_fields(self.part):
             result_nom_cham = '("DEPL", "EFGE_ELNO", "EFGE_NOEU")'
             result_nom_cham_med = self.med("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")
         else:

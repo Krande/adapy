@@ -20,7 +20,11 @@ def stress_fields(part: Part) -> list[str]:
     (:mod:`..write_sections`), so ``SIPM_ELNO`` (extreme stresses over the section) is never computed and is not asked
     for."""
     sections = part.fem.sections
-    beams, shells, solids = len(sections.lines) > 0, len(sections.shells) > 0, len(sections.solids) > 0
+    # Trusses, cables and membranes compute SIEF_ELNO (their axial force / membrane stresses) and none of the other
+    # fields, so they count as neither beams nor shells here.
+    beams = any(not fs.is_axial_only for fs in sections.lines)
+    shells = any(not fs.is_membrane for fs in sections.shells)
+    solids = len(sections.solids) > 0
     out = ["EFGE_ELNO", "EFGE_NOEU"] if beams or shells else []
     if shells or solids:
         out.append("SIGM_ELNO")
