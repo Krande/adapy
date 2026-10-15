@@ -101,54 +101,64 @@ def _has_bending_shells(part: Part) -> bool:
     return any(not fs.is_membrane for fs in part.fem.sections.shells)
 
 
-def _deformation_str(part: Part) -> str:
-    """The strains to compute: on every element, unless the model has trusses, cables or membranes -- CABLE computes
-    no ``EPSI_ELGA`` (<CALCUL_37>, measured, 18.1.7) -- where they are asked for on the beams, shells and solids
-    only, and not at all without any."""
-    sections = part.fem.sections
-    special = [fs for fs in sections if fs.is_axial_only or fs.is_membrane]
-    fields = '\n    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),'
-    if not special:
-        return fields
-    others = [fs.elset.name for fs in sections if not (fs.is_axial_only or fs.is_membrane)]
-    if not others:
-        return ""
-    return f"{fields}\n    GROUP_MA={_group_tuple(others)},"
+def _is_special(fs) -> bool:
+    """A truss, cable or membrane section: Code_Aster computes SIEF_ELNO on them and none of the beam/shell fields."""
+    return fs.is_axial_only or fs.is_membrane
+
+
+def _special_groups(part: Part) -> list[str]:
+    return [fs.elset.name for fs in part.fem.sections if _is_special(fs)]
 
 
 @dataclass
 class PostCalc:
+    """The fields computed from a nonlinear result, each family asked only for what it computes.
+
+    Beams, bending shells and solids: ``SIGM_ELNO`` (and ``EFGE`` on beams and shells) with the strains, then the
+    shells' mid-layer extracted (``EXTR_COQUE``). Trusses, cables and membranes compute none of these -- measured,
+    18.1.7: ``EPSI_ELGA`` on CABLE and ``EPSP_ELNO`` on MEMBTR3 stop the run at <CALCUL_37> -- so on a model holding
+    them every call is restricted to the element groups it applies to (``GROUP_MA``), and those groups get
+    ``SIEF_ELNO`` of their own: a cable's or truss's axial force, a membrane's in-plane forces per unit width.
+    """
+
     stat_non_line: StatNonLin
     part: Part
 
     def write(self):
-        # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
-        from .fields import stress_fields
-
-        has_solids = len(self.part.fem.sections.solids) > 0
-
+        name = self.stat_non_line.name
         sections = self.part.fem.sections
-        if any(fs.is_axial_only or fs.is_membrane for fs in sections):
-            # Trusses, cables and membranes compute SIEF_ELNO alone; each family is asked for what it computes.
-            contrainte_fields = [f for f in stress_fields(self.part) if f != "SIPO_ELNO"]
-        else:
-            contrainte_fields = ["SIGM_ELNO"]
-            if len(sections.shells) > 0 or len(sections.lines) > 0:
-                contrainte_fields.extend(["EFGE_ELNO", "EFGE_NOEU"])
-        contrainte_str = ", ".join([f'"{field}"' for field in contrainte_fields])
+        special = _special_groups(self.part)
+        others = [fs for fs in sections if not _is_special(fs)]
+        shells = [fs.elset.name for fs in sections.shells if not fs.is_membrane]
+        restrict = (lambda groups: f"\n    GROUP_MA={_group_tuple(groups)},") if special else (lambda groups: "")
 
-        post_calc_str = f"""
-{self.stat_non_line.name} = CALC_CHAMP(
-    reuse={self.stat_non_line.name}, RESULTAT={self.stat_non_line.name},
-    CONTRAINTE=({contrainte_str}),{_deformation_str(self.part)}
+        out = ""
+        if others:
+            contrainte_fields = ["SIGM_ELNO"]
+            if any(not fs.is_membrane for fs in sections.shells) or any(not fs.is_axial_only for fs in sections.lines):
+                contrainte_fields.extend(["EFGE_ELNO", "EFGE_NOEU"])
+            contrainte_str = ", ".join([f'"{field}"' for field in contrainte_fields])
+            out += f"""
+{name} = CALC_CHAMP(
+    reuse={name}, RESULTAT={name},
+    CONTRAINTE=({contrainte_str}),
+    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),{restrict([fs.elset.name for fs in others])}
 )"""
-        if has_solids or not _has_bending_shells(self.part):
+        if special:
+            out += f"""
+{name} = CALC_CHAMP(
+    reuse={name}, RESULTAT={name},
+    CONTRAINTE=("SIEF_ELNO",),
+    GROUP_MA={_group_tuple(special)},
+)"""
+        if len(sections.solids) > 0 or not shells:
             # The layer extraction is a shell's: a model of solids, or of beams, trusses, cables and membranes only,
             # has no layers to extract.
-            return post_calc_str
+            return out
 
+        groups = restrict(shells)
         return (
-            post_calc_str
+            out
             + f"""
 
 stress = POST_CHAMP(
@@ -156,8 +166,8 @@ stress = POST_CHAMP(
         NIVE_COUCHE='MOY',
         NOM_CHAM=('SIGM_ELNO', ),
         NUME_COUCHE=1
-    ),
-    RESULTAT={self.stat_non_line.name}
+    ),{groups}
+    RESULTAT={name}
 )
 
 stress = CALC_CHAMP(
@@ -170,16 +180,16 @@ strain = POST_CHAMP(
     EXTR_COQUE=_F(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSI_ELNO', ),
-    NUME_COUCHE=1),
-    RESULTAT={self.stat_non_line.name}
+    NUME_COUCHE=1),{groups}
+    RESULTAT={name}
 )
 
 strainP = POST_CHAMP(
     EXTR_COQUE=_F(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSP_ELNO', ),
-    NUME_COUCHE=1),
-    RESULTAT={self.stat_non_line.name}
+    NUME_COUCHE=1),{groups}
+    RESULTAT={name}
 )"""
         )
 
@@ -227,6 +237,16 @@ class ImprResu:
         else:
             result_nom_cham = '("DEPL",)'
             result_nom_cham_med = self.med("DISP")
+        special = ""
+        if _special_groups(self.part):
+            # The axial forces of trusses and cables and the in-plane forces per unit width of membranes.
+            special = f"""_F(
+            NOM_CHAM=("SIEF_ELNO",),
+            NOM_CHAM_MED={self.med("SECTION_FORCES_ELEM")},
+            RESULTAT={self.stat_nl.name},
+            GROUP_MA={_group_tuple(_special_groups(self.part))},
+        ),
+        """
 
         return f"""IMPR_RESU(
     RESU=(
@@ -235,7 +255,7 @@ class ImprResu:
             NOM_CHAM_MED={result_nom_cham_med},
             RESULTAT={self.stat_nl.name},
         ),
-        {self.post_calc_include}
+        {special}{self.post_calc_include}
     ),
     UNITE=80,
 )"""

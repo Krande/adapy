@@ -31,6 +31,7 @@ from tests.core.fem.theory_models import (
     cable_and_truss,
     membrane_in_tension,
     membrane_square,
+    pressurised_sphere,
     two_bar_truss,
 )
 
@@ -209,3 +210,43 @@ def test_a_pre_stretched_membrane_under_pressure_code_aster(require_solver, tmp_
     s = _solve(a, "cushion", "code_aster", tmp_path)
     w = s.u(s.node(0.5, 0.5))[2]
     assert w == pytest.approx(-_membrane_series(pressure, 1.0, n0), rel=0.01)
+
+
+# ---- a pressurised sphere of triangles -------------------------------------------------------------------------
+
+
+def _section_forces(s: Solved) -> np.ndarray:
+    (last,) = s.field("SECTION_FORCES_ELEM[10]")
+    return np.asarray(last.values, dtype=float)
+
+
+def test_a_pressurised_sphere_of_membrane_triangles_code_aster(require_solver, tmp_path):
+    """A closed sphere of 3-node membranes (MEMBTR3) under 400 Pa inside, nlgeom: the membrane force is ``p r / 2``
+    and the radial displacement ``p r^2 (1 - nu) / (2 E t)``. MEMBTR3 computes no ``EPSP_ELNO`` (<CALCUL_37>,
+    measured), so the strains and layer fields are not asked of it; its forces are printed as SECTION_FORCES_ELEM.
+
+    Measured on 320 facets of a 1 m sphere: mean membrane forces 196.9 and 196.7 N/m against 200, mean radial
+    displacement 1.456e-6 m against 1.481e-6 m -- the facets' polyhedron, 1.6 % short of the sphere."""
+    require_solver("code_aster")
+    a, _ = pressurised_sphere()
+    s = _solve(a, "sphere", "code_aster", tmp_path)
+    forces = _section_forces(s)
+    assert np.nanmean(forces[..., 0]) == pytest.approx(200.0, rel=0.03)
+    assert np.nanmean(forces[..., 1]) == pytest.approx(200.0, rel=0.03)
+    radial = [np.dot(s.u(n)[:3], x / np.linalg.norm(x)) for n, x in s.coords.items()]
+    assert np.mean(radial) == pytest.approx(400.0 * (1 - NU) / (2 * E * 0.00045), rel=0.03)
+
+
+def test_a_membrane_skin_with_shell_patches_solves_code_aster(require_solver, tmp_path):
+    """The same sphere with the triangles around its top pole bending shells (DKT) ten times thicker, each region
+    loaded by a pressure of its own. Each post-processing call is restricted to the groups it applies to: the shells'
+    stresses and strains on the patch, the membrane forces on the skin (NaN on the patch cells)."""
+    require_solver("code_aster")
+    a, p = pressurised_sphere(patch_t=0.0045)
+    assert len(p.fem.elsets["patch"].members) > 0
+    s = _solve(a, "sphere_mixed", "code_aster", tmp_path)
+    forces = _section_forces(s)
+    skin = ~np.isnan(forces[:, 0, 0])
+    assert 0 < (~skin).sum() < len(skin)
+    assert np.mean(forces[skin, :, 0]) == pytest.approx(200.0, rel=0.05)
+    assert s.field("STRESSES_NODES")

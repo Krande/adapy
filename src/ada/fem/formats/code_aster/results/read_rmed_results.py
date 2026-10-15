@@ -196,7 +196,15 @@ class MedReader:
         if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
             values = data_profile["CO"][()].reshape(n_cells, n_gauss_points, -1, order="F")
         else:
-            raise NotImplementedError()
+            # Partial profile: the field is on a subset of this cell type's cells -- a field computed over some element
+            # groups only (CALC_CHAMP / IMPR_RESU with GROUP_MA, as for the membranes, trusses and cables beside
+            # shells). PROFILS/<profile>/PFL holds the 1-based cell numbers of the subset and CO one row per subset
+            # cell; scattered back to every cell of the type, NaN where the field is not defined, as for nodal data.
+            prof_cells = self.f["PROFILS"][profile.decode()]["PFL"][()].astype(int)
+            sub = data_profile["CO"][()].reshape(len(prof_cells), n_gauss_points, -1, order="F")
+            n_total = max(int(n_cells), int(prof_cells.max()))
+            values = np.full((n_total, n_gauss_points, sub.shape[-1]), np.nan, dtype=float)
+            values[prof_cells - 1] = sub
 
         # Only 1 data point per cell, shape -> (n_cells, n_components)
         if n_gauss_points == 1:

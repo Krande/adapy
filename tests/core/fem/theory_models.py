@@ -138,3 +138,68 @@ def closed_box(a=2.0, b=3.0, c=4.0, theory="membrane"):
     fem.add_section(FemSection("skin", "shell", fs, mat, thickness=0.001, theory=theory))
     p.add_material(mat)
     return ada.Assembly("a") / p, p, fs
+
+
+def icosphere(r: float, refine: int):
+    """``(vertices, faces)`` of an icosphere of radius ``r``, faces wound with their normals outward."""
+    import numpy as np
+
+    t = (1 + 5**0.5) / 2
+    verts = [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t), (0, -1, -t), (0, 1, -t)]
+    verts += [(t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)]
+    verts = [np.array(v) / np.linalg.norm(v) for v in verts]
+    faces = [
+        (0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6),
+        (7, 1, 8), (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10),
+        (8, 6, 7), (9, 8, 1),
+    ]  # fmt: skip
+    for _ in range(refine):
+        mid, new = {}, []
+
+        def midpoint(i, j):
+            key = (min(i, j), max(i, j))
+            if key not in mid:
+                m = verts[i] + verts[j]
+                verts.append(m / np.linalg.norm(m))
+                mid[key] = len(verts) - 1
+            return mid[key]
+
+        for a, b, c in faces:
+            ab, bc, ca = midpoint(a, b), midpoint(b, c), midpoint(c, a)
+            new += [(a, ab, ca), (b, bc, ab), (c, ca, bc), (ab, bc, ca)]
+        faces = new
+    return [r * v for v in verts], faces
+
+
+def pressurised_sphere(r=1.0, refine=2, t=0.00045, pressure=400.0, patch_t=None, nl_geom=True):
+    """``(assembly, part)``: a closed sphere of 3-node membranes under internal ``pressure``, held statically
+    determinately (one node in x, y, z, one in y, z, one in z). With ``patch_t``, the triangles around the top pole
+    are bending shells of that thickness, loaded by a pressure of their own."""
+    from ada.fem import LoadPressure
+
+    verts, faces = icosphere(r, refine)
+    mat = material()
+    p = ada.Part("sphere")
+    fem = p.fem
+    nodes = [fem.nodes.add(ada.Node(v, i + 1), allow_coincident=True) for i, v in enumerate(verts)]
+    els = [fem.add_elem(Elem(i + 1, [nodes[k] for k in f], "TRIANGLE")) for i, f in enumerate(faces)]
+    patch = [el for el in els if patch_t is not None and min(n.z for n in el.nodes) > 0.8 * r]
+    skin = [el for el in els if el not in patch]
+    regions = [("skin", skin, t, "membrane")]
+    if patch:
+        regions.append(("patch", patch, patch_t, "shell"))
+    for name, members, thick, theory in regions:
+        fs = fem.add_set(FemSet(name, members, "elset"))
+        fem.add_section(FemSection(f"sec_{name}", "shell", fs, mat, thickness=thick, theory=theory))
+    p.add_material(mat)
+    a = ada.Assembly("a") / p
+    # Rigid-body motion removed and nothing else held: the bottom node along x, y and z, the node furthest along x
+    # along y and z (no turning about z or y), the node furthest along y along z (no turning about x).
+    held = [min(nodes, key=lambda n: n.z), max(nodes, key=lambda n: n.x), max(nodes, key=lambda n: n.y)]
+    for name, node, dofs in zip(("fix_a", "fix_b", "fix_c"), held, ([1, 2, 3], [2, 3], [3])):
+        fem.add_bc(Bc(name, fem.add_set(FemSet(name, [node], "nset")), dofs))
+    step = a.fem.add_step(StepImplicitStatic("press", nl_geom=nl_geom))
+    # A positive pressure pushes into the face it names; the normals point out, so an internal pressure is negative.
+    for name, *_ in regions:
+        step.add_load(LoadPressure(f"p_{name}", -pressure, fem.elsets[name]))
+    return a, p
