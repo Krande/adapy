@@ -65,7 +65,9 @@ const RESULT_DOC = {
   provenance: {},
 };
 
-function planOf(unmatched: readonly { member: unknown; reason: string; label?: string | null }[]): Plan {
+function planOf(
+  unmatched: readonly { member: unknown; reason: string; label?: string | null; row?: string | null }[],
+): Plan {
   return {
     geometry_provider: PROVIDER,
     matched: [{ from: MATCHED, to: { ...MATCHED, target: { ...MATCHED.target, provider: PROVIDER } } }],
@@ -190,7 +192,8 @@ test("missing members: prompt, YES -> request exactly them -> re-plan -> check",
 
   const out = await runGeometryAwareCheckFlow(deps, SCOPE, TARGET, OPTIONS);
   assert.ok(out);
-  assert.deepEqual(rec.calls, ["plan", "prompt", "rows:2", "request", "refresh", "plan", "check"]);
+  // Only the element is looked up in the tree; a whole node is its own id.
+  assert.deepEqual(rec.calls, ["plan", "prompt", "rows:1", "request", "refresh", "plan", "check"]);
 
   const [prompt] = rec.prompts;
   assert.equal(prompt.kind, "offer");
@@ -214,6 +217,18 @@ test("missing members: prompt, YES -> request exactly them -> re-plan -> check",
   assert.ok(out.notes.some((n) => n.includes("1 request published")), out.notes.join(" | "));
   assert.ok(out.notes.some((n) => n.includes("Every member is now at member-reader")), out.notes.join(" | "));
   assert.equal(out.derivedKey, "_derived/clash/group/x/result.json");
+});
+
+test("a row the plan already placed is requested as it is, with no tree walk", async () => {
+  // The server read the member's own hierarchy: the browser's tree (which may not hold that level)
+  // is not asked at all.
+  const placed = [{ ...MISSING[0], row: "fn04" }, MISSING[1]];
+  const { deps, rec } = fakes({ plans: [planOf(placed), planOf([])] });
+
+  const out = await runGeometryAwareCheckFlow(deps, SCOPE, TARGET, OPTIONS);
+  assert.ok(out);
+  assert.deepEqual(rec.calls, ["plan", "prompt", "request", "refresh", "plan", "check"]);
+  assert.deepEqual(rec.pluginJobs[0].options.nodes, ["fn04", "fnorphan"]);
 });
 
 test("members still missing after the request are reported, and the check runs anyway", async () => {
@@ -364,7 +379,7 @@ test("contact run, members missing: prompt about the ANNOTATE, request, re-plan,
 
   const out = await runGeometryAwareAnnotateFlow(deps, SCOPE, TARGET, RUN_KEY, PROVIDER);
   assert.ok(out);
-  assert.deepEqual(rec.calls, ["plan", "prompt", "rows:2", "request", "refresh", "plan", `annotate:${PROVIDER}`, "read"]);
+  assert.deepEqual(rec.calls, ["plan", "prompt", "rows:1", "request", "refresh", "plan", `annotate:${PROVIDER}`, "read"]);
   assert.deepEqual(annotated, [PROVIDER]);
   assert.equal(rec.prompts[0].purpose, "annotate");
   assert.match(geometryPromptSentence(rec.prompts[0]), /before annotating the run/);

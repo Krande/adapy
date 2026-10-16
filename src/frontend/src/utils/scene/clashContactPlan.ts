@@ -312,7 +312,8 @@ export function contactOverlayGeometry(
 
 /** Every contact the panel shows, as overlay geometry -- through the SAME filters as the rows and the
  *  markers (`visibleResult` for hidden producers, `filteredGroups` for the filter bar), so the 3D view
- *  never shows a contact the list has hidden. Empty when the toggle is off. */
+ *  never shows a contact the list has hidden. With the toggle off, only the focused contact: picking a
+ *  clash from the list is asking to see that contact, and its patch and normal are what it is. */
 export function contactOverlayPlan(
   state: {
     result: ClashResult | null;
@@ -326,11 +327,13 @@ export function contactOverlayPlan(
   opts: { modelDiagonal: number; matrix?: Mat4 | null },
 ): OverlayContact[] {
   const result = visibleResult(state);
-  if (!state.showContacts || !run || !result) return [];
+  if (!run || !result) return [];
+  if (!state.showContacts && !state.selectedJoint) return [];
   const shown = new Set(filteredGroups(result, state.filters).map((g) => g.typeKey));
   const typeKeyOf = new Map(result.joints.map((j) => [j.id, j.typeKey] as const));
   const out: OverlayContact[] = [];
   for (const c of run.contacts) {
+    if (!state.showContacts && c.id !== state.selectedJoint) continue;
     const typeKey = typeKeyOf.get(c.id);
     if (typeKey === undefined || !shown.has(typeKey)) continue;
     const focused = state.selectedJoint === c.id;

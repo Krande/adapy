@@ -196,8 +196,14 @@ export interface WireGeometryPlan {
   /** Re-addressed to the provider's node of the same name. */
   readonly matched: readonly { readonly from: GroupMember; readonly to: GroupMember }[];
   /** Would be left out: why, and the name the member was looked for under (`null` when its own
-   *  provider published none) -- what a provider asked to publish it has to find it by. */
-  readonly unmatched: readonly { readonly member: GroupMember; readonly reason: string; readonly label?: string | null }[];
+   *  provider published none) -- what a provider asked to publish it has to find it by -- and the
+   *  row id its own provider published it under (`null` when its tree does not place it). */
+  readonly unmatched: readonly {
+    readonly member: GroupMember;
+    readonly reason: string;
+    readonly label?: string | null;
+    readonly row?: string | null;
+  }[];
   /** Read as they are: files, and nodes the provider published itself. */
   readonly unchanged: readonly GroupMember[];
 }

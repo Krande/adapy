@@ -1101,14 +1101,21 @@ async function requestMissing(
   const notes: string[] = [];
   const members: GroupMember[] = [];
   const labels = new Map<string, string>();
+  // The rows the plan already placed (from the members' own published hierarchy); the tree walk is
+  // only for the ones it could not.
+  const rows = new Map<string, string>();
   for (const u of plan.unmatched) {
     const member = parseMember(u.member);
     if (!member) continue;
     members.push(member);
     if (u.label) labels.set(memberKey(member), u.label);
+    if (u.row && member.element !== null) rows.set(memberKey(member), u.row);
   }
-  stage("finding the missing members in the published tree");
-  const rows = await deps.resolveRows(scope, members);
+  const unplaced = members.filter((m) => m.element !== null && !rows.has(memberKey(m)));
+  if (unplaced.length > 0) {
+    stage("finding the missing members in the published tree");
+    for (const [key, row] of await deps.resolveRows(scope, unplaced)) rows.set(key, row);
+  }
   const nodePlan = groupNodePlan(members, rows, labels);
   if (nodePlan.unresolved.length > 0) {
     const first = nodePlan.unresolved[0];
@@ -1684,7 +1691,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   isolateOpacity: 0.15,
   showMarkers: true,
   showContacts: false,
-  markerScale: 0.5,
+  markerScale: 1,
   inBrowser: false,
   browserStage: null,
   selectedPasses: null,
@@ -1819,7 +1826,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   setIsolateOpacity: (v) => set({ isolateOpacity: Math.max(0.02, Math.min(1, v)) }),
   setShowMarkers: (v) => set({ showMarkers: v }),
   setShowContacts: (v) => set({ showContacts: v }),
-  setMarkerScale: (v) => set({ markerScale: Math.max(0.05, Math.min(4, v)) }),
+  setMarkerScale: (v) => set({ markerScale: Math.max(0.1, Math.min(10, v)) }),
   setInBrowser: (v) => set({ inBrowser: v }),
   setSelectedPasses: (names) => set({ selectedPasses: names }),
   setChecker: (name) => set({ checker: name, selectedPasses: null }),

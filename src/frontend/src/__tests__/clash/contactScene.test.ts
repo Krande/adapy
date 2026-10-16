@@ -266,6 +266,14 @@ test("the overlay shows exactly what the panel's filters leave", () => {
   assert.deepEqual(shown({ filters: { ...DEFAULT_CLASH_FILTERS, typeKey: result.jointsById.get("c12")!.typeKey } }), ["c12"]);
   assert.deepEqual(shown({ hiddenOrigins: ["convex-contact"] }), []);
   assert.deepEqual(shown({ showContacts: false }), []);
+  // Toggle off, a clash picked from the list: that contact alone.
+  const picked = plan.contactOverlayPlan({ ...SHOW, showContacts: false, selectedJoint: "c12", result }, run, {
+    modelDiagonal: 10,
+  });
+  assert.deepEqual(
+    picked.map((c) => c.id),
+    ["c12"],
+  );
   assert.deepEqual(plan.contactOverlayPlan({ ...SHOW, result }, null, { modelDiagonal: 10 }), []);
   // An open group dims the others rather than dropping them.
   const typeKey = result.jointsById.get("c01")!.typeKey;

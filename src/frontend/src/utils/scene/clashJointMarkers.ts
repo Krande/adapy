@@ -47,8 +47,8 @@ import { getViewerRuntime } from "@/state/viewerRuntime";
 
 /** Marker radius as a fraction of the model's bounding-box diagonal. A joint is a point, so the
  *  only size that reads at every zoom is one relative to the thing it sits in. */
-const RADIUS_FRACTION = 0.008;
-const MIN_RADIUS = 0.01;
+const RADIUS_FRACTION = 0.0004;
+const MIN_RADIUS = 0.0005;
 
 /** Dim factor applied to a marker outside the expanded group (see `JointMarker.emphasised`). */
 const DIMMED = 0.28;
@@ -232,8 +232,7 @@ export function startClashMarkerSync(): void {
     if (!force && signature === lastContacts) return;
     lastContacts = signature;
     const group = file ? loadedSourceGroups.get(file) : undefined;
-    // With the toggle off, the contact under the cursor is still drawn: picking a clash from the
-    // list is asking to see that contact, and its patch and normal are what it is.
+    // With the toggle off, the focused contact is still drawn (`contactOverlayPlan`).
     if (!run || !group || (!state.showContacts && !state.selectedJoint)) {
       clearContactOverlay();
       return;
@@ -243,8 +242,7 @@ export function startClashMarkerSync(): void {
     root.updateWorldMatrix(true, false);
     const box = useModelState.getState().boundingBox;
     const diagonal = box && !box.isEmpty() ? box.getSize(new THREE.Vector3()).length() : 0;
-    const plan = contactOverlayPlan(state, run, { modelDiagonal: diagonal });
-    renderContactOverlay(state.showContacts ? plan : plan.filter((c) => c.id === state.selectedJoint), root.matrixWorld);
+    renderContactOverlay(contactOverlayPlan(state, run, { modelDiagonal: diagonal }), root.matrixWorld);
   };
   const redraw = (force = false) => {
     const state = useClashCheckStore.getState();

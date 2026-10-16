@@ -813,14 +813,16 @@ const ClashesPanel: React.FC = () => {
             {showMarkers && (
               <input
                 type="range"
-                min={5}
-                max={400}
+                // Logarithmic, the default in the middle: 0.1x at the left, 10x at the right.
+                min={-100}
+                max={100}
                 step={5}
-                value={Math.round(markerScale * 100)}
-                onChange={(e) => setMarkerScale(Number(e.target.value) / 100)}
+                value={Math.round(Math.log10(markerScale) * 100)}
+                onChange={(e) => setMarkerScale(10 ** (Number(e.target.value) / 100))}
+                onDoubleClick={() => setMarkerScale(1)}
                 className="w-16 shrink-0 accent-blue-500"
                 aria-label="Joint marker size"
-                title={`Joint marker size: ${Math.round(markerScale * 100)}% of the default`}
+                title={`Joint marker size: ${markerScale.toFixed(markerScale < 1 ? 2 : 1)}× the default (double-click to reset)`}
               />
             )}
           </div>
