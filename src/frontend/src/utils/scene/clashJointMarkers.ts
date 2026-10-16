@@ -105,7 +105,7 @@ export function clearJointMarkers(): void {
 
 /** Draw one sphere per marker, in the space of the loaded source `file`. Returns how many were
  *  drawn -- 0 (and nothing drawn) when the scene or that source is not available. */
-export function renderJointMarkers(file: string | null, markers: readonly JointMarker[]): number {
+export function renderJointMarkers(file: string | null, markers: readonly JointMarker[], scale = 1): number {
   clearJointMarkers();
   const scene = getViewerRuntime().scene.current;
   if (!scene || !file || markers.length === 0) return 0;
@@ -115,7 +115,9 @@ export function renderJointMarkers(file: string | null, markers: readonly JointM
   const sourceRoot = sourceSpaceRoot(group);
   const box = new THREE.Box3().setFromObject(group);
   const diagonal = box.isEmpty() ? spreadDiagonal(markers) : box.getSize(new THREE.Vector3()).length();
-  const radius = markerRadius(diagonal);
+  // The user's size on top of the model-relative one: a dense deck wants pinpricks, a bare frame
+  // seen from afar wants something findable.
+  const radius = markerRadius(diagonal) * scale;
 
   const geometry = new THREE.SphereGeometry(radius, 12, 8);
   const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85 });
@@ -230,7 +232,9 @@ export function startClashMarkerSync(): void {
     if (!force && signature === lastContacts) return;
     lastContacts = signature;
     const group = file ? loadedSourceGroups.get(file) : undefined;
-    if (!run || !state.showContacts || !group) {
+    // With the toggle off, the contact under the cursor is still drawn: picking a clash from the
+    // list is asking to see that contact, and its patch and normal are what it is.
+    if (!run || !group || (!state.showContacts && !state.selectedJoint)) {
       clearContactOverlay();
       return;
     }
@@ -239,7 +243,8 @@ export function startClashMarkerSync(): void {
     root.updateWorldMatrix(true, false);
     const box = useModelState.getState().boundingBox;
     const diagonal = box && !box.isEmpty() ? box.getSize(new THREE.Vector3()).length() : 0;
-    renderContactOverlay(contactOverlayPlan(state, run, { modelDiagonal: diagonal }), root.matrixWorld);
+    const plan = contactOverlayPlan(state, run, { modelDiagonal: diagonal });
+    renderContactOverlay(state.showContacts ? plan : plan.filter((c) => c.id === state.selectedJoint), root.matrixWorld);
   };
   const redraw = (force = false) => {
     const state = useClashCheckStore.getState();
@@ -261,6 +266,7 @@ export function startClashMarkerSync(): void {
       // faded too (and an unloaded one let go of).
       loadedNames,
       state.showMarkers,
+      state.markerScale,
       state.selectedGroup,
       state.selectedJoint,
       state.isolate,
@@ -276,7 +282,7 @@ export function startClashMarkerSync(): void {
     ]);
     if (!force && signature === last) return;
     last = signature;
-    renderJointMarkers(file, markersForState(state));
+    renderJointMarkers(file, markersForState(state), state.markerScale);
     // Isolation follows the same cursor the markers do, from the same subscription: two
     // subscriptions could show a joint whose neighbours had been faded for a different one.
     if (run) {

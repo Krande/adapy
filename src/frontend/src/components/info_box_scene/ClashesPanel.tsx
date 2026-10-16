@@ -75,6 +75,7 @@ const Banner: React.FC<{ tone: "info" | "warn" | "error"; children: React.ReactN
 const ContactsToggle: React.FC<{ result: ClashResult }> = ({ result }) => {
   const showContacts = useClashCheckStore((s) => s.showContacts);
   const setShowContacts = useClashCheckStore((s) => s.setShowContacts);
+  const selectedJoint = useClashCheckStore((s) => s.selectedJoint);
   const run = contactRunOf(useClashCheckStore((s) => s.result));
   if (!run) return null;
   const withRoles = run.contacts.filter((c) => c.roles).length;
@@ -88,12 +89,12 @@ const ContactsToggle: React.FC<{ result: ClashResult }> = ({ result }) => {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
       <label
         className="flex items-center gap-1 shrink-0"
-        title="Draw every contact the list shows: each patch on both members, in their roles' colours, and the contact normal (member i to member j) as an arrow. Click a patch to focus its contact."
+        title="Draw every contact the list shows: each patch on both members, in their roles' colours, and the contact normal (member i to member j) as an arrow. Click a patch to focus its contact. Off, only the contact selected in the list is drawn."
       >
         <input type="checkbox" checked={showContacts} onChange={(e) => setShowContacts(e.target.checked)} />
         show contacts in 3D
       </label>
-      {showContacts && (
+      {(showContacts || selectedJoint) && (
         <>
           {swatch(ROLE_COLOURS.incoming, "incoming")}
           {swatch(ROLE_COLOURS.landing, "landing")}
@@ -708,6 +709,8 @@ const ClashesPanel: React.FC = () => {
   const detailError = useClashCheckStore((s) => s.detailError);
   const showMarkers = useClashCheckStore((s) => s.showMarkers);
   const setShowMarkers = useClashCheckStore((s) => s.setShowMarkers);
+  const markerScale = useClashCheckStore((s) => s.markerScale);
+  const setMarkerScale = useClashCheckStore((s) => s.setMarkerScale);
   const detailBusy = useClashCheckStore((s) => s.detailBusy);
   const detailProgress = useClashCheckStore((s) => s.detailProgress);
   const runDetailAll = useClashCheckStore((s) => s.runDetailAll);
@@ -807,6 +810,19 @@ const ClashesPanel: React.FC = () => {
               <input type="checkbox" checked={showMarkers} onChange={(e) => setShowMarkers(e.target.checked)} />
               show in 3D
             </label>
+            {showMarkers && (
+              <input
+                type="range"
+                min={5}
+                max={400}
+                step={5}
+                value={Math.round(markerScale * 100)}
+                onChange={(e) => setMarkerScale(Number(e.target.value) / 100)}
+                className="w-16 shrink-0 accent-blue-500"
+                aria-label="Joint marker size"
+                title={`Joint marker size: ${Math.round(markerScale * 100)}% of the default`}
+              />
+            )}
           </div>
           <ContactsToggle result={result} />
           <IsolationControls />
