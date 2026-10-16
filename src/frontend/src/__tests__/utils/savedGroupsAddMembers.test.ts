@@ -11,6 +11,8 @@ import {
   EMPTY_GROUPS_DOC,
   memberKey,
   membersForPickedRows,
+  newGroupId,
+  selectionGroupId,
   type GroupMember,
   type SavedGroup,
 } from "../../utils/groups/savedGroups";
@@ -115,4 +117,15 @@ test("the merged group put into the latest document replaces that group only", (
   assert.deepEqual(next.groups.map((g) => g.id), ["g1", "g2"]);
   assert.equal(next.groups[0].members.length, 2);
   assert.equal(next.groups[1], theirs);
+});
+
+test("a selection is checked under an id of its own: order-free, distinct, never a saved group's", () => {
+  const a: GroupMember = { target: { kind: "file", source_key: "proj/a.ifc" }, element: "Deck A", path: ["Site"] };
+  const b: GroupMember = { target: { kind: "file", source_key: "proj/a.ifc" }, element: "Deck B", path: ["Site"] };
+  const id = selectionGroupId([a, b]);
+  assert.match(id, /^selection-[0-9a-f]{16}$/);
+  assert.equal(selectionGroupId([b, a]), id, "the same members in another order");
+  assert.equal(selectionGroupId([a, b, a]), id, "a repeated member");
+  assert.notEqual(selectionGroupId([a]), id);
+  assert.ok(!newGroupId().startsWith("selection-"));
 });

@@ -377,6 +377,24 @@ export function memberKey(m: GroupMember): string {
   return JSON.stringify([targetKey(m.target), m.element, m.path]);
 }
 
+/** The id an UNSAVED selection is checked under: `selection-` and a hash of its member keys, in any
+ *  order. A convex-contact run is filed under its group's id, so the same selection checked twice
+ *  lists its runs together, and a different one never mixes with them. A saved group's id
+ *  (`newGroupId`) never starts with `selection-`, so the two cannot collide. */
+export function selectionGroupId(members: readonly GroupMember[]): string {
+  const text = [...new Set(members.map(memberKey))].sort().join("\n");
+  // FNV-1a over two lanes with different offset bases: synchronous (it names a target in a click
+  // handler) and 64 bits wide, ample for the selections of one scope.
+  let a = 0x811c9dc5;
+  let b = 0x050c5d1f;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x01000193) >>> 0;
+  }
+  return `selection-${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`;
+}
+
 function targetKey(t: GroupMemberTarget): string {
   return t.kind === "file"
     ? `file:${t.source_key}`

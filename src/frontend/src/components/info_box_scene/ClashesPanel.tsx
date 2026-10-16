@@ -30,6 +30,7 @@ import { describeClashTarget, type ClashCheckTarget } from "@/services/api/clash
 import { rankSpecs } from "@/services/clashSpecProviders";
 import { startClashMarkerSync } from "@/utils/scene/clashJointMarkers";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import { selectionGroupId } from "@/utils/groups/savedGroups";
 import { focusJoint as focusJointEverywhere, selectClashMembers } from "@/utils/scene/clashJointFocus";
 import {
   BUILTIN_CHECKER,
@@ -245,6 +246,7 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
   const assetTarget = useClashCheckStore((s) => s.assetTarget);
   const targetLabel = useClashCheckStore((s) => s.sourceName);
   const setSource = useClashCheckStore((s) => s.setSource);
+  const setGroupTarget = useClashCheckStore((s) => s.setGroupTarget);
   const options = useClashCheckStore((s) => s.options);
   const checker = useClashCheckStore((s) => s.checker);
   const checkerSpec = useClashCheckStore((s) => s.availableCheckers?.find((c) => c.name === s.checker));
@@ -300,7 +302,29 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
       <CheckerOptionsForm />
       <PassSelector />
       <div className="flex flex-wrap items-center gap-2">
-        <ClashRootPicker value={options.root ?? null} onChange={(root) => setOptions({ root })} />
+        <ClashRootPicker
+          value={assetTarget?.kind === "group" ? null : (options.root ?? null)}
+          onChange={(root) => {
+            // A part names a part of the loaded model: leave a group target for the scene first.
+            if (assetTarget?.kind === "group") setSource(loadedSourceName, loadedSourceName);
+            setOptions({ root });
+          }}
+          scope={scope}
+          groupId={assetTarget?.kind === "group" ? (assetTarget.id ?? null) : null}
+          groupLabel={assetTarget?.kind === "group" ? assetTarget.name : null}
+          onPickGroup={(group) => {
+            setOptions({ root: null });
+            setGroupTarget(group);
+          }}
+          onPickSelection={(members) => {
+            setOptions({ root: null });
+            setGroupTarget({
+              id: selectionGroupId(members),
+              name: `selection (${members.length} member${members.length === 1 ? "" : "s"})`,
+              members,
+            });
+          }}
+        />
         {coreOptions && (
           <label className="flex items-center gap-1 text-[11px] text-gray-300">
             <input
