@@ -19,12 +19,18 @@
 // (`@/assets/scenePick`) -- and skipped when nothing matches. The walk stops at the deepest row it
 // reached: a reveal of the nearest ancestor is still the right place to look, an error is not.
 //
-// A SHARED HIT IS ANOTHER SCOPE'S. A partition an admin shared into this scope is searched here,
-// but its tree, its geometry and its export live in the scope it came from (`scope` on the hit). Its
-// identity includes that origin -- the same node id in an own and a shared partition of one name
-// are two hits. Revealing one switches to its origin first (`hitRevealScope`), as revealing an
-// exported file does: this scope's tree is not where that node is. An export from here does not
-// take it (`hitExportBlock`); it is exported from its origin.
+// A SHARED HIT IS ANOTHER SCOPE'S. A partition an admin shared into this scope is searched here
+// (and, for an admin who asks, every provider scope's: `all_scopes`), but its tree and its geometry
+// live in the scope it came from (`scope` on the hit). Its identity includes that origin -- the same
+// node id in an own and a shared partition of one name are two hits. Revealing one switches to its
+// origin first (`hitRevealScope`), as revealing an exported file does: this scope's tree is not
+// where that node is. An export from here takes it: the server reads it at its origin and writes
+// the files where the export says.
+//
+// A PARTITION IS PICKED BY ITS KEY (`partitionKey`, the server's `counts` key), not by its
+// collection's name: two scopes' partitions of one collection are two options, so one can be left
+// out and the other kept. What is left out is remembered per scope (`withScopePicks`), so a scope's
+// "not now" list survives a reload; a form stored when picks were names is read as before.
 //
 // React-free and store-free, so it runs under `node --test`.
 
@@ -94,10 +100,17 @@ export type DepthMode = "any" | "eq" | "range";
 
 /** Everything the panel's form holds -- what is remembered per browser as "the last query". */
 export interface SearchForm {
-  /** Collection names chosen; empty = every ingested collection. */
+  /** Collection NAMES chosen; empty = every ingested collection. What a form stored before
+   *  partition picks holds -- the picker turns them into `partitions` once it knows them
+   *  (`partitionsOfNames`) and leaves this empty. */
   collections: string[];
   /** Whether `collections` are the ones searched or the ones left out. */
   collectionMode: PickMode;
+  /** Partitions chosen, by `partitionKey`; empty = every one. */
+  partitions: string[];
+  partitionMode: PickMode;
+  /** An admin's search of every provider scope (`all_scopes`). */
+  allScopes: boolean;
   /** Provider ids chosen; empty = every provider. */
   providers: string[];
   providerMode: PickMode;
@@ -126,6 +139,9 @@ export function emptyForm(): SearchForm {
   return {
     collections: [],
     collectionMode: "include",
+    partitions: [],
+    partitionMode: "include",
+    allScopes: false,
     providers: [],
     providerMode: "include",
     kind: "",
@@ -219,6 +235,13 @@ export function buildQuery(form: SearchForm, cursor: string | null = null): Buil
       collections: picked(form.collections, form.collectionMode, "include"),
       exclude_providers: picked(form.providers, form.providerMode, "exclude"),
       exclude_collections: picked(form.collections, form.collectionMode, "exclude"),
+      // Sent only when set, so a query without them is the one an older server takes.
+      ...(form.partitions.length
+        ? form.partitionMode === "exclude"
+          ? { exclude_partitions: [...form.partitions] }
+          : { partitions: [...form.partitions] }
+        : {}),
+      ...(form.allScopes ? { all_scopes: true } : {}),
       kind: kinds.length ? kinds : null,
       depth,
       where,
@@ -291,11 +314,68 @@ export function hitRevealScope(
   return { blocked: `Shared into this scope from ${originLabel(hit.scope, projectName)}, which cannot be opened from here` };
 }
 
-/** Why an export from this scope cannot take this hit, or null when it can. A shared hit's
- *  geometry and attributes are its origin's; the export is run from there. */
-export function hitExportBlock(hit: SearchOrigin, projectName?: (id: string) => string | undefined): string | null {
+/** What an export from this scope does with a hit of another scope's, for its tooltip; null for
+ *  the scope's own. */
+export function hitExportNote(hit: SearchOrigin, projectName?: (id: string) => string | undefined): string | null {
   if (!isShared(hit)) return null;
-  return `Shared into this scope from ${originLabel(hit.scope, projectName)}: export it from that scope`;
+  const via = hit.admin ? "Read through your admin search of every scope" : "Shared into this scope";
+  return `${via} from ${originLabel(hit.scope, projectName)}: an export reads its geometry and attributes there`;
+}
+
+/** A partition's key -- the server's `counts` key, what `partitions` / `exclude_partitions` name:
+ *  `<provider>/<collection>` for the scope's own, `...@<origin>` for another scope's. The server's
+ *  `key` when it sent one. */
+export function partitionKey(p: { key?: string; provider: string; collection: string } & SearchOrigin): string {
+  if (p.key) return p.key;
+  const own = `${p.provider}/${p.collection}`;
+  return isShared(p) && p.scope ? `${own}@${p.scope}` : own;
+}
+
+/** The partition keys of every collection named in `names` (a pick stored by name), in listing
+ *  order -- every origin of each name, as a pick by name always took. */
+export function partitionsOfNames(
+  names: readonly string[],
+  collections: readonly ({ key?: string; provider: string; collection: string } & SearchOrigin)[],
+): string[] {
+  const wanted = new Set(names.map((n) => n.toLowerCase()));
+  return [...new Set(collections.filter((c) => wanted.has(c.collection.toLowerCase())).map(partitionKey))];
+}
+
+/** One scope's remembered partition pick. */
+export interface ScopePicks {
+  keys: string[];
+  mode: PickMode;
+}
+
+/** The stored picks of `scope` (from the per-browser map's JSON), or null when it has none. */
+export function readScopePicks(raw: string | null, scope: string): ScopePicks | null {
+  if (!raw) return null;
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const entry = v && typeof v === "object" ? (v as Record<string, unknown>)[scope] : null;
+  if (!entry || typeof entry !== "object") return null;
+  const e = entry as Record<string, unknown>;
+  const keys = Array.isArray(e.keys) ? e.keys.filter((k): k is string => typeof k === "string" && !!k) : [];
+  return { keys, mode: e.mode === "exclude" ? "exclude" : "include" };
+}
+
+/** The map's JSON with `scope`'s picks replaced -- removed when nothing is picked, so a scope left
+ *  on "every partition" leaves nothing behind. A malformed map starts afresh. */
+export function withScopePicks(raw: string | null, scope: string, picks: ScopePicks): string {
+  let map: Record<string, unknown> = {};
+  try {
+    const v = raw ? JSON.parse(raw) : {};
+    if (v && typeof v === "object" && !Array.isArray(v)) map = { ...(v as Record<string, unknown>) };
+  } catch {
+    map = {};
+  }
+  if (picks.keys.length) map[scope] = { keys: [...new Set(picks.keys)], mode: picks.mode };
+  else delete map[scope];
+  return JSON.stringify(map);
 }
 
 /** Every page fetched so far for one query, folded. */
@@ -474,6 +554,9 @@ export function parseStoredForm(raw: string | null): SearchForm | null {
   return {
     collections: strs(o.collections),
     collectionMode: mode(o.collectionMode),
+    partitions: strs(o.partitions),
+    partitionMode: mode(o.partitionMode),
+    allScopes: o.allScopes === true,
     providers: strs(o.providers),
     providerMode: mode(o.providerMode),
     kind: str(o.kind),

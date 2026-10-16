@@ -55,7 +55,10 @@ import ProviderSchedulesSection from "./ProviderSchedulesSection";
 // a worker advertises it, and marked when none does -- so an admin opening this
 // while a host reboots does not revoke that host's collections by saving.
 //
-// Personal scopes are left out: a grant on one has no second party to protect.
+// PERSONAL SCOPES ARE ONE ROW, `user:me`: the name every personal scope goes by to its own owner
+// -- the request picker and the display names look a personal scope up under it -- so a setting
+// there applies to each user's own scope alike. (They were left out once, which left an admin no
+// way to configure, or name, a provider for anyone's personal scope -- their own included.)
 
 interface ScopeRow {
     scope: string;
@@ -290,7 +293,10 @@ const ProvidersTab: React.FC = () => {
     }, []);
 
     const rows: ScopeRow[] = useMemo(() => {
-        const out: ScopeRow[] = [{scope: "shared", label: "Shared", hint: "everyone with access to this viewer"}];
+        const out: ScopeRow[] = [
+            {scope: "shared", label: "Shared", hint: "everyone with access to this viewer"},
+            {scope: "user:me", label: "Personal scopes", hint: "each user's own scope, yours included"},
+        ];
         for (const p of projects) out.push({scope: `project:${p.id}`, label: p.name, hint: p.slug});
         const known = new Set(out.map((r) => r.scope));
         for (const scope of Object.keys(map).sort()) {

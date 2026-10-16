@@ -169,8 +169,9 @@ async def _scope_provider_labels(request: Request, ctx: RestContext, scope_obj: 
     try:
         scope_key: str | None = scope_obj.wire()
     except ValueError:
-        # A personal scope has no admin aliases (the Providers tab leaves personal scopes out).
-        scope_key = None
+        # A personal scope: the Providers tab configures every one at once, as `user:me` -- the
+        # name each of them goes by to its own owner, which is the only one who sees it.
+        scope_key = "user:me" if scope_obj.kind == "user" else None
     return resolve_provider_labels(scope_key, aliases, declared, registered_provider_labels())
 
 

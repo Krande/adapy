@@ -7,7 +7,9 @@
 // shows, and re-runs `lastQuery` page by page when it wants every hit rather than the loaded ones.
 //
 // The form is remembered per browser (localStorage): the last query run, not results. Storage can
-// be blocked (a private window, a sandbox) -- the panel then simply starts empty.
+// be blocked (a private window, a sandbox) -- the panel then simply starts empty. The partition
+// pick is remembered PER SCOPE (`PICKS_KEY`): its keys name partitions as one scope sees them, and
+// what a user leaves out of one scope's search is that scope's.
 
 import { create } from "zustand";
 
@@ -17,6 +19,9 @@ import {
   hitKey,
   mergePage,
   parseStoredForm,
+  readScopePicks,
+  withScopePicks,
+  type PickMode,
   type SearchForm,
   type SearchResults,
 } from "@/assets/attributeSearch";
@@ -25,6 +30,25 @@ import { attributeSearchApi, type SearchHit, type SearchQuery } from "@/services
 export type { SearchHit, SearchQuery } from "@/services/api/attributeSearch";
 
 const FORM_KEY = "ada.assets.attributeSearch.form";
+const PICKS_KEY = "ada.assets.attributeSearch.partitionsByScope";
+
+function readPicks(scope: string): { partitions: string[]; partitionMode: PickMode } {
+  try {
+    const picks = readScopePicks(globalThis.localStorage?.getItem(PICKS_KEY) ?? null, scope);
+    return { partitions: picks?.keys ?? [], partitionMode: picks?.mode ?? "include" };
+  } catch {
+    return { partitions: [], partitionMode: "include" };
+  }
+}
+
+function writePicks(scope: string, partitions: string[], partitionMode: PickMode): void {
+  try {
+    const raw = globalThis.localStorage?.getItem(PICKS_KEY) ?? null;
+    globalThis.localStorage?.setItem(PICKS_KEY, withScopePicks(raw, scope, { keys: partitions, mode: partitionMode }));
+  } catch {
+    // Remembered for this page only.
+  }
+}
 
 function readForm(): SearchForm {
   try {
@@ -55,6 +79,10 @@ export interface AttributeSearchState {
   selected: ReadonlySet<string>;
 
   setForm: (patch: Partial<SearchForm>) => void;
+  /** Set the partition pick of `scope`, and remember it for that scope. */
+  setPicks: (scope: string, partitions: string[], partitionMode: PickMode) => void;
+  /** Put `scope`'s remembered partition pick into the form (none: every partition). */
+  loadPicks: (scope: string) => void;
   resetForm: () => void;
   /** Run the form as a new query (page one). */
   run: (scope: string) => Promise<void>;
@@ -84,6 +112,11 @@ export const useAttributeSearchStore = create<AttributeSearchState>((set, get) =
   selected: new Set(),
 
   setForm: (patch) => set((s) => ({ form: { ...s.form, ...patch } })),
+  setPicks: (scope, partitions, partitionMode) => {
+    writePicks(scope, partitions, partitionMode);
+    set((s) => ({ form: { ...s.form, partitions, partitionMode } }));
+  },
+  loadPicks: (scope) => set((s) => ({ form: { ...s.form, ...readPicks(scope) } })),
   resetForm: () => {
     const form = emptyForm();
     writeForm(form);

@@ -16,7 +16,8 @@
 // who can reach the scope it came from. So a hit or a collection says its ORIGIN (`scope`, the
 // storage prefix; `scope_wire`, the path segment naming it to this caller, null when there is
 // none; `shared`). All three are optional: a server from before shares sends none, and then
-// everything is the scope's own.
+// everything is the scope's own. An admin may also search every provider scope (`all_scopes`);
+// what is read that way without a share says `admin` too.
 
 import { runtime } from "@/runtime/config";
 
@@ -46,6 +47,12 @@ export interface SearchQuery {
   collections: string[] | null;
   exclude_providers?: string[] | null;
   exclude_collections?: string[] | null;
+  /** Partitions by their `counts` key (`key` on a collection entry) -- the filter that tells two
+   *  scopes' partitions of one collection name apart. Optional, like the exclusions. */
+  partitions?: string[] | null;
+  exclude_partitions?: string[] | null;
+  /** An admin's search of every provider scope, shared here or not (403 for anyone else). */
+  all_scopes?: boolean;
   kind: string[] | null;
   depth: SearchDepth | null;
   where: SearchWhere[];
@@ -68,8 +75,10 @@ export interface SearchOrigin {
   scope?: string;
   /** The origin as an API path segment (`project:<id>`, `user:me`, ...), null when it has none. */
   scope_wire?: string | null;
-  /** Read through a share from another scope. */
+  /** Read from another scope: through a share, or (`admin`) an admin's `all_scopes`. */
   shared?: boolean;
+  /** Read only because an admin searched every scope -- there is no share into this one. */
+  admin?: boolean;
 }
 
 /** One matching node. `node_id` is the id the provider's published tree uses for it, which is what
@@ -108,6 +117,9 @@ export interface SearchResponse {
 }
 
 export interface SearchCollection extends SearchOrigin {
+  /** The partition's `counts` key, what `partitions` / `exclude_partitions` name (absent from an
+   *  older server: `partitionKey` derives the same). */
+  key?: string;
   provider: string;
   collection: string;
   revision: string | null;
@@ -125,6 +137,8 @@ export interface SearchValueCount {
 export interface SearchPartitionFilter {
   provider?: string | null;
   collection?: string | null;
+  /** An admin's listing over every provider scope (as `all_scopes` on a search). */
+  allScopes?: boolean;
 }
 
 function searchBase(scope: ScopeUrl): string {
@@ -134,6 +148,7 @@ function searchBase(scope: ScopeUrl): string {
 function partitionParams(q: URLSearchParams, filter: SearchPartitionFilter): URLSearchParams {
   if (filter.provider) q.set("provider", filter.provider);
   if (filter.collection) q.set("collection", filter.collection);
+  if (filter.allScopes) q.set("all_scopes", "true");
   return q;
 }
 
@@ -149,9 +164,10 @@ export const attributeSearchApi = {
     return jsonOrThrow(r, "searchAssetAttributes");
   },
 
-  /** Every ingested (provider, collection) in this scope. */
-  async searchCollections(scope: ScopeUrl): Promise<SearchCollection[]> {
-    const r = await authedFetch(`${searchBase(scope)}/collections`);
+  /** Every ingested (provider, collection) in this scope -- with `allScopes`, an admin's: every
+   *  provider scope's. */
+  async searchCollections(scope: ScopeUrl, opts: { allScopes?: boolean } = {}): Promise<SearchCollection[]> {
+    const r = await authedFetch(`${searchBase(scope)}/collections${opts.allScopes ? "?all_scopes=true" : ""}`);
     return (await jsonOrThrow<{ collections: SearchCollection[] }>(r, "searchCollections")).collections;
   },
 

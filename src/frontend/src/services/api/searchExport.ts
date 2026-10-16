@@ -16,14 +16,15 @@
 //                  the query that found it, what it matched; 404 when it has none
 //
 // The run lives in the SEARCHED scope (that is where the index and the query are); the files land
-// in the TARGET scope. Every call below that reads a run takes the searched scope; the gallery and
+// in the TARGET scope. A hit the search read from another scope (shared in, or an admin's search
+// of every scope) is exported too, read where it lies -- each item says its `origin_scope`. Every call below that reads a run takes the searched scope; the gallery and
 // the sidecars read the target scope.
 
 import { runtime } from "@/runtime/config";
 
 import { ApiError, authedFetch, jsonOrThrow, readDetail, type ScopeUrl } from "./client";
 import type { SweepRun } from "./assetSchedules";
-import type { SearchPathEntry, SearchQuery } from "./attributeSearch";
+import type { SearchOrigin, SearchPathEntry, SearchQuery } from "./attributeSearch";
 
 /** A hit as the export takes it -- what the search returned, minus nothing it needs. */
 export interface ExportHit {
@@ -36,6 +37,9 @@ export interface ExportHit {
   depth: number | null;
   path: SearchPathEntry[];
   attrs: Record<string, string | number | boolean>;
+  /** Where the hit's partition lies (the search row's `scope`): the export reads it there. Absent
+   *  for the searched scope's own. */
+  scope?: string;
 }
 
 export type ExportAlso = "glb" | "step";
@@ -72,7 +76,9 @@ export interface ExportRequest {
 /** One collection of a preflight: how its hits stand against the geometry provider's published
  *  content. `missing` = `listed` (in its tree, no geometry) + `unpublished` (it published nothing in
  *  the collection) -- what a request can fix; `unknown` = not in its tree at all. */
-export interface PreflightCollection {
+export interface PreflightCollection extends SearchOrigin {
+  /** Null when this user may request the missing geometry: it is published where the hits lie. */
+  request_blocked?: string | null;
   collection: string;
   hits: number;
   ready: number;
@@ -112,7 +118,7 @@ export interface ExportPreflight {
 }
 
 /** One (provider, collection) of a mesh preflight: its hits against the provider's published tree. */
-export interface MeshPreflightCollection {
+export interface MeshPreflightCollection extends SearchOrigin {
   provider: string;
   collection: string;
   hits: number;
@@ -128,6 +134,9 @@ export interface MeshPreflightCollection {
 /** A provider's collection request, as the mesh preflight offers it for its collections with no tree. */
 export interface TreeRequestOffer {
   provider: string;
+  /** The scope the trees are requested into (a storage prefix): the one the hits lie in. Null or
+   *  absent: the searched scope. */
+  origin?: string | null;
   collections: string[];
   available: boolean;
   allowed: boolean;
@@ -218,6 +227,8 @@ export interface ExportItem {
   position: number;
   provider: string;
   collection: string;
+  /** Where its hits were read from (a storage prefix); null is the run's own scope. */
+  origin_scope?: string | null;
   hits: number;
   status: ExportItemStatus;
   job_id: string | null;
@@ -392,8 +403,11 @@ export const searchExportApi = {
 
   /** Ask `provider` for the project trees of `collections` (its collection request, once each), as one
    *  run driven like a sweep. 403 when its job is admin-only, 409 while a sweep of it runs. */
-  async requestTrees(scope: ScopeUrl, provider: string, collections: string[]): Promise<SweepRun> {
-    const r = await authedFetch(`${exportBase(scope)}/request-trees`, post({ provider, collections }));
+  async requestTrees(scope: ScopeUrl, provider: string, collections: string[], origin?: string | null): Promise<SweepRun> {
+    const r = await authedFetch(
+      `${exportBase(scope)}/request-trees`,
+      post(origin ? { provider, collections, origin } : { provider, collections }),
+    );
     return jsonOrThrow(r, "requestTrees");
   },
 
