@@ -46,7 +46,7 @@ from ..auth import User
 from ..clash_runs import write_run_and_index
 from ..job_transport import JobRequest
 from ..scope import Scope
-from .clash_check import _spec_capability
+from .clash_check import _route_with_reader, _spec_capability
 from .deps import RestContext, rest_context, scope_from_path
 
 router = APIRouter()
@@ -109,6 +109,23 @@ def _check_options(raw: Any) -> dict:
     return out
 
 
+def _geometry_provider(body: dict, target: dict) -> str | None:
+    """The ``geometry_provider`` an annotate reads the members through, or None (each member's own).
+    A file has no provider, so it is dropped for a file run -- the same rule the classic check keeps."""
+    raw = body.get("geometry_provider")
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise HTTPException(status_code=400, detail="'geometry_provider' must be a provider id")
+    return None if target.get("kind") == "file" else raw.strip()
+
+
+async def _annotate_capability(ctx: RestContext, provider: str | None) -> str | None:
+    """Where an annotate job runs: anywhere core does, unless it reads through a geometry provider --
+    then only a pool with that provider's reader (409 naming it when none is live)."""
+    return await _route_with_reader(ctx, None, provider, needs="annotating a clash run")
+
+
 def _require_run_key(key: str) -> str:
     key = key.strip()
     if not key.startswith(CLASH_SIDECAR_PREFIX) or not key.endswith(".json") or key.endswith("/index.json"):
@@ -159,8 +176,10 @@ async def api_clash_contacts(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Run the convex-contact check on a worker. Body ``{target, glb_key, up_axis?, options?}`` --
-    ``glb_key`` the GLB the viewer loads for ``target``. Returns ``{job_id, run_key}``."""
+    """Run the convex-contact check on a worker. Body ``{target, glb_key, up_axis?, options?,
+    annotate?}`` -- ``glb_key`` the GLB the viewer loads for ``target``; ``annotate: false`` stores the
+    run without resolving its specs (the caller annotates it next, e.g. through a geometry provider).
+    Returns ``{job_id, run_key}``."""
     target = _target_from(body.get("target"))
     if target["kind"] == "group":
         raise HTTPException(
@@ -195,6 +214,7 @@ async def api_clash_contacts(
             "up_axis": up_axis,
             "options": options,
             "run_id": run_id,
+            "annotate": bool(body.get("annotate", True)),
         },
     )
     return JSONResponse({"job_id": submitted.job_id, "run_key": key})
@@ -208,9 +228,10 @@ async def api_clash_contacts_store(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Store a run a browser measured. Body ``{run, annotate?}``: ``run`` is the sidecar document
-    (``ada.clash/contacts@1``). Returns ``{run_key, summary, job_id}`` -- ``job_id`` of the annotate
-    job resolving its specs, when asked for (``annotate``, default true) and a pool can run it."""
+    """Store a run a browser measured. Body ``{run, annotate?, geometry_provider?}``: ``run`` is the
+    sidecar document (``ada.clash/contacts@1``). Returns ``{run_key, summary, job_id}`` -- ``job_id``
+    of the annotate job resolving its specs, when asked for (``annotate``, default true) and a pool
+    can run it; through ``geometry_provider`` when one is named (see ``/annotate``)."""
     try:
         run = parse_run(body.get("run"))
     except SidecarError as exc:
@@ -218,6 +239,11 @@ async def api_clash_contacts_store(
     target = _target_from(dict(run.target))
     if dict(run.target) != target:
         raise HTTPException(status_code=400, detail="the run's target is not in its normal form")
+    provider = _geometry_provider(body, target)
+    annotate = bool(body.get("annotate", True)) and ctx.jobs.supports("clash_check")
+    # Refused before anything is written: a run stored with an annotate that cannot be routed would
+    # be a run whose specs silently never come.
+    capability = await _annotate_capability(ctx, provider) if annotate else None
     key = run_key(target, run.run_id)
     if await ctx.storage.exists(scope_obj, key):
         raise HTTPException(status_code=409, detail=f"a clash run {run.run_id!r} already exists for this target")
@@ -225,7 +251,7 @@ async def api_clash_contacts_store(
     await ctx.audit(request, user, scope_obj, "clash_run_store", key=key, target_format=KIND, status="done")
 
     job_id = None
-    if body.get("annotate", True) and ctx.jobs.supports("clash_check"):
+    if annotate:
         submitted = await _submit(
             ctx,
             request,
@@ -234,7 +260,8 @@ async def api_clash_contacts_store(
             feature="clash_check",
             source_key=key,
             derived_key=key,
-            options={"mode": "annotate", "run_key": key},
+            options={"mode": "annotate", "run_key": key, **({"geometry_provider": provider} if provider else {})},
+            capability=capability,
         )
         job_id = submitted.job_id
     return JSONResponse({"run_key": key, "summary": run.summary(key), "job_id": job_id})
@@ -281,10 +308,19 @@ async def api_clash_contacts_annotate(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Resolve which specs could detail each clash of a run. Body ``{run_key}``. Returns ``{job_id}``."""
+    """Resolve which specs could detail each clash of a run. Body ``{run_key, geometry_provider?}``.
+    Returns ``{job_id, geometry_provider}``.
+
+    ``geometry_provider`` reads the run's members from that provider's publish of the same elements
+    (matched by name -- ``ada.clash.geometry_source``, the classic check's "Geometry from") rather
+    than each member's own provider: how a run over a mesh-only provider's members still gets
+    member-bound specs and roles. Routed to a pool that reads it (409 when none does); ignored for a
+    file run, which has no provider. ``geometry_provider`` in the answer is the one in force."""
     key = _require_run_key(str(body.get("run_key") or ""))
-    await _read_run(ctx, scope_obj, key)
+    run = await _read_run(ctx, scope_obj, key)
+    provider = _geometry_provider(body, dict(run.target))
     ctx.jobs.require("clash_check")
+    capability = await _annotate_capability(ctx, provider)
     submitted = await _submit(
         ctx,
         request,
@@ -293,9 +329,10 @@ async def api_clash_contacts_annotate(
         feature="clash_check",
         source_key=key,
         derived_key=key,
-        options={"mode": "annotate", "run_key": key},
+        options={"mode": "annotate", "run_key": key, **({"geometry_provider": provider} if provider else {})},
+        capability=capability,
     )
-    return JSONResponse({"job_id": submitted.job_id})
+    return JSONResponse({"job_id": submitted.job_id, "geometry_provider": provider})
 
 
 @router.post("/scopes/{scope}/clash-contacts/detail")

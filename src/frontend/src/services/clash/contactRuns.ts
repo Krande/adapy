@@ -411,14 +411,27 @@ async function postJson<T>(url: string, body: unknown, what: string): Promise<T>
 }
 
 export const contactRunsApi = {
-  runOnWorker(scope: ScopeUrl, body: { target: ContactTarget; glb_key: string; up_axis: "z" | "y"; options: Record<string, number> }) {
+  runOnWorker(
+    scope: ScopeUrl,
+    body: { target: ContactTarget; glb_key: string; up_axis: "z" | "y"; options: Record<string, number>; annotate?: boolean },
+  ) {
     return postJson<{ job_id: string; run_key: string }>(base(scope), body, "clash-contacts");
   },
-  storeRun(scope: ScopeUrl, run: ContactRunDoc) {
+  /** `annotate: false` stores the run without resolving its specs -- the caller annotates next. */
+  storeRun(scope: ScopeUrl, run: ContactRunDoc, opts: { annotate?: boolean } = {}) {
     return postJson<{ run_key: string; summary: ContactRunSummary; job_id: string | null }>(
       `${base(scope)}/runs`,
-      { run },
+      opts.annotate === false ? { run, annotate: false } : { run },
       "clash-contacts/runs",
+    );
+  },
+  /** Resolve a stored run's specs and roles -- through `geometryProvider`'s publish of its members
+   *  when one is named (`POST …/clash-contacts/annotate`), else each member's own provider. */
+  annotate(scope: ScopeUrl, runKey: string, geometryProvider: string | null = null) {
+    return postJson<{ job_id: string; geometry_provider?: string | null }>(
+      `${base(scope)}/annotate`,
+      geometryProvider ? { run_key: runKey, geometry_provider: geometryProvider } : { run_key: runKey },
+      "clash-contacts/annotate",
     );
   },
   async listRuns(scope: ScopeUrl, target: ContactTarget): Promise<ContactRunSummary[]> {
@@ -449,7 +462,8 @@ export const contactRunsApi = {
 // ── flows ───────────────────────────────────────────────────────────────────────────────────
 
 export interface ContactFlowDeps {
-  api: Pick<typeof contactRunsApi, "runOnWorker" | "storeRun" | "getRun" | "detail" | "getBytes" | "getJson">;
+  api: Pick<typeof contactRunsApi, "runOnWorker" | "storeRun" | "getRun" | "detail" | "getBytes" | "getJson"> &
+    Partial<Pick<typeof contactRunsApi, "annotate">>;
   /** The wasm check (utils/clashContacts). */
   measure(glb: ArrayBuffer, opts: { securityMargin: number; minContactArea: number; lineContactThickness: number; upAxis: "z" | "y" }): Promise<GlbContactsColumns>;
   /** A GLB's members as a soup, unmeasured (a group run). May transfer the buffer away. */
@@ -469,6 +483,9 @@ export interface ContactRunRequest {
   glbKey: string;
   upAxis: "z" | "y";
   options: ContactRunDoc["options"];
+  /** `false`: store the run without resolving its specs -- the caller annotates it next (through a
+   *  geometry provider: `runGeometryAwareAnnotateFlow`). Default true. */
+  annotate?: boolean;
 }
 
 const POLL_INTERVAL_MS = 1500;
@@ -518,18 +535,19 @@ export async function runBrowserContactFlow(
     upAxis: req.upAxis,
     options: req.options,
   });
-  return storeAndResolve(deps, scope, run, onStage);
+  return storeAndResolve(deps, scope, run, onStage, req.annotate ?? true);
 }
 
-/** Store a browser run and wait for the worker resolving its specs. */
+/** Store a browser run and wait for the worker resolving its specs (unless `annotate` is false). */
 async function storeAndResolve(
   deps: ContactFlowDeps,
   scope: ScopeUrl,
   run: ContactRunDoc,
   onStage?: (stage: string) => void,
+  annotate = true,
 ): Promise<{ run: ContactRunDoc; runKey: string }> {
   onStage?.("saving");
-  const stored = await deps.api.storeRun(scope, run);
+  const stored = annotate ? await deps.api.storeRun(scope, run) : await deps.api.storeRun(scope, run, { annotate: false });
   if (stored.job_id) {
     onStage?.("resolving specs");
     deps.trackJob?.({ jobId: stored.job_id, label: "Clash specs", derivedKey: stored.run_key });
@@ -556,6 +574,8 @@ export interface GroupContactRunRequest {
   options: ContactRunDoc["options"];
   /** Group members that named nothing in their loaded model, described -- kept on the run. */
   unresolved?: readonly string[];
+  /** As `ContactRunRequest.annotate`. */
+  annotate?: boolean;
 }
 
 /** Measure a saved group in the browser -- every part's GLB read out, the group's elements kept and
@@ -612,7 +632,7 @@ export async function runBrowserGroupContactFlow(
     members,
     group: { id: req.group.id, name: req.group.name, members: [...req.group.members] },
   };
-  return storeAndResolve(deps, scope, run, onStage);
+  return storeAndResolve(deps, scope, run, onStage, req.annotate ?? true);
 }
 
 /** Run the check on a worker over the stored GLB. Returns the stored run. */
@@ -626,10 +646,34 @@ export async function runWorkerContactFlow(
     glb_key: req.glbKey,
     up_axis: req.upAxis,
     options: { ...req.options },
+    ...(req.annotate === false ? { annotate: false } : {}),
   });
   deps.trackJob?.({ jobId: job_id, label: "Clash check", derivedKey: run_key });
   await pollJob(deps, job_id, "clash check");
   return { run: await deps.api.getRun(scope, run_key), runKey: run_key };
+}
+
+/** (Re-)annotate a stored run -- its specs and member roles -- through `geometryProvider`'s publish of
+ *  its members when one is named, and read it back. A failed annotate is not a lost run: it is
+ *  returned as stored, with the reason. */
+export async function annotateRunFlow(
+  deps: ContactFlowDeps,
+  scope: ScopeUrl,
+  runKey: string,
+  geometryProvider: string | null,
+  onStage?: (stage: string) => void,
+): Promise<{ run: ContactRunDoc; runKey: string; error: string | null }> {
+  if (!deps.api.annotate) throw new Error("This viewer cannot annotate a stored clash run.");
+  onStage?.(geometryProvider ? `resolving specs through ${geometryProvider}` : "resolving specs");
+  const { job_id } = await deps.api.annotate(scope, runKey, geometryProvider);
+  deps.trackJob?.({ jobId: job_id, label: "Clash specs", derivedKey: runKey });
+  let error: string | null = null;
+  try {
+    await pollJob(deps, job_id, "resolving specs");
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  return { run: await deps.api.getRun(scope, runKey), runKey, error };
 }
 
 export interface ContactDetailStats {

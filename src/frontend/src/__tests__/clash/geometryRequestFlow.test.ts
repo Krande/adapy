@@ -23,10 +23,16 @@ const globals = globalThis as unknown as { sessionStorage: unknown; localStorage
 globals.sessionStorage = storage;
 globals.localStorage = storage;
 
-const { runGeometryAwareCheckFlow, geometryRequestPrompt, geometryPromptSentence } = await import(
-  "@/state/clashCheckStore"
-);
+const {
+  contactGeometryProvider,
+  runGeometryAwareAnnotateFlow,
+  runGeometryAwareCheckFlow,
+  geometryRequestPrompt,
+  geometryPromptSentence,
+} = await import("@/state/clashCheckStore");
 type Deps = Parameters<typeof runGeometryAwareCheckFlow>[0];
+type AnnotateDeps = Parameters<typeof runGeometryAwareAnnotateFlow>[0];
+type ContactRun = Awaited<ReturnType<AnnotateDeps["contact"]["api"]["getRun"]>>;
 type Plan = Awaited<ReturnType<Deps["geometryPlan"]>>;
 type Answer = Awaited<ReturnType<Deps["prompt"]>>;
 type Prompt = Parameters<Deps["prompt"]>[0];
@@ -281,4 +287,148 @@ test("no geometry provider, or a file: no plan at all", async () => {
   await runGeometryAwareCheckFlow(deps, SCOPE, TARGET, { include_plate_joints: false });
   await runGeometryAwareCheckFlow(deps, SCOPE, { kind: "file", sourceKey: "a.ifc" }, OPTIONS);
   assert.deepEqual(rec.calls, ["check", "check"]);
+});
+
+// ── the convex-contact run: the same step before ANNOTATING a stored run ──────────────────────
+
+const RUN_KEY = "_clash/abc/r1.json";
+
+function storedRun(provenance: Record<string, unknown>): ContactRun {
+  return {
+    schema: "ada.clash/contacts@1",
+    run_id: "r1",
+    created_at: "2026-10-16T12:00:00Z",
+    engine: "wasm",
+    target: { kind: "group", group_id: "g1" },
+    geometry: { key: "group:g1", sha256: "x", up_axis: "z", parts: [] },
+    options: { security_margin: 0.01, min_contact_area: 1e-6, line_contact_thickness: 1e-3 },
+    members: [],
+    contacts: [],
+    provenance,
+  } as unknown as ContactRun;
+}
+
+/** The step's fakes plus the run's REST deps; every annotate is recorded with its provider. */
+function annotateFakes(opts: Parameters<typeof fakes>[0] & { annotateStatus?: string }) {
+  const { deps: check, rec } = fakes(opts);
+  const annotated: (string | null)[] = [];
+  const { api: _api, trackJob: _t, wait: _w, now: _n, ...step } = check;
+  const deps: AnnotateDeps = {
+    ...step,
+    contact: {
+      api: {
+        async runOnWorker() {
+          throw new Error("not used");
+        },
+        async storeRun() {
+          throw new Error("not used");
+        },
+        async annotate(_scope, runKey, provider) {
+          assert.equal(runKey, RUN_KEY);
+          rec.calls.push(`annotate:${provider ?? "own"}`);
+          annotated.push(provider ?? null);
+          return { job_id: "annotate-1", geometry_provider: provider };
+        },
+        async getRun(_scope, key) {
+          assert.equal(key, RUN_KEY);
+          rec.calls.push("read");
+          return storedRun({ applicability: { resolved: 3, unbound: 0 }, geometry_provider: PROVIDER });
+        },
+        async detail() {
+          throw new Error("not used");
+        },
+        async getBytes() {
+          throw new Error("not used");
+        },
+        async getJson() {
+          throw new Error("not used");
+        },
+      },
+      async measure() {
+        throw new Error("not used");
+      },
+      async jobStatus() {
+        return { status: opts.annotateStatus ?? "done", error: opts.annotateStatus ? "worker gone" : null };
+      },
+      trackJob: (o) => rec.tracked.push(o.label),
+      wait: async () => {},
+    },
+  };
+  return { deps, rec, annotated };
+}
+
+test("contact run, members missing: prompt about the ANNOTATE, request, re-plan, then annotate through the provider", async () => {
+  const { memberKey } = await import("@/utils/groups/savedGroups");
+  const rows = new Map([[memberKey(ELEMENT as never), "fn04"]]);
+  const { deps, rec, annotated } = annotateFakes({ plans: [planOf(MISSING), planOf([])], rows });
+
+  const out = await runGeometryAwareAnnotateFlow(deps, SCOPE, TARGET, RUN_KEY, PROVIDER);
+  assert.ok(out);
+  assert.deepEqual(rec.calls, ["plan", "prompt", "rows:2", "request", "refresh", "plan", `annotate:${PROVIDER}`, "read"]);
+  assert.deepEqual(annotated, [PROVIDER]);
+  assert.equal(rec.prompts[0].purpose, "annotate");
+  assert.match(geometryPromptSentence(rec.prompts[0]), /before annotating the run/);
+  assert.deepEqual(rec.pluginJobs[0].options.nodes, ["fn04", "fnorphan"]);
+  assert.ok(rec.tracked.includes("Clash specs"));
+  assert.ok(out.notes.some((n) => n.includes("Every member is now at member-reader")), out.notes.join(" | "));
+  // The run read back after the annotate is the one put on the panel.
+  assert.equal(out.run.provenance.geometry_provider, PROVIDER);
+  assert.equal(out.runKey, RUN_KEY);
+});
+
+test("contact run, annotate without them: nothing requested, annotated through the provider anyway", async () => {
+  const { deps, rec } = annotateFakes({ plans: [planOf(MISSING)], answer: "skip" });
+  const out = await runGeometryAwareAnnotateFlow(deps, SCOPE, TARGET, RUN_KEY, PROVIDER);
+  assert.ok(out);
+  assert.deepEqual(rec.calls, ["plan", "prompt", `annotate:${PROVIDER}`, "read"]);
+  assert.ok(out.notes.some((n) => n.includes("2 members not at member-reader left out")));
+  const prompt = geometryRequestPrompt(planOf(MISSING), null, false, "annotate");
+  assert.ok(prompt);
+  assert.match(geometryPromptSentence(prompt), /The run would be annotated without them/);
+});
+
+test("contact run, cancel: no request and no annotate -- the run stays stored as it is", async () => {
+  const { deps, rec } = annotateFakes({ plans: [planOf(MISSING)], answer: "cancel" });
+  assert.equal(await runGeometryAwareAnnotateFlow(deps, SCOPE, TARGET, RUN_KEY, PROVIDER), null);
+  assert.deepEqual(rec.calls, ["plan", "prompt"]);
+});
+
+test("contact run, nothing missing: no prompt, straight to the annotate; a failed annotate is a note", async () => {
+  const ok = annotateFakes({ plans: [planOf([])] });
+  const out = await runGeometryAwareAnnotateFlow(ok.deps, SCOPE, TARGET, RUN_KEY, PROVIDER);
+  assert.ok(out);
+  assert.deepEqual(ok.rec.calls, ["plan", `annotate:${PROVIDER}`, "read"]);
+  assert.deepEqual(out.notes, []);
+
+  const failed = annotateFakes({ plans: [planOf([])], annotateStatus: "error" });
+  const after = await runGeometryAwareAnnotateFlow(failed.deps, SCOPE, TARGET, RUN_KEY, PROVIDER);
+  assert.ok(after);
+  assert.ok(after.notes.some((n) => n.includes("The specs were not resolved") && n.includes("worker gone")), after.notes.join(" | "));
+});
+
+test("contact run on a file: no plan, and annotated through each member's own reader", async () => {
+  const { deps, rec, annotated } = annotateFakes({ plans: [] });
+  const out = await runGeometryAwareAnnotateFlow(deps, SCOPE, { kind: "file", sourceKey: "a.ifc" }, RUN_KEY, PROVIDER);
+  assert.ok(out);
+  assert.deepEqual(rec.calls, ["annotate:own", "read"]);
+  assert.deepEqual(annotated, [null]);
+});
+
+test("which provider a contact run is annotated through", () => {
+  const readable = (id: string, ok = true) => ({ id, label: id, readable: ok }) as never;
+  const avail = [readable(PROVIDER), readable("mesh-only", false)];
+  // The members' own provider cannot be read: the readable one there is, without the user picking.
+  assert.equal(contactGeometryProvider(TARGET, null, avail), PROVIDER);
+  // The "Geometry from" choice wins; one that is every member's own is no re-addressing at all.
+  assert.equal(contactGeometryProvider(TARGET, "other-reader", avail), "other-reader");
+  assert.equal(contactGeometryProvider(TARGET, "mesh-only", avail), null);
+  // The members' own provider IS readable: each member's own.
+  assert.equal(contactGeometryProvider(TARGET, null, [readable(PROVIDER), readable("mesh-only")]), null);
+  // Nothing known about the pools, nothing readable, or a file: each member's own.
+  assert.equal(contactGeometryProvider(TARGET, null, null), null);
+  assert.equal(contactGeometryProvider(TARGET, null, [readable("mesh-only", false)]), null);
+  assert.equal(contactGeometryProvider({ kind: "file", sourceKey: "a.ifc" }, PROVIDER, avail), null);
+  // A node: its own provider, not its collection's other publishers.
+  const node = { kind: "node" as const, provider: "mesh-only", collection: "plant", subject: "fnzone", collectionProviders: [PROVIDER] };
+  assert.equal(contactGeometryProvider(node as never, null, avail), PROVIDER);
 });

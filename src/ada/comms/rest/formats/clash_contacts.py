@@ -118,33 +118,127 @@ def _load_part_models(run, storage) -> list:
     return models
 
 
-def _annotate(run, storage, capability_of, progress):
+def _normal_target(target) -> dict:
+    """A member target as ``ada.clash.group`` normalises it -- so a run's part source and its group's
+    members compare as one identity (an unnamed node IS its subject)."""
+    from ada.clash.group import normalise_group
+
+    return normalise_group({"members": [{"target": dict(target)}]})["members"][0]["target"]
+
+
+def _provider_group_model(group: dict, storage, geometry_provider: str):
+    """``group``'s model read from ``geometry_provider``'s publish of the same elements -- the classic
+    check's group builder, so a member matched here is matched there. Returns the ``GroupModel``."""
+    from ada.clash.group import normalise_group
+    from ada.clash.group_model import build_group_model
+
+    return build_group_model(normalise_group(group), storage=storage, geometry_provider=geometry_provider)
+
+
+def _load_through_provider(run, storage, geometry_provider: str) -> tuple[object, dict]:
+    """The model(s) a run's members bind in, read from ``geometry_provider`` rather than each member's
+    own provider (``ClashOptions.geometry_provider``'s rule, applied to a stored run), and what to
+    record about it: ``{geometry_provider, geometry_remap, geometry_unmatched, geometry_warnings}``.
+
+    A node run is its node re-addressed; a GROUP run rebuilds one model per part, from the group's
+    members in that part (or, when none is recorded, the part's whole source) -- each member then
+    binds in its own part's model, as without a provider. Raises when nothing rebuilds."""
+    from ada.clash.geometry_source import node_group
+
+    remapped: list = []
+    unmatched: list = []
+    warnings: list[str] = []
+
+    def built(group: dict):
+        out = _provider_group_model(group, storage, geometry_provider)
+        if out.remap is not None:
+            remapped.extend(out.remap.remapped)
+            unmatched.extend(out.remap.unmatched)
+        warnings.extend(out.warnings)
+        return out.model
+
+    if run.target.get("kind") == "group":
+        members = list((run.group or {}).get("members") or ())
+        models, errors = [], []
+        for k, part in enumerate(run.parts):
+            source = _normal_target(part["source"])
+            mine = [m for m in members if _normal_target(m["target"]) == source]
+            group = {"name": f"part {k}", "members": mine or [{"target": source}]}
+            try:
+                models.append(built(group))
+            except Exception as exc:  # noqa: BLE001 - one part that does not rebuild is not all of them
+                logger.warning(
+                    f"clash contacts: part {k} of run {run.run_id} not read from {geometry_provider!r}: {exc}"
+                )
+                models.append(None)
+                errors.append(f"part {k}: {type(exc).__name__}: {exc}")
+        if all(m is None for m in models):
+            raise ContactsJobError(f"no model of this group was read from {geometry_provider!r}: " + "; ".join(errors))
+        model = models
+    elif run.target.get("kind") == "node":
+        t = run.target
+        model = built(
+            node_group(
+                provider=str(t.get("provider") or ""),
+                collection=str(t["collection"]),
+                subject=str(t["subject"]),
+                revision=str(t.get("revision") or "") or None,
+                node=t.get("node") or None,
+            )
+        )
+    else:
+        raise ContactsJobError(f"a {run.target.get('kind')!r} target has no provider to read geometry from")
+    return model, {
+        "geometry_provider": geometry_provider,
+        "geometry_remap": remapped,
+        "geometry_unmatched": unmatched,
+        **({"geometry_warnings": warnings[:50]} if warnings else {}),
+    }
+
+
+#: Provenance one annotate writes about where its members were read from; dropped by the next.
+_GEOMETRY_PROVENANCE = ("geometry_provider", "geometry_remap", "geometry_unmatched", "geometry_warnings")
+
+
+def _annotate(run, storage, capability_of, progress, geometry_provider: str | None = None):
     """The run with its specs and roles resolved. A target that does not rebuild still gets ROLES --
-    from the members' meshes in the GLB the run measured -- and says why it has no specs."""
+    from the members' meshes in the GLB the run measured -- and says why it has no specs.
+
+    ``geometry_provider`` reads the members from that provider's publish of the same elements
+    (matched by name, ``ada.clash.geometry_source``) instead of each member's own provider -- the
+    way a mesh-only provider's run still gets member-bound specs and roles. A file has no provider,
+    so a file run ignores it."""
+    from dataclasses import replace
+
     from ada.clash import contacts as cc
 
     progress("members", 0.5)
     error = None
+    geometry: dict = {}
+    if run.target.get("kind") == "file":
+        geometry_provider = None
     try:
-        if run.target.get("kind") == "group":
+        if geometry_provider:
+            model, geometry = _load_through_provider(run, storage, geometry_provider)
+        elif run.target.get("kind") == "group":
             model = _load_part_models(run, storage)
         else:
             model = load_target_model(dict(run.target), storage)
     except Exception as exc:  # noqa: BLE001 - a run without specs is still a run
         logger.warning(f"clash contacts: specs not resolved, the target did not rebuild: {exc}")
         model, error = None, f"{type(exc).__name__}: {exc}"
+        if geometry_provider:
+            geometry = {"geometry_provider": geometry_provider}
     annotated, unbound = cc.annotate_applicable(
         run, model, capability_of, vertices=lambda: cc.member_vertices(run, storage.get_bytes)
     )
+    provenance = {k: v for k, v in annotated.provenance.items() if k not in _GEOMETRY_PROVENANCE}
+    provenance.update(geometry)
     if error is not None:
-        from dataclasses import replace
-
-        provenance = dict(annotated.provenance)
         provenance["applicability"] = {"error": error}
-        return replace(annotated, provenance=provenance)
-    if unbound:
+    elif unbound:
         logger.info(f"clash contacts: {unbound} clash(es) of run {run.run_id} did not bind to rebuilt members")
-    return annotated
+    return replace(annotated, provenance=provenance)
 
 
 def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], capability_of=None) -> dict[str, bytes]:
@@ -169,7 +263,10 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
             options=dict(opts.get("options") or {}),
             run_id=opts.get("run_id"),
         )
-        run = _annotate(run, storage, capability_of, progress)
+        # `annotate: false` -- the caller annotates next, through a geometry provider it is still
+        # asking the user about; resolving the specs here first would be a read thrown away.
+        if opts.get("annotate", True):
+            run = _annotate(run, storage, capability_of, progress, opts.get("geometry_provider") or None)
         return {"run": run.to_json().encode("utf-8")}
 
     run_key = str(opts.get("run_key") or "")
@@ -178,7 +275,8 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
     run = parse_run(storage.get_bytes(run_key))
 
     if mode == "annotate":
-        return {"run": _annotate(run, storage, capability_of, progress).to_json().encode("utf-8")}
+        annotated = _annotate(run, storage, capability_of, progress, opts.get("geometry_provider") or None)
+        return {"run": annotated.to_json().encode("utf-8")}
 
     if mode != "detail":
         raise ContactsJobError(f"unknown clash_contacts mode {mode!r} (one of {', '.join(CONTACT_MODES)})")

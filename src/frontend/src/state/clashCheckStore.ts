@@ -39,7 +39,9 @@ import {
   type WireGeometryPlan,
   type WireGeometryProvider,
 } from "@/services/api/clashCheck";
+import type { ScopeUrl } from "@/services/api/client";
 import {
+  annotateRunFlow,
   CONTACT_ORIGIN,
   contactRunsApi,
   contactTargetFor,
@@ -884,6 +886,9 @@ export interface GeometryRequestPrompt {
   readonly pluginId: string | null;
   /** Why each member is missing, as the plan says -- shown on hover. */
   readonly reasons: readonly string[];
+  /** What waits on the answer: a classic `check`, or the `annotate` of a stored convex-contact run
+   *  (its specs and member roles, read through the provider). Absent means `check`. */
+  readonly purpose?: "check" | "annotate";
 }
 
 export type GeometryPromptAnswer = "request" | "skip" | "cancel";
@@ -894,6 +899,7 @@ export function geometryRequestPrompt(
   plan: WireGeometryPlan,
   req: AssetNodeRequest | null,
   isAdmin: boolean,
+  purpose: "check" | "annotate" = "check",
 ): GeometryRequestPrompt | null {
   if (plan.unmatched.length === 0) return null;
   const kind = !req ? "no-request" : req.requiresAdmin && !isAdmin ? "admin-only" : "offer";
@@ -904,25 +910,31 @@ export function geometryRequestPrompt(
     onDemand: Boolean(req?.onDemand),
     pluginId: req?.pluginId ?? null,
     reasons: plan.unmatched.map((u) => u.reason),
+    purpose,
   };
 }
 
 /** The question, in words: count, provider, how long a request takes, and who may run it. */
 export function geometryPromptSentence(p: GeometryRequestPrompt): string {
   const missing = `${p.count} member${p.count === 1 ? "" : "s"} ${p.count === 1 ? "has" : "have"} no geometry at ${p.provider}`;
+  const them = p.count === 1 ? "it" : "them";
+  const without =
+    p.purpose === "annotate" ? `the run would be annotated without ${them}` : `the check would leave ${them} out`;
   if (p.kind === "no-request") {
-    return `${missing}, and ${p.provider} takes no node requests, so it cannot be asked for ${p.count === 1 ? "it" : "them"}. The check would leave ${p.count === 1 ? "it" : "them"} out.`;
+    return `${missing}, and ${p.provider} takes no node requests, so it cannot be asked for ${them}. ${without.charAt(0).toUpperCase()}${without.slice(1)}.`;
   }
   if (p.kind === "admin-only") {
-    return `${missing}. Only an administrator can request ${p.count === 1 ? "it" : "them"}${p.pluginId ? ` (${p.pluginId})` : ""}; the check would leave ${p.count === 1 ? "it" : "them"} out.`;
+    return `${missing}. Only an administrator can request ${them}${p.pluginId ? ` (${p.pluginId})` : ""}; ${without}.`;
   }
   const how = p.onDemand
     ? "The request is quick."
     : "The request runs an export at the provider and may take several minutes.";
-  return `${missing}. Request ${p.count === 1 ? "it" : "them"} from ${p.provider} before the check? ${how}`;
+  const before = p.purpose === "annotate" ? "before annotating the run" : "before the check";
+  return `${missing}. Request ${them} from ${p.provider} ${before}? ${how}`;
 }
 
-export interface GeometryCheckFlowDeps extends ClashFlowDeps {
+/** What the missing-geometry step needs, whatever waits on it (a check, or a run's annotate). */
+export interface GeometryStepDeps {
   /** `POST …/clash-check/geometry-plan`. */
   geometryPlan(scope: string, target: ClashCheckTarget, provider: string): Promise<WireGeometryPlan>;
   /** How `provider` takes node requests, or null when it takes none. */
@@ -939,6 +951,8 @@ export interface GeometryCheckFlowDeps extends ClashFlowDeps {
   /** After a request published something: let the asset browser re-read what is published. */
   afterRequest?: () => Promise<void> | void;
 }
+
+export interface GeometryCheckFlowDeps extends ClashFlowDeps, GeometryStepDeps {}
 
 export interface GeometryCheckOutcome {
   readonly result: ClashResult;
@@ -957,38 +971,119 @@ export async function runGeometryAwareCheckFlow(
   options: ClashCheckOptions,
 ): Promise<GeometryCheckOutcome | null> {
   const provider = options.geometry_provider;
-  const notes: string[] = [];
-  const stage = (s: string | null) => deps.onStage?.(s);
+  let notes: string[] = [];
   if (provider && target.kind !== "file") {
-    stage(`asking ${provider} which members it has`);
-    const plan = await deps.geometryPlan(scope, target, provider);
-    if (plan.unmatched.length > 0) {
-      const req = await deps.nodeRequestFor(provider);
-      const question = geometryRequestPrompt(plan, req, deps.isAdmin) as GeometryRequestPrompt;
-      stage(null);
-      const answer = await deps.prompt(question);
-      if (answer === "cancel") return null;
-      if (answer === "request" && question.kind === "offer" && req) {
-        notes.push(...(await requestMissing(deps, scope, provider, req, plan, stage)));
-        stage(`asking ${provider} again`);
-        const again = await deps.geometryPlan(scope, target, provider);
-        if (again.unmatched.length > 0) {
-          notes.push(
-            `${again.unmatched.length} member${again.unmatched.length === 1 ? " is" : "s are"} still not at ${provider} and ` +
-              `${again.unmatched.length === 1 ? "is" : "are"} left out: ${again.unmatched[0].reason}` +
-              (again.unmatched.length > 1 ? " (and others)" : ""),
-          );
-        } else {
-          notes.push(`Every member is now at ${provider}.`);
-        }
-      } else {
-        notes.push(`${plan.unmatched.length} member${plan.unmatched.length === 1 ? "" : "s"} not at ${provider} left out.`);
-      }
-    }
+    const step = await missingGeometryStep(deps, scope, target, provider, "check");
+    if (step === null) return null;
+    notes = step;
   }
-  stage(null);
+  deps.onStage?.(null);
   const out = await runClashCheckFlow(deps, scope, target, options);
   return { ...out, notes };
+}
+
+/** Plan which members `provider` has; when some are missing, ask -- request them (then plan again),
+ *  go on without them, or cancel. Resolves the notes for the panel, or `null` on cancel. */
+async function missingGeometryStep(
+  deps: GeometryStepDeps,
+  scope: string,
+  target: ClashCheckTarget,
+  provider: string,
+  purpose: "check" | "annotate",
+): Promise<string[] | null> {
+  const notes: string[] = [];
+  const stage = (s: string | null) => deps.onStage?.(s);
+  stage(`asking ${provider} which members it has`);
+  const plan = await deps.geometryPlan(scope, target, provider);
+  if (plan.unmatched.length === 0) return notes;
+  const req = await deps.nodeRequestFor(provider);
+  const question = geometryRequestPrompt(plan, req, deps.isAdmin, purpose) as GeometryRequestPrompt;
+  stage(null);
+  const answer = await deps.prompt(question);
+  if (answer === "cancel") return null;
+  if (answer === "request" && question.kind === "offer" && req) {
+    notes.push(...(await requestMissing(deps, scope, provider, req, plan, stage)));
+    stage(`asking ${provider} again`);
+    const again = await deps.geometryPlan(scope, target, provider);
+    if (again.unmatched.length > 0) {
+      notes.push(
+        `${again.unmatched.length} member${again.unmatched.length === 1 ? " is" : "s are"} still not at ${provider} and ` +
+          `${again.unmatched.length === 1 ? "is" : "are"} left out: ${again.unmatched[0].reason}` +
+          (again.unmatched.length > 1 ? " (and others)" : ""),
+      );
+    } else {
+      notes.push(`Every member is now at ${provider}.`);
+    }
+  } else {
+    notes.push(`${plan.unmatched.length} member${plan.unmatched.length === 1 ? "" : "s"} not at ${provider} left out.`);
+  }
+  return notes;
+}
+
+// The same step for a convex-contact RUN. The run is measured from the viewer GLBs -- any provider's
+// meshes -- but its specs and member-bound roles need the members READ into objects, which a
+// mesh-only provider cannot do. So once the run is stored, the members are read through a provider
+// that can (the "Geometry from" choice, or the readable one there is when nobody reads the members'
+// own): plan, ask about the missing ones, request them, and only then annotate the stored run
+// (`POST …/clash-contacts/annotate`). Mesh-derived roles stay the fallback for what does not bind.
+
+/** The members' own providers, as the target names them: a node's own (not its collection's other
+ *  publishers -- those are what a geometry provider is), a group's members'. */
+function ownProviders(target: ClashCheckTarget): readonly string[] {
+  if (target.kind === "file") return [];
+  if (target.kind === "node") return target.provider ? [target.provider] : [];
+  return targetProviders(target);
+}
+
+/** The provider a convex-contact run is annotated through, or `null` for each member's own.
+ *
+ *  The "Geometry from" choice when one is made (and is not simply every member's own provider).
+ *  Without one: when the providers are known and no live pool reads any of the members' own, the
+ *  readable provider there is (the first, by id) -- so a run over a mesh-only provider's members
+ *  still binds without the user knowing to pick one. A file has no provider. */
+export function contactGeometryProvider(
+  target: ClashCheckTarget | null,
+  chosen: string | null,
+  available: readonly WireGeometryProvider[] | null,
+): string | null {
+  if (!target || target.kind === "file") return null;
+  const own = ownProviders(target);
+  if (chosen) return own.length > 0 && own.every((p) => p === chosen) ? null : chosen;
+  if (!available || own.length === 0) return null;
+  const readable = available.filter((p) => p.readable).map((p) => p.id).sort();
+  if (own.some((p) => readable.includes(p))) return null;
+  return readable[0] ?? null;
+}
+
+export interface GeometryAnnotateFlowDeps extends GeometryStepDeps {
+  /** The run's REST deps (`annotate`, `getRun`, the job poll). */
+  contact: ContactFlowDeps;
+}
+
+export interface GeometryAnnotateOutcome {
+  readonly run: ContactRunDoc;
+  readonly runKey: string;
+  readonly notes: readonly string[];
+}
+
+/** Annotate a stored convex-contact run through `provider`, preceded by the missing-geometry step.
+ *  Resolves `null` when the user cancels (the run stays stored as it is). */
+export async function runGeometryAwareAnnotateFlow(
+  deps: GeometryAnnotateFlowDeps,
+  scope: string,
+  target: ClashCheckTarget,
+  runKey: string,
+  provider: string,
+): Promise<GeometryAnnotateOutcome | null> {
+  const through = target.kind === "file" ? null : provider;
+  const notes = through ? await missingGeometryStep(deps, scope, target, through, "annotate") : [];
+  if (notes === null) return null;
+  const out = await annotateRunFlow(deps.contact, scope as ScopeUrl, runKey, through, (s) => deps.onStage?.(s));
+  deps.onStage?.(null);
+  const applicability = out.run.provenance?.applicability as { error?: unknown } | undefined;
+  if (out.error) notes.push(`The specs were not resolved: ${out.error}`);
+  else if (typeof applicability?.error === "string") notes.push(`The specs were not resolved: ${applicability.error}`);
+  return { run: out.run, runKey: out.runKey, notes };
 }
 
 /** Request exactly the plan's unmatched members from `provider`, through the shared group request:
@@ -996,7 +1091,7 @@ export async function runGeometryAwareCheckFlow(
  *  label the plan looked it up under (a provider may need it to find a node another provider
  *  published), in the provider's batches. Returns notes for the panel. */
 async function requestMissing(
-  deps: GeometryCheckFlowDeps,
+  deps: GeometryStepDeps,
   scope: string,
   provider: string,
   req: AssetNodeRequest,
@@ -1322,6 +1417,10 @@ interface ClashCheckState {
   loadContactRuns: (scope: string) => Promise<void>;
   /** Reopen a stored convex-contact run as the result. */
   openContactRun: (scope: string, key: string) => Promise<void>;
+  /** Resolve the open run's specs and member roles again -- through the geometry provider
+   *  (`contactGeometryProvider`) when its members' own cannot be read, after the missing-geometry
+   *  step; else through each member's own. */
+  annotateContactRun: (scope: string) => Promise<void>;
   runDetail: (scope: string, jointIds: readonly string[], spec: string) => Promise<void>;
   /** Detail every joint that has a matching generator, one job per spec. */
   runDetailAll: (scope: string, only?: readonly string[] | null) => Promise<void>;
@@ -1523,6 +1622,43 @@ async function realGeometryDeps(
       }),
     onStage: (stage) => set({ geometryStage: stage }),
   };
+}
+
+/** The live deps of a convex-contact run's annotate through a geometry provider: the same
+ *  missing-geometry step, and the run's own REST deps. */
+async function realAnnotateDeps(
+  scope: string,
+  set: (patch: Partial<ClashCheckState>) => void,
+): Promise<GeometryAnnotateFlowDeps> {
+  const { api: _api, trackJob: _trackJob, wait: _wait, now: _now, ...step } = await realGeometryDeps(scope, set);
+  return { ...step, contact: realContactDeps(scope) };
+}
+
+/** Annotate a stored run through `provider` (the missing-geometry step first) and put it on the
+ *  panel. Shared by a fresh run and "Resolve specs" on a reopened one. */
+async function annotateThroughProvider(
+  scope: string,
+  target: ClashCheckTarget,
+  run: ContactRunDoc,
+  runKey: string,
+  provider: string,
+  set: (patch: Partial<ClashCheckState>) => void,
+): Promise<void> {
+  set({ geometryNotes: [], geometryStage: null, browserStage: null });
+  const outcome = await runGeometryAwareAnnotateFlow(await realAnnotateDeps(scope, set), scope, target, runKey, provider);
+  set({
+    result: contactRunToResult(outcome?.run ?? run, runKey),
+    runKey,
+    derivedKey: null,
+    cached: false,
+    busy: false,
+    browserStage: null,
+    geometryStage: null,
+    geometryNotes: outcome ? outcome.notes : ["Cancelled; the run is stored without its specs."],
+    selectedGroup: null,
+    selectedJoints: [],
+    selectedJoint: null,
+  });
 }
 
 const INITIAL_OPTIONS: ClashCheckOptions = {
@@ -1760,6 +1896,11 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
           );
         }
         const options = contactRunOptions(get().checkerOptions[CONTACT_ORIGIN]);
+        // Members whose own provider cannot be read into objects (a mesh-only publish) are read for
+        // the specs through one that can: the run is then stored unannotated, and annotated through
+        // that provider once the missing-geometry step has had its answer.
+        const provider = contactGeometryProvider(assetTarget, get().geometryProvider, get().availableGeometryProviders);
+        set({ geometryNotes: [] });
         if (target.kind === "group") {
           if (assetTarget?.kind !== "group") throw new Error("A group run needs the group itself as the target.");
           // A group spans several GLBs, which only the browser reads together (`glbMembers` +
@@ -1767,7 +1908,17 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
           // in-browser switch says.
           const onStage = (stage: string) => set({ browserStage: stage });
           const req = await groupContactRequest(scope, { ...assetTarget, id: target.group_id }, options, onStage);
-          const { run, runKey } = await runBrowserGroupContactFlow(realContactDeps(scope), scope, req, onStage);
+          const { run, runKey } = await runBrowserGroupContactFlow(
+            realContactDeps(scope),
+            scope,
+            provider ? { ...req, annotate: false } : req,
+            onStage,
+          );
+          if (provider) {
+            await annotateThroughProvider(scope, assetTarget, run, runKey, provider, set);
+            void get().loadContactRuns(scope);
+            return;
+          }
           set({
             result: contactRunToResult(run, runKey),
             runKey,
@@ -1786,10 +1937,15 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         if (!glbKey) {
           throw new Error("This node's geometry is not a stored GLB (a provider's mesh delivery), so it cannot be checked.");
         }
-        const req = { target, glbKey, upAxis: "z" as const, options };
+        const req = { target, glbKey, upAxis: "z" as const, options, ...(provider ? { annotate: false } : {}) };
         const { run, runKey } = inBrowser
           ? await runBrowserContactFlow(realContactDeps(scope), scope, req, (stage) => set({ browserStage: stage }))
           : await runWorkerContactFlow(realContactDeps(scope), scope, req);
+        if (provider && assetTarget) {
+          await annotateThroughProvider(scope, assetTarget, run, runKey, provider, set);
+          void get().loadContactRuns(scope);
+          return;
+        }
         set({
           result: contactRunToResult(run, runKey),
           runKey,
@@ -1906,6 +2062,35 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       });
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  annotateContactRun: async (scope) => {
+    const { runKey, assetTarget, result } = get();
+    if (!runKey || get().busy) return;
+    const run = contactRunOf(result);
+    set({ busy: true, error: null, geometryNotes: [] });
+    try {
+      const provider = contactGeometryProvider(assetTarget, get().geometryProvider, get().availableGeometryProviders);
+      if (provider && assetTarget && run) {
+        await annotateThroughProvider(scope, assetTarget, run, runKey, provider, set);
+        return;
+      }
+      const out = await annotateRunFlow(realContactDeps(scope), scope, runKey, null, (stage) => set({ browserStage: stage }));
+      set({
+        result: contactRunToResult(out.run, runKey),
+        busy: false,
+        browserStage: null,
+        geometryNotes: out.error ? [`The specs were not resolved: ${out.error}`] : [],
+      });
+    } catch (e) {
+      set({
+        busy: false,
+        browserStage: null,
+        geometryStage: null,
+        geometryPrompt: null,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   },
 

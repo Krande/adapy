@@ -38,6 +38,7 @@ import {
   contactRunOf,
   detailBatches,
   checkedSourceName,
+  contactGeometryProvider,
   effectiveSpecProviders,
   facetOptions,
   filteredGroups,
@@ -249,11 +250,11 @@ const GeometryRequestStep: React.FC = () => {
                 className={`${btn} bg-blue-700 hover:bg-blue-600`}
                 onClick={() => answer("request")}
               >
-                Request, then check
+                {prompt.purpose === "annotate" ? "Request, then annotate" : "Request, then check"}
               </button>
             )}
             <button type="button" className={`${btn} bg-gray-700 hover:bg-gray-600`} onClick={() => answer("skip")}>
-              Check without {prompt.count === 1 ? "it" : "them"}
+              {prompt.purpose === "annotate" ? "Annotate" : "Check"} without {prompt.count === 1 ? "it" : "them"}
             </button>
             <button type="button" className={`${btn} bg-gray-700 hover:bg-gray-600`} onClick={() => answer("cancel")}>
               Cancel
@@ -416,24 +417,47 @@ const ContactRunHistory: React.FC<{ scope: string }> = ({ scope }) => {
   const runKey = useClashCheckStore((s) => s.runKey);
   const busy = useClashCheckStore((s) => s.busy);
   const openContactRun = useClashCheckStore((s) => s.openContactRun);
-  if (runs.length === 0) return null;
+  const annotateContactRun = useClashCheckStore((s) => s.annotateContactRun);
+  const through = useClashCheckStore((s) =>
+    contactGeometryProvider(s.assetTarget, s.geometryProvider, s.availableGeometryProviders),
+  );
+  if (runs.length === 0 && !runKey) return null;
   return (
-    <label className="flex items-center gap-1 text-[11px] text-gray-300" title="Clash runs kept beside this model">
-      previous runs
-      <select
-        className="flex-1 min-w-0 bg-gray-800 text-gray-200 rounded-sm px-1 py-0.5"
-        value={runKey ?? ""}
-        disabled={busy}
-        onChange={(e) => e.target.value && void openContactRun(scope, e.target.value)}
-      >
-        <option value="">—</option>
-        {runs.map((r) => (
-          <option key={r.key} value={r.key}>
-            {`${r.created_at.replace("T", " ").replace("Z", "")} · ${r.contacts} clash${r.contacts === 1 ? "" : "es"} · ${r.engine === "wasm" ? "browser" : "worker"}`}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="flex items-center gap-1">
+      {runs.length > 0 && (
+        <label className="flex flex-1 min-w-0 items-center gap-1 text-[11px] text-gray-300" title="Clash runs kept beside this model">
+          previous runs
+          <select
+            className="flex-1 min-w-0 bg-gray-800 text-gray-200 rounded-sm px-1 py-0.5"
+            value={runKey ?? ""}
+            disabled={busy}
+            onChange={(e) => e.target.value && void openContactRun(scope, e.target.value)}
+          >
+            <option value="">—</option>
+            {runs.map((r) => (
+              <option key={r.key} value={r.key}>
+                {`${r.created_at.replace("T", " ").replace("Z", "")} · ${r.contacts} clash${r.contacts === 1 ? "" : "es"} · ${r.engine === "wasm" ? "browser" : "worker"}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {runKey && (
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-sm px-1.5 py-0.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-[11px] text-gray-100"
+          title={
+            through
+              ? `Resolve this run's specs and member roles again, reading its members through ${through} (missing members can be requested first)`
+              : "Resolve this run's specs and member roles again, reading each member through its own provider"
+          }
+          onClick={() => void annotateContactRun(scope)}
+        >
+          Resolve specs
+        </button>
+      )}
+    </div>
   );
 };
 

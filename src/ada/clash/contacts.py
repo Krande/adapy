@@ -112,16 +112,27 @@ class MemberBinding:
     part's model only -- the same name in two models is two members."""
 
     def __init__(self, run: ContactRun, model) -> None:
+        from ada.clash.geometry_source import normalise_label
+
         models = list(model) if isinstance(model, (list, tuple)) else None
         indices: list[dict[str, list[Any]] | None] = []
+        # The same index by normalised name (one leading ``/`` optional), asked only on an exact miss:
+        # a model read through ANOTHER provider's publish (a geometry provider) may spell a full name
+        # without it.
+        folded: list[dict[str, list[Any]] | None] = []
         for m in models if models is not None else [model]:
             if m is None:
                 indices.append(None)
+                folded.append(None)
                 continue
             by_name: dict[str, list[Any]] = {}
+            by_norm: dict[str, list[Any]] = {}
             for obj in m.get_all_physical_objects():
-                by_name.setdefault(str(getattr(obj, "name", "") or ""), []).append(obj)
+                name = str(getattr(obj, "name", "") or "")
+                by_name.setdefault(name, []).append(obj)
+                by_norm.setdefault(normalise_label(name), []).append(obj)
             indices.append(by_name)
+            folded.append(by_norm)
         self._objects: list[Any] = []
         self._why: list[str | None] = []
         for m in run.members:
@@ -131,7 +142,7 @@ class MemberBinding:
                 self._objects.append(None)
                 self._why.append(f"the model of part {part} did not rebuild, so {m['name']!r} cannot be bound")
                 continue
-            hits = by_name.get(m["name"], [])
+            hits = by_name.get(m["name"], []) or (folded[part] or {}).get(normalise_label(m["name"]), [])
             if len(hits) == 1:
                 self._objects.append(hits[0])
                 self._why.append(None)
