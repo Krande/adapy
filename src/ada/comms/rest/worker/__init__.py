@@ -77,6 +77,7 @@ from .pools import (  # noqa: F401
     _fetch_plan,
     _per_fetch_timeout,
     _pool_capabilities,
+    _preferred_indices,
     _worker_id,
     summarise_names,
 )

@@ -212,9 +212,21 @@ passes and connection specs they support (`registration.py`).
 
 The Python twin of the frontend plugin registry: `register_plugin_backend`,
 `discover_plugins`, `plugin_backend_specs`, `register_plugin_artefact_contributor`,
-`request_worker_capabilities`, plus external model providers. Plugins are loaded from
-`ADA_WORKER_PRELOAD` modules and an entry-point group. `rest/plugin_registry.py` is the only
-place the REST side touches the registry.
+`request_worker_capabilities`, `register_preferred_pools`, plus external model providers.
+Plugins are loaded from `ADA_WORKER_PRELOAD` modules and an entry-point group.
+`rest/plugin_registry.py` is the only place the REST side touches the registry.
+
+`register_preferred_pools(plugin_id, provider)` lets a plugin name the pools its worker should
+fetch first while it holds something costly to set up for them (an open dataset, a warm
+session). The worker fetches those pools before the others and keeps its idle pull open on the
+first of them, so the next job for that pool goes to the worker that is already set up. It only
+reorders the pools a worker serves, and the streak limit still makes a busy preferred pool give
+the others a turn.
+
+An idle worker does not walk its pools one blocking fetch at a time. Each round it asks the
+stream which pools hold messages (one `STREAM.INFO` request with a subject filter, no lease),
+fetches from those, then waits about a second on one pool. It still holds at most one leased
+message. A credential without the stream-info permission falls back to polling the pools in turn.
 
 ### Audit and issue bot
 

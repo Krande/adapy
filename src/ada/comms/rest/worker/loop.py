@@ -16,7 +16,7 @@ from ada.config import logger
 
 from .. import db as db_module
 from ..config import load_settings
-from ..plugin_registry import discover_local_plugins, locally_requested_capabilities
+from ..plugin_registry import discover_local_plugins, locally_preferred_pools, locally_requested_capabilities
 from ..queue import JOB_STATUS_ERROR, JobQueue
 from ..storage import Storage
 from . import state
@@ -36,6 +36,7 @@ from .pools import (
     _fetch_plan,
     _per_fetch_timeout,
     _pool_capabilities,
+    _preferred_indices,
     _worker_id,
     summarise_names,
 )
@@ -456,8 +457,16 @@ async def _run() -> None:
                         "worker: cannot ask the stream which pools hold jobs; polling the %d pools in turn",
                         len(subs),
                     )
+            pools = [c for c, _ in subs]
+            preferred = _preferred_indices(pools, locally_preferred_pools())
             plan = _fetch_plan(
-                [c for c, _ in subs], rr, streak, pending, per_fetch_timeout=per_fetch_timeout, yielded=yielded
+                pools,
+                rr,
+                streak,
+                pending,
+                per_fetch_timeout=per_fetch_timeout,
+                yielded=yielded,
+                preferred=preferred,
             )
             # One fetch at a time, first message wins: never a second message leased.
             msgs, idx = [], rr % len(subs)
@@ -475,6 +484,7 @@ async def _run() -> None:
             if not msgs:
                 continue
             cap = subs[idx][0]
+            via = " (preferred)" if idx in preferred else ""
             for msg in msgs:
                 job_id = msg.data.decode("utf-8")
                 # NATS message metadata carries the delivery counter.
@@ -555,9 +565,10 @@ async def _run() -> None:
                     continue
 
                 logger.info(
-                    "worker: picked up job %s from %s (delivery %d/%d)",
+                    "worker: picked up job %s from %s%s (delivery %d/%d)",
                     job_id,
                     cap,
+                    via,
                     delivery_count,
                     MAX_DELIVERIES,
                 )
