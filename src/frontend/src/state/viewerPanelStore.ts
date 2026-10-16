@@ -8,8 +8,9 @@ import {create} from "zustand";
 
 import {AdminTabDeepLink} from "./adminPanelStore";
 
-/** `search`: the attribute search over the scope's indexed collections, opened from the Sources tab. */
-export type ViewerPanel = "admin" | "convert" | "search";
+/** One at a time. The attribute search is not one of these: it has its own window
+ *  (`searchWindowStore`), so it can stay open beside them. */
+export type ViewerPanel = "admin" | "convert";
 
 type ViewerPanelState = {
     open: ViewerPanel | null;

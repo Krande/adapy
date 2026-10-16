@@ -196,7 +196,9 @@ wheel-pyodide = { cmd = "python scripts/packaging/build_pyodide_adapy_wheel.py s
 # beam-solid expander) out of the pinned viewer base image into public/wasm, so
 # the dev server serves /wasm/ as a deployment does. Needs docker.
 wasm-adacpp = { cmd = "python scripts/packaging/fetch_adacpp_wasm.py" }
-fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
+# Fetched on demand, not a devDependency: depcheck pulls in micromatch -> braces, whose advisory
+# (GHSA-vfj7-8cjw-p6xm) has no fixed release, and an occasional audit is not worth that in every install.
+fdepcheck = { cmd = "npx --yes depcheck@1.4.7", cwd = "./src/frontend", depends-on = ["winstall"] }
 
 json-code-gen-ts = { cmd = [
     "npx", "--yes", "-p", "json-schema-to-typescript", "json2ts",

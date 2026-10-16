@@ -80,6 +80,7 @@ import AssetTree, { type SetEditing } from "./AssetTree";
 import { ancestorsOf } from "@/assets/hierarchy";
 import { formatRevision } from "./format";
 import ChangeRunsPanel from "./ChangeRunsPanel";
+import AttributeSearchSection from "./AttributeSearchSection";
 import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
 import ProviderOptionsPanel from "./ProviderOptionsPanel";
@@ -1596,7 +1597,7 @@ const ChangedByFilter: React.FC<{ view: AssetView; selected: string | null; onSe
 };
 
 const AssetsTab: React.FC = () => {
-    const { useAssetBrowserStore, useScopeStore, useViewerPanelStore } = useViewerStores();
+    const { useAssetBrowserStore, useScopeStore } = useViewerStores();
     const scope = scopeUrlPart(useScopeStore((s) => s.current));
     const loader = loaderFor(useAssetBrowserStore, assetsApi, sourceNodesApi);
     // Display names for provider ids, in this scope; ids stay what everything keys on.
@@ -1623,9 +1624,6 @@ const AssetsTab: React.FC = () => {
     const searchTerm = useAssetBrowserStore((s) => s.searchTerm);
     const selection = useAssetBrowserStore((s) => s.selection);
     const { setMode, select, setSearchTerm } = useAssetBrowserStore.getState();
-    // The attribute search opens in the in-viewer panel host, beside the tree it reveals hits in.
-    const searchOpen = useViewerPanelStore((s) => s.open === "search");
-    const { openPanel, closePanel } = useViewerPanelStore.getState();
 
     // A scope switch invalidates everything; the first open of the tab loads.
     useEffect(() => {
@@ -2107,7 +2105,13 @@ const AssetsTab: React.FC = () => {
     return (
         <div className="flex flex-col h-full min-h-0 text-white">
             <div className="shrink-0">
-                <RequestCollection scope={scope} onPublished={(c) => void onPublished(c)} onChanged={() => void loader.refresh(scope)} />
+                <RequestCollection
+                    scope={scope}
+                    onPublished={(c) => void onPublished(c)}
+                    onChanged={() => void loader.refresh(scope)}
+                    // Every collection of every provider, so not on the toolbar of the tree's one.
+                    belowRequest={<AttributeSearchSection />}
+                />
                 <ChangeRunsPanel
                     scope={scope}
                     collection={collection}
@@ -2161,14 +2165,6 @@ const AssetsTab: React.FC = () => {
                     <ModePicker mode={mode} revisions={revisions} onChange={setMode} />
                     <IconButton label="Refresh — re-read the index and rebuild the tree from nothing" onClick={() => void loader.refresh(scope)}>
                         <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" />
-                    </IconButton>
-                    <IconButton
-                        label="Attribute search — find nodes across this scope's collections by their attributes"
-                        open={searchOpen}
-                        onClick={() => (searchOpen ? closePanel() : openPanel("search"))}
-                    >
-                        <circle cx="7" cy="7" r="4.5" />
-                        <path d="M10.5 10.5 14 14M5 7h4M7 5v4" />
                     </IconButton>
                     <IconButton
                         label="Sets — named sets of branches the tree can be narrowed to, shared in this scope"

@@ -23,6 +23,11 @@
       "type": "array",
       "description": "Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.",
       "items": { "$ref": "#/definitions/LoadScenario" }
+    },
+    "equipment": {
+      "type": "array",
+      "description": "Equipment placed in the model: one box per distinct placement, with its mass and the load cases that place it there.",
+      "items": { "$ref": "#/definitions/EquipmentGlyph" }
     }
   },
   "definitions": {
@@ -105,10 +110,36 @@
           "items": { "$ref": "#/definitions/Vec3" }
         },
         "direction": { "$ref": "#/definitions/Vec3", "description": "Normalized force / acceleration direction." },
-        "magnitude": { "type": "number", "description": "Force magnitude / pressure / acceleration magnitude (drives arrow color/label)." },
-        "moment": { "$ref": "#/definitions/Vec3", "description": "Applied moment vector, if any." }
+        "magnitude": { "type": "number", "description": "Force magnitude / pressure / acceleration magnitude (drives arrow color/label). For a line load, the intensity at its start." },
+        "end_magnitude": { "type": "number", "description": "Line load intensity at its end, along the same direction, where it differs from the start." },
+        "moment": { "$ref": "#/definitions/Vec3", "description": "Applied moment vector, if any." },
+        "generated_by": { "type": "string", "description": "The equipment this load was resolved from, when the analysis model generated it rather than a user applying it." }
       },
       "required": ["type"]
+    },
+    "EquipmentGlyph": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Equipment name." },
+        "mass": { "type": "number", "description": "Equipment mass, kg." },
+        "origin": { "$ref": "#/definitions/Vec3", "description": "Origin of the equipment's placed frame." },
+        "axes": {
+          "type": "array",
+          "description": "The placed frame's x, y and z directions, unit vectors in model coordinates.",
+          "items": { "$ref": "#/definitions/Vec3" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "box_min": { "$ref": "#/definitions/Vec3", "description": "Lower corner of the equipment box, in the placed frame." },
+        "box_max": { "$ref": "#/definitions/Vec3", "description": "Upper corner of the equipment box, in the placed frame." },
+        "cog": { "$ref": "#/definitions/Vec3", "description": "Centre of gravity in model coordinates." },
+        "load_cases": {
+          "type": "array",
+          "description": "The load cases that place the equipment here.",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["origin", "axes", "box_min", "box_max", "mass"]
     },
     "LoadScenario": {
       "type": "object",

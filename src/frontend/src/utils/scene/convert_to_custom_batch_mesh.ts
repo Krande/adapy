@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {usePerfStore} from "@/state/perfStore";
 import {gpuMeshPicker} from "../mesh_select/GpuMeshPicker";
+import {defaultBlackColor} from "./defaultBlackColor";
 
 // Geometries already handed to a CustomBatchedMesh.
 //
@@ -27,6 +28,7 @@ export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: M
     const sourceMaterial = Array.isArray(original.material)
         ? original.material[0]
         : original.material;
+    defaultBlackColor(sourceMaterial);
     const perf = usePerfStore.getState();
     const isBeamSolid = original.userData?.feaBeamSolids === true;
 

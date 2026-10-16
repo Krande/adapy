@@ -3,17 +3,37 @@ import test from "node:test";
 
 import {
     compactQuery,
+    docFromMeta,
+    exportFolderCandidates,
+    exportQuery,
     exportTargetScopes,
+    filterByProjects,
+    galleryProjects,
+    hitFromJoint,
+    stripWindow,
     folderSuggestions,
     galleryFolderOrder,
+    galleryStops,
     geometryPrompt,
     hitFromMeta,
+    jointNameMatches,
     loginSummary,
     isExportSidecar,
+    mapLimited,
+    mergeMeshPreflights,
+    mergePreflights,
+    meshPrompt,
     metaSidecarKey,
     normalizeFolder,
+    projectPages,
+    queryForCollection,
+    rerunnable,
+    selectedTotal,
+    stopOfAdjacentFile,
+    stopOfAdjacentProject,
     thumbSidecarKey,
 } from "@/assets/searchExport";
+import type {SearchQuery} from "@/services/api/attributeSearch";
 import type {ExportPreflight, FileMeta, PreflightCollection} from "@/services/api/searchExport";
 
 function col(collection: string, over: Partial<PreflightCollection>): PreflightCollection {
@@ -163,6 +183,138 @@ test("gallery order: the export doc's order, then the rest alphabetically, sidec
     assert.deepEqual(galleryFolderOrder([...keys, "ee/x.ifc"], "e/", null, canOpen), ["e/ALPHA/a.ifc", "e/ALPHA/b.ifc", "e/BETA/a.ifc", "e/zz-hand.ifc"]);
 });
 
+test("gallery stops: a merged file is one stop per hit, with that hit's thumbnail", () => {
+    const joint = (name: string, thumb: string | null) => ({node_id: name, full_name: `/${name}`, name, thumb});
+    const doc = {
+        files: [
+            {
+                file: "e/alpha.glb",
+                collection: "alpha",
+                provider: "p",
+                node_id: "",
+                full_name: "alpha",
+                meta: "",
+                thumb: "e/alpha.thumb.png",
+                hits: 2,
+                joints: [joint("J1", "e/alpha.j0000.thumb.png"), joint("J2", null)],
+            },
+            {file: "e/beta.glb", collection: "beta", provider: "p", node_id: "", full_name: "beta", meta: "", thumb: "e/beta.thumb.png"},
+        ],
+    };
+    const stops = galleryStops(["e/alpha.glb", "e/beta.glb", "e/hand.glb"], doc);
+    assert.deepEqual(
+        stops.map((s) => [s.file, s.fileIndex, s.joint?.name ?? null, s.jointIndex, s.joints, s.thumb]),
+        [
+            ["e/alpha.glb", 0, "J1", 0, 2, "e/alpha.j0000.thumb.png"],
+            ["e/alpha.glb", 0, "J2", 1, 2, null],
+            ["e/beta.glb", 1, null, 0, 0, "e/beta.thumb.png"],
+            // Not in the doc: no word on its thumbnail (the caller looks beside the file).
+            ["e/hand.glb", 2, null, 0, 0, undefined],
+        ],
+    );
+    assert.equal(new Set(stops.map((s) => s.id)).size, stops.length);
+    // No doc: one stop per file.
+    assert.deepEqual(galleryStops(["a.glb"], null).map((s) => s.joint), [null]);
+
+    // "Next file" lands on that file's first hit, wrapping; "previous" likewise.
+    assert.equal(stopOfAdjacentFile(stops, 1, 1), 2);
+    assert.equal(stopOfAdjacentFile(stops, 3, 1), 0);
+    assert.equal(stopOfAdjacentFile(stops, 2, -1), 0);
+    assert.equal(stopOfAdjacentFile(stops, 0, -1), 3);
+    assert.equal(stopOfAdjacentFile([], 0, 1), 0);
+
+    // One page per project, in walk order; a file the doc does not list is a page of its own.
+    assert.deepEqual(projectPages(stops), [
+        {project: "alpha", lo: 0, hi: 2},
+        {project: "beta", lo: 2, hi: 3},
+        {project: null, lo: 3, hi: 4},
+    ]);
+    // "Next project" turns to the next page's first stop, wrapping.
+    assert.equal(stopOfAdjacentProject(stops, 1, 1), 2);
+    assert.equal(stopOfAdjacentProject(stops, 3, 1), 0);
+    assert.equal(stopOfAdjacentProject(stops, 0, -1), 3);
+});
+
+test("one-file-per-hit exports page by project, and a single project steps files", () => {
+    const entry = (file: string, collection: string) => ({file, collection, provider: "p", node_id: "", full_name: file, meta: "", thumb: null});
+    const doc = {files: [entry("a/1.glb", "a"), entry("a/2.glb", "a"), entry("b/1.glb", "b")]};
+    const stops = galleryStops(["a/1.glb", "a/2.glb", "b/1.glb"], doc);
+    assert.deepEqual(projectPages(stops).map((p) => [p.project, p.lo, p.hi]), [["a", 0, 2], ["b", 2, 3]]);
+    assert.equal(stopOfAdjacentProject(stops, 0, 1), 2);
+    const one = galleryStops(["a/1.glb", "a/2.glb"], doc);
+    assert.equal(stopOfAdjacentProject(one, 0, 1), 1);
+});
+
+test("the thumbnail window keeps its size at both ends of the walk", () => {
+    assert.deepEqual(stripWindow(100, 50, 15), [43, 58]);
+    assert.deepEqual(stripWindow(100, 0, 15), [0, 15]);
+    assert.deepEqual(stripWindow(100, 99, 15), [85, 100]);
+    assert.deepEqual(stripWindow(5, 4, 15), [0, 5]);
+    assert.deepEqual(stripWindow(0, 0, 15), [0, 0]);
+});
+
+test("the projects of a walk, and the walk without the unchecked ones", () => {
+    const doc = {
+        files: ["a1", "a2", "b1"].map((f) => ({
+            file: `e/${f}.glb`,
+            collection: f[0] === "a" ? "alpha" : "beta",
+            provider: "p",
+            node_id: "",
+            full_name: f,
+            meta: "",
+            thumb: null,
+        })),
+    };
+    const files = ["e/a1.glb", "e/b1.glb", "e/a2.glb", "e/hand.glb"];
+    assert.deepEqual(galleryProjects(files, doc), [
+        {name: "alpha", files: 2},
+        {name: "beta", files: 1},
+    ]);
+    assert.deepEqual(filterByProjects(files, doc, new Set(["alpha"])), ["e/b1.glb", "e/hand.glb"]);
+    assert.deepEqual(filterByProjects(files, doc, new Set()), files);
+});
+
+test("a hit inside a merged file is found by its own path, when the export kept it", () => {
+    const meta = {source: {provider: "p", collection: "alpha", scope: "shared"}} as unknown as FileMeta;
+    const path = [{node_id: "fn-site", full_name: "/SITE", kind: "SITE", depth: 1}];
+    const hit = hitFromJoint({node_id: "fn-1", full_name: "/J1", name: "J1", path, thumb: null}, meta)!;
+    assert.equal(hit.collection, "alpha");
+    assert.equal(hit.node_id, "fn-1");
+    assert.equal(hit.parent_id, "fn-site");
+    assert.deepEqual(hit.path, path);
+    // An older export has no per-hit path: nothing to walk.
+    assert.equal(hitFromJoint({node_id: "fn-1", full_name: "/J1", name: "J1", thumb: null}, meta), null);
+    assert.equal(hitFromJoint({node_id: "fn-1", full_name: "/J1", name: "J1", path, thumb: null}, null), null);
+});
+
+test("an export index is looked for in the file's own folder first, then above", () => {
+    assert.deepEqual(exportFolderCandidates("e/run/alpha/a.ifc"), ["e/run/alpha", "e/run", "e"]);
+    assert.deepEqual(exportFolderCandidates("e/run/x/y/z/a.glb"), ["e/run/x/y/z", "e/run/x/y", "e/run/x"]);
+    assert.deepEqual(exportFolderCandidates("a.glb"), []);
+});
+
+test("a merged file's sidecar stands in for a missing index; one without hits does not", () => {
+    const joints = [{node_id: "1", full_name: "/J1", name: "J1", thumb: "e/alpha.j0000.thumb.png"}];
+    const meta = {
+        source: {provider: "p", collection: "alpha", node_id: null, full_name: "alpha"},
+        derived: {glb: "e/alpha.glb", step: null, thumb: "e/alpha.thumb.png"},
+        joints,
+    } as unknown as FileMeta;
+    const doc = docFromMeta("e/alpha.glb", meta)!;
+    assert.equal(doc.files.length, 1);
+    assert.deepEqual(galleryStops(["e/alpha.glb"], doc).map((s) => [s.joint?.name, s.thumb]), [["J1", "e/alpha.j0000.thumb.png"]]);
+    assert.equal(docFromMeta("e/a.glb", {...meta, joints: []} as FileMeta), null);
+    assert.equal(docFromMeta("e/a.glb", null), null);
+});
+
+test("a hit is found in the tree by name, ignoring a leading slash and then case", () => {
+    const j = {name: "Part-1 [n7]", full_name: "/SITE/Part-1"};
+    assert.ok(jointNameMatches("Part-1 [n7]", j));
+    assert.ok(jointNameMatches("SITE/Part-1", j));
+    assert.ok(jointNameMatches(" /site/part-1 ", j));
+    assert.ok(!jointNameMatches("Part-1", j));
+});
+
 test("a hit is built from provenance, or not at all", () => {
     const meta = {
         source: {
@@ -204,5 +356,209 @@ test("a query in one line", () => {
         }),
         "collections ALPHA · kind EQUI · depth 2.. · TYPE = X · TAG in [a, b] · NAME starts P-",
     );
+    assert.equal(
+        compactQuery({
+            providers: null,
+            collections: null,
+            exclude_collections: ["BETA"],
+            exclude_providers: ["prov-b"],
+            kind: null,
+            depth: null,
+            where: [{key: "A", ne: 1}, {key: "B", not_in: ["x"]}, {key: "C", exists: true}, {key: "D", missing: true}],
+            select: null,
+            limit: 200,
+            cursor: null,
+        }),
+        "not collections BETA · not providers prov-b · A != 1 · B not in [x] · has C · no D",
+    );
     assert.equal(compactQuery(null), "");
+});
+
+// --- leaving collections out of an export (clicking their counts) ----------------------------------
+
+const Q: SearchQuery = {
+    providers: null,
+    collections: null,
+    exclude_collections: ["old"],
+    kind: null,
+    depth: null,
+    where: [{key: "TYPE", eq: "STRU"}],
+    select: null,
+    limit: 200,
+    cursor: null,
+};
+
+test("deselected collections join the query's exclusions, and the total drops by their counts", () => {
+    const out = new Set(["alpha", "gamma"]);
+    const q = exportQuery(Q, out);
+    assert.deepEqual(q.exclude_collections, ["old", "alpha", "gamma"]);
+    assert.deepEqual(q.where, Q.where, "the filters are the search's own");
+    assert.equal(exportQuery(Q, new Set()), Q, "nothing left out sends the query untouched");
+    const counts = [
+        {collection: "alpha", count: 300},
+        {collection: "beta", count: 200},
+        {collection: "gamma", count: 100},
+    ];
+    assert.equal(selectedTotal(counts, out), 200);
+    assert.equal(selectedTotal(counts, new Set()), 600);
+});
+
+test("an include list loses the deselected collections too, ignoring case as the server does", () => {
+    const q = exportQuery({...Q, collections: ["ALPHA", "beta"], exclude_collections: null}, new Set(["alpha"]));
+    assert.deepEqual(q.collections, ["beta"]);
+    assert.deepEqual(q.exclude_collections, ["alpha"]);
+});
+
+// --- the mesh export's preflight prompt --------------------------------------------------------------
+
+test("the mesh prompt names the collections with no tree, offers their request and what is ready", () => {
+    const p = meshPrompt({
+        geometry: "mesh",
+        hits: 120,
+        ready: 20,
+        no_tree: 95,
+        unknown: 5,
+        collections: [
+            {provider: "vendor", collection: "delta", hits: 25, ready: 20, no_tree: 0, unknown: 5, unknown_reason: "not in the tree", unknown_examples: ["/X"]},
+            {provider: "vendor", collection: "alpha", hits: 60, ready: 0, no_tree: 60, unknown: 0, unknown_reason: null, unknown_examples: []},
+            {provider: "vendor", collection: "gamma", hits: 35, ready: 0, no_tree: 35, unknown: 0, unknown_reason: null, unknown_examples: []},
+        ],
+        tree_requests: [
+            {
+                provider: "vendor",
+                collections: ["alpha", "gamma"],
+                available: true,
+                allowed: true,
+                reason: null,
+                label: "Request project tree (vendor)",
+                plugin_id: "vendor-plugin",
+                sweep_running: null,
+            },
+        ],
+        took_ms: 3,
+    });
+    assert.equal(p.ask, true);
+    assert.equal(p.headline, "2 of 3 collections have no project tree from vendor yet -- 95 of 120 hits; 5 hits are not in their tree");
+    assert.equal(p.ready, 20);
+    assert.deepEqual(p.readyCollections, ["delta"]);
+    assert.deepEqual(p.emptyCollections, ["alpha", "gamma"]);
+    assert.deepEqual(p.requests, [
+        {provider: "vendor", collections: ["alpha", "gamma"], label: "Request project tree (vendor)", cannot: null, sweepNote: null},
+    ]);
+    assert.equal(p.unknown[0].collection, "delta");
+});
+
+test("a mesh prompt says why the tree request is not this user's, and nothing asks when all is ready", () => {
+    const base = {geometry: "mesh" as const, took_ms: 1, unknown: 0};
+    const denied = meshPrompt({
+        ...base,
+        hits: 1,
+        ready: 0,
+        no_tree: 1,
+        collections: [{provider: "vendor", collection: "alpha", hits: 1, ready: 0, no_tree: 1, unknown: 0, unknown_reason: null, unknown_examples: []}],
+        tree_requests: [
+            {
+                provider: "vendor",
+                collections: ["alpha"],
+                available: true,
+                allowed: false,
+                reason: "the 'vendor-plugin' job is restricted to administrators",
+                label: null,
+                plugin_id: "vendor-plugin",
+                sweep_running: {id: "s1", created_at: null},
+            },
+        ],
+    });
+    assert.equal(denied.requests[0].cannot, "the 'vendor-plugin' job is restricted to administrators");
+    assert.match(denied.requests[0].sweepNote ?? "", /vendor sweep is running/);
+    assert.equal(denied.requests[0].label, "Request project trees (vendor)");
+    const fine = meshPrompt({
+        ...base,
+        hits: 2,
+        ready: 2,
+        no_tree: 0,
+        collections: [{provider: "vendor", collection: "delta", hits: 2, ready: 2, no_tree: 0, unknown: 0, unknown_reason: null, unknown_examples: []}],
+        tree_requests: [],
+    });
+    assert.equal(fine.ask, false);
+    assert.equal(fine.headline, null);
+});
+
+// --- the preflight, a collection at a time ----------------------------------------------------------
+
+test("a per-collection check narrows the query to that collection and keeps the rest", () => {
+    const q = queryForCollection({...Q, collections: ["alpha", "beta"]}, "beta");
+    assert.deepEqual(q.collections, ["beta"]);
+    assert.deepEqual(q.exclude_collections, Q.exclude_collections);
+    assert.deepEqual(q.where, Q.where);
+});
+
+test("the checks run a few at a time, report each one done, and answer in order", async () => {
+    let running = 0;
+    let most = 0;
+    const seen: number[] = [];
+    const out = await mapLimited(
+        [5, 1, 4, 2, 3],
+        2,
+        async (n) => {
+            running += 1;
+            most = Math.max(most, running);
+            await new Promise((r) => setTimeout(r, n));
+            running -= 1;
+            return n * 10;
+        },
+        (done) => seen.push(done),
+    );
+    assert.deepEqual(out, [50, 10, 40, 20, 30]);
+    assert.equal(most, 2);
+    assert.deepEqual(seen, [1, 2, 3, 4, 5]);
+});
+
+test("per-collection mesh checks add up to the one check of them all", () => {
+    const part = (collection: string, ready: number, noTree: number, sweep: {id: string; created_at: null} | null = null) => ({
+        geometry: "mesh" as const,
+        hits: ready + noTree,
+        ready,
+        no_tree: noTree,
+        unknown: 0,
+        collections: [{provider: "vendor", collection, hits: ready + noTree, ready, no_tree: noTree, unknown: 0, unknown_reason: null, unknown_examples: []}],
+        tree_requests: noTree
+            ? [{provider: "vendor", collections: [collection], available: true, allowed: true, reason: null, label: "Tree", plugin_id: "p", sweep_running: sweep}]
+            : [],
+        took_ms: ready,
+    });
+    const all = mergeMeshPreflights([part("alpha", 3, 0), part("beta", 0, 4), part("gamma", 0, 2, {id: "s1", created_at: null})]);
+    assert.deepEqual([all.hits, all.ready, all.no_tree], [9, 3, 6]);
+    assert.deepEqual(all.collections.map((c) => c.collection), ["alpha", "beta", "gamma"]);
+    assert.equal(all.tree_requests.length, 1);
+    assert.deepEqual(all.tree_requests[0].collections, ["beta", "gamma"]);
+    assert.deepEqual(all.tree_requests[0].sweep_running, {id: "s1", created_at: null});
+});
+
+test("per-collection design checks add up too", () => {
+    const part = (collection: string, ready: number, missing: number): ExportPreflight => ({
+        geometry_provider: "design",
+        hits: ready + missing,
+        ready,
+        missing,
+        unknown: 0,
+        jobs: missing ? 1 : 0,
+        collections: [{collection, hits: ready + missing, ready, missing, listed: missing, unpublished: 0, unknown: 0, jobs: missing ? 1 : 0, missing_reason: null, unknown_reason: null, unknown_examples: []}],
+        request: {available: true, allowed: true, reason: null, plugin_id: "p", label: "Request", per_job: 500},
+        sweep_running: null,
+        took_ms: 1,
+    });
+    const all = mergePreflights([part("alpha", 2, 1), part("beta", 0, 5)]);
+    assert.deepEqual([all.hits, all.ready, all.missing, all.jobs], [8, 2, 6, 2]);
+    assert.equal(all.collections.length, 2);
+});
+
+test("a finished run with an item not done can be re-run; a running one cannot", () => {
+    assert.equal(rerunnable({status: "done", counts: {done: 3}}), false);
+    assert.equal(rerunnable({status: "done", counts: {done: 2, partial: 1}}), true);
+    assert.equal(rerunnable({status: "interrupted", counts: {done: 1, running: 1}}), true);
+    assert.equal(rerunnable({status: "running", counts: {error: 1}}), false);
+    // Without retrying failures, only items that did not run to the end.
+    assert.equal(rerunnable({status: "done", counts: {done: 2, partial: 1, error: 1}}, false), false);
+    assert.equal(rerunnable({status: "interrupted", counts: {partial: 1, pending: 2}}, false), true);
 });

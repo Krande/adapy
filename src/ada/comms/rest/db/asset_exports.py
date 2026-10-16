@@ -156,6 +156,50 @@ async def cancel_asset_export_run(pool: asyncpg.Pool, run_id: str) -> bool:
     return row is not None
 
 
+async def restart_asset_export_run(pool: asyncpg.Pool, run_id: str, positions: list[int]) -> bool:
+    """Back to ``running`` with ``positions`` pending again -- unless it is running (and not
+    interrupted) already: only one of two concurrent re-runs gets True."""
+    async with pool.acquire() as conn, conn.transaction():
+        row = await conn.fetchrow(
+            f"""
+            UPDATE asset_export_runs
+            SET status = 'running', error = NULL, finished_at = NULL, heartbeat_at = NOW(),
+                skip_position = NULL, skip_requested_by = NULL
+            WHERE id = $1
+              AND (status <> 'running' OR heartbeat_at < NOW() - INTERVAL '{HEARTBEAT_STALE_S} seconds')
+            RETURNING id
+            """,
+            run_id,
+        )
+        if row is None:
+            return False
+        await conn.execute(
+            """
+            UPDATE asset_export_items
+            SET status = 'pending', job_id = NULL, message = 're-run queued', error = NULL,
+                started_at = NULL, finished_at = NULL
+            WHERE run_id = $1 AND position = ANY($2::int[])
+            """,
+            run_id,
+            positions,
+        )
+    return True
+
+
+async def delete_asset_export_run(pool: asyncpg.Pool, run_id: str) -> bool:
+    """The run and its items, unless it is running (and not interrupted). The files stay."""
+    row = await pool.fetchrow(
+        f"""
+        DELETE FROM asset_export_runs
+        WHERE id = $1
+          AND (status <> 'running' OR heartbeat_at < NOW() - INTERVAL '{HEARTBEAT_STALE_S} seconds')
+        RETURNING id
+        """,
+        run_id,
+    )
+    return row is not None
+
+
 async def request_asset_export_skip(pool: asyncpg.Pool, run_id: str, position: int, *, by: Optional[str]) -> bool:
     row = await pool.fetchrow(
         """

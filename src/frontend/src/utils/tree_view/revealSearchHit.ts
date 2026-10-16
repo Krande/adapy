@@ -33,23 +33,29 @@ export type RevealOutcome =
 /** Bumped per reveal: a walk still fetching levels for an older click gives up. */
 let generation = 0;
 
-/** Resolve once `pred` holds for the store's state, or reject after `ms`. */
+/** Resolve once `pred` holds for the store's state; reject with the load's own error when it
+ *  fails, or after `ms`. */
 function waitFor(
     store: {getState(): AssetBrowserState; subscribe(l: (s: AssetBrowserState) => void): () => void},
     pred: (s: AssetBrowserState) => boolean,
     ms = 30_000,
 ): Promise<void> {
-    if (pred(store.getState())) return Promise.resolve();
+    const failed = (s: AssetBrowserState) => (s.indexError ? new Error(`the Sources tree failed to load: ${s.indexError}`) : null);
+    const now = store.getState();
+    if (pred(now)) return Promise.resolve();
+    if (failed(now)) return Promise.reject(failed(now));
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
             unsubscribe();
             reject(new Error("the Sources tree did not finish loading"));
         }, ms);
         const unsubscribe = store.subscribe((s) => {
-            if (!pred(s)) return;
+            const error = failed(s);
+            if (!pred(s) && !error) return;
             clearTimeout(timer);
             unsubscribe();
-            resolve();
+            if (error && !pred(s)) reject(error);
+            else resolve();
         });
     });
 }

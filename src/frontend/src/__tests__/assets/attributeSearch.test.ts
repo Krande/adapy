@@ -4,11 +4,15 @@ import test from "node:test";
 import {
   buildQuery,
   emptyForm,
+  filterOptions,
   hitKey,
   hitTreePath,
   mergePage,
+  opTakesList,
+  opTakesValue,
   parseStoredForm,
   partitionCounts,
+  pickSummary,
   shortName,
   totalCount,
   treeCollectionFor,
@@ -51,6 +55,103 @@ test("filter rows become where clauses; blank rows are skipped, empty values ref
 
   const missing = buildQuery(form({ rows: [row("FUNC", "eq", "  ")] }));
   assert.equal(missing.ok, false);
+});
+
+test("negative and presence operators reach the query; key-only operators need no value", () => {
+  const built = buildQuery(
+    form({
+      rows: [
+        row("FUNC", "ne", " MS "),
+        row("NUM", "ne", "12", { "12": 12 }),
+        row("PURP", "not_in", "NOD, SUPP", { NOD: "NOD" }),
+        row("OWNER", "exists", ""),
+        row("HOLD", "missing", "ignored"),
+      ],
+    }),
+  );
+  assert.ok(built.ok);
+  assert.deepEqual(built.query.where, [
+    { key: "FUNC", ne: "MS" },
+    { key: "NUM", ne: 12 },
+    { key: "PURP", not_in: ["NOD", "SUPP"] },
+    { key: "OWNER", exists: true },
+    { key: "HOLD", missing: true },
+  ]);
+  assert.equal(buildQuery(form({ rows: [row("FUNC", "ne", " ")] })).ok, false);
+  assert.equal(buildQuery(form({ rows: [row("FUNC", "not_in", ", ,")] })).ok, false);
+  assert.ok(opTakesList("not_in") && !opTakesList("ne"));
+  assert.ok(!opTakesValue("exists") && !opTakesValue("missing") && opTakesValue("not_in"));
+});
+
+test("collections and providers are included or excluded by their mode", () => {
+  const inc = buildQuery(form({ collections: ["ALPHA"], providers: ["prov-a"] }));
+  assert.ok(inc.ok);
+  assert.deepEqual(inc.query.collections, ["ALPHA"]);
+  assert.equal(inc.query.exclude_collections, null);
+  assert.equal(inc.query.exclude_providers, null);
+
+  const exc = buildQuery(
+    form({ collections: ["ALPHA", "BETA"], collectionMode: "exclude", providers: ["prov-b"], providerMode: "exclude" }),
+  );
+  assert.ok(exc.ok);
+  assert.equal(exc.query.collections, null);
+  assert.equal(exc.query.providers, null);
+  assert.deepEqual(exc.query.exclude_collections, ["ALPHA", "BETA"]);
+  assert.deepEqual(exc.query.exclude_providers, ["prov-b"]);
+
+  // Nothing ticked is every one, in either mode.
+  const none = buildQuery(form({ collectionMode: "exclude" }));
+  assert.ok(none.ok);
+  assert.equal(none.query.collections, null);
+  assert.equal(none.query.exclude_collections, null);
+});
+
+test("a pick's type-ahead and summary", () => {
+  const opts = [
+    { value: "alpha", label: "alpha (10)" },
+    { value: "beta", label: "beta (3)" },
+    { value: "gamma", label: "Gamma-X (1)" },
+  ];
+  assert.deepEqual(filterOptions(opts, " GAM ").map((o) => o.value), ["gamma"]);
+  assert.deepEqual(filterOptions(opts, "(3)").map((o) => o.value), ["beta"]);
+  assert.equal(filterOptions(opts, "").length, 3);
+  assert.equal(pickSummary([], "exclude", "collection"), "every collection");
+  assert.equal(pickSummary(["alpha"], "include", "collection", (v) => v.toUpperCase()), "ALPHA");
+  assert.equal(pickSummary(["alpha", "beta"], "include", "collection"), "2 chosen");
+  assert.equal(pickSummary(["alpha"], "exclude", "collection"), "all but alpha");
+  assert.equal(pickSummary(["alpha", "beta"], "exclude", "collection"), "all but 2");
+});
+
+test("a form stored before exclusions and the new operators existed reads back as it meant", () => {
+  const old = parseStoredForm(
+    JSON.stringify({ collections: ["ALPHA"], providers: ["prov-a"], rows: [{ key: "FUNC", op: "eq", value: "MS" }] }),
+  );
+  assert.ok(old);
+  assert.equal(old.collectionMode, "include");
+  assert.equal(old.providerMode, "include");
+  const built = buildQuery(old);
+  assert.ok(built.ok);
+  assert.deepEqual(built.query.collections, ["ALPHA"]);
+  assert.equal(built.query.exclude_collections, null);
+
+  // The new fields round-trip; an unknown operator falls back to equals.
+  const stored = form({
+    collections: ["BETA"],
+    collectionMode: "exclude",
+    providerMode: "exclude",
+    providers: ["prov-b"],
+    rows: [row("A", "not_in", "x, y"), row("B", "missing", ""), row("C", "ne", "1")],
+  });
+  const back = parseStoredForm(JSON.stringify(stored));
+  assert.ok(back);
+  assert.equal(back.collectionMode, "exclude");
+  assert.equal(back.providerMode, "exclude");
+  assert.deepEqual(back.rows.map((r) => r.op), ["not_in", "missing", "ne"]);
+  assert.deepEqual(buildQuery(back), buildQuery(stored));
+  const odd = parseStoredForm(JSON.stringify({ collectionMode: "sideways", rows: [{ key: "A", op: "regex", value: "x" }] }));
+  assert.ok(odd);
+  assert.equal(odd.collectionMode, "include");
+  assert.equal(odd.rows[0].op, "eq");
 });
 
 test("a value picked from the suggestions is sent as the type the index holds", () => {

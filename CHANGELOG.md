@@ -2,6 +2,13 @@
 
 
 
+## v0.117.0 (2026-10-15)
+
+### Feature
+
+* feat(search): attribute search window, exclusions, merged and mesh exports with a per-hit gallery; FEM concepts (#456) ([`1232487`](https://github.com/Krande/adapy/commit/12324875b4392b0adcf1d99d252b0cb4d5458c00))
+
+
 ## v0.116.0 (2026-10-12)
 
 ### Feature

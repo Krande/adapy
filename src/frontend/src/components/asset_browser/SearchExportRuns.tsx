@@ -9,11 +9,13 @@
 // ACTIONS. Cancel stops the whole run. Skip gives up on ONE running item and lets the rest go on
 // -- offered per running item, since up to four run at once. "Open in gallery" walks the folder the
 // run wrote, in its export order (`openFolderInGallery`), switching to the target scope if needed.
-// A file that did not come out (no geometry, or an error) is listed under its item, expandable.
+// "Rerun" drives the same run again over what did not finish -- with "Retry failed", also over what
+// did not write every file; the server makes it idempotent. "Remove" drops a run that is not running
+// from the list; its files stay. A file that did not come out (no geometry, or an error) is listed under its item, expandable.
 
 import React, {useCallback, useEffect, useRef, useState} from "react";
 
-import {loginSummary} from "@/assets/searchExport";
+import {loginSummary, rerunnable} from "@/assets/searchExport";
 import {duration} from "@/components/admin/ProviderSweepRuns";
 import {searchExportApi, type ExportItem, type ExportRun} from "@/services/api/searchExport";
 import {ApiError} from "@/services/viewerApi";
@@ -277,7 +279,13 @@ const SearchExportRuns: React.FC<{
         return () => clearInterval(t);
     }, [running, expanded, openId, load, openRun]);
 
-    const act = async (fn: () => Promise<unknown>, id: string) => {
+    /** The run whose rerun is being asked for: one request per click. */
+    const [rerunning, setRerunning] = useState<string | null>(null);
+    /** Per run, whether a rerun also retries failed items (default yes). */
+    const [retry, setRetry] = useState<Record<string, boolean>>({});
+    const retryFailed = (id: string) => retry[id] ?? true;
+    /** `reopen`: refresh the open run afterwards -- not after removing it. */
+    const act = async (fn: () => Promise<unknown>, id: string, reopen = true) => {
         try {
             await fn();
             setError(null);
@@ -285,7 +293,7 @@ const SearchExportRuns: React.FC<{
             setError(errText(e));
         }
         await load();
-        if (open?.id === id) await openRun(id);
+        if (reopen && open?.id === id) await openRun(id);
     };
 
     return (
@@ -345,6 +353,38 @@ const SearchExportRuns: React.FC<{
                                         </button>
                                     )}
                                     {r.skip_position != null && r.status === "running" && <span className="text-amber-300">skipping…</span>}
+                                    {rerunnable(r) && (
+                                        <span className="inline-flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                className={BTN}
+                                                disabled={rerunning === r.id || !rerunnable(r, retryFailed(r.id))}
+                                                title={
+                                                    retryFailed(r.id)
+                                                        ? "Run again what did not finish and what did not write every file, into the same folder (a mesh run asks for fresh trees first)"
+                                                        : "Run again only what did not finish, into the same folder"
+                                                }
+                                                onClick={() => {
+                                                    setRerunning(r.id);
+                                                    void act(async () => {
+                                                        const out = await searchExportApi.rerunSearchExport(scope, r.id, retryFailed(r.id));
+                                                        if (out.rerun) trackExport(scope, r.id, `Rerun ${r.target_scope}/${r.target_folder}`);
+                                                        else if (out.reason) throw new Error(out.reason);
+                                                    }, r.id).finally(() => setRerunning(null));
+                                                }}
+                                            >
+                                                Rerun
+                                            </button>
+                                            <label className="inline-flex items-center gap-1 text-gray-400" title="Also retry items that finished without writing every file">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={retryFailed(r.id)}
+                                                    onChange={(e) => setRetry((cur) => ({...cur, [r.id]: e.target.checked}))}
+                                                />
+                                                Retry failed
+                                            </label>
+                                        </span>
+                                    )}
                                     <button
                                         type="button"
                                         className={BTN}
@@ -354,6 +394,23 @@ const SearchExportRuns: React.FC<{
                                     >
                                         Open in gallery
                                     </button>
+                                    {r.status !== "running" && (
+                                        <button
+                                            type="button"
+                                            className={BTN}
+                                            title="Remove this run from the list. The files it wrote stay in the folder."
+                                            onClick={() => {
+                                                if (!window.confirm(`Remove the run into ${r.target_folder} from the list? Its files stay.`)) return;
+                                                void act(async () => {
+                                                    await searchExportApi.deleteSearchExport(scope, r.id);
+                                                    untrackExport(r.id);
+                                                    if (open?.id === r.id) setOpen(null);
+                                                }, r.id, false);
+                                            }}
+                                        >
+                                            Remove
+                                        </button>
+                                    )}
                                     {r.error && <span className="text-red-300 break-words">{r.error}</span>}
                                 </div>
                                 {open?.id === r.id && (

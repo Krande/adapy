@@ -13,13 +13,7 @@ if TYPE_CHECKING:
 
 
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: SceneConverter) -> trimesh.Scene:
-    import ada.extension.design_extension_schema as design_ext
-    from ada import Assembly, Beam, Plate, PlateCurved
-    from ada.comms.msg_handling.object_metadata import (
-        beam_metadata,
-        curved_plate_metadata,
-        plate_metadata,
-    )
+    from ada import Assembly
     from ada.config import logger
     from ada.visit.tessellate import BatchTessellator
 
@@ -32,16 +26,6 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
 
     graph = converter.graph
     graph.add_nodes_from_part(part_or_assembly)
-
-    groups = []
-
-    for group_name, groups_ in part_or_assembly.get_all_groups_as_merged().items():
-        group0 = groups_[0]
-        members = [m.name for g in groups_ for m in g.members]
-        g = design_ext.Group(
-            name=group_name, members=members, description=group0.description, parent_name=part_or_assembly.name
-        )
-        groups.append(g)
 
     # The IFC-stream path tessellates via ifcopenshell's own geometry iterator (OCC), which
     # never sees ada.geom — so it can't honour an NGEOM pipeline. When one is requested
@@ -62,7 +46,41 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
     if scene is None:
         scene = bt.tessellate_part(part_or_assembly, params=params, graph=graph)
 
-    nodes_geom = set(scene.graph.nodes_geometry)
+    converter.ada_ext.design_objects.append(
+        build_design_data_extension(
+            part_or_assembly,
+            face_nodes=list(set(scene.graph.nodes_geometry)),
+            embed_metadata=bool(getattr(params, "embed_object_metadata", True)),
+        )
+    )
+
+    return scene
+
+
+def build_design_data_extension(part_or_assembly: Part | Assembly, *, face_nodes: list[str], embed_metadata=True):
+    """The design-side ADA extension block for ``part_or_assembly``: groups, guids, per-object
+    metadata, stats, connections and FEM concepts, pointing at the GLB nodes ``face_nodes``.
+
+    Everything here comes from the model, nothing from the tessellation, so a GLB some other
+    writer produced (the native record route) gets the same block once its node names are known.
+    """
+    import ada.extension.design_extension_schema as design_ext
+    from ada import Beam, Plate, PlateCurved
+    from ada.comms.msg_handling.object_metadata import (
+        beam_metadata,
+        curved_plate_metadata,
+        plate_metadata,
+    )
+
+    groups = []
+    for group_name, groups_ in part_or_assembly.get_all_groups_as_merged().items():
+        group0 = groups_[0]
+        members = [m.name for g in groups_ for m in g.members]
+        g = design_ext.Group(
+            name=group_name, members=members, description=group0.description, parent_name=part_or_assembly.name
+        )
+        groups.append(g)
+
     # Per-object guid map: lets the frontend resolve a clicked CAD
     # object name (Beam/Plate) to its stable adapy guid. A derived FEA
     # file's SimGroup.parent_object_guid points back at these values so
@@ -75,7 +93,6 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
     # uploaded alongside the GLB. Costs roughly the typed dict size
     # (~120-250 B / Beam, ~80-150 B / Plate) per physical object —
     # for a 1000-object model that's ~100-250 KB of extra JSON.
-    embed_metadata = bool(getattr(params, "embed_object_metadata", True))
     object_metadata: dict[str, dict] | None = {} if embed_metadata else None
     for obj in part_or_assembly.get_all_physical_objects():
         if obj.name and obj.guid:
@@ -107,21 +124,17 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
     # THREE scene graph at runtime. One entry per Connection Part.
     connections = _build_connection_entries(part_or_assembly)
 
-    converter.ada_ext.design_objects.append(
-        design_ext.DesignDataExtension(
-            name=part_or_assembly.name,
-            description=type(part_or_assembly).__name__,
-            groups=groups,
-            node_references=design_ext.DesignNodeReference(faces=list(nodes_geom)),
-            object_guids=object_guids or None,
-            object_metadata=object_metadata or None,
-            stats=_build_design_stats(part_or_assembly),
-            connections=connections or None,
-            fem_concepts=build_design_fem_concepts(part_or_assembly),
-        )
+    return design_ext.DesignDataExtension(
+        name=part_or_assembly.name,
+        description=type(part_or_assembly).__name__,
+        groups=groups,
+        node_references=design_ext.DesignNodeReference(faces=list(face_nodes)),
+        object_guids=object_guids or None,
+        object_metadata=object_metadata or None,
+        stats=_build_design_stats(part_or_assembly),
+        connections=connections or None,
+        fem_concepts=build_design_fem_concepts(part_or_assembly),
     )
-
-    return scene
 
 
 def _build_connection_entries(part_or_assembly):

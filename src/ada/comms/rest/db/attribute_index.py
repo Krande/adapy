@@ -19,6 +19,14 @@ equality and IN as a JSON containment object (``attrs @> $n::jsonb``, which the 
 prefix escaped. The only identifiers spliced into SQL are partition names this module generated,
 checked against their own grammar before use.
 
+NEGATIVE FILTERS ARE EXACT COMPLEMENTS. ``ne`` / ``not_in`` are ``NOT (<the eq/in probes>)``: they
+match every node whose value differs *or that has no such key*, and a value matched by either
+spelling (``3`` and ``"3"``) is excluded under both. ``exists`` / ``missing`` are ``attrs ? $k`` and
+its negation. None of these can be answered by the ``jsonb_path_ops`` index; next to a positive
+filter they only refine what the index narrowed, alone they scan the partition (still bounded by
+the statement timeout). Excluded providers / collections are dropped when the partitions are
+chosen, so they are never read at all.
+
 PAGINATION IS A KEYSET over (provider, collection, node_id), walked partition by partition in
 that order with ``node_id > $last ORDER BY node_id`` on each -- the btree on node_id makes a page of
 a broad query as cheap as a page of a narrow one. The cursor is opaque base64 carrying the last
@@ -539,11 +547,15 @@ class SearchQuery:
     depth_eq: Optional[int] = None
     depth_min: Optional[int] = None
     depth_max: Optional[int] = None
-    #: ``{"key", "op": "eq"|"in"|"prefix", "values": [...]}`` -- eq is an in of one.
+    #: ``{"key", "op": "in"|"not_in"|"prefix"|"exists"|"missing", "values": [...]}`` -- eq is an
+    #: in of one, ne a not_in of one; exists / missing carry no values.
     where: list[dict] = field(default_factory=list)
     select: Optional[list[str]] = None
     limit: int = SEARCH_DEFAULT_LIMIT
     cursor: Optional[str] = None
+    #: Partitions never read, whatever ``providers`` / ``collections`` include (collections lower-case).
+    exclude_providers: Optional[list[str]] = None
+    exclude_collections: Optional[list[str]] = None
 
     def fingerprint(self) -> str:
         """What a cursor is valid for: the filters, not the page size or the projection."""
@@ -556,6 +568,8 @@ class SearchQuery:
             self.depth_max,
             self.where,
         ]
+        if self.exclude_providers or self.exclude_collections:
+            doc += [self.exclude_providers, self.exclude_collections]
         return hashlib.sha1(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:12]
 
     @property
@@ -568,6 +582,12 @@ class SearchQuery:
         )
 
 
+#: The operators a ``where`` item may carry beside its ``key`` (exactly one).
+_WHERE_OPS = ("eq", "in", "prefix", "ne", "not_in", "exists", "missing")
+#: eq is an in of one; ne a not_in of one.
+_WHERE_OP_NORMAL = {"eq": "in", "ne": "not_in"}
+
+
 def _str_list(body: dict, name: str) -> Optional[list[str]]:
     v = body.get(name)
     if v is None:
@@ -577,6 +597,11 @@ def _str_list(body: dict, name: str) -> Optional[list[str]]:
     if not isinstance(v, list) or not all(isinstance(x, str) and x for x in v):
         raise SearchQueryError(f"{name!r} must be a list of non-empty strings or null")
     return list(dict.fromkeys(v)) or None
+
+
+def _lower(names: Optional[list[str]]) -> Optional[list[str]]:
+    # Collections are keyed lower-case (see parse_header); a filter naming `ALPHA` means `alpha`.
+    return list(dict.fromkeys(c.lower() for c in names)) if names else None
 
 
 def _int(v: Any, what: str) -> int:
@@ -597,13 +622,13 @@ def parse_search_query(body: Any) -> SearchQuery:
         body = {}
     if not isinstance(body, dict):
         raise SearchQueryError("the search body must be a JSON object")
-    collections = _str_list(body, "collections")
     q = SearchQuery(
         providers=_str_list(body, "providers"),
-        # Collections are keyed lower-case (see parse_header); a filter naming `ALPHA` means `alpha`.
-        collections=list(dict.fromkeys(c.lower() for c in collections)) if collections else None,
+        collections=_lower(_str_list(body, "collections")),
         kind=_str_list(body, "kind"),
         select=_str_list(body, "select"),
+        exclude_providers=_str_list(body, "exclude_providers"),
+        exclude_collections=_lower(_str_list(body, "exclude_collections")),
     )
     depth = body.get("depth")
     if depth is not None:
@@ -617,7 +642,7 @@ def parse_search_query(body: Any) -> SearchQuery:
             q.depth_max = _int(depth["max"], "depth.max")
     where = body.get("where") or []
     if not isinstance(where, list):
-        raise SearchQueryError("'where' must be a list of {key, eq|in|prefix}")
+        raise SearchQueryError(f"'where' must be a list of {{key, {'|'.join(_WHERE_OPS)}}}")
     if len(where) > SEARCH_MAX_WHERE:
         raise SearchQueryError(f"at most {SEARCH_MAX_WHERE} 'where' filters")
     for i, w in enumerate(where):
@@ -626,25 +651,29 @@ def parse_search_query(body: Any) -> SearchQuery:
         key = w.get("key")
         if not isinstance(key, str) or not key or len(key) > 200:
             raise SearchQueryError(f"where[{i}].key must be a non-empty string")
-        ops = [op for op in ("eq", "in", "prefix") if op in w]
-        if len(ops) != 1 or set(w) - {"key", "eq", "in", "prefix"}:
-            raise SearchQueryError(f"where[{i}] needs exactly one of 'eq', 'in' or 'prefix' beside 'key'")
+        ops = [op for op in _WHERE_OPS if op in w]
+        if len(ops) != 1 or set(w) - {"key", *_WHERE_OPS}:
+            raise SearchQueryError(f"where[{i}] needs exactly one of {', '.join(map(repr, _WHERE_OPS))} beside 'key'")
         op = ops[0]
-        if op == "eq":
-            values = [_scalar(w["eq"], f"where[{i}].eq")]
-        elif op == "in":
-            raw = w["in"]
+        if op in ("eq", "ne"):
+            values = [_scalar(w[op], f"where[{i}].{op}")]
+        elif op in ("in", "not_in"):
+            raw = w[op]
             if not isinstance(raw, list) or not raw:
-                raise SearchQueryError(f"where[{i}].in must be a non-empty list")
+                raise SearchQueryError(f"where[{i}].{op} must be a non-empty list")
             if len(raw) > SEARCH_MAX_IN_VALUES:
-                raise SearchQueryError(f"where[{i}].in lists more than {SEARCH_MAX_IN_VALUES} values")
-            values = list(dict.fromkeys(_scalar(v, f"where[{i}].in[]") for v in raw))
+                raise SearchQueryError(f"where[{i}].{op} lists more than {SEARCH_MAX_IN_VALUES} values")
+            values = list(dict.fromkeys(_scalar(v, f"where[{i}].{op}[]") for v in raw))
+        elif op in ("exists", "missing"):
+            if w[op] is not True:
+                raise SearchQueryError(f"where[{i}].{op} must be true")
+            values = []
         else:
             p = w["prefix"]
             if not isinstance(p, str) or not p:
                 raise SearchQueryError(f"where[{i}].prefix must be a non-empty string")
             values = [p]
-        q.where.append({"key": key, "op": "prefix" if op == "prefix" else "in", "values": values})
+        q.where.append({"key": key, "op": _WHERE_OP_NORMAL.get(op, op), "values": values})
     limit = body.get("limit")
     if limit is not None:
         q.limit = max(1, min(_int(limit, "limit"), SEARCH_MAX_LIMIT))
@@ -695,7 +724,9 @@ def build_filters(q: SearchQuery, first_arg: int = 1) -> tuple[str, list[Any]]:
     """``(where_sql, args)`` for one partition's rows; ``$first_arg`` on. ``TRUE`` when unfiltered.
 
     Equality and ``in`` become containment objects ORed per filter (each a GIN probe); prefixes
-    come after them, so the planner applies them to what the index already narrowed.
+    and key presence come after them, the negations last, so the planner applies what the index
+    cannot answer to what it already narrowed. ``not_in`` is ``NOT`` of exactly the probes ``in``
+    would build: a node without the key, or with a value neither spelling matches, passes.
     """
     clauses: list[str] = []
     args: list[Any] = []
@@ -703,6 +734,17 @@ def build_filters(q: SearchQuery, first_arg: int = 1) -> tuple[str, list[Any]]:
     def arg(v: Any, cast: str = "") -> str:
         args.append(v)
         return f"${first_arg + len(args) - 1}{cast}"
+
+    def probes(w: dict) -> str:
+        p = [
+            f"attrs @> {arg(json.dumps({w['key']: c}, ensure_ascii=False), '::jsonb')}"
+            for v in w["values"]
+            for c in _candidates(v)
+        ]
+        return p[0] if len(p) == 1 else "(" + " OR ".join(p) + ")"
+
+    def of(op: str) -> list[dict]:
+        return [w for w in q.where if w["op"] == op]
 
     if q.kind:
         clauses.append(f"kind = ANY({arg(q.kind, '::text[]')})")
@@ -712,20 +754,18 @@ def build_filters(q: SearchQuery, first_arg: int = 1) -> tuple[str, list[Any]]:
         clauses.append(f"depth >= {arg(q.depth_min, '::int')}")
     if q.depth_max is not None:
         clauses.append(f"depth <= {arg(q.depth_max, '::int')}")
-    for w in q.where:
-        if w["op"] != "in":
-            continue
-        probes = [
-            f"attrs @> {arg(json.dumps({w['key']: c}, ensure_ascii=False), '::jsonb')}"
-            for v in w["values"]
-            for c in _candidates(v)
-        ]
-        clauses.append(probes[0] if len(probes) == 1 else "(" + " OR ".join(probes) + ")")
-    for w in q.where:
-        if w["op"] != "prefix":
-            continue
+    for w in of("in"):
+        clauses.append(probes(w))
+    for w in of("prefix"):
         key = arg(w["key"], "::text")
         clauses.append(f"attrs->>{key} LIKE {arg(escape_like(w['values'][0]) + '%', '::text')}")
+    for w in of("exists"):
+        clauses.append(f"attrs ? {arg(w['key'], '::text')}")
+    for w in of("missing"):
+        clauses.append(f"NOT (attrs ? {arg(w['key'], '::text')})")
+    for w in of("not_in"):
+        s = probes(w)
+        clauses.append(f"NOT {s}" if s.startswith("(") else f"NOT ({s})")
     return (" AND ".join(clauses) if clauses else "TRUE"), args
 
 
@@ -754,20 +794,33 @@ def _label(provider: str, collection: str) -> str:
 
 
 async def _partitions(
-    conn, scope: str, providers: Optional[list[str]] = None, collections: Optional[list[str]] = None
+    conn,
+    scope: str,
+    providers: Optional[list[str]] = None,
+    collections: Optional[list[str]] = None,
+    *,
+    exclude_providers: Optional[list[str]] = None,
+    exclude_collections: Optional[list[str]] = None,
 ) -> list[dict]:
+    """The scope's partitions, narrowed to the included providers / collections (``None``: all) and
+    minus the excluded ones -- an excluded partition is never queried."""
     if collections is not None:
         collections = sorted({c.lower() for c in collections})  # stored lower-case (see parse_header)
+    if exclude_collections:
+        exclude_collections = sorted({c.lower() for c in exclude_collections})
     rows = await conn.fetch(
         """
         SELECT provider, collection, revision, rows, source_etag, ingested_at, partition_name, part_key, keys,
                high_card_keys
         FROM attr_collections
         WHERE scope = $1 AND ($2::text[] IS NULL OR provider = ANY($2)) AND ($3::text[] IS NULL OR collection = ANY($3))
+          AND NOT (provider = ANY($4::text[])) AND NOT (collection = ANY($5::text[]))
         """,
         scope,
         providers,
         collections,
+        exclude_providers or [],
+        exclude_collections or [],
     )
     parts = [dict(r) for r in rows if _PARTITION_RE.match(r["partition_name"])]
     parts.sort(key=lambda p: (p["provider"], p["collection"]))
@@ -823,7 +876,14 @@ async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuer
     next_cursor = None
     async with pool.acquire() as conn, conn.transaction(readonly=True):
         await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
-        parts = await _partitions(conn, scope, query.providers, query.collections)
+        parts = await _partitions(
+            conn,
+            scope,
+            query.providers,
+            query.collections,
+            exclude_providers=query.exclude_providers,
+            exclude_collections=query.exclude_collections,
+        )
 
         counts: dict[str, int]
         if cur and isinstance(cur.get("counts"), dict):

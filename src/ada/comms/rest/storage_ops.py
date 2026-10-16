@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from ada.config import logger
 
 from .converter import TARGET_FORMATS, is_derived_key
-from .converters.keys import file_sidecar_keys, is_file_sidecar_key
+from .converters.keys import file_sidecar_keys, is_file_sidecar_key, joint_thumb_keys
 from .scope import Scope
 from .storage import Storage
 
@@ -42,7 +42,8 @@ def owned_file_sidecars(key: str, live_keys: set[str] | list[str]) -> list[str]:
             continue
         if file_sidecar_keys(other)[0][: -len(".meta.json")] == stem_of:
             return []
-    return siblings
+    # A merged export file's per-hit thumbnails are the file's too.
+    return siblings + joint_thumb_keys(key, live)
 
 
 def derived_source_of(derived_key: str) -> tuple[str, str] | None:
@@ -294,8 +295,11 @@ async def rename_key_cascade(
     # The per-file siblings beside the file move with it, renamed to the new stem -- unless one
     # is already there (never overwrite another file's provenance).
     new_siblings = dict(zip(file_sidecar_keys(old_key), file_sidecar_keys(new_key)))
+    old_base = file_sidecar_keys(old_key)[0][: -len(".meta.json")]
+    new_base = file_sidecar_keys(new_key)[0][: -len(".meta.json")]
     for old_sib in file_siblings:
-        new_sib = new_siblings[old_sib]
+        # A per-hit thumbnail keeps its `.j<n>` part under the new stem.
+        new_sib = new_siblings.get(old_sib) or new_base + old_sib[len(old_base) :]
         if new_sib != old_sib and new_sib not in live_keys:
             sibling_pairs.append((old_sib, new_sib))
 

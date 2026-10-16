@@ -35,7 +35,7 @@ const ThemeOptions: React.FC = () => {
                 <span>
                     Gallery mode
                     <span className="block text-[10px] text-gray-400">
-                        Prev/next HUD cycling this scope's files
+                        Prev/next HUD cycling this scope's files (Shift+W)
                     </span>
                 </span>
                 <input

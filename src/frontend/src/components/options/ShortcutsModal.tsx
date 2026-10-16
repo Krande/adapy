@@ -36,6 +36,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Shift", "F"], description: "Center the view on the selection" },
       { keys: ["Shift", "A"], description: "Zoom to fit the whole model" },
       { keys: ["Shift", "Q"], description: "Toggle the Options menu" },
+      { keys: ["Shift", "W"], description: "Toggle gallery mode" },
+      { keys: ["Shift", "P"], description: "Toggle the Admin panel (administrators only)" },
       { keys: ["Shift", "T"], description: "Open the tree at the selected element and focus it for arrow-key navigation; pressed while the tree is focused, close it" },
       {
         keys: ["Shift", "C"],
@@ -57,8 +59,10 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     context: "Gallery walk",
     when: "Active while stepping through a files/geometry gallery",
     shortcuts: [
-      { keys: ["←"], description: "Previous item" },
-      { keys: ["→"], description: "Next item" },
+      { keys: ["←"], description: "Previous item (back onto the previous project's page at its start)" },
+      { keys: ["→"], description: "Next item (onto the next project's page at its end)" },
+      { keys: ["PageUp"], description: "Previous project (previous file within one project)" },
+      { keys: ["PageDown"], description: "Next project (next file within one project)" },
     ],
   },
   {

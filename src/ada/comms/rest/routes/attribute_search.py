@@ -29,12 +29,26 @@ async def api_asset_search(
     request: Request,
     scope_obj: Scope = Depends(scope_from_path),
 ) -> JSONResponse:
-    """Body: ``{providers, collections, kind, depth, where, select, limit, cursor}`` (all optional).
+    """Body: ``{providers, collections, exclude_providers, exclude_collections, kind, depth, where,
+    select, limit, cursor}`` (all optional).
 
-    ``where`` items are ``{"key", "eq"}``, ``{"key", "in": [...]}`` or ``{"key", "prefix"}``; keys are
-    case-sensitive, as the source writes them. Response: ``{rows, next_cursor, counts, took_ms}``
-    where ``counts`` is the whole query's match count per ``<provider>/<collection>`` and each row
-    carries its ancestors (``path``, root first)."""
+    ``providers`` / ``collections`` include (``null``: every one); ``exclude_providers`` /
+    ``exclude_collections`` leave those out whatever the includes say, and are never read.
+    Collections compare case-insensitively.
+
+    ``where`` items are ``{"key", "eq"}``, ``{"key", "in": [...]}``, ``{"key", "prefix"}``,
+    ``{"key", "ne"}``, ``{"key", "not_in": [...]}``, ``{"key", "exists": true}`` or
+    ``{"key", "missing": true}``; keys are case-sensitive, as the source writes them. ``eq`` / ``in``
+    match a number and its text spelling alike (``3`` and ``"3"``); ``ne`` / ``not_in`` are their exact
+    complement -- they also match nodes that do not have the key at all (add ``exists`` to rule
+    those out). The negative operators and ``exists`` / ``missing`` cannot use the attribute index:
+    beside a positive filter they refine its matches cheaply, but a query of ONLY such filters scans
+    every chosen collection and may hit the search's statement timeout (a 30 s ceiling) on large
+    scopes -- narrow it with a positive filter, a kind or the collections.
+
+    Response: ``{rows, next_cursor, counts, took_ms}`` where ``counts`` is the whole query's match
+    count per ``<provider>/<collection>`` and each row carries its ancestors (``path``, root first).
+    A ``cursor`` replayed with different filters (exclusions included) is refused (400)."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     try:

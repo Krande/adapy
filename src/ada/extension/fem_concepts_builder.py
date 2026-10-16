@@ -69,9 +69,17 @@ def build_mass_glyphs(part_or_assembly):
     return masses
 
 
-def resolve_load_glyph(load, factor: float = 1.0):
+def resolve_load_glyph(load, factor: float = 1.0, generated_by: str | None = None):
     """Map one concept load to a geometric LoadGlyph (or None). `factor` scales
-    the magnitude for a load combination's factored case."""
+    the magnitude for a load combination's factored case; `generated_by` names the
+    equipment an analysis model resolved the load from."""
+    glyph = _load_glyph(load, factor)
+    if glyph is not None and generated_by:
+        glyph.generated_by = generated_by
+    return glyph
+
+
+def _load_glyph(load, factor: float):
     from ada.extension import fem_concepts_schema as fem_ext
     from ada.fem.concept.loads import (
         LoadConceptAccelerationField,
@@ -93,6 +101,13 @@ def resolve_load_glyph(load, factor: float = 1.0):
         )
     if isinstance(load, LoadConceptLine):
         direction, mag = _norm_mag(load.intensity_start)
+        end = [float(c) for c in load.intensity_end]
+        if direction is None:
+            # Zero at the start (a load rising from nothing): the end gives the direction.
+            direction, end_mag = _norm_mag(end)
+        else:
+            # The end's intensity along the start's direction -- the glyph has one direction.
+            end_mag = sum(d * c for d, c in zip(direction, end))
         return fem_ext.LoadGlyph(
             name=load.name,
             type="line",
@@ -100,6 +115,7 @@ def resolve_load_glyph(load, factor: float = 1.0):
             end_position=[float(c) for c in load.end_point],
             direction=direction,
             magnitude=mag * factor,
+            end_magnitude=end_mag * factor if abs(end_mag - mag) > 1e-9 * max(1.0, mag) else None,
         )
     if isinstance(load, LoadConceptSurface):
         points = None
@@ -134,9 +150,19 @@ def build_load_scenarios(part_or_assembly):
     except Exception:
         loads = cfem.loads
 
+    generated = _generated_loads(part_or_assembly)
+
+    def case_glyphs(case, factor: float = 1.0):
+        out = [g for g in (resolve_load_glyph(ld, factor) for ld in case.loads) if g is not None]
+        for equipment, ld in generated.get(case.name, ()):
+            g = resolve_load_glyph(ld, factor, generated_by=equipment)
+            if g is not None:
+                out.append(g)
+        return out
+
     scenarios = []
     for name, case in (loads.load_cases or {}).items():
-        glyphs = [g for g in (resolve_load_glyph(ld) for ld in case.loads) if g is not None]
+        glyphs = case_glyphs(case)
         if glyphs:
             scenarios.append(fem_ext.LoadScenario(name=name, kind="case", loads=glyphs))
 
@@ -145,11 +171,112 @@ def build_load_scenarios(part_or_assembly):
         glyphs = []
         for fc in comb.load_cases:
             f = (getattr(fc, "factor", 1.0) or 0.0) * gsf
-            glyphs.extend(g for g in (resolve_load_glyph(ld, f) for ld in fc.load_case.loads) if g is not None)
+            glyphs.extend(case_glyphs(fc.load_case, f))
         if glyphs:
             scenarios.append(fem_ext.LoadScenario(name=name, kind="combination", loads=glyphs))
 
     return scenarios
+
+
+def _equipment_concepts(part_or_assembly):
+    """Every part's equipment concepts under the tree (self included). A part unpickled from
+    before equipment was read has none."""
+    for subp in part_or_assembly.get_all_subparts(include_self=True):
+        eq = getattr(subp.concept_fem, "equipment", None)
+        if eq:
+            yield eq
+
+
+def _generated_loads(part_or_assembly) -> dict[str, list]:
+    """The loads the analysis model resolved its equipment into, by load case name."""
+    out: dict[str, list] = {}
+    for eq in _equipment_concepts(part_or_assembly):
+        for case, pairs in eq.generated_loads.items():
+            out.setdefault(case, []).extend(pairs)
+    return out
+
+
+def build_equipment_glyphs(part_or_assembly):
+    """One EquipmentGlyph per distinct placement: an equipment set down at the same spot in
+    several load cases is one box, listing those cases. Positions are as the masses' are, raw
+    model coordinates."""
+    from ada.extension import fem_concepts_schema as fem_ext
+
+    glyphs: dict[tuple, fem_ext.EquipmentGlyph] = {}
+    for eq in _equipment_concepts(part_or_assembly):
+        for placed in eq.placements:
+            prism = eq.prisms.get(placed.equipment)
+            if prism is None:
+                continue
+            key = (
+                placed.equipment,
+                tuple(round(c, 9) for c in placed.origin),
+                tuple(round(c, 9) for axis in placed.axes for c in axis),
+            )
+            glyph = glyphs.get(key)
+            if glyph is None:
+                lo, hi = prism.local_box()
+                glyph = glyphs[key] = fem_ext.EquipmentGlyph(
+                    name=prism.name,
+                    mass=float(prism.mass),
+                    origin=[float(c) for c in placed.origin],
+                    axes=[[float(c) for c in axis] for axis in placed.axes],
+                    box_min=list(lo),
+                    box_max=list(hi),
+                    cog=list(placed.to_global(prism.cog)),
+                    load_cases=[],
+                )
+            if placed.load_case and placed.load_case not in glyph.load_cases:
+                glyph.load_cases.append(placed.load_case)
+    return list(glyphs.values())
+
+
+#: Points drawn along a curve support, ends included.
+_CURVE_SUPPORT_SAMPLES = 5
+
+
+def build_concept_bc_glyphs(part_or_assembly):
+    """One BcGlyph per support defined on the concept model (point, curve and beam-end
+    supports), for a model that has no mesh to carry them as FEM boundary conditions -- a
+    GeniE workspace's supports, say. Rigid links are not supports and are left out."""
+    from ada.extension import fem_concepts_schema as fem_ext
+
+    try:
+        constraints = part_or_assembly.concept_fem.constraints.get_part_constraint_concepts()
+    except ValueError as e:
+        # Two parts naming a support alike: the constraint walk refuses to merge them.
+        logger.debug(e)
+        return []
+
+    def glyph(c, positions):
+        held = [(i + 1, d.constraint_type) for i, d in enumerate(c.dof_constraints) if d.constraint_type != "free"]
+        if not held or not positions:
+            return None
+        kinds = sorted({kind for _, kind in held})
+        return fem_ext.BcGlyph(
+            name=c.name,
+            positions=[[float(v) for v in p] for p in positions],
+            dofs=[i for i, _ in held],
+            bc_type="+".join(kinds),
+        )
+
+    out = []
+    for c in constraints.point_constraints.values():
+        out.append(glyph(c, [c.position]))
+    for c in constraints.beam_end_constraints.values():
+        out.append(glyph(c, [c.position]))
+    for c in constraints.curve_constraints.values():
+        a = [float(v) for v in c.start_pos]
+        b = [float(v) for v in c.end_pos]
+        n = _CURVE_SUPPORT_SAMPLES
+        out.append(glyph(c, [[a[k] + (b[k] - a[k]) * i / (n - 1) for k in range(3)] for i in range(n)]))
+    return [g for g in out if g is not None]
+
+
+def _has_fem_bcs(part_or_assembly) -> bool:
+    """Whether a FEM under the tree carries boundary conditions of its own -- then the
+    simulation extension draws the supports, and the concept ones would be drawn twice."""
+    return any(getattr(p.fem, "bcs", None) for p in part_or_assembly.get_all_subparts(include_self=True))
 
 
 def build_bc_glyphs(fem: "FEM"):
@@ -221,17 +348,27 @@ def build_constraint_glyphs(fem: "FEM"):
 
 
 def build_design_fem_concepts(part_or_assembly):
-    """Design-side bundle: masses + load scenarios. None when empty.
+    """Design-side bundle: masses, load scenarios, equipment and the concept model's
+    supports. None when empty.
 
-    BCs live on the simulation extension (see :func:`build_sim_fem_concepts`)
-    because they're a property of the FEM, not the CAD part."""
+    A meshed model's BCs live on the simulation extension (see
+    :func:`build_sim_fem_concepts`) because they're a property of the FEM; the
+    supports a concept model defines are drawn from here only while no FEM under it
+    carries BCs of its own, so one support is never drawn twice."""
     from ada.extension import fem_concepts_schema as fem_ext
 
     masses = build_mass_glyphs(part_or_assembly)
     scenarios = build_load_scenarios(part_or_assembly)
-    if not masses and not scenarios:
+    equipment = build_equipment_glyphs(part_or_assembly)
+    bcs = [] if _has_fem_bcs(part_or_assembly) else build_concept_bc_glyphs(part_or_assembly)
+    if not masses and not scenarios and not equipment and not bcs:
         return None
-    return fem_ext.FemConcepts(masses=masses or None, scenarios=scenarios or None)
+    return fem_ext.FemConcepts(
+        masses=masses or None,
+        bcs=bcs or None,
+        scenarios=scenarios or None,
+        equipment=equipment or None,
+    )
 
 
 def build_sim_fem_concepts(fem: "FEM"):
@@ -269,17 +406,21 @@ def build_combined_fem_concepts(assembly):
 
     masses = build_mass_glyphs(assembly)
     scenarios = build_load_scenarios(assembly)
+    equipment = build_equipment_glyphs(assembly)
     bcs = []
     constraints = []
     for fem in _iter_fems(assembly):
         bcs.extend(build_bc_glyphs(fem))
         constraints.extend(build_constraint_glyphs(fem))
+    if not bcs:
+        bcs = build_concept_bc_glyphs(assembly)
 
-    if not masses and not scenarios and not bcs and not constraints:
+    if not masses and not scenarios and not bcs and not constraints and not equipment:
         return None
     return fem_ext.FemConcepts(
         masses=masses or None,
         bcs=bcs or None,
         constraints=constraints or None,
         scenarios=scenarios or None,
+        equipment=equipment or None,
     )

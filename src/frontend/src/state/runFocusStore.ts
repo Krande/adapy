@@ -1,8 +1,9 @@
 // Which run a list should open on: the toast's "View run" on a sweep or an export entry.
 //
 // The toast knows a run by its id; the table that shows it lives in a panel the toast does not
-// own (a sweep in Admin -> Providers, under its provider's Sweeps; an export in the search panel's
-// Export runs). So the toast opens the panel (`viewerPanelStore.openPanel`) and leaves the run id
+// own (a sweep in Admin -> Providers, under its provider's Sweeps; an export in the search window's
+// Export runs). So the toast opens the panel (`viewerPanelStore.openPanel`, or the search window's
+// `searchWindowStore.show`) and leaves the run id
 // here; the list that holds that run expands it, scrolls to it, and clears the focus. Transient on
 // purpose -- the toast entry itself is what survives a reload (`sweepTracking.ts` remembers kind,
 // id and, for an export, the scope it lives in), and "View run" re-derives the target from it.
@@ -15,7 +16,8 @@ import type {AdminTabDeepLink} from "./adminPanelStore";
 export type RunFocus = {kind: "sweep"; runId: string} | {kind: "export"; runId: string; scope: string};
 
 export interface RunTarget {
-    panel: ViewerPanel;
+    /** An in-viewer panel, or `search`: the attribute search's own window, where export runs list. */
+    panel: ViewerPanel | "search";
     tab: AdminTabDeepLink | null;
     focus: RunFocus;
 }
