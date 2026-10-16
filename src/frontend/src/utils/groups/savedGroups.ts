@@ -218,7 +218,9 @@ export interface LoadedRef {
   readonly ref: NodeRef;
 }
 
-function refOfSourceName(sourceName: string, loaded: readonly LoadedRef[]): NodeRef | null {
+/** Which published node a model loaded under `sourceName` is: what the asset browser recorded for
+ *  it, else what the `assets:` name says; null for a file source. */
+export function refOfSourceName(sourceName: string, loaded: readonly LoadedRef[]): NodeRef | null {
   return loaded.find((a) => a.sourceName === sourceName)?.ref ?? parseAssetSourceName(sourceName);
 }
 

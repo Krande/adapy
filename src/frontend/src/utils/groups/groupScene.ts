@@ -153,6 +153,37 @@ export function selectModelElements(refs: readonly { readonly source: GroupMembe
   return batch.length;
 }
 
+/** Select draw ranges by the LOADED SOURCE they are in and their element id (draw-range key) -- a
+ *  convex-contact run's members, already mapped to what is loaded (`clashContactPlan`). Returns how
+ *  many draw ranges were selected. */
+export function selectSourceElements(refs: readonly { readonly sourceName: string; readonly element: string }[], label: string): number {
+  const idx = indices();
+  if (!idx) return 0;
+  const wanted = new Map<string, Set<string>>();
+  for (const { sourceName, element } of refs) {
+    let set = wanted.get(sourceName);
+    if (!set) wanted.set(sourceName, (set = new Set()));
+    set.add(element);
+  }
+  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
+  const batch: [CustomBatchedMesh, string][] = [];
+  for (const root of idx.root.children ?? []) {
+    const elements = root.source_name ? wanted.get(root.source_name) : undefined;
+    if (!elements) continue;
+    for (const row of geometryRowsUnder([root])) {
+      if (row.rangeId == null || !row.node_name || !row.model_key || !elements.has(String(row.rangeId))) continue;
+      const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
+      if (mesh) batch.push([mesh, row.rangeId]);
+    }
+  }
+  const sel = useSelectedObjectStore.getState();
+  sel.clearSelectedObjects();
+  if (batch.length) sel.addBatchofMeshes(batch);
+  useObjectInfoStore.getState().setName(batch.length ? label : "");
+  requestRender();
+  return batch.length;
+}
+
 /** Select every member of `group` that is in the scene now, all models together. */
 export function selectSavedGroup(group: SavedGroup): GroupSelectionOutcome {
   const idx = indices();

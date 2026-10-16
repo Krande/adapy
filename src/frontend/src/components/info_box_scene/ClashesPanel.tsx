@@ -29,11 +29,13 @@ import {
 import { describeClashTarget, type ClashCheckTarget } from "@/services/api/clashCheck";
 import { rankSpecs } from "@/services/clashSpecProviders";
 import { startClashMarkerSync } from "@/utils/scene/clashJointMarkers";
+import { ROLE_COLOURS } from "@/utils/scene/clashContactPlan";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { selectionGroupId } from "@/utils/groups/savedGroups";
 import { focusJoint as focusJointEverywhere, selectClashMembers } from "@/utils/scene/clashJointFocus";
 import {
   BUILTIN_CHECKER,
+  contactRunOf,
   detailBatches,
   checkedSourceName,
   effectiveSpecProviders,
@@ -66,6 +68,43 @@ const Banner: React.FC<{ tone: "info" | "warn" | "error"; children: React.ReactN
     {children}
   </div>
 );
+
+/** "Show contacts in 3D" for a convex-contact run, with the role legend the overlay is coloured by
+ *  (`ROLE_COLOURS`, read by both, so the swatches cannot disagree with the scene). */
+const ContactsToggle: React.FC<{ result: ClashResult }> = ({ result }) => {
+  const showContacts = useClashCheckStore((s) => s.showContacts);
+  const setShowContacts = useClashCheckStore((s) => s.setShowContacts);
+  const run = contactRunOf(useClashCheckStore((s) => s.result));
+  if (!run) return null;
+  const withRoles = run.contacts.filter((c) => c.roles).length;
+  const swatch = (color: string, label: string) => (
+    <span className="flex items-center gap-1">
+      <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
+      {label}
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+      <label
+        className="flex items-center gap-1 shrink-0"
+        title="Draw every contact the list shows: each patch on both members, in their roles' colours, and the contact normal (member i to member j) as an arrow. Click a patch to focus its contact."
+      >
+        <input type="checkbox" checked={showContacts} onChange={(e) => setShowContacts(e.target.checked)} />
+        show contacts in 3D
+      </label>
+      {showContacts && (
+        <>
+          {swatch(ROLE_COLOURS.incoming, "incoming")}
+          {swatch(ROLE_COLOURS.landing, "landing")}
+          {swatch(ROLE_COLOURS.unresolved, "role unresolved")}
+          <span title="How many of this run's contacts have their incoming / landing members resolved">
+            {withRoles}/{result.joints.length} with roles
+          </span>
+        </>
+      )}
+    </div>
+  );
+};
 
 const numberInput = (
   label: string,
@@ -745,6 +784,7 @@ const ClashesPanel: React.FC = () => {
               show in 3D
             </label>
           </div>
+          <ContactsToggle result={result} />
           <IsolationControls />
           <FilterBar result={result} filters={filters} onChange={setFilters} />
           <SpecProviderSelector />

@@ -149,6 +149,10 @@ def test_a_group_run_is_stored_annotated_per_part_and_listed_under_the_group(cli
     # Each member bound in its own part's rebuilt model: g1 from a.ifc, g2 from b.ifc.
     assert run.provenance["applicability"] == {"resolved": 1, "unbound": 0}
     assert run.group["name"] == "Deck 3" and [m["part"] for m in run.members] == [0, 1]
+    # And which member comes in: g2's start end is at the contact, so g2 (member 1) lands on g1.
+    assert run.contacts[0].roles == {"incoming": 1, "landing": 0}
+    assert got.json()["contacts"][0]["roles"] == {"incoming": 1, "landing": 0}
+    assert run.provenance["roles"] == {"members": 1, "mesh": 0, "unresolved": 0}
 
     listing = client.get(f"/api/scopes/{SCOPE}/clash-contacts/runs", params={"target": json.dumps(TARGET)})
     assert listing.status_code == 200
@@ -164,6 +168,38 @@ def test_a_group_run_whose_part_does_not_rebuild_is_still_stored(client):
     assert _wait(client, r.json()["job_id"])["status"] == "done"
     run = parse_run(client.get(f"/api/scopes/{SCOPE}/clash-contacts/run", params={"key": r.json()["run_key"]}).json())
     assert run.provenance["applicability"] == {"resolved": 0, "unbound": 1}
+
+
+def test_a_group_run_whose_models_do_not_rebuild_gets_its_roles_from_the_meshes(client, monkeypatch):
+    """A model this process cannot read into members (here: neither exists) still has its GLB, and
+    the roles are read off the members' meshes there."""
+    import numpy as np
+
+    from ada.clash import contacts
+
+    def box(lo, hi):
+        return np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+
+    asked = []
+
+    def fake_vertices(run, get_bytes, read_members=None):
+        asked.append([p["key"] for p in run.parts])
+        # g1 along x through the contact; g2 along y, its end face at y = 0.073.
+        return {0: box((0, -0.075, 2.35), (4.0, 0.075, 2.65)), 1: box((1.925, 0.073, 2.35), (2.075, 3.0, 2.65))}
+
+    monkeypatch.setattr(contacts, "member_vertices", fake_vertices)
+    doc = _group_run()
+    for n, part in enumerate(doc["geometry"]["parts"]):
+        part["source"] = {"kind": "file", "source_key": f"models/gone-{n}.ifc"}
+    doc["geometry"]["sha256"] = group_geometry_sha256(doc["geometry"]["parts"])
+    r = client.post(f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": doc})
+    assert r.status_code == 200, r.text
+    assert _wait(client, r.json()["job_id"])["status"] == "done"
+    run = parse_run(client.get(f"/api/scopes/{SCOPE}/clash-contacts/run", params={"key": r.json()["run_key"]}).json())
+    assert asked == [["_derived/models/a.ifc.glb", "_derived/models/b.ifc.glb"]]
+    assert "no model of this group rebuilt" in run.provenance["applicability"]["error"]
+    assert run.contacts[0].roles == {"incoming": 1, "landing": 0}
+    assert run.provenance["roles"] == {"members": 0, "mesh": 1, "unresolved": 0}
 
 
 def test_a_group_run_is_not_detailed_yet_and_not_checked_on_a_worker(client):

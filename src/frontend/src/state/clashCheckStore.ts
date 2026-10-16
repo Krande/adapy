@@ -1199,6 +1199,9 @@ interface ClashCheckState {
    *  the overlay survives a tab switch -- the markers are a view of the RESULT, not of the panel
    *  being mounted. */
   showMarkers: boolean;
+  /** Whether a convex-contact run's contacts are drawn in the 3D scene -- each patch, its normal and
+   *  its members' roles (`utils/scene/clashContactOverlay`). Off by default: a run has hundreds. */
+  showContacts: boolean;
 
   jobId: string | null;
   derivedKey: string | null;
@@ -1299,6 +1302,7 @@ interface ClashCheckState {
   setIsolate: (mode: "off" | "ghost" | "hidden") => void;
   setIsolateOpacity: (v: number) => void;
   setShowMarkers: (v: boolean) => void;
+  setShowContacts: (v: boolean) => void;
   setInBrowser: (v: boolean) => void;
   setSelectedPasses: (names: readonly string[] | null) => void;
   /** Pick the engine. Clears the pass selection: passes belong to a checker, and a selection made
@@ -1540,6 +1544,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   isolate: "ghost",
   isolateOpacity: 0.15,
   showMarkers: true,
+  showContacts: false,
   inBrowser: false,
   browserStage: null,
   selectedPasses: null,
@@ -1673,6 +1678,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   setIsolate: (mode) => set({ isolate: mode }),
   setIsolateOpacity: (v) => set({ isolateOpacity: Math.max(0.02, Math.min(1, v)) }),
   setShowMarkers: (v) => set({ showMarkers: v }),
+  setShowContacts: (v) => set({ showContacts: v }),
   setInBrowser: (v) => set({ inBrowser: v }),
   setSelectedPasses: (names) => set({ selectedPasses: names }),
   setChecker: (name) => set({ checker: name, selectedPasses: null }),

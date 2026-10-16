@@ -22,8 +22,11 @@ every engine.
 ORDER AND SIGN. ``members`` and every point list are in the engine's order (``i < j`` by element order
 in the GLB); ``normal`` points from member ``i`` towards member ``j``; ``distance`` is coal's signed
 distance -- negative is overlap, positive a gap inside the security margin. Which member is INCOMING is
-not decided here: it needs the members' axes, which the GLB does not carry, and is resolved when a
-detail job binds the members (``ada.clash.convex_contact``).
+not decided here: it needs the members' axes, which the GLB does not carry. A worker annotating the
+run decides it (``ada.clash.contacts.annotate_applicable``) and writes it per clash as ``roles``
+(``{"incoming": k, "landing": l}``, member indices; absent where unresolved) -- from the rebuilt
+members where they bind, else from the members' meshes in the GLB. A detail job decides it again from
+the members it binds (``ada.clash.convex_contact``).
 
 GROUP RUNS. A saved group spans several models, so several GLBs: the browser reads the members of
 each (adacpp's ``glbMembers``), keeps the group's elements and measures them as one soup. Such a run's
@@ -146,6 +149,10 @@ class ContactRecord:
     patches: tuple[ContactPatch, ...] = ()
     #: Which connection specs could detail this clash, as a worker resolved them (empty until then).
     applicable: tuple[Mapping[str, Any], ...] = ()
+    #: Which member is INCOMING and which LANDING: ``{"incoming": k, "landing": l}``, indices into the
+    #: run's ``members`` (this clash's two, one each). Resolved on a worker when it annotates the run
+    #: (``ada.clash.contacts.annotate_applicable``) -- the GLB carries no axes. ``None`` = unresolved.
+    roles: Mapping[str, int] | None = None
 
     @property
     def centre(self) -> Vec3:
@@ -169,6 +176,8 @@ class ContactRecord:
         }
         if self.applicable:
             out["applicable"] = [dict(a) for a in self.applicable]
+        if self.roles is not None:
+            out["roles"] = {"incoming": int(self.roles["incoming"]), "landing": int(self.roles["landing"])}
         return out
 
 
@@ -373,6 +382,7 @@ def parse_run(raw: str | bytes | Mapping[str, Any]) -> ContactRun:
                 contact_area=float(c.get("contact_area", 0.0)),
                 patches=patches,
                 applicable=tuple(dict(a) for a in c.get("applicable") or ()),
+                roles=_parse_roles(c.get("roles"), (i, j)),
             )
         )
     return ContactRun(
@@ -387,6 +397,19 @@ def parse_run(raw: str | bytes | Mapping[str, Any]) -> ContactRun:
         provenance=dict(raw.get("provenance") or {}),
         group=group,
     )
+
+
+def _parse_roles(raw: Any, members: tuple[int, int]) -> dict | None:
+    """A clash's ``roles`` -- ``{"incoming": k, "landing": l}``, its two members once each -- or None."""
+    if raw is None:
+        return None
+    try:
+        roles = {"incoming": int(raw["incoming"]), "landing": int(raw["landing"])}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SidecarError("a clash's roles must name its incoming and landing member indices") from exc
+    if sorted(roles.values()) != sorted(members):
+        raise SidecarError(f"a clash's roles {roles} must be its two members {list(members)}, one each")
+    return roles
 
 
 def _parse_group(raw: Mapping[str, Any]) -> dict:

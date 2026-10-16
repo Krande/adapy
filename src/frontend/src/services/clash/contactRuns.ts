@@ -63,6 +63,9 @@ export interface ContactRecordDoc {
   contact_area: number;
   patches: ContactPatchDoc[];
   applicable?: { spec: string; capability?: string | null; tags?: string[]; priority?: number }[];
+  /** Which member comes in and which it lands on, as indices into the run's `members` (this clash's
+   *  two, one each) -- resolved on a worker when it annotates the run; absent where unresolved. */
+  roles?: { incoming: number; landing: number };
 }
 
 export interface ContactRunDoc {
@@ -308,6 +311,12 @@ export function memberSoup(parts: readonly { members: GlbMembersColumns; keep: R
  *  detail them, so a group's badge is "detail these"; a clash with no spec yet is "unassigned". The
  *  contact is written in the run's order (member i first); a detail resolves incoming / landing on
  *  the worker, from the rebuilt members. */
+/** Member `k`'s role in clash `c`: `incoming` / `landing`, or null where it is not resolved. */
+export function roleOf(c: ContactRecordDoc, k: number): "incoming" | "landing" | null {
+  if (!c.roles) return null;
+  return c.roles.incoming === k ? "incoming" : c.roles.landing === k ? "landing" : null;
+}
+
 export function runToResultDoc(run: ContactRunDoc, runKey: string | null): Record<string, unknown> {
   const joints = run.contacts.map((c) => {
     const [i, j] = c.members;
@@ -317,10 +326,8 @@ export function runToResultDoc(run: ContactRunDoc, runKey: string | null): Recor
     return {
       id: c.id,
       centre: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2],
-      members: [
-        { name: run.members[i].name, kind: "MEMBER" },
-        { name: run.members[j].name, kind: "MEMBER" },
-      ],
+      // In the run's order (member i first) with each one's role, where a worker resolved it.
+      members: [i, j].map((k) => ({ name: run.members[k].name, kind: "MEMBER", role: roleOf(c, k) })),
       type_key: typeKey,
       type_label: specs.length ? `contact · ${specs.join(" / ")}` : "contact · no spec resolved yet",
       origin: CONTACT_ORIGIN,
@@ -348,6 +355,7 @@ export function runToResultDoc(run: ContactRunDoc, runKey: string | null): Recor
   }
   const t = run.target;
   const unresolved = Array.isArray(run.provenance?.unresolved_members) ? (run.provenance.unresolved_members as unknown[]) : [];
+  const applicability = run.provenance?.applicability as { error?: unknown } | undefined;
   return {
     schema: "ada.clash/result@2",
     source_key: t.kind === "file" ? t.source_key : t.kind === "group" ? `group:${t.group_id}` : `${t.collection}/${t.subject}`,
@@ -372,6 +380,11 @@ export function runToResultDoc(run: ContactRunDoc, runKey: string | null): Recor
     warnings: [
       ...(run.contacts.some((c) => !c.applicable?.length) && run.provenance?.applicability === undefined
         ? ["which specs could detail each clash is still being resolved on a worker; reopen the run to see them."]
+        : []),
+      // The worker tried and could not rebuild the members, so no spec is coming: said, not left as
+      // "still being resolved".
+      ...(typeof applicability?.error === "string"
+        ? [`which specs could detail each clash could not be resolved: ${applicability.error}`]
         : []),
       ...(unresolved.length
         ? [`${unresolved.length} group member(s) named nothing in their loaded model and were not checked: ${unresolved.map(String).join("; ")}`]

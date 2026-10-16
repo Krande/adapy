@@ -41,6 +41,7 @@ __all__ = [
     "available",
     "convex_contact_pass",
     "found_from_contact",
+    "pick_incoming",
     "register",
 ]
 
@@ -70,16 +71,29 @@ def _anchors(member) -> list[tuple[np.ndarray, str | None]] | None:
 def _roles(m1, m2, near1: np.ndarray):
     """``(incoming, landing, end)`` -- the member whose anchor is nearest the contact point lands on
     the other -- or ``None`` where either member has no anchors. ``end`` is None for a plate."""
-    a1, a2 = _anchors(m1), _anchors(m2)
-    if a1 is None or a2 is None:
+    picked = pick_incoming(_anchors(m1), _anchors(m2), near1)
+    if picked is None:
         return None
-    candidates = [(m1, m2, p, end) for p, end in a1] + [(m2, m1, p, end) for p, end in a2]
-    # First of the nearest, in (m1 start, m1 end, m2 start, m2 end) order, so a tie is reproducible.
-    distances = [float(np.linalg.norm(near1 - p)) for _, _, p, _ in candidates]
-    incoming, landing, anchor, end = candidates[distances.index(min(distances))]
+    which, anchor, end = picked
+    incoming, landing = (m1, m2) if which == 0 else (m2, m1)
     if incoming is landing:
         return None
     return incoming, landing, anchor, end
+
+
+def pick_incoming(a1, a2, near1) -> tuple[int, np.ndarray, str | None] | None:
+    """Which of two members is INCOMING, from their anchors (``[(point, end)]``, see :func:`_anchors`):
+    ``(0 | 1, anchor, end)`` -- the member with the anchor nearest ``near1`` -- or ``None`` where either
+    has no anchors. The one rule, whether the anchors come from rebuilt members or from the members'
+    meshes (``ada.clash.contacts.mesh_anchors``)."""
+    if a1 is None or a2 is None:
+        return None
+    near1 = np.asarray(near1, dtype=float)
+    candidates = [(0, p, end) for p, end in a1] + [(1, p, end) for p, end in a2]
+    # First of the nearest, in (m1 start, m1 end, m2 start, m2 end) order, so a tie is reproducible.
+    distances = [float(np.linalg.norm(near1 - np.asarray(p, dtype=float))) for _, p, _ in candidates]
+    which, anchor, end = candidates[distances.index(min(distances))]
+    return which, np.asarray(anchor, dtype=float), end
 
 
 def _incoming_angle(incoming, end: str, normal: np.ndarray) -> float | None:

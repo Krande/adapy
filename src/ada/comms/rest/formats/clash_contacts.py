@@ -7,7 +7,9 @@ ONE KIND, THREE MODES (``conversion_options["mode"]``):
   (``job.derived_key``) and its target's index. The GLB is the one the viewer loads, so a browser that
   ran the same check on the same bytes would have written the same clashes.
 * ``annotate``: the specs half alone, for a run a BROWSER posted -- it measured the GLB itself but has
-  no spec registry to ask. The run is rewritten in place with its ``applicable`` specs. A saved
+  no spec registry to ask. The run is rewritten in place with its ``applicable`` specs and each
+  clash's ``roles`` (incoming / landing; from the members' meshes where the target does not rebuild
+  here -- ``ada.clash.contacts.annotate_applicable``). A saved
   GROUP's run rebuilds one model per part (each by its own target's loader) and binds each member in
   its own part's model.
 * ``detail``: build the named clashes with a registered spec. The clashes come FROM THE RUN -- contact
@@ -117,9 +119,12 @@ def _load_part_models(run, storage) -> list:
 
 
 def _annotate(run, storage, capability_of, progress):
-    from ada.clash.contacts import annotate_applicable
+    """The run with its specs and roles resolved. A target that does not rebuild still gets ROLES --
+    from the members' meshes in the GLB the run measured -- and says why it has no specs."""
+    from ada.clash import contacts as cc
 
     progress("members", 0.5)
+    error = None
     try:
         if run.target.get("kind") == "group":
             model = _load_part_models(run, storage)
@@ -127,12 +132,16 @@ def _annotate(run, storage, capability_of, progress):
             model = load_target_model(dict(run.target), storage)
     except Exception as exc:  # noqa: BLE001 - a run without specs is still a run
         logger.warning(f"clash contacts: specs not resolved, the target did not rebuild: {exc}")
-        provenance = dict(run.provenance)
-        provenance["applicability"] = {"error": f"{type(exc).__name__}: {exc}"}
+        model, error = None, f"{type(exc).__name__}: {exc}"
+    annotated, unbound = cc.annotate_applicable(
+        run, model, capability_of, vertices=lambda: cc.member_vertices(run, storage.get_bytes)
+    )
+    if error is not None:
         from dataclasses import replace
 
-        return replace(run, provenance=provenance)
-    annotated, unbound = annotate_applicable(run, model, capability_of)
+        provenance = dict(annotated.provenance)
+        provenance["applicability"] = {"error": error}
+        return replace(annotated, provenance=provenance)
     if unbound:
         logger.info(f"clash contacts: {unbound} clash(es) of run {run.run_id} did not bind to rebuilt members")
     return annotated

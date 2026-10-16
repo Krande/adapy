@@ -93,6 +93,8 @@ def test_the_clash_id_is_the_element_ids_not_the_names():
         (lambda d: d["contacts"][0].update(members=[0, 5]), "do not name two members"),
         (lambda d: d["contacts"][0].update(near_points=[[0, 0, 0]]), "two near points"),
         (lambda d: d["members"][0].pop("name"), "an id and a name"),
+        (lambda d: d["contacts"][0].update(roles={"incoming": 0}), "incoming and landing"),
+        (lambda d: d["contacts"][0].update(roles={"incoming": 0, "landing": 0}), "one each"),
     ],
 )
 def test_a_malformed_run_is_refused_with_a_reason(mutate, match):
@@ -100,6 +102,99 @@ def test_a_malformed_run_is_refused_with_a_reason(mutate, match):
     mutate(doc)
     with pytest.raises(SidecarError, match=match):
         parse_run(doc)
+
+
+def test_a_clashs_roles_round_trip_and_are_omitted_when_unresolved():
+    doc = _run().to_dict()
+    assert "roles" not in doc["contacts"][0]
+    doc["contacts"][0]["roles"] = {"incoming": 1, "landing": 0}
+    run = parse_run(doc)
+    assert run.contacts[0].roles == {"incoming": 1, "landing": 0}
+    assert parse_run(run.to_json()) == run
+    assert run.to_dict()["contacts"][0]["roles"] == {"incoming": 1, "landing": 0}
+
+
+def _box(lo, hi):
+    """The eight corners of an axis-aligned box -- a member's mesh as the GLB gives its vertices."""
+    import itertools
+
+    import numpy as np
+
+    return np.array(list(itertools.product(*zip(lo, hi))), dtype=float)
+
+
+#: The fixture's two members as meshes: "col" (member 0) standing from z=0 to 3, "beam" (member 1)
+#: running along +x from its end face at x=0.198 -- the end the contact (near1 = (0.2, 0.1, 2.6)) is at.
+COL_MESH = _box((-0.1, -0.05, 0.0), (0.2, 0.25, 3.0))
+BEAM_MESH = _box((0.198, -0.05, 2.45), (3.0, 0.25, 2.75))
+
+
+def test_mesh_anchors_read_a_beam_by_its_ends_and_a_stubby_part_by_its_centroid():
+    import numpy as np
+
+    from ada.clash.contacts import mesh_anchors
+
+    (p0, e0), (p1, e1) = mesh_anchors(BEAM_MESH)
+    assert {e0, e1} == {"start", "end"}
+    assert sorted([p0[0], p1[0]]) == pytest.approx([0.198, 3.0])
+    (c0, n0), (c1, n1) = mesh_anchors(_box((0, 0, 0), (1.0, 0.8, 0.02)))  # a plate
+    assert n0 is None and n1 is None and np.allclose(c0, (0.5, 0.4, 0.01)) and np.allclose(c0, c1)
+    assert mesh_anchors([[0, 0, 0]]) is None
+
+
+def test_roles_come_from_the_meshes_when_the_model_does_not_rebuild():
+    from ada.clash.contacts import annotate_applicable
+
+    asked = []
+
+    def vertices():
+        asked.append(1)
+        return {0: COL_MESH, 1: BEAM_MESH}
+
+    annotated, unbound = annotate_applicable(_run(), None, vertices=vertices)
+    assert unbound == 1 and asked == [1]
+    (c,) = annotated.contacts
+    # The beam's end is at the contact: it comes in, the column takes it.
+    assert c.roles == {"incoming": 1, "landing": 0}
+    assert c.applicable == ()
+    assert annotated.provenance["roles"] == {"members": 0, "mesh": 1, "unresolved": 0}
+    assert parse_run(annotated.to_json()).contacts[0].roles == c.roles
+    # Without meshes the roles stay unresolved -- and are not written.
+    bare, _ = annotate_applicable(_run(), None, vertices={})
+    assert bare.contacts[0].roles is None and "roles" not in bare.to_dict()["contacts"][0]
+    assert bare.provenance["roles"] == {"members": 0, "mesh": 0, "unresolved": 1}
+
+
+def test_member_vertices_reads_each_parts_glb_by_element_and_skips_a_changed_one():
+    import hashlib
+
+    from ada.clash.contacts import member_vertices
+
+    glbs = {"_derived/models/a.ifc.glb": b"A", "_derived/assets/b.glb": b"B"}
+    doc = _group_doc()
+    for part in doc["geometry"]["parts"]:
+        part["sha256"] = hashlib.sha256(glbs[part["key"]]).hexdigest()
+    doc["geometry"]["sha256"] = group_geometry_sha256(doc["geometry"]["parts"])
+    run = parse_run(doc)
+    # Both GLBs carry an element "4" and a "7"; each member is taken from its own part only.
+    by_glb = {b"A": [("4", "col", COL_MESH), ("7", "x", BEAM_MESH)], b"B": [("4", "y", COL_MESH), ("7", "beam", BEAM_MESH)]}
+    seen_axes = []
+
+    def read(glb, up_axis):
+        seen_axes.append(up_axis)
+        return by_glb[glb]
+
+    got = member_vertices(run, glbs.__getitem__, read)
+    assert set(got) == {0, 1} and got[0] is COL_MESH and got[1] is BEAM_MESH and seen_axes == ["z", "z"]
+    glbs["_derived/assets/b.glb"] = b"changed"
+    assert set(member_vertices(run, glbs.__getitem__, lambda g, a: by_glb.get(g, []))) == {0}
+
+    # A one-GLB run's members are its element ids.
+    single = _run()
+    one = {GEOMETRY["key"]: b"G"}
+    single = parse_run({**single.to_dict(), "geometry": {**GEOMETRY, "sha256": hashlib.sha256(b"G").hexdigest()}})
+    got = member_vertices(single, one.__getitem__, lambda g, a: [("7", "beam", BEAM_MESH), ("4", "col", COL_MESH)])
+    assert got[0] is COL_MESH and got[1] is BEAM_MESH
 
 
 def test_keys_group_runs_by_target():

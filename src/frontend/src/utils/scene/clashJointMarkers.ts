@@ -26,6 +26,7 @@ import { loadedSourceGroups, useModelState } from "@/state/modelState";
 import { requestRender } from "@/state/perfStore";
 import {
   checkedSourceName,
+  contactRunOf,
   filteredGroups,
   isolationMembers,
   jointMarkers,
@@ -33,7 +34,15 @@ import {
   visibleResult,
   type JointMarker,
 } from "@/state/clashCheckStore";
-import { clearJointIsolation, isolateJointMembers } from "@/utils/scene/clashIsolation";
+import { useAssetBrowserStore } from "@/state/assetBrowserStore";
+import { clearJointIsolation, isolateElementRanges, isolateJointMembers } from "@/utils/scene/clashIsolation";
+import {
+  contactIsolationTargets,
+  contactKeepByPart,
+  contactOverlayPlan,
+  contactSpaceSource,
+} from "@/utils/scene/clashContactPlan";
+import { clearContactOverlay, renderContactOverlay } from "@/utils/scene/clashContactOverlay";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 
 /** Marker radius as a fraction of the model's bounding-box diagonal. A joint is a point, so the
@@ -75,7 +84,7 @@ function spreadDiagonal(markers: readonly JointMarker[]): number {
  *  rotated and recentred, marked by `setupModelLoader`. Falls back to the registered group for a
  *  load path that adds its group to the scene without that step (the FEA streaming session, a
  *  plugin), where the group IS that node. */
-function sourceSpaceRoot(group: THREE.Object3D): THREE.Object3D {
+export function sourceSpaceRoot(group: THREE.Object3D): THREE.Object3D {
   let found: THREE.Object3D | null = null;
   group.traverse((obj) => {
     if (!found && obj.userData?.__sourceSpaceRoot) found = obj;
@@ -198,14 +207,59 @@ export function startClashMarkerSync(): void {
   // key), and a redraw rebuilds every instance. So compare the four facts the drawing is a
   // function of -- plus the loaded model -- and skip the rest.
   let last = "";
-  const redraw = (force = false) => {
-    const state = useClashCheckStore.getState();
-    // The markers belong to the model the CHECK ran against, not to whatever was loaded last:
-    // overlaying this run's produced joints adds a second source, and drawing the centres in that
-    // overlay's space would move every sphere by its own centring offset.
-    const file = checkedSourceName(state.sourceName, useModelState.getState().loadedSourceName);
+  let lastContacts = "";
+  // The contacts overlay: its own signature, since it draws from the RUN (patches, normals, roles)
+  // and a reopened run -- its roles filled in by the worker -- has the same counts as before.
+  const drawContacts = (
+    state: ReturnType<typeof useClashCheckStore.getState>,
+    run: ReturnType<typeof contactRunOf>,
+    file: string | null,
+    loadedKey: string,
+    force: boolean,
+  ) => {
     const signature = JSON.stringify([
       file,
+      loadedKey,
+      resultSerial(state.result),
+      state.showContacts,
+      state.selectedGroup,
+      state.selectedJoint,
+      state.filters,
+      state.hiddenOrigins,
+    ]);
+    if (!force && signature === lastContacts) return;
+    lastContacts = signature;
+    const group = file ? loadedSourceGroups.get(file) : undefined;
+    if (!run || !state.showContacts || !group) {
+      clearContactOverlay();
+      return;
+    }
+    // The same source -> world transform the markers take (see SPACE above).
+    const root = sourceSpaceRoot(group);
+    root.updateWorldMatrix(true, false);
+    const box = useModelState.getState().boundingBox;
+    const diagonal = box && !box.isEmpty() ? box.getSize(new THREE.Vector3()).length() : 0;
+    renderContactOverlay(contactOverlayPlan(state, run, { modelDiagonal: diagonal }), root.matrixWorld);
+  };
+  const redraw = (force = false) => {
+    const state = useClashCheckStore.getState();
+    const run = contactRunOf(state.result);
+    const loadedNames = [...loadedSourceGroups.keys()];
+    const loadedRefs = useAssetBrowserStore.getState().loaded;
+    // The markers belong to the model the CHECK ran against, not to whatever was loaded last:
+    // overlaying this run's produced joints adds a second source, and drawing the centres in that
+    // overlay's space would move every sphere by its own centring offset. A convex-contact run
+    // names its models itself -- a group's or a selection's run is no single loaded source, and its
+    // label names nothing loaded -- so its points are drawn in its first loaded part's frame.
+    const file =
+      (run ? contactSpaceSource(run, loadedNames, loadedRefs) : null) ??
+      checkedSourceName(state.sourceName, useModelState.getState().loadedSourceName);
+    drawContacts(state, run, file, loadedNames.join("\n"), force);
+    const signature = JSON.stringify([
+      file,
+      // Which models are loaded: isolation fades every one of them, and one loaded since must be
+      // faded too (and an unloaded one let go of).
+      loadedNames,
       state.showMarkers,
       state.selectedGroup,
       state.selectedJoint,
@@ -217,13 +271,25 @@ export function startClashMarkerSync(): void {
       // joints the list no longer has.
       state.hiddenOrigins,
       state.derivedKey,
-      state.result?.joints.length ?? 0,
+      // WHICH result: two runs with as many joints are still two runs.
+      resultSerial(state.result),
     ]);
     if (!force && signature === last) return;
     last = signature;
     renderJointMarkers(file, markersForState(state));
     // Isolation follows the same cursor the markers do, from the same subscription: two
     // subscriptions could show a joint whose neighbours had been faded for a different one.
+    if (run) {
+      // By element id, in every loaded model: the members are draw ranges of their own models, and
+      // every model without one is "the rest" too (`clashContactPlan`).
+      const keep = contactKeepByPart(run, state.result, state.selectedJoint, state.selectedGroup);
+      const targets = contactIsolationTargets(run, keep, loadedNames, loadedRefs);
+      // Names remain the fallback for a one-model run whose model is loaded under another name.
+      if (targets.length > 0 || keep === null || run.target.kind === "group") {
+        isolateElementRanges(targets, state.isolate, state.isolateOpacity);
+        return;
+      }
+    }
     void isolateJointMembers(
       file,
       isolationMembers(state.result, state.selectedJoint, state.selectedGroup),
@@ -236,11 +302,23 @@ export function startClashMarkerSync(): void {
   // Unloading (or switching) the model takes the markers down with it: they are drawn in that
   // model's space, and a result outlives the load it was run against only as stale numbers.
   useModelState.subscribe((s, prev) => {
-    if (s.loadedSourceName === prev.loadedSourceName) return;
+    if (s.loadedSourceName === prev.loadedSourceName && s.loadedSourceNames === prev.loadedSourceNames) return;
     // A model change takes the isolation down with the markers: hidden ranges belong to the mesh
     // that was isolated, and leaving them set would hide most of a model nobody isolated.
     clearJointIsolation();
-    redraw();
+    // Forced: the isolation was just taken down, and must be put back on what is loaded now.
+    redraw(true);
   });
   redraw(true);
+}
+
+const serials = new WeakMap<object, number>();
+let nextSerial = 1;
+
+/** A number per result OBJECT, for a signature: each run, check or reopen makes a new one. */
+function resultSerial(result: object | null): number {
+  if (!result) return 0;
+  let n = serials.get(result);
+  if (n === undefined) serials.set(result, (n = nextSerial++));
+  return n;
 }
