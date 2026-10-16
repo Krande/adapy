@@ -11,6 +11,7 @@ import type {
 } from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 
+import AdminSection from "./AdminSection";
 import ProviderSweepRuns from "./ProviderSweepRuns";
 import {choiceKey, choiceLabel, selectedKey, valueOfKey} from "./scheduleSettings";
 import SweepDefaults from "./SweepDefaults";
@@ -469,18 +470,22 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
     const orphanProviders = [...byProvider.keys()].filter((p) => !listing.providers.some((x) => x.provider === p));
 
     return (
-        <section className="border-b border-gray-800" data-testid="provider-schedules-admin">
-            <div className="px-3 pt-3 pb-1 space-y-1">
-                <div className="flex items-center gap-2">
-                    <div className="text-sm font-medium flex-1">Scheduled jobs</div>
-                    <button
-                        type="button"
-                        className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800"
-                        onClick={() => void load()}
-                    >
-                        Refresh
-                    </button>
-                </div>
+        <AdminSection
+            title="Scheduled jobs"
+            kind="Schedules"
+            storageKey="ada.admin.providers.open.schedules"
+            testId="provider-schedules-admin"
+            actions={
+                <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800"
+                    onClick={() => void load()}
+                >
+                    Refresh
+                </button>
+            }
+        >
+            <div className="px-3 pt-2 pb-1 space-y-1">
                 <div className="text-xs text-gray-400">
                     Jobs a provider offers to run on a schedule, per scope and collection. A change check reports what
                     moved upstream; inspect a run in the Sources tab under Changes. Nothing is published automatically.
@@ -491,8 +496,11 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
                 <div className="px-3 py-2 text-xs text-gray-500">No online provider declares scheduled jobs.</div>
             )}
             {listing.providers.map((p) => (
-                <div key={p.provider} className="px-3 py-2 space-y-1.5">
-                    <div className="text-xs font-medium text-gray-200">{p.provider}</div>
+                // Each provider's jobs set off from the next by an accent bar, not just spacing.
+                <div key={p.provider} className="mx-3 my-2 space-y-1.5 border-l-2 border-blue-700/70 pl-3 py-1">
+                    <div className="text-xs font-medium text-gray-100">
+                        <code>{p.provider}</code>
+                    </div>
                     {(byProvider.get(p.provider) ?? []).length > 0 && (
                         <div className="overflow-x-auto">
                             <table className="w-full text-xs">
@@ -576,7 +584,7 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
                     </ul>
                 </div>
             )}
-        </section>
+        </AdminSection>
     );
 };
 

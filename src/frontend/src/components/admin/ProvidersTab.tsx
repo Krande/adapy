@@ -29,6 +29,7 @@ import {
 } from "@/assets/providerNames";
 import {useProviderNamesStore} from "@/state/providerNamesStore";
 
+import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
 import ProviderSchedulesSection from "./ProviderSchedulesSection";
 
@@ -386,14 +387,37 @@ const ProvidersTab: React.FC = () => {
                 const refresh = declared?.refresh ?? null;
                 const rs = rescans[providerId];
                 return (
-                    <section key={providerId} className="border-b border-gray-800">
-                        <div className="px-3 pt-3 pb-1">
-                            {refresh && (
+                    <AdminSection
+                        key={providerId}
+                        kind="Asset provider"
+                        storageKey={`ada.admin.providers.open.${providerId}`}
+                        title={
+                            <>
+                                <code>{providerId}</code>
+                                {declared?.label && (
+                                    <span className="ml-2 text-xs font-normal text-gray-300" title="The provider's own display name">
+                                        “{declared.label}”
+                                    </span>
+                                )}
+                                {declared && declared.titles.length > 0 && (
+                                    <span className="ml-2 text-xs font-normal text-gray-400">
+                                        {declared.titles.join(", ")}
+                                    </span>
+                                )}
+                            </>
+                        }
+                        subtitle={
+                            declared
+                                ? `${advertised.length} collection${advertised.length === 1 ? "" : "s"} advertised by ${declared.pluginIds.join(", ") || "an online worker"}`
+                                : "No online worker declares this provider right now. Its stored grants are kept, and listed below."
+                        }
+                        actions={
+                            refresh && (
                                 // Declared by the provider (`asset_collections_refresh`), so
                                 // only a provider that knows how to look again offers it. It
                                 // is how a collection the worker missed at boot -- a share that
                                 // refused a folder for a moment -- comes back without a restart.
-                                <div className="float-right flex items-center gap-2">
+                                <>
                                     {rs?.note && (
                                         <span className={`text-xs ${rs.failed ? "text-red-300" : "text-gray-400"}`}>
                                             {rs.note}
@@ -408,27 +432,10 @@ const ProvidersTab: React.FC = () => {
                                     >
                                         {rs?.running ? "Rescanning…" : "Rescan"}
                                     </button>
-                                </div>
-                            )}
-                            <div className="text-sm font-medium">
-                                <code>{providerId}</code>
-                                {declared?.label && (
-                                    <span className="ml-2 text-xs font-normal text-gray-300" title="The provider's own display name">
-                                        “{declared.label}”
-                                    </span>
-                                )}
-                                {declared && declared.titles.length > 0 && (
-                                    <span className="ml-2 text-xs font-normal text-gray-400">
-                                        {declared.titles.join(", ")}
-                                    </span>
-                                )}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                                {declared
-                                    ? `${advertised.length} collection${advertised.length === 1 ? "" : "s"} advertised by ${declared.pluginIds.join(", ") || "an online worker"}`
-                                    : "No online worker declares this provider right now. Its stored grants are kept, and listed below."}
-                            </div>
-                        </div>
+                                </>
+                            )
+                        }
+                    >
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="text-left text-xs uppercase text-gray-500">
@@ -585,7 +592,7 @@ const ProvidersTab: React.FC = () => {
                                 })}
                             </tbody>
                         </table>
-                    </section>
+                    </AdminSection>
                 );
             })}
 
