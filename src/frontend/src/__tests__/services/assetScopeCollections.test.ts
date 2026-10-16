@@ -364,3 +364,30 @@ test("assetProviderCollections reads asset_change_source", () => {
   ]);
   assert.equal(p.changeSource, "vendor:{COLLECTION}");
 });
+test("a personal scope is keyed by its owner, offers nothing by default, and user:me is never read", async () => {
+  const { entryKey, enabledForScope, isPersonalKey, personalKey, STALE_PERSONAL_KEY } = await import(
+    "@/services/assetScopeCollections"
+  );
+  assert.equal(personalKey("u1"), "user:u1");
+  assert.equal(entryKey("user:me", "u1"), "user:u1");
+  assert.equal(entryKey("user:me", null), null);
+  assert.equal(entryKey("project:p1", "u1"), "project:p1");
+  assert.ok(isPersonalKey("user:u1") && !isPersonalKey(STALE_PERSONAL_KEY) && !isPersonalKey("user:"));
+
+  const map = parseScopeCollections({
+    "user:me": { vendor: ["EVERYONE"] }, // the stale key: grants nobody anything
+    "user:u1": { vendor: ["ALPHA"] },
+    shared: {},
+  });
+  // u1 reads their own entry; u2 has none, which for a personal scope is nothing -- not everything.
+  assert.deepEqual(enabledForScope(map, "user:me", "vendor", "u1"), ["ALPHA"]);
+  assert.deepEqual(enabledForScope(map, "user:me", "vendor", "u2"), []);
+  assert.deepEqual(enabledForScope(map, "user:me", "vendor", null), []);
+  assert.deepEqual(enabledFor(map, "user:u2", "vendor"), []);
+  assert.deepEqual(enabledFor(map, "user:me", "vendor"), [], "the stale key is never read, whatever it holds");
+  // Shared and projects keep "missing is everything".
+  assert.equal(enabledForScope(map, "shared", "vendor", "u1"), null);
+  assert.equal(enabledForScope(map, "project:p1", "vendor", "u1"), null);
+  // Back to "nothing configured" for a personal scope is still nothing.
+  assert.deepEqual(enabledFor(withEnabled(map, "user:u1", "vendor", null), "user:u1", "vendor"), []);
+});

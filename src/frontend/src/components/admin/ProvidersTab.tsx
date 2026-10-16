@@ -9,8 +9,11 @@ import {
     ScopeCollectionsMap,
     assetProviderCollections,
     collectionChoices,
+    STALE_PERSONAL_KEY,
     enabledFor,
+    isPersonalKey,
     parseScopeCollections,
+    personalKey,
     serialiseScopeCollections,
     storedProviders,
     toggleCollection,
@@ -29,6 +32,7 @@ import {
 } from "@/assets/providerNames";
 import {useProviderNamesStore} from "@/state/providerNamesStore";
 import {useConversionStore} from "@/state/conversionStore";
+import {useMeStore} from "@/state/meStore";
 import {rescanStoreKey, startProviderRescan} from "@/services/providerRescan";
 
 import AdminSection from "./AdminSection";
@@ -57,10 +61,11 @@ import ProviderSchedulesSection from "./ProviderSchedulesSection";
 // a worker advertises it, and marked when none does -- so an admin opening this
 // while a host reboots does not revoke that host's collections by saving.
 //
-// PERSONAL SCOPES ARE ONE ROW, `user:me`: the name every personal scope goes by to its own owner
-// -- the request picker and the display names look a personal scope up under it -- so a setting
-// there applies to each user's own scope alike. (They were left out once, which left an admin no
-// way to configure, or name, a provider for anyone's personal scope -- their own included.)
+// YOUR PERSONAL SCOPE IS ONE ROW, keyed `user:<your sub>`: an admin can tick collections for their
+// OWN personal scope, and nobody else's is listed or touched by it. A personal scope offers NOTHING
+// until something is ticked there -- unlike Shared and projects, where nothing configured is
+// everything. A `user:me` key (an earlier version keyed every user's personal scope at once by it)
+// is never read; it is listed as stale so it can be cleared.
 
 interface ScopeRow {
     scope: string;
@@ -160,6 +165,9 @@ const ProvidersTab: React.FC = () => {
     const [filter, setFilter] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [rescans, setRescans] = useState<Record<string, RescanState>>({});
+    // The signed-in admin: their own personal scope is the one personal row.
+    const mySub = useMeStore((s) => s.sub);
+    const myName = useMeStore((s) => s.displayName || s.email);
     // A viewer convenience, so per browser: whether each restricted row lists its enabled
     // collections as tags beside the count.
     const [showEnabled, setShowEnabled] = useState<boolean>(() => {
@@ -259,7 +267,8 @@ const ProvidersTab: React.FC = () => {
             await viewerApi.adminSetSetting(PROVIDER_LABELS_KEY, serialiseProviderAliases(next));
             setAliases(next);
             // A viewer of that scope in THIS browser sees the new name without a reload.
-            void useProviderNamesStore.getState().load(scope, true);
+            // Your own personal row is keyed `user:<sub>`; the API names that scope `user:me`.
+            void useProviderNamesStore.getState().load(isPersonalKey(scope) ? "user:me" : scope, true);
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         } finally {
@@ -268,17 +277,35 @@ const ProvidersTab: React.FC = () => {
     }, []);
 
     const rows: ScopeRow[] = useMemo(() => {
-        const out: ScopeRow[] = [
-            {scope: "shared", label: "Shared", hint: "everyone with access to this viewer"},
-            {scope: "user:me", label: "Personal scopes", hint: "each user's own scope, yours included"},
-        ];
+        const out: ScopeRow[] = [{scope: "shared", label: "Shared", hint: "everyone with access to this viewer"}];
+        if (mySub) {
+            out.push({
+                scope: personalKey(mySub),
+                label: "Your personal scope",
+                hint: `${myName || mySub} only -- nothing is offered here until you tick it`,
+            });
+        }
         for (const p of projects) out.push({scope: `project:${p.id}`, label: p.name, hint: p.slug});
         const known = new Set(out.map((r) => r.scope));
         for (const scope of Object.keys(map).sort()) {
-            if (!known.has(scope)) out.push({scope, label: scope, hint: "not a current project", stale: true});
+            // Another user's personal scope is theirs (another admin ticking their own): not listed here.
+            if (known.has(scope) || isPersonalKey(scope)) continue;
+            out.push({
+                scope,
+                label: scope,
+                hint:
+                    scope === STALE_PERSONAL_KEY
+                        ? "applied to every personal scope by an earlier version; never read now -- clear it"
+                        : "not a current project",
+                stale: true,
+            });
+        }
+        // A display name stored under the stale key is listed too, so it can be cleared.
+        if (aliases[STALE_PERSONAL_KEY] && !out.some((r) => r.scope === STALE_PERSONAL_KEY)) {
+            out.push({scope: STALE_PERSONAL_KEY, label: STALE_PERSONAL_KEY, hint: "never read now -- clear it", stale: true});
         }
         return out;
-    }, [projects, map]);
+    }, [projects, map, aliases, mySub, myName]);
 
     const persist = useCallback(async (scope: string, provider: string, enabled: EnabledCollections) => {
         const key = rowKey(scope, provider);
@@ -429,7 +456,13 @@ const ProvidersTab: React.FC = () => {
                             <tbody>
                                 {rows.map((row) => {
                                     const key = rowKey(row.scope, providerId);
-                                    const enabled = enabledFor(map, row.scope, providerId);
+                                    // The stale `user:me` row shows what is STORED (to clear it); every
+                                    // other row what it resolves to -- a personal one, nothing by default.
+                                    const enabled =
+                                        row.scope === STALE_PERSONAL_KEY
+                                            ? (map[row.scope]?.[providerId] ?? null)
+                                            : enabledFor(map, row.scope, providerId);
+                                    const personal = isPersonalKey(row.scope);
                                     const choices = collectionChoices(advertised, enabled);
                                     const unadvertised = choices.filter((c) => !c.advertised).length;
                                     const isOpen = open === key;
@@ -451,6 +484,13 @@ const ProvidersTab: React.FC = () => {
                                                 />
                                             </td>
                                             <td className="px-3 py-2 align-top">
+                                                {personal ? (
+                                                    // No "All collections" for a personal scope: missing is
+                                                    // nothing there, so only ticks can give it anything.
+                                                    <span className="text-xs text-gray-400" title="A personal scope offers nothing until a collection is ticked for it">
+                                                        Only ticked (none by default)
+                                                    </span>
+                                                ) : (
                                                 <select
                                                     className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-sm"
                                                     value={enabled === null ? "all" : "ticked"}
@@ -468,6 +508,7 @@ const ProvidersTab: React.FC = () => {
                                                     <option value="all">All collections</option>
                                                     <option value="ticked">Only ticked</option>
                                                 </select>
+                                                )}
                                             </td>
                                             <td className="px-3 py-2 align-top">
                                                 {enabled === null ? (
