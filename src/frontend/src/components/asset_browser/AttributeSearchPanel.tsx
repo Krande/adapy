@@ -69,6 +69,8 @@ const BTN_SECONDARY =
 const BTN_ROW = "px-1.5 py-0.5 rounded text-[11px] text-blue-300 hover:text-white hover:bg-gray-700 disabled:opacity-50";
 const LABEL = "text-[11px] uppercase tracking-wide text-gray-400";
 const BADGE = "ml-1 rounded-sm border border-violet-700 bg-violet-900/40 px-1 text-[10px] text-violet-200";
+/** Up to this many per-collection counts are shown unfolded by default. */
+const COUNTS_OPEN_UP_TO = 8;
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -434,6 +436,13 @@ const AttributeSearchPanel: React.FC = () => {
       return next;
     });
   const withHits = [...new Set(ownCounts.filter((c) => c.count > 0).map((c) => c.collection))];
+  // The per-collection counts fold away: a search over every project is a chip per project, and
+  // unfolded they push the results off a short panel. Open by default only while they are few;
+  // `null` is "not chosen for these results".
+  const [countsChoice, setCountsChoice] = useState<boolean | null>(null);
+  useEffect(() => setCountsChoice(null), [lastQuery]);
+  const countsOpen = countsChoice ?? counts.length <= COUNTS_OPEN_UP_TO;
+  const hitCollections = counts.filter((c) => c.count > 0).length;
   const exportTotal = selectedTotal(ownCounts, deselected);
   const canExport = !!results && !!lastQuery && resultScope === scope && exportTotal > 0;
   const [exporting, setExporting] = useState(false);
@@ -446,7 +455,10 @@ const AttributeSearchPanel: React.FC = () => {
   }, [focus]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-gray-900 text-gray-100 text-xs">
+    // The panel scrolls as a whole once it is shorter than its parts: the results keep a minimum
+    // height, so on a short screen the counts, the results and the export runs below them are
+    // scrolled to rather than pushed out of sight below the panel's edge.
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-gray-900 text-gray-100 text-xs">
       {/* Not scrolled itself: that would clip the collection / provider pickers' drop-downs. A
           window too short for it folds the filters away instead. */}
       <div className="shrink-0 space-y-2 border-b border-gray-800 p-3">
@@ -619,9 +631,23 @@ const AttributeSearchPanel: React.FC = () => {
           <span className="text-gray-500" title={`${results.pages} page(s), ${results.totalTookMs} ms on the server in all`}>
             {results.tookMs} ms
           </span>
+          {counts.length > 0 && (
+            <button
+              type="button"
+              className="text-blue-300 hover:text-white"
+              aria-expanded={countsOpen}
+              title={countsOpen ? "Fold the per-collection counts away" : "Show the matches per collection"}
+              onClick={() => setCountsChoice(!countsOpen)}
+            >
+              {hitCollections.toLocaleString()} {hitCollections === 1 ? "collection" : "collections"} with matches {countsOpen ? "▴" : "▾"}
+            </button>
+          )}
           {/* Each collection's count, clickable: a click leaves that collection out of the export
               (and back in). A collection with no matches has nothing to leave out, and a shared one
-              is not exported from here at all. */}
+              is not exported from here at all. Capped in height: unfolded, they scroll among
+              themselves. */}
+          {countsOpen && (
+          <div className="flex w-full max-h-32 flex-wrap items-center gap-x-3 gap-y-1 overflow-y-auto">
           {counts.map((c) => {
             const out = deselected.has(c.collection);
             const label = `${c.collection}${providerOptions.length > 1 ? ` · ${pn(c.provider)}` : ""}: ${c.count.toLocaleString()}`;
@@ -657,6 +683,8 @@ const AttributeSearchPanel: React.FC = () => {
               </span>
             );
           })}
+          </div>
+          )}
           {withHits.length > 1 && (
             <span className="inline-flex items-center gap-2">
               <button type="button" className="text-blue-300 hover:text-white" onClick={() => setDeselected(new Set(withHits))}>
@@ -679,8 +707,8 @@ const AttributeSearchPanel: React.FC = () => {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto">
-        {results && !hits.length && <div className="p-3 text-gray-400">Nothing matches.</div>}
+      <div className="flex-1 min-h-[12rem] overflow-auto">
+        {results && !hits.length &&<div className="p-3 text-gray-400">Nothing matches.</div>}
         {hits.length > 0 && (
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-gray-800 text-left text-gray-300">
