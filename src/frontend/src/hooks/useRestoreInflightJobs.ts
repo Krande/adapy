@@ -21,7 +21,9 @@
 import {useEffect} from "react";
 import {viewerApi, ApiError} from "@/services/viewerApi";
 import {useConversionStore} from "@/state/conversionStore";
-import {pollJobUntilTerminal} from "@/services/jobTracking";
+import {isJobTracked, pollJobUntilTerminal, resumeTrackedJobs} from "@/services/jobTracking";
+// Registers the rescan's finisher, so a rescan resumed after a reload finishes too.
+import "@/services/providerRescan";
 import {resumeTrackedSweeps} from "@/services/sweepTracking";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
@@ -42,6 +44,9 @@ export function useRestoreInflightJobs(): void {
         // Provider sweeps an admin chose to watch in the toast. Not scoped like the jobs below,
         // and idempotent, so a scope change re-attaching them is harmless.
         resumeTrackedSweeps();
+        // Jobs handed to the toast with `persist` (a provider rescan, say): first, so the
+        // my-jobs rows below that follow the same job are seen as already tracked.
+        resumeTrackedJobs();
 
         const cancel = {aborted: false};
 
@@ -96,6 +101,7 @@ export function useRestoreInflightJobs(): void {
                 const target = j.target_format ?? "fea";
                 const storeKey = `${j.key ?? ""}::${target}`;
                 if (store.jobs[storeKey]) continue; // already tracked
+                if (isJobTracked(j.job_id)) continue; // under its own key (a persisted entry)
                 store.setJob(storeKey, {
                     sourceKey: j.key ?? "(unknown)",
                     jobId: j.job_id,

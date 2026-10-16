@@ -21,7 +21,10 @@ globals.sessionStorage = storage;
 globals.localStorage = storage;
 
 const { useConversionStore } = await import("@/state/conversionStore");
-const { trackJob } = await import("@/services/jobTracking");
+const { trackJob, rememberedJobs, resumeTrackedJobs, isJobTracked, registerJobFinisher } = await import(
+  "@/services/jobTracking"
+);
+const { viewerApi } = await import("@/services/viewerApi");
 
 // WHAT THIS IS FOR. A panel that enqueues a job and awaits its own poll loop is the
 // only thing watching it, so closing the panel unmounts the watcher and the job
@@ -120,3 +123,67 @@ test("dismissing a tracked job removes it, so the poll has nothing to update", w
   const key = trackJob({ jobId: "job-6", scopeUrl: "shared", label: "z" });
   useConversionStore.getState().clearJob(key);
   assert.equal(useConversionStore.getState().jobs[key], undefined);}));
+
+// --- persisted entries (`persist`) and finishers ---------------------------------------------
+
+const JOBS_KEY = "ada.jobs.toast";
+
+test("a persisted job is remembered with its label and kind, and an unpersisted one is not", withCleanStore(() => {
+  memory.delete(JOBS_KEY);
+  trackJob({ jobId: "job-p", scopeUrl: "shared", label: "Rescan alpha", kind: "k", data: { a: 1 }, persist: true, storeKey: "r:a" });
+  trackJob({ jobId: "job-q", scopeUrl: "shared", label: "not kept" });
+  const kept = rememberedJobs();
+  assert.deepEqual(Object.keys(kept), ["r:a"]);
+  assert.equal(kept["r:a"].label, "Rescan alpha");
+  assert.equal(kept["r:a"].kind, "k");
+  assert.deepEqual(kept["r:a"].data, { a: 1 });
+  assert.ok(isJobTracked("job-p") && !isJobTracked("job-zzz"));
+  memory.delete(JOBS_KEY);
+}));
+
+test("a reload resumes the remembered entries in the toast; malformed ones are skipped", withCleanStore(() => {
+  memory.set(
+    JOBS_KEY,
+    JSON.stringify({
+      "r:b": { jobId: "job-r", scopeUrl: "shared", label: "Rescan beta", kind: "k" },
+      broken: { scopeUrl: "shared" },
+    }),
+  );
+  resumeTrackedJobs();
+  const jobs = useConversionStore.getState().jobs;
+  assert.equal(jobs["r:b"]?.sourceKey, "Rescan beta");
+  assert.equal(jobs["r:b"]?.stage, "restoring");
+  assert.equal(jobs.broken, undefined);
+  memory.set(JOBS_KEY, "not json");
+  assert.deepEqual(rememberedJobs(), {}, "unreadable storage is no entries, not an error");
+  memory.delete(JOBS_KEY);
+}));
+
+test("a done job runs its finisher as the entry's last stage, then is forgotten", async () => {
+  clearAll();
+  memory.delete(JOBS_KEY);
+  const api = viewerApi as unknown as { convertStatus: (id: string) => Promise<unknown> };
+  const real = api.convertStatus;
+  api.convertStatus = async () => ({ status: "done", progress: 1, stage: "ready", error: null, derived_key: "_d/x.json" });
+  const stages: string[] = [];
+  registerJobFinisher("test-finish", async ({ setStage, data, derivedKey }) => {
+    setStage("waiting for the list", 0.95);
+    stages.push(useConversionStore.getState().jobs["f:1"]?.stage ?? "");
+    return { message: `finished ${(data as { n: number }).n} ${derivedKey}` };
+  });
+  try {
+    trackJob({ jobId: "job-f", scopeUrl: "shared", label: "F", kind: "test-finish", data: { n: 3 }, persist: true, storeKey: "f:1" });
+    for (let i = 0; i < 40 && useConversionStore.getState().jobs["f:1"]?.status !== "done"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const entry = useConversionStore.getState().jobs["f:1"];
+    assert.equal(entry?.status, "done");
+    assert.equal(entry?.stage, "finished 3 _d/x.json");
+    assert.deepEqual(stages, ["waiting for the list"]);
+    await new Promise((r) => setTimeout(r, 0));
+    assert.deepEqual(rememberedJobs(), {}, "a finished entry is not resumed again");
+  } finally {
+    api.convertStatus = real;
+    clearAll();
+  }
+});

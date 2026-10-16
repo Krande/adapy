@@ -28,6 +28,8 @@ import {
     withProviderAlias,
 } from "@/assets/providerNames";
 import {useProviderNamesStore} from "@/state/providerNamesStore";
+import {useConversionStore} from "@/state/conversionStore";
+import {rescanStoreKey, startProviderRescan} from "@/services/providerRescan";
 
 import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
@@ -133,69 +135,18 @@ interface RescanState {
     failed?: boolean;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const SHOW_ENABLED_KEY = "ada.admin.providers.showEnabled";
 
-/** How long a rescan job may take before the tab stops watching it. A scan of two
- *  file servers has been measured at ~11 s; this is generous on purpose. */
-const RESCAN_JOB_TIMEOUT_MS = 5 * 60_000;
-/** How long to wait for the new list to arrive on a heartbeat after the job. The
- *  worker re-reads its spec every heartbeat (15 s), so two of them and a margin. */
-const RESCAN_ADVERT_TIMEOUT_MS = 45_000;
-
-/** Run a provider's declared rescan and wait for its new list to be advertised.
- *
- *  THREE HOPS, and the tab only sees the last one: the job rescans on the worker,
- *  the worker re-registers its spec, and the next heartbeat carries it to the API.
- *  So the job finishing is not the list changing, and the tab keeps reading
- *  `GET /plugins` until it does -- or until two heartbeats have passed, since an
- *  unchanged list is a legitimate answer. Returns the job's own `message`, which
- *  is the provider's sentence about what it found. */
-async function runRescan(
-    providerId: string,
-    refresh: AssetCollectionsRefresh,
-    before: readonly string[],
-    onLive: (live: AssetProviderCollections[]) => void,
-    onStage: (note: string) => void,
-): Promise<string> {
-    const {job_id, derived_key} = await viewerApi.pluginJob(refresh.pluginId, {
-        options: {...refresh.options, requested_at: new Date().toISOString()},
-    });
-    onStage("Rescanning…");
-    const deadline = Date.now() + RESCAN_JOB_TIMEOUT_MS;
-    for (;;) {
-        const st = await viewerApi.convertStatus(job_id);
-        if (st.status === "done") break;
-        if (st.status === "error" || st.status === "cancelled") {
-            throw new Error(st.error || `the rescan job ${st.status}`);
-        }
-        if (Date.now() > deadline) throw new Error("the rescan job did not finish in five minutes");
-        if (st.stage) onStage(`Rescanning… ${st.stage}`);
-        await sleep(2000);
+/** A rescan's state as the tab shows it, from its toast entry (`services/providerRescan.ts`): the
+ *  job's progress and stage while it runs, the provider's sentence when it is done. */
+function rescanStateOf(entry: {status: string; progress: number; stage: string; error: string | null} | undefined): RescanState | null {
+    if (!entry) return null;
+    if (entry.status === "queued" || entry.status === "running") {
+        const pct = Math.round(Math.min(1, Math.max(0, entry.progress || 0)) * 100);
+        return {running: true, note: `Rescanning… ${pct}%${entry.stage ? ` · ${entry.stage}` : ""}`};
     }
-
-    let message = "";
-    try {
-        const doc = JSON.parse(new TextDecoder().decode(await viewerApi.getBlob("shared", derived_key)));
-        if (doc && typeof doc.message === "string") message = doc.message;
-    } catch {
-        // The summary is a courtesy; the list below is the answer.
-    }
-
-    onStage("Waiting for the worker to advertise the new list…");
-    const was = JSON.stringify(before);
-    const advertDeadline = Date.now() + RESCAN_ADVERT_TIMEOUT_MS;
-    for (;;) {
-        const plugins = await viewerApi.listBackendPlugins().catch(() => ({plugins: []}));
-        const live = assetProviderCollections(plugins.plugins ?? []);
-        const now = live.find((p) => p.providerId === providerId)?.collections ?? [];
-        if (JSON.stringify(now) !== was || Date.now() > advertDeadline) {
-            onLive(live);
-            return message || (JSON.stringify(now) === was ? "No change." : "Updated.");
-        }
-        await sleep(3000);
-    }
+    if (entry.status === "done") return {running: false, note: entry.stage || "Done."};
+    return {running: false, note: entry.error || `the rescan ${entry.status}`, failed: true};
 }
 
 const ProvidersTab: React.FC = () => {
@@ -227,14 +178,23 @@ const ProvidersTab: React.FC = () => {
         }
     };
 
-    const rescan = useCallback(async (providerId: string, refresh: AssetCollectionsRefresh, before: readonly string[]) => {
-        const set = (s: RescanState) => setRescans((prev) => ({...prev, [providerId]: s}));
-        set({running: true, note: "Asking the worker…"});
+    // A rescan runs in the global toast (`startProviderRescan`), not here: leaving the tab, or
+    // reloading, does not stop it. The tab only shows its entry -- and `rescans` what went wrong
+    // before there was one (the enqueue refused).
+    const toastJobs = useConversionStore((s) => s.jobs);
+    const rescanOf = (providerId: string): RescanState | null =>
+        rescanStateOf(toastJobs[rescanStoreKey(providerId)]) ?? rescans[providerId] ?? null;
+    const rescan = useCallback(async (providerId: string, refresh: AssetCollectionsRefresh, before: readonly string[], label: string) => {
+        setRescans((prev) => ({...prev, [providerId]: {running: true, note: "Asking the worker…"}}));
         try {
-            const note = await runRescan(providerId, refresh, before, setLive, (n) => set({running: true, note: n}));
-            set({running: false, note});
+            await startProviderRescan(providerId, refresh, before, label);
+            setRescans((prev) => {
+                const next = {...prev};
+                delete next[providerId];
+                return next;
+            });
         } catch (e) {
-            set({running: false, note: e instanceof Error ? e.message : String(e), failed: true});
+            setRescans((prev) => ({...prev, [providerId]: {running: false, note: e instanceof Error ? e.message : String(e), failed: true}}));
         }
     }, []);
 
@@ -262,6 +222,21 @@ const ProvidersTab: React.FC = () => {
     useEffect(() => {
         void refresh();
     }, [refresh]);
+
+    // A rescan that finishes while the tab is open -- its finisher saw the new list, or waited it
+    // out -- shows the advertised collections at once.
+    const finishedRescans = Object.entries(toastJobs)
+        .filter(([key, j]) => key.startsWith(rescanStoreKey("")) && j.status === "done")
+        .map(([key]) => key)
+        .sort()
+        .join("\u0000");
+    useEffect(() => {
+        if (!finishedRescans) return;
+        void viewerApi
+            .listBackendPlugins()
+            .then((plugins) => setLive(assetProviderCollections(plugins.plugins ?? [])))
+            .catch(() => {});
+    }, [finishedRescans]);
 
     // Live providers, plus any the stored maps name that no worker declares now.
     const sections: ProviderSection[] = useMemo(() => {
@@ -391,7 +366,7 @@ const ProvidersTab: React.FC = () => {
             {sections.map(({providerId, live: declared}) => {
                 const advertised = declared?.collections ?? [];
                 const refresh = declared?.refresh ?? null;
-                const rs = rescans[providerId];
+                const rs = rescanOf(providerId);
                 return (
                     <AdminSection
                         key={providerId}
@@ -433,8 +408,8 @@ const ProvidersTab: React.FC = () => {
                                         type="button"
                                         className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
                                         disabled={rs?.running}
-                                        title={`Ask ${refresh.pluginId} to look for its collections again`}
-                                        onClick={() => void rescan(providerId, refresh, advertised)}
+                                        title={`Ask ${refresh.pluginId} to look for its collections again -- followed in the job toast, so it carries on if you leave this tab`}
+                                        onClick={() => void rescan(providerId, refresh, advertised, declared?.label ?? providerId)}
                                     >
                                         {rs?.running ? "Rescanning…" : "Rescan"}
                                     </button>
