@@ -26,6 +26,7 @@ nav = [
     "dexpi.md",
     "path_to_software_agnosticism.md",
     "meshing.md",
+    "drawings.md",
     "cli.md",
   ] },
   { "Primitives" = [

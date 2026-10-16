@@ -76,6 +76,7 @@ def elements_str(fem_elements: FemElements, report_locking: bool = True) -> str:
 CALCULIX_ELEMENT_TYPES = frozenset(
     {
         "B31", "B31R", "B32", "B32R",
+        "T3D2", "T3D3",
         "S3", "S4", "S4R", "S6", "S8", "S8R",
         "M3D3", "M3D4", "M3D4R", "M3D6", "M3D8", "M3D8R",
         "CPS3", "CPS4", "CPS4R", "CPS6", "CPS8", "CPS8R",
@@ -92,11 +93,27 @@ def _calculix_accepts(shape, name: str) -> bool:
     return str(name).upper() in CALCULIX_ELEMENT_TYPES and element_types().accepts(shape, name)
 
 
+def _accepts_for(fem_sec: FemSection):
+    """:func:`_calculix_accepts`, for an element of ``fem_sec``: only the types of the section's theory."""
+    from ada.fem.formats.abaqus.elem_formulations import theory_accepts
+
+    theory = None if fem_sec.theory is None else fem_sec.theory.value
+
+    def accepts(shape, name) -> bool:
+        return _calculix_accepts(shape, name) and theory_accepts(theory, name)
+
+    return accepts
+
+
 def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem], report_locking: bool = True):
     from ada.fem.formulations import resolve
 
     sub_eltype = el_type_sub(eltype, fem_sec)
     el_set_str = f", ELSET={fem_sec.elset.name}" if fem_sec.elset is not None else ""
+    if fem_sec.is_axial_only:
+        # The set is written in full with the deck's other sets (*ELSET); naming it here too puts each truss in it
+        # twice, and ccx 2.23 stops on that with "realloc(): invalid next size" (measured, a two-bar T3D2 truss).
+        el_set_str = ""
     if isinstance(eltype, shape_def.LineShapes):  # a beam: the section decides (beam_element_type), not the element
         by_type = {sub_eltype: list(elements)}
     else:
@@ -106,7 +123,12 @@ def elwriter(eltype, fem_sec: FemSection, elements: Iterable[Elem], report_locki
         by_type: dict[str, list] = {}
         for el in elements:
             written = resolve(
-                el, "calculix", default=lambda _shape: sub_eltype, accepts=_calculix_accepts, stage="calculix writer"
+                el,
+                "calculix",
+                default=lambda _shape: sub_eltype,
+                accepts=_calculix_accepts,
+                stage="calculix writer",
+                accepts_source=_accepts_for(fem_sec),
             )
             by_type.setdefault(str(written).upper(), []).append(el)
         for t in sorted(by_type):
@@ -182,9 +204,16 @@ def beam_element_type(el_type, fem_sec: FemSection) -> str:
 def el_type_sub(el_type, fem_sec: FemSection) -> str:
     """Substitute Element types specifically Calculix"""
 
+    from ada.fem.formats.abaqus.elem_formulations import theory_element_type
+
+    if isinstance(el_type, shape_def.LineShapes) and fem_sec.is_axial_only:
+        return truss_element_type(el_type, fem_sec)
     if isinstance(el_type, shape_def.LineShapes):
         return beam_element_type(el_type, fem_sec)
     fem = fem_sec.parent
+    if fem_sec.is_membrane:
+        reduced = fem.options.CALCULIX.default_elements.use_reduced_integration
+        return theory_element_type("membrane", el_type, reduced)
     if el_type == ElemShape.TYPES.shell.TRI6:
         if fem.options.CALCULIX.default_elements.use_reduced_integration:
             raise IncompatibleElements(f"Reduced integration is not supported for triangle elements {el_type}")
@@ -194,9 +223,34 @@ def el_type_sub(el_type, fem_sec: FemSection) -> str:
     return default_elem
 
 
+def truss_element_type(el_type, fem_sec: FemSection) -> str:
+    """``T3D2`` / ``T3D3`` for a truss section. A cable section is refused unless
+    ``CalculixOptions.cable_as_truss`` is set: CalculiX has no tension-only truss."""
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.abaqus.elem_formulations import theory_element_type
+
+    if fem_sec.is_cable:
+        fem = fem_sec.parent
+        if not (fem is not None and fem.options.CALCULIX.cable_as_truss):
+            raise IncompatibleElements(
+                f"calculix writer: cable section {fem_sec.name!r} ({fem_sec.elset.name}) -- CalculiX has no "
+                "tension-only truss. Set fem.options.CALCULIX.cable_as_truss = True to write it as a truss that also "
+                "carries compression."
+            )
+        conversion_report.current().approximated(
+            "calculix writer",
+            "*ELEMENT",
+            fem_sec.elset.name,
+            "a cable written as a truss (CalculiX has no tension-only element): it carries compression too, and its "
+            "pretension is not written",
+            pretension=fem_sec.pretension,
+        )
+    return theory_element_type("truss", el_type)
+
+
 def is_u1(elem: Elem) -> bool:
     """Whether ``elem`` is written as a ``U1`` beam."""
-    return elem.type == shape_def.LineShapes.LINE and elem.fem_sec is not None
+    return elem.type == shape_def.LineShapes.LINE and elem.fem_sec is not None and not elem.fem_sec.is_axial_only
 
 
 def must_be_converted_to_general_section(sec_type):

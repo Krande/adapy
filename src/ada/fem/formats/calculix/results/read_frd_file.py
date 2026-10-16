@@ -52,6 +52,8 @@ class ElemShape(Enum):
     HEX20 = "hexahedron20"
     TETRA = "tetra"
     TETRA10 = "tetra10"
+    #: A two-node truss: ccx writes a T3D2 to the .frd as itself (type 11), not as the brick it solves it with.
+    LINE = "line"
 
     @staticmethod
     def get_type_from_elem_array_shape(elements: np.ndarray) -> ElemShape:
@@ -68,6 +70,8 @@ class ElemShape(Enum):
             return ElemShape.WEDGE15
         elif shape[1] == 14:
             return ElemShape.TETRA10
+        elif shape[1] == 6:
+            return ElemShape.LINE
         else:
             raise NotImplementedError(f"{shape=}")
 
@@ -87,8 +91,35 @@ class ElemShape(Enum):
             return SolidShapes.WEDGE15
         elif shape == ElemShape.TETRA10:
             return SolidShapes.TETRA10
+        elif shape == ElemShape.LINE:
+            from ada.fem.shapes.definitions import LineShapes
+
+            return LineShapes.LINE
         else:
             raise NotImplementedError(f"{shape=}")
+
+
+#: The ``ICTYPE`` of a ``100C`` record (CalculiX GraphiX manual, "Nodal Results Block"): the analysis the block is a
+#: result of. 0 static, 1 time step, 2 frequency (a mode), 3 load step, 4 user named. Measured, ccx 2.23: a
+#: ``*FREQUENCY`` step's blocks carry 2 (and ``MODAL`` in ``ANALYS``), a ``*STATIC`` step's 0.
+FRD_ANALYSIS_KINDS = {0: "static", 1: "transient", 2: "eigen", 3: "static"}
+
+
+def frd_analysis_type(line: str) -> int | None:
+    """``ICTYPE`` of a ``100C`` record, read by its fixed columns (``1X,'100','C',6A1,E12.5,I12,20A1,I2,...``): the
+    20-character text field before it may be blank or not, so the line is not split on blanks."""
+    i = line.find("100C")
+    field_ = line[i + 54 : i + 56] if i >= 0 else ""
+    try:
+        return int(field_)
+    except ValueError:
+        return None
+
+
+def frd_analysis_kind(types) -> str | None:
+    """One kind for the blocks of a file: the kind of their analysis type when they agree, else None."""
+    kinds = {FRD_ANALYSIS_KINDS.get(t) for t in types}
+    return kinds.pop() if len(kinds) == 1 else None
 
 
 @dataclass
@@ -99,6 +130,9 @@ class CcxResultModel:
     nodes: np.ndarray = None
     elements: np.ndarray = None
     results: list[NodalFieldData | ElementFieldData] = field(default_factory=list)
+
+    #: The analysis type of every result block (the ``ICTYPE`` of its ``100C`` record, :func:`frd_analysis_type`).
+    analysis_types: set = field(default_factory=set)
 
     _curr_step: int = None
     _curr_mode: int = None
@@ -252,6 +286,9 @@ class CcxResultModel:
         if stripped.startswith("100CL"):
             split_data = stripped.split()
             self._curr_eig_freq = float(split_data[2])
+            ictype = frd_analysis_type(data)
+            if ictype is not None:
+                self.analysis_types.add(ictype)
 
         if stripped.startswith("-4"):
             self.collect_results(stripped)
@@ -339,6 +376,7 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
         description=description,
         software_version=software_version,
         eigen_mode_data=eigen_mode_data,
+        analysis_kind=frd_analysis_kind(ccx_results.analysis_types),
     )
 
 

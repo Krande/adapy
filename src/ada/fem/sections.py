@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, TypeVar, Union
+from typing import TYPE_CHECKING, List, Literal, TypeVar, Union
 
 import numpy as np
 
@@ -10,6 +10,8 @@ from ada.core.utils import Counter
 from ada.core.vector_transforms import normal_to_points_in_plane
 from ada.core.vector_utils import calc_yvec, calc_zvec, unit_vector, vector_length
 from ada.fem.common import FemBase
+from ada.fem.formulations.lines import LineTheory
+from ada.fem.formulations.shells import ShellTheory
 from ada.fem.shapes import ElemType
 from ada.materials import Material
 from ada.sections import Section
@@ -19,7 +21,40 @@ if TYPE_CHECKING:
     from ada.fem import FemSet
 
 
+#: A section's theory, as the enum or its value.
+TheoryLike = Union[ShellTheory, LineTheory, Literal["shell", "membrane", "beam", "truss", "cable"]]
+
+#: The compression stiffness of a cable relative to its tension stiffness, where a solver asks for one (Code_Aster's
+#: ``EC_SUR_E``, whose own default this is). Small but not zero, so a slack cable does not leave its nodes unsupported.
+CABLE_COMPRESSION_RATIO = 1.0e-4
+
+#: The theories a section may be pre-tensioned in.
+_TENSIONED = (LineTheory.CABLE, ShellTheory.MEMBRANE)
+
+
 class FemSection(FemBase):
+    """The properties of an element set: material, and a cross-section (lines) or thickness (shells).
+
+    ``theory`` says what the section carries. A shell section is a bending shell (:attr:`ShellTheory.SHELL`, the
+    default) or a membrane (:attr:`ShellTheory.MEMBRANE`); a line section is a beam (:attr:`LineTheory.BEAM`, the
+    default), a truss (:attr:`LineTheory.TRUSS`) or a tension-only cable (:attr:`LineTheory.CABLE`). A truss or cable
+    takes its area from ``section.properties.Ax`` and needs no ``local_y`` / ``local_z``.
+
+    ``pretension`` is the initial tension of a cable (axial force, N) or of a membrane (in-plane force per unit
+    length, the same in every direction, N/m), positive in tension. It is what a cable or membrane starts the
+    analysis with, and how each solver takes it differs:
+
+    * Abaqus: an initial stress (``*Initial Conditions, type=STRESS``, ``pretension / area`` or ``/ thickness``),
+      which the first step brings into equilibrium with the rest of the structure;
+    * Code_Aster: ``N_INIT``, the tension the element's tangent stiffness starts from in a nonlinear analysis --
+      not a load: measured (18.1.7), a cable with ``N_INIT`` of 1000 N beside an unstressed truss moved nothing. It is
+      what lets a flat membrane or a straight slack cable take load across itself in the first iteration;
+    * CalculiX: not written (reported). OpenCourant, Sesam and Usfos have no cable or membrane at all.
+
+    ``compression_ratio`` is the ratio of a cable's compression stiffness to its tension stiffness, for a solver that
+    asks for one (Code_Aster's ``EC_SUR_E``), cables only.
+    """
+
     id_count = Counter()
     SEC_TYPES = ElemType
 
@@ -39,12 +74,24 @@ class FemSection(FemBase):
         refs=None,
         sec_id=None,
         is_rigid=False,
+        theory: TheoryLike | None = None,
+        pretension: float = 0.0,
+        compression_ratio: float = CABLE_COMPRESSION_RATIO,
     ):
         from ada.fem import FemSet
 
         super().__init__(name, metadata, parent)
         if isinstance(sec_type, str):
             sec_type = GeomRepr.from_str(sec_type)
+        self._theory = _resolve_theory(sec_type, theory)
+        if self._theory != LineTheory.CABLE and compression_ratio != CABLE_COMPRESSION_RATIO:
+            raise ValueError(f"FemSection {name!r}: compression_ratio is for cable sections only")
+        if self._theory not in _TENSIONED and pretension != 0.0:
+            raise ValueError(f"FemSection {name!r}: pretension is for cable and membrane sections only")
+        if compression_ratio < 0.0:
+            raise ValueError(f"FemSection {name!r}: compression_ratio cannot be negative")
+        self._pretension = float(pretension)
+        self._compression_ratio = float(compression_ratio)
 
         self._id = sec_id if sec_id is not None else next(FemSection.id_count)
         self._sec_type = sec_type
@@ -54,9 +101,11 @@ class FemSection(FemBase):
         self._section = section
         if section is not None:
             section.refs.append(self)
-        if self._sec_type == ElemType.LINE:
+        if self._sec_type == ElemType.LINE and not self._theory.is_axial_only:
             if local_y is None and local_z is None:
                 raise ValueError("You need to specify either local_y or local_z")
+        if self._sec_type == ElemType.LINE and self._theory.is_axial_only and section is None:
+            raise ValueError(f"A {self._theory.value} section needs a section to take its area from")
         self._local_z = local_z
         self._local_y = local_y
         self._local_x = None
@@ -93,6 +142,67 @@ class FemSection(FemBase):
     @property
     def type(self):
         return self._sec_type
+
+    @property
+    def theory(self) -> ShellTheory | LineTheory | None:
+        """What the section carries (:class:`ShellTheory` for a shell, :class:`LineTheory` for a line, ``None`` for a
+        solid)."""
+        return self._theory
+
+    @theory.setter
+    def theory(self, value: TheoryLike | None):
+        theory = _resolve_theory(self._sec_type, value)
+        if theory == LineTheory.BEAM and self._local_y is None and self._local_z is None:
+            raise ValueError("A beam section needs local_y or local_z")
+        if isinstance(theory, LineTheory) and theory.is_axial_only and self._section is None:
+            raise ValueError(f"A {theory.value} section needs a section to take its area from")
+        if theory not in _TENSIONED:
+            self._pretension = 0.0
+        if theory != LineTheory.CABLE:
+            self._compression_ratio = CABLE_COMPRESSION_RATIO
+        self._theory = theory
+
+    @property
+    def is_membrane(self) -> bool:
+        return self._theory == ShellTheory.MEMBRANE
+
+    @property
+    def is_axial_only(self) -> bool:
+        """A truss or a cable."""
+        return isinstance(self._theory, LineTheory) and self._theory.is_axial_only
+
+    @property
+    def is_cable(self) -> bool:
+        return self._theory == LineTheory.CABLE
+
+    @property
+    def area(self) -> float | None:
+        """The cross-section area of a line section (``section.properties.Ax``)."""
+        if self._section is None:
+            return None
+        return self._section.properties.Ax
+
+    @property
+    def pretension(self) -> float:
+        return self._pretension
+
+    @pretension.setter
+    def pretension(self, value: float):
+        if self._theory not in _TENSIONED:
+            raise ValueError("pretension is for cable and membrane sections only")
+        self._pretension = float(value)
+
+    @property
+    def compression_ratio(self) -> float:
+        return self._compression_ratio
+
+    @compression_ratio.setter
+    def compression_ratio(self, value: float):
+        if self._theory != LineTheory.CABLE:
+            raise ValueError("compression_ratio is for cable sections only")
+        if value < 0.0:
+            raise ValueError("compression_ratio cannot be negative")
+        self._compression_ratio = float(value)
 
     @property
     def id(self):
@@ -148,6 +258,11 @@ class FemSection(FemBase):
                 raise ValueError(f'Element "{el}" has no length. UNable to calculate y-vector')
 
             xvec = unit_vector(v)
+            if self._local_z is None and self.theory.is_axial_only:
+                # A truss or cable has no cross-section orientation; any vector normal to it serves the writers
+                # that ask for one.
+                self._local_y = _any_normal(xvec)
+                return self._local_y
 
             # See https://en.wikipedia.org/wiki/Cross_product#Coordinate_notation for order of cross product
             vec = calc_yvec(xvec, self.local_z)
@@ -218,11 +333,18 @@ class FemSection(FemBase):
 
     def has_equal_props(self, other: FemSection):
         equal_mat = self.material == other.material
+        if self.theory != other.theory or (self.pretension, self.compression_ratio) != (
+            other.pretension,
+            other.compression_ratio,
+        ):
+            return False
         if self.type == self.SEC_TYPES.SHELL:
             equal_sec = self.thickness == other.thickness
         elif self.type == self.SEC_TYPES.LINE:
             equal_sec = self.section.equal_props(other.section)
-            if tuple(self.local_y) != tuple(other.local_y) or tuple(self.local_z) != tuple(other.local_z):
+            if self.is_axial_only:
+                pass  # no orientation to compare
+            elif tuple(self.local_y) != tuple(other.local_y) or tuple(self.local_z) != tuple(other.local_z):
                 equal_sec = False
         else:
             equal_sec = True
@@ -241,10 +363,38 @@ class FemSection(FemBase):
         sec_name = self.section.name if self.section is not None else "SHELL"
         mat_name = self.material.name
         elset_name = self.elset.name
+        theory = "" if self.theory in (None, ShellTheory.SHELL, LineTheory.BEAM) else f" ({self.theory.value})"
         return (
-            f'FemSection({fem_sec_type} - name: "{name}", sec: "{sec_name}", '
+            f'FemSection({fem_sec_type}{theory} - name: "{name}", sec: "{sec_name}", '
             f'mat: "{mat_name}",  elset: "{elset_name}")'
         )
+
+
+def _resolve_theory(sec_type, theory: TheoryLike | None) -> ShellTheory | LineTheory | None:
+    """The theory of a section of ``sec_type``: the default for the type when ``theory`` is None, and an error for
+    a theory of another type's (a membrane line, a truss shell) or a theory on a solid."""
+    if sec_type == ElemType.SHELL:
+        enum, default = ShellTheory, ShellTheory.SHELL
+    elif sec_type == ElemType.LINE:
+        enum, default = LineTheory, LineTheory.BEAM
+    else:
+        if theory is not None:
+            raise ValueError(f"A {sec_type} section takes no theory (got {theory!r})")
+        return None
+    if theory is None:
+        return default
+    try:
+        return enum(getattr(theory, "value", theory))
+    except ValueError:
+        valid = ", ".join(t.value for t in enum)
+        raise ValueError(f"A {sec_type} section's theory is one of {valid} (got {theory!r})") from None
+
+
+def _any_normal(xvec: np.ndarray) -> np.ndarray:
+    """A unit vector normal to ``xvec``: global Z projected off it, or global Y when ``xvec`` is vertical."""
+    ref = np.array([0.0, 0.0, 1.0]) if abs(xvec[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    vec = ref - np.dot(ref, xvec) * xvec
+    return unit_vector(vec)
 
 
 # Todo: This should be improved

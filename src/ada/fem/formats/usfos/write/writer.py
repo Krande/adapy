@@ -18,6 +18,12 @@ def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, model_dat
         raise ValueError(f"Usfos writer currently only works for a single part. Passed {len(parts)=}")
     part = parts[0]
 
+    from ada.fem.cavities import refuse_fluid_cavities
+    from ada.fem.formulations import refuse_section_theories
+
+    refuse_section_theories([p.fem for p in assembly.get_all_parts_in_assembly(include_self=True)], "usfos")
+    refuse_fluid_cavities(assembly, "usfos")
+
     head = """ HEAD\n\n\n"""
     eccen = []
     nonstrus = []

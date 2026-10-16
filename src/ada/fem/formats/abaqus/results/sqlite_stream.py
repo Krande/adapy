@@ -259,6 +259,21 @@ def _history_group_for(name: str) -> str:
     return name
 
 
+def abaqus_step_kind(domain: str | None, procedure: str | None) -> str | None:
+    """``"eigen"`` for a modal step (domain ``MODAL``, or a ``*FREQUENCY`` procedure), ``"transient"`` for a dynamic
+    or viscous one (``*DYNAMIC``, ``*DYNAMIC, EXPLICIT``, ``*VISCO``), else
+    ``"static"`` (``*STATIC``: its frames are load increments). None for a step that names neither."""
+    dom = (domain or "").upper()
+    proc = (procedure or "").upper()
+    if "MODAL" in dom or "FREQUENCY" in proc and "STEADY" not in proc:
+        return "eigen"
+    if any(token in proc for token in ("DYNAMIC", "VISCO", "TRANSIENT", "EXPLICIT")):
+        return "transient"
+    if "STATIC" in proc or "TIME" in dom or "ARC_LENGTH" in dom:
+        return "static"
+    return None
+
+
 class ResultsSqliteStreamReader:
     """Stream a results ``.sqlite`` through adapy's ``FEAStreamReader`` protocol.
 
@@ -508,6 +523,18 @@ class ResultsSqliteStreamReader:
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
         return self._geom
 
+    def _steps_kind(self, step_ids) -> str | None:
+        """The analysis kind of fields stored in the steps ``step_ids``, from each step's domain and procedure
+        (:func:`abaqus_step_kind`); None when the steps differ in kind."""
+        cache = getattr(self, "_step_kinds", None)
+        if cache is None:
+            cache = self._step_kinds = {
+                int(row[0]): abaqus_step_kind(row[1], row[2])
+                for row in self._conn.execute("SELECT ID, DomainType, Procedure FROM Steps")
+            }
+        kinds = {cache.get(int(sid)) for sid in step_ids}
+        return kinds.pop() if len(kinds) == 1 else None
+
     def field_specs(self) -> list[FieldSpec]:
         if self._field_specs_cache is not None:
             return self._field_specs_cache
@@ -562,6 +589,7 @@ class ResultsSqliteStreamReader:
                     support="nodal",
                     step_values=step_values,
                     category=_classify_abaqus_field(desc, components),
+                    analysis_kind=self._steps_kind(int(r[0]) for r in step_rows),
                 )
             )
             field_groups[name] = field_var_ids
@@ -752,6 +780,7 @@ class ResultsSqliteStreamReader:
                     name=name,
                     components=components,
                     n_steps=len(step_sorted),
+                    analysis_kind=self._steps_kind(sid for sid, _ in step_sorted),
                     elem_type=meshio_type,
                     n_elements=len(combined_labels),
                     n_ips=n_ips_combined,

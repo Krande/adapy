@@ -48,11 +48,42 @@ def shell_section_str(fem_sec: FemSection):
         )
         return ""
     params = [("elset", fem_sec.elset.name), ("material", fem_sec.material.name)]
+    if fem_sec.is_membrane:
+        # *Membrane Section: the thickness alone (Abaqus Keywords Guide; Calculix reads the same).
+        return render_block("Membrane Section", params, [f" {fem_sec.thickness},"], [f"Section: {fem_sec.name}"])
     data = [f" {fem_sec.thickness}, {fem_sec.int_points}"]
     return render_block("Shell Section", params, data, [f"Section: {fem_sec.name}"])
 
 
+#: The suffix of the material a cable section is written with when its own material is not tension-only: a copy with
+#: ``*No Compression`` (a material option in Abaqus, so it cannot be put on the section).
+NO_COMPRESSION_SUFFIX = "_NC"
+
+
+def cable_material_name(fem_sec: FemSection) -> str:
+    """The material a cable section is written with: its own when that is already tension-only, else its
+    ``*No Compression`` copy (:func:`cable_materials`)."""
+    if fem_sec.material.metadata.get("no_compression", False) is True:
+        return fem_sec.material.name
+    return fem_sec.material.name + NO_COMPRESSION_SUFFIX
+
+
+def truss_section_str(fem_sec: FemSection, material_name: str | None = None):
+    """A truss or cable section: ``*Solid Section`` on the T3D elements, with the cross-section area as its data."""
+    profile = fem_sec.section.name if fem_sec.section is not None else fem_sec.elset.name
+    area = fem_sec.area
+    if area is None or area <= 0.0:
+        raise ValueError(f"{fem_sec.theory.value} section {fem_sec.name!r} has no cross-section area")
+    if material_name is None:
+        material_name = cable_material_name(fem_sec) if fem_sec.is_cable else fem_sec.material.name
+    params = [("elset", fem_sec.elset.name), ("material", material_name)]
+    top = [f"Section: {fem_sec.name}  Profile: {profile}  Theory: {fem_sec.theory.value}"]
+    return render_block("Solid Section", params, [f" {format_number(area)},"], top)
+
+
 def line_section_str(fem_sec: FemSection):
+    if fem_sec.is_axial_only:
+        return truss_section_str(fem_sec)
     # The section's and the profile's own names (both were written as the elset's name, so a
     # section read back was renamed after its set).
     profile = fem_sec.section.name if fem_sec.section is not None else fem_sec.elset.name

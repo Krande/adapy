@@ -225,8 +225,16 @@ class PressureDistribution:
 class LoadPressure(Load):
     P_DIST_TYPES = PressureDistribution
 
-    def __init__(self, name: str, magnitude: float, surface: Surface, distribution=P_DIST_TYPES.UNIFORM):
-        super(LoadPressure, self).__init__(name, LoadTypes.PRESSURE, magnitude)
+    def __init__(
+        self,
+        name: str,
+        magnitude: float,
+        surface: Surface,
+        distribution=P_DIST_TYPES.UNIFORM,
+        amplitude: Amplitude | None = None,
+    ):
+        """``amplitude`` scales ``magnitude`` over the step's time (None: the full magnitude throughout)."""
+        super(LoadPressure, self).__init__(name, LoadTypes.PRESSURE, magnitude, amplitude=amplitude)
         self._surface = surface
         self._distribution = distribution
 
@@ -240,8 +248,9 @@ class LoadPressure(Load):
 
 
 class LoadGravity(Load):
-    def __init__(self, name, acceleration=-9.81):
-        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, acceleration)
+    def __init__(self, name, acceleration=-9.81, amplitude: Amplitude | None = None):
+        """``amplitude`` scales ``acceleration`` over the step's time (None: the full acceleration throughout)."""
+        super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, acceleration, amplitude=amplitude)
 
 
 class LoadPoint(Load):

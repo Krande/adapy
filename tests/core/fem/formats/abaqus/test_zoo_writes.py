@@ -33,7 +33,6 @@ CALCULIX_GAPS = {
     "elements_line_profiles": (IncompatibleElements, "a U1 general section refuses an angle's product of inertia"),
     "elements_line_explicit": (ValueError, "Calculix has no explicit step"),
     "steps_explicit": (ValueError, "Calculix has no explicit step"),
-    "steps_dynamic_implicit": (ValueError, "the Calculix writer has no implicit dynamic step"),
     # Every step is written now, so the second step of these is reached rather than dropped without a word.
     "steps_steady_state": (ValueError, "the Calculix writer has no steady-state dynamics step"),
     "loads": (UnsupportedLoadType, "a pressure on shell face 0 names neither SPOS nor SNEG"),

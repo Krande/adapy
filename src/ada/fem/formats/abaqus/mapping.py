@@ -163,13 +163,34 @@ class ElementTypes:
         shape, else ``defaults`` (the writer's configurable ``AbaqusDefaultElemTypes``)."""
         from ada.fem.formulations import resolve
 
+        from .elem_formulations import (
+            is_default_theory,
+            section_theory,
+            theory_accepts,
+            theory_element_type,
+        )
+
+        theory = section_theory(elem)
+        if is_default_theory(theory):
+            default = defaults.get_element_type
+        else:
+            default = functools.partial(
+                theory_element_type, theory, use_reduced_integration=defaults.use_reduced_integration
+            )
+
+        def accepts_source(shape, name) -> bool:
+            # A source formulation of another theory (an S4R on a membrane section) is not written on this one; a
+            # caller's rule may still choose any type of the shape.
+            return self.accepts(shape, name) and theory_accepts(theory, name)
+
         return normalize(
             resolve(
                 elem,
                 target,
-                default=defaults.get_element_type,
+                default=default,
                 accepts=self.accepts,
                 stage=f"{target} writer",
+                accepts_source=accepts_source,
             )
         )
 

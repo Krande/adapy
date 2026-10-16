@@ -38,3 +38,7 @@ class ConflictingBoundaryConditions(ValueError):
             f"{writer} writer: node {node} {dof} is prescribed by '{bc}' and '{other}' {how}. {self.WHY[writer]}; "
             "give the node's dof one boundary condition (take the node out of one of the two node sets)."
         )
+
+
+class UnsupportedFeature(Exception):
+    """A construct of the model the target format has no form for, refused rather than left out of the deck."""

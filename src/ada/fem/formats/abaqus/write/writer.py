@@ -7,6 +7,11 @@ from ada.config import logger
 
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str, report_unstepped_settlements
+from .write_cavities import (
+    fluid_behaviors_str,
+    fluid_cavities_str,
+    model_initial_conditions_str,
+)
 from .write_connectors import connector_section_str, connector_sets_str, connector_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
@@ -96,6 +101,7 @@ def to_fem(
         d.write(f"{nsets_str(afem, True)}\n")
         d.write(f"{elsets_str(afem, True)}\n")
         d.write(f"{surfaces_str(afem, True)}\n")
+        d.write(f"{fluid_cavities_str(afem, True)}\n")
         d.write(orientations_str(afem, True) + "\n")
         d.write(elements_str(afem, True) + "\n")
         d.write(masses_str(afem, True))
@@ -112,10 +118,16 @@ def to_fem(
     eval_interactions(assembly, analysis_dir)
     with open(core_dir / "interactions.inp", "a") as d:
         d.write(predefined_fields_str(afem))
+        initial_conditions = model_initial_conditions_str(assembly)
+        if initial_conditions:
+            d.write("\n" + initial_conditions + "\n")
 
     # Materials data
     with open(core_dir / "materials.inp", "w") as d:
         d.write(materials_str(assembly))
+        behaviors = fluid_behaviors_str(assembly)
+        if behaviors:
+            d.write("\n" + behaviors)
 
     # Boundary Condition data
     with open(core_dir / "bc_data.inp", "w") as d:

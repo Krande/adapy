@@ -27,13 +27,14 @@ def load_str(load: Load, deck: DeckContext) -> str:
     raise UnsupportedLoadType(f'calculix writer: load {load.name!r} of type "{load.type}" has no Calculix form')
 
 
-def _report_amplitude(load: Load) -> None:
-    from ada.fem.formats import conversion_report
-
-    if getattr(load, "amplitude", None) is not None:
-        conversion_report.current().omitted(
-            STAGE, "Load", load.name, "an amplitude; this writer writes no *AMPLITUDE, the load is applied in full"
-        )
+def _amplitude_param(load: Load) -> str:
+    """``, AMPLITUDE=<name>`` for a load that has an amplitude (written as model data by
+    :func:`.writer.amplitudes_str`), else nothing."""
+    amplitude = getattr(load, "amplitude", None)
+    if amplitude is None:
+        return ""
+    name = amplitude if isinstance(amplitude, str) else amplitude.name
+    return f", AMPLITUDE={name}"
 
 
 def ccx_number(value: float) -> str:
@@ -42,9 +43,11 @@ def ccx_number(value: float) -> str:
     return f"{float(value):.13E}"
 
 
-def _cload_lines(rows) -> str:
-    """``*CLOAD`` data lines from ``(node or set, dof, value)``, zero values left out."""
-    return "\n".join(f"{target}, {dof}, {ccx_number(value)}" for target, dof, value in rows if value != 0.0)
+def _cload_lines(rows, keep_zeros: bool = False) -> str:
+    """``*CLOAD`` data lines from ``(node or set, dof, value)``, zero values left out unless ``keep_zeros``."""
+    return "\n".join(
+        f"{target}, {dof}, {ccx_number(value)}" for target, dof, value in rows if keep_zeros or value != 0.0
+    )
 
 
 def point_load_str(load: Load) -> str:
@@ -56,7 +59,6 @@ def point_load_str(load: Load) -> str:
     """
     from ada.fem import FemSet
 
-    _report_amplitude(load)
     fem_set = load.fem_set
     if fem_set is None or fem_set.type != FemSet.TYPES.NSET:
         raise UnsupportedLoadType(f"calculix writer: point load {load.name!r} is not on a node set; *CLOAD names one")
@@ -64,7 +66,16 @@ def point_load_str(load: Load) -> str:
     if forces is None:
         raise UnsupportedLoadType(f"calculix writer: point load {load.name!r} has no global components")
     rows = [(fem_set.name, dof, f) for dof, f in enumerate(forces, start=1)]
-    return "** Name: {0}   Type: Concentrated force\n*Cload\n{1}".format(load.name, _cload_lines(rows))
+    if not any(rows_f != 0.0 for _, _, rows_f in rows):
+        # A zero load is written as explicit zeros on the three forces: an empty *CLOAD is not a load at all, and a
+        # coupling adapter (preCICE's CalculiX adapter) writes its forces into the *CLOAD entries the step has.
+        rows = [(fem_set.name, dof, 0.0) for dof in (1, 2, 3)]
+        return "** Name: {0}   Type: Concentrated force (zero)\n*Cload{1}\n{2}".format(
+            load.name, _amplitude_param(load), _cload_lines(rows, keep_zeros=True)
+        )
+    return "** Name: {0}   Type: Concentrated force\n*Cload{1}\n{2}".format(
+        load.name, _amplitude_param(load), _cload_lines(rows)
+    )
 
 
 def gravity_load_str(load: Load, deck: DeckContext) -> str:
@@ -82,7 +93,6 @@ def gravity_load_str(load: Load, deck: DeckContext) -> str:
     from ada.fem.formats.abaqus.write.write_sections import eval_general_properties
     from ada.fem.loads import LineLoadSegment, acceleration_vector
 
-    _report_amplitude(load)
     acc = np.asarray(acceleration_vector(load), dtype=float)
     magnitude = float(np.linalg.norm(acc))
     if magnitude == 0.0:
@@ -107,7 +117,7 @@ def gravity_load_str(load: Load, deck: DeckContext) -> str:
         u1 = [el for el in deck.part.fem.elements.lines if el.id in deck.u1_elements]
     if target is not None:
         dirs = ", ".join(ccx_number(d) for d in direction)
-        blocks.append(f"*Dload\n{target}, GRAV, {ccx_number(magnitude)}, {dirs}")
+        blocks.append(f"*Dload{_amplitude_param(load)}\n{target}, GRAV, {ccx_number(magnitude)}, {dirs}")
     if u1:
         segments = []
         for el in sorted(u1, key=lambda e: e.id):
@@ -117,7 +127,7 @@ def gravity_load_str(load: Load, deck: DeckContext) -> str:
             segments.append(LineLoadSegment(el, q, q))
         nodal = LoadLine.summed_beam_nodal_loads(segments, lambda el: True)
         rows = [(node.id, dof + 1, f[dof]) for node, f in nodal for dof in range(6)]
-        blocks.append("*Cload\n" + _cload_lines(rows))
+        blocks.append(f"*Cload{_amplitude_param(load)}\n" + _cload_lines(rows))
     return "** Name: {0}   Type: Gravity\n{1}".format(load.name, "\n".join(blocks))
 
 
@@ -220,7 +230,7 @@ def pressure_load_str(load: Load) -> str:
                 )
         data.append(f"{fem_set.name}, {PRESSURE_LABEL}, {_pressure_sign(side) * load.magnitude}")
 
-    return "** Name: {0}   Type: Pressure\n*Dload\n{1}".format(load.name, "\n".join(data))
+    return "** Name: {0}   Type: Pressure\n*Dload{1}\n{2}".format(load.name, _amplitude_param(load), "\n".join(data))
 
 
 def line_load_str(load: LoadLine, deck: DeckContext) -> str:
@@ -250,4 +260,6 @@ def line_load_str(load: LoadLine, deck: DeckContext) -> str:
             "has no shell edge form",
             n_nodes=len(nodal),
         )
-    return "** Name: {0}   Type: Line load as nodal loads\n*Cload\n{1}".format(load.name, _cload_lines(rows))
+    return "** Name: {0}   Type: Line load as nodal loads\n*Cload{1}\n{2}".format(
+        load.name, _amplitude_param(load), _cload_lines(rows)
+    )

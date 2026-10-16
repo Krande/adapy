@@ -133,6 +133,11 @@ KEYWORDS: dict[str, KeywordSpec] = {
             optional=("CONTROLS", "LAYUP", "ORDER", "ORIENTATION", "REF NODE", "STACK DIRECTION", "SYMMETRIC"),
         ),
         _spec(
+            "MEMBRANE SECTION",
+            required=("ELSET", "MATERIAL"),
+            optional=("CONTROLS", "DENSITY", "NODAL THICKNESS", "ORIENTATION", "POISSON"),
+        ),
+        _spec(
             "SHELL SECTION",
             required=("ELSET",),
             one_of=(("MATERIAL", "COMPOSITE"),),

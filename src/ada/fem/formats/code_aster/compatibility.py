@@ -25,6 +25,8 @@ def check_compatibility(assembly: Assembly):
     if step is not None:
         has_nonlin = True if True in [x.nl_geom for x in assembly.fem.steps] else False
         for el in p.fem.elements.lines:
+            if el.fem_sec is not None and el.fem_sec.is_axial_only:
+                continue  # a truss (BARRE) or cable (CABLE) takes a nonlinear analysis; only the beams do not
             if has_nonlin:
                 raise IncompatibleElements(
                     "The standard Euler/Timoshenko beams in Code Aster do not support nonlinear"

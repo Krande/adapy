@@ -79,43 +79,23 @@ def analysis_kind_from_result_cases(cases) -> str | None:
 
 
 def _infer_analysis_kind(spec: FieldSpec) -> str:
-    """Infer 'static' vs 'eigen' from a field's step value sequence.
+    """The field's analysis kind: what its reader stated, else a fallback from the step count.
 
-    The bake doesn't carry the original analysis-type flag, but the
-    streaming readers populate ``step_values`` with eigen frequencies
-    for modal output (monotonically increasing positives) and time
-    values for transient/static (typically starts at zero, may be a
-    single step). One eigen tell: a typical mode shape produces a
-    single field with multiple steps where the first value is
-    strictly positive and unique. A static analysis with multiple
-    steps starts at t=0. Single-step + zero-time → static.
+    Readers state the kind where the file says it (``FieldSpec.analysis_kind``: a Code_Aster result's command, a
+    CalculiX step's analysis type, an Abaqus step's domain, a Sesam deck's combinations, an explicit run). This is for
+    a source that does not, and it does not read the step values as frequencies: a mode's frequency and an instant are
+    both positive and ascending, and the guess "positive and ascending is a mode" made every time series whose first
+    stored instant was not 0 (a time window, a solver that skips t = 0) animate as mode shapes. Without positive modal
+    evidence: one step (or none) is static, several are a time series.
 
-    Picker drives the deformation-scale slider range from this:
-    static = [0, 1] (displacement is one-directional, signed sweep
-    isn't physical), eigen = [-1, +1] (mode shape has no inherent
-    sign).
+    The picker drives the deformation-scale slider from this: static and transient = [0, 1] at true scale (a
+    displacement has a direction), eigen = [-1, +1] (a mode shape has no sign).
     """
-
     if spec.analysis_kind is not None:
         return spec.analysis_kind
-    if spec.n_steps == 0:
+    if spec.n_steps <= 1:
         return "static"
-    first = float(spec.step_values[0])
-    # Eigen analyses produce strictly positive frequencies starting
-    # from a non-zero value; static/transient runs almost always
-    # start at t=0.
-    if first > 0.0 and spec.n_steps >= 1:
-        # Single-step at non-zero might still be static at a finite
-        # time, but the conservative call is "treat as eigen" only
-        # when we have a clear modal signature: multi-step ascending
-        # positives.
-        if spec.n_steps >= 2:
-            ascending = all(spec.step_values[i + 1] > spec.step_values[i] for i in range(spec.n_steps - 1))
-            if ascending:
-                return "eigen"
-        else:
-            return "eigen"
-    return "static"
+    return "transient"
 
 
 def build_manifest(

@@ -34,7 +34,11 @@ if TYPE_CHECKING:
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_only=False):
     """Write a Calculix input file stack"""
 
+    from ada.fem.cavities import refuse_fluid_cavities
+
     check_compatibility(assembly)
+    refuse_fluid_cavities(assembly, "calculix")
+    report_unwritten_pretension(assembly)
 
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
@@ -67,6 +71,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         u1_materials = {el.fem_sec.material.name for el in p.fem.elements.lines if el.id in deck.u1_elements}
         f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in p.materials]) + "\n")
         f.write(constraints_str(p, assembly) + "\n")
+        ampl = amplitudes_str([p.fem, assembly.fem])
+        if ampl:
+            f.write(ampl + "\n")
         f.write("\n".join([bc_str(x) for x in bcs]) + "\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
         # *STEP block. ``ada convert --to calculix`` produces exactly that (a conversion
@@ -78,6 +85,47 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
             f.write("** No steps\n")
 
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
+
+
+def amplitudes_str(fems) -> str:
+    """Every ``Amplitude`` of ``fems`` as ``*AMPLITUDE`` model data (CalculiX manual 7.4): ``time, value`` pairs, four
+    to a line, on the step time. A load or boundary condition names one with ``AMPLITUDE=``. CalculiX interpolates
+    linearly; an Abaqus ``SMOOTH`` value has no counterpart and is reported as approximated."""
+    from ada.fem.formats import conversion_report
+
+    from .write_loads import ccx_number
+
+    blocks, seen = [], set()
+    for fem in fems:
+        for ampl in fem.amplitudes.values():
+            if ampl.name in seen:
+                continue
+            seen.add(ampl.name)
+            if ampl.smooth is not None:
+                conversion_report.current().approximated(
+                    "calculix writer", "*AMPLITUDE", ampl.name, "SMOOTH is not written; CalculiX interpolates linearly"
+                )
+            pairs = [f"{ccx_number(x)}, {ccx_number(y)}" for x, y in zip(ampl.x, ampl.y)]
+            lines = [", ".join(pairs[i : i + 4]) for i in range(0, len(pairs), 4)]
+            blocks.append(f"*Amplitude, name={ampl.name}\n" + "\n".join(lines))
+    return "\n".join(blocks)
+
+
+def report_unwritten_pretension(assembly: Assembly) -> None:
+    """A membrane's pretension is not written (CalculiX takes an initial stress per integration point only); nor is a
+    cable's, which is written as a truss (``write_elements.truss_element_type`` reports that)."""
+    from ada.fem.formats import conversion_report
+
+    for p in assembly.get_all_parts_in_assembly(include_self=True):
+        for sec in p.fem.sections.shells:
+            if sec.is_membrane and sec.pretension != 0.0:
+                conversion_report.current().omitted(
+                    "calculix writer",
+                    "*MEMBRANE SECTION",
+                    sec.name,
+                    "a membrane's pretension is not written",
+                    pretension=sec.pretension,
+                )
 
 
 def all_steps(assembly: Assembly) -> list:
@@ -403,7 +451,12 @@ def shell_sec_str(part):
 
 
 def beam_sec_str(part, report: bool = True):
-    beam_secs = [beam_str(sec, report) for sec in part.fem.sections.lines]
+    from ada.fem.formats.abaqus.write.write_sections import truss_section_str
+
+    beam_secs = [
+        truss_section_str(sec, sec.material.name) if sec.is_axial_only else beam_str(sec, report)
+        for sec in part.fem.sections.lines
+    ]
     return "\n".join(beam_secs).rstrip() if len(beam_secs) > 0 else "** No beam sections"
 
 

@@ -47,6 +47,9 @@ RESERVED = frozenset(
         "Traction",
         # the element groups the model is assigned over
         "bm_sets",
+        "tr_sets",
+        "cb_sets",
+        "mb_sets",
         "sh_sets",
         "sh_2nd_order_sets",
         "so_sets",
@@ -94,8 +97,9 @@ def is_reserved(name: str) -> bool:
 
 
 #: The prefix of each kind of concept a user object becomes. None of the deck's own names starts with
-#: ``ld_``, ``cp_`` or ``mt_``; ``bc_step`` does, and is in :data:`RESERVED`.
-PREFIX = {"load": "ld_", "bc": "bc_", "coupling": "cp_", "material": "mt_"}
+#: ``ld_``, ``cp_``, ``mt_``, ``mm_`` (a membrane section's material) or ``mc_`` (a cable section's); ``bc_step``
+#: does, and is in :data:`RESERVED`.
+PREFIX = {"load": "ld_", "bc": "bc_", "coupling": "cp_", "material": "mt_", "membrane": "mm_", "cable": "mc_"}
 
 _current: contextvars.ContextVar["ConceptNames | None"] = contextvars.ContextVar("code_aster_concepts", default=None)
 

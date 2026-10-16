@@ -101,10 +101,16 @@ class RmedStreamReader:
         # Need n_points for back-fill; force geom read.
         n_points_mesh = int(self.read_mesh_geometry().points.shape[0])
 
+        from ada.fem.formats.code_aster.results.analysis_kind import (
+            companion_commands,
+            field_kind,
+        )
+
         specs: list[FieldSpec] = []
         if "CHA" not in self._f:
             self._field_specs_cache = specs
             return specs
+        commands = companion_commands(self._path)
 
         for field_name, field_group in self._f["CHA"].items():
             nom = field_group.attrs.get("NOM")
@@ -141,6 +147,8 @@ class RmedStreamReader:
                     support=support,
                     step_values=step_values,
                     category=_classify_med_field(field_name),
+                    # From the file, not guessed from step_values: a mode's frequency and an instant look alike.
+                    analysis_kind=field_kind(field_name, step_values, commands),
                 )
             )
 
