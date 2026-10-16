@@ -2,6 +2,15 @@
 
 
 
+## v0.118.0 (2026-10-16)
+
+### Feature
+
+* feat: membrane, truss and cable FEM theories, fluid cavities and ada.drawings (#458)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`6b66c62`](https://github.com/Krande/adapy/commit/6b66c628105e5165f9d72d18fc3b2816d6a141ca))
+
+
 ## v0.117.0 (2026-10-15)
 
 ### Feature
