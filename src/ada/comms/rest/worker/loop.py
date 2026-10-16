@@ -33,6 +33,7 @@ from .pools import (
     _advance_pool_cursor,
     _bool_env,
     _capabilities_to_add,
+    _fetch_plan,
     _per_fetch_timeout,
     _pool_capabilities,
     _worker_id,
@@ -340,6 +341,14 @@ async def _run() -> None:
     # worker, which cost 20 minutes of a 907-cell sweep. POOL_STREAK_LIMIT is
     # the answer: stay on a pool that is producing, up to a bound that keeps
     # the others from starving.
+    #
+    # And the per-fetch division stops working with many pools: it is floored at
+    # 0.5 s, so 74 pools are a 37 s cycle, which is the pickup latency of an idle
+    # worker. So when the stream can say which pools hold messages, an idle round
+    # asks it once (`JobQueue.pending_pools`, no lease taken) and fetches only
+    # from those, then waits IDLE_WAIT_SECONDS on one pool before asking again
+    # (see `_fetch_plan`). Still one fetch at a time and one leased message.
+    # Without the permission to ask, the round-robin below is what runs.
     per_fetch_timeout = _per_fetch_timeout(len(subs))
 
     # Capabilities a plugin asked for after boot (`ada.plugins.request_worker_capabilities`),
@@ -419,6 +428,12 @@ async def _run() -> None:
     _touch_liveness()  # seed the heartbeat before the first fetch so the probe has a fresh mtime
     rr = 0  # round-robin cursor over `subs`
     streak = 0  # consecutive productive fetches on the current pool
+    yielded: int | None = None  # the pool that just used up its streak: tried last next round
+    # Whether the stream can be asked which pools hold messages (see JobQueue.pending_pools).
+    # Turned off, once and for good, the first time it cannot: a credential without the
+    # permission will not grow it mid-life, and asking every round would be a failed request
+    # per second for nothing.
+    probing = True
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
@@ -432,14 +447,34 @@ async def _run() -> None:
                 # fetch would have taken, so the liveness file stays fresh.
                 await asyncio.sleep(FETCH_TIMEOUT)
                 continue
-            cap, sub = subs[rr % len(subs)]
-            try:
-                msgs = await sub.fetch(batch=FETCH_BATCH, timeout=per_fetch_timeout)
-            except asyncio.TimeoutError:
-                msgs = []
+            pending = None
+            if probing and streak == 0:
+                pending = await queue.pending_pools()
+                if pending is None:
+                    probing = False
+                    logger.info(
+                        "worker: cannot ask the stream which pools hold jobs; polling the %d pools in turn",
+                        len(subs),
+                    )
+            plan = _fetch_plan(
+                [c for c, _ in subs], rr, streak, pending, per_fetch_timeout=per_fetch_timeout, yielded=yielded
+            )
+            # One fetch at a time, first message wins: never a second message leased.
+            msgs, idx = [], rr % len(subs)
+            for idx, timeout in plan:
+                try:
+                    msgs = await subs[idx][1].fetch(batch=FETCH_BATCH, timeout=timeout)
+                except asyncio.TimeoutError:
+                    msgs = []
+                if msgs or stop.is_set():
+                    break
+            if msgs and idx != rr % len(subs):
+                rr, streak = idx, 0  # a probe found work elsewhere: the streak starts there
             rr, streak = _advance_pool_cursor(rr, streak, bool(msgs))
+            yielded = idx if msgs and streak == 0 else None
             if not msgs:
                 continue
+            cap = subs[idx][0]
             for msg in msgs:
                 job_id = msg.data.decode("utf-8")
                 # NATS message metadata carries the delivery counter.
@@ -520,8 +555,9 @@ async def _run() -> None:
                     continue
 
                 logger.info(
-                    "worker: picked up job %s (delivery %d/%d)",
+                    "worker: picked up job %s from %s (delivery %d/%d)",
                     job_id,
+                    cap,
                     delivery_count,
                     MAX_DELIVERIES,
                 )

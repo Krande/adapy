@@ -301,6 +301,56 @@ def _per_fetch_timeout(n_pools: int) -> float:
     return max(0.5, FETCH_TIMEOUT / max(1, n_pools))
 
 
+# An IDLE worker that can see which pools hold messages (``JobQueue.pending_pools``) asks once
+# per round instead of walking its pools: it fetches from the pools that hold something, then
+# waits on one pool for this long and asks again. So pickup latency is about this, whatever the
+# number of pools -- the walk cost ``_per_fetch_timeout`` per pool, 37 s a cycle at 74 pools.
+IDLE_WAIT_SECONDS = 1.0
+
+# The fetch timeout for a pool the stream says holds messages. Short: a message that is waiting
+# comes back at once, and the only way to wait the full timeout is a pool whose messages are all
+# being run by other workers (a work-queue stream counts those until they are acked).
+CANDIDATE_FETCH_TIMEOUT = 0.5
+
+
+def _fetch_plan(
+    pools: list[str],
+    rr: int,
+    streak: int,
+    pending: dict[str, int] | None,
+    *,
+    per_fetch_timeout: float,
+    yielded: int | None = None,
+) -> list[tuple[int, float]]:
+    """This round's fetches, in order: ``[(index into pools, timeout), ...]``.
+
+    The loop runs them ONE AT A TIME and stops at the first that returns a message, so the
+    worker still never holds more than one leased message: a plan is an order, not a batch of
+    concurrent pulls. (Concurrent pulls on several pools would let two messages arrive; the
+    second would sit leased, un-acked, for the whole first job, and then be redelivered with a
+    delivery spent.)
+
+    * mid-streak (``streak > 0``): the pool that just produced, as ``_advance_pool_cursor`` decided;
+    * ``pending`` None (the stream cannot be asked): the round-robin pool, as before;
+    * else every pool the stream says holds messages, round-robin order from the cursor, the pool
+      that just used up its streak (``yielded``) last -- then a wait of :data:`IDLE_WAIT_SECONDS`
+      on the cursor's pool, so an idle worker still has a pull open while it waits.
+
+    Pure, like the other helpers here.
+    """
+    n = len(pools)
+    if n == 0:
+        return []
+    start = rr % n
+    if streak > 0 or pending is None:
+        return [(start, per_fetch_timeout)]
+    candidates = [i for i in ((start + k) % n for k in range(n)) if pending.get(pools[i], 0) > 0]
+    if yielded is not None and yielded in candidates:
+        candidates.remove(yielded)
+        candidates.append(yielded)
+    return [*((i, CANDIDATE_FETCH_TIMEOUT) for i in candidates), (start, IDLE_WAIT_SECONDS)]
+
+
 def _advance_pool_cursor(rr: int, streak: int, produced: bool, limit: int = POOL_STREAK_LIMIT) -> tuple[int, int]:
     """Where the round-robin cursor goes after one fetch — ``(rr, streak)``.
 
