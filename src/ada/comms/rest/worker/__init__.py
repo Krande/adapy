@@ -75,6 +75,7 @@ from .pools import (  # noqa: F401
     _per_fetch_timeout,
     _pool_capabilities,
     _worker_id,
+    summarise_names,
 )
 from .process import _process_one, _should_skip_cancelled  # noqa: F401
 from .registration import Registration, build_registration  # noqa: F401

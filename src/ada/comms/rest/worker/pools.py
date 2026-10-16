@@ -277,6 +277,19 @@ def _capabilities_to_add(requested: list[str], serving: list[str]) -> list[str]:
     return out
 
 
+def summarise_names(names: list[str], limit: int = 3) -> str:
+    """``names`` for a log line: all of them when few, else the first ``limit`` and a count.
+
+    ``['a', 'b', 'c', 'd', 'e']`` -> ``'5: a, b, c, … (+2)'``. A worker can serve one pool per
+    collection, and a startup log that prints every list in full on every line buries the lines
+    that matter; the full list goes to DEBUG beside the summary. Pure, for the tests.
+    """
+    if len(names) <= limit + 1:  # "(+1)" would be no shorter than the name it hides
+        return ", ".join(names)
+    shown = ", ".join(names[: max(0, limit)])
+    return f"{len(names)}: {shown}, … (+{len(names) - max(0, limit)})"
+
+
 def _per_fetch_timeout(n_pools: int) -> float:
     """Per-pool fetch timeout so one full round-robin cycle takes ~FETCH_TIMEOUT.
 

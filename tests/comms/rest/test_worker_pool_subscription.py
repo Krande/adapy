@@ -60,3 +60,19 @@ def test_per_fetch_timeout_is_floored_and_survives_zero():
     # Many pools must not degenerate into a busy-loop of near-instant fetches.
     assert worker._per_fetch_timeout(100) == 0.5
     assert worker._per_fetch_timeout(0) == pytest.approx(worker.FETCH_TIMEOUT)
+
+
+# --- the startup log's list summary -------------------------------------------
+
+
+def test_a_short_list_is_logged_in_full():
+    assert worker.summarise_names([]) == ""
+    assert worker.summarise_names(["base"]) == "base"
+    # One over the limit is still in full: "(+1)" would be no shorter than the name.
+    assert worker.summarise_names(["a", "b", "c", "d"]) == "a, b, c, d"
+
+
+def test_a_long_list_is_a_count_and_a_sample():
+    names = ["base"] + [f"pool-{i:02d}" for i in range(73)]
+    assert worker.summarise_names(names) == "74: base, pool-00, pool-01, … (+71)"
+    assert worker.summarise_names(names, limit=1) == "74: base, … (+73)"

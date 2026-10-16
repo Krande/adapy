@@ -36,6 +36,7 @@ from .pools import (
     _per_fetch_timeout,
     _pool_capabilities,
     _worker_id,
+    summarise_names,
 )
 from .process import _process_one, _should_skip_cancelled
 from .registration import build_registration
@@ -143,7 +144,12 @@ async def _run() -> None:
     if settings.queue.url is None:
         raise SystemExit("ADA_VIEWER_NATS_URL not set; nothing for the worker to do")
 
-    logger.info("worker: booting capabilities=%s", os.environ.get("ADA_WORKER_CAPABILITIES", "base"))
+    # The capabilities are said in full ONCE, here, and summarised: one pool per
+    # collection makes this list long, and the registered/subscribing lines below
+    # only give counts. Everything in full is at DEBUG.
+    requested = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    logger.info("worker: booting, capabilities %s", summarise_names(requested))
+    logger.debug("worker: requested capabilities %s", requested)
     storage = Storage.from_settings(settings)
     state._WORKER_STORAGE = storage
     queue = JobQueue(settings.queue)
@@ -205,11 +211,8 @@ async def _run() -> None:
     _publish_registration = reg.publish
 
     await _publish_registration()
-    logger.info(
-        "worker: registered id=%s capabilities=%s",
-        worker_id,
-        ",".join(capabilities),
-    )
+    logger.info("worker: registered id=%s (%d capabilities)", worker_id, len(capabilities))
+    logger.debug("worker: registered capabilities %s", capabilities)
 
     # DB pool. Audit-log updates (queued -> done/error) degrade gracefully
     # without it, but procedural_build / relocations / engine builds REQUIRE it
@@ -265,10 +268,7 @@ async def _run() -> None:
         #
         # Neither is an error and neither can be retried into working, so this
         # is the one place that can say so.
-        logger.info(
-            "worker: no DATABASE_URL — job outcomes will not be recorded in the audit log, "
-            "and this worker reports no package manifest. Both are expected without a pool."
-        )
+        logger.info("worker: no DATABASE_URL — no audit-log outcomes or package manifest (expected without a pool)")
         # Source-node change tracking is the third consequence, and unlike the
         # other two it has an alternative -- so say which way this worker is
         # configured. Silence here is what made a pool-less worker look like it
@@ -282,9 +282,8 @@ async def _run() -> None:
             )
         else:
             logger.info(
-                "worker: source-node changes will NOT be recorded — a plugin that tracks an "
-                "external source will report that it cannot record. Set ADA_VIEWER_API_URL and "
-                "ADA_VIEWER_TOKEN to record over the API instead of a pool."
+                "worker: source-node changes NOT recorded — set ADA_VIEWER_API_URL + ADA_VIEWER_TOKEN "
+                "to record via the API"
             )
 
     # Subscribe to every capability this worker advertises, one durable
@@ -319,7 +318,8 @@ async def _run() -> None:
             "The registry row records why, per capability. Fix the environment "
             "or the requirements and restart."
         )
-    logger.info("worker: subscribing to capability pools %s", pool_capabilities)
+    logger.info("worker: subscribing to %d capability pools", len(pool_capabilities))
+    logger.debug("worker: capability pools %s", pool_capabilities)
     subs = [(cap, await queue.pull_subscribe(cap)) for cap in pool_capabilities]
 
     # Poll the pools round-robin, one fetch at a time, rather than fetching them
