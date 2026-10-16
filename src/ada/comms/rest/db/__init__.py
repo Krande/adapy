@@ -60,6 +60,7 @@ from .asset_sweeps import (
 )
 from .attribute_index import (
     FoldRefused,
+    admin_search_origins,
     drop_attr_collection,
     fold_attr_duplicates,
     ingest_attribute_index,
@@ -345,6 +346,7 @@ __all__ = [
     "list_attr_keys",
     "list_attr_values",
     "readable_share_origins",
+    "admin_search_origins",
     "share_attr_collection",
     "unshare_attr_collection",
     "list_attr_shares",

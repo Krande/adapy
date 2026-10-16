@@ -924,9 +924,18 @@ class SearchQuery:
     #: Partitions never read, whatever ``providers`` / ``collections`` include (collections lower-case).
     exclude_providers: Optional[list[str]] = None
     exclude_collections: Optional[list[str]] = None
+    #: Partitions by their ``counts`` key (:func:`_label`: ``<provider>/<collection>`` for the scope's
+    #: own, ``...@<origin>`` for another scope's) -- the one filter that tells two partitions of one
+    #: collection name apart. ``partitions`` includes (``None``: all), ``exclude_partitions`` leaves out.
+    partitions: Optional[list[str]] = None
+    exclude_partitions: Optional[list[str]] = None
+    #: An ADMIN's search of every provider scope's partitions, shared here or not
+    #: (:func:`admin_search_origins`). The route refuses it for anyone else; here it is only a flag.
+    all_scopes: bool = False
 
     def fingerprint(self) -> str:
-        """What a cursor is valid for: the filters, not the page size or the projection."""
+        """What a cursor is valid for: the filters, not the page size or the projection. A filter
+        added later joins the fingerprint only when set, so a cursor issued before it stays valid."""
         doc = [
             self.providers,
             self.collections,
@@ -938,6 +947,10 @@ class SearchQuery:
         ]
         if self.exclude_providers or self.exclude_collections:
             doc += [self.exclude_providers, self.exclude_collections]
+        if self.partitions or self.exclude_partitions:
+            doc += [{"partitions": self.partitions, "exclude_partitions": self.exclude_partitions}]
+        if self.all_scopes:
+            doc += [{"all_scopes": True}]
         return hashlib.sha1(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:12]
 
     @property
@@ -997,7 +1010,13 @@ def parse_search_query(body: Any) -> SearchQuery:
         select=_str_list(body, "select"),
         exclude_providers=_str_list(body, "exclude_providers"),
         exclude_collections=_lower(_str_list(body, "exclude_collections")),
+        partitions=_str_list(body, "partitions"),
+        exclude_partitions=_str_list(body, "exclude_partitions"),
     )
+    all_scopes = body.get("all_scopes")
+    if all_scopes not in (None, True, False):
+        raise SearchQueryError("'all_scopes' must be true or false")
+    q.all_scopes = all_scopes is True
     depth = body.get("depth")
     if depth is not None:
         if not isinstance(depth, dict) or not set(depth) <= {"eq", "min", "max"} or not depth:
@@ -1193,8 +1212,13 @@ def scope_wire(prefix: str, viewer: Optional[str] = None) -> Optional[str]:
 
 
 def _origin(part: dict, viewer: Optional[str]) -> dict:
-    """Where a partition lies, as a row or collection entry reports it."""
-    return {"scope": part["scope"], "scope_wire": scope_wire(part["scope"], viewer), "shared": part["shared"]}
+    """Where a partition lies, as a row or collection entry reports it. ``admin``: read only because
+    an admin searched every scope (:func:`admin_search_origins`), not through a share -- absent
+    otherwise, so a search without that option answers exactly as it always did."""
+    out = {"scope": part["scope"], "scope_wire": scope_wire(part["scope"], viewer), "shared": part["shared"]}
+    if part.get("admin"):
+        out["admin"] = True
+    return out
 
 
 async def _partitions(
@@ -1206,6 +1230,9 @@ async def _partitions(
     exclude_providers: Optional[list[str]] = None,
     exclude_collections: Optional[list[str]] = None,
     shared_from: Optional[Iterable[str]] = None,
+    read_from: Optional[Iterable[str]] = None,
+    partitions: Optional[Iterable[str]] = None,
+    exclude_partitions: Optional[Iterable[str]] = None,
 ) -> list[dict]:
     """The scope's partitions, narrowed to the included providers / collections (``None``: all) and
     minus the excluded ones -- an excluded partition is never queried.
@@ -1215,27 +1242,36 @@ async def _partitions(
     caller cannot reach is never even listed. A partition is shared into ``scope`` by its own share
     (039) or by its (scope, provider) group's (040). ``None`` (what every caller that predates shares
     passes, the export job's lookups among them) reads the scope's own partitions only. Each partition says its
-    ``scope`` (the origin) and whether it is ``shared``; they come in :func:`_order`."""
+    ``scope`` (the origin) and whether it is ``shared``; they come in :func:`_order`.
+
+    ``read_from``: origin scopes read WHOLE, shared here or not -- an admin's search of every scope
+    (:func:`admin_search_origins`); such a partition without a share says ``admin``. ``partitions`` /
+    ``exclude_partitions``: by :func:`_label`, applied last (they name what this listing labels)."""
     if collections is not None:
         collections = sorted({c.lower() for c in collections})  # stored lower-case (see parse_header)
     if exclude_collections:
         exclude_collections = sorted({c.lower() for c in exclude_collections})
     origins = sorted(set(shared_from or ()) - {scope})
+    whole = sorted(set(read_from or ()) - {scope})
     rows = await conn.fetch(
         """
-        SELECT c.scope, c.provider, c.collection, c.revision, c.rows, c.source_etag, c.ingested_at, c.partition_name,
-               c.part_key, c.keys, c.high_card_keys
-        FROM attr_collections c
-        WHERE (c.scope = $1 OR (c.scope = ANY($6::text[]) AND (
-                  EXISTS (
-                      SELECT 1 FROM attr_shares s
-                      WHERE s.target_scope = $1 AND s.scope = c.scope AND s.provider = c.provider
-                        AND s.collection = c.collection)
-                  OR EXISTS (
-                      SELECT 1 FROM attr_provider_shares g
-                      WHERE g.target_scope = $1 AND g.scope = c.scope AND g.provider = c.provider))))
-          AND ($2::text[] IS NULL OR c.provider = ANY($2)) AND ($3::text[] IS NULL OR c.collection = ANY($3))
-          AND NOT (c.provider = ANY($4::text[])) AND NOT (c.collection = ANY($5::text[]))
+        SELECT * FROM (
+            SELECT c.scope, c.provider, c.collection, c.revision, c.rows, c.source_etag, c.ingested_at,
+                   c.partition_name, c.part_key, c.keys, c.high_card_keys,
+                   (c.scope <> $1 AND (c.scope = ANY($6::text[]) AND (
+                      EXISTS (
+                          SELECT 1 FROM attr_shares s
+                          WHERE s.target_scope = $1 AND s.scope = c.scope AND s.provider = c.provider
+                            AND s.collection = c.collection)
+                      OR EXISTS (
+                          SELECT 1 FROM attr_provider_shares g
+                          WHERE g.target_scope = $1 AND g.scope = c.scope AND g.provider = c.provider)))) AS by_share
+            FROM attr_collections c
+            WHERE (c.scope = $1 OR c.scope = ANY($6::text[]) OR c.scope = ANY($7::text[]))
+              AND ($2::text[] IS NULL OR c.provider = ANY($2)) AND ($3::text[] IS NULL OR c.collection = ANY($3))
+              AND NOT (c.provider = ANY($4::text[])) AND NOT (c.collection = ANY($5::text[]))
+        ) x
+        WHERE x.scope = $1 OR x.by_share OR x.scope = ANY($7::text[])
         """,
         scope,
         providers,
@@ -1243,10 +1279,19 @@ async def _partitions(
         exclude_providers or [],
         exclude_collections or [],
         origins,
+        whole,
     )
     parts = [dict(r) for r in rows if _PARTITION_RE.match(r["partition_name"])]
     for p in parts:
+        by_share = bool(p.pop("by_share"))
         p["shared"] = p["scope"] != scope
+        p["admin"] = p["shared"] and not by_share
+    if partitions is not None:
+        wanted = set(partitions)
+        parts = [p for p in parts if _label(p) in wanted]
+    if exclude_partitions:
+        dropped = set(exclude_partitions)
+        parts = [p for p in parts if _label(p) not in dropped]
     parts.sort(key=_order)
     return parts
 
@@ -1294,10 +1339,11 @@ async def search_attributes(
     query: SearchQuery,
     shared_from: Optional[Iterable[str]] = None,
     viewer: Optional[str] = None,
+    read_from: Optional[Iterable[str]] = None,
 ) -> dict:
     """One page of the contract's search response for ``scope``, plus the partitions shared into it
-    from ``shared_from`` (see :func:`_partitions`). ``viewer`` (the caller's sub) is only for the
-    rows' ``scope_wire`` (:func:`scope_wire`)."""
+    from ``shared_from`` and every partition of ``read_from`` (see :func:`_partitions`). ``viewer``
+    (the caller's sub) is only for the rows' ``scope_wire`` (:func:`scope_wire`)."""
     t0 = time.perf_counter()
     fp = query.fingerprint()
     cur = decode_cursor(query.cursor, fp) if query.cursor else None
@@ -1317,6 +1363,9 @@ async def search_attributes(
             exclude_providers=query.exclude_providers,
             exclude_collections=query.exclude_collections,
             shared_from=shared_from,
+            read_from=read_from,
+            partitions=query.partitions,
+            exclude_partitions=query.exclude_partitions,
         )
 
         counts: dict[str, int]
@@ -1435,13 +1484,16 @@ async def list_attr_collections(
     scope: str,
     shared_from: Optional[Iterable[str]] = None,
     viewer: Optional[str] = None,
+    read_from: Optional[Iterable[str]] = None,
 ) -> list[dict]:
     """One entry per partition searchable in ``scope``: its own, then (per collection) the ones
-    shared into it from ``shared_from``, each saying its origin."""
+    shared into it from ``shared_from`` (and every one of ``read_from``), each saying its origin and
+    its ``key`` -- the name a search's ``partitions`` / ``exclude_partitions`` and ``counts`` use."""
     async with pool.acquire() as conn:
-        parts = await _partitions(conn, scope, shared_from=shared_from)
+        parts = await _partitions(conn, scope, shared_from=shared_from, read_from=read_from)
     return [
         {
+            "key": _label(p),
             "provider": p["provider"],
             "collection": p["collection"],
             **_origin(p, viewer),
@@ -1461,6 +1513,7 @@ async def list_attr_keys(
     provider: Optional[str] = None,
     collection: Optional[str] = None,
     shared_from: Optional[Iterable[str]] = None,
+    read_from: Optional[Iterable[str]] = None,
 ) -> list[str]:
     """Every attribute key of the matching collections, sorted (byte order: keys are case-sensitive)."""
     async with pool.acquire() as conn:
@@ -1470,6 +1523,7 @@ async def list_attr_keys(
             [provider] if provider else None,
             [collection] if collection else None,
             shared_from=shared_from,
+            read_from=read_from,
         )
     keys: set[str] = set()
     for p in parts:
@@ -1487,6 +1541,7 @@ async def list_attr_values(
     provider: Optional[str] = None,
     collection: Optional[str] = None,
     shared_from: Optional[Iterable[str]] = None,
+    read_from: Optional[Iterable[str]] = None,
 ) -> list[dict]:
     """The commonest values of ``key`` (as text) across the matching collections, most frequent
     first. From the ingest histogram where the key has one; by scanning the partition where its
@@ -1502,6 +1557,7 @@ async def list_attr_values(
             [provider] if provider else None,
             [collection] if collection else None,
             shared_from=shared_from,
+            read_from=read_from,
         )
         tracked = [p["part_key"] for p in parts if key in (p["keys"] or []) and key not in (p["high_card_keys"] or [])]
         scanned = [p for p in parts if key in (p["high_card_keys"] or [])]
@@ -1563,6 +1619,30 @@ async def readable_share_origins(pool: asyncpg.Pool, *, scope: str, user_sub: st
         scope,
         user_sub,
         is_admin,
+    )
+    return [r["scope"] for r in rows]
+
+
+async def admin_search_origins(pool: asyncpg.Pool, *, scope: str) -> list[str]:
+    """Every scope but ``scope`` whose attribute partitions an ADMIN may search from ``scope`` without
+    a share (``all_scopes`` on a search) -- what a request passes as ``read_from``.
+
+    The provider scopes: the shared scope, every project that is not archived (membership or not:
+    this is the admin's view of every provider collection) and the corpora. NOT another user's
+    personal scope: admin status is for administering the providers' data, not for reading what a
+    user indexed for themselves (:func:`..scope.can_access` draws the same line). The caller checks
+    that the user is an admin; this only lists."""
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT c.scope FROM attr_collections c
+        WHERE c.scope <> $1
+          AND (c.scope = 'shared'
+               OR c.scope LIKE 'corpus/%'
+               OR (c.scope LIKE 'projects/%' AND EXISTS (
+                   SELECT 1 FROM projects p WHERE p.archived_at IS NULL AND 'projects/' || p.id::text = c.scope)))
+        ORDER BY 1
+        """,
+        scope,
     )
     return [r["scope"] for r in rows]
 

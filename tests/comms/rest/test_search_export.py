@@ -441,6 +441,76 @@ def test_the_batch_job_writes_files_sidecars_and_reports_no_geometry(monkeypatch
     assert {p["ADA_Source"]["scope"] for p in psets.values() if "ADA_Source" in p} == {"shared"}
 
 
+def test_a_batch_of_another_scopes_hits_is_read_there_and_written_to_the_target(monkeypatch):
+    """``origin_scope``: the geometry and the provenance are the origin's, the summary the job's own
+    scope's, the files the target's."""
+    store, queue = _Store(), _Queue()
+    own, origin = Scope.user("me"), Scope.project("p-2")
+    read_from = []
+
+    def fake_resolve(index, collection, hit, **kw):
+        return SimpleNamespace(provider="design-reader", subject="fn-zone", revision="r9"), hit["node_id"]
+
+    def fake_part(m, storage, node):
+        read_from.append(storage._scope)
+        return _geometry_part()
+
+    monkeypatch.setattr(job_mod, "resolve_geometry", fake_resolve)
+    monkeypatch.setattr("ada.assets.concepts.part_for_manifest", fake_part)
+
+    async def no_audit(*a, **k):
+        return None
+
+    monkeypatch.setattr(job_mod, "_audit_done", no_audit)
+    job = SimpleNamespace(
+        job_id="j1",
+        derived_key="_derived/search-export/run-1/0.json",
+        conversion_options={
+            "run_id": "run-1",
+            "source_scope": "project:p-2",
+            "origin_scope": origin.prefix(),
+            "target_scope": {"kind": "user", "id": "me"},
+            "target_folder": "out",
+            "query": QUERY,
+            "provider": "vendor-a",
+            "collection": "alpha",
+            "hits": [{**HIT, "origin": origin.prefix(), "file": "out/alpha/STRU-1.ifc"}],
+            "also": [],
+        },
+    )
+    ctx = SimpleNamespace(scope=own, storage=store, queue=queue, db_pool=None, started_at=0.0)
+    asyncio.run(job_mod.ExportSearchAssetHandler().run(job, ctx))
+    assert queue.updates[-1]["status"] == "done", queue.updates[-1]
+    assert read_from == [origin]
+    assert ("users/me", job.derived_key) in store.blobs
+    meta = json.loads(store.blobs[("users/me", "out/alpha/STRU-1.meta.json")])
+    assert meta["source"]["scope"] == "project:p-2"
+    assert job_mod._origin_of({"origin_scope": "users/me"}, own) == own
+    assert job_mod._origin_of({}, own) == own
+
+
+def test_a_shared_batch_runs_in_the_exports_scope_and_tells_the_job_where_to_read(export_world):
+    w = export_world()
+    hits = [ex.clean_hit({**HIT, "scope": "shared"}, [], "projects/p-1")]
+    batches = ex.batch_hits(hits, "out")
+    asyncio.run(
+        ex.drive_export(
+            w.ctx,
+            None,
+            RUN,
+            scope_obj=Scope.project("p-1"),
+            target=Scope.shared(),
+            batches=batches,
+            job_opts={**JOB_OPTS, "source_scope": "project:p-1"},
+            user=None,
+        )
+    )
+    [req] = w.submitted
+    assert req.scope == Scope.project("p-1")
+    assert req.conversion_options["origin_scope"] == "shared" and req.conversion_options["source_scope"] == "shared"
+    assert w.finished == ("done", None)
+
+
 def test_the_source_scope_is_the_jobs_own_scope_in_path_form():
     assert job_mod._source_scope_wire("project:some-slug", Scope.project("p-1")) == "project:p-1"
     assert job_mod._source_scope_wire(None, Scope.shared()) == "shared"
@@ -600,7 +670,7 @@ def test_every_hit_query_keeps_negative_filters_and_exclusions(monkeypatch):
     negative operators reach it, the page size and cursor are the export's own."""
     seen = []
 
-    async def fake_search(pool, *, scope, query):
+    async def fake_search(pool, *, scope, query, **kw):
         seen.append(query)
         return {"rows": [], "next_cursor": None, "counts": {}}
 

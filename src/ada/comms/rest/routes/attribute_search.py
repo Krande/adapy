@@ -10,11 +10,19 @@ The scope's own partitions are read, and the partitions an admin shared into it 
 scope (migration 039) -- but a shared one only while the caller can still reach the scope it was
 shared FROM. The scope comes from the path, through the same access check every
 ``/scopes/{scope}/assets/...`` route uses; the shares readable to this caller are resolved once
-per request (:func:`_shared_from`) and handed to the database layer, which reads nothing else.
+per request (:func:`search_origins`) and handed to the database layer, which reads nothing else.
 Every row and collection says its origin (``scope``, ``scope_wire``, ``shared``).
+
+AN ADMIN MAY SEARCH EVERY PROVIDER SCOPE (``all_scopes``, a body field of the search and a query
+parameter of the listings): the shared scope, every live project and the corpora, shared here or
+not (``admin_search_origins``) -- the same origin-tagged rows a share gives, each partition read
+that way saying ``admin``. Refused (403) for anyone else. Another user's personal scope is never
+among them.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -29,11 +37,44 @@ from .deps import require_pool, scope_from_path
 router = APIRouter()
 
 
-async def _shared_from(pool, scope_obj: Scope, user: User) -> list[str]:
-    """The origins of the shares into this scope that ``user`` may read (``readable_share_origins``)."""
-    return await db_module.readable_share_origins(
-        pool, scope=scope_obj.prefix(), user_sub=user.sub, is_admin=bool(getattr(user, "is_admin", False))
+@dataclass(frozen=True)
+class SearchOrigins:
+    """The other scopes a search of one scope reads, for one caller: ``shared_from`` (shares into it
+    whose origin the caller can reach) and ``read_from`` (an admin's ``all_scopes``)."""
+
+    shared_from: tuple[str, ...] = ()
+    read_from: tuple[str, ...] = ()
+
+    def readable(self, own: str) -> frozenset[str]:
+        """Every origin a hit of such a search may come from -- what an export may read."""
+        return frozenset({own, *self.shared_from, *self.read_from})
+
+
+class AllScopesRefused(PermissionError):
+    """``all_scopes`` asked for by someone who is not an admin."""
+
+
+async def search_origins(pool, scope_obj: Scope, user: User, *, all_scopes: bool = False) -> SearchOrigins:
+    """The origins a search of ``scope_obj`` by ``user`` reads (``readable_share_origins``, plus
+    ``admin_search_origins`` for an admin's ``all_scopes``). Raises :class:`AllScopesRefused` for a
+    non-admin's ``all_scopes``."""
+    is_admin = bool(getattr(user, "is_admin", False))
+    if all_scopes and not is_admin:
+        raise AllScopesRefused("searching every scope ('all_scopes') is for administrators")
+    if pool is None:  # no database: no index, so no other scope's either
+        return SearchOrigins()
+    shared = await db_module.readable_share_origins(
+        pool, scope=scope_obj.prefix(), user_sub=getattr(user, "sub", ""), is_admin=is_admin
     )
+    whole = await db_module.admin_search_origins(pool, scope=scope_obj.prefix()) if all_scopes else []
+    return SearchOrigins(tuple(shared), tuple(whole))
+
+
+async def _origins_or_403(pool, scope_obj: Scope, user: User, all_scopes: bool) -> SearchOrigins:
+    try:
+        return await search_origins(pool, scope_obj, user, all_scopes=all_scopes)
+    except AllScopesRefused as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/scopes/{scope}/assets/search")
@@ -42,12 +83,18 @@ async def api_asset_search(
     scope_obj: Scope = Depends(scope_from_path),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Body: ``{providers, collections, exclude_providers, exclude_collections, kind, depth, where,
-    select, limit, cursor}`` (all optional).
+    """Body: ``{providers, collections, exclude_providers, exclude_collections, partitions,
+    exclude_partitions, all_scopes, kind, depth, where, select, limit, cursor}`` (all optional).
 
     ``providers`` / ``collections`` include (``null``: every one); ``exclude_providers`` /
     ``exclude_collections`` leave those out whatever the includes say, and are never read.
-    Collections compare case-insensitively. They apply to shared partitions as to own ones.
+    Collections compare case-insensitively. They apply to shared partitions as to own ones -- by
+    NAME, so they cannot tell two scopes' partitions of one collection apart. ``partitions`` /
+    ``exclude_partitions`` can: they name partitions by their ``counts`` key (``key`` in the
+    collections listing).
+
+    ``all_scopes: true`` (admins only, 403 otherwise) also reads every provider scope's partitions,
+    shared here or not (see the module docstring).
 
     ``where`` items are ``{"key", "eq"}``, ``{"key", "in": [...]}``, ``{"key", "prefix"}``,
     ``{"key", "ne"}``, ``{"key", "not_in": [...]}``, ``{"key", "exists": true}`` or
@@ -61,20 +108,22 @@ async def api_asset_search(
 
     Response: ``{rows, next_cursor, counts, partitions, took_ms}`` where ``counts`` is the whole
     query's match count per partition -- keyed ``<provider>/<collection>`` for the scope's own,
-    ``<provider>/<collection>@<origin scope>`` for a shared one -- and ``partitions`` lists the
+    ``<provider>/<collection>@<origin scope>`` for another scope's -- and ``partitions`` lists the
     same with those parts and the origin spelled out. Each row carries its ancestors (``path``,
     root first) and its origin: ``scope`` (the storage prefix), ``scope_wire`` (the path segment
-    that names it to this caller, or null) and ``shared``. A ``cursor`` replayed with different
-    filters (exclusions included) is refused (400)."""
+    that names it to this caller, or null), ``shared`` and -- read through ``all_scopes`` alone --
+    ``admin``. A ``cursor`` replayed with different filters (exclusions included) is refused (400)."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     try:
         query = parse_search_query(body)
+        origins = await _origins_or_403(pool, scope_obj, user, query.all_scopes)
         result = await db_module.search_attributes(
             pool,
             scope=scope_obj.prefix(),
             query=query,
-            shared_from=await _shared_from(pool, scope_obj, user),
+            shared_from=origins.shared_from,
+            read_from=origins.read_from,
             viewer=user.sub,
         )
     except SearchQueryError as exc:
@@ -87,12 +136,19 @@ async def api_asset_search_collections(
     request: Request,
     scope_obj: Scope = Depends(scope_from_path),
     user: User = Depends(auth_module.current_user),
+    all_scopes: bool = False,
 ) -> JSONResponse:
     """What is searchable in this scope: one entry per indexed provider collection, its own and
-    those shared into it, each with its origin (``scope``, ``scope_wire``, ``shared``)."""
+    those shared into it (with ``all_scopes``, an admin's: every provider scope's), each with its
+    origin (``scope``, ``scope_wire``, ``shared``) and ``key``, the name a search filters it by."""
     pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, all_scopes)
     collections = await db_module.list_attr_collections(
-        pool, scope=scope_obj.prefix(), shared_from=await _shared_from(pool, scope_obj, user), viewer=user.sub
+        pool,
+        scope=scope_obj.prefix(),
+        shared_from=origins.shared_from,
+        read_from=origins.read_from,
+        viewer=user.sub,
     )
     return JSONResponse({"collections": collections})
 
@@ -104,15 +160,18 @@ async def api_asset_search_keys(
     user: User = Depends(auth_module.current_user),
     provider: str | None = None,
     collection: str | None = None,
+    all_scopes: bool = False,
 ) -> JSONResponse:
     """Every attribute key in the scope's index (or one provider's / one collection's), sorted."""
     pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, all_scopes)
     keys = await db_module.list_attr_keys(
         pool,
         scope=scope_obj.prefix(),
         provider=provider or None,
         collection=collection or None,
-        shared_from=await _shared_from(pool, scope_obj, user),
+        shared_from=origins.shared_from,
+        read_from=origins.read_from,
     )
     return JSONResponse({"keys": keys})
 
@@ -127,11 +186,13 @@ async def api_asset_search_values(
     limit: int = 50,
     provider: str | None = None,
     collection: str | None = None,
+    all_scopes: bool = False,
 ) -> JSONResponse:
     """The commonest values of one key (as text), optionally starting with ``prefix``."""
     pool = require_pool(request)
     if not key:
         raise HTTPException(status_code=400, detail="'key' is required")
+    origins = await _origins_or_403(pool, scope_obj, user, all_scopes)
     values = await db_module.list_attr_values(
         pool,
         scope=scope_obj.prefix(),
@@ -140,6 +201,7 @@ async def api_asset_search_values(
         limit=limit,
         provider=provider or None,
         collection=collection or None,
-        shared_from=await _shared_from(pool, scope_obj, user),
+        shared_from=origins.shared_from,
+        read_from=origins.read_from,
     )
     return JSONResponse({"values": values})

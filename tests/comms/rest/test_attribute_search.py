@@ -672,13 +672,58 @@ def test_a_cursor_carries_its_origin_and_one_without_it_still_decodes():
         ai.decode_cursor(ai.encode_cursor({"v": 1, "f": fp, "p": "p", "c": "c", "s": 3, "n": "n"}), fp)
 
 
-def test_an_export_refuses_hits_shared_in_from_another_scope():
+def test_an_export_takes_hits_from_origins_its_search_reads_and_refuses_the_rest():
     from ada.comms.rest.routes import asset_exports as ex
 
-    scope = Scope.project("p1")
-    ex.refuse_foreign_hits([{"node_id": "a"}, {"node_id": "b", "scope": "projects/p1"}], scope)
-    with pytest.raises(ex.ExportRefused, match="from shared"):
-        ex.refuse_foreign_hits([{"node_id": "a", "scope": "shared"}], scope)
+    own = "projects/p1"
+    ex.refuse_unreadable_hits([{"node_id": "a"}, {"node_id": "b", "scope": own}], own, frozenset({own}))
+    ex.refuse_unreadable_hits([{"node_id": "a", "scope": "shared"}], own, frozenset({own, "shared"}))
+    with pytest.raises(ex.ExportRefused, match="projects/p2") as err:
+        ex.refuse_unreadable_hits([{"node_id": "a", "scope": "projects/p2"}], own, frozenset({own, "shared"}))
+    assert err.value.status == 403
+    # An own hit carries no origin; another scope's carries its own.
+    row = {"provider": "prov", "collection": "ALPHA", "node_id": "n1", "attrs": {}}
+    assert "origin" not in ex.clean_hit({**row, "scope": own}, [], own)
+    assert ex.clean_hit({**row, "scope": "shared"}, [], own)["origin"] == "shared"
+
+
+def test_an_export_batches_per_origin_and_names_merged_files_apart():
+    from ada.comms.rest.routes import asset_exports as ex
+
+    def hit(node, origin=None):
+        h = {"provider": "prov", "collection": "alpha", "node_id": node, "full_name": f"/{node}"}
+        return {**h, "origin": origin} if origin else h
+
+    # The same node id in the own partition and a shared one is two hits, in two batches.
+    hits = [hit("n1"), hit("n1", "shared"), hit("n2", "shared"), hit("n1")]
+    batches = ex.batch_hits([dict(h) for h in hits], "out")
+    assert [(p, c, [h["node_id"] for h in hs]) for p, c, hs in batches] == [
+        ("prov", "alpha", ["n1"]),
+        ("prov", "alpha", ["n1", "n2"]),
+    ]
+    assert batches[0][2][0]["file"] != batches[1][2][0]["file"]
+    merged = ex.batch_hits([dict(h) for h in hits], "out", merge=True)
+    assert len({hs[0]["file"] for _, _, hs in merged}) == 2
+    assert ex.hit_origin(merged[1][2], Scope.project("p1")) == Scope.shared()
+    assert ex.hit_origin(merged[0][2], Scope.project("p1")) == Scope.project("p1")
+    assert ex.origin_wire(Scope.shared(), Scope.project("p1"), "project:p1", None) == "shared"
+    me = type("U", (), {"sub": "u1"})()
+    assert ex.origin_wire(Scope.user("u1"), Scope.project("p1"), "project:p1", me) == "user:me"
+
+
+def test_partition_filters_and_all_scopes_join_the_fingerprint_only_when_set():
+    base = ai.parse_search_query(CANONICAL)
+    assert (
+        ai.parse_search_query({**CANONICAL, "partitions": None, "all_scopes": False}).fingerprint()
+        == base.fingerprint()
+    )
+    assert (
+        ai.parse_search_query({**CANONICAL, "exclude_partitions": ["prov/alpha@shared"]}).fingerprint()
+        != base.fingerprint()
+    )
+    assert ai.parse_search_query({**CANONICAL, "all_scopes": True}).fingerprint() != base.fingerprint()
+    with pytest.raises(ai.SearchQueryError):
+        ai.parse_search_query({"all_scopes": "yes"})
 
 
 @pytest.mark.asyncio
@@ -867,6 +912,188 @@ async def test_shared_partitions_are_searched_beside_the_own_ones_while_their_or
         await pg.pool.execute("DELETE FROM projects WHERE id = $1", uuid.UUID(project["id"]))
         with contextlib.suppress(Exception):  # a placeholder row; another table may have referenced it
             await pg.pool.execute("DELETE FROM users WHERE sub = $1", member)
+
+
+# --- exports of other scopes' hits, admin search of every scope, per-origin filters ---------------
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_an_export_takes_shared_hits_and_records_their_origin_while_the_origin_is_reachable(pg, monkeypatch):
+    """An export of the scope's search takes the hits shared into it: one item per (origin,
+    provider, collection), each recording where its hits lie, their attribute rows read there -- and
+    only while the caller can still reach that origin. Per-origin filters tell the two apart."""
+    from ada.comms.rest.db import asset_exports as dbx
+    from ada.comms.rest.routes import asset_exports as ex
+
+    tag = uuid.uuid4().hex[:8]
+    member = f"test-xshare-{tag}"
+    project = await dbm.create_project(pg.pool, f"test-xshare-{tag}", f"test export share {tag}")
+    plant_a = f"projects/{project['id']}"
+    p = pg.provider
+    spawned = []
+    monkeypatch.setattr(ex, "spawn", lambda coro, name=None: (spawned.append(name), coro.close()))
+    ctx = SimpleNamespace(jobs=SimpleNamespace(require=lambda feature: None))
+    own_scope = Scope.from_prefix(pg.scope)
+    user = SimpleNamespace(sub=member, is_admin=False)
+    try:
+        await dbm.add_project_member(pg.pool, project["id"], member)
+        await _ingest_into(pg, pg.scope, "alpha", _nodes("alpha", 6, seed=81))
+        await _ingest_into(pg, plant_a, "alpha", _nodes("alpha", 9, seed=82))
+        await _ingest_into(pg, plant_a, "beta", _nodes("beta", 4, seed=83))
+        await ai.share_attr_collection(pg.pool, scope=plant_a, provider=p, collection="alpha", target_scope=pg.scope)
+
+        # The collections listing names each partition by the key a search filters it by.
+        origins = await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub=member)
+        cols = await ai.list_attr_collections(pg.pool, scope=pg.scope, shared_from=origins, viewer=member)
+        assert [c["key"] for c in cols] == [f"{p}/alpha", f"{p}/alpha@{plant_a}"]
+        q = {"providers": [p], "depth": {"eq": 3}, "limit": 1000}
+        out = await ai.search_attributes(
+            pg.pool,
+            scope=pg.scope,
+            query=ai.parse_search_query({**q, "exclude_partitions": [f"{p}/alpha@{plant_a}"]}),
+            shared_from=origins,
+        )
+        assert out["counts"] == {f"{p}/alpha": 6}
+        only = await ai.search_attributes(
+            pg.pool,
+            scope=pg.scope,
+            query=ai.parse_search_query({**q, "partitions": [f"{p}/alpha@{plant_a}"]}),
+            shared_from=origins,
+        )
+        assert only["counts"] == {f"{p}/alpha@{plant_a}": 9} and {r["scope"] for r in only["rows"]} == {plant_a}
+
+        # Every match, own and shared: two items, the shared one recording its origin.
+        run = await ex.start_export(
+            ctx,
+            pg.pool,
+            scope=f"project:{own_scope.id}",
+            scope_obj=own_scope,
+            body={"query": q, "hits": None, "target_scope": "user:me", "target_folder": "out", "merge": True},
+            user=user,
+        )
+        assert spawned and run["hits"] == 15
+        stored = await dbx.get_asset_export_run(pg.pool, run["id"], with_hits=True)
+        assert [(i["collection"], i["origin_scope"], i["hits"]) for i in stored["items"]] == [
+            ("alpha", None, 6),
+            ("alpha", plant_a, 9),
+        ]
+        assert {h.get("origin") for h in stored["items"][1]["hit_rows"]} == {plant_a}
+        assert "origin" not in stored["items"][0]["hit_rows"][0]
+        assert len({i["hit_rows"][0]["file"] for i in stored["items"]}) == 2  # merged files kept apart
+        # What the job reads for such an item: the origin's rows.
+        shared_hit = stored["items"][1]["hit_rows"][0]
+        rows = await dbx.lookup_attr_rows(
+            pg.pool, scope=plant_a, provider=p, collection="alpha", node_ids=[shared_hit["node_id"]]
+        )
+        assert [r["node_id"] for r in rows] == [shared_hit["node_id"]]
+
+        # Picked hits from a scope the search does not read are refused; so are the shared ones,
+        # once the member has left the project.
+        beta = {"provider": p, "collection": "beta", "node_id": "beta-n00000", "scope": plant_a}
+        body = {"query": q, "target_scope": "user:me", "target_folder": "out"}
+        alpha = {**beta, "collection": "alpha", "node_id": shared_hit["node_id"]}
+        await ex.start_export(ctx, pg.pool, scope="x", scope_obj=own_scope, body={**body, "hits": [alpha]}, user=user)
+        await dbm.remove_project_member(pg.pool, project["id"], member)
+        with pytest.raises(ex.ExportRefused) as err:
+            await ex.start_export(
+                ctx, pg.pool, scope="x", scope_obj=own_scope, body={**body, "hits": [alpha]}, user=user
+            )
+        assert err.value.status == 403 and plant_a in err.value.detail
+        hits = await ex.all_hits(
+            pg.pool,
+            scope=pg.scope,
+            query_body=q,
+            origins=await ex.export_origins(pg.pool, own_scope, user, all_scopes=False),
+        )
+        assert {h["scope"] for h in hits} == {pg.scope}
+    finally:
+        await pg.pool.execute("DELETE FROM asset_export_runs WHERE scope = $1", pg.scope)
+        for r in await pg.pool.fetch("SELECT provider, collection FROM attr_collections WHERE scope = $1", plant_a):
+            await ai.drop_attr_collection(pg.pool, scope=plant_a, provider=r["provider"], collection=r["collection"])
+        await pg.pool.execute("DELETE FROM attr_shares WHERE target_scope = $1", pg.scope)
+        await pg.pool.execute("DELETE FROM project_members WHERE project_id = $1", uuid.UUID(project["id"]))
+        await pg.pool.execute("DELETE FROM projects WHERE id = $1", uuid.UUID(project["id"]))
+        with contextlib.suppress(Exception):
+            await pg.pool.execute("DELETE FROM users WHERE sub = $1", member)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_an_admin_searches_and_exports_every_provider_scope_and_nobody_else_may(pg, monkeypatch):
+    from ada.comms.rest.routes import asset_exports as ex
+    from ada.comms.rest.routes import attribute_search as rs
+
+    tag = uuid.uuid4().hex[:8]
+    project = await dbm.create_project(pg.pool, f"test-allscopes-{tag}", f"test all scopes {tag}")
+    plant_b = f"projects/{project['id']}"
+    personal = f"users/test-allscopes-{tag}"
+    p = pg.provider
+    monkeypatch.setattr(ex, "spawn", lambda coro, name=None: coro.close())
+    ctx = SimpleNamespace(jobs=SimpleNamespace(require=lambda feature: None))
+    own_scope = Scope.from_prefix(pg.scope)
+    admin = SimpleNamespace(sub=f"test-admin-{tag}", is_admin=True)
+    user = SimpleNamespace(sub=f"test-user-{tag}", is_admin=False)
+    try:
+        # Nothing shared anywhere: a project the admin is no member of, and someone's own scope.
+        await _ingest_into(pg, plant_b, "beta", _nodes("beta", 5, seed=91))
+        await _ingest_into(pg, personal, "gamma", _nodes("gamma", 3, seed=92))
+        reach = await ai.admin_search_origins(pg.pool, scope=pg.scope)
+        assert plant_b in reach and personal not in reach and pg.scope not in reach
+
+        with pytest.raises(rs.AllScopesRefused):
+            await rs.search_origins(pg.pool, own_scope, user, all_scopes=True)
+        with pytest.raises(ex.ExportRefused) as err:
+            await ex.start_export(
+                ctx,
+                pg.pool,
+                scope="x",
+                scope_obj=own_scope,
+                body={"query": {"all_scopes": True}, "hits": None, "target_scope": "shared", "target_folder": "out"},
+                user=user,
+            )
+        assert err.value.status == 403
+
+        origins = await rs.search_origins(pg.pool, own_scope, admin, all_scopes=True)
+        q = {"providers": [p], "depth": {"eq": 3}, "all_scopes": True, "limit": 1000}
+        res = await ai.search_attributes(
+            pg.pool,
+            scope=pg.scope,
+            query=ai.parse_search_query(q),
+            shared_from=origins.shared_from,
+            read_from=origins.read_from,
+            viewer=admin.sub,
+        )
+        assert res["counts"] == {f"{p}/beta@{plant_b}": 5}
+        assert {(r["scope"], r["shared"], r.get("admin")) for r in res["rows"]} == {(plant_b, True, True)}
+        # Without the option, the same admin reads only what is shared in.
+        plain = await rs.search_origins(pg.pool, own_scope, admin)
+        assert plain.read_from == ()
+
+        run = await ex.start_export(
+            ctx,
+            pg.pool,
+            scope="x",
+            scope_obj=own_scope,
+            body={"query": q, "hits": None, "target_scope": "shared", "target_folder": "out"},
+            user=admin,
+        )
+        [item] = (await dbm.get_asset_export_run(pg.pool, run["id"]))["items"]
+        assert item["origin_scope"] == plant_b and item["hits"] == 5
+        # An admin's picked hits from such a scope need the option on the query too.
+        hit = {**res["rows"][0]}
+        body = {"hits": [hit], "target_scope": "shared", "target_folder": "out"}
+        with pytest.raises(ex.ExportRefused):
+            await ex.start_export(ctx, pg.pool, scope="x", scope_obj=own_scope, body={**body, "query": {}}, user=admin)
+        await ex.start_export(ctx, pg.pool, scope="x", scope_obj=own_scope, body={**body, "query": q}, user=admin)
+    finally:
+        await pg.pool.execute("DELETE FROM asset_export_runs WHERE scope = $1", pg.scope)
+        for scope in (plant_b, personal):
+            for r in await pg.pool.fetch("SELECT provider, collection FROM attr_collections WHERE scope = $1", scope):
+                await ai.drop_attr_collection(pg.pool, scope=scope, provider=r["provider"], collection=r["collection"])
+        await pg.pool.execute("DELETE FROM projects WHERE id = $1", uuid.UUID(project["id"]))
 
 
 # --- group shares (migration 040) and one copy per revision ---------------------------------------

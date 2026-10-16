@@ -27,6 +27,17 @@ orchestration (the API's jobs) and the driver already polls jobs. One item's req
 time (``request_gate``), so a run's requests do not interleave projects on a shared seat. See
 ``routes/geometry_requests.py``.
 
+A HIT IS READ WHERE ITS PARTITION LIES. A search also reads partitions of OTHER scopes -- shared into
+this one (migrations 039/040) or, for an admin's ``all_scopes``, every provider scope's -- and every
+row says its origin (``scope``). An export takes those hits too: each item is one (origin, provider,
+collection) batch (``asset_export_items.origin_scope``, migration 041), and everything about its hits
+-- the attribute rows, the published tree, the geometry, the provenance's ``source_scope`` -- is the
+ORIGIN's, read and never written; the files go where every export's go, the target. The access rule
+is the search's (``attribute_search.search_origins``): a hit from an origin this caller's search
+could not read is refused (403), and a re-run asks again, so losing access stops it. What WOULD write
+into the origin is gated on being able to write there (:func:`_may_write`): a geometry or tree
+request publishes into the scope the hit lies in, or is reported as one to make from there.
+
 ``GET /scopes/{scope}/files/meta?key=`` answers ``ada.files/meta@1`` for ANY file: the export's
 sidecar when there is one, else the provenance the file carries itself (an IFC's ``ADA_*`` property
 sets, a GLB's ``asset.extras.provenance``), else 404.
@@ -133,32 +144,36 @@ def _clean_path(raw: Any) -> list[dict]:
     return out
 
 
-def refuse_foreign_hits(raw_hits: list, scope: Scope) -> None:
-    """A hit read through a share (migration 039) lies in ANOTHER scope's partition, and an export
-    reads its geometry, its tree and its attributes from the scope it runs in -- where that hit is
-    not. Refused (400) rather than exported from the wrong place; such a hit is exported from its
-    own scope. A hit that names no ``scope`` (a client from before shares) is this scope's."""
-    prefix = scope.prefix()
-    foreign = [h for h in raw_hits if isinstance(h, dict) and h.get("scope") not in (None, prefix)]
-    if foreign:
-        origins = sorted({str(h["scope"]) for h in foreign})
+def refuse_unreadable_hits(raw_hits: list, own: str, readable: frozenset[str] | set[str]) -> None:
+    """Refuse (403) hits whose origin (``scope``, a storage prefix) is not one this caller's search
+    reads (``SearchOrigins.readable``): the export would read that scope's index and geometry on
+    their behalf. A hit that names no ``scope`` (a client from before shares) is ``own``'s."""
+    unreadable = sorted(
+        {
+            str(h.get("scope"))
+            for h in raw_hits
+            if isinstance(h, dict) and h.get("scope") not in (None, own) and h.get("scope") not in readable
+        }
+    )
+    if unreadable:
         raise ExportRefused(
-            400,
-            f"{len(foreign)} hit(s) were shared into this scope from {', '.join(origins)}; "
-            "export them from the scope they come from",
+            403,
+            f"hits from {', '.join(unreadable)} cannot be exported from here: this scope's search does not read "
+            "that scope for you (no share into it you can reach)",
         )
 
 
-def clean_hit(raw: Any, where_keys: list[str]) -> dict | None:
+def clean_hit(raw: Any, where_keys: list[str], own: str | None = None) -> dict | None:
     """A hit as the job receives it: identity, ancestors and the matched attributes only (the job
-    re-reads full attributes from the index)."""
+    re-reads full attributes from the index). ``origin``: the scope the hit's partition lies in, when
+    it is not ``own`` (the export's searched scope) -- absent for an own hit, as it always was."""
     if not isinstance(raw, dict):
         return None
     provider, collection, node_id = raw.get("provider"), raw.get("collection"), raw.get("node_id")
     if not (isinstance(provider, str) and provider and isinstance(collection, str) and collection and node_id):
         return None
     attrs = raw.get("attrs") if isinstance(raw.get("attrs"), dict) else {}
-    return {
+    hit = {
         "provider": provider,
         "collection": collection.lower(),
         "node_id": str(node_id),
@@ -169,6 +184,51 @@ def clean_hit(raw: Any, where_keys: list[str]) -> dict | None:
         "path": _clean_path(raw.get("path")),
         "attrs": {k: attrs[k] for k in where_keys if k in attrs},
     }
+    origin = raw.get("scope") if isinstance(raw.get("scope"), str) else raw.get("origin")
+    if isinstance(origin, str) and origin and origin != own:
+        hit["origin"] = origin
+    return hit
+
+
+def hit_origin(hits: list[dict], scope_obj: Scope) -> Scope:
+    """The scope a batch's hits are read from: their ``origin`` (one per batch, :func:`batch_hits`),
+    else the export's own."""
+    origin = hits[0].get("origin") if hits else None
+    if isinstance(origin, str) and origin and origin != scope_obj.prefix():
+        return Scope.from_prefix(origin)
+    return scope_obj
+
+
+def origin_wire(origin: Scope, scope_obj: Scope, scope: str, user) -> str:
+    """``origin`` as the files' provenance names it (``source_scope``): the export's own scope in the
+    form it was asked under, another scope in its path form for this user -- the user's own personal
+    scope as ``user:me`` (:func:`..db.attribute_index.scope_wire`), the only form there is of it."""
+    from ..db.attribute_index import scope_wire
+
+    if origin == scope_obj:
+        return scope
+    return scope_wire(origin.prefix(), getattr(user, "sub", None)) or origin.prefix()
+
+
+async def _may_write(pool, user, origin: Scope, scope_obj: Scope) -> bool:
+    """Whether a request may publish into ``origin`` for ``user``: the export's own scope always
+    (its route checked access), another only when the user could open it themselves -- the check
+    every ``/scopes/{scope}/assets/...`` route makes, publishing included."""
+    from ..scope import can_access
+
+    return origin == scope_obj or await can_access(user, origin, pool)
+
+
+def _origin_fields(origin: Scope, scope_obj: Scope, user) -> dict:
+    """A preflight entry's origin, as search rows carry it."""
+    from ..db.attribute_index import scope_wire
+
+    prefix = origin.prefix()
+    return {
+        "scope": prefix,
+        "scope_wire": scope_wire(prefix, getattr(user, "sub", None)),
+        "shared": origin != scope_obj,
+    }
 
 
 def batch_hits(
@@ -178,24 +238,32 @@ def batch_hits(
     named twice (selected twice, or by two pages) is written once. A hit that already names its
     ``file`` (a design file requested for a mesh one, which takes its stem) keeps it.
 
+    A batch is one (origin, provider, collection): the same collection read from two scopes is two
+    partitions with different rows, so two batches, and every hit of one shares its ``origin``.
+
     ``merge``: every hit of a batch gets the batch's ONE file, ``<folder>/<collection>.<ext>``
     (:func:`export_merged_key`) -- with the provider appended when two providers' batches share a
-    collection name, so neither overwrites the other."""
+    collection name, and a number after that when two origins' do, so none overwrites another."""
     taken: set[str] = {h["file"] for h in hits if h.get("file")}
-    seen: set[tuple[str, str, str]] = set()
-    batches: dict[tuple[str, str], list[dict]] = {}
-    merged_keys: dict[tuple[str, str], str] = {}
+    seen: set[tuple[str | None, str, str, str]] = set()
+    batches: dict[tuple[str | None, str, str], list[dict]] = {}
+    merged_keys: dict[tuple[str | None, str, str], str] = {}
     for hit in hits:
-        ident = (hit["provider"], hit["collection"], hit["node_id"])
+        origin = hit.get("origin")
+        ident = (origin, hit["provider"], hit["collection"], hit["node_id"])
         if ident in seen:
             continue
         seen.add(ident)
-        batch = (hit["provider"], hit["collection"])
+        batch = (origin, hit["provider"], hit["collection"])
         if merge:
             if batch not in merged_keys:
                 key = export_merged_key(folder, hit["collection"], ext)
                 if key in taken:
                     key = export_merged_key(folder, f"{hit['collection']}__{hit['provider']}", ext)
+                n = 2
+                while key in taken:
+                    key = export_merged_key(folder, f"{hit['collection']}__{hit['provider']}__{n}", ext)
+                    n += 1
                 taken.add(key)
                 merged_keys[batch] = key
             hit["file"] = merged_keys[batch]
@@ -204,11 +272,21 @@ def batch_hits(
                 folder, hit["collection"], hit.get("full_name"), hit["node_id"], taken, ext=ext
             )
         batches.setdefault(batch, []).append(hit)
-    return [(p, c, h) for (p, c), h in batches.items()]
+    return [(p, c, h) for (_, p, c), h in batches.items()]
 
 
-async def all_hits(pool, *, scope: str, query_body: dict, limit: int = MAX_EXPORT_HITS) -> list[dict]:
-    """Every row of the query, paged through the search itself. Refuses (409) past ``limit``."""
+async def all_hits(
+    pool,
+    *,
+    scope: str,
+    query_body: dict,
+    limit: int = MAX_EXPORT_HITS,
+    origins=None,
+    viewer: str | None = None,
+) -> list[dict]:
+    """Every row of the query, paged through the search itself -- over the other scopes ``origins``
+    (``attribute_search.SearchOrigins``) names too, as the panel's search read them. Refuses (409)
+    past ``limit``."""
     body = {k: v for k, v in (query_body or {}).items() if k not in ("cursor", "limit", "select")}
     body["limit"] = 1000
     rows: list[dict] = []
@@ -218,7 +296,14 @@ async def all_hits(pool, *, scope: str, query_body: dict, limit: int = MAX_EXPOR
             q = parse_search_query({**body, "cursor": cursor})
         except SearchQueryError as exc:
             raise ExportRefused(400, f"the query: {exc}") from exc
-        page = await db_module.search_attributes(pool, scope=scope, query=q)
+        page = await db_module.search_attributes(
+            pool,
+            scope=scope,
+            query=q,
+            shared_from=origins.shared_from if origins else None,
+            read_from=origins.read_from if origins else None,
+            viewer=viewer,
+        )
         total = sum(int(n) for n in (page.get("counts") or {}).values())
         if total > limit:
             raise ExportRefused(
@@ -240,6 +325,41 @@ async def _writable_scope(pool, raw: str, user: User) -> Scope:
     if not await can_access(user, target, pool):
         raise ExportRefused(403, f"you cannot write to scope {raw!r}")
     return target
+
+
+async def export_origins(pool, scope_obj: Scope, user, *, all_scopes: bool):
+    """The scopes this export's search reads beside its own (``attribute_search.search_origins``),
+    as the search route resolves them -- so an export reads exactly what the panel showed."""
+    from .attribute_search import AllScopesRefused, search_origins
+
+    try:
+        return await search_origins(pool, scope_obj, user, all_scopes=all_scopes)
+    except AllScopesRefused as exc:
+        raise ExportRefused(403, str(exc)) from exc
+
+
+async def _hits_of_body(pool, body: dict, query: dict, *, scope_obj: Scope, user, limit: int) -> list:
+    """The body's ``hits`` -- or, null, every match of ``query`` -- checked against what this
+    caller's search of ``scope_obj`` may read (:func:`refuse_unreadable_hits`)."""
+    try:
+        all_scopes = parse_search_query({k: v for k, v in query.items() if k not in ("cursor", "limit")}).all_scopes
+    except SearchQueryError as exc:
+        raise ExportRefused(400, f"the query: {exc}") from exc
+    origins = await export_origins(pool, scope_obj, user, all_scopes=all_scopes)
+    raw_hits = body.get("hits")
+    if raw_hits is None:
+        return await all_hits(
+            pool,
+            scope=scope_obj.prefix(),
+            query_body=query,
+            limit=limit,
+            origins=origins,
+            viewer=getattr(user, "sub", None),
+        )
+    if not isinstance(raw_hits, list):
+        raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
+    refuse_unreadable_hits(raw_hits, scope_obj.prefix(), origins.readable(scope_obj.prefix()))
+    return raw_hits
 
 
 def _scope_ref(scope: Scope) -> dict:
@@ -345,16 +465,11 @@ async def start_export(
         if not allowed:
             raise ExportRefused(403 if req is not None else 409, f"missing geometry cannot be requested: {why}")
 
-    raw_hits = body.get("hits")
-    if raw_hits is None:
-        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query, limit=cap)
-    elif not isinstance(raw_hits, list):
-        raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
-    refuse_foreign_hits(raw_hits, scope_obj)
+    raw_hits = await _hits_of_body(pool, body, query, scope_obj=scope_obj, user=user, limit=cap)
     if len(raw_hits) > cap:
         what = "a merged export takes" if merge else "an export writes"
         raise ExportRefused(409, f"{len(raw_hits)} hits; {what} at most {cap}")
-    hits = [h for h in (clean_hit(r, where_keys) for r in raw_hits) if h is not None]
+    hits = [h for h in (clean_hit(r, where_keys, scope_obj.prefix()) for r in raw_hits) if h is not None]
     if not hits:
         raise ExportRefused(400, "nothing to export: no hits")
     if request_trees:
@@ -427,26 +542,28 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
         parsed = parse_search_query({k: v for k, v in query.items() if k not in ("cursor", "limit")})
     except SearchQueryError as exc:
         raise ExportRefused(400, f"the query: {exc}") from exc
-    raw_hits = body.get("hits")
-    if raw_hits is None:
-        # Up to the LARGEST cap a run may take: the preflight writes nothing and does not know
-        # whether the export will be merged, and refusing here at the per-file cap is what made a
-        # merged export of a few thousand hits skip its preflight altogether. The start enforces the run's cap.
-        raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query, limit=MAX_MERGED_EXPORT_HITS)
-    elif not isinstance(raw_hits, list):
-        raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
-    refuse_foreign_hits(raw_hits, scope_obj)
+    # Up to the LARGEST cap a run may take: the preflight writes nothing and does not know
+    # whether the export will be merged, and refusing here at the per-file cap is what made a
+    # merged export of a few thousand hits skip its preflight altogether. The start enforces the run's cap.
+    raw_hits = await _hits_of_body(pool, body, query, scope_obj=scope_obj, user=user, limit=MAX_MERGED_EXPORT_HITS)
     where_keys = [w["key"] for w in parsed.where]
     if str(body.get("geometry") or GEOMETRY_DESIGN) == GEOMETRY_MESH:
         return await mesh_preflight(
             ctx, pool, scope_obj=scope_obj, hits=raw_hits, where_keys=where_keys, user=user, t0=t0
         )
-    groups: dict[str, dict[str, dict]] = {}
-    for hit in (clean_hit(r, where_keys) for r in raw_hits):
+    # Per ORIGIN: a hit's geometry is the scope its partition lies in.
+    groups: dict[tuple[str | None, str], dict[str, dict]] = {}
+    for hit in (clean_hit(r, where_keys, scope_obj.prefix()) for r in raw_hits):
         if hit is not None:
-            groups.setdefault(hit["collection"], {}).setdefault(hit["node_id"], hit)
-    ordered = [(c, list(h.values())) for c, h in groups.items()]
-    states = await greq.classify_in_scope(ctx.storage, scope_obj, ordered) if ordered else []
+            groups.setdefault((hit.get("origin"), hit["collection"]), {}).setdefault(hit["node_id"], hit)
+    by_origin: dict[str | None, list[tuple[str, list[dict]]]] = {}
+    for (origin, collection), nodes in groups.items():
+        by_origin.setdefault(origin, []).append((collection, list(nodes.values())))
+    classified: list[tuple[Scope, str, list]] = []
+    for ordered in by_origin.values():
+        origin_obj = hit_origin(ordered[0][1], scope_obj)
+        states = await greq.classify_in_scope(ctx.storage, origin_obj, ordered)
+        classified.extend((origin_obj, c, rows) for (c, _), rows in zip(ordered, states))
 
     req = await greq.geometry_node_request(ctx)
     allowed, why = await request_permission(pool, user, req)
@@ -457,14 +574,22 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
         logger.debug("export preflight: could not read running sweeps", exc_info=True)
 
     collections = []
-    for (collection, _), rows in zip(ordered, states):
+    writable: dict[Scope, bool] = {}
+    for origin_obj, collection, rows in classified:
         by: dict[str, list] = {}
         for s in rows:
             by.setdefault(s.state, []).append(s)
         missing = len(by.get("listed", ())) + len(by.get("unpublished", ()))
         unknown = by.get("unknown", [])
+        if origin_obj not in writable:
+            writable[origin_obj] = await _may_write(pool, user, origin_obj, scope_obj)
         collections.append(
             {
+                **_origin_fields(origin_obj, scope_obj, user),
+                # A request publishes into the scope the hits lie in; null when this user may.
+                "request_blocked": None
+                if writable[origin_obj]
+                else f"its geometry lies in {origin_obj.prefix()}, which you cannot publish into -- request it from that scope",
                 "collection": collection,
                 "hits": len(rows),
                 "ready": len(by.get("ready", ())),
@@ -533,26 +658,32 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
     published no project tree of the collection, and ``unknown`` for nodes its tree does not hold.
     Both are offered a COLLECTION request (``tree_requests``): a fresh tree is the fix for the first,
     and for the second when the tree is older than the node."""
-    groups: dict[tuple[str, str], dict[str, dict]] = {}
-    for hit in (clean_hit(r, where_keys) for r in hits):
+    groups: dict[tuple[str | None, str, str], dict[str, dict]] = {}
+    for hit in (clean_hit(r, where_keys, scope_obj.prefix()) for r in hits):
         if hit is not None:
-            groups.setdefault((hit["provider"], hit["collection"]), {}).setdefault(hit["node_id"], hit)
-    by_provider: dict[str, list[tuple[str, list[dict]]]] = {}
-    for (provider, collection), nodes in groups.items():
-        by_provider.setdefault(provider, []).append((collection, list(nodes.values())))
+            groups.setdefault((hit.get("origin"), hit["provider"], hit["collection"]), {}).setdefault(
+                hit["node_id"], hit
+            )
+    # Per (origin, provider): each origin's published trees are its own.
+    by_provider: dict[tuple[str | None, str], list[tuple[str, list[dict]]]] = {}
+    for (origin, provider, collection), nodes in groups.items():
+        by_provider.setdefault((origin, provider), []).append((collection, list(nodes.values())))
 
     collections: list[dict] = []
-    requests: dict[str, dict] = {}
+    requests: dict[tuple[str | None, str], dict] = {}
     sweeps: dict[str, dict | None] = {}
-    for provider, ordered in by_provider.items():
-        states = await greq.classify_in_scope(ctx.storage, scope_obj, ordered, provider=provider)
+    for (origin, provider), ordered in by_provider.items():
+        origin_obj = hit_origin(ordered[0][1], scope_obj)
+        states = await greq.classify_in_scope(ctx.storage, origin_obj, ordered, provider=provider)
+        mine: list[dict] = []
         for (collection, _), rows in zip(ordered, states):
             by: dict[str, list] = {}
             for s in rows:
                 by.setdefault(s.state, []).append(s)
             unknown = by.get("unknown", []) + by.get("listed", [])
-            collections.append(
+            mine.append(
                 {
+                    **_origin_fields(origin_obj, scope_obj, user),
                     "provider": provider,
                     "collection": collection,
                     "hits": len(rows),
@@ -565,12 +696,30 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
                     ],
                 }
             )
-        if any(c["no_tree"] or c["unknown"] for c in collections if c["provider"] == provider):
-            requests[provider] = await collection_request_permission(ctx, pool, user, provider)
-            try:
-                sweeps[provider] = await db_module.running_asset_sweep(pool, provider=provider)
-            except Exception:  # noqa: BLE001 - a nicety for the prompt
-                sweeps[provider] = None
+        collections.extend(mine)
+        lacking = [c["collection"] for c in mine if c["no_tree"] or c["unknown"]]
+        if lacking:
+            # A tree request publishes into the origin: offered as such, and only where the user
+            # may publish (else what to do instead, as the reason).
+            permission = await collection_request_permission(ctx, pool, user, provider)
+            if permission["allowed"] and not await _may_write(pool, user, origin_obj, scope_obj):
+                permission = {
+                    **permission,
+                    "allowed": False,
+                    "reason": f"the trees lie in {origin_obj.prefix()}, which you cannot publish into -- "
+                    "request them from that scope",
+                }
+            requests[(origin, provider)] = {
+                **permission,
+                "collections": lacking,
+                # Where the trees are requested into; null is this scope.
+                "origin": origin_obj.prefix() if origin_obj != scope_obj else None,
+            }
+            if provider not in sweeps:
+                try:
+                    sweeps[provider] = await db_module.running_asset_sweep(pool, provider=provider)
+                except Exception:  # noqa: BLE001 - a nicety for the prompt
+                    sweeps[provider] = None
     return {
         "geometry": GEOMETRY_MESH,
         "hits": sum(c["hits"] for c in collections),
@@ -581,9 +730,6 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
         "tree_requests": [
             {
                 "provider": provider,
-                "collections": [
-                    c["collection"] for c in collections if c["provider"] == provider and (c["no_tree"] or c["unknown"])
-                ],
                 **request,
                 "sweep_running": (
                     {"id": sweeps[provider]["id"], "created_at": sweeps[provider].get("created_at")}
@@ -591,7 +737,7 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
                     else None
                 ),
             }
-            for provider, request in requests.items()
+            for (_, provider), request in requests.items()
         ],
         "took_ms": ms(time.monotonic() - t0),
     }
@@ -611,7 +757,11 @@ async def api_search_export_request_trees(
     jobs' timings, cancel and skip, and the sweep runs list to watch it in. Answers the run (202).
 
     Gated as the provider's job is: refused (403) when it is restricted to administrators and the
-    user is not one, and (409) while a sweep of the same provider runs -- one run per provider."""
+    user is not one, and (409) while a sweep of the same provider runs -- one run per provider.
+
+    ``origin`` (optional, a storage prefix as a mesh preflight's ``tree_requests`` names it): the
+    trees are for hits shared in from that scope, so they are requested and published THERE --
+    refused (403) unless the user may publish into it. The run is still this scope's to watch."""
     from .asset_sweeps import COLLECTION_REQUEST, SweepRefused, start_sweep
 
     pool = require_pool(request)
@@ -620,6 +770,17 @@ async def api_search_export_request_trees(
     wanted = (body or {}).get("collections")
     if not provider or not isinstance(wanted, list) or not wanted or not all(isinstance(c, str) for c in wanted):
         raise HTTPException(status_code=400, detail="'provider' and a non-empty list of 'collections' are required")
+    into = scope_obj
+    raw_origin = (body or {}).get("origin")
+    if raw_origin not in (None, "", scope_obj.prefix()):
+        try:
+            into = Scope.from_prefix(str(raw_origin))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not await _may_write(pool, user, into, scope_obj):
+            raise HTTPException(
+                status_code=403, detail=f"you cannot publish into {into.prefix()}; request the trees from there"
+            )
     permission = await collection_request_permission(ctx, pool, user, provider)
     if not permission["available"]:
         raise HTTPException(status_code=409, detail=permission["reason"])
@@ -630,7 +791,7 @@ async def api_search_export_request_trees(
             ctx,
             pool,
             scope=scope,
-            scope_obj=scope_obj,
+            scope_obj=into,
             provider=provider,
             job=COLLECTION_REQUEST,
             settings={},
@@ -855,7 +1016,17 @@ async def export_one(
 
     await item(status="running", started_at=datetime.now(timezone.utc))
     derived_key = f"_derived/search-export/{run_id}/{position}.json"
+    # The hits' own scope: everything about them is read there (module docstring). The job still
+    # runs in this one -- its summary is this run's -- and is told where to read.
+    origin_obj = hit_origin(hits, scope_obj)
+    origin_opts: dict = {}
+    if origin_obj != scope_obj:
+        origin_opts = {
+            "origin_scope": origin_obj.prefix(),
+            "source_scope": origin_wire(origin_obj, scope_obj, str(job_opts.get("source_scope") or ""), user),
+        }
     try:
+        may_publish = await _may_write(pool, user, origin_obj, scope_obj)
         if job_opts.get("request_missing_geometry"):
             async with request_gate or asyncio.Lock():
                 requested = await request_geometry(
@@ -865,10 +1036,11 @@ async def export_one(
                     position,
                     collection,
                     hits,
-                    scope_obj=scope_obj,
+                    scope_obj=origin_obj,
                     user=user,
                     wait=wait,
                     timings=timings,
+                    may_publish=may_publish,
                 )
             await item(status="running", message=requested.sentence() if requested else None, timings=timings)
         if job_opts.get("geometry") == GEOMETRY_MESH:
@@ -880,10 +1052,11 @@ async def export_one(
                 provider,
                 collection,
                 hits,
-                scope_obj=scope_obj,
+                scope_obj=origin_obj,
                 user=user,
                 timings=timings,
                 request_tree=bool(job_opts.get("request_trees")),
+                may_publish=may_publish,
             )
             await item(status="running", timings=timings)
         submitted = await ctx.jobs.submit(
@@ -896,6 +1069,7 @@ async def export_one(
                 derived_key=derived_key,
                 conversion_options={
                     **job_opts,
+                    **origin_opts,
                     "position": position,
                     "provider": provider,
                     "collection": collection,
@@ -1115,6 +1289,7 @@ async def build_meshes(
     user,
     timings: dict,
     request_tree: bool = False,
+    may_publish: bool = True,
 ) -> list[dict]:
     """The mesh item's build phase: each hit resolved against what ``provider`` -- the hits' own,
     whose attribute index found them -- published in the collection, and built through the ordinary
@@ -1124,7 +1299,11 @@ async def build_meshes(
     Returns the hits, each with ``mesh`` (``{glb_key, provider, subject, revision, node}``) or
     ``mesh_error`` -- the export job writes the first and reports the second per file. Timed as
     ``build_resolve_ms`` and ``build_ms`` (wall-clock over the item's builds), with how many were
-    already built (``builds_cached``)."""
+    already built (``builds_cached``).
+
+    ``scope_obj`` is the hits' ORIGIN (:func:`hit_origin`): the trees are cut from there, and the
+    builds are that scope's build cache -- what "Load into scene" on such a node writes too. A tree
+    request publishes there, so only with ``may_publish``; otherwise the hits say where to ask."""
     from .assets import submit_node_build
 
     async def progress(message: str) -> None:
@@ -1136,7 +1315,14 @@ async def build_meshes(
     await progress(f"finding the {provider} meshes")
     [states] = await greq.classify_in_scope(ctx.storage, scope_obj, [(collection, hits)], provider=provider)
     timings["build_resolve_ms"] = ms(time.monotonic() - t0)
-    if request_tree and any(s.state in TREE_REQUEST_STATES for s in states):
+    if request_tree and not may_publish and any(s.state in TREE_REQUEST_STATES for s in states):
+        for s in states:
+            if s.state in TREE_REQUEST_STATES:
+                s.message = (
+                    f"{s.message or 'no tree to cut it from'}; its tree lies in {scope_obj.prefix()}, which you "
+                    "cannot publish into -- request it from that scope"
+                )
+    elif request_tree and any(s.state in TREE_REQUEST_STATES for s in states):
         # ``request_trees``: no tree to cut from, or one without these hits -- ask for a fresh one,
         # then look again.
         why_not = await request_collection_tree(
@@ -1228,11 +1414,16 @@ async def request_geometry(
     user,
     wait,
     timings: dict,
+    may_publish: bool = True,
 ) -> greq.RequestOutcome:
     """The item's request phase: which hits lack geometry, then ``geometry_requests.request_missing``
     for them. Timed as ``request_ms`` (the request jobs, queued + run) and ``request_publish_ms``
     (publishing their answers), with one ``request_batches`` row per job -- its node count, the
-    provider's login mode and phases -- so "one project session" is something the run shows."""
+    provider's login mode and phases -- so "one project session" is something the run shows.
+
+    ``scope_obj`` is the hits' origin, where the answers are published -- so without
+    ``may_publish`` nothing is requested, and the missing hits are reported as a request to make
+    from that scope."""
 
     async def progress(message: str, job_id: str | None) -> None:
         fields: dict = {"status": "requesting", "message": message, "timings": timings}
@@ -1244,16 +1435,20 @@ async def request_geometry(
     await progress("checking which hits lack geometry", None)
     [states] = await greq.classify_in_scope(ctx.storage, scope_obj, [(collection, hits)])
     timings["request_resolve_ms"] = ms(time.monotonic() - t0)
-    req = await greq.geometry_node_request(ctx)
+    req = await greq.geometry_node_request(ctx) if may_publish else None
     if req is None:
         outcome = greq.RequestOutcome(
             missing=sum(1 for s in states if s.state in greq.MISSING_STATES),
             unknown=sum(1 for s in states if s.state == "unknown"),
         )
         if outcome.missing:
-            outcome.batches.append(
-                {"nodes": outcome.missing, "status": "error", "message": "no online worker declares a node request"}
+            why = (
+                "no online worker declares a node request"
+                if may_publish
+                else f"their geometry lies in {scope_obj.prefix()}, which you cannot publish into -- "
+                "request it from that scope"
             )
+            outcome.batches.append({"nodes": outcome.missing, "status": "error", "message": why})
     else:
         outcome = await greq.request_missing(
             ctx,
@@ -1458,6 +1653,13 @@ async def api_search_export_rerun(
         )
     try:
         target = await _writable_scope(pool, run["target_scope"], user)
+        # Access is asked again: a re-run reads the origins with the caller's rights of NOW, so a
+        # share revoked (or a project left) since the run started stops it here.
+        foreign = [{"scope": h["origin"]} for _, _, _, hits, _ in plan for h in hits if h.get("origin")]
+        if foreign:
+            query_doc = run.get("query") if isinstance(run.get("query"), dict) else {}
+            origins = await export_origins(pool, scope_obj, user, all_scopes=query_doc.get("all_scopes") is True)
+            refuse_unreadable_hits(foreign, scope_obj.prefix(), origins.readable(scope_obj.prefix()))
     except ExportRefused as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     options = dict(run.get("options") or {})
