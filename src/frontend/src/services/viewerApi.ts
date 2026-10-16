@@ -106,6 +106,7 @@ export type {
 } from "./api/searchExport";
 export type {
   DbAreaStorage,
+  DbAttrShare,
   DbAttributePartition,
   DbCollectionRef,
   DbPruneArea,

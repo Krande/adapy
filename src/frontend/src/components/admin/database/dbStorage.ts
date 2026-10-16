@@ -69,6 +69,34 @@ export function retentionChanges(
     return {changes, invalid};
 }
 
+/** A scope a partition can be shared into, as the "Share with…" control lists it. */
+export interface ShareTarget {
+    /** Storage prefix: `shared`, `users/<sub>`, `projects/<id>`. */
+    scope: string;
+    label: string;
+}
+
+/** What "Share with…" offers: Shared, the admin's own personal scope, every live project -- never
+ *  the partition's own scope (it is searchable there already). Another user's personal scope is
+ *  not offered: there is no list of them to pick from, and a share there reads only for its owner. */
+export function shareTargets(
+    meSub: string | null | undefined,
+    projects: readonly {id: string; name: string; archived_at?: string | null}[],
+    own: string | null,
+): ShareTarget[] {
+    const out: ShareTarget[] = [{scope: "shared", label: "Shared"}];
+    if (meSub) out.push({scope: `users/${meSub}`, label: "My files"});
+    for (const p of [...projects].filter((p) => !p.archived_at).sort((a, b) => a.name.localeCompare(b.name))) {
+        out.push({scope: `projects/${p.id}`, label: p.name});
+    }
+    return out.filter((t) => t.scope !== own);
+}
+
+/** A scope prefix by the name `targets` give it, else the prefix itself. */
+export function shareLabel(scope: string, targets: readonly ShareTarget[]): string {
+    return targets.find((t) => t.scope === scope)?.label ?? scope;
+}
+
 /** "1.2M" / "~1.2M": an estimate is marked as one. */
 export function formatRows(n: number, exact: boolean): string {
     const abs =

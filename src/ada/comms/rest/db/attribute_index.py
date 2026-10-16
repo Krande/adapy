@@ -33,6 +33,15 @@ a broad query as cheap as a page of a narrow one. The cursor is opaque base64 ca
 row's position, a fingerprint of the filters (a cursor replayed against a different query is
 refused rather than silently skipping rows) and the per-partition totals counted for the first
 page, so later pages do not count again.
+
+A PARTITION CAN BE SHARED INTO ANOTHER SCOPE (migration 039): a search of the target scope reads
+it where it lies, beside the scope's own. The same (provider, collection) can then be read twice
+-- owned here and shared from elsewhere, or shared from two scopes -- and the two are different
+partitions with different rows, so everything that walks partitions keys them by (origin scope,
+provider, collection): the order is (provider, collection, own before shared, origin), the cursor
+carries the origin (``s``), and every row says which scope it came from. Whether the caller may
+read a share is decided per request, against the ORIGIN scope (:func:`readable_share_origins`):
+the share says where a partition may be read, never who may read it.
 """
 
 from __future__ import annotations
@@ -515,7 +524,8 @@ async def _detach_and_drop(conn, name: str) -> None:
 
 
 async def drop_attr_collection(pool: asyncpg.Pool, *, scope: str, provider: str, collection: str) -> bool:
-    """Remove one collection's index (partition, histogram, catalogue row). True when it existed."""
+    """Remove one collection's index (partition, histogram, catalogue row -- and with that row,
+    by the cascade, every share of it). True when it existed."""
     collection = collection.lower()
     part_key = part_key_for(scope, provider, collection)
     async with pool.acquire() as conn:
@@ -781,6 +791,8 @@ def decode_cursor(cursor: str, fingerprint: str) -> dict:
         raise SearchQueryError("'cursor' is not one this API issued") from exc
     if not isinstance(doc, dict) or doc.get("v") != 1 or not all(isinstance(doc.get(k), str) for k in "pcn"):
         raise SearchQueryError("'cursor' is not one this API issued")
+    if "s" in doc and not isinstance(doc["s"], str):
+        raise SearchQueryError("'cursor' is not one this API issued")
     if doc.get("f") != fingerprint:
         raise SearchQueryError("'cursor' belongs to a different query; start again without one")
     return doc
@@ -789,8 +801,42 @@ def decode_cursor(cursor: str, fingerprint: str) -> dict:
 # --- reading the index ------------------------------------------------------------------------
 
 
-def _label(provider: str, collection: str) -> str:
-    return f"{provider}/{collection}"
+def _label(part: dict) -> str:
+    """A partition's key in a search's ``counts``. An own partition is ``<provider>/<collection>``,
+    as it always was; a shared one is ``<provider>/<collection>@<origin scope>``, so it never
+    collides with an own partition of the same name. Clients should not parse it: every response
+    lists its partitions (``partitions``) with these keys and the parts spelled out."""
+    label = f"{part['provider']}/{part['collection']}"
+    return f"{label}@{part['scope']}" if part["shared"] else label
+
+
+def _order(part: dict) -> tuple:
+    """The walk's order: (provider, collection), the scope's own partition before shared ones."""
+    return (part["provider"], part["collection"], part["shared"], part["scope"])
+
+
+def scope_wire(prefix: str, viewer: Optional[str] = None) -> Optional[str]:
+    """The API path segment for a stored scope prefix, for ``viewer`` (a user sub) to use -- or
+    None where there is none. A user scope has one only for its owner (``user:me``): the API names
+    no other user's scope, and handing out ``user:me`` for someone else's would point the caller at
+    their own. See :meth:`..scope.Scope.wire`."""
+    if prefix == "shared":
+        return "shared"
+    kind, _, ident = prefix.partition("/")
+    if not ident:
+        return None
+    if kind == "projects":
+        return f"project:{ident}"
+    if kind == "corpus":
+        return f"corpus:{ident}"
+    if kind == "users":
+        return "user:me" if viewer is not None and ident == viewer else None
+    return None
+
+
+def _origin(part: dict, viewer: Optional[str]) -> dict:
+    """Where a partition lies, as a row or collection entry reports it."""
+    return {"scope": part["scope"], "scope_wire": scope_wire(part["scope"], viewer), "shared": part["shared"]}
 
 
 async def _partitions(
@@ -801,29 +847,44 @@ async def _partitions(
     *,
     exclude_providers: Optional[list[str]] = None,
     exclude_collections: Optional[list[str]] = None,
+    shared_from: Optional[Iterable[str]] = None,
 ) -> list[dict]:
     """The scope's partitions, narrowed to the included providers / collections (``None``: all) and
-    minus the excluded ones -- an excluded partition is never queried."""
+    minus the excluded ones -- an excluded partition is never queried.
+
+    ``shared_from``: origin scopes whose partitions shared INTO ``scope`` are read too. The caller
+    names them -- :func:`readable_share_origins`, for a request -- so a share whose origin the
+    caller cannot reach is never even listed. ``None`` (what every caller that predates shares
+    passes, the export job's lookups among them) reads the scope's own partitions only. Each partition says its
+    ``scope`` (the origin) and whether it is ``shared``; they come in :func:`_order`."""
     if collections is not None:
         collections = sorted({c.lower() for c in collections})  # stored lower-case (see parse_header)
     if exclude_collections:
         exclude_collections = sorted({c.lower() for c in exclude_collections})
+    origins = sorted(set(shared_from or ()) - {scope})
     rows = await conn.fetch(
         """
-        SELECT provider, collection, revision, rows, source_etag, ingested_at, partition_name, part_key, keys,
-               high_card_keys
-        FROM attr_collections
-        WHERE scope = $1 AND ($2::text[] IS NULL OR provider = ANY($2)) AND ($3::text[] IS NULL OR collection = ANY($3))
-          AND NOT (provider = ANY($4::text[])) AND NOT (collection = ANY($5::text[]))
+        SELECT c.scope, c.provider, c.collection, c.revision, c.rows, c.source_etag, c.ingested_at, c.partition_name,
+               c.part_key, c.keys, c.high_card_keys
+        FROM attr_collections c
+        WHERE (c.scope = $1 OR (c.scope = ANY($6::text[]) AND EXISTS (
+                  SELECT 1 FROM attr_shares s
+                  WHERE s.target_scope = $1 AND s.scope = c.scope AND s.provider = c.provider
+                    AND s.collection = c.collection)))
+          AND ($2::text[] IS NULL OR c.provider = ANY($2)) AND ($3::text[] IS NULL OR c.collection = ANY($3))
+          AND NOT (c.provider = ANY($4::text[])) AND NOT (c.collection = ANY($5::text[]))
         """,
         scope,
         providers,
         collections,
         exclude_providers or [],
         exclude_collections or [],
+        origins,
     )
     parts = [dict(r) for r in rows if _PARTITION_RE.match(r["partition_name"])]
-    parts.sort(key=lambda p: (p["provider"], p["collection"]))
+    for p in parts:
+        p["shared"] = p["scope"] != scope
+    parts.sort(key=_order)
     return parts
 
 
@@ -863,8 +924,17 @@ async def _paths(conn, part: dict, rows: list[dict]) -> None:
         ]
 
 
-async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuery) -> dict:
-    """One page of the contract's search response for ``scope``."""
+async def search_attributes(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    query: SearchQuery,
+    shared_from: Optional[Iterable[str]] = None,
+    viewer: Optional[str] = None,
+) -> dict:
+    """One page of the contract's search response for ``scope``, plus the partitions shared into it
+    from ``shared_from`` (see :func:`_partitions`). ``viewer`` (the caller's sub) is only for the
+    rows' ``scope_wire`` (:func:`scope_wire`)."""
     t0 = time.perf_counter()
     fp = query.fingerprint()
     cur = decode_cursor(query.cursor, fp) if query.cursor else None
@@ -883,6 +953,7 @@ async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuer
             query.collections,
             exclude_providers=query.exclude_providers,
             exclude_collections=query.exclude_collections,
+            shared_from=shared_from,
         )
 
         counts: dict[str, int]
@@ -891,7 +962,7 @@ async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuer
         else:
             counts = {}
             for part in parts:
-                label = _label(part["provider"], part["collection"])
+                label = _label(part)
                 if not query.filtered:
                     counts[label] = int(part["rows"])
                     continue
@@ -901,13 +972,20 @@ async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuer
                     )
                 )
 
-        position = (cur["p"], cur["c"]) if cur else None
+        # A cursor issued before shares existed carries no origin: it stood in an own partition.
+        if cur:
+            origin = cur.get("s", scope)
+            position = _order(
+                {"provider": cur["p"], "collection": cur["c"], "shared": origin != scope, "scope": origin}
+            )
+        else:
+            position = None
         page: list[tuple[dict, dict]] = []
         for part in parts:
-            pos = (part["provider"], part["collection"])
+            pos = _order(part)
             if position is not None and pos < position:
                 continue
-            label = _label(*pos)
+            label = _label(part)
             if counts.get(label) == 0:
                 continue
             need = query.limit + 1 - len(page)
@@ -932,6 +1010,7 @@ async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuer
                     "f": fp,
                     "p": last_part["provider"],
                     "c": last_part["collection"],
+                    "s": last_part["scope"],
                     "n": last_row["node_id"],
                     "counts": counts,
                 }
@@ -952,6 +1031,7 @@ async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuer
             {
                 "provider": part["provider"],
                 "collection": part["collection"],
+                **_origin(part, viewer),
                 "node_id": r["node_id"],
                 "parent_id": r["parent_id"],
                 "full_name": r["full_name"],
@@ -966,6 +1046,18 @@ async def search_attributes(pool: asyncpg.Pool, *, scope: str, query: SearchQuer
         "rows": out_rows,
         "next_cursor": next_cursor,
         "counts": counts,
+        # `counts` spelled out, so no client has to split its keys.
+        "partitions": [
+            {
+                "key": _label(part),
+                "provider": part["provider"],
+                "collection": part["collection"],
+                **_origin(part, viewer),
+                "count": counts.get(_label(part), 0),
+            }
+            for part in parts
+            if _label(part) in counts
+        ],
         "took_ms": round((time.perf_counter() - t0) * 1000),
     }
 
@@ -974,13 +1066,22 @@ def _iso(v) -> Optional[str]:
     return v.isoformat() if v is not None else None
 
 
-async def list_attr_collections(pool: asyncpg.Pool, *, scope: str) -> list[dict]:
+async def list_attr_collections(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    shared_from: Optional[Iterable[str]] = None,
+    viewer: Optional[str] = None,
+) -> list[dict]:
+    """One entry per partition searchable in ``scope``: its own, then (per collection) the ones
+    shared into it from ``shared_from``, each saying its origin."""
     async with pool.acquire() as conn:
-        parts = await _partitions(conn, scope)
+        parts = await _partitions(conn, scope, shared_from=shared_from)
     return [
         {
             "provider": p["provider"],
             "collection": p["collection"],
+            **_origin(p, viewer),
             "revision": p["revision"],
             "rows": int(p["rows"]),
             "source_etag": p["source_etag"],
@@ -991,11 +1092,22 @@ async def list_attr_collections(pool: asyncpg.Pool, *, scope: str) -> list[dict]
 
 
 async def list_attr_keys(
-    pool: asyncpg.Pool, *, scope: str, provider: Optional[str] = None, collection: Optional[str] = None
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: Optional[str] = None,
+    collection: Optional[str] = None,
+    shared_from: Optional[Iterable[str]] = None,
 ) -> list[str]:
     """Every attribute key of the matching collections, sorted (byte order: keys are case-sensitive)."""
     async with pool.acquire() as conn:
-        parts = await _partitions(conn, scope, [provider] if provider else None, [collection] if collection else None)
+        parts = await _partitions(
+            conn,
+            scope,
+            [provider] if provider else None,
+            [collection] if collection else None,
+            shared_from=shared_from,
+        )
     keys: set[str] = set()
     for p in parts:
         keys.update(p["keys"] or [])
@@ -1011,6 +1123,7 @@ async def list_attr_values(
     limit: int = 50,
     provider: Optional[str] = None,
     collection: Optional[str] = None,
+    shared_from: Optional[Iterable[str]] = None,
 ) -> list[dict]:
     """The commonest values of ``key`` (as text) across the matching collections, most frequent
     first. From the ingest histogram where the key has one; by scanning the partition where its
@@ -1020,7 +1133,13 @@ async def list_attr_values(
     totals: Counter = Counter()
     async with pool.acquire() as conn, conn.transaction(readonly=True):
         await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
-        parts = await _partitions(conn, scope, [provider] if provider else None, [collection] if collection else None)
+        parts = await _partitions(
+            conn,
+            scope,
+            [provider] if provider else None,
+            [collection] if collection else None,
+            shared_from=shared_from,
+        )
         tracked = [p["part_key"] for p in parts if key in (p["keys"] or []) and key not in (p["high_card_keys"] or [])]
         scanned = [p for p in parts if key in (p["high_card_keys"] or [])]
         if tracked:
@@ -1049,3 +1168,118 @@ async def list_attr_values(
                 totals[r["value"]] += int(r["n"])
     ranked = sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
     return [{"value": v, "count": n} for v, n in ranked]
+
+
+# --- shares (migration 039) ---------------------------------------------------------------------
+
+
+async def readable_share_origins(pool: asyncpg.Pool, *, scope: str, user_sub: str, is_admin: bool = False) -> list[str]:
+    """The origin scopes of the shares into ``scope`` that ``user_sub`` may read -- what a request
+    passes as ``shared_from``.
+
+    One query per request, and the access rule is :func:`..scope.can_access`'s, applied to the
+    ORIGIN: the shared scope is everyone's, a personal scope its owner's, a project its members'
+    (while it is not archived), a corpus an admin's. Asked afresh every time rather than recorded
+    on the share, so leaving a project hides everything shared from it at once."""
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT s.scope FROM attr_shares s
+        WHERE s.target_scope = $1 AND (
+            s.scope = 'shared'
+            OR s.scope = 'users/' || $2
+            OR (s.scope LIKE 'projects/%' AND EXISTS (
+                SELECT 1 FROM project_members m JOIN projects p ON p.id = m.project_id
+                WHERE m.user_sub = $2 AND p.archived_at IS NULL AND 'projects/' || p.id::text = s.scope))
+            OR ($3 AND s.scope LIKE 'corpus/%'))
+        ORDER BY 1
+        """,
+        scope,
+        user_sub,
+        is_admin,
+    )
+    return [r["scope"] for r in rows]
+
+
+def _share_row(r) -> dict:
+    return {
+        "scope": r["scope"],
+        "provider": r["provider"],
+        "collection": r["collection"],
+        "target_scope": r["target_scope"],
+        "shared_at": _iso(r["shared_at"]),
+        "shared_by": r["shared_by"],
+    }
+
+
+async def share_attr_collection(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: str,
+    collection: str,
+    target_scope: str,
+    shared_by: Optional[str] = None,
+) -> Optional[dict]:
+    """Make one partition searchable from ``target_scope`` too. Idempotent: sharing it again
+    answers the share that exists (its first ``shared_at`` / ``shared_by`` kept). None when the
+    partition does not exist. Sharing a partition into its own scope is refused (ValueError)."""
+    collection = collection.lower()
+    if target_scope == scope:
+        raise ValueError("a partition is already searchable in its own scope")
+    try:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO attr_shares (scope, provider, collection, target_scope, shared_by)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (scope, provider, collection, target_scope) DO UPDATE SET shared_by = attr_shares.shared_by
+            RETURNING scope, provider, collection, target_scope, shared_at, shared_by
+            """,
+            scope,
+            provider,
+            collection,
+            target_scope,
+            shared_by,
+        )
+    except asyncpg.ForeignKeyViolationError:
+        return None
+    return _share_row(row)
+
+
+async def unshare_attr_collection(
+    pool: asyncpg.Pool, *, scope: str, provider: str, collection: str, target_scope: str
+) -> bool:
+    """Stop sharing one partition into ``target_scope``. True when it was shared there."""
+    status = await pool.execute(
+        "DELETE FROM attr_shares WHERE scope = $1 AND provider = $2 AND collection = $3 AND target_scope = $4",
+        scope,
+        provider,
+        collection.lower(),
+        target_scope,
+    )
+    return status.split()[-1] != "0"
+
+
+async def list_attr_shares(
+    pool: asyncpg.Pool,
+    *,
+    scope: Optional[str] = None,
+    provider: Optional[str] = None,
+    collection: Optional[str] = None,
+    target_scope: Optional[str] = None,
+) -> list[dict]:
+    """Shares, narrowed by origin partition (any of ``scope`` / ``provider`` / ``collection``)
+    and / or by ``target_scope``; ``None`` matches every one. No access check: this is the admin's
+    view (a search reads shares through :func:`readable_share_origins`)."""
+    rows = await pool.fetch(
+        """
+        SELECT scope, provider, collection, target_scope, shared_at, shared_by FROM attr_shares
+        WHERE ($1::text IS NULL OR scope = $1) AND ($2::text IS NULL OR provider = $2)
+          AND ($3::text IS NULL OR collection = $3) AND ($4::text IS NULL OR target_scope = $4)
+        ORDER BY scope, provider, collection, target_scope
+        """,
+        scope,
+        provider,
+        collection.lower() if collection else None,
+        target_scope,
+    )
+    return [_share_row(r) for r in rows]

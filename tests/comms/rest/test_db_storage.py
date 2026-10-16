@@ -427,9 +427,13 @@ async def test_attribute_partitions_are_reported_and_dropped_by_age_or_by_choice
                 provider,
                 OLD,
             )
+            await ai.share_attr_collection(
+                pool, scope=scope, provider=provider, collection="alpha", target_scope="shared"
+            )
             report = await si.storage_report(pool)
             mine = {p["collection"]: p for p in report["attribute_partitions"] if p["scope"] == scope}
             assert set(mine) == {"alpha", "beta", "gamma"}
+            assert mine["alpha"]["shared_with"] == ["shared"] and mine["beta"]["shared_with"] == []
             assert mine["alpha"]["rows"] == 20 and mine["alpha"]["provider"] == provider
             assert mine["alpha"]["total_bytes"] > 0 and mine["alpha"]["parent"] == "attr_nodes"
 

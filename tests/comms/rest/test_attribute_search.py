@@ -628,3 +628,241 @@ async def test_collections_are_case_insensitive_and_keys_verbatim(pg):
         pg.pool, scope=pg.scope, query=ai.parse_search_query({"where": [{"key": ":holddesc", "eq": "Hold A"}]})
     )
     assert res["rows"] == []
+
+
+# --- shares (migration 039) ---------------------------------------------------------------------
+
+
+def test_scope_wire_names_a_user_scope_only_to_its_owner():
+    assert ai.scope_wire("shared") == "shared"
+    assert ai.scope_wire("projects/p1") == "project:p1"
+    assert ai.scope_wire("corpus/c1") == "corpus:c1"
+    assert ai.scope_wire("users/u1", viewer="u1") == "user:me"
+    assert ai.scope_wire("users/u1", viewer="u2") is None
+    assert ai.scope_wire("users/u1") is None
+    assert ai.scope_wire("nonsense") is None
+
+
+def test_scope_prefixes_parse_back_and_nothing_else_does():
+    for s in (Scope.shared(), Scope.project("p1"), Scope.user("u1"), Scope.corpus("c1")):
+        assert Scope.from_prefix(s.prefix()) == s
+    for bad in ("", "projects", "projects/", "project/p1", "users/a/b", "shared/x", " shared", "projects/ p1"):
+        with pytest.raises(ValueError):
+            Scope.from_prefix(bad)
+
+
+def test_counts_keys_of_own_partitions_are_unchanged_and_shared_ones_name_their_origin():
+    own = {"scope": "projects/p1", "provider": "prov", "collection": "alpha", "shared": False}
+    shared = {**own, "scope": "shared", "shared": True}
+    assert ai._label(own) == "prov/alpha"
+    assert ai._label(shared) == "prov/alpha@shared"
+    # own before shared, within one (provider, collection)
+    assert sorted([shared, own], key=ai._order) == [own, shared]
+
+
+def test_a_cursor_carries_its_origin_and_one_without_it_still_decodes():
+    q = ai.parse_search_query(CANONICAL)
+    fp = q.fingerprint()
+    old = ai.encode_cursor({"v": 1, "f": fp, "p": "prov", "c": "alpha", "n": "id-1", "counts": {}})
+    assert "s" not in ai.decode_cursor(old, fp)
+    new = ai.encode_cursor({"v": 1, "f": fp, "p": "prov", "c": "alpha", "s": "shared", "n": "id-1", "counts": {}})
+    assert ai.decode_cursor(new, fp)["s"] == "shared"
+    with pytest.raises(ai.SearchQueryError):
+        ai.decode_cursor(ai.encode_cursor({"v": 1, "f": fp, "p": "p", "c": "c", "s": 3, "n": "n"}), fp)
+
+
+def test_an_export_refuses_hits_shared_in_from_another_scope():
+    from ada.comms.rest.routes import asset_exports as ex
+
+    scope = Scope.project("p1")
+    ex.refuse_foreign_hits([{"node_id": "a"}, {"node_id": "b", "scope": "projects/p1"}], scope)
+    with pytest.raises(ex.ExportRefused, match="from shared"):
+        ex.refuse_foreign_hits([{"node_id": "a", "scope": "shared"}], scope)
+
+
+@pytest.mark.asyncio
+async def test_share_requests_are_checked():
+    from fastapi import HTTPException
+
+    from ada.comms.rest.routes import admin_db
+
+    ok = {"scope": "projects/p1", "provider": "prov", "collection": "alpha", "target_scope": "shared"}
+    assert await admin_db.parse_share(None, ok) == ok
+    assert (await admin_db.parse_share(None, {**ok, "target_scope": "users/u1"}))["target_scope"] == "users/u1"
+    for bad, status in (
+        ({**ok, "target_scope": ""}, 400),
+        ({**ok, "target_scope": "project:p1"}, 400),  # a wire form, not a stored prefix
+        ({**ok, "target_scope": "corpus/c1"}, 400),
+        ({**ok, "target_scope": "projects/p1"}, 400),  # its own scope
+        ({**ok, "target_scope": "projects/not-a-uuid"}, 400),
+        ({**ok, "scope": "nowhere"}, 400),
+        ({**ok, "provider": None}, 400),
+    ):
+        with pytest.raises(HTTPException) as err:
+            await admin_db.parse_share(None, bad)
+        assert err.value.status_code == status, bad
+
+
+async def _ingest_into(pg, scope, collection, nodes, **kw):
+    return await ai.ingest_attribute_index(
+        pg.pool,
+        scope=scope,
+        provider=pg.provider,
+        chunks=_chunks(_index_bytes(pg.provider, collection, nodes, **kw), 64 * 1024),
+        batch_rows=500,
+    )
+
+
+async def _search_all(pg, body: dict, limit: int, **kw) -> tuple[list[dict], list[dict]]:
+    rows, pages, cursor = [], [], None
+    while True:
+        res = await ai.search_attributes(
+            pg.pool, scope=pg.scope, query=ai.parse_search_query({**body, "limit": limit, "cursor": cursor}), **kw
+        )
+        pages.append(res)
+        rows += res["rows"]
+        cursor = res["next_cursor"]
+        if cursor is None:
+            return rows, pages
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_shared_partitions_are_searched_beside_the_own_ones_while_their_origin_is_reachable(pg):
+    """A partition shared into the scope is read where it lies, kept apart from an own partition of
+    the same name, paged in order, counted under its own key -- and only for a caller who can still
+    reach the scope it was shared from."""
+    tag = uuid.uuid4().hex[:8]
+    member, outsider = f"test-share-{tag}-a", f"test-share-{tag}-b"
+    project = await dbm.create_project(pg.pool, f"test-share-{tag}", f"test share {tag}")
+    plant_a = f"projects/{project['id']}"
+    personal = f"users/{member}"
+    try:
+        await dbm.add_project_member(pg.pool, project["id"], member)
+        own_alpha = _nodes("alpha", 30, seed=11)
+        await _ingest_into(pg, pg.scope, "alpha", own_alpha)
+        # The same collection name in the project, with other nodes; and one more of its own.
+        theirs = {"alpha": _nodes("alpha", 45, seed=12), "beta": _nodes("beta", 25, seed=13)}
+        for name, nodes in theirs.items():
+            await _ingest_into(pg, plant_a, name, nodes)
+        mine = _nodes("gamma", 10, seed=14)
+        await _ingest_into(pg, personal, "gamma", mine)
+
+        assert await ai.share_attr_collection(
+            pg.pool, scope=plant_a, provider=pg.provider, collection="missing", target_scope=pg.scope
+        ) is None  # fmt: skip
+        with pytest.raises(ValueError):
+            await ai.share_attr_collection(
+                pg.pool, scope=pg.scope, provider=pg.provider, collection="alpha", target_scope=pg.scope
+            )
+        for scope, name in ((plant_a, "ALPHA"), (plant_a, "beta"), (personal, "gamma")):
+            share = await ai.share_attr_collection(
+                pg.pool, scope=scope, provider=pg.provider, collection=name, target_scope=pg.scope, shared_by="t"
+            )
+            assert share["collection"] == name.lower() and share["target_scope"] == pg.scope
+        again = await ai.share_attr_collection(
+            pg.pool, scope=plant_a, provider=pg.provider, collection="beta", target_scope=pg.scope, shared_by="x"
+        )
+        assert again["shared_by"] == "t"  # idempotent: the first share stands
+        listed = await ai.list_attr_shares(pg.pool, target_scope=pg.scope)
+        assert {(s["scope"], s["collection"]) for s in listed} == {
+            (plant_a, "alpha"),
+            (plant_a, "beta"),
+            (personal, "gamma"),
+        }
+        assert len(await ai.list_attr_shares(pg.pool, scope=plant_a, collection="ALPHA")) == 1
+
+        # Who may read what: the member reaches the project and their own scope, the outsider neither.
+        assert await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub=member) == sorted([plant_a, personal])
+        assert await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub=outsider) == []
+        origins = await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub=member)
+
+        # Everything, paged in 7s: each node once, own alpha before the project's, both kept apart.
+        rows, pages = await _search_all(pg, {}, 7, shared_from=origins, viewer=member)
+        everything = len(own_alpha) + sum(map(len, theirs.values())) + len(mine)
+        assert len(rows) == everything and len(pages) == -(-everything // 7)
+        keys = [(r["provider"], r["collection"], r["shared"], r["scope"], r["node_id"]) for r in rows]
+        assert len(set(keys)) == len(keys) and keys == sorted(keys)
+        alpha_from = [r["scope"] for r in rows if r["collection"] == "alpha"]
+        assert alpha_from == [pg.scope] * len(own_alpha) + [plant_a] * len(theirs["alpha"])
+        p = pg.provider
+        assert pages[0]["counts"] == {
+            f"{p}/alpha": len(own_alpha),
+            f"{p}/alpha@{plant_a}": len(theirs["alpha"]),
+            f"{p}/beta@{plant_a}": len(theirs["beta"]),
+            f"{p}/gamma@{personal}": len(mine),
+        }
+        assert all(page["counts"] == pages[0]["counts"] for page in pages)
+        parts = {x["key"]: x for x in pages[0]["partitions"]}
+        assert parts[f"{p}/alpha@{plant_a}"] == {
+            "key": f"{p}/alpha@{plant_a}",
+            "provider": p,
+            "collection": "alpha",
+            "scope": plant_a,
+            "scope_wire": f"project:{project['id']}",
+            "shared": True,
+            "count": len(theirs["alpha"]),
+        }
+        assert parts[f"{p}/alpha"]["shared"] is False and parts[f"{p}/alpha"]["scope"] == pg.scope
+        gamma = next(r for r in rows if r["collection"] == "gamma")
+        assert gamma["scope"] == personal and gamma["scope_wire"] == "user:me" and gamma["shared"] is True
+        assert [x["kind"] for x in gamma["path"]] == ["SITE", "ZONE"]  # the path walks its own partition
+
+        # Filters apply to shared partitions too, and a filtered count is per partition.
+        q = {"collections": ["alpha"], "where": [{"key": "TYPE", "eq": "EQUI"}]}
+        res = await ai.search_attributes(
+            pg.pool, scope=pg.scope, query=ai.parse_search_query({**q, "limit": 1000}), shared_from=origins
+        )
+        assert res["counts"] == {
+            f"{p}/alpha": sum(_matches(n, q) for n in own_alpha),
+            f"{p}/alpha@{plant_a}": sum(_matches(n, q) for n in theirs["alpha"]),
+        }
+        cols = await ai.list_attr_collections(pg.pool, scope=pg.scope, shared_from=origins, viewer=member)
+        assert [(c["collection"], c["scope"], c["shared"]) for c in cols] == [
+            ("alpha", pg.scope, False),
+            ("alpha", plant_a, True),
+            ("beta", plant_a, True),
+            ("gamma", personal, True),
+        ]
+        assert "OWNER" in await ai.list_attr_keys(pg.pool, scope=pg.scope, collection="beta", shared_from=origins)
+        assert await ai.list_attr_keys(pg.pool, scope=pg.scope, collection="beta") == []
+        vals = await ai.list_attr_values(pg.pool, scope=pg.scope, key="OWNER", shared_from=origins)
+        assert vals == [{"value": "TEAM", "count": 4 * 4}]  # four zones in each of four partitions
+
+        # Without the origins -- every caller from before shares, and the outsider -- only the own rows.
+        own_only = await ai.search_attributes(pg.pool, scope=pg.scope, query=ai.parse_search_query({"limit": 1000}))
+        assert own_only["counts"] == {f"{p}/alpha": len(own_alpha)}
+        assert {r["scope"] for r in own_only["rows"]} == {pg.scope}
+
+        # Leaving the project hides its shares at the next request; the personal one stays.
+        await dbm.remove_project_member(pg.pool, project["id"], member)
+        origins = await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub=member)
+        assert origins == [personal]
+        res = await ai.search_attributes(
+            pg.pool, scope=pg.scope, query=ai.parse_search_query({"limit": 1000}), shared_from=origins
+        )
+        assert set(res["counts"]) == {f"{p}/alpha", f"{p}/gamma@{personal}"}
+
+        # Unsharing removes one; dropping a partition removes its shares with it.
+        assert await ai.unshare_attr_collection(
+            pg.pool, scope=personal, provider=p, collection="gamma", target_scope=pg.scope
+        )
+        assert not await ai.unshare_attr_collection(
+            pg.pool, scope=personal, provider=p, collection="gamma", target_scope=pg.scope
+        )
+        await ai.drop_attr_collection(pg.pool, scope=plant_a, provider=p, collection="beta")
+        left = await ai.list_attr_shares(pg.pool, target_scope=pg.scope)
+        assert [(s["scope"], s["collection"]) for s in left] == [(plant_a, "alpha")]
+        # A reingest of the origin keeps its share (the catalogue row is updated, not replaced).
+        await _ingest_into(pg, plant_a, "alpha", theirs["alpha"][:10], revision="r2")
+        assert len(await ai.list_attr_shares(pg.pool, scope=plant_a)) == 1
+    finally:
+        for scope in (plant_a, personal):
+            for r in await pg.pool.fetch("SELECT provider, collection FROM attr_collections WHERE scope = $1", scope):
+                await ai.drop_attr_collection(pg.pool, scope=scope, provider=r["provider"], collection=r["collection"])
+        await pg.pool.execute("DELETE FROM attr_shares WHERE target_scope = $1", pg.scope)
+        await pg.pool.execute("DELETE FROM project_members WHERE project_id = $1", uuid.UUID(project["id"]))
+        await pg.pool.execute("DELETE FROM projects WHERE id = $1", uuid.UUID(project["id"]))
+        with contextlib.suppress(Exception):  # a placeholder row; another table may have referenced it
+            await pg.pool.execute("DELETE FROM users WHERE sub = $1", member)

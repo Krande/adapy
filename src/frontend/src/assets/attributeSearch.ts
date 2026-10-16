@@ -19,12 +19,21 @@
 // (`@/assets/scenePick`) -- and skipped when nothing matches. The walk stops at the deepest row it
 // reached: a reveal of the nearest ancestor is still the right place to look, an error is not.
 //
+// A SHARED HIT IS ANOTHER SCOPE'S. A partition an admin shared into this scope is searched here,
+// but its tree, its geometry and its export live in the scope it came from (`scope` on the hit). Its
+// identity includes that origin -- the same node id in an own and a shared partition of one name
+// are two hits. Revealing one switches to its origin first (`hitRevealScope`), as revealing an
+// exported file does: this scope's tree is not where that node is. An export from here does not
+// take it (`hitExportBlock`); it is exported from its origin.
+//
 // React-free and store-free, so it runs under `node --test`.
 
 import { matchRow, type PickRow, type PickTreeSource } from "@/assets/scenePick";
 import type {
   SearchDepth,
   SearchHit,
+  SearchOrigin,
+  SearchPartition,
   SearchPathEntry,
   SearchQuery,
   SearchResponse,
@@ -242,9 +251,51 @@ export function pickSummary(
   return chosen.length === 1 ? what : `${what} chosen`;
 }
 
-/** A hit's identity across pages and partitions. */
-export function hitKey(hit: Pick<SearchHit, "provider" | "collection" | "node_id">): string {
-  return `${hit.provider}\u0000${hit.collection}\u0000${hit.node_id}`;
+/** A hit's identity across pages and partitions -- its origin scope included, so an own and a
+ *  shared partition of one name never merge. A hit with no `scope` (an older server) is keyed as
+ *  it always was. */
+export function hitKey(hit: Pick<SearchHit, "provider" | "collection" | "node_id" | "scope">): string {
+  const own = `${hit.provider}\u0000${hit.collection}\u0000${hit.node_id}`;
+  return hit.scope ? `${hit.scope}\u0000${own}` : own;
+}
+
+/** Whether a hit / collection / partition was read through a share from another scope. */
+export function isShared(origin: SearchOrigin): boolean {
+  return origin.shared === true;
+}
+
+/** A short name for an origin scope prefix, as the scope picker names scopes: "Shared", "My
+ *  files", a project's name (from `projectName`, else "project"), or the prefix itself. */
+export function originLabel(scope: string | undefined, projectName: (id: string) => string | undefined = () => undefined): string {
+  if (!scope) return "";
+  if (scope === "shared") return "Shared";
+  if (scope.startsWith("users/")) return "My files";
+  if (scope.startsWith("projects/")) return projectName(scope.slice("projects/".length)) ?? "project";
+  return scope;
+}
+
+/** The badge for a shared origin ("from Shared", "from <project>"), null for the scope's own. */
+export function originBadge(origin: SearchOrigin, projectName?: (id: string) => string | undefined): string | null {
+  return isShared(origin) ? `from ${originLabel(origin.scope, projectName)}` : null;
+}
+
+/** The scope to reveal a hit in (its path form, for `revealInSourceScope`): null for the scope's
+ *  own hits (reveal here), the origin's for a shared one -- or `blocked` with the reason when the
+ *  origin has no path form this caller can use. */
+export function hitRevealScope(
+  hit: SearchOrigin,
+  projectName?: (id: string) => string | undefined,
+): { scope: string | null } | { blocked: string } {
+  if (!isShared(hit)) return { scope: null };
+  if (hit.scope_wire) return { scope: hit.scope_wire };
+  return { blocked: `Shared into this scope from ${originLabel(hit.scope, projectName)}, which cannot be opened from here` };
+}
+
+/** Why an export from this scope cannot take this hit, or null when it can. A shared hit's
+ *  geometry and attributes are its origin's; the export is run from there. */
+export function hitExportBlock(hit: SearchOrigin, projectName?: (id: string) => string | undefined): string | null {
+  if (!isShared(hit)) return null;
+  return `Shared into this scope from ${originLabel(hit.scope, projectName)}: export it from that scope`;
 }
 
 /** Every page fetched so far for one query, folded. */
@@ -253,6 +304,8 @@ export interface SearchResults {
   nextCursor: string | null;
   /** Totals per partition for the whole query, as the latest page reported them. */
   counts: Record<string, number>;
+  /** The same, spelled out with each partition's origin (absent from an older server). */
+  partitions?: SearchPartition[];
   /** The latest page's server time, and every page's summed. */
   tookMs: number;
   totalTookMs: number;
@@ -274,27 +327,34 @@ export function mergePage(prev: SearchResults | null, page: SearchResponse): Sea
     hits,
     nextCursor: page.next_cursor ?? null,
     counts: { ...(page.counts ?? {}) },
+    ...(page.partitions ? { partitions: [...page.partitions] } : {}),
     tookMs: page.took_ms ?? 0,
     totalTookMs: (prev?.totalTookMs ?? 0) + (page.took_ms ?? 0),
     pages: (prev?.pages ?? 0) + 1,
   };
 }
 
-export interface PartitionCount {
+export interface PartitionCount extends SearchOrigin {
+  /** The `counts` key -- unique per partition, shared ones included. */
+  key: string;
   provider: string;
   collection: string;
   count: number;
 }
 
-/** `counts` as rows, largest first. The key is `<provider>/<collection>`; a provider id carries no
- *  `/`, so the first one splits it (a collection name may carry one). */
-export function partitionCounts(counts: Record<string, number>): PartitionCount[] {
-  return Object.entries(counts)
-    .map(([k, count]) => {
-      const i = k.indexOf("/");
-      return i < 0 ? { provider: "", collection: k, count } : { provider: k.slice(0, i), collection: k.slice(i + 1), count };
-    })
-    .sort((a, b) => b.count - a.count || a.collection.localeCompare(b.collection));
+/** `counts` as rows, largest first. From `partitions` when the server sent them (each with its
+ *  origin); else -- an older server, which shares nothing -- from the keys, `<provider>/<collection>`:
+ *  a provider id carries no `/`, so the first one splits it (a collection name may carry one). */
+export function partitionCounts(counts: Record<string, number>, partitions?: readonly SearchPartition[]): PartitionCount[] {
+  const rows: PartitionCount[] = partitions
+    ? partitions.map((p) => ({ ...p, count: counts[p.key] ?? p.count }))
+    : Object.entries(counts).map(([key, count]) => {
+        const i = key.indexOf("/");
+        return i < 0
+          ? { key, provider: "", collection: key, count }
+          : { key, provider: key.slice(0, i), collection: key.slice(i + 1), count };
+      });
+  return rows.sort((a, b) => b.count - a.count || a.collection.localeCompare(b.collection) || a.key.localeCompare(b.key));
 }
 
 export function totalCount(counts: Record<string, number>): number {

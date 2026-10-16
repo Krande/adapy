@@ -133,6 +133,22 @@ def _clean_path(raw: Any) -> list[dict]:
     return out
 
 
+def refuse_foreign_hits(raw_hits: list, scope: Scope) -> None:
+    """A hit read through a share (migration 039) lies in ANOTHER scope's partition, and an export
+    reads its geometry, its tree and its attributes from the scope it runs in -- where that hit is
+    not. Refused (400) rather than exported from the wrong place; such a hit is exported from its
+    own scope. A hit that names no ``scope`` (a client from before shares) is this scope's."""
+    prefix = scope.prefix()
+    foreign = [h for h in raw_hits if isinstance(h, dict) and h.get("scope") not in (None, prefix)]
+    if foreign:
+        origins = sorted({str(h["scope"]) for h in foreign})
+        raise ExportRefused(
+            400,
+            f"{len(foreign)} hit(s) were shared into this scope from {', '.join(origins)}; "
+            "export them from the scope they come from",
+        )
+
+
 def clean_hit(raw: Any, where_keys: list[str]) -> dict | None:
     """A hit as the job receives it: identity, ancestors and the matched attributes only (the job
     re-reads full attributes from the index)."""
@@ -334,6 +350,7 @@ async def start_export(
         raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query, limit=cap)
     elif not isinstance(raw_hits, list):
         raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
+    refuse_foreign_hits(raw_hits, scope_obj)
     if len(raw_hits) > cap:
         what = "a merged export takes" if merge else "an export writes"
         raise ExportRefused(409, f"{len(raw_hits)} hits; {what} at most {cap}")
@@ -418,6 +435,7 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
         raw_hits = await all_hits(pool, scope=scope_obj.prefix(), query_body=query, limit=MAX_MERGED_EXPORT_HITS)
     elif not isinstance(raw_hits, list):
         raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
+    refuse_foreign_hits(raw_hits, scope_obj)
     where_keys = [w["key"] for w in parsed.where]
     if str(body.get("geometry") or GEOMETRY_DESIGN) == GEOMETRY_MESH:
         return await mesh_preflight(

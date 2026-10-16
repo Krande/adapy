@@ -3,6 +3,7 @@ import React, {useCallback, useEffect, useMemo, useState} from "react";
 import type {
     DbAreaStorage,
     DbAttributePartition,
+    DbCollectionRef,
     DbPruneResult,
     DbPruneSpec,
     DbStorageReport,
@@ -17,8 +18,11 @@ import {
     formatRows,
     pruneSpecFor,
     retentionChanges,
+    shareLabel,
     sharePercent,
+    shareTargets,
     type PruneForm,
+    type ShareTarget,
 } from "./dbStorage";
 import TableRowsView from "./TableRowsView";
 
@@ -31,6 +35,10 @@ import TableRowsView from "./TableRowsView";
 // a queued change check, a running audit run and its rows) -- those come back as "protected" in the
 // preview. Sizes and row counts are the catalogue's (estimates are marked "~"), so this view never
 // scans a large table. The rules live in db/storage_insight.py.
+//
+// An attribute-index partition can also be SHARED into other scopes from its row ("Share with…"):
+// a search there reads it in place, beside that scope's own -- for users who can open the
+// partition's own scope as well, so a share never shows anyone what they could not already see.
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e));
 const bytes = (n: number | null | undefined) => formatBytes(n, {compact: true});
@@ -174,17 +182,74 @@ const PruneForm_: React.FC<{
     );
 };
 
+/** "Share with…": one checkbox per scope the partition can be shared into; a tick shares it there,
+ *  an untick stops. A share only widens where the partition is searched -- a search still reads it
+ *  only for a caller who can reach the partition's own scope (db/attribute_index.py). */
+const ShareControl: React.FC<{
+    ref_: DbCollectionRef;
+    sharedWith: readonly string[];
+    targets: readonly ShareTarget[];
+    onChanged: () => void;
+}> = ({ref_, sharedWith, targets, onChanged}) => {
+    const [busy, setBusy] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const offered = targets.filter((t) => t.scope !== ref_.scope);
+    const toggle = async (target: string, on: boolean) => {
+        setBusy(target);
+        setError(null);
+        try {
+            if (on) await viewerApi.adminDbShareAttrCollection(ref_, target);
+            else await viewerApi.adminDbUnshareAttrCollection(ref_, target);
+            onChanged();
+        } catch (e) {
+            setError(errText(e));
+        } finally {
+            setBusy(null);
+        }
+    };
+    return (
+        <details className="relative inline-block">
+            <summary className="cursor-pointer list-none select-none text-blue-300 hover:text-white" title="Make this collection searchable from other scopes too">
+                Share with…
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-sm border border-gray-700 bg-gray-900 p-1.5 shadow-xl space-y-1">
+                <div className="text-[11px] text-gray-500">
+                    Searched there in place, for users who can also open {ref_.scope}.
+                </div>
+                <div className="max-h-56 overflow-auto">
+                    {offered.map((t) => (
+                        <label key={t.scope} className="flex items-center gap-2 px-1 py-0.5 text-gray-200 hover:bg-gray-800 rounded-sm cursor-pointer" title={t.scope}>
+                            <input
+                                type="checkbox"
+                                checked={sharedWith.includes(t.scope)}
+                                disabled={busy !== null}
+                                onChange={(e) => void toggle(t.scope, e.target.checked)}
+                            />
+                            <span className="truncate">{t.label}</span>
+                            {busy === t.scope && <span className="text-gray-500">…</span>}
+                        </label>
+                    ))}
+                </div>
+                {error && <div className="text-red-300">{error}</div>}
+            </div>
+        </details>
+    );
+};
+
 const PartitionsTable: React.FC<{
     partitions: DbAttributePartition[];
     selected: ReadonlySet<string>;
     onToggle: (key: string) => void;
-}> = ({partitions, selected, onToggle}) => (
+    targets: readonly ShareTarget[];
+    onSharesChanged: () => void;
+}> = ({partitions, selected, onToggle, targets, onSharesChanged}) => (
     <table className="w-full text-[11px]">
         <thead className="text-gray-500 text-left">
             <tr>
                 <th className="w-6"/>
                 <th>Provider / collection</th>
                 <th>Scope</th>
+                <th>Shared with</th>
                 <th className="text-right">Rows</th>
                 <th className="text-right">Size</th>
                 <th className="text-right">Indexes</th>
@@ -195,6 +260,7 @@ const PartitionsTable: React.FC<{
             {partitions.map((p) => {
                 const ref = p.scope && p.provider && p.collection ? {scope: p.scope, provider: p.provider, collection: p.collection} : null;
                 const key = ref ? collectionKey(ref) : p.name;
+                const sharedWith = p.shared_with ?? [];
                 return (
                     <tr key={p.name} className="border-t border-gray-800">
                         <td>
@@ -211,7 +277,19 @@ const PartitionsTable: React.FC<{
                             {ref ? `${p.provider} / ${p.collection}` : <span className="text-amber-300">{p.name} (no catalogue row)</span>}
                             {p.revision ? <span className="text-gray-500"> · {p.revision}</span> : null}
                         </td>
-                        <td className="text-gray-400 break-all">{p.scope ?? "—"}</td>
+                        <td className="text-gray-400 break-all" title={p.scope ?? undefined}>{p.scope ? shareLabel(p.scope, targets) : "—"}</td>
+                        <td className="text-gray-400">
+                            {sharedWith.length ? (
+                                <span title={sharedWith.join("\n")}>{sharedWith.map((s) => shareLabel(s, targets)).join(", ")}</span>
+                            ) : (
+                                <span className="text-gray-600">—</span>
+                            )}
+                            {ref && (
+                                <span className="ml-2">
+                                    <ShareControl ref_={ref} sharedWith={sharedWith} targets={targets} onChanged={onSharesChanged}/>
+                                </span>
+                            )}
+                        </td>
                         <td className="text-right">{formatRows(p.rows, p.rows_exact)}</td>
                         <td className="text-right">{bytes(p.total_bytes)}</td>
                         <td className="text-right text-gray-400">{bytes(p.index_bytes)}</td>
@@ -340,7 +418,27 @@ const DatabaseTab: React.FC = () => {
         void load();
     }, [load]);
 
-    const toggle = (set: ReadonlySet<string>, key: string) => {
+    // Where a partition can be shared: Shared, the admin's own scope, every project. Read once; a
+    // failure only leaves the "Share with…" lists shorter (Shared is always there).
+    const [targets, setTargets] = useState<ShareTarget[]>(shareTargets(null, [], null));
+    useEffect(() => {
+        let live = true;
+        void Promise.allSettled([viewerApi.me(), viewerApi.adminListProjects()]).then(([me, projects]) => {
+            if (!live) return;
+            setTargets(
+                shareTargets(
+                    me.status === "fulfilled" ? me.value.sub : null,
+                    projects.status === "fulfilled" ? projects.value : [],
+                    null,
+                ),
+            );
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+
+    const toggle =(set: ReadonlySet<string>, key: string) => {
         const next = new Set(set);
         if (next.has(key)) next.delete(key);
         else next.add(key);
@@ -444,6 +542,8 @@ const DatabaseTab: React.FC = () => {
                                                                 partitions={report.attribute_partitions}
                                                                 selected={selected}
                                                                 onToggle={(key) => setSelected(toggle(selected, key))}
+                                                                targets={targets}
+                                                                onSharesChanged={() => void load()}
                                                             />
                                                         )}
                                                         {area.prune && (

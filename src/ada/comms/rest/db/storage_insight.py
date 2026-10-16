@@ -91,9 +91,10 @@ AREAS: tuple[Area, ...] = (
     Area(
         "attribute_index",
         "Attribute index",
-        "Searchable source attributes: one partition per provider collection, its value histogram "
-        "and its catalogue row. Rebuilt by the next attribute sweep of that collection.",
-        tables=("attr_nodes", "attr_collections", "attr_values"),
+        "Searchable source attributes: one partition per provider collection, its value histogram, "
+        "its catalogue row and the scopes it is shared with. Rebuilt by the next attribute sweep of "
+        "that collection.",
+        tables=("attr_nodes", "attr_collections", "attr_values", "attr_shares"),
         prefixes=("attr_p_", "attr_n_"),
         prune="collections",
         prune_note="Dropped collections disappear from attribute search until they are swept again. "
@@ -223,6 +224,7 @@ TS_COLUMNS: dict[str, str] = {
     "asset_sweep_items": "finished_at",
     "asset_export_items": "finished_at",
     "attr_collections": "ingested_at",
+    "attr_shares": "shared_at",
     "source_nodes": "observed_at",
     "users": "last_seen_at",
     "app_settings": "updated_at",
@@ -302,6 +304,13 @@ async def storage_report(pool: asyncpg.Pool) -> dict:
             if "attr_collections" in {r["relname"] for r in rows}
             else {}
         )
+        # Per partition, the scopes it is shared into (migration 039), oldest share first.
+        shared_with: dict[tuple[str, str, str], list[str]] = {}
+        if "attr_shares" in {r["relname"] for r in rows}:
+            for s in await conn.fetch(
+                "SELECT scope, provider, collection, target_scope FROM attr_shares ORDER BY shared_at, target_scope"
+            ):
+                shared_with.setdefault((s["scope"], s["provider"], s["collection"]), []).append(s["target_scope"])
 
         tables: dict[str, dict] = {}
         partitions: list[dict] = []
@@ -339,6 +348,7 @@ async def storage_report(pool: asyncpg.Pool) -> dict:
                         "revision": c["revision"] if c else None,
                         "indexed_rows": int(c["rows"]) if c else None,
                         "ingested_at": _iso(c["ingested_at"]) if c else None,
+                        "shared_with": shared_with.get((c["scope"], c["provider"], c["collection"]), []) if c else [],
                     }
                 )
                 continue

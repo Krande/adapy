@@ -63,8 +63,12 @@ from .attribute_index import (
     ingest_attribute_index,
     list_attr_collections,
     list_attr_keys,
+    list_attr_shares,
     list_attr_values,
+    readable_share_origins,
     search_attributes,
+    share_attr_collection,
+    unshare_attr_collection,
 )
 from .audit_log import (  # noqa: F401
     _AUDIT_RUN_COUNTER_FOR_STATUS as _AUDIT_RUN_COUNTER_FOR_STATUS,
@@ -334,6 +338,10 @@ __all__ = [
     "list_attr_collections",
     "list_attr_keys",
     "list_attr_values",
+    "readable_share_origins",
+    "share_attr_collection",
+    "unshare_attr_collection",
+    "list_attr_shares",
     "list_corpora",
     "create_corpus",
     "update_corpus",

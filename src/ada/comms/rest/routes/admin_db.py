@@ -13,6 +13,16 @@
                                   ``dry_run`` is explicitly false.
 ``GET  /api/admin/db/retention``  ``{"retention": {area: days}, "last_run": {...}|null}``
 ``PUT  /api/admin/db/retention``  ``{"retention": {area: days|null}}`` (null clears one)
+``GET  /api/admin/db/attr-shares?scope=&provider=&collection=&target_scope=``
+                                  the attribute-index shares (migration 039), each filter optional
+``POST /api/admin/db/attr-shares``  ``{scope, provider, collection, target_scope}`` -- make that
+                                  partition searchable from ``target_scope`` too; idempotent
+``DELETE /api/admin/db/attr-shares``  the same body -- stop sharing it there
+
+Scopes in a share are storage prefixes, as the storage report prints them (``shared``,
+``projects/<uuid>``, ``users/<sub>``). A share target must be one of those three kinds, and a
+project must exist; the partition must exist. Sharing grants nobody anything: a search reads a
+shared partition only for a caller who can reach its origin scope (``db/attribute_index.py``).
 
 The rules -- what an area covers, what is never deleted -- live in ``db/storage_insight.py``.
 The retention tick (:func:`retention_loop`, started from the app lifespan) prunes each area that
@@ -22,6 +32,7 @@ has a retention once a day; with none set it does nothing.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -30,9 +41,11 @@ from fastapi.responses import JSONResponse
 from ada.config import logger
 
 from .. import auth as auth_module
+from .. import db as db_module
 from ..auth import User
 from ..db import storage_insight as si
 from ..db import table_rows as tr
+from ..scope import Scope
 from .deps import require_pool
 
 router = APIRouter()
@@ -123,6 +136,106 @@ async def admin_db_retention_set(request: Request, user: User = Depends(auth_mod
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse({"retention": saved, "last_run": await si.get_retention_last_run(pool)})
+
+
+# --- attribute-index shares ---------------------------------------------------------------------
+
+#: The kinds of scope a partition may be shared into. Not a corpus: corpora are admin-only
+#: regression assets, and nothing searches from one.
+SHARE_TARGET_KINDS = ("shared", "project", "user")
+
+
+def _share_ref(body: dict) -> dict:
+    """The four strings that name a share, each required."""
+    ref = {}
+    for name in ("scope", "provider", "collection", "target_scope"):
+        v = body.get(name)
+        if not isinstance(v, str) or not v.strip():
+            raise HTTPException(status_code=400, detail=f"{name!r} is required (a non-empty string)")
+        ref[name] = v.strip()
+    return ref
+
+
+async def parse_share(pool, body: dict) -> dict:
+    """``{scope, provider, collection, target_scope}`` checked: both scopes well-formed prefixes,
+    the target one a partition may be shared into, and -- for a project -- a project that exists
+    (named by its uuid, as a stored prefix always is). 400 / 404 worded for the admin."""
+    ref = _share_ref(body)
+    try:
+        Scope.from_prefix(ref["scope"])
+        target = Scope.from_prefix(ref["target_scope"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if target.kind not in SHARE_TARGET_KINDS:
+        raise HTTPException(status_code=400, detail=f"a partition cannot be shared into a {target.kind} scope")
+    if ref["target_scope"] == ref["scope"]:
+        raise HTTPException(status_code=400, detail="a partition is already searchable in its own scope")
+    if target.kind == "project":
+        try:
+            uuid.UUID(target.id or "")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="a project scope is projects/<uuid>") from exc
+        if not await db_module.project_exists(pool, target.id):
+            raise HTTPException(status_code=404, detail=f"no project {target.id!r}")
+    return ref
+
+
+@router.get("/db/attr-shares")
+async def admin_db_attr_shares(
+    request: Request,
+    scope: str | None = None,
+    provider: str | None = None,
+    collection: str | None = None,
+    target_scope: str | None = None,
+) -> JSONResponse:
+    pool = require_pool(request)
+    shares = await db_module.list_attr_shares(
+        pool,
+        scope=scope or None,
+        provider=provider or None,
+        collection=collection or None,
+        target_scope=target_scope or None,
+    )
+    return JSONResponse({"shares": shares})
+
+
+@router.post("/db/attr-shares")
+async def admin_db_attr_share(request: Request, user: User = Depends(auth_module.current_user)) -> JSONResponse:
+    pool = require_pool(request)
+    ref = await parse_share(pool, await _body(request))
+    share = await db_module.share_attr_collection(pool, **ref, shared_by=user.sub)
+    if share is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no indexed collection {ref['provider']}/{ref['collection']} in scope {ref['scope']!r}",
+        )
+    logger.info(
+        "attr share by %s: %s %s/%s -> %s",
+        user.sub,
+        ref["scope"],
+        ref["provider"],
+        ref["collection"],
+        ref["target_scope"],
+    )
+    return JSONResponse({"share": share})
+
+
+@router.delete("/db/attr-shares")
+async def admin_db_attr_unshare(request: Request, user: User = Depends(auth_module.current_user)) -> JSONResponse:
+    pool = require_pool(request)
+    # No shape check beyond the four names: removing a share that could never have been made is a no-op.
+    ref = _share_ref(await _body(request))
+    removed = await db_module.unshare_attr_collection(pool, **ref)
+    if removed:
+        logger.info(
+            "attr unshare by %s: %s %s/%s -> %s",
+            user.sub,
+            ref["scope"],
+            ref["provider"],
+            ref["collection"],
+            ref["target_scope"],
+        )
+    return JSONResponse({"removed": removed})
 
 
 # --- the daily tick -----------------------------------------------------------------------------

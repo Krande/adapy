@@ -10,6 +10,13 @@
 //
 // Provider-neutral on purpose: keys, kinds and values are whatever the provider wrote, case kept.
 // Nothing here knows one provider's vocabulary from another's.
+//
+// SHARED PARTITIONS. An admin can share one scope's partition into another (Admin -> Database);
+// a search of the target scope then reads it where it lies, beside the scope's own -- for a caller
+// who can reach the scope it came from. So a hit or a collection says its ORIGIN (`scope`, the
+// storage prefix; `scope_wire`, the path segment naming it to this caller, null when there is
+// none; `shared`). All three are optional: a server from before shares sends none, and then
+// everything is the scope's own.
 
 import { runtime } from "@/runtime/config";
 
@@ -55,9 +62,19 @@ export interface SearchPathEntry {
   depth: number | null;
 }
 
+/** Where a partition lies (see the module comment). */
+export interface SearchOrigin {
+  /** The origin scope's storage prefix: `shared`, `projects/<id>`, `users/<sub>`. */
+  scope?: string;
+  /** The origin as an API path segment (`project:<id>`, `user:me`, ...), null when it has none. */
+  scope_wire?: string | null;
+  /** Read through a share from another scope. */
+  shared?: boolean;
+}
+
 /** One matching node. `node_id` is the id the provider's published tree uses for it, which is what
- *  lets a hit be revealed in the Sources tree. */
-export interface SearchHit {
+ *  lets a hit be revealed in the Sources tree -- the ORIGIN scope's tree, for a shared hit. */
+export interface SearchHit extends SearchOrigin {
   provider: string;
   collection: string;
   node_id: string;
@@ -70,15 +87,27 @@ export interface SearchHit {
   path: SearchPathEntry[];
 }
 
+/** One partition's total for the whole query, its `counts` key spelled out. */
+export interface SearchPartition extends SearchOrigin {
+  key: string;
+  provider: string;
+  collection: string;
+  count: number;
+}
+
 export interface SearchResponse {
   rows: SearchHit[];
   next_cursor: string | null;
-  /** `<provider>/<collection>` -> total matches in that partition for the whole query. */
+  /** Partition -> total matches in it for the whole query. Keyed `<provider>/<collection>` for the
+   *  scope's own, `<provider>/<collection>@<origin scope>` for a shared one; read `partitions`
+   *  rather than splitting the keys. */
   counts: Record<string, number>;
+  /** `counts` spelled out (absent from a server from before shares). */
+  partitions?: SearchPartition[];
   took_ms: number;
 }
 
-export interface SearchCollection {
+export interface SearchCollection extends SearchOrigin {
   provider: string;
   collection: string;
   revision: string | null;

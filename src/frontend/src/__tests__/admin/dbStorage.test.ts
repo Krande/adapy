@@ -9,7 +9,9 @@ import {
     pruneSpecFor,
     refOfKey,
     retentionChanges,
+    shareLabel,
     sharePercent,
+    shareTargets,
 } from "@/components/admin/database/dbStorage";
 import {parseTabId} from "@/components/admin/adminTabs";
 
@@ -60,6 +62,20 @@ test("numbers read as estimates or exact counts", () => {
     assert.equal(ageRange("2026-09-13T10:00:00Z", "2026-10-12T11:00:00Z"), "2026-09-13 → 2026-10-12");
     assert.equal(ageRange("2026-10-12T01:00:00Z", "2026-10-12T11:00:00Z"), "2026-10-12");
     assert.equal(ageRange(null, null), "—");
+});
+
+test("a partition is offered to Shared, the admin's own scope and live projects, never its own", () => {
+    const projects = [
+        {id: "p2", name: "beta", archived_at: null},
+        {id: "p1", name: "alpha"},
+        {id: "p3", name: "gone", archived_at: "2026-01-01T00:00:00Z"},
+    ];
+    const all = shareTargets("sub-1", projects, null);
+    assert.deepEqual(all.map((t) => t.scope), ["shared", "users/sub-1", "projects/p1", "projects/p2"]);
+    assert.deepEqual(shareTargets("sub-1", projects, "projects/p1").map((t) => t.scope), ["shared", "users/sub-1", "projects/p2"]);
+    assert.deepEqual(shareTargets(null, [], null), [{scope: "shared", label: "Shared"}]);
+    assert.equal(shareLabel("projects/p2", all), "beta");
+    assert.equal(shareLabel("users/someone-else", all), "users/someone-else");
 });
 
 test("the Database tab is a routable admin tab", () => {

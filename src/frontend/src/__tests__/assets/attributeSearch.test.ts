@@ -5,11 +5,15 @@ import {
   buildQuery,
   emptyForm,
   filterOptions,
+  hitExportBlock,
   hitKey,
+  hitRevealScope,
   hitTreePath,
   mergePage,
   opTakesList,
   opTakesValue,
+  originBadge,
+  originLabel,
   parseStoredForm,
   partitionCounts,
   pickSummary,
@@ -237,10 +241,49 @@ test("pages fold in order, without duplicates, with the latest counts and cursor
 test("partition counts split on the first slash and sum", () => {
   const counts = { "prov-a/ALPHA": 2, "prov-b/BETA/X": 5 };
   assert.deepEqual(partitionCounts(counts), [
-    { provider: "prov-b", collection: "BETA/X", count: 5 },
-    { provider: "prov-a", collection: "ALPHA", count: 2 },
+    { key: "prov-b/BETA/X", provider: "prov-b", collection: "BETA/X", count: 5 },
+    { key: "prov-a/ALPHA", provider: "prov-a", collection: "ALPHA", count: 2 },
   ]);
   assert.equal(totalCount(counts), 7);
+});
+
+// --- shared partitions ---------------------------------------------------------------------------
+
+test("an own and a shared partition of one name are different hits and different counts", () => {
+  const own = hit("a", { scope: "projects/p1", shared: false });
+  const theirs = hit("a", { scope: "projects/p2", shared: true });
+  assert.notEqual(hitKey(own), hitKey(theirs));
+  // a hit from a server before shares (no scope) keys as it always did
+  assert.equal(hitKey(hit("a")), "prov-a\u0000ALPHA\u0000a");
+  const folded = mergePage(null, { ...page([], null, {}), rows: [own, theirs, own] });
+  assert.equal(folded.hits.length, 2);
+
+  const counts = { "prov-a/ALPHA": 2, "prov-a/ALPHA@projects/p2": 5 };
+  const parts = partitionCounts(counts, [
+    { key: "prov-a/ALPHA", provider: "prov-a", collection: "ALPHA", scope: "projects/p1", shared: false, count: 2 },
+    { key: "prov-a/ALPHA@projects/p2", provider: "prov-a", collection: "ALPHA", scope: "projects/p2", shared: true, count: 5 },
+  ]);
+  assert.deepEqual(parts.map((p) => [p.key, p.scope, p.count]), [
+    ["prov-a/ALPHA@projects/p2", "projects/p2", 5],
+    ["prov-a/ALPHA", "projects/p1", 2],
+  ]);
+  assert.equal(totalCount(counts), 7);
+});
+
+test("a shared hit is badged with its origin and not acted on here", () => {
+  const names = (id: string) => (id === "p2" ? "plant-a" : undefined);
+  assert.equal(originBadge({ scope: "projects/p1", shared: false }), null);
+  assert.equal(originBadge({}), null);
+  assert.equal(originBadge({ scope: "projects/p2", shared: true }, names), "from plant-a");
+  assert.equal(originBadge({ scope: "projects/p9", shared: true }, names), "from project");
+  assert.equal(originBadge({ scope: "shared", shared: true }), "from Shared");
+  assert.equal(originLabel("users/u1"), "My files");
+  // revealed in its origin when the caller can name it there; never exported from here
+  assert.deepEqual(hitRevealScope({ scope: "projects/p1", shared: false, scope_wire: "project:p1" }), { scope: null });
+  assert.deepEqual(hitRevealScope({ scope: "projects/p2", shared: true, scope_wire: "project:p2" }), { scope: "project:p2" });
+  assert.ok("blocked" in hitRevealScope({ scope: "users/u2", shared: true, scope_wire: null }));
+  assert.equal(hitExportBlock({ scope: "projects/p1", shared: false }), null);
+  assert.match(hitExportBlock({ scope: "shared", shared: true }) ?? "", /from Shared/);
 });
 
 test("a hit's collection maps onto the tree's, exact first then ignoring case", () => {

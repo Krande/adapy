@@ -1,5 +1,6 @@
-// Admin -> Database: what the database holds per feature area, pruning old history, retention
-// (routes/admin_db.py; the rules live in db/storage_insight.py).
+// Admin -> Database: what the database holds per feature area, pruning old history, retention,
+// and sharing attribute-index partitions into other scopes (routes/admin_db.py; the rules live in
+// db/storage_insight.py and db/attribute_index.py).
 
 import { runtime } from "@/runtime/config";
 
@@ -58,6 +59,19 @@ export interface DbAttributePartition {
   table_bytes: number;
   index_bytes: number;
   toast_bytes: number;
+  /** The scopes (storage prefixes) this partition is shared into, oldest share first (absent from
+   *  a server from before shares). */
+  shared_with?: string[];
+}
+
+/** One partition made searchable from another scope too. Scopes are storage prefixes. */
+export interface DbAttrShare {
+  scope: string;
+  provider: string;
+  collection: string;
+  target_scope: string;
+  shared_at: string | null;
+  shared_by: string | null;
 }
 
 export interface DbRetentionLastRun {
@@ -160,5 +174,17 @@ export const adminDbApi = {
   ): Promise<{ retention: Record<string, number>; last_run: DbRetentionLastRun | null }> {
     const r = await authedFetch(`${runtime.apiBase()}/admin/db/retention`, json("PUT", { retention }));
     return jsonOrThrow(r, "adminDbSetRetention");
+  },
+
+  /** Make one attribute-index partition searchable from `targetScope` too (idempotent). A share
+   *  grants nobody access: a search reads it only for callers who can reach its origin scope. */
+  async adminDbShareAttrCollection(ref: DbCollectionRef, targetScope: string): Promise<DbAttrShare> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/db/attr-shares`, json("POST", { ...ref, target_scope: targetScope }));
+    return (await jsonOrThrow<{ share: DbAttrShare }>(r, "adminDbShareAttrCollection")).share;
+  },
+
+  async adminDbUnshareAttrCollection(ref: DbCollectionRef, targetScope: string): Promise<boolean> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/db/attr-shares`, json("DELETE", { ...ref, target_scope: targetScope }));
+    return (await jsonOrThrow<{ removed: boolean }>(r, "adminDbUnshareAttrCollection")).removed;
   },
 };
