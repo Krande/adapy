@@ -17,6 +17,7 @@ import random
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from types import SimpleNamespace
 
 os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
@@ -866,3 +867,334 @@ async def test_shared_partitions_are_searched_beside_the_own_ones_while_their_or
         await pg.pool.execute("DELETE FROM projects WHERE id = $1", uuid.UUID(project["id"]))
         with contextlib.suppress(Exception):  # a placeholder row; another table may have referenced it
             await pg.pool.execute("DELETE FROM users WHERE sub = $1", member)
+
+
+# --- group shares (migration 040) and one copy per revision ---------------------------------------
+
+
+async def _drop_provider_everywhere(pg) -> None:
+    """Every partition and group share of the test's provider, the shared scope's included."""
+    for r in await pg.pool.fetch("SELECT scope, collection FROM attr_collections WHERE provider = $1", pg.provider):
+        await ai.drop_attr_collection(pg.pool, scope=r["scope"], provider=pg.provider, collection=r["collection"])
+    await pg.pool.execute("DELETE FROM attr_provider_shares WHERE provider = $1", pg.provider)
+
+
+def _own(pool, scope, provider):
+    return pool.fetch(
+        "SELECT collection, revision FROM attr_collections WHERE scope = $1 AND provider = $2 ORDER BY 1",
+        scope,
+        provider,
+    )
+
+
+async def _targets(pg, scope, collection) -> set[str]:
+    return {s["target_scope"] for s in await ai.list_attr_shares(pg.pool, scope=scope, provider=pg.provider,
+                                                                 collection=collection)}  # fmt: skip
+
+
+@pytest.mark.asyncio
+async def test_group_share_and_fold_requests_are_checked():
+    from fastapi import HTTPException
+
+    from ada.comms.rest.routes import admin_db
+
+    ok = {"scope": "projects/p1", "provider": "prov", "target_scope": "shared"}
+    assert await admin_db.parse_share(None, ok, admin_db.GROUP_SHARE_NAMES) == ok
+    for bad in ({**ok, "target_scope": "projects/p1"}, {**ok, "provider": ""}, {**ok, "target_scope": "corpus/c1"}):
+        with pytest.raises(HTTPException) as err:
+            await admin_db.parse_share(None, bad, admin_db.GROUP_SHARE_NAMES)
+        assert err.value.status_code == 400, bad
+
+    fold = {"provider": "prov", "keep_scope": "shared", "drop_scope": "projects/p1"}
+    assert admin_db.parse_fold(fold) == {**fold, "collections": None, "dry_run": True}
+    assert admin_db.parse_fold({**fold, "dry_run": "no", "collections": ["a"]})["dry_run"] is True
+    assert admin_db.parse_fold({**fold, "dry_run": False})["dry_run"] is False
+    for bad in ({**fold, "drop_scope": "nowhere"}, {**fold, "collections": "alpha"}, {**fold, "provider": None}):
+        with pytest.raises(HTTPException) as err:
+            admin_db.parse_fold(bad)
+        assert err.value.status_code == 400, bad
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_a_group_share_covers_collections_ingested_later_and_its_removal_keeps_explicit_shares(pg):
+    tag = uuid.uuid4().hex[:8]
+    member, outsider = f"test-gshare-{tag}-a", f"test-gshare-{tag}-b"
+    project = await dbm.create_project(pg.pool, f"test-gshare-{tag}", f"test group share {tag}")
+    plant_a = f"projects/{project['id']}"
+    p = pg.provider
+    try:
+        await dbm.add_project_member(pg.pool, project["id"], member)
+        await _ingest_into(pg, plant_a, "alpha", _nodes("alpha", 12, seed=21))
+        assert (
+            await ai.share_attr_provider(pg.pool, scope=plant_a, provider=f"none-{tag}", target_scope=pg.scope) is None
+        )
+        with pytest.raises(ValueError):
+            await ai.share_attr_provider(pg.pool, scope=plant_a, provider=p, target_scope=plant_a)
+        first = await ai.share_attr_provider(pg.pool, scope=plant_a, provider=p, target_scope=pg.scope, shared_by="t")
+        again = await ai.share_attr_provider(pg.pool, scope=plant_a, provider=p, target_scope=pg.scope, shared_by="x")
+        assert first["shared_by"] == again["shared_by"] == "t"
+        assert [s["target_scope"] for s in await ai.list_attr_provider_shares(pg.pool, scope=plant_a)] == [pg.scope]
+
+        # A collection the next sweep adds is covered without another share.
+        await _ingest_into(pg, plant_a, "beta", _nodes("beta", 8, seed=22))
+        assert await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub=member) == [plant_a]
+        assert await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub=outsider) == []
+        res = await ai.search_attributes(
+            pg.pool, scope=pg.scope, query=ai.parse_search_query({"limit": 1000}), shared_from=[plant_a]
+        )
+        assert res["counts"] == {f"{p}/alpha@{plant_a}": 17, f"{p}/beta@{plant_a}": 13}
+        own_only = await ai.search_attributes(pg.pool, scope=pg.scope, query=ai.parse_search_query({"limit": 10}))
+        assert own_only["counts"] == {}
+
+        # Removing the group share leaves beta's own share.
+        await ai.share_attr_collection(pg.pool, scope=plant_a, provider=p, collection="beta", target_scope=pg.scope)
+        assert await ai.unshare_attr_provider(pg.pool, scope=plant_a, provider=p, target_scope=pg.scope)
+        assert not await ai.unshare_attr_provider(pg.pool, scope=plant_a, provider=p, target_scope=pg.scope)
+        res = await ai.search_attributes(
+            pg.pool, scope=pg.scope, query=ai.parse_search_query({"limit": 1000}), shared_from=[plant_a]
+        )
+        assert res["counts"] == {f"{p}/beta@{plant_a}": 13}
+        assert await ai.list_attr_provider_shares(pg.pool, scope=plant_a) == []
+    finally:
+        await _drop_provider_everywhere(pg)
+        await pg.pool.execute("DELETE FROM project_members WHERE project_id = $1", uuid.UUID(project["id"]))
+        await pg.pool.execute("DELETE FROM projects WHERE id = $1", uuid.UUID(project["id"]))
+        with contextlib.suppress(Exception):
+            await pg.pool.execute("DELETE FROM users WHERE sub = $1", member)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_an_ingest_of_what_the_shared_scope_holds_at_that_revision_shares_it_instead_of_copying(pg):
+    p = pg.provider
+    other = f"projects/test-attr-{uuid.uuid4().hex[:8]}"
+    nodes = _nodes("alpha", 20, seed=31)
+    try:
+        # The scope's older copy, shared on into another scope.
+        await _ingest_into(pg, pg.scope, "alpha", nodes, revision="r0")
+        await ai.share_attr_collection(pg.pool, scope=pg.scope, provider=p, collection="alpha", target_scope=other)
+        # The shared scope at a newer revision: different revisions are never folded.
+        into_shared = await _ingest_into(pg, "shared", "alpha", nodes, revision="r1")
+        assert into_shared["deduplicated_into"] is None and into_shared["folded"] == []
+        assert [tuple(r) for r in await _own(pg.pool, pg.scope, p)] == [("alpha", "r0")]
+
+        # The scope's next sweep reaches r1: the shared copy is shared in, the old copy folded away.
+        res = await _ingest_into(pg, pg.scope, "alpha", nodes, revision="r1")
+        assert res["deduplicated_into"] == "shared" and res["rows"] == 0
+        assert res["partition"] == into_shared["partition"]
+        [fold] = res["folded"]
+        assert fold["scope"] == pg.scope and fold["revision"] == "r0" and fold["repointed"] == [other]
+        assert fold["bytes_freed"] > 0
+        assert await _own(pg.pool, pg.scope, p) == []
+        assert await _targets(pg, "shared", "alpha") == {pg.scope, other}
+        origins = await ai.readable_share_origins(pg.pool, scope=pg.scope, user_sub="anyone")
+        assert origins == ["shared"]  # everyone reaches the shared scope
+        found = await ai.search_attributes(
+            pg.pool, scope=pg.scope, query=ai.parse_search_query({"limit": 1000}), shared_from=origins
+        )
+        assert found["counts"] == {f"{p}/alpha@shared": len(nodes)}
+
+        # Again at r1: still nothing copied, nothing left to fold. One the shared scope lacks is copied.
+        again = await _ingest_into(pg, pg.scope, "alpha", nodes, revision="r1")
+        assert again["deduplicated_into"] == "shared" and again["folded"] == []
+        beta = await _ingest_into(pg, pg.scope, "beta", _nodes("beta", 5, seed=32), revision="r1")
+        assert beta["deduplicated_into"] is None and beta["rows"] == 10
+    finally:
+        await _drop_provider_everywhere(pg)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_an_ingest_into_shared_folds_same_revision_copies_and_repoints_their_shares(pg):
+    p = pg.provider
+    tag = uuid.uuid4().hex[:8]
+    other, third, personal = f"projects/test-attr-{tag}-b", f"projects/test-attr-{tag}-c", f"users/test-attr-{tag}"
+    nodes = _nodes("alpha", 15, seed=41)
+    try:
+        await _ingest_into(pg, pg.scope, "alpha", nodes, revision="r1")
+        await _ingest_into(pg, pg.scope, "beta", _nodes("beta", 5, seed=42), revision="r1")
+        await _ingest_into(pg, other, "alpha", nodes, revision="r2")  # another revision: left alone
+        await ai.share_attr_collection(pg.pool, scope=pg.scope, provider=p, collection="alpha", target_scope=third)
+        await ai.share_attr_collection(pg.pool, scope=pg.scope, provider=p, collection="alpha", target_scope="shared")
+        await ai.share_attr_provider(pg.pool, scope=pg.scope, provider=p, target_scope=personal)
+
+        res = await _ingest_into(pg, "shared", "alpha", nodes, revision="r1")
+        assert res["deduplicated_into"] is None and res["rows"] == len(nodes)
+        [fold] = res["folded"]
+        assert fold["scope"] == pg.scope and fold["repointed"] == sorted([third, personal])
+        assert [tuple(r) for r in await _own(pg.pool, pg.scope, p)] == [("beta", "r1")]
+        assert [tuple(r) for r in await _own(pg.pool, other, p)] == [("alpha", "r2")]
+        assert await _targets(pg, "shared", "alpha") == {pg.scope, third, personal}
+        # The group share stays for what is still the scope's own.
+        assert [s["target_scope"] for s in await ai.list_attr_provider_shares(pg.pool, scope=pg.scope)] == [personal]
+    finally:
+        await _drop_provider_everywhere(pg)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_one_copy_rule_can_be_switched_off(pg, monkeypatch):
+    monkeypatch.setenv(ai.DEDUP_ENV, "0")
+    p = pg.provider
+    nodes = _nodes("alpha", 6, seed=51)
+    try:
+        await _ingest_into(pg, "shared", "alpha", nodes, revision="r1")
+        res = await _ingest_into(pg, pg.scope, "alpha", nodes, revision="r1")
+        assert res["deduplicated_into"] is None and res["rows"] == len(nodes)
+        again = await _ingest_into(pg, "shared", "alpha", nodes, revision="r1")
+        assert again["folded"] == []
+        assert [tuple(r) for r in await _own(pg.pool, pg.scope, p)] == [("alpha", "r1")]
+        assert await ai.list_attr_shares(pg.pool, provider=p) == []
+    finally:
+        await _drop_provider_everywhere(pg)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_the_admin_fold_keeps_only_the_shared_copy_previews_first_and_repoints_shares(pg):
+    p = pg.provider
+    other = f"projects/test-attr-{uuid.uuid4().hex[:8]}"
+    try:
+        for coll, seed in (("alpha", 61), ("beta", 62), ("gamma", 63)):
+            await _ingest_into(pg, pg.scope, coll, _nodes(coll, 10, seed=seed), revision="r0")
+        for coll, seed in (("alpha", 64), ("beta", 65)):
+            await _ingest_into(pg, "shared", coll, _nodes(coll, 12, seed=seed), revision="r1")
+        await ai.share_attr_collection(pg.pool, scope=pg.scope, provider=p, collection="alpha", target_scope=other)
+
+        with pytest.raises(ai.FoldRefused):
+            await ai.fold_attr_duplicates(pg.pool, provider=p, keep_scope=pg.scope, drop_scope="shared")
+        with pytest.raises(ai.FoldRefused):
+            await ai.fold_attr_duplicates(pg.pool, provider=p, keep_scope="shared", drop_scope="shared")
+
+        plan = await ai.fold_attr_duplicates(pg.pool, provider=p, keep_scope="shared", drop_scope=pg.scope)
+        assert plan["dry_run"] is True and plan["folded"] == 0
+        assert [(c["collection"], c["same_revision"], c["repointed"]) for c in plan["collections"]] == [
+            ("alpha", False, [other]),
+            ("beta", False, []),
+        ]
+        assert plan["bytes"] > 0 and plan["missing"] == []
+        assert len(await _own(pg.pool, pg.scope, p)) == 3  # a dry run changes nothing
+        named = await ai.fold_attr_duplicates(
+            pg.pool, provider=p, keep_scope="shared", drop_scope=pg.scope, collections=["ALPHA", "nope"]
+        )
+        assert [c["collection"] for c in named["collections"]] == ["alpha"] and named["missing"] == ["nope"]
+
+        done = await ai.fold_attr_duplicates(
+            pg.pool, provider=p, keep_scope="shared", drop_scope=pg.scope, dry_run=False, folded_by="t"
+        )
+        assert done["folded"] == 2 and done["bytes"] > 0 and done["errors"] == []
+        assert [tuple(r) for r in await _own(pg.pool, pg.scope, p)] == [("gamma", "r0")]
+        assert await _targets(pg, "shared", "alpha") == {pg.scope, other}
+        assert await _targets(pg, "shared", "beta") == {pg.scope}
+        assert {s["shared_by"] for s in await ai.list_attr_shares(pg.pool, scope="shared", provider=p)} == {"t"}
+    finally:
+        await _drop_provider_everywhere(pg)
+
+
+# --- keeping only the newest copy -----------------------------------------------------------------
+
+
+def test_the_newest_copy_is_by_numeric_revision_else_by_ingest_and_shared_wins_a_tie():
+    def m(scope, rev, at):
+        return {"scope": scope, "revision": rev, "ingested_at": at}
+
+    plant_a = "projects/p1"
+    # Numbers compare as numbers, whenever they were ingested.
+    assert ai.newest_copy([m(plant_a, "10", "2026-01-01"), m("shared", "9", "2026-02-01")])["scope"] == plant_a
+    # Opaque tokens: the later ingest carries the later revision.
+    assert ai.newest_copy([m(plant_a, "abc", "2026-01-01"), m("shared", "abd", "2026-02-01")])["scope"] == "shared"
+    assert ai.newest_copy([m(plant_a, "x2", "2026-03-01"), m("shared", "x1", "2026-02-01")])["scope"] == plant_a
+    # The same revision is the same rows: the shared copy is kept, wherever was ingested last.
+    assert ai.newest_copy([m(plant_a, "r1", "2026-03-01"), m("shared", "r1", "2026-02-01")])["scope"] == "shared"
+    assert ai.newest_copy([m(plant_a, "7", "2026-03-01"), m("shared", "7", "2026-02-01")])["scope"] == "shared"
+
+
+@pytest.mark.asyncio
+async def test_prune_revision_requests_are_checked():
+    from fastapi import HTTPException
+
+    from ada.comms.rest.routes import admin_db
+
+    assert admin_db.parse_prune_revisions({}) == {
+        "provider": None, "scopes": None, "collections": None, "include_narrowing": False, "dry_run": True,
+    }  # fmt: skip
+    spec = admin_db.parse_prune_revisions(
+        {"scopes": ["shared", "projects/p1"], "include_narrowing": "yes", "dry_run": False}
+    )
+    assert spec["include_narrowing"] is False and spec["dry_run"] is False  # only `true` opts in
+    for bad in ({"scopes": ["shared"]}, {"scopes": ["shared", "nowhere"]}, {"provider": ""}, {"collections": "a"}):
+        with pytest.raises(HTTPException) as err:
+            admin_db.parse_prune_revisions(bad)
+        assert err.value.status_code == 400, bad
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_pruning_older_revisions_folds_toward_shared_and_never_widens_a_narrower_copy(pg, monkeypatch):
+    monkeypatch.setenv(ai.DEDUP_ENV, "0")  # set up copies the one-copy rule would not let exist
+    p = pg.provider
+    other = f"projects/test-attr-{uuid.uuid4().hex[:8]}"
+
+    async def put(scope, coll, rev, day, seed):
+        await _ingest_into(pg, scope, coll, _nodes(coll, 6, seed=seed), revision=rev)
+        await pg.pool.execute(
+            "UPDATE attr_collections SET ingested_at = $4::timestamptz WHERE scope = $1 AND provider = $2 "
+            "AND collection = $3",
+            scope,
+            p,
+            coll,
+            datetime.fromisoformat(f"2026-10-{day:02d}T00:00:00+00:00"),
+        )
+
+    try:
+        await put(pg.scope, "alpha", "r1", 1, 71)  # older in the project ...
+        await put("shared", "alpha", "r2", 5, 72)  # ... newest in shared: fold
+        await put("shared", "beta", "r1", 1, 73)  # older in shared ...
+        await put(pg.scope, "beta", "r2", 5, 74)  # ... newest only in the project: narrowing
+        await put(pg.scope, "gamma", "r1", 6, 75)  # the same revision, the project ingested last ...
+        await put("shared", "gamma", "r1", 2, 76)  # ... the shared copy is kept all the same
+        await put(pg.scope, "delta", "r1", 1, 77)  # one copy: not a duplicate
+        await ai.share_attr_collection(pg.pool, scope=pg.scope, provider=p, collection="alpha", target_scope=other)
+
+        plan = await ai.prune_attr_revisions(pg.pool, provider=p)
+        assert plan["dry_run"] is True
+        by = {c["collection"]: c for c in plan["collections"]}
+        assert set(by) == {"alpha", "beta", "gamma"}
+        assert by["alpha"]["kept"]["scope"] == "shared"
+        assert [(d["scope"], d["action"]) for d in by["alpha"]["dropped"]] == [(pg.scope, "fold")]
+        assert by["beta"]["kept"]["scope"] == pg.scope and by["beta"]["dropped"] == []
+        assert [(s["scope"], s["reason"]) for s in by["beta"]["skipped"]] == [("shared", "narrowing")]
+        assert by["gamma"]["kept"]["scope"] == "shared"
+        assert plan["dropped"] == 2 and plan["skipped"] == 1 and plan["bytes"] > 0
+        assert len(await _own(pg.pool, pg.scope, p)) == 4  # a dry run changes nothing
+
+        done = await ai.prune_attr_revisions(pg.pool, provider=p, dry_run=False, pruned_by="t")
+        assert done["dropped"] == 2 and done["skipped"] == 1 and done["errors"] == []
+        assert [r["collection"] for r in await _own(pg.pool, pg.scope, p)] == ["beta", "delta"]
+        assert await _targets(pg, "shared", "alpha") == {pg.scope, other}  # re-pointed, and shared back in
+        assert await _targets(pg, "shared", "gamma") == {pg.scope}
+        assert {r["collection"] for r in await _own(pg.pool, "shared", p)} == {"alpha", "beta", "gamma"}
+
+        # Opting in drops the older shared copy -- and shares nothing of the project's anywhere.
+        narrowed = await ai.prune_attr_revisions(
+            pg.pool, provider=p, scopes=["shared", pg.scope], include_narrowing=True, dry_run=False
+        )
+        [entry] = narrowed["collections"]
+        assert entry["collection"] == "beta" and [(d["scope"], d["action"]) for d in entry["dropped"]] == [
+            ("shared", "drop")
+        ]
+        assert {r["collection"] for r in await _own(pg.pool, "shared", p)} == {"alpha", "gamma"}
+        assert await ai.list_attr_shares(pg.pool, scope=pg.scope, provider=p) == []
+        assert await ai.prune_attr_revisions(pg.pool, provider=p) == {
+            "dry_run": True, "include_narrowing": False, "collections": [], "dropped": 0, "skipped": 0, "bytes": 0,
+            "errors": [],
+        }  # fmt: skip
+    finally:
+        await _drop_provider_everywhere(pg)

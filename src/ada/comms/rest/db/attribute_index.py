@@ -41,7 +41,20 @@ partitions with different rows, so everything that walks partitions keys them by
 provider, collection): the order is (provider, collection, own before shared, origin), the cursor
 carries the origin (``s``), and every row says which scope it came from. Whether the caller may
 read a share is decided per request, against the ORIGIN scope (:func:`readable_share_origins`):
-the share says where a partition may be read, never who may read it.
+the share says where a partition may be read, never who may read it. A share can also name a
+whole (scope, provider) group (migration 040): every partition of it, the ones a later sweep adds
+included, reads as shared into the target, by the same rule.
+
+ONE COPY PER (provider, collection, revision). The same collection swept into a project and into
+the shared scope at the same revision is the same rows twice. So an ingest that finds the shared
+scope already holding that (provider, collection) at the header's revision does not copy it: it
+shares the shared partition into the ingesting scope instead (and folds away an older copy the
+scope held), and says so (``deduplicated_into``). An ingest INTO the shared scope folds the copies
+other scopes hold at the same revision the other way. Only ever toward the shared scope -- which
+everyone may read, so nothing becomes visible that was not -- and only at an equal, known
+revision: a project's own sweep may use its own options and credentials, and its rows never move
+anywhere else on their own. ``ADA_ATTR_INDEX_DEDUP=0`` turns this off (every ingest copies).
+An admin folds copies at DIFFERENT revisions by hand (:func:`fold_attr_duplicates`).
 """
 
 from __future__ import annotations
@@ -50,6 +63,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 import re
 import secrets
 import time
@@ -59,6 +73,8 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterable, AsyncIterator, Iterable, Optional
 
 import asyncpg
+
+from ada.config import logger
 
 from ._common import _loads_jsonb
 
@@ -84,6 +100,19 @@ SEARCH_MAX_WHERE = 32
 SEARCH_STATEMENT_TIMEOUT = "30s"
 #: Ancestor walks stop here; a parent cycle in a provider's data ends instead of spinning.
 PATH_MAX_DEPTH = 256
+
+#: The scope every caller may read: the one copy a duplicated index is folded into.
+SHARED_SCOPE = "shared"
+#: Env switch for the one-copy rule at ingest (module docstring); anything but 0/false/no/off is on.
+DEDUP_ENV = "ADA_ATTR_INDEX_DEDUP"
+#: ``shared_by`` of the shares an ingest makes on its own.
+DEDUP_SHARED_BY = "system:dedup"
+
+
+def dedup_enabled() -> bool:
+    """Whether an ingest keeps one copy per (provider, collection, revision). Read per ingest."""
+    return os.environ.get(DEDUP_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
 
 _GZIP_MAGIC = b"\x1f\x8b"
 _PARTITION_RE = re.compile(r"^attr_p_[a-z0-9_]{1,40}_[0-9a-f]{16}$")
@@ -356,6 +385,11 @@ async def ingest_attribute_index(
     ``provider`` is the publishing job's provider -- the authorised one; a header naming another is
     reported in ``warnings`` and ignored. Returns what was ingested and the phase timings
     (``ingest_ms`` download + parse + COPY, ``index_ms`` indexes + analyse, ``swap_ms``).
+
+    The one-copy rule (module docstring): ``deduplicated_into`` is ``"shared"`` when the shared
+    scope already held this revision and nothing was copied (``rows`` 0, ``partition`` the shared
+    one); ``folded`` lists the copies other scopes held that an ingest into the shared scope (or
+    the scope's own older copy, on a deduplicated ingest) replaced with a share.
     """
     t0 = time.perf_counter()
     lines = ndjson_lines(chunks)
@@ -371,6 +405,40 @@ async def ingest_attribute_index(
             f"publishing provider {provider!r}"
         )
     collection = str(header["collection"])
+    revision = _str_or_none(header.get("revision"))
+    dedup = dedup_enabled() and revision is not None
+
+    if dedup and scope != SHARED_SCOPE:
+        deduped = await _share_instead_of_copy(
+            pool, scope=scope, provider=provider, collection=collection, revision=revision
+        )
+        if deduped is not None:
+            await lines.aclose()
+            logger.info(
+                "attribute index: %s/%s@%s is already in %s; shared into %s instead of copied%s",
+                provider,
+                collection,
+                revision,
+                SHARED_SCOPE,
+                scope,
+                " (its older copy there folded)" if deduped["folded"] else "",
+            )
+            return {
+                "provider": provider,
+                "collection": collection,
+                "revision": revision,
+                "source_etag": _str_or_none(header.get("source_etag")),
+                "rows": 0,
+                "skipped": 0,
+                "duplicates": 0,
+                "keys": deduped["keys"],
+                "partition": deduped["partition"],
+                "deduplicated_into": SHARED_SCOPE,
+                "folded": deduped["folded"],
+                "warnings": warnings,
+                "timings": {"ingest_ms": round((time.perf_counter() - t0) * 1000), "index_ms": 0, "swap_ms": 0},
+            }
+
     excluded = _exclusion(header.get("index_exclude") or [])
     part_key = part_key_for(scope, provider, collection)
     canonical = partition_name_for(provider, collection, part_key)
@@ -472,7 +540,7 @@ async def ingest_attribute_index(
                         scope,
                         provider,
                         collection,
-                        _str_or_none(header.get("revision")),
+                        revision,
                         rows,
                         _str_or_none(header.get("source_etag")),
                         _str_or_none(header.get("depth_base")),
@@ -491,16 +559,24 @@ async def ingest_attribute_index(
         finally:
             await conn.execute("SELECT pg_advisory_unlock($1)", _lock_id(part_key))
 
+    folded: list[dict] = []
+    if dedup and scope == SHARED_SCOPE:
+        folded = await _fold_same_revision_into_shared(
+            pool, provider=provider, collection=collection, revision=revision
+        )
+
     return {
         "provider": provider,
         "collection": collection,
-        "revision": _str_or_none(header.get("revision")),
+        "revision": revision,
         "source_etag": _str_or_none(header.get("source_etag")),
         "rows": rows,
         "skipped": skipped,
         "duplicates": duplicates,
         "keys": len(keys),
         "partition": canonical,
+        "deduplicated_into": None,
+        "folded": folded,
         "warnings": warnings,
         "timings": timings,
     }
@@ -533,17 +609,299 @@ async def drop_attr_collection(pool: asyncpg.Pool, *, scope: str, provider: str,
         try:
             await _drop_leftovers(conn, part_key)
             async with conn.transaction():
-                await _detach_and_drop(conn, partition_name_for(provider, collection, part_key))
-                await conn.execute("DELETE FROM attr_values WHERE part_key = $1", part_key)
-                status = await conn.execute(
-                    "DELETE FROM attr_collections WHERE scope = $1 AND provider = $2 AND collection = $3",
-                    scope,
-                    provider,
-                    collection,
+                dropped = await _drop_in_tx(conn, scope=scope, provider=provider, collection=collection)
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock($1)", _lock_id(part_key))
+    return dropped
+
+
+async def _drop_in_tx(conn, *, scope: str, provider: str, collection: str) -> bool:
+    """:func:`drop_attr_collection`'s work, inside the caller's transaction and under the caller's
+    hold of the partition's advisory lock."""
+    part_key = part_key_for(scope, provider, collection)
+    await _detach_and_drop(conn, partition_name_for(provider, collection, part_key))
+    await conn.execute("DELETE FROM attr_values WHERE part_key = $1", part_key)
+    status = await conn.execute(
+        "DELETE FROM attr_collections WHERE scope = $1 AND provider = $2 AND collection = $3",
+        scope,
+        provider,
+        collection,
+    )
+    return status.split()[-1] != "0"
+
+
+# --- one copy per (provider, collection, revision) ----------------------------------------------
+
+
+async def _fold_in_tx(
+    conn, *, drop_scope: str, provider: str, collection: str, folded_by: Optional[str]
+) -> Optional[dict]:
+    """Replace ``drop_scope``'s partition of (provider, collection) by a share of the shared one.
+
+    Inside the caller's transaction, under its hold of ``drop_scope``'s partition lock, with the
+    shared partition known to exist. Every scope the dropped copy was searchable from keeps
+    searching the collection: each target of its own shares and of its group's (040) gets a share
+    of the shared copy -- which widens nothing, everyone may read the shared scope -- and so does
+    ``drop_scope`` itself. Then the copy is dropped, its shares going with it by the cascade.
+    None when ``drop_scope`` holds no such partition."""
+    part_key = part_key_for(drop_scope, provider, collection)
+    name = partition_name_for(provider, collection, part_key)
+    held = await conn.fetchrow(
+        "SELECT revision, rows FROM attr_collections WHERE scope = $1 AND provider = $2 AND collection = $3 FOR UPDATE",
+        drop_scope,
+        provider,
+        collection,
+    )
+    if held is None:
+        return None
+    size = await conn.fetchval("SELECT COALESCE(pg_total_relation_size(to_regclass($1)), 0)", name)
+    targets = await conn.fetch(
+        """
+        SELECT target_scope FROM attr_shares WHERE scope = $1 AND provider = $2 AND collection = $3
+        UNION SELECT target_scope FROM attr_provider_shares WHERE scope = $1 AND provider = $2
+        """,
+        drop_scope,
+        provider,
+        collection,
+    )
+    repointed = sorted({t["target_scope"] for t in targets} - {SHARED_SCOPE, drop_scope})
+    for target in [*repointed, drop_scope]:
+        await conn.execute(
+            """
+            INSERT INTO attr_shares (scope, provider, collection, target_scope, shared_by)
+            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (scope, provider, collection, target_scope) DO NOTHING
+            """,
+            SHARED_SCOPE,
+            provider,
+            collection,
+            target,
+            folded_by,
+        )
+    await _drop_in_tx(conn, scope=drop_scope, provider=provider, collection=collection)
+    return {
+        "scope": drop_scope,
+        "provider": provider,
+        "collection": collection,
+        "revision": held["revision"],
+        "rows": int(held["rows"]),
+        "bytes_freed": int(size),
+        "repointed": repointed,
+    }
+
+
+async def _shared_revision(conn, provider: str, collection: str) -> Optional[asyncpg.Record]:
+    """The shared scope's catalogue row of (provider, collection), locked against a concurrent
+    reingest changing its revision until the caller's transaction ends."""
+    return await conn.fetchrow(
+        "SELECT revision, partition_name, keys FROM attr_collections "
+        "WHERE scope = $1 AND provider = $2 AND collection = $3 FOR SHARE",
+        SHARED_SCOPE,
+        provider,
+        collection,
+    )
+
+
+async def _share_instead_of_copy(
+    pool: asyncpg.Pool, *, scope: str, provider: str, collection: str, revision: str
+) -> Optional[dict]:
+    """An ingest into ``scope`` (not the shared one) of what the shared scope already holds at
+    ``revision``: share that partition into ``scope`` and fold away an older copy ``scope`` held.
+    None -- ingest as usual -- when the shared scope holds no such revision."""
+    async with pool.acquire() as conn:
+        quick = await conn.fetchval(
+            "SELECT revision FROM attr_collections WHERE scope = $1 AND provider = $2 AND collection = $3",
+            SHARED_SCOPE,
+            provider,
+            collection,
+        )
+        if quick != revision:
+            return None
+        part_key = part_key_for(scope, provider, collection)
+        await conn.execute("SELECT pg_advisory_lock($1)", _lock_id(part_key))
+        try:
+            await _drop_leftovers(conn, part_key)
+            async with conn.transaction():
+                shared = await _shared_revision(conn, provider, collection)
+                if shared is None or shared["revision"] != revision:
+                    return None  # reingested or dropped meanwhile
+                fold = await _fold_in_tx(
+                    conn, drop_scope=scope, provider=provider, collection=collection, folded_by=DEDUP_SHARED_BY
+                )
+                if fold is None:
+                    await conn.execute(
+                        """
+                        INSERT INTO attr_shares (scope, provider, collection, target_scope, shared_by)
+                        VALUES ($1, $2, $3, $4, $5) ON CONFLICT (scope, provider, collection, target_scope) DO NOTHING
+                        """,
+                        SHARED_SCOPE,
+                        provider,
+                        collection,
+                        scope,
+                        DEDUP_SHARED_BY,
+                    )
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock($1)", _lock_id(part_key))
+    return {"partition": shared["partition_name"], "keys": len(shared["keys"] or []), "folded": [fold] if fold else []}
+
+
+async def _fold_same_revision_into_shared(
+    pool: asyncpg.Pool, *, provider: str, collection: str, revision: str
+) -> list[dict]:
+    """After an ingest into the shared scope: every other scope's copy of (provider, collection)
+    at the same ``revision`` becomes a share of the shared one (:func:`_fold_in_tx`). A copy at
+    another revision is left alone. One failure is logged and skipped: the ingest itself landed."""
+    others = await pool.fetch(
+        "SELECT scope FROM attr_collections WHERE provider = $1 AND collection = $2 AND scope <> $3 AND revision = $4 "
+        "ORDER BY scope",
+        provider,
+        collection,
+        SHARED_SCOPE,
+        revision,
+    )
+    folded: list[dict] = []
+    for r in others:
+        try:
+            fold = await _fold_one(pool, drop_scope=r["scope"], provider=provider, collection=collection,
+                                   revision=revision, folded_by=DEDUP_SHARED_BY)  # fmt: skip
+        except Exception:  # noqa: BLE001 - the shared ingest stands; the copy stays a copy
+            logger.exception("attribute index: could not fold %s's copy of %s/%s", r["scope"], provider, collection)
+            continue
+        if fold is not None:
+            folded.append(fold)
+            logger.info(
+                "attribute index: %s/%s@%s ingested into %s; %s's copy folded into a share (%d bytes freed)",
+                provider,
+                collection,
+                revision,
+                SHARED_SCOPE,
+                r["scope"],
+                fold["bytes_freed"],
+            )
+    return folded
+
+
+async def _fold_one(
+    pool: asyncpg.Pool,
+    *,
+    drop_scope: str,
+    provider: str,
+    collection: str,
+    revision: Optional[str] = None,
+    folded_by: Optional[str],
+) -> Optional[dict]:
+    """One :func:`_fold_in_tx` in its own transaction under ``drop_scope``'s partition lock. With
+    ``revision``, only while both copies are still at it. None when there was nothing to fold."""
+    part_key = part_key_for(drop_scope, provider, collection)
+    async with pool.acquire() as conn:
+        await conn.execute("SELECT pg_advisory_lock($1)", _lock_id(part_key))
+        try:
+            await _drop_leftovers(conn, part_key)
+            async with conn.transaction():
+                shared = await _shared_revision(conn, provider, collection)
+                if shared is None or (revision is not None and shared["revision"] != revision):
+                    return None
+                if revision is not None:
+                    mine = await conn.fetchval(
+                        "SELECT revision FROM attr_collections WHERE scope = $1 AND provider = $2 AND collection = $3",
+                        drop_scope,
+                        provider,
+                        collection,
+                    )
+                    if mine != revision:
+                        return None
+                return await _fold_in_tx(
+                    conn, drop_scope=drop_scope, provider=provider, collection=collection, folded_by=folded_by
                 )
         finally:
             await conn.execute("SELECT pg_advisory_unlock($1)", _lock_id(part_key))
-    return status.split()[-1] != "0"
+
+
+class FoldRefused(ValueError):
+    """A fold the one-copy rule does not allow -- a 400, worded for the admin."""
+
+
+async def fold_attr_duplicates(
+    pool: asyncpg.Pool,
+    *,
+    provider: str,
+    keep_scope: str,
+    drop_scope: str,
+    collections: Optional[Iterable[str]] = None,
+    dry_run: bool = True,
+    folded_by: Optional[str] = None,
+) -> dict:
+    """The admin's fold of copies at any revision: for each collection ``provider`` holds in both
+    scopes (``collections`` narrows it), keep ``keep_scope``'s copy and replace ``drop_scope``'s
+    with a share of it (:func:`_fold_in_tx`). ``keep_scope`` must be the shared scope: the copy
+    kept must be at least as widely readable as the one dropped, or the fold would hide rows from
+    someone. A dry run (the default) changes nothing and answers the plan."""
+    if keep_scope != SHARED_SCOPE:
+        raise FoldRefused(f"only the {SHARED_SCOPE!r} copy can be kept: it is the one every caller may read")
+    if drop_scope == keep_scope:
+        raise FoldRefused("the scope to drop must not be the one kept")
+    wanted = sorted({c.lower() for c in collections}) if collections is not None else None
+    rows = await pool.fetch(
+        """
+        SELECT d.collection, d.revision AS drop_revision, k.revision AS keep_revision, d.rows,
+               d.ingested_at AS drop_ingested_at, k.ingested_at AS keep_ingested_at,
+               COALESCE(pg_total_relation_size(to_regclass(d.partition_name)), 0) AS bytes,
+               ARRAY(SELECT target_scope FROM attr_shares s
+                     WHERE s.scope = d.scope AND s.provider = d.provider AND s.collection = d.collection
+                     UNION SELECT target_scope FROM attr_provider_shares g
+                     WHERE g.scope = d.scope AND g.provider = d.provider) AS targets
+        FROM attr_collections d
+        JOIN attr_collections k ON k.scope = $2 AND k.provider = d.provider AND k.collection = d.collection
+        WHERE d.scope = $1 AND d.provider = $3 AND ($4::text[] IS NULL OR d.collection = ANY($4))
+        ORDER BY d.collection
+        """,
+        drop_scope,
+        keep_scope,
+        provider,
+        wanted,
+    )
+    plan = [
+        {
+            "collection": r["collection"],
+            "keep_revision": r["keep_revision"],
+            "drop_revision": r["drop_revision"],
+            "same_revision": r["keep_revision"] == r["drop_revision"],
+            "rows": int(r["rows"]),
+            "bytes": int(r["bytes"]),
+            "keep_ingested_at": _iso(r["keep_ingested_at"]),
+            "drop_ingested_at": _iso(r["drop_ingested_at"]),
+            "repointed": sorted(set(r["targets"] or []) - {SHARED_SCOPE, drop_scope}),
+        }
+        for r in rows
+    ]
+    held = {p["collection"] for p in plan}
+    missing = [c for c in (wanted or []) if c not in held]
+    errors: list[str] = []
+    if not dry_run:
+        done = []
+        for p in plan:
+            try:
+                fold = await _fold_one(
+                    pool, drop_scope=drop_scope, provider=provider, collection=p["collection"], folded_by=folded_by
+                )
+            except Exception as exc:  # noqa: BLE001 - one collection's failure is reported, not fatal
+                errors.append(f"{provider}/{p['collection']}: {exc}")
+                continue
+            if fold is None:
+                missing.append(p["collection"])  # dropped meanwhile
+                continue
+            done.append({**p, "bytes": fold["bytes_freed"], "repointed": fold["repointed"]})
+        plan = done
+    return {
+        "dry_run": dry_run,
+        "provider": provider,
+        "keep_scope": keep_scope,
+        "drop_scope": drop_scope,
+        "collections": plan,
+        "folded": 0 if dry_run else len(plan),
+        "bytes": sum(p["bytes"] for p in plan),
+        "missing": missing,
+        "errors": errors,
+    }
 
 
 # --- the search query ---------------------------------------------------------------------------
@@ -854,7 +1212,8 @@ async def _partitions(
 
     ``shared_from``: origin scopes whose partitions shared INTO ``scope`` are read too. The caller
     names them -- :func:`readable_share_origins`, for a request -- so a share whose origin the
-    caller cannot reach is never even listed. ``None`` (what every caller that predates shares
+    caller cannot reach is never even listed. A partition is shared into ``scope`` by its own share
+    (039) or by its (scope, provider) group's (040). ``None`` (what every caller that predates shares
     passes, the export job's lookups among them) reads the scope's own partitions only. Each partition says its
     ``scope`` (the origin) and whether it is ``shared``; they come in :func:`_order`."""
     if collections is not None:
@@ -867,10 +1226,14 @@ async def _partitions(
         SELECT c.scope, c.provider, c.collection, c.revision, c.rows, c.source_etag, c.ingested_at, c.partition_name,
                c.part_key, c.keys, c.high_card_keys
         FROM attr_collections c
-        WHERE (c.scope = $1 OR (c.scope = ANY($6::text[]) AND EXISTS (
-                  SELECT 1 FROM attr_shares s
-                  WHERE s.target_scope = $1 AND s.scope = c.scope AND s.provider = c.provider
-                    AND s.collection = c.collection)))
+        WHERE (c.scope = $1 OR (c.scope = ANY($6::text[]) AND (
+                  EXISTS (
+                      SELECT 1 FROM attr_shares s
+                      WHERE s.target_scope = $1 AND s.scope = c.scope AND s.provider = c.provider
+                        AND s.collection = c.collection)
+                  OR EXISTS (
+                      SELECT 1 FROM attr_provider_shares g
+                      WHERE g.target_scope = $1 AND g.scope = c.scope AND g.provider = c.provider))))
           AND ($2::text[] IS NULL OR c.provider = ANY($2)) AND ($3::text[] IS NULL OR c.collection = ANY($3))
           AND NOT (c.provider = ANY($4::text[])) AND NOT (c.collection = ANY($5::text[]))
         """,
@@ -1180,11 +1543,15 @@ async def readable_share_origins(pool: asyncpg.Pool, *, scope: str, user_sub: st
     One query per request, and the access rule is :func:`..scope.can_access`'s, applied to the
     ORIGIN: the shared scope is everyone's, a personal scope its owner's, a project its members'
     (while it is not archived), a corpus an admin's. Asked afresh every time rather than recorded
-    on the share, so leaving a project hides everything shared from it at once."""
+    on the share, so leaving a project hides everything shared from it at once. Per-collection
+    shares (039) and group shares (040) alike."""
     rows = await pool.fetch(
         """
-        SELECT DISTINCT s.scope FROM attr_shares s
-        WHERE s.target_scope = $1 AND (
+        SELECT DISTINCT s.scope FROM (
+            SELECT scope FROM attr_shares WHERE target_scope = $1
+            UNION SELECT scope FROM attr_provider_shares WHERE target_scope = $1
+        ) s
+        WHERE (
             s.scope = 'shared'
             OR s.scope = 'users/' || $2
             OR (s.scope LIKE 'projects/%' AND EXISTS (
@@ -1283,3 +1650,231 @@ async def list_attr_shares(
         target_scope,
     )
     return [_share_row(r) for r in rows]
+
+
+# --- group shares (migration 040) ---------------------------------------------------------------
+
+
+def _provider_share_row(r) -> dict:
+    return {
+        "scope": r["scope"],
+        "provider": r["provider"],
+        "target_scope": r["target_scope"],
+        "shared_at": _iso(r["shared_at"]),
+        "shared_by": r["shared_by"],
+    }
+
+
+async def share_attr_provider(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: str,
+    target_scope: str,
+    shared_by: Optional[str] = None,
+) -> Optional[dict]:
+    """Make every partition of (``scope``, ``provider``) -- the ones there now and the ones a later
+    sweep adds -- searchable from ``target_scope`` too. Idempotent, like a per-collection share.
+    None when the scope holds nothing of that provider: a group share is made of a group that
+    exists (it is kept when the group later empties, and then matches nothing)."""
+    if target_scope == scope:
+        raise ValueError("a partition is already searchable in its own scope")
+    async with pool.acquire() as conn, conn.transaction():
+        held = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM attr_collections WHERE scope = $1 AND provider = $2)", scope, provider
+        )
+        if not held:
+            return None
+        row = await conn.fetchrow(
+            """
+            INSERT INTO attr_provider_shares (scope, provider, target_scope, shared_by) VALUES ($1, $2, $3, $4)
+            ON CONFLICT (scope, provider, target_scope) DO UPDATE SET shared_by = attr_provider_shares.shared_by
+            RETURNING scope, provider, target_scope, shared_at, shared_by
+            """,
+            scope,
+            provider,
+            target_scope,
+            shared_by,
+        )
+    return _provider_share_row(row)
+
+
+async def unshare_attr_provider(pool: asyncpg.Pool, *, scope: str, provider: str, target_scope: str) -> bool:
+    """Stop sharing the (scope, provider) group into ``target_scope``. Its collections' own
+    shares (039) stay: what was shared one by one is still shared. True when it was shared there."""
+    status = await pool.execute(
+        "DELETE FROM attr_provider_shares WHERE scope = $1 AND provider = $2 AND target_scope = $3",
+        scope,
+        provider,
+        target_scope,
+    )
+    return status.split()[-1] != "0"
+
+
+async def list_attr_provider_shares(
+    pool: asyncpg.Pool,
+    *,
+    scope: Optional[str] = None,
+    provider: Optional[str] = None,
+    target_scope: Optional[str] = None,
+) -> list[dict]:
+    """Group shares, each filter optional. The admin's view, like :func:`list_attr_shares`."""
+    rows = await pool.fetch(
+        """
+        SELECT scope, provider, target_scope, shared_at, shared_by FROM attr_provider_shares
+        WHERE ($1::text IS NULL OR scope = $1) AND ($2::text IS NULL OR provider = $2)
+          AND ($3::text IS NULL OR target_scope = $3)
+        ORDER BY scope, provider, target_scope
+        """,
+        scope,
+        provider,
+        target_scope,
+    )
+    return [_provider_share_row(r) for r in rows]
+
+
+# --- keeping only the newest copy ----------------------------------------------------------------
+
+
+def _numeric(revision: Optional[str]) -> Optional[float]:
+    try:
+        return float(revision) if revision is not None else None
+    except ValueError:
+        return None
+
+
+def newest_copy(members: list[dict]) -> dict:
+    """Which of a collection's copies is the freshest: ``members`` carry ``scope``, ``revision`` and
+    ``ingested_at``.
+
+    A revision is the provider's own token and core cannot order two of them in general, so they
+    are compared only when every one is a number; otherwise the copy ingested last carries the later
+    revision (a sweep ingests what its source has now). Copies at the SAME revision hold the same
+    rows, so among them the shared scope's is kept -- the one everyone may read -- and then the
+    latest ingest."""
+    nums = [_numeric(m["revision"]) for m in members]
+    numeric = all(n is not None for n in nums)
+
+    def at(m: dict) -> str:
+        v = m["ingested_at"]
+        return v.isoformat() if hasattr(v, "isoformat") else str(v or "")
+
+    if numeric:
+        top = max(nums)
+        best = [m for m, n in zip(members, nums) if n == top]
+    else:
+        latest = max(at(m) for m in members)
+        best = [m for m in members if at(m) == latest]
+        # Copies sharing the newest revision are one revision, wherever they were ingested.
+        revs = {m["revision"] for m in best if m["revision"] is not None}
+        best = [m for m in members if m["revision"] in revs] if revs else best
+    return max(best, key=lambda m: (m["scope"] == SHARED_SCOPE, at(m), m["scope"]))
+
+
+async def prune_attr_revisions(
+    pool: asyncpg.Pool,
+    *,
+    provider: Optional[str] = None,
+    scopes: Optional[Iterable[str]] = None,
+    collections: Optional[Iterable[str]] = None,
+    include_narrowing: bool = False,
+    dry_run: bool = True,
+    pruned_by: Optional[str] = None,
+) -> dict:
+    """Keep only the freshest copy (:func:`newest_copy`) of every (provider, collection) held in
+    more than one scope -- narrowed to ``provider``, to copies in ``scopes`` (at least two of them)
+    and to ``collections``.
+
+    Nothing anyone could search is hidden on the quiet. When the copy kept is the shared scope's,
+    each older copy is FOLDED (:func:`_fold_in_tx`): its scope and every scope it was shared into
+    search the shared copy instead. When the copy kept lies in a narrower scope -- a project's,
+    newer than the shared one -- its rows are never shared on (a project's data does not leave it on
+    its own), so dropping an older copy would hide the collection from that copy's readers: those
+    copies are SKIPPED with ``reason: "narrowing"`` unless ``include_narrowing``, and then simply
+    dropped, nothing shared anywhere. A dry run (the default) answers the plan."""
+    wanted_scopes = sorted(set(scopes)) if scopes is not None else None
+    wanted = sorted({c.lower() for c in collections}) if collections is not None else None
+    rows = await pool.fetch(
+        """
+        SELECT scope, provider, collection, revision, rows, ingested_at,
+               COALESCE(pg_total_relation_size(to_regclass(partition_name)), 0) AS bytes
+        FROM attr_collections
+        WHERE ($1::text IS NULL OR provider = $1) AND ($2::text[] IS NULL OR scope = ANY($2))
+          AND ($3::text[] IS NULL OR collection = ANY($3))
+        ORDER BY provider, collection, scope
+        """,
+        provider,
+        wanted_scopes,
+        wanted,
+    )
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        by_key.setdefault((r["provider"], r["collection"]), []).append(
+            {
+                "scope": r["scope"],
+                "revision": r["revision"],
+                "rows": int(r["rows"]),
+                "bytes": int(r["bytes"]),
+                "ingested_at": r["ingested_at"],
+            }
+        )
+
+    def doc(m: dict, **extra) -> dict:
+        return {**m, "ingested_at": _iso(m["ingested_at"]), **extra}
+
+    plan: list[dict] = []
+    for (prov, coll), members in sorted(by_key.items()):
+        if len(members) < 2:
+            continue
+        keep = newest_copy(members)
+        entry = {"provider": prov, "collection": coll, "kept": doc(keep), "dropped": [], "skipped": []}
+        for m in members:
+            if m is keep:
+                continue
+            if keep["scope"] == SHARED_SCOPE:
+                entry["dropped"].append(doc(m, action="fold"))
+            elif include_narrowing:
+                entry["dropped"].append(doc(m, action="drop"))
+            else:
+                entry["skipped"].append(
+                    doc(
+                        m,
+                        reason="narrowing",
+                        note=f"the newest copy is only in {keep['scope']}: dropping this one would hide the "
+                        f"collection from whoever reads {m['scope']} -- re-sweep it there instead",
+                    )
+                )
+        plan.append(entry)
+
+    errors: list[str] = []
+    if not dry_run:
+        for entry in plan:
+            done = []
+            for d in entry["dropped"]:
+                try:
+                    if d["action"] == "fold":
+                        fold = await _fold_one(
+                            pool, drop_scope=d["scope"], provider=entry["provider"], collection=entry["collection"],
+                            folded_by=pruned_by,
+                        )  # fmt: skip
+                        if fold is None:
+                            continue
+                        done.append({**d, "bytes": fold["bytes_freed"], "repointed": fold["repointed"]})
+                    else:
+                        if await drop_attr_collection(
+                            pool, scope=d["scope"], provider=entry["provider"], collection=entry["collection"]
+                        ):
+                            done.append(d)
+                except Exception as exc:  # noqa: BLE001 - one copy's failure is reported, not fatal
+                    errors.append(f"{entry['provider']}/{entry['collection']} in {d['scope']}: {exc}")
+            entry["dropped"] = done
+    dropped = [d for e in plan for d in e["dropped"]]
+    return {
+        "dry_run": dry_run,
+        "include_narrowing": include_narrowing,
+        "collections": plan,
+        "dropped": len(dropped),
+        "skipped": sum(len(e["skipped"]) for e in plan),
+        "bytes": sum(d["bytes"] for d in dropped),
+        "errors": errors,
+    }

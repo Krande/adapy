@@ -413,6 +413,8 @@ async def _chunks(data: bytes):
 @pytest.mark.asyncio
 async def test_attribute_partitions_are_reported_and_dropped_by_age_or_by_choice():
     scope = f"projects/test-dbprune-{uuid.uuid4().hex[:8]}"
+    other = f"projects/test-dbprune-{uuid.uuid4().hex[:8]}"
+    personal = f"users/test-dbprune-{uuid.uuid4().hex[:8]}"
     provider = f"test-{uuid.uuid4().hex[:6]}"
     async with _pool() as pool:
         try:
@@ -430,10 +432,29 @@ async def test_attribute_partitions_are_reported_and_dropped_by_age_or_by_choice
             await ai.share_attr_collection(
                 pool, scope=scope, provider=provider, collection="alpha", target_scope="shared"
             )
+            # The whole group shared too, and alpha held a second time in another scope.
+            await ai.share_attr_provider(pool, scope=scope, provider=provider, target_scope=personal)
+            await ai.ingest_attribute_index(
+                pool, scope=other, provider=provider, chunks=_chunks(_index_bytes(provider, "ALPHA", 20))
+            )
             report = await si.storage_report(pool)
             mine = {p["collection"]: p for p in report["attribute_partitions"] if p["scope"] == scope}
             assert set(mine) == {"alpha", "beta", "gamma"}
             assert mine["alpha"]["shared_with"] == ["shared"] and mine["beta"]["shared_with"] == []
+            assert all(p["shared_with_group"] == [personal] for p in mine.values())
+            assert [
+                (s["scope"], s["target_scope"])
+                for s in report["attribute_provider_shares"]
+                if s["provider"] == provider
+            ] == [(scope, personal)]
+            dups = [c for c in report["attribute_duplicates"]["collections"] if c["provider"] == provider]
+            assert [(c["collection"], [m["scope"] for m in c["members"]]) for c in dups] == [
+                ("alpha", sorted([scope, other]))
+            ]
+            [group] = [g for g in report["attribute_duplicates"]["groups"] if g["provider"] == provider]
+            assert group["collections"] == 1 and group["same_revision"] == 1
+            assert group["keep_scope"] is None and group["reclaimable_bytes"] is None  # neither side is shared
+            await ai.drop_attr_collection(pool, scope=other, provider=provider, collection="alpha")
             assert mine["alpha"]["rows"] == 20 and mine["alpha"]["provider"] == provider
             assert mine["alpha"]["total_bytes"] > 0 and mine["alpha"]["parent"] == "attr_nodes"
 
@@ -457,8 +478,40 @@ async def test_attribute_partitions_are_reported_and_dropped_by_age_or_by_choice
             assert left == ["alpha", "gamma"]
             assert await pool.fetchval("SELECT to_regclass($1)", mine["beta"]["name"]) is None
         finally:
-            for r in await pool.fetch("SELECT provider, collection FROM attr_collections WHERE scope = $1", scope):
-                await ai.drop_attr_collection(pool, scope=scope, provider=r["provider"], collection=r["collection"])
+            for r in await pool.fetch(
+                "SELECT scope, provider, collection FROM attr_collections WHERE scope = ANY($1::text[])", [scope, other]
+            ):
+                await ai.drop_attr_collection(
+                    pool, scope=r["scope"], provider=r["provider"], collection=r["collection"]
+                )
+            await pool.execute("DELETE FROM attr_provider_shares WHERE provider = $1", provider)
+
+
+def test_duplicates_are_summarised_per_provider_and_scope_pair():
+    """89 collections held twice read as one line: how many, how many at the same revision, which
+    side is newer, and what keeping the shared copy would free."""
+
+    def part(scope, coll, rev, size, at):
+        return {"scope": scope, "provider": "prov", "collection": coll, "revision": rev, "rows": 10,
+                "indexed_rows": 10, "total_bytes": size, "ingested_at": at}  # fmt: skip
+
+    plant_a = "projects/p1"
+    parts = [
+        part(plant_a, "alpha", "r1", 100, "2026-10-01T00:00:00+00:00"),
+        part("shared", "alpha", "r1", 110, "2026-10-05T00:00:00+00:00"),
+        part(plant_a, "beta", "r1", 200, "2026-10-01T00:00:00+00:00"),
+        part("shared", "beta", "r2", 210, "2026-10-05T00:00:00+00:00"),
+        part(plant_a, "gamma", "r1", 50, "2026-10-01T00:00:00+00:00"),  # only one copy
+        {"scope": None, "provider": None, "collection": None, "total_bytes": 5},  # no catalogue row
+    ]
+    out = si.attribute_duplicates(parts)
+    assert [c["collection"] for c in out["collections"]] == ["alpha", "beta"]
+    assert [m["scope"] for m in out["collections"][0]["members"]] == ["shared", plant_a]
+    [g] = out["groups"]
+    assert g["scopes"] == ["shared", plant_a] and g["keep_scope"] == "shared" and g["drop_scope"] == plant_a
+    assert g["collections"] == 2 and g["same_revision"] == 1
+    assert g["newer_ingest"] == {"shared": 1, plant_a: 0}
+    assert g["bytes"] == {"shared": 320, plant_a: 300} and g["reclaimable_bytes"] == 300
 
 
 class _SettingsPool:

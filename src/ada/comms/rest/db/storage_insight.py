@@ -94,7 +94,7 @@ AREAS: tuple[Area, ...] = (
         "Searchable source attributes: one partition per provider collection, its value histogram, "
         "its catalogue row and the scopes it is shared with. Rebuilt by the next attribute sweep of "
         "that collection.",
-        tables=("attr_nodes", "attr_collections", "attr_values", "attr_shares"),
+        tables=("attr_nodes", "attr_collections", "attr_values", "attr_shares", "attr_provider_shares"),
         prefixes=("attr_p_", "attr_n_"),
         prune="collections",
         prune_note="Dropped collections disappear from attribute search until they are swept again. "
@@ -225,6 +225,7 @@ TS_COLUMNS: dict[str, str] = {
     "asset_export_items": "finished_at",
     "attr_collections": "ingested_at",
     "attr_shares": "shared_at",
+    "attr_provider_shares": "shared_at",
     "source_nodes": "observed_at",
     "users": "last_seen_at",
     "app_settings": "updated_at",
@@ -284,6 +285,70 @@ async def _age_range(conn, table: str, column: str) -> tuple[Optional[str], Opti
     return _iso(row["lo"]), _iso(row["hi"])
 
 
+def attribute_duplicates(partitions: list[dict]) -> dict:
+    """The (provider, collection)s indexed in more than one scope -- the same collection held as
+    separate copies (``db/attribute_index.py``, the one-copy rule) -- from the storage report's
+    partitions.
+
+    ``collections``: one entry per duplicated collection, its members (scope, revision, rows,
+    bytes, ingested_at) the shared scope's first. ``groups``: one summary per (provider, scope
+    pair), so a provider swept twice reads as one line, not a line per collection: how many
+    collections both scopes hold, how many at the same revision, which side was ingested later, and
+    -- when one side is the shared scope, the only copy a fold may keep -- the bytes dropping the
+    other side's copies would free."""
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    for p in partitions:
+        if p.get("scope") and p.get("provider") and p.get("collection"):
+            by_key.setdefault((p["provider"], p["collection"]), []).append(p)
+
+    def member(p: dict) -> dict:
+        return {
+            "scope": p["scope"],
+            "revision": p.get("revision"),
+            "rows": int(p["indexed_rows"] if p.get("indexed_rows") is not None else p.get("rows") or 0),
+            "bytes": int(p.get("total_bytes") or 0),
+            "ingested_at": p.get("ingested_at"),
+        }
+
+    collections: list[dict] = []
+    groups: dict[tuple[str, str, str], dict] = {}
+    for (provider, collection), parts in sorted(by_key.items()):
+        if len(parts) < 2:
+            continue
+        members = sorted((member(p) for p in parts), key=lambda m: (m["scope"] != "shared", m["scope"]))
+        collections.append({"provider": provider, "collection": collection, "members": members})
+        for i, a in enumerate(members):
+            for b in members[i + 1 :]:
+                g = groups.setdefault(
+                    (provider, a["scope"], b["scope"]),
+                    {
+                        "provider": provider,
+                        "scopes": [a["scope"], b["scope"]],
+                        "keep_scope": "shared" if a["scope"] == "shared" else None,
+                        "drop_scope": b["scope"] if a["scope"] == "shared" else None,
+                        "collections": 0,
+                        "same_revision": 0,
+                        "newer_ingest": {a["scope"]: 0, b["scope"]: 0},
+                        "bytes": {a["scope"]: 0, b["scope"]: 0},
+                        "rows": {a["scope"]: 0, b["scope"]: 0},
+                    },
+                )
+                g["collections"] += 1
+                if a["revision"] is not None and a["revision"] == b["revision"]:
+                    g["same_revision"] += 1
+                elif a["ingested_at"] and b["ingested_at"] and a["ingested_at"] != b["ingested_at"]:
+                    g["newer_ingest"][max((a, b), key=lambda m: m["ingested_at"])["scope"]] += 1
+                for m in (a, b):
+                    g["bytes"][m["scope"]] += m["bytes"]
+                    g["rows"][m["scope"]] += m["rows"]
+    out_groups = []
+    for g in groups.values():
+        g["reclaimable_bytes"] = g["bytes"][g["drop_scope"]] if g["drop_scope"] else None
+        out_groups.append(g)
+    out_groups.sort(key=lambda g: (-(g["reclaimable_bytes"] or 0), g["provider"], g["scopes"]))
+    return {"groups": out_groups, "collections": collections}
+
+
 async def storage_report(pool: asyncpg.Pool) -> dict:
     """Total size, every table grouped by area (partitions under their parent), and the
     attribute index's partitions per collection. See the module docstring for what it reads."""
@@ -311,6 +376,24 @@ async def storage_report(pool: asyncpg.Pool) -> dict:
                 "SELECT scope, provider, collection, target_scope FROM attr_shares ORDER BY shared_at, target_scope"
             ):
                 shared_with.setdefault((s["scope"], s["provider"], s["collection"]), []).append(s["target_scope"])
+        # Per (scope, provider) group, the scopes the whole group is shared into (migration 040).
+        provider_shares: list[dict] = []
+        shared_with_group: dict[tuple[str, str], list[str]] = {}
+        if "attr_provider_shares" in {r["relname"] for r in rows}:
+            for s in await conn.fetch(
+                "SELECT scope, provider, target_scope, shared_at, shared_by FROM attr_provider_shares "
+                "ORDER BY shared_at, target_scope"
+            ):
+                shared_with_group.setdefault((s["scope"], s["provider"]), []).append(s["target_scope"])
+                provider_shares.append(
+                    {
+                        "scope": s["scope"],
+                        "provider": s["provider"],
+                        "target_scope": s["target_scope"],
+                        "shared_at": _iso(s["shared_at"]),
+                        "shared_by": s["shared_by"],
+                    }
+                )
 
         tables: dict[str, dict] = {}
         partitions: list[dict] = []
@@ -349,6 +432,7 @@ async def storage_report(pool: asyncpg.Pool) -> dict:
                         "indexed_rows": int(c["rows"]) if c else None,
                         "ingested_at": _iso(c["ingested_at"]) if c else None,
                         "shared_with": shared_with.get((c["scope"], c["provider"], c["collection"]), []) if c else [],
+                        "shared_with_group": shared_with_group.get((c["scope"], c["provider"]), []) if c else [],
                     }
                 )
                 continue
@@ -401,6 +485,8 @@ async def storage_report(pool: asyncpg.Pool) -> dict:
         },
         "areas": areas,
         "attribute_partitions": partitions,
+        "attribute_provider_shares": provider_shares,
+        "attribute_duplicates": attribute_duplicates(partitions),
         "took_ms": round((time.monotonic() - t0) * 1000),
     }
 

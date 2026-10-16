@@ -18,6 +18,19 @@
 ``POST /api/admin/db/attr-shares``  ``{scope, provider, collection, target_scope}`` -- make that
                                   partition searchable from ``target_scope`` too; idempotent
 ``DELETE /api/admin/db/attr-shares``  the same body -- stop sharing it there
+``GET/POST/DELETE /api/admin/db/attr-provider-shares``  the same for a whole (scope, provider)
+                                  group, ``{scope, provider, target_scope}`` (migration 040): it
+                                  covers collections a later sweep adds; removing it leaves the
+                                  per-collection shares
+``POST /api/admin/db/attr-fold``  ``{provider, keep_scope: "shared", drop_scope, collections?,
+                                  dry_run}`` -- replace ``drop_scope``'s copies of a provider's
+                                  collections the shared scope holds too with shares of the shared
+                                  ones; a DRY RUN (the plan) unless ``dry_run`` is explicitly false
+``POST /api/admin/db/attr-prune-revisions``  ``{provider?, scopes?, collections?,
+                                  include_narrowing?, dry_run}`` -- keep only the newest copy of
+                                  each collection held in several scopes; older copies are folded
+                                  when the newest is shared, skipped (unless include_narrowing)
+                                  when it lies in a narrower scope; a DRY RUN unless told otherwise
 
 Scopes in a share are storage prefixes, as the storage report prints them (``shared``,
 ``projects/<uuid>``, ``users/<sub>``). A share target must be one of those three kinds, and a
@@ -145,10 +158,15 @@ async def admin_db_retention_set(request: Request, user: User = Depends(auth_mod
 SHARE_TARGET_KINDS = ("shared", "project", "user")
 
 
-def _share_ref(body: dict) -> dict:
-    """The four strings that name a share, each required."""
+SHARE_NAMES = ("scope", "provider", "collection", "target_scope")
+#: A group share (migration 040) names no collection: it covers every one of (scope, provider).
+GROUP_SHARE_NAMES = ("scope", "provider", "target_scope")
+
+
+def _share_ref(body: dict, names: tuple[str, ...] = SHARE_NAMES) -> dict:
+    """The strings that name a share, each required."""
     ref = {}
-    for name in ("scope", "provider", "collection", "target_scope"):
+    for name in names:
         v = body.get(name)
         if not isinstance(v, str) or not v.strip():
             raise HTTPException(status_code=400, detail=f"{name!r} is required (a non-empty string)")
@@ -156,11 +174,12 @@ def _share_ref(body: dict) -> dict:
     return ref
 
 
-async def parse_share(pool, body: dict) -> dict:
-    """``{scope, provider, collection, target_scope}`` checked: both scopes well-formed prefixes,
-    the target one a partition may be shared into, and -- for a project -- a project that exists
-    (named by its uuid, as a stored prefix always is). 400 / 404 worded for the admin."""
-    ref = _share_ref(body)
+async def parse_share(pool, body: dict, names: tuple[str, ...] = SHARE_NAMES) -> dict:
+    """``{scope, provider, collection, target_scope}`` (``names``: without ``collection`` for a
+    group share) checked: both scopes well-formed prefixes, the target one a partition may be
+    shared into, and -- for a project -- a project that exists (named by its uuid, as a stored
+    prefix always is). 400 / 404 worded for the admin."""
+    ref = _share_ref(body, names)
     try:
         Scope.from_prefix(ref["scope"])
         target = Scope.from_prefix(ref["target_scope"])
@@ -236,6 +255,150 @@ async def admin_db_attr_unshare(request: Request, user: User = Depends(auth_modu
             ref["target_scope"],
         )
     return JSONResponse({"removed": removed})
+
+
+@router.get("/db/attr-provider-shares")
+async def admin_db_attr_provider_shares(
+    request: Request,
+    scope: str | None = None,
+    provider: str | None = None,
+    target_scope: str | None = None,
+) -> JSONResponse:
+    pool = require_pool(request)
+    shares = await db_module.list_attr_provider_shares(
+        pool, scope=scope or None, provider=provider or None, target_scope=target_scope or None
+    )
+    return JSONResponse({"shares": shares})
+
+
+@router.post("/db/attr-provider-shares")
+async def admin_db_attr_provider_share(
+    request: Request, user: User = Depends(auth_module.current_user)
+) -> JSONResponse:
+    pool = require_pool(request)
+    ref = await parse_share(pool, await _body(request), GROUP_SHARE_NAMES)
+    share = await db_module.share_attr_provider(pool, **ref, shared_by=user.sub)
+    if share is None:
+        raise HTTPException(
+            status_code=404, detail=f"no indexed collection of {ref['provider']!r} in scope {ref['scope']!r}"
+        )
+    logger.info("attr group share by %s: %s %s/* -> %s", user.sub, ref["scope"], ref["provider"], ref["target_scope"])
+    return JSONResponse({"share": share})
+
+
+@router.delete("/db/attr-provider-shares")
+async def admin_db_attr_provider_unshare(
+    request: Request, user: User = Depends(auth_module.current_user)
+) -> JSONResponse:
+    pool = require_pool(request)
+    ref = _share_ref(await _body(request), GROUP_SHARE_NAMES)
+    removed = await db_module.unshare_attr_provider(pool, **ref)
+    if removed:
+        logger.info(
+            "attr group unshare by %s: %s %s/* -> %s", user.sub, ref["scope"], ref["provider"], ref["target_scope"]
+        )
+    return JSONResponse({"removed": removed})
+
+
+def parse_fold(body: dict) -> dict:
+    """``{provider, keep_scope, drop_scope, collections?, dry_run?}`` checked (400s). Only an
+    explicit ``dry_run: false`` folds, as with a prune. Whether the fold is allowed at all (the
+    kept copy must be the shared scope's) is the database layer's rule."""
+    out: dict = {}
+    for name in ("provider", "keep_scope", "drop_scope"):
+        v = body.get(name)
+        if not isinstance(v, str) or not v.strip():
+            raise HTTPException(status_code=400, detail=f"{name!r} is required (a non-empty string)")
+        out[name] = v.strip()
+    for name in ("keep_scope", "drop_scope"):
+        try:
+            Scope.from_prefix(out[name])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    collections = body.get("collections")
+    if collections is not None and (
+        not isinstance(collections, list) or not all(isinstance(c, str) and c.strip() for c in collections)
+    ):
+        raise HTTPException(status_code=400, detail="'collections' must be a list of collection names, or omitted")
+    out["collections"] = [c.strip() for c in collections] if collections is not None else None
+    out["dry_run"] = body.get("dry_run") is not False
+    return out
+
+
+@router.post("/db/attr-fold")
+async def admin_db_attr_fold(request: Request, user: User = Depends(auth_module.current_user)) -> JSONResponse:
+    """Keep the shared scope's copy of each collection a provider has indexed in both scopes, and
+    replace ``drop_scope``'s with a share of it (``db/attribute_index.py``, ``fold_attr_duplicates``).
+    A dry run unless ``dry_run`` is explicitly false."""
+    pool = require_pool(request)
+    spec = parse_fold(await _body(request))
+    try:
+        result = await db_module.fold_attr_duplicates(pool, **spec, folded_by=user.sub)
+    except db_module.FoldRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not spec["dry_run"]:
+        logger.info(
+            "attr fold by %s: %s %s -> %s, %d collection(s), %d bytes freed%s",
+            user.sub,
+            spec["provider"],
+            spec["drop_scope"],
+            spec["keep_scope"],
+            result["folded"],
+            result["bytes"],
+            f", {len(result['errors'])} error(s)" if result["errors"] else "",
+        )
+    return JSONResponse(result)
+
+
+def parse_prune_revisions(body: dict) -> dict:
+    """``{provider?, scopes?: [a, b, ...], collections?, include_narrowing?, dry_run?}`` checked
+    (400s). Only an explicit ``dry_run: false`` drops, and only an explicit
+    ``include_narrowing: true`` drops a copy whose newest sibling lies in a narrower scope."""
+    out: dict = {}
+    provider = body.get("provider")
+    if provider is not None and (not isinstance(provider, str) or not provider.strip()):
+        raise HTTPException(status_code=400, detail="'provider' must be a non-empty string, or omitted")
+    out["provider"] = provider.strip() if provider else None
+    for name in ("scopes", "collections"):
+        v = body.get(name)
+        if v is not None and (not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v)):
+            raise HTTPException(status_code=400, detail=f"{name!r} must be a list of names, or omitted")
+        out[name] = [x.strip() for x in v] if v is not None else None
+    if out["scopes"] is not None:
+        if len(set(out["scopes"])) < 2:
+            raise HTTPException(status_code=400, detail="'scopes' names at least two scopes (the copies compared)")
+        for s in out["scopes"]:
+            try:
+                Scope.from_prefix(s)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+    out["include_narrowing"] = body.get("include_narrowing") is True
+    out["dry_run"] = body.get("dry_run") is not False
+    return out
+
+
+@router.post("/db/attr-prune-revisions")
+async def admin_db_attr_prune_revisions(
+    request: Request, user: User = Depends(auth_module.current_user)
+) -> JSONResponse:
+    """Keep only the newest copy of each collection held in more than one scope
+    (``db/attribute_index.py``, ``prune_attr_revisions``). A dry run unless ``dry_run`` is false."""
+    pool = require_pool(request)
+    spec = parse_prune_revisions(await _body(request))
+    result = await db_module.prune_attr_revisions(pool, **spec, pruned_by=user.sub)
+    if not spec["dry_run"]:
+        logger.info(
+            "attr prune-revisions by %s: provider %s, scopes %s, %d copy(ies) dropped, %d skipped, %d bytes freed%s%s",
+            user.sub,
+            spec["provider"] or "*",
+            ",".join(spec["scopes"]) if spec["scopes"] else "*",
+            result["dropped"],
+            result["skipped"],
+            result["bytes"],
+            ", narrowing included" if spec["include_narrowing"] else "",
+            f", {len(result['errors'])} error(s)" if result["errors"] else "",
+        )
+    return JSONResponse(result)
 
 
 # --- the daily tick -----------------------------------------------------------------------------

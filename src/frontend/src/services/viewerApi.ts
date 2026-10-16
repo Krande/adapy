@@ -106,8 +106,14 @@ export type {
 } from "./api/searchExport";
 export type {
   DbAreaStorage,
+  DbAttrProviderShare,
   DbAttrShare,
+  DbAttributeDuplicates,
   DbAttributePartition,
+  DbDuplicateGroup,
+  DbFoldResult,
+  DbPruneRevisionsResult,
+  DbPruneRevisionsSpec,
   DbCollectionRef,
   DbPruneArea,
   DbPruneResult,
