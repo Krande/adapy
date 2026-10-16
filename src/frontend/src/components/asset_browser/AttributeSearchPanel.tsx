@@ -462,6 +462,17 @@ const AttributeSearchPanel: React.FC = () => {
       {/* Not scrolled itself: that would clip the collection / provider pickers' drop-downs. A
           window too short for it folds the filters away instead. */}
       <div className="shrink-0 space-y-2 border-b border-gray-800 p-3">
+        {/* The fold's handle sits at the top of what it folds, where it is looked for. */}
+        <button
+          type="button"
+          className={`${LABEL} flex w-full items-center gap-1 text-left hover:text-white`}
+          aria-expanded={filtersOpen}
+          title={filtersOpen ? "Fold the search options away to give the results more room" : "Show the search options"}
+          onClick={toggleFilters}
+        >
+          <span className="text-gray-500">{filtersOpen ? "▾" : "▸"}</span>
+          Search options
+        </button>
         {filtersOpen && (
         <>
         <div className="flex flex-wrap items-center gap-2">
@@ -574,15 +585,6 @@ const AttributeSearchPanel: React.FC = () => {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={BTN_SECONDARY}
-            aria-expanded={filtersOpen}
-            title={filtersOpen ? "Fold the filters away to give the results more room" : "Show the filters"}
-            onClick={toggleFilters}
-          >
-            {filtersOpen ? "Hide filters ▴" : "Filters ▾"}
-          </button>
           <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={submit}>
             {busy && !results ? "Searching…" : "Search"}
           </button>
