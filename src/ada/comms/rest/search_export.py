@@ -15,7 +15,7 @@ stem and so a sidecar, which becomes the IFC's and names the mesh as ``derived.m
 
 DESIGN GEOMETRY IS THE DESIGN SYSTEM'S OWN CSG (a user decision). It comes through the provider
 seam every other "read a node into objects" path uses (``ada.assets.concepts``) from the provider
-that publishes the E3D export (:data:`GEOMETRY_PROVIDER`), never from a mesh another provider
+that publishes the design system's export (:data:`GEOMETRY_PROVIDER`), never from a mesh another provider
 published for the same node. A hit from another provider (a mesh one) is re-addressed by NODE ID -- the
 collections share ``fn-<sha1>`` ids derived from the full name -- and then by full name: the
 geometry provider's spine either has a readable subject covering that node, or the hit has no
@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import pathlib
 import re
 from dataclasses import dataclass, field
@@ -89,8 +90,11 @@ __all__ = [
 
 #: The job kind -- a synthetic one: geometry comes from a provider through the storage facade.
 EXPORT_SEARCH_KIND = "export_search_asset"
-#: The provider whose concepts reader turns the E3D export into ada objects.
-GEOMETRY_PROVIDER = "external-csg"
+#: The provider whose concepts reader turns the design system's export into ada objects. A
+#: deployment names it (``ADA_DESIGN_GEOMETRY_PROVIDER``, read by the API and the workers alike);
+#: core does not know which plugin that is. Unset, no provider answers to the placeholder, so every
+#: hit's design geometry is ``no_geometry`` -- said per file, never a failed run.
+GEOMETRY_PROVIDER = os.environ.get("ADA_DESIGN_GEOMETRY_PROVIDER", "").strip() or "design-geometry"
 #: What an export writes per hit: ``design`` -- the design system's own geometry
 #: (:data:`GEOMETRY_PROVIDER`) as IFC, exact, and slow when it has to be requested first; ``mesh``
 #: -- the hit's triangles as the hit's OWN provider published them (the one whose attribute index

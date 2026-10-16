@@ -64,12 +64,18 @@ class TopologyBuilder:
             a.ifc_store.sync()
         return a.show(stream_from_ifc_store=stream_from_ifc_store)
 
-    def show_output_model(self, output_glb: str | pathlib.Path | None = None, stream_from_ifc_store: bool = False):
+    def show_output_model(
+        self,
+        output_glb: str | pathlib.Path | None = None,
+        stream_from_ifc_store: bool = False,
+        gltf_asset_extras: dict | None = None,
+    ):
         """Show the built model, optionally writing the GLB to ``output_glb``.
 
         The parameter names what it does rather than who consumes it: this
         writes a glTF binary, and which viewer opens it afterwards is not a
-        property of the export.
+        property of the export. A consumer that recognises a file by a key in
+        the glTF ``asset.extras`` passes that key in ``gltf_asset_extras``.
         """
         from ada.visit.render_params import RenderParams
 
@@ -83,11 +89,7 @@ class TopologyBuilder:
                 stream_from_ifc_store=stream_from_ifc_store,
                 params_override=RenderParams(
                     gltf_export_to_file=output_glb,
-                    # ON-THE-WIRE KEY, not a name this code is free to choose.
-                    # Consumers match on it verbatim to decide how to read the
-                    # file's element metadata, so renaming it here would not
-                    # rename it there -- it would simply stop being recognised.
-                    gltf_asset_extras_dict={"web3dversion": "2"},
+                    gltf_asset_extras_dict=dict(gltf_asset_extras) if gltf_asset_extras else None,
                     stream_from_ifc_store=stream_from_ifc_store,
                 ),
             )
