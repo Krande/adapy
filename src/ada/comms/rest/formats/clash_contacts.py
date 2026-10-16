@@ -7,12 +7,14 @@ ONE KIND, THREE MODES (``conversion_options["mode"]``):
   (``job.derived_key``) and its target's index. The GLB is the one the viewer loads, so a browser that
   ran the same check on the same bytes would have written the same clashes.
 * ``annotate``: the specs half alone, for a run a BROWSER posted -- it measured the GLB itself but has
-  no spec registry to ask. The run is rewritten in place with its ``applicable`` specs.
+  no spec registry to ask. The run is rewritten in place with its ``applicable`` specs. A saved
+  GROUP's run rebuilds one model per part (each by its own target's loader) and binds each member in
+  its own part's model.
 * ``detail``: build the named clashes with a registered spec. The clashes come FROM THE RUN -- contact
   points, normal, distance, patch polygons -- and are not re-measured; the members a builder cuts are
   rebuilt from the run's target and bound by name (``ada.clash.contacts.founds_by_id``). A GLB that has
   changed since the run (its sha256 no longer matches) is refused: the stored clashes would describe
-  geometry that is no longer there.
+  geometry that is no longer there. A group's run is refused (:data:`GROUP_DETAIL_REFUSAL`).
 
 SYNTHETIC, like ``clash_check_asset``: what is read (the GLB, the run, the source a target names) is
 fetched through the storage facade, not pre-downloaded by extension. And never short-circuited on an
@@ -44,11 +46,26 @@ from .registry import JobContext, SyntheticFormatHandler
 CLASH_CONTACTS_KIND = "clash_contacts"
 CONTACT_MODES = ("check", "annotate", "detail")
 
-__all__ = ["CLASH_CONTACTS_KIND", "CONTACT_MODES", "ClashContactsHandler", "contacts_work", "load_target_model"]
+__all__ = [
+    "CLASH_CONTACTS_KIND",
+    "CONTACT_MODES",
+    "GROUP_DETAIL_REFUSAL",
+    "ClashContactsHandler",
+    "contacts_work",
+    "load_target_model",
+]
 
 
 class ContactsJobError(ValueError):
     """A request the job cannot answer; its message is the whole story."""
+
+
+#: Why a group run is not detailed (yet): a builder is handed members of ONE model, and a group's
+#: clashes pair members of different models.
+GROUP_DETAIL_REFUSAL = (
+    "detailing the clashes of a saved group's run is not supported yet: check the clash's models one at a "
+    "time (or together in one file) and detail from that run"
+)
 
 
 def load_target_model(target: dict, storage):
@@ -83,12 +100,31 @@ def load_target_model(target: dict, storage):
     raise ContactsJobError(f"a clash run over a {kind!r} target cannot be rebuilt into members")
 
 
+def _load_part_models(run, storage) -> list:
+    """One rebuilt model per part of a GROUP run, each by the loader its own target needs; ``None``
+    for a part that does not rebuild (its members stay unbound). Raises when no part rebuilds."""
+    models, errors = [], []
+    for k, part in enumerate(run.parts):
+        try:
+            models.append(load_target_model(dict(part["source"]), storage))
+        except Exception as exc:  # noqa: BLE001 - one model that does not rebuild is not all of them
+            logger.warning(f"clash contacts: part {k} ({part.get('key')}) of run {run.run_id} did not rebuild: {exc}")
+            models.append(None)
+            errors.append(f"part {k}: {type(exc).__name__}: {exc}")
+    if all(m is None for m in models):
+        raise ContactsJobError("no model of this group rebuilt: " + "; ".join(errors))
+    return models
+
+
 def _annotate(run, storage, capability_of, progress):
     from ada.clash.contacts import annotate_applicable
 
     progress("members", 0.5)
     try:
-        model = load_target_model(dict(run.target), storage)
+        if run.target.get("kind") == "group":
+            model = _load_part_models(run, storage)
+        else:
+            model = load_target_model(dict(run.target), storage)
     except Exception as exc:  # noqa: BLE001 - a run without specs is still a run
         logger.warning(f"clash contacts: specs not resolved, the target did not rebuild: {exc}")
         provenance = dict(run.provenance)
@@ -137,6 +173,8 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
 
     if mode != "detail":
         raise ContactsJobError(f"unknown clash_contacts mode {mode!r} (one of {', '.join(CONTACT_MODES)})")
+    if run.target.get("kind") == "group":
+        raise ContactsJobError(GROUP_DETAIL_REFUSAL)
 
     from ada.api.connections.spec import get_registered
     from ada.clash.builtin_specs import register_builtin_specs

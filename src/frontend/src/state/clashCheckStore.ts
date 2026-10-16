@@ -45,6 +45,7 @@ import {
   contactTargetFor,
   glbKeyForSource,
   runBrowserContactFlow,
+  runBrowserGroupContactFlow,
   runContactDetailFlow,
   runToResultDoc,
   runWorkerContactFlow,
@@ -52,6 +53,7 @@ import {
   type ContactRunDoc,
   type ContactRunSummary,
   type ContactTarget,
+  type GroupContactRunRequest,
 } from "@/services/clash/contactRuns";
 import type { CollectionRequestDeps } from "@/assets/collectionRequest";
 import type { AssetNodeRequest } from "@/services/assetScopeCollections";
@@ -66,7 +68,7 @@ import {
 } from "@/services/clashSpecProviders";
 import { trackJob } from "@/services/jobTracking";
 import { describeRequestOutcome, planNodeCount, requestGroupGeometry } from "@/utils/groups/groupRequest";
-import { groupNodePlan, memberKey, parseMember, type GroupMember } from "@/utils/groups/savedGroups";
+import { describeMember, groupNodePlan, memberKey, parseMember, type GroupMember } from "@/utils/groups/savedGroups";
 
 // ---------------------------------------------------------------------------------------------
 // The browser's model. Camel-cased, `applicable` normalised (`capability` stays `null` rather
@@ -1288,7 +1290,7 @@ interface ClashCheckState {
   /** Point the check at a published node. `label` is what the panel calls it. */
   setAssetTarget: (label: string | null, target: ClashCheckTarget | null) => void;
   /** Point the check at a saved group: its members, across models, checked as one model. */
-  setGroupTarget: (group: { name: string; members: readonly GroupMember[] }) => void;
+  setGroupTarget: (group: { id?: string; name: string; members: readonly GroupMember[] }) => void;
   setOptions: (patch: Partial<ClashCheckOptions>) => void;
   setFilters: (patch: Partial<ClashFilters>) => void;
   selectGroup: (typeKey: string | null) => void;
@@ -1349,6 +1351,14 @@ function realContactDeps(scope: string): ContactFlowDeps {
       const { findGlbContacts } = await import("@/utils/clashContacts/clashContacts");
       return findGlbContacts(glb, opts);
     },
+    async glbMembers(glb, upAxis) {
+      const { glbMembers } = await import("@/utils/clashContacts/clashContacts");
+      return glbMembers(glb, upAxis);
+    },
+    async convexContacts(soup, opts) {
+      const { findConvexContacts } = await import("@/utils/clashContacts/clashContacts");
+      return findConvexContacts(soup, opts);
+    },
     async jobStatus(jobId) {
       const status = await conversionApi.convertStatus(jobId);
       return { status: status.status, error: status.error };
@@ -1387,9 +1397,88 @@ export function contactRunOptions(checkerOptions: Readonly<Record<string, unknow
   };
 }
 
+/** The run each result made from one came from: a group run's members are told apart by model and
+ *  element id, which the result document (names only) does not carry. */
+const runOfResult = new WeakMap<ClashResult, ContactRunDoc>();
+
 /** A stored run as the panel's result. */
 export function contactRunToResult(run: ContactRunDoc, runKey: string | null): ClashResult {
-  return parseClashResult(runToResultDoc(run, runKey));
+  const result = parseClashResult(runToResultDoc(run, runKey));
+  runOfResult.set(result, run);
+  return result;
+}
+
+/** The convex-contact run `result` was made from, if it was. */
+export function contactRunOf(result: ClashResult | null): ContactRunDoc | null {
+  return (result && runOfResult.get(result)) ?? null;
+}
+
+/** A group run's clash members as (model, element id) -- what the scene selects them by, since
+ *  names repeat across models. Empty for a run over one model, or an id not in the run. */
+export function groupContactElements(
+  run: ContactRunDoc,
+  contactId: string,
+): { source: NonNullable<ContactRunDoc["geometry"]["parts"]>[number]["source"]; element: string }[] {
+  const parts = run.geometry.parts ?? [];
+  const c = run.contacts.find((x) => x.id === contactId);
+  if (!c || run.target.kind !== "group") return [];
+  return c.members.flatMap((k) => {
+    const m = run.members[k];
+    const part = m?.part !== undefined ? parts[m.part] : undefined;
+    return part && m.element !== undefined ? [{ source: part.source, element: m.element }] : [];
+  });
+}
+
+/** What a group's convex-contact run measures, from the scene as it is now: the models the members
+ *  are in (each loaded first if it is not -- the same "Load into scene" the group offers) and their
+ *  element ids. Imported on first use: it reaches the scene and the delivery code. */
+async function groupContactRequest(
+  scope: string,
+  target: Extract<ClashCheckTarget, { kind: "group" }> & { id: string },
+  options: ContactRunDoc["options"],
+  onStage: (stage: string) => void,
+): Promise<GroupContactRunRequest> {
+  const { groupSceneParts } = await import("@/utils/groups/groupScene");
+  const group = { id: target.id, name: target.name, created_at: "", members: target.members };
+  let found = groupSceneParts(group.members);
+  if (found.notLoaded.length) {
+    onStage("loading the group's models");
+    const [{ loadSavedGroup }, { realDeliveryDeps }, { getSingletonViewerStores }] = await Promise.all([
+      import("@/utils/groups/groupLoad"),
+      import("@/components/asset_browser/AssetsTab"),
+      import("@/state/AdaViewerContext"),
+    ]);
+    const deps = realDeliveryDeps((name) => getSingletonViewerStores().useModelState.getState().loadedSourceNames.has(name));
+    await loadSavedGroup(group, scope, deps, onStage);
+    found = groupSceneParts(group.members);
+  }
+  if (found.notLoaded.length) {
+    throw new Error(
+      `${found.notLoaded.length} member(s) of group "${target.name}" are in models that could not be loaded, so the ` +
+        `group cannot be checked whole: ${found.notLoaded.map(describeMember).join("; ")}`,
+    );
+  }
+  const { useAssetBrowserStore } = await import("@/state/assetBrowserStore");
+  const loadedAssets = useAssetBrowserStore.getState().loaded;
+  const parts = found.parts.map((p) => {
+    const sourceName = p.root.source_name ?? "";
+    const glbKey =
+      p.target.kind === "file" ? glbKeyForSource(p.target.source_key) : loadedAssets.find((a) => a.sourceName === sourceName)?.glbKey;
+    if (!glbKey) {
+      throw new Error(
+        `The geometry of ${describeMember({ target: p.target, element: null, path: [] })} is not a stored GLB (a provider's mesh delivery), so the group cannot be checked.`,
+      );
+    }
+    return { glbKey, source: p.target, elements: p.elements };
+  });
+  return {
+    target: { kind: "group", group_id: target.id },
+    group: { id: target.id, name: target.name, members: [...target.members] },
+    parts,
+    upAxis: "z",
+    options,
+    unresolved: found.notFound.map(describeMember),
+  };
 }
 
 /** The GLB a node target's viewer loaded -- known for a built node (its `glbKey`); a provider's mesh
@@ -1495,6 +1584,12 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     if (sameClashTarget(get().assetTarget, target)) {
       // Same model, maybe a new name for it (a renamed group): keep the result, update the label.
       if (label !== get().sourceName) set({ sourceName: label });
+      // The same members picked from the saved groups now name the group too: kept, so a run is
+      // filed under it.
+      const was = get().assetTarget;
+      if (target?.kind === "group" && was?.kind === "group" && (target.id ?? null) !== (was.id ?? null)) {
+        set({ assetTarget: target });
+      }
       return;
     }
     // A question about the previous target's members no longer means anything.
@@ -1520,7 +1615,12 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   },
 
   setGroupTarget: (group) => {
-    get().setAssetTarget(`group ${group.name}`, { kind: "group", name: group.name, members: [...group.members] });
+    get().setAssetTarget(`group ${group.name}`, {
+      kind: "group",
+      name: group.name,
+      members: [...group.members],
+      ...(group.id ? { id: group.id } : {}),
+    });
   },
 
   followLoadedSource: (sourceName) => {
@@ -1648,14 +1748,39 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         const target = contactTargetFor(sourceKey, assetTarget as never);
         if (!target) {
           throw new Error(
-            "A clash check measures one model's GLB, and a group spans several: check its models one at a time.",
+            assetTarget?.kind === "group"
+              ? "This group was not picked from the saved groups, so a clash run has nothing to be filed under: save it as a group and check it from there."
+              : "Nothing to check: pick a model, a published node or a saved group.",
           );
+        }
+        const options = contactRunOptions(get().checkerOptions[CONTACT_ORIGIN]);
+        if (target.kind === "group") {
+          if (assetTarget?.kind !== "group") throw new Error("A group run needs the group itself as the target.");
+          // A group spans several GLBs, which only the browser reads together (`glbMembers` +
+          // `findConvexContacts`); a worker has no such verb, so this runs here whatever the
+          // in-browser switch says.
+          const onStage = (stage: string) => set({ browserStage: stage });
+          const req = await groupContactRequest(scope, { ...assetTarget, id: target.group_id }, options, onStage);
+          const { run, runKey } = await runBrowserGroupContactFlow(realContactDeps(scope), scope, req, onStage);
+          set({
+            result: contactRunToResult(run, runKey),
+            runKey,
+            derivedKey: null,
+            cached: false,
+            busy: false,
+            browserStage: null,
+            selectedGroup: null,
+            selectedJoints: [],
+            selectedJoint: null,
+          });
+          void get().loadContactRuns(scope);
+          return;
         }
         const glbKey = target.kind === "file" ? glbKeyForSource(target.source_key) : await nodeGlbKey(target);
         if (!glbKey) {
           throw new Error("This node's geometry is not a stored GLB (a provider's mesh delivery), so it cannot be checked.");
         }
-        const req = { target, glbKey, upAxis: "z" as const, options: contactRunOptions(get().checkerOptions[CONTACT_ORIGIN]) };
+        const req = { target, glbKey, upAxis: "z" as const, options };
         const { run, runKey } = inBrowser
           ? await runBrowserContactFlow(realContactDeps(scope), scope, req, (stage) => set({ browserStage: stage }))
           : await runWorkerContactFlow(realContactDeps(scope), scope, req);

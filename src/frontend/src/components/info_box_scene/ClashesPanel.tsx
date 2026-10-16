@@ -30,8 +30,7 @@ import { describeClashTarget, type ClashCheckTarget } from "@/services/api/clash
 import { rankSpecs } from "@/services/clashSpecProviders";
 import { startClashMarkerSync } from "@/utils/scene/clashJointMarkers";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import { focusJoint as focusJointEverywhere } from "@/utils/scene/clashJointFocus";
-import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
+import { focusJoint as focusJointEverywhere, selectClashMembers } from "@/utils/scene/clashJointFocus";
 import {
   BUILTIN_CHECKER,
   detailBatches,
@@ -260,14 +259,16 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
   const geometryPrompt = useClashCheckStore((s) => s.geometryPrompt);
   const geometryStage = useClashCheckStore((s) => s.geometryStage);
   const loadContactRuns = useClashCheckStore((s) => s.loadContactRuns);
-  // The convex-contact CLASH check measures the viewer GLB, so it can run in the browser for any
-  // one model -- a file or a node -- but not a group, which spans several GLBs.
+  // The convex-contact CLASH check measures viewer GLBs: one model's (a file or a node) in the
+  // browser or on a worker, a saved group's several in the browser only -- so no switch for a group.
   const isContact = checker === CONTACT_ORIGIN;
-  const contactPossible = isContact && (Boolean(sourceKey) || assetTarget?.kind === "node");
+  const isSavedGroup = assetTarget?.kind === "group" && Boolean(assetTarget.id);
+  const contactPossible = isContact && (Boolean(sourceKey) || assetTarget?.kind === "node" || isSavedGroup);
   // Core's connectivity check in the browser: only IFC -- the member scan is an IFC reader, so for
   // anything else the option would be a checkbox that silently did nothing. A node or a group is
   // read on the server whatever this says, so the option is not offered for them.
-  const browserPossible = contactPossible || (isCore && !assetTarget && browserClashCheckSupports(sourceKey ?? ""));
+  const browserPossible =
+    (contactPossible && assetTarget?.kind !== "group") || (isCore && !assetTarget && browserClashCheckSupports(sourceKey ?? ""));
 
   // A clash run outlives the page: list the target's runs whenever the target (or the engine) changes.
   useEffect(() => {
@@ -470,8 +471,7 @@ const GroupRow: React.FC<{ group: ClashGroup; result: ClashResult; scope: string
           className="text-[10px] text-blue-300 hover:text-white"
           title="Select every member in this group"
           onClick={() => {
-            if (!sourceName) return;
-            void selectInOtherModel({ file: sourceName, nodeNames: [...memberNamesForGroup(result, group.typeKey)] });
+            void selectClashMembers(group.jointIds, sourceName, [...memberNamesForGroup(result, group.typeKey)]);
           }}
         >
           select all

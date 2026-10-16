@@ -12,6 +12,7 @@ import {
   EMPTY_GROUPS_DOC,
   geometryRowsUnder,
   groupNodePlan,
+  groupScenePartsOf,
   GROUPS_SCHEMA,
   GroupsDocError,
   memberKey,
@@ -236,6 +237,32 @@ test("a member whose model is not loaded, or whose row is gone, is reported", ()
   assert.equal(out.notFound.length, 1);
   // Another revision of the same node still matches.
   assert.deepEqual(out.rows.map((r) => r.id), ["rootB"]);
+});
+
+test("a group's clash parts: one per loaded model, in group order, with the element ids under its members", () => {
+  const { idx } = scene(); // range ids: a-p1 0, a-p2 1, a-b-p1 2, b-s1 3, b-s2 4
+  const out = groupScenePartsOf(
+    [
+      { target: NODE_B, element: "S2", path: ["Area", "Pipe", "S2"] },
+      { target: FILE_A, element: "Deck A", path: ["Site", "Deck A"] },
+      { target: NODE_B, element: null, path: [] },
+      { target: FILE_A, element: "P1", path: ["Site", "Deck A", "P1"] },
+      { target: FILE_A, element: "Gone", path: ["Gone"] },
+      { target: { kind: "file", source_key: "proj/other.ifc" }, element: null, path: [] },
+    ],
+    idx,
+    [],
+  );
+  assert.deepEqual(
+    out.parts.map((p) => [p.root.id, p.target.kind, [...p.elements].sort()]),
+    [
+      ["rootB", "node", ["3", "4"]],
+      ["rootA", "file", ["0", "1"]],
+    ],
+    "a whole model is every element in it; an element covered twice is listed once",
+  );
+  assert.equal(out.notFound.length, 1);
+  assert.equal(out.notLoaded.length, 1);
 });
 
 // --- the wire shape -------------------------------------------------------------------------

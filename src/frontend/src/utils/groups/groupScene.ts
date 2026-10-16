@@ -15,10 +15,15 @@ import { buildTreeIndices, type TreeIndices } from "@/utils/tree_view/treeGraph"
 import {
   collapseSelectedRows,
   geometryRowsUnder,
+  groupScenePartsOf,
+  membersForPickedRows,
   membersForRows,
   resolveMembers,
+  rootMatchesTarget,
   type CapturedMembers,
   type GroupMember,
+  type GroupMemberTarget,
+  type GroupScenePart,
   type SavedGroup,
 } from "./savedGroups";
 
@@ -66,11 +71,26 @@ export function captureSelection(): CapturedMembers & { readonly reason: string 
     return { members: [], skipped: [], reason: "Nothing selected resolves to a row in the scene tree." };
   }
   const rows = collapseSelectedRows(ids, idx);
-  const captured = membersForRows(rows, idx, useAssetBrowserStore.getState().loaded);
+  return withReason(membersForRows(rows, idx, useAssetBrowserStore.getState().loaded));
+}
+
+function withReason(captured: CapturedMembers): CapturedMembers & { readonly reason: string | null } {
   return {
     ...captured,
     reason: captured.members.length ? null : "None of the selected objects belongs to a model loaded from storage.",
   };
+}
+
+/** Tree rows as picked (the Scene menu's rows: levels, leaves or model roots) as group members,
+ *  folded up to whole levels exactly as `captureSelection` folds a selection. */
+export function captureRows(rows: readonly TreeNodeData[]): CapturedMembers & { readonly reason: string | null } {
+  const idx = indices();
+  if (!idx) return { members: [], skipped: [], reason: "The scene tree is not built yet." };
+  const captured = membersForPickedRows(rows, idx, useAssetBrowserStore.getState().loaded);
+  if (captured.members.length === 0 && captured.skipped.length === 0) {
+    return { ...captured, reason: "Nothing under the selection is drawn in the scene." };
+  }
+  return withReason(captured);
 }
 
 export interface GroupSelectionOutcome {
@@ -78,6 +98,59 @@ export interface GroupSelectionOutcome {
   readonly ranges: number;
   readonly notLoaded: readonly GroupMember[];
   readonly notFound: readonly GroupMember[];
+}
+
+/** The loaded models `members` are in now, each with the element ids under them (`groupScenePartsOf`). */
+export function groupSceneParts(members: readonly GroupMember[]): {
+  readonly parts: GroupScenePart[];
+  readonly notLoaded: readonly GroupMember[];
+  readonly notFound: readonly GroupMember[];
+} {
+  const idx = indices();
+  if (!idx) return { parts: [], notLoaded: [...members], notFound: [] };
+  return groupScenePartsOf(members, idx, useAssetBrowserStore.getState().loaded);
+}
+
+/** Select elements by WHICH MODEL (a member target) and element id (draw-range key), across models
+ *  -- a group clash's members, whose names may repeat from one model to the next. Returns how many
+ *  draw ranges were selected. */
+export function selectModelElements(refs: readonly { readonly source: GroupMemberTarget; readonly element: string }[], label: string): number {
+  const idx = indices();
+  if (!idx) return 0;
+  const loaded = useAssetBrowserStore.getState().loaded;
+  const roots = idx.root.children ?? [];
+  const byRoot = new Map<string, Map<string, TreeNodeData[]>>();
+  const rowsOf = (root: TreeNodeData) => {
+    let m = byRoot.get(root.id);
+    if (!m) {
+      m = new Map();
+      for (const row of geometryRowsUnder([root])) {
+        const list = m.get(String(row.rangeId));
+        if (list) list.push(row);
+        else m.set(String(row.rangeId), [row]);
+      }
+      byRoot.set(root.id, m);
+    }
+    return m;
+  };
+  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
+  const batch: [CustomBatchedMesh, string][] = [];
+  for (const { source, element } of refs) {
+    for (const root of roots) {
+      if (!rootMatchesTarget(root, source, loaded)) continue;
+      for (const row of rowsOf(root).get(element) ?? []) {
+        if (row.rangeId == null || !row.node_name || !row.model_key) continue;
+        const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
+        if (mesh) batch.push([mesh, row.rangeId]);
+      }
+    }
+  }
+  const sel = useSelectedObjectStore.getState();
+  sel.clearSelectedObjects();
+  if (batch.length) sel.addBatchofMeshes(batch);
+  useObjectInfoStore.getState().setName(batch.length ? label : "");
+  requestRender();
+  return batch.length;
 }
 
 /** Select every member of `group` that is in the scene now, all models together. */

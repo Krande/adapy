@@ -14,6 +14,10 @@ A clash run measures the members of a viewer GLB (``ada.clash.contacts``) and is
 * ``POST /clash-contacts/detail`` -- build named clashes of a run with a registered spec, from the
   stored contacts.
 
+A saved GROUP's run (``{"kind": "group", "group_id"}``, see ``ada.clash.sidecar``) spans several GLBs:
+it is measured in the browser only, then stored, listed, read and annotated like any other run. It
+is not detailed yet (409).
+
 LIGHT, like ``clash_check``'s router: the slim API imports it, so only stdlib modules and
 ``ada.clash.sidecar`` are imported here; the work runs in a ``clash_contacts`` job.
 """
@@ -51,9 +55,18 @@ KIND = "clash_contacts"
 _UP_AXES = ("z", "y")
 
 
+#: Why a group run is not detailed (yet) -- ``formats.clash_contacts.GROUP_DETAIL_REFUSAL``'s words,
+#: restated so this light router does not import the job module.
+_GROUP_DETAIL_REFUSAL = (
+    "detailing the clashes of a saved group's run is not supported yet: check the clash's models one at a "
+    "time (or together in one file) and detail from that run"
+)
+
+
 def _target_from(raw: Any) -> dict:
-    """A run's target, normalised: ``{"kind": "file", "source_key"}`` or
-    ``{"kind": "node", "collection", "subject", "revision"?, "node"?}``."""
+    """A run's target, normalised: ``{"kind": "file", "source_key"}``,
+    ``{"kind": "node", "collection", "subject", "revision"?, "node"?}`` or ``{"kind": "group",
+    "group_id"}`` (a saved group's id alone: its name and members are the run's ``group`` snapshot)."""
     if not isinstance(raw, dict):
         raise HTTPException(status_code=400, detail="'target' must be an object")
     kind = raw.get("kind")
@@ -71,7 +84,12 @@ def _target_from(raw: Any) -> dict:
             if raw.get(k):
                 out[k] = str(raw[k])
         return out
-    raise HTTPException(status_code=400, detail=f"target kind must be 'file' or 'node' (got {kind!r})")
+    if kind == "group":
+        group_id = str(raw.get("group_id") or "").strip()
+        if not group_id:
+            raise HTTPException(status_code=400, detail="a group target needs 'group_id'")
+        return {"kind": "group", "group_id": group_id}
+    raise HTTPException(status_code=400, detail=f"target kind must be 'file', 'node' or 'group' (got {kind!r})")
 
 
 def _check_options(raw: Any) -> dict:
@@ -144,6 +162,11 @@ async def api_clash_contacts(
     """Run the convex-contact check on a worker. Body ``{target, glb_key, up_axis?, options?}`` --
     ``glb_key`` the GLB the viewer loads for ``target``. Returns ``{job_id, run_key}``."""
     target = _target_from(body.get("target"))
+    if target["kind"] == "group":
+        raise HTTPException(
+            status_code=400,
+            detail="a saved group spans several GLBs; its clash check runs in the browser and is posted to /runs",
+        )
     glb_key = str(body.get("glb_key") or "").strip()
     up_axis = str(body.get("up_axis") or "z")
     if not glb_key:
@@ -303,6 +326,8 @@ async def api_clash_contacts_detail(
     absent = [i for i in ids if i not in known]
     if absent:
         raise HTTPException(status_code=404, detail=f"clash id(s) not in this run: {', '.join(absent)}")
+    if run.target.get("kind") == "group":
+        raise HTTPException(status_code=409, detail=_GROUP_DETAIL_REFUSAL)
     if run.target.get("kind") not in ("file", "node"):
         raise HTTPException(status_code=409, detail="this run's target cannot be rebuilt into members")
 

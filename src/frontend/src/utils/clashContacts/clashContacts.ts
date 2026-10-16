@@ -3,9 +3,16 @@
 import * as Comlink from "comlink";
 
 import ClashContactsWorker from "./clashContacts.worker.ts?worker&inline";
-import type {ClashContactsAPI, GlbContactsOptions, GlbContactsRaw} from "./clashContacts.worker";
+import type {
+    ClashContactsAPI,
+    ConvexContactsRaw,
+    GlbContactsOptions,
+    GlbContactsRaw,
+    GlbMembersRaw,
+    MeshSoupInput,
+} from "./clashContacts.worker";
 
-export type {GlbContactsOptions, GlbContactsRaw};
+export type {ConvexContactsRaw, GlbContactsOptions, GlbContactsRaw, GlbMembersRaw, MeshSoupInput};
 
 let apiRemote: Comlink.Remote<ClashContactsAPI> | null = null;
 
@@ -22,4 +29,19 @@ export function clashContactsAvailable(): Promise<boolean> {
 /** Measure the members of a viewer GLB. The buffer is transferred to the worker (it is detached here). */
 export function findGlbContacts(glb: ArrayBuffer, opts: GlbContactsOptions): Promise<GlbContactsRaw & {ms: number}> {
     return ensureApi().findGlbContacts(Comlink.transfer(glb, [glb]), opts);
+}
+
+/** A viewer GLB's members as a mesh soup, unmeasured. The buffer is transferred to the worker. */
+export function glbMembers(glb: ArrayBuffer, upAxis: "z" | "y"): Promise<GlbMembersRaw> {
+    return ensureApi().glbMembers(Comlink.transfer(glb, [glb]), upAxis);
+}
+
+/** Measure a mesh soup, each mesh hulled -- members of several GLBs checked together. The soup's
+ *  buffers are transferred to the worker. */
+export function findConvexContacts(
+    soup: MeshSoupInput,
+    opts: Omit<GlbContactsOptions, "upAxis">,
+): Promise<ConvexContactsRaw & {ms: number}> {
+    const buffers = [soup.vertices.buffer, soup.vertexOffsets.buffer, soup.triangles.buffer, soup.triangleOffsets.buffer];
+    return ensureApi().findConvexContacts(Comlink.transfer(soup, buffers as ArrayBuffer[]), opts);
 }

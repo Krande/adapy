@@ -8,21 +8,44 @@
 // page: it is listed per target and can be reopened, and it is what a detail is made FROM (the stored
 // contact points, normal, distance and patch polygons; nothing is re-measured).
 //
+// A SAVED GROUP spans several models, so several GLBs. It is measured in the browser only: the
+// members of each GLB are read out (`glbMembers`), the group's elements kept, and the lot measured as
+// one soup (`findConvexContacts`, hulled -- what `findGlbContacts` does inside one GLB). Element ids
+// repeat across GLBs, so a group run's member ids are `<part>:<element id>` (`ada.clash.sidecar`).
+//
 // Everything here is plain functions over injected deps, so it runs under `node --test`.
 
 import { runtime } from "@/runtime/config";
 import { authedFetch, jsonOrThrow, type ScopeUrl } from "@/services/api/client";
 import { filesApi } from "@/services/api/files";
+import type { GroupMember, GroupMemberTarget } from "@/utils/groups/savedGroups";
 
 export const CONTACT_ORIGIN = "convex-contact";
 export const CONTACT_RUN_SCHEMA = "ada.clash/contacts@1";
 
 type Vec3 = [number, number, number];
 
-/** What a run was checked on -- the wire form the server normalises to. */
+/** What a run was checked on -- the wire form the server normalises to. A group is its id alone, so
+ *  renaming or editing it keeps its runs listed together; what was measured is the run's `group`. */
 export type ContactTarget =
   | { kind: "file"; source_key: string }
-  | { kind: "node"; collection: string; subject: string; revision?: string; node?: string };
+  | { kind: "node"; collection: string; subject: string; revision?: string; node?: string }
+  | { kind: "group"; group_id: string };
+
+/** One GLB of a group run, and the model it is the viewer GLB of. */
+export interface ContactRunPart {
+  key: string;
+  sha256: string;
+  source: GroupMemberTarget;
+}
+
+export interface ContactRunMember {
+  id: string;
+  name: string;
+  /** A group run's: the GLB element id, and which part (index into `geometry.parts`) it is in. */
+  element?: string;
+  part?: number;
+}
 
 export interface ContactPatchDoc {
   normal: Vec3;
@@ -49,11 +72,14 @@ export interface ContactRunDoc {
   engine: "wasm" | "worker";
   checker?: string;
   target: ContactTarget;
-  geometry: { key: string; sha256: string; up_axis: "z" | "y" };
+  /** A group run's `key` is `group:<group id>`, its `sha256` `groupGeometrySha256(parts)`. */
+  geometry: { key: string; sha256: string; up_axis: "z" | "y"; parts?: ContactRunPart[] };
   options: { security_margin: number; min_contact_area: number; line_contact_thickness: number };
-  members: { id: string; name: string }[];
+  members: ContactRunMember[];
   contacts: ContactRecordDoc[];
   provenance: Record<string, unknown>;
+  /** A group run's snapshot of the group it measured. */
+  group?: { id: string; name: string; members: GroupMember[] };
 }
 
 export interface ContactRunSummary {
@@ -86,6 +112,30 @@ export interface GlbContactsColumns {
   degenerate?: ArrayLike<number>;
 }
 
+/** What `findConvexContacts` returns: `findGlbContacts`' columns without the member names (its pair
+ *  indices index the meshes passed in). */
+export type ConvexContactsColumns = Omit<GlbContactsColumns, "memberIds" | "memberNames">;
+
+/** What `glbMembers` returns: a GLB's members in `findGlbContacts`' order, as a mesh soup. Mesh k is
+ *  vertices `[3*vertexOffsets[k], 3*vertexOffsets[k+1])` and triangles `[3*triangleOffsets[k],
+ *  3*triangleOffsets[k+1])`, triangle indices local to the mesh. */
+export interface GlbMembersColumns {
+  ids: readonly string[];
+  names: readonly string[];
+  vertices: ArrayLike<number>;
+  vertexOffsets: ArrayLike<number>;
+  triangles: ArrayLike<number>;
+  triangleOffsets: ArrayLike<number>;
+}
+
+/** The mesh soup `findConvexContacts` takes. */
+export interface MeshSoup {
+  vertices: Float64Array;
+  vertexOffsets: Uint32Array;
+  triangles: Uint32Array;
+  triangleOffsets: Uint32Array;
+}
+
 // ── targets ─────────────────────────────────────────────────────────────────────────────────
 
 /** The viewer GLB of a file source -- `derivedKeyForGlb`'s rule (a `.glb` source is its own GLB),
@@ -94,13 +144,21 @@ export function glbKeyForSource(sourceKey: string): string {
   return sourceKey.toLowerCase().endsWith(".glb") ? sourceKey : `_derived/${sourceKey}.glb`;
 }
 
-/** The run target for what the panel is checking: a file, or a published node. A group spans
- *  several GLBs and has no single run target (null). */
+/** The run target for what the panel is checking: a file, a published node, or a saved group (by
+ *  its id; a group target without one -- not picked from the saved groups -- has none: null). */
 export function contactTargetFor(
   sourceKey: string | null,
-  assetTarget: { kind: string; collection?: string; subject?: string; revision?: string | null; node?: string | null } | null,
+  assetTarget: {
+    kind: string;
+    collection?: string;
+    subject?: string;
+    revision?: string | null;
+    node?: string | null;
+    id?: string | null;
+  } | null,
 ): ContactTarget | null {
   if (assetTarget) {
+    if (assetTarget.kind === "group") return assetTarget.id ? { kind: "group", group_id: assetTarget.id } : null;
     if (assetTarget.kind !== "node" || !assetTarget.collection || !assetTarget.subject) return null;
     const t: ContactTarget = { kind: "node", collection: assetTarget.collection, subject: assetTarget.subject };
     if (assetTarget.revision) t.revision = assetTarget.revision;
@@ -122,6 +180,12 @@ export async function sha256Hex(data: ArrayBuffer | Uint8Array | string): Promis
  *  Element ids, not names: names may repeat, element ids do not. */
 export async function contactId(elementIds: readonly string[]): Promise<string> {
   return (await sha256Hex([CONTACT_ORIGIN, ...[...elementIds].sort()].join("|"))).slice(0, 12);
+}
+
+/** A group run's geometry hash: sha256 of the sorted `"<part key>\n<part sha256>"` lines joined by
+ *  `\n` -- `ada.clash.sidecar.group_geometry_sha256`. */
+export function groupGeometrySha256(parts: readonly { key: string; sha256: string }[]): Promise<string> {
+  return sha256Hex(parts.map((p) => `${p.key}\n${p.sha256}`).sort().join("\n"));
 }
 
 function vec3(a: ArrayLike<number>, i: number): Vec3 {
@@ -189,6 +253,54 @@ export async function runDocFromColumns(raw: GlbContactsColumns, meta: RunMeta):
   };
 }
 
+// ── a group: several GLBs as one soup ───────────────────────────────────────────────────────
+
+/** The members of several GLBs' `glbMembers` whose element id each part `keep`s, concatenated part by
+ *  part (each in its GLB's order) into one soup, offsets rebased. `members[k]` is mesh k, its id
+ *  qualified by its part; `missing[p]` the kept ids part p's GLB has no member for. */
+export function memberSoup(parts: readonly { members: GlbMembersColumns; keep: ReadonlySet<string> }[]): {
+  members: ContactRunMember[];
+  soup: MeshSoup;
+  missing: string[][];
+} {
+  const picked: { p: number; k: number }[] = [];
+  const missing: string[][] = [];
+  let nVerts = 0;
+  let nTris = 0;
+  parts.forEach(({ members: m, keep }, p) => {
+    const present = new Set<string>();
+    m.ids.forEach((id, k) => {
+      const element = String(id);
+      present.add(element);
+      if (!keep.has(element)) return;
+      picked.push({ p, k });
+      nVerts += m.vertexOffsets[k + 1] - m.vertexOffsets[k];
+      nTris += m.triangleOffsets[k + 1] - m.triangleOffsets[k];
+    });
+    missing.push([...keep].filter((e) => !present.has(e)));
+  });
+  const vertices = new Float64Array(3 * nVerts);
+  const triangles = new Uint32Array(3 * nTris);
+  const vertexOffsets = new Uint32Array(picked.length + 1);
+  const triangleOffsets = new Uint32Array(picked.length + 1);
+  const members: ContactRunMember[] = [];
+  let v = 0;
+  let t = 0;
+  picked.forEach(({ p, k }, n) => {
+    const m = parts[p].members;
+    const element = String(m.ids[k]);
+    members.push({ id: `${p}:${element}`, name: String(m.names[k]), element, part: p });
+    for (let i = 3 * m.vertexOffsets[k]; i < 3 * m.vertexOffsets[k + 1]; i++) vertices[3 * v + (i - 3 * m.vertexOffsets[k])] = m.vertices[i];
+    // Triangle indices are local to their mesh, so they copy as they are.
+    for (let i = 3 * m.triangleOffsets[k]; i < 3 * m.triangleOffsets[k + 1]; i++) triangles[3 * t + (i - 3 * m.triangleOffsets[k])] = m.triangles[i];
+    v += m.vertexOffsets[k + 1] - m.vertexOffsets[k];
+    t += m.triangleOffsets[k + 1] - m.triangleOffsets[k];
+    vertexOffsets[n + 1] = v;
+    triangleOffsets[n + 1] = t;
+  });
+  return { members, soup: { vertices, vertexOffsets, triangles, triangleOffsets }, missing };
+}
+
 // ── a run as the panel's result document ────────────────────────────────────────────────────
 
 /** A run as an `ada.clash/result@2` document, for `parseClashResult` -- so the panel's groups,
@@ -234,9 +346,11 @@ export function runToResultDoc(run: ContactRunDoc, runKey: string | null): Recor
     if (list) list.push(j);
     else byKey.set(j.type_key, [j]);
   }
+  const t = run.target;
+  const unresolved = Array.isArray(run.provenance?.unresolved_members) ? (run.provenance.unresolved_members as unknown[]) : [];
   return {
     schema: "ada.clash/result@2",
-    source_key: run.target.kind === "file" ? run.target.source_key : `${run.target.collection}/${run.target.subject}`,
+    source_key: t.kind === "file" ? t.source_key : t.kind === "group" ? `group:${t.group_id}` : `${t.collection}/${t.subject}`,
     options: { checker: CONTACT_ORIGIN, checker_options: run.options },
     counts: { members: run.members.length, joints: joints.length },
     joints,
@@ -255,9 +369,14 @@ export function runToResultDoc(run: ContactRunDoc, runKey: string | null): Recor
       geometry: run.geometry,
       ...run.provenance,
     },
-    warnings: run.contacts.some((c) => !c.applicable?.length) && run.provenance?.applicability === undefined
-      ? ["which specs could detail each clash is still being resolved on a worker; reopen the run to see them."]
-      : [],
+    warnings: [
+      ...(run.contacts.some((c) => !c.applicable?.length) && run.provenance?.applicability === undefined
+        ? ["which specs could detail each clash is still being resolved on a worker; reopen the run to see them."]
+        : []),
+      ...(unresolved.length
+        ? [`${unresolved.length} group member(s) named nothing in their loaded model and were not checked: ${unresolved.map(String).join("; ")}`]
+        : []),
+    ],
     passes: [{ name: CONTACT_ORIGIN, ran: true, found: joints.length }],
     checker: CONTACT_ORIGIN,
   };
@@ -320,6 +439,10 @@ export interface ContactFlowDeps {
   api: Pick<typeof contactRunsApi, "runOnWorker" | "storeRun" | "getRun" | "detail" | "getBytes" | "getJson">;
   /** The wasm check (utils/clashContacts). */
   measure(glb: ArrayBuffer, opts: { securityMargin: number; minContactArea: number; lineContactThickness: number; upAxis: "z" | "y" }): Promise<GlbContactsColumns>;
+  /** A GLB's members as a soup, unmeasured (a group run). May transfer the buffer away. */
+  glbMembers?(glb: ArrayBuffer, upAxis: "z" | "y"): Promise<GlbMembersColumns>;
+  /** Measure a soup, each mesh hulled (a group run). */
+  convexContacts?(soup: MeshSoup, opts: { securityMargin: number; minContactArea: number; lineContactThickness: number }): Promise<ConvexContactsColumns>;
   jobStatus(jobId: string): Promise<{ status: string; error: string | null }>;
   trackJob?(opts: { jobId: string; label: string; derivedKey?: string }): void;
   wait?(ms: number): Promise<void>;
@@ -382,6 +505,16 @@ export async function runBrowserContactFlow(
     upAxis: req.upAxis,
     options: req.options,
   });
+  return storeAndResolve(deps, scope, run, onStage);
+}
+
+/** Store a browser run and wait for the worker resolving its specs. */
+async function storeAndResolve(
+  deps: ContactFlowDeps,
+  scope: ScopeUrl,
+  run: ContactRunDoc,
+  onStage?: (stage: string) => void,
+): Promise<{ run: ContactRunDoc; runKey: string }> {
   onStage?.("saving");
   const stored = await deps.api.storeRun(scope, run);
   if (stored.job_id) {
@@ -396,6 +529,77 @@ export async function runBrowserContactFlow(
     return { run: await deps.api.getRun(scope, stored.run_key), runKey: stored.run_key };
   }
   return { run, runKey: stored.run_key };
+}
+
+/** A saved group's run: which GLBs, and which of their elements. */
+export interface GroupContactRunRequest {
+  target: Extract<ContactTarget, { kind: "group" }>;
+  /** The group as measured -- stored on the run. */
+  group: { id: string; name: string; members: GroupMember[] };
+  /** One per model the group's members are in, in group order: its viewer GLB, the model's member
+   *  target, and the element ids (GLB draw-range keys) of the group's rows in it. */
+  parts: readonly { glbKey: string; source: GroupMemberTarget; elements: readonly string[] }[];
+  upAxis: "z" | "y";
+  options: ContactRunDoc["options"];
+  /** Group members that named nothing in their loaded model, described -- kept on the run. */
+  unresolved?: readonly string[];
+}
+
+/** Measure a saved group in the browser -- every part's GLB read out, the group's elements kept and
+ *  measured as one soup -- store the run, wait for its specs. Returns the stored run. */
+export async function runBrowserGroupContactFlow(
+  deps: ContactFlowDeps,
+  scope: ScopeUrl,
+  req: GroupContactRunRequest,
+  onStage?: (stage: string) => void,
+): Promise<{ run: ContactRunDoc; runKey: string }> {
+  const { glbMembers, convexContacts } = deps;
+  if (!glbMembers || !convexContacts) {
+    throw new Error("This viewer's clash module cannot check members of several models together (no glbMembers / findConvexContacts).");
+  }
+  if (req.parts.length === 0) throw new Error(`Nothing of group "${req.group.name}" is in the loaded models to check.`);
+  const parts: ContactRunPart[] = [];
+  const read: { members: GlbMembersColumns; keep: ReadonlySet<string> }[] = [];
+  for (const [n, part] of req.parts.entries()) {
+    onStage?.(`reading geometry ${n + 1} of ${req.parts.length}`);
+    const glb = await deps.api.getBytes(scope, part.glbKey);
+    // `glbMembers` may transfer the buffer away; the hash is taken first.
+    parts.push({ key: part.glbKey, sha256: await sha256Hex(glb), source: part.source });
+    read.push({ members: await glbMembers(glb, req.upAxis), keep: new Set(part.elements) });
+  }
+  const { members, soup, missing } = memberSoup(read);
+  if (members.length < 2) {
+    throw new Error(`Group "${req.group.name}" has ${members.length} member(s) in its models' GLBs; a clash needs two.`);
+  }
+  onStage?.("checking");
+  const raw = await convexContacts(soup, {
+    securityMargin: req.options.security_margin,
+    minContactArea: req.options.min_contact_area,
+    lineContactThickness: req.options.line_contact_thickness,
+  });
+  const doc = await runDocFromColumns(
+    { ...raw, memberIds: members.map((m) => m.id), memberNames: members.map((m) => m.name) },
+    {
+      runId: (deps.newRunId ?? newRunId)(),
+      createdAt: (deps.isoNow ?? (() => new Date().toISOString().replace(/\.\d+Z$/, "Z")))(),
+      target: req.target,
+      glbKey: `group:${req.target.group_id}`,
+      glbSha256: await groupGeometrySha256(parts),
+      upAxis: req.upAxis,
+      options: req.options,
+      provenance: {
+        ...(req.unresolved?.length ? { unresolved_members: [...req.unresolved] } : {}),
+        ...(missing.some((m) => m.length) ? { elements_not_in_glb: missing.map((m) => m.length) } : {}),
+      },
+    },
+  );
+  const run: ContactRunDoc = {
+    ...doc,
+    geometry: { ...doc.geometry, parts },
+    members,
+    group: { id: req.group.id, name: req.group.name, members: [...req.group.members] },
+  };
+  return storeAndResolve(deps, scope, run, onStage);
 }
 
 /** Run the check on a worker over the stored GLB. Returns the stored run. */

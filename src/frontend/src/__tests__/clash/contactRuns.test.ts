@@ -24,14 +24,17 @@ const {
   contactId,
   contactTargetFor,
   glbKeyForSource,
+  groupGeometrySha256,
+  memberSoup,
   runBrowserContactFlow,
+  runBrowserGroupContactFlow,
   runContactDetailFlow,
   runDocFromColumns,
   runToResultDoc,
   runWorkerContactFlow,
   sha256Hex,
 } = await import("@/services/clash/contactRuns");
-const { contactRunOptions, contactRunToResult } = await import("@/state/clashCheckStore");
+const { contactRunOf, contactRunOptions, contactRunToResult, groupContactElements } = await import("@/state/clashCheckStore");
 
 const SCOPE = "user:me";
 const TARGET = { kind: "file" as const, source_key: "models/frame.ifc" };
@@ -134,7 +137,8 @@ test("targets and GLB keys", () => {
     subject: "s",
     revision: "r1",
   });
-  assert.equal(contactTargetFor(null, { kind: "group" }), null, "a group spans several GLBs");
+  assert.equal(contactTargetFor(null, { kind: "group" }), null, "a group with no saved id has nothing to be filed under");
+  assert.deepEqual(contactTargetFor(null, { kind: "group", id: "g1" }), { kind: "group", group_id: "g1" }, "the id alone");
   assert.deepEqual(contactRunOptions(undefined), OPTIONS);
   assert.equal(contactRunOptions({ security_margin: "0.005", min_contact_area: -1 }).security_margin, 0.005);
   assert.equal(contactRunOptions({ min_contact_area: -1 }).min_contact_area, 1e-6, "a negative is not an option");
@@ -239,6 +243,162 @@ test("a detail is made from the run", async () => {
   ]);
   assert.equal(out.glbKey, "_derived/clash/contacts-detail/x/model.glb");
   assert.deepEqual(out.stats.skipped, ["c2: no member named 'x'"]);
+});
+
+// ── a saved group: several GLBs, one soup ────────────────────────────────────────────────────
+
+const FILE_A = { kind: "file", source_key: "models/a.ifc" } as const;
+const NODE_B = { kind: "node", provider: "prov", collection: "plant", subject: "S10", revision: null, node: null } as const;
+const GROUP = {
+  id: "g1",
+  name: "Deck 3",
+  members: [
+    { target: FILE_A, element: "col", path: ["Site", "col"] },
+    { target: NODE_B, element: null, path: [] },
+  ],
+};
+
+/** `glbMembers` of two GLBs: A holds col (4) and an unrelated x (5); B holds beam (7). A tetrahedron each. */
+function membersOf(ids: string[], names: string[], shift: number) {
+  const tet = [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const n = ids.length;
+  return {
+    ids,
+    names,
+    vertices: new Float64Array(Array.from({ length: n }, (_, k) => tet.map((c) => c + shift + 10 * k)).flat()),
+    vertexOffsets: new Uint32Array(Array.from({ length: n + 1 }, (_, k) => 4 * k)),
+    triangles: new Uint32Array(Array.from({ length: n }, () => [0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3]).flat()),
+    triangleOffsets: new Uint32Array(Array.from({ length: n + 1 }, (_, k) => 4 * k)),
+  };
+}
+
+const GLBS: Record<string, { bytes: string; members: ReturnType<typeof membersOf> }> = {
+  "_derived/models/a.ifc.glb": { bytes: "glTF...A", members: membersOf(["4", "5"], ["col", "x"], 0) },
+  "_derived/assets/b.glb": { bytes: "glTF...B", members: membersOf(["7"], ["beam"], 0.5) },
+};
+
+function groupDeps(over: Record<string, unknown> = {}) {
+  const { deps, calls } = fakeDeps();
+  const soups: unknown[] = [];
+  const read: string[] = [];
+  const group = {
+    ...deps,
+    api: {
+      ...deps.api,
+      async getBytes(_s: string, key: string) {
+        read.push(key);
+        return new TextEncoder().encode(GLBS[key].bytes).buffer as ArrayBuffer;
+      },
+    },
+    async glbMembers(glb: ArrayBuffer, upAxis: string) {
+      assert.equal(upAxis, "z");
+      const text = new TextDecoder().decode(glb);
+      return Object.values(GLBS).find((g) => g.bytes === text)!.members;
+    },
+    async convexContacts(soup: unknown, opts: unknown) {
+      soups.push({ soup, opts });
+      const { memberIds: _ids, memberNames: _names, ...rest } = columns();
+      return rest;
+    },
+    ...over,
+  };
+  return { deps: group, calls, soups, read };
+}
+
+const GROUP_REQ = {
+  target: { kind: "group" as const, group_id: "g1" },
+  group: GROUP,
+  parts: [
+    { glbKey: "_derived/models/a.ifc.glb", source: FILE_A, elements: ["4"] },
+    { glbKey: "_derived/assets/b.glb", source: NODE_B, elements: ["7"] },
+  ],
+  upAxis: "z" as const,
+  options: OPTIONS,
+  unresolved: ["gone — a.ifc"],
+};
+
+test("the group geometry hash is ada.clash.sidecar.group_geometry_sha256", async () => {
+  // Value from Python: group_geometry_sha256 of these two parts (in either order).
+  const parts = [
+    { key: "_derived/b.ifc.glb", sha256: "cd".repeat(32) },
+    { key: "_derived/a.ifc.glb", sha256: "ab".repeat(32) },
+  ];
+  assert.equal(await groupGeometrySha256(parts), "58d4618b8f0bb9e587240a47fb2f984f9be651248a313ea604c92603408b1937");
+  assert.equal(await groupGeometrySha256([...parts].reverse()), await groupGeometrySha256(parts));
+  // contact_id(["0:4", "1:7"]) -- a group run's qualified member ids.
+  assert.equal(await contactId(["0:4", "1:7"]), "6ecce6f6982e");
+});
+
+test("memberSoup keeps each part's elements, concatenated with rebased offsets", () => {
+  const a = GLBS["_derived/models/a.ifc.glb"].members;
+  const b = GLBS["_derived/assets/b.glb"].members;
+  const { members, soup, missing } = memberSoup([
+    { members: a, keep: new Set(["5", "99"]) },
+    { members: b, keep: new Set(["7"]) },
+  ]);
+  assert.deepEqual(members, [
+    { id: "0:5", name: "x", element: "5", part: 0 },
+    { id: "1:7", name: "beam", element: "7", part: 1 },
+  ]);
+  assert.deepEqual(Array.from(soup.vertexOffsets), [0, 4, 8]);
+  assert.deepEqual(Array.from(soup.triangleOffsets), [0, 4, 8]);
+  assert.deepEqual(Array.from(soup.vertices.slice(0, 3)), [10, 10, 10], "A's second member, not its first");
+  assert.deepEqual(Array.from(soup.vertices.slice(12, 15)), [0.5, 0.5, 0.5]);
+  assert.deepEqual(Array.from(soup.triangles.slice(12, 15)), [0, 1, 2], "triangle indices stay member-local");
+  assert.deepEqual(missing, [["99"], []]);
+});
+
+test("a group run reads every part, measures the group's elements as one soup, and is stored as a group run", async () => {
+  const { deps, calls, soups, read } = groupDeps();
+  const stages: string[] = [];
+  const { runKey } = await runBrowserGroupContactFlow(deps as never, SCOPE, GROUP_REQ, (s) => stages.push(s));
+  assert.equal(runKey, "_clash/tok/r1.json");
+  assert.deepEqual(read, ["_derived/models/a.ifc.glb", "_derived/assets/b.glb"]);
+  const { soup, opts } = soups[0] as { soup: { vertexOffsets: Uint32Array }; opts: unknown };
+  assert.deepEqual(Array.from(soup.vertexOffsets), [0, 4, 8], "col and beam only -- not x");
+  assert.deepEqual(opts, { securityMargin: 0.01, minContactArea: 1e-6, lineContactThickness: 1e-3 });
+
+  const stored = calls.stored[0] as import("@/services/clash/contactRuns").ContactRunDoc;
+  assert.deepEqual(stored.target, { kind: "group", group_id: "g1" });
+  assert.deepEqual(stored.members, [
+    { id: "0:4", name: "col", element: "4", part: 0 },
+    { id: "1:7", name: "beam", element: "7", part: 1 },
+  ]);
+  assert.equal(stored.contacts[0].id, "6ecce6f6982e", "the clash id hashes the qualified member ids");
+  const parts = [
+    { key: "_derived/models/a.ifc.glb", sha256: await sha256Hex("glTF...A"), source: FILE_A },
+    { key: "_derived/assets/b.glb", sha256: await sha256Hex("glTF...B"), source: NODE_B },
+  ];
+  assert.deepEqual(stored.geometry, { key: "group:g1", sha256: await groupGeometrySha256(parts), up_axis: "z", parts });
+  assert.deepEqual(stored.group, GROUP, "the group as measured");
+  assert.deepEqual(stored.provenance.unresolved_members, ["gone — a.ifc"]);
+  assert.deepEqual(stages, ["reading geometry 1 of 2", "reading geometry 2 of 2", "checking", "saving", "resolving specs"]);
+});
+
+test("a group run's result maps each clash member back to its model and element", async () => {
+  const { deps, calls } = groupDeps();
+  await runBrowserGroupContactFlow(deps as never, SCOPE, GROUP_REQ);
+  const run = calls.stored[0] as import("@/services/clash/contactRuns").ContactRunDoc;
+  const result = contactRunToResult(run, "_clash/tok/r1.json");
+  assert.equal(contactRunOf(result), run);
+  assert.equal(result.sourceKey, "group:g1");
+  assert.deepEqual(result.joints[0].members.map((m) => m.name), ["col", "beam"]);
+  assert.deepEqual(groupContactElements(run, "6ecce6f6982e"), [
+    { source: FILE_A, element: "4" },
+    { source: NODE_B, element: "7" },
+  ]);
+  assert.deepEqual(groupContactElements(run, "nope"), []);
+  assert.ok(result.warnings.some((w) => w.includes("gone — a.ifc")), "unresolved members are reported");
+});
+
+test("a group run refuses a clash module without glbMembers, and a group with under two members", async () => {
+  const { deps } = groupDeps({ glbMembers: undefined });
+  await assert.rejects(runBrowserGroupContactFlow(deps as never, SCOPE, GROUP_REQ), /glbMembers/);
+  const { deps: ok } = groupDeps();
+  await assert.rejects(
+    runBrowserGroupContactFlow(ok as never, SCOPE, { ...GROUP_REQ, parts: [GROUP_REQ.parts[0]] }),
+    /a clash needs two/,
+  );
 });
 
 test("a failed detail job says so", async () => {

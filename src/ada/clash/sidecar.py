@@ -24,6 +24,15 @@ in the GLB); ``normal`` points from member ``i`` towards member ``j``; ``distanc
 distance -- negative is overlap, positive a gap inside the security margin. Which member is INCOMING is
 not decided here: it needs the members' axes, which the GLB does not carry, and is resolved when a
 detail job binds the members (``ada.clash.convex_contact``).
+
+GROUP RUNS. A saved group spans several models, so several GLBs: the browser reads the members of
+each (adacpp's ``glbMembers``), keeps the group's elements and measures them as one soup. Such a run's
+target is ``{"kind": "group", "group_id"}`` -- the id alone, so a renamed or edited group keeps listing
+its runs together -- and ``group`` is the snapshot that was measured. ``geometry`` names every GLB as a
+PART (``parts: [{key, sha256, source}]``, ``source`` the member target of that model) and its
+``sha256`` is :func:`group_geometry_sha256` of them; ``key`` is ``group:<group id>``. Element ids repeat
+across GLBs, so a member's id is ``"<part>:<element id>"`` (what the clash ids hash) and the member
+also carries ``part`` and ``element``.
 """
 
 from __future__ import annotations
@@ -41,6 +50,7 @@ __all__ = [
     "ContactRun",
     "SidecarError",
     "contact_id",
+    "group_geometry_sha256",
     "index_key",
     "index_with",
     "parse_index",
@@ -83,6 +93,13 @@ def index_key(target: Mapping[str, Any]) -> str:
 def contact_id(element_ids: Sequence[str], origin: str = CONTACT_ORIGIN) -> str:
     """``sha256("<origin>|<sorted element ids>")[:12]`` -- the browser computes the same."""
     return hashlib.sha256("|".join([origin, *sorted(str(e) for e in element_ids)]).encode("utf-8")).hexdigest()[:12]
+
+
+def group_geometry_sha256(parts: Sequence[Mapping[str, Any]]) -> str:
+    """The geometry hash of a group run: sha256 of the sorted ``"<part key>\\n<part sha256>"`` lines,
+    joined by ``\\n`` -- the browser computes the same."""
+    lines = sorted(f"{p.get('key')}\n{p.get('sha256')}" for p in parts)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
 def _vec3(v: Any, what: str) -> Vec3:
@@ -171,15 +188,18 @@ class ContactRun:
     geometry: Mapping[str, Any]
     #: security_margin, min_contact_area, line_contact_thickness.
     options: Mapping[str, Any]
-    #: ``[{"id": element id, "name": name}]`` in the engine's order; contacts index into it.
-    members: tuple[Mapping[str, str], ...]
+    #: ``[{"id": element id, "name": name}]`` in the engine's order; contacts index into it. A group
+    #: run's members also carry ``part`` (an index into ``geometry["parts"]``) and ``element``.
+    members: tuple[Mapping[str, Any], ...]
     contacts: tuple[ContactRecord, ...]
     #: adacpp version and anything else worth knowing about how it ran.
     provenance: Mapping[str, Any] = field(default_factory=dict)
+    #: A group run's snapshot of the group it measured (``{"id", "name", "members"}``); else None.
+    group: Mapping[str, Any] | None = None
     schema: str = CLASH_SIDECAR_SCHEMA
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "schema": self.schema,
             "run_id": self.run_id,
             "created_at": self.created_at,
@@ -192,6 +212,14 @@ class ContactRun:
             "contacts": [c.to_dict() for c in self.contacts],
             "provenance": dict(self.provenance),
         }
+        if self.group is not None:
+            out["group"] = dict(self.group)
+        return out
+
+    @property
+    def parts(self) -> tuple[Mapping[str, Any], ...]:
+        """A group run's GLBs (``geometry["parts"]``); empty for a run over one GLB."""
+        return tuple(self.geometry.get("parts") or ())
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))
@@ -289,12 +317,27 @@ def parse_run(raw: str | bytes | Mapping[str, Any]) -> ContactRun:
     geometry = raw["geometry"]
     if not isinstance(geometry, Mapping) or not geometry.get("sha256"):
         raise SidecarError("clash sidecar geometry must carry the sha256 of the GLB it measured")
+    group = _parse_group(raw) if raw["target"].get("kind") == "group" else None
+    n_parts = len(geometry["parts"]) if group is not None else 0
 
     members = []
     for m in raw["members"]:
         if not isinstance(m, Mapping) or "id" not in m or "name" not in m:
             raise SidecarError("every clash sidecar member needs an id and a name")
-        members.append({"id": str(m["id"]), "name": str(m["name"])})
+        member: dict[str, Any] = {"id": str(m["id"]), "name": str(m["name"])}
+        if m.get("element") is not None:
+            member["element"] = str(m["element"])
+        if m.get("part") is not None:
+            try:
+                member["part"] = int(m["part"])
+            except (TypeError, ValueError) as exc:
+                raise SidecarError("a member's part must be an integer") from exc
+        if group is not None:
+            if not (0 <= member.get("part", -1) < n_parts) or "element" not in member:
+                raise SidecarError(f"group run member {member['id']!r} must name its part and element")
+            if member["id"] != f"{member['part']}:{member['element']}":
+                raise SidecarError(f"group run member id {member['id']!r} is not '<part>:<element id>'")
+        members.append(member)
 
     contacts = []
     for c in raw["contacts"]:
@@ -342,7 +385,33 @@ def parse_run(raw: str | bytes | Mapping[str, Any]) -> ContactRun:
         members=tuple(members),
         contacts=tuple(contacts),
         provenance=dict(raw.get("provenance") or {}),
+        group=group,
     )
+
+
+def _parse_group(raw: Mapping[str, Any]) -> dict:
+    """A group run's ``group`` snapshot, checked against its target and its geometry's parts."""
+    target, geometry, group = raw["target"], raw["geometry"], raw.get("group")
+    if not str(target.get("group_id") or ""):
+        raise SidecarError("a group run's target needs its group_id")
+    if not isinstance(group, Mapping) or str(group.get("id") or "") != str(target["group_id"]):
+        raise SidecarError("a group run must carry the group it measured, with the target's group_id")
+    if not isinstance(group.get("members"), list):
+        raise SidecarError("a group run's group must list its members")
+    parts = geometry.get("parts")
+    if not isinstance(parts, list) or not parts:
+        raise SidecarError("a group run's geometry must list the GLBs it measured as parts")
+    for p in parts:
+        if (
+            not isinstance(p, Mapping)
+            or not p.get("key")
+            or not p.get("sha256")
+            or not isinstance(p.get("source"), Mapping)
+        ):
+            raise SidecarError("every part of a group run needs a key, a sha256 and its source")
+    if geometry["sha256"] != group_geometry_sha256(parts):
+        raise SidecarError("a group run's geometry sha256 is not the hash of its parts")
+    return {"id": str(group["id"]), "name": str(group.get("name") or ""), "members": list(group["members"])}
 
 
 def parse_index(raw: str | bytes | Mapping[str, Any] | None) -> list[dict]:

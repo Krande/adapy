@@ -95,15 +95,32 @@ def check_glb(
 
 
 class MemberBinding:
-    """A run's members bound to a rebuilt model by name: ``member(k)`` or why not."""
+    """A run's members bound to a rebuilt model by name: ``member(k)`` or why not.
+
+    A GROUP run spans several models: ``model`` is then a sequence, one rebuilt model per part of the
+    run (``None`` for a part that did not rebuild), and each member binds by name inside its own
+    part's model only -- the same name in two models is two members."""
 
     def __init__(self, run: ContactRun, model) -> None:
-        by_name: dict[str, list[Any]] = {}
-        for obj in model.get_all_physical_objects():
-            by_name.setdefault(str(getattr(obj, "name", "") or ""), []).append(obj)
+        models = list(model) if isinstance(model, (list, tuple)) else None
+        indices: list[dict[str, list[Any]] | None] = []
+        for m in models if models is not None else [model]:
+            if m is None:
+                indices.append(None)
+                continue
+            by_name: dict[str, list[Any]] = {}
+            for obj in m.get_all_physical_objects():
+                by_name.setdefault(str(getattr(obj, "name", "") or ""), []).append(obj)
+            indices.append(by_name)
         self._objects: list[Any] = []
         self._why: list[str | None] = []
         for m in run.members:
+            part = int(m.get("part", 0)) if models is not None else 0
+            by_name = indices[part] if 0 <= part < len(indices) else None
+            if by_name is None:
+                self._objects.append(None)
+                self._why.append(f"the model of part {part} did not rebuild, so {m['name']!r} cannot be bound")
+                continue
             hits = by_name.get(m["name"], [])
             if len(hits) == 1:
                 self._objects.append(hits[0])

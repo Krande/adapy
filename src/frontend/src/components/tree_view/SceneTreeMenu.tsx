@@ -1,5 +1,5 @@
 // The Scene's right-click menu -- opened on a tree row or on an object in the 3D view: visibility,
-// framing, copying, other providers and unloading for the selection, and expanding or collapsing
+// framing, copying, adding to a saved group, other providers and unloading for the selection, and expanding or collapsing
 // the row it was opened on (when opened in the tree).
 
 import React, {useMemo} from "react";
@@ -29,6 +29,7 @@ import {
 } from "@/utils/tree_view/sceneTreeActions";
 
 import type {TreeNodeData} from "./CustomNode";
+import {AddToGroupPromptHost, addToGroupBlocker, useAddToGroupPromptStore} from "./AddToGroupPrompt";
 
 /** "Load from <provider>" for a row of a model loaded from a provider: null for a row of anything
  *  else (a file), else the options -- or why there are none. */
@@ -80,7 +81,12 @@ function otherProviderLoads(row: TreeNodeData): {
 export const SceneMenuHost: React.FC = () => {
     const menu = useSceneMenuStore((s) => s.menu);
     const close = useSceneMenuStore((s) => s.close);
-    return menu ? <SceneTreeMenu {...menu} onClose={close}/> : null;
+    return (
+        <>
+            {menu && <SceneTreeMenu {...menu} onClose={close}/>}
+            <AddToGroupPromptHost/>
+        </>
+    );
 };
 
 const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, rows: selection, node, x, y, onClose}) => {
@@ -89,6 +95,7 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
     const {hidden, total} = useMemo(() => hiddenCount(rows), [selection]); // eslint-disable-line react-hooks/exhaustive-deps
     const what = rows.length === 1 ? "" : ` ${rows.length} rows`;
     const noGeometry = total === 0 ? "Nothing under the selection is drawn in the scene" : undefined;
+    const groupBlocker = useMemo(() => addToGroupBlocker(rows), [selection]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const items: KebabMenuItem[] = [
         {
@@ -126,6 +133,13 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
             label: "Copy names  (Ctrl+C)",
             separatorBefore: true,
             onClick: () => void copySelectionNames(useSelectedObjectStore.getState().selectedObjects),
+        },
+        {
+            key: "add-to-group",
+            label: rows.length > 1 ? `Add${what} to group…` : "Add to group…",
+            onClick: () => useAddToGroupPromptStore.getState().open({rows, x, y}),
+            disabled: groupBlocker !== null,
+            title: groupBlocker ?? "Put the selection in a saved group -- an existing one, or a new one",
         },
     ];
     // The same node from the other providers that publish it -- for the row right-clicked.

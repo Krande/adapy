@@ -255,7 +255,14 @@ export type ClashCheckTarget =
     }
   /** A SAVED GROUP: members from several models (files and/or nodes), checked together as one
    *  combined model. The members go on the wire exactly as the group stores them. */
-  | { readonly kind: "group"; readonly name: string; readonly members: readonly GroupMember[] };
+  | {
+      readonly kind: "group";
+      readonly name: string;
+      readonly members: readonly GroupMember[];
+      /** The saved group's id, when it was picked from the saved groups -- what a convex-contact run
+       *  is filed under. Never sent with a check: the members are the group there. */
+      readonly id?: string | null;
+    };
 
 /** How a target reads in a job label or an error -- never parsed, only shown. */
 export function describeClashTarget(target: ClashCheckTarget): string {

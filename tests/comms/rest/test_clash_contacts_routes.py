@@ -157,7 +157,8 @@ def test_a_browser_run_is_validated_stored_and_annotated(client, frame_bytes):
     "mutate, status, match",
     [
         (lambda d: d["contacts"][0].update(id="deadbeef0000"), 400, "not the id of its members"),
-        (lambda d: d.update(target={"kind": "group"}), 400, "target kind"),
+        (lambda d: d.update(target={"kind": "mesh"}), 400, "target kind"),
+        (lambda d: d.update(target={"kind": "group"}), 400, "group_id"),
         (lambda d: d.update(schema="nope"), 400, "not a clash sidecar"),
     ],
 )

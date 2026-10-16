@@ -11,6 +11,7 @@ from ada.clash.sidecar import (
     CLASH_SIDECAR_PREFIX,
     SidecarError,
     contact_id,
+    group_geometry_sha256,
     index_key,
     index_with,
     parse_index,
@@ -121,6 +122,97 @@ def test_the_index_lists_newest_first_and_replaces_a_rewritten_run():
     assert [r["run_id"] for r in parse_index(index)] == ["r0", "r1", "r2"]
     assert parse_index(index)[0]["contacts"] == 1
     assert parse_index(None) == []
+
+
+GROUP_TARGET = {"kind": "group", "group_id": "g1"}
+FILE_A = {"kind": "file", "source_key": "models/a.ifc"}
+NODE_B = {"kind": "node", "provider": "prov", "collection": "plant", "subject": "S10", "revision": None, "node": None}
+
+
+def _group_doc() -> dict:
+    """A group run as the browser posts it: two GLBs, one member from each, one clash between them."""
+    parts = [
+        {"key": "_derived/models/a.ifc.glb", "sha256": "ab" * 32, "source": FILE_A},
+        {"key": "_derived/assets/b.glb", "sha256": "cd" * 32, "source": NODE_B},
+    ]
+    doc = _run().to_dict()
+    doc["target"] = dict(GROUP_TARGET)
+    doc["geometry"] = {"key": "group:g1", "sha256": group_geometry_sha256(parts), "up_axis": "z", "parts": parts}
+    doc["members"] = [
+        {"id": "0:4", "name": "col", "element": "4", "part": 0},
+        {"id": "1:7", "name": "beam", "element": "7", "part": 1},
+    ]
+    doc["contacts"][0]["id"] = contact_id(["0:4", "1:7"])
+    doc["group"] = {
+        "id": "g1",
+        "name": "Deck 3",
+        "members": [
+            {"target": FILE_A, "element": "col", "path": ["col"]},
+            {"target": NODE_B, "element": None, "path": []},
+        ],
+    }
+    return doc
+
+
+def test_a_group_run_keeps_its_parts_members_and_group():
+    run = parse_run(_group_doc())
+    assert [(m["part"], m["element"]) for m in run.members] == [(0, "4"), (1, "7")]
+    assert [p["source"]["kind"] for p in run.parts] == ["file", "node"]
+    assert run.group["name"] == "Deck 3" and len(run.group["members"]) == 2
+    assert parse_run(run.to_json()) == run
+    # The browser's value for the same parts (contactRuns.test.ts), order-free.
+    assert (
+        group_geometry_sha256(
+            [{"key": "_derived/b.ifc.glb", "sha256": "cd" * 32}, {"key": "_derived/a.ifc.glb", "sha256": "ab" * 32}]
+        )
+        == "58d4618b8f0bb9e587240a47fb2f984f9be651248a313ea604c92603408b1937"
+    )
+    # Its runs list under the group id alone: a rename or a membership edit keeps them together.
+    assert index_key(GROUP_TARGET) == index_key({"group_id": "g1", "kind": "group"})
+    # A run over one GLB is untouched: no group, no parts.
+    assert _run().group is None and _run().parts == () and "group" not in _run().to_dict()
+
+
+@pytest.mark.parametrize(
+    "mutate, match",
+    [
+        (lambda d: d["target"].pop("group_id"), "group_id"),
+        (lambda d: d.pop("group"), "carry the group"),
+        (lambda d: d["group"].update(id="g2"), "carry the group"),
+        (lambda d: d["geometry"].pop("parts"), "parts"),
+        (lambda d: d["geometry"].update(sha256="ab" * 32), "hash of its parts"),
+        (lambda d: d["members"][1].update(part=5), "part and element"),
+        (lambda d: d["members"][1].update(id="7"), "'<part>:<element id>'"),
+    ],
+)
+def test_a_malformed_group_run_is_refused(mutate, match):
+    doc = _group_doc()
+    mutate(doc)
+    with pytest.raises(SidecarError, match=match):
+        parse_run(doc)
+
+
+def test_a_group_run_binds_each_member_in_its_own_parts_model():
+    from ada.clash.contacts import bind_members
+
+    class _Obj:
+        def __init__(self, name):
+            self.name = name
+
+    class _Model:
+        def __init__(self, *names):
+            self.objects = [_Obj(n) for n in names]
+
+        def get_all_physical_objects(self):
+            return iter(self.objects)
+
+    run = parse_run(_group_doc())
+    a, b = _Model("col", "beam"), _Model("beam")
+    binding = bind_members(run, [a, b])
+    # "beam" is in both models; the member binds in its own part's model only.
+    assert binding.member(0) is a.objects[0] and binding.member(1) is b.objects[0]
+    missing = bind_members(run, [a, None])
+    assert missing.member(1) is None and "part 1 did not rebuild" in missing.reason(1)
 
 
 def test_a_run_from_a_real_viewer_glb(tmp_path):
