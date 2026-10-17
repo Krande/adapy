@@ -530,14 +530,20 @@ class FemSections:
     def _map_by_properties(self) -> Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]]:
         merge_map: Dict[Tuple[Material, Section, tuple, tuple, float], List[FemSection]] = dict()
         for fs in self.lines:
-            props = (fs.material, fs.section.unique_props(), tuple(), tuple(fs.local_z), tuple(fs.local_y))
+            props = (
+                fs.material,
+                fs.section.unique_props(),
+                (fs.theory, fs.pretension, fs.compression_ratio),
+                tuple(fs.local_z),
+                tuple(fs.local_y),
+            )
             if props not in merge_map.keys():
                 merge_map[props] = []
 
             merge_map[props].append(fs)
 
         for fs in self.shells:
-            props = (fs.material, fs.section, (None,), tuple(), fs.thickness)
+            props = (fs.material, fs.section, (fs.theory,), tuple(), fs.thickness)
             if props not in merge_map.keys():
                 merge_map[props] = []
 

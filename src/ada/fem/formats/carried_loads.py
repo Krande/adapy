@@ -72,9 +72,12 @@ def _replaces(later: tuple, earlier: tuple) -> bool:
     return later == earlier
 
 
-def general_step_loads(steps: list[Step], stage: str) -> dict[int, list[Load]]:
+def general_step_loads(steps: list[Step], stage: str, types: tuple[str, ...] = ("static",)) -> dict[int, list[Load]]:
     """``{id(step): loads}`` for every general static step (a static step without load cases): the loads of the
-    general static steps before it since the last step of load cases, then its own."""
+    general static steps before it since the last step of load cases, then its own.
+
+    ``types`` are the step types that count as general steps: a writer that also starts an implicit dynamic step from
+    no load (CalculiX) passes ``("static", "dynamic")``, so a dynamic step after a static one carries its loads."""
     from ada.fem.formats import conversion_report
 
     rep = conversion_report.current()
@@ -82,7 +85,7 @@ def general_step_loads(steps: list[Step], stage: str) -> dict[int, list[Load]]:
     carried: list = []
     dropped: list = []
     for step in steps:
-        if step.type != step.TYPES.STATIC:
+        if step.type not in types:
             continue
         if len(step.load_cases) > 0:
             dropped, carried = dropped + carried, []

@@ -35,12 +35,14 @@ if TYPE_CHECKING:
 
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_only=False):
     """Write Code_Aster .med and .comm file from Assembly data"""
+    from ada.fem.cavities import refuse_fluid_cavities
     from ada.materials.utils import shorten_material_names
 
     from .beams_sidecar import dump_beams_sidecar
     from .name_map import apply_name_map, build_name_map, dump_name_map
 
     check_compatibility(assembly)
+    refuse_fluid_cavities(assembly, "code_aster")
 
     if "info" not in metadata:
         metadata["info"] = dict(description="")
@@ -96,7 +98,12 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
-    sections_str = create_sections_str(part.fem.sections, has_ref_points=len(couplings) > 0, ref_points_group=ref_group)
+    sections_str = create_sections_str(
+        part.fem.sections,
+        has_ref_points=len(couplings) > 0,
+        ref_points_group=ref_group,
+        membrane_large_strain=membranes_large_strain(part, all_steps(assembly)),
+    )
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
     bcs = model_bcs(part)
@@ -115,17 +122,32 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     model_type_str = ""
     section_sets = ""
     input_mesh = "mesh"
-    if len(part.fem.sections.lines) > 0:
-        bm_elset_str = ",".join([f"'{bm_fs.elset.name}'" for bm_fs in part.fem.sections.lines])
-        section_sets += f"bm_sets = ({bm_elset_str})\n"
-        model_type_str += type_tmpl_str.format(elset_str="bm_sets", el_formula="POU_D_E")
+    lines = part.fem.sections.lines
+    # Beams are Euler-Bernoulli POU_D_E; trusses BARRE; cables CABLE (U3.11.01, U3.11.04, U3.11.06).
+    for group, el_formula, members in (
+        ("bm_sets", "POU_D_E", [fs for fs in lines if not fs.is_axial_only]),
+        ("tr_sets", "BARRE", [fs for fs in lines if fs.is_axial_only and not fs.is_cable]),
+        ("cb_sets", "CABLE", [fs for fs in lines if fs.is_cable]),
+    ):
+        if members:
+            elset_str = ",".join([f"'{fs.elset.name}'" for fs in members])
+            section_sets += f"{group} = ({elset_str},)\n"
+            model_type_str += type_tmpl_str.format(elset_str=group, el_formula=el_formula)
 
-    if len(part.fem.sections.shells) > 0:
+    membranes = [fs for fs in part.fem.sections.shells if fs.is_membrane]
+    if membranes:
+        # MEMBRANE takes the 3-, 4-, 6- and 8-node cells as they are (U3.12.03).
+        elset_str = ",".join([f"'{fs.elset.name}'" for fs in membranes])
+        section_sets += f"mb_sets = ({elset_str},)\n"
+        model_type_str += type_tmpl_str.format(elset_str="mb_sets", el_formula="MEMBRANE")
+
+    bending_shells = [fs for fs in part.fem.sections.shells if not fs.is_membrane]
+    if len(bending_shells) > 0:
         sh_elset_str = ""
         second_order = ""
         is_tri6 = False
         is_quad8 = False
-        for sh_fs in part.fem.sections.shells:
+        for sh_fs in bending_shells:
             is_quad8 = is_quad8_shell_elem(sh_fs)
             is_tri6 = is_tri6_shell_elem(sh_fs)
             if is_tri6 or is_quad8:
@@ -182,6 +204,25 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     )
 
     return comm_str
+
+
+def membranes_large_strain(part: Part, steps) -> bool:
+    """Whether the model's membranes are solved with large strains (``GROT_GDEP``): in a geometrically nonlinear
+    step. Their material differs between the two (:func:`.write_sections.write_membrane_section`) and is written once,
+    so a model of membranes with both linear and nonlinear static steps is refused."""
+    from ada.fem.exceptions import IncompatibleElements
+    from ada.fem.steps import Step
+
+    if not any(fs.is_membrane for fs in part.fem.sections.shells):
+        return False
+    static = [st for st in steps if st.type == Step.TYPES.STATIC]
+    nonlinear = [st for st in static if st.nl_geom is True and len(st.load_cases) == 0]
+    if nonlinear and len(nonlinear) != len(static):
+        raise IncompatibleElements(
+            "code_aster writer: a membrane takes ELAS_MEMBRANE with small strains and ELAS with large ones, and the "
+            "model has both linear and geometrically nonlinear static steps; make them all one or the other"
+        )
+    return len(nonlinear) > 0
 
 
 def write_to_med(name, part: Part, filename):

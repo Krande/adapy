@@ -103,7 +103,9 @@ classDiagram
 | `fem/base.py` | `FEM` |
 | `fem/containers.py` | `FemElements`, `FemSets`, `FemSections` (object containers); nodes live in `api/containers/nodes.py` (`Nodes`) |
 | `fem/elements.py`, `fem/shapes/` | `Elem`, `Mass`, `Spring`, `Connector`; `LineShapes`, `ShellShapes`, `SolidShapes`, `ConnectorTypes`, `ShapeResolver`, `ElemShape`, node ordering |
-| `fem/formulations/` | `Formulation`, `BeamTheory` |
+| `fem/formulations/` | `Formulation`, `BeamTheory`; `ShellTheory` (shell, membrane) and `LineTheory` (beam, truss, cable), held on `FemSection.theory` |
+| `fem/cavities.py` | `FluidCavity`, `IdealGas` (on `FEM.fluid_cavities`); `enclosed_volume`, `check_closed` |
+| `fem/interface_mesh.py` | `interface_mesh` -> `InterfaceMesh`: a `Surface` / element set as a standalone surface mesh (`.vtu`, `.npz`, `.csv`) for coupling libraries |
 | `fem/steps.py` | The step types above, `StepSolverOptions` |
 | `fem/loads/` | `Load`, `LoadPressure`, `LoadGravity`, `LoadPoint`, `LoadCase` |
 | `fem/concept/` | `ConceptFEM` (on `Part.concept_fem`), `BeamConceptFEM` (`Beam.concept_fem.fix_end()` …), constraint concepts (point, beam end, curve, rigid link) and load concepts (point, line, surface, acceleration field, load cases, combinations) |
@@ -234,6 +236,25 @@ sequenceDiagram
 [Interoperability](interop.md#finite-element-formats) lists each solver's functions. Abaqus
 runs can wait for FlexNet licence tokens (`abaqus/licensing.abaqus_license_slot`, opt-in via
 `ADA_ABAQUS_LICENSE_WAIT_S`).
+
+### Membranes, trusses, cables and gas cavities
+
+What each writer makes of a non-default section theory and of a `FluidCavity`. A writer without
+the construct raises (`IncompatibleElements`, `UnsupportedFeature`) rather than writing a
+bending shell, a beam or no gas.
+
+| | Membrane | Truss | Cable (tension only) | `FluidCavity` |
+|---|---|---|---|---|
+| Abaqus | `M3D*`, `*Membrane Section` | `T3D*`, `*Solid Section` (area) | `T3D*` on a `*No Compression` copy of the material | `*Fluid Cavity` + `*Fluid Behavior` |
+| CalculiX | `M3D*`, `*Membrane Section` | `T3D*`, `*Solid Section` | refused; `options.CALCULIX.cable_as_truss` writes a truss | refused |
+| Code_Aster | `MEMBRANE` (`ELAS_MEMBRANE`; `ELAS_MEMBRANE_SV` + `GROT_GDEP` in an nlgeom step) | `BARRE` | `CABLE`, solved with `STAT_NON_LINE` | refused |
+| OpenCourant | `/PROP/SHELL` with one integration point (`N = 1`: no bending); no pretension yet | `/PROP/TRUSS`, `/TRUSS` | refused | `/MONVOL/GAS` (adiabatic) on a shell-group surface, `CavityVent` vent holes, `/TH/MONV` history (read by `read_th`) |
+| Sesam, Usfos | refused | refused | refused | refused |
+
+A membrane has no stiffness across itself until it is in tension: a pressure on a flat membrane
+needs a pre-stress that is a real stress (a stretch, an Abaqus initial stress) and a
+geometrically nonlinear step. Code_Aster's `N_INIT` (`FemSection.pretension`) only seeds the
+first tangent matrix; it is not a load.
 
 ## Results (`ada.fem.results`)
 

@@ -288,7 +288,11 @@ def read_results_sqlite(
         ):
             eig.setdefault((int(step_id), int(frame)), {})[var] = value
 
-        steps = {sid: (dom or "") for sid, dom in conn.execute("SELECT ID, DomainType FROM Steps")}
+        from .sqlite_stream import abaqus_step_kind
+
+        step_rows = conn.execute("SELECT ID, DomainType, Procedure FROM Steps").fetchall()
+        steps = {sid: (dom or "") for sid, dom, _ in step_rows}
+        step_kinds = {sid: abaqus_step_kind(dom, proc) for sid, dom, proc in step_rows}
         frames = conn.execute(
             "SELECT StepID, FrameID, FrameValue FROM Frames WHERE FrameID > 0 ORDER BY StepID, FrameID"
         ).fetchall()
@@ -395,7 +399,13 @@ def read_results_sqlite(
         results_file_path=pathlib.Path(results_file_path) if results_file_path is not None else db_path,
         software_version=software_version,
         eigen_mode_data=eigen_mode_data,
+        # The steps' own kind (domain, procedure) when the steps holding fields agree; None leaves it to the bake.
+        analysis_kind=_one_kind({step_kinds.get(step_id) for step_id, _, _ in frames}),
     )
+
+
+def _one_kind(kinds: set):
+    return kinds.pop() if len(kinds) == 1 else None
 
 
 def read_history(db_path: str | os.PathLike) -> list[tuple]:

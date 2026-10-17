@@ -666,7 +666,7 @@ function applyCameraPreset(
  *   * `feaAnimationStore.mesh` points at the live CustomBatchedMesh,
  *     so `tickFeaAnimation` writes through its morphTargetInfluences.
  *   * The deformation-scale slider's range follows the field's
- *     analysis_kind ([-1, +1] for eigen, [0, 1] for static).
+ *     analysis_kind ([-1, +1] for eigen, [0, 1] for static and transient).
  *
  * Defensive on every step — the embed should still render the mesh
  * at the baked influence=1 baseline if any of this fails.
@@ -749,7 +749,7 @@ function activateFeaSession(
     // Field range follows the active field's analysis_kind. Match the
     // global modeIndex to the (field, step) the bake actually
     // rendered so the slider's polarity matches the displayed mode.
-    let analysisKind: "static" | "eigen" = "eigen"
+    let analysisKind: "static" | "eigen" | "transient" = "eigen"
     let fieldName: string | null = null
     let nSteps = 1
     let stepIndex = 0
@@ -777,8 +777,10 @@ function activateFeaSession(
         )
     }
 
+    // Only a mode shape has no sign: a static deflection and a time history's frames are one-directional, [0, 1]
+    // at true scale -- a "transient" field swept through [-1, +1] played its frames as a mode.
     const range: [number, number] =
-        analysisKind === "static" ? [0, 1] : [-1, 1]
+        analysisKind === "eigen" ? [-1, 1] : [0, 1]
 
     resetFeaAnimationPhase()
     const s = useFeaAnimationStore.getState()

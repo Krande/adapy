@@ -171,3 +171,118 @@ def test_writer_writes_starter_and_engine(tmp_path):
     assert "/RUN/pair/1" in engine and "/ANIM/VECT/DISP" in engine
     # every card line stays within the 100-column Radioss record
     assert max(len(line) for line in starter.splitlines()) <= 100
+
+
+# ---- explicit-step loads ----------------------------------------------------------------------------------------
+
+
+def _pressurised_box(tmp_path, load_type: str):
+    import ada
+    from ada.fem import Surface
+    from ada.fem.common import Amplitude
+    from ada.fem.loads import LoadGravity, LoadPoint, LoadPressure
+    from ada.fem.steps import StepExplicit
+
+    from ...theory_models import closed_box
+
+    a, p, fs = closed_box(theory="shell")
+    step = a.fem.add_step(StepExplicit("ramp", total_time=1.0, mass_damping=50.0))
+    inner = p.fem.add_surface(Surface("inner", Surface.TYPES.ELEMENT, fs, el_face_index=-1))
+    if load_type == "pressure":
+        step.add_load(LoadPressure("p_in", 400.0, inner, amplitude=Amplitude("ramp", [0.0, 0.5, 1.0], [0.0, 1.0, 1.0])))
+        step.add_load(LoadGravity("g", -9.81))
+    else:
+        nset = p.fem.add_set(ada.fem.FemSet("corner", [p.fem.nodes.from_id(1)], "nset"))
+        step.add_load(LoadPoint("f", 10.0, nset, 3))
+    from ada.fem.formats.opencourant.write.writer import to_fem
+
+    to_fem(a, "box", tmp_path)
+    return (tmp_path / "box_0000.rad").read_text()
+
+
+def test_writer_writes_pressure_gravity_amplitude_and_damping(tmp_path):
+    deck = _pressurised_box(tmp_path, "pressure")
+    # amplitude -> /FUNCT points; a load without one gets a constant curve
+    ramp = [r for r in deck.split("/FUNCT/")[1].splitlines()[1:] if not r.startswith("#")]
+    assert ramp[0] == "ramp"
+    assert [[float(r[i : i + 20]) for i in (0, 20)] for r in ramp[1:4]] == [[0, 0], [0.5, 1], [1, 1]]
+    pload = [r for r in deck.split("/PLOAD/")[1].splitlines() if not r.startswith("#")][2]
+    surf_id, funct_id = int(pload[:10]), int(pload[10:20])
+    assert funct_id == 1 and float(pload[60:80]) == 0 and float(pload[80:100]) == pytest.approx(400.0)
+    # a positive /PLOAD pushes along the segment normal: the inner (negative) face is wound as the element runs,
+    # so the inner pressure pushes the walls outward
+    seg = deck.split(f"/SURF/SEG/{surf_id}\n")[1].splitlines()
+    assert seg[0] == "inner"
+    assert [int(seg[1][i : i + 10]) for i in range(10, 50, 10)] == [1, 4, 3, 2]  # element 1 is 1-4-3-2
+    grav = [r for r in deck.split("/GRAV/")[1].splitlines() if not r.startswith("#")][2]
+    assert grav[10:20].strip() == "Z" and float(grav[80:100]) == pytest.approx(-9.81)
+    assert int(grav[:10]) == 2  # the constant curve
+    damp = [r for r in deck.split("/DAMP/")[1].splitlines() if not r.startswith("#")][2]
+    assert float(damp[:20]) == pytest.approx(50.0) and float(damp[20:40]) == 0.0
+    assert max(len(line) for line in deck.splitlines()) <= 100
+
+
+def test_writer_refuses_a_load_it_cannot_write(tmp_path):
+    with pytest.raises(NotImplementedError):
+        _pressurised_box(tmp_path, "point")
+
+
+def test_engine_deck_asks_for_membrane_stress_tensors(tmp_path):
+    from ada.fem.formats.opencourant.write.writer import engine_deck_str
+    from ada.fem.steps import StepExplicit
+
+    deck = engine_deck_str("run", StepExplicit("s", total_time=1.0))
+    assert "/ANIM/SHELL/TENS/STRESS/MEMB" in deck
+
+
+# ---- time histories ---------------------------------------------------------------------------------------------
+
+
+def _rec(payload: bytes) -> bytes:
+    n = struct.pack(">i", len(payload))
+    return n + payload + n
+
+
+def encode_th(times, cavity_rows) -> bytes:
+    """A minimal format-3040 ``T01``: one part, one material, one property, one subset, one /TH/MONV group with one
+    object and the seven MONV variables, three global variables."""
+    t40 = lambda s: _text(s, 40)  # noqa: E731
+    b = _rec(struct.pack(">i", 3040) + b" " * 80)
+    b += _rec(b"date and code version".ljust(80))
+    b += _rec(struct.pack(">6i", 1, 1, 1, 1, 1, 3))  # parts, mats, props, subsets, TH groups, globals
+    b += _rec(struct.pack(">3i", 1, 2, 6))
+    b += _rec(struct.pack(">i", 1) + t40("skin") + struct.pack(">4i", 0, 1, 1, 0))  # part without variables
+    b += _rec(struct.pack(">i", 1) + t40("fabric"))
+    b += _rec(struct.pack(">i", 1) + t40("shell"))
+    b += _rec(struct.pack(">5i", 0, 0, 0, 1, 0) + t40("GLOBAL MODEL"))
+    b += _rec(struct.pack(">i", 1))
+    b += _rec(struct.pack(">5i", 1, 107, 0, 1, 7) + t40("cavities"))
+    b += _rec(struct.pack(">i", 1) + t40("cushion"))
+    b += _rec(struct.pack(">7i", 1, 2, 3, 4, 5, 6, 7))
+    for t, row in zip(times, cavity_rows):
+        b += _rec(struct.pack(">f", t))
+        b += _rec(struct.pack(">3f", 1.0, 2.0, 3.0))
+        b += _rec(np.asarray(row, dtype=">f4").tobytes())
+    return b
+
+
+def test_read_time_history():
+    from ada.fem.formats.opencourant.results.read_th import (
+        MONV_VARIABLE_NAMES,
+        THFormatError,
+        read_th_bytes,
+    )
+
+    rows = [[1.2, 10.0, 101_725.0, 22.0, 293.0, 0.0, 0.0], [1.1, 9.5, 101_500.0, 21.5, 290.0, 0.5, 20.0]]
+    data = encode_th([0.0, 0.1], rows)
+    th = read_th_bytes(data + _rec(struct.pack(">f", 0.2))[:-6])  # a partial last state is dropped
+    np.testing.assert_allclose(th.times, [0.0, 0.1], atol=1e-7)
+    assert th.global_names == ["INTERNAL ENERGY", "KINETIC ENERGY", "X-MOMENTUM"]
+    np.testing.assert_allclose(th.global_series("KINETIC ENERGY"), [2.0, 2.0])
+    g = th.group("cavities")
+    assert g.type_code == 107 and g.object_ids == [1] and g.object_titles == ["cushion"]
+    assert g.variable_names(MONV_VARIABLE_NAMES) == ["MASS", "VOL", "P", "A", "T", "AO", "UO"]
+    assert g.values.shape == (2, 1, 7)
+    np.testing.assert_allclose(g.series(3), [101_725.0, 101_500.0])
+    with pytest.raises(THFormatError):
+        read_th_bytes(_rec(struct.pack(">i", 7)))

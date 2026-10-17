@@ -925,6 +925,8 @@ def _refuse_what_the_merge_does_not_carry(p, *, is_carrier: bool) -> None:
         dropped.append(f"initial state {fem.initial_state.name!r}")
     if fem.interactions:
         dropped += [f"interaction {n!r}" for n in fem.interactions]
+    if fem.fluid_cavities:
+        dropped += [f"fluid cavity {n!r}" for n in fem.fluid_cavities]
     if is_carrier and (len(fem.elements) > 0 or fem.masses):
         # Elements (point masses, springs) on a part with no nodes of its own: they name other
         # parts' nodes, which the element merge does not re-key.

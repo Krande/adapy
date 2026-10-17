@@ -53,45 +53,112 @@ class StatNonLin:
         # Every load of the step; only the first used to be applied.
         return "".join(f"_F(CHARGE={concept_name(ld, 'load')}, FONC_MULT=bc_step)," for ld in self.loads)
 
+    def comportement_str(self) -> str:
+        """Small strains everywhere, but for the cables (``RELATION='CABLE'``, which Code_Aster solves with large
+        displacements only) and, in a geometrically nonlinear step, the membranes (``ELAS_MEMBRANE_SV`` with
+        ``GROT_GDEP``: a membrane carries out-of-plane load only as it deflects)."""
+        out = '_F(DEFORMATION="PETIT", TOUT="OUI"),'
+        sections = self.part.fem.sections
+        nl_geom = self.step is not None and self.step.nl_geom is True
+        membranes = [fs.elset.name for fs in sections.shells if fs.is_membrane]
+        if nl_geom and membranes:
+            # A membrane in GROT_GDEP takes a hyperelastic relation only (<MEMBRANE_3>, measured, 18.1.7);
+            # Saint Venant-Kirchhoff is the one that is linear elastic at small strain.
+            out += f'_F(RELATION="ELAS_MEMBRANE_SV", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(membranes)}),'
+        cables = [fs.elset.name for fs in sections.lines if fs.is_cable]
+        if cables:
+            out += f'_F(RELATION="CABLE", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(cables)}),'
+        return out
+
+    @property
+    def max_iterations(self) -> int:
+        """Newton iterations per increment: 8, or 50 with membranes or cables in the model. A flat membrane loaded
+        across itself starts from no out-of-plane stiffness and Newton converges slowly out of it -- measured
+        (18.1.7), a pressurised square membrane pre-stretched through its edges took 31 iterations in its first
+        increment and 2 to 5 in the next ones."""
+        sections = self.part.fem.sections
+        if any(fs.is_membrane for fs in sections.shells) or any(fs.is_cable for fs in sections.lines):
+            return 50
+        return 8
+
     def write(self):
         return f"""{self.name} = STAT_NON_LINE(
     MODELE=model,
     CHAM_MATER=material,{self.sec_str}
-    COMPORTEMENT=(_F(DEFORMATION="PETIT", TOUT="OUI")),
-    CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI=8,),
+    COMPORTEMENT=({self.comportement_str()}),
+    CONVERGENCE=_F(ARRET="OUI", ITER_GLOB_MAXI={self.max_iterations},),
     EXCIT=({self.get_bc_str()}{self.loads_str()}),
     INCREMENT=_F(LIST_INST=timeInst),
     ARCHIVAGE=_F(LIST_INST=timeReel),
 )"""
 
 
+def _group_tuple(names) -> str:
+    return "(" + "".join(f"'{n}'," for n in names) + ")"
+
+
+def _has_bending_shells(part: Part) -> bool:
+    return any(not fs.is_membrane for fs in part.fem.sections.shells)
+
+
+def _is_special(fs) -> bool:
+    """A truss, cable or membrane section: Code_Aster computes SIEF_ELNO on them and none of the beam/shell fields."""
+    return fs.is_axial_only or fs.is_membrane
+
+
+def _special_groups(part: Part) -> list[str]:
+    return [fs.elset.name for fs in part.fem.sections if _is_special(fs)]
+
+
 @dataclass
 class PostCalc:
+    """The fields computed from a nonlinear result, each family asked only for what it computes.
+
+    Beams, bending shells and solids: ``SIGM_ELNO`` (and ``EFGE`` on beams and shells) with the strains, then the
+    shells' mid-layer extracted (``EXTR_COQUE``). Trusses, cables and membranes compute none of these -- measured,
+    18.1.7: ``EPSI_ELGA`` on CABLE and ``EPSP_ELNO`` on MEMBTR3 stop the run at <CALCUL_37> -- so on a model holding
+    them every call is restricted to the element groups it applies to (``GROUP_MA``), and those groups get
+    ``SIEF_ELNO`` of their own: a cable's or truss's axial force, a membrane's in-plane forces per unit width.
+    """
+
     stat_non_line: StatNonLin
     part: Part
 
     def write(self):
-        # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
-        has_solids = len(self.part.fem.sections.solids) > 0
-        has_shells_or_beams = len(self.part.fem.sections.shells) > 0 or len(self.part.fem.sections.lines) > 0
+        name = self.stat_non_line.name
+        sections = self.part.fem.sections
+        special = _special_groups(self.part)
+        others = [fs for fs in sections if not _is_special(fs)]
+        shells = [fs.elset.name for fs in sections.shells if not fs.is_membrane]
+        restrict = (lambda groups: f"\n    GROUP_MA={_group_tuple(groups)},") if special else (lambda groups: "")
 
-        contrainte_fields = ["SIGM_ELNO"]
-        if has_shells_or_beams:
-            contrainte_fields.extend(["EFGE_ELNO", "EFGE_NOEU"])
-
-        contrainte_str = ", ".join([f'"{field}"' for field in contrainte_fields])
-
-        post_calc_str = f"""
-{self.stat_non_line.name} = CALC_CHAMP(
-    reuse={self.stat_non_line.name}, RESULTAT={self.stat_non_line.name},
+        out = ""
+        if others:
+            contrainte_fields = ["SIGM_ELNO"]
+            if any(not fs.is_membrane for fs in sections.shells) or any(not fs.is_axial_only for fs in sections.lines):
+                contrainte_fields.extend(["EFGE_ELNO", "EFGE_NOEU"])
+            contrainte_str = ", ".join([f'"{field}"' for field in contrainte_fields])
+            out += f"""
+{name} = CALC_CHAMP(
+    reuse={name}, RESULTAT={name},
     CONTRAINTE=({contrainte_str}),
-    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),
+    DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),{restrict([fs.elset.name for fs in others])}
 )"""
-        if has_solids:
-            return post_calc_str
+        if special:
+            out += f"""
+{name} = CALC_CHAMP(
+    reuse={name}, RESULTAT={name},
+    CONTRAINTE=("SIEF_ELNO",),
+    GROUP_MA={_group_tuple(special)},
+)"""
+        if len(sections.solids) > 0 or not shells:
+            # The layer extraction is a shell's: a model of solids, or of beams, trusses, cables and membranes only,
+            # has no layers to extract.
+            return out
 
+        groups = restrict(shells)
         return (
-            post_calc_str
+            out
             + f"""
 
 stress = POST_CHAMP(
@@ -99,8 +166,8 @@ stress = POST_CHAMP(
         NIVE_COUCHE='MOY',
         NOM_CHAM=('SIGM_ELNO', ),
         NUME_COUCHE=1
-    ),
-    RESULTAT={self.stat_non_line.name}
+    ),{groups}
+    RESULTAT={name}
 )
 
 stress = CALC_CHAMP(
@@ -113,16 +180,16 @@ strain = POST_CHAMP(
     EXTR_COQUE=_F(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSI_ELNO', ),
-    NUME_COUCHE=1),
-    RESULTAT={self.stat_non_line.name}
+    NUME_COUCHE=1),{groups}
+    RESULTAT={name}
 )
 
 strainP = POST_CHAMP(
     EXTR_COQUE=_F(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSP_ELNO', ),
-    NUME_COUCHE=1),
-    RESULTAT={self.stat_non_line.name}
+    NUME_COUCHE=1),{groups}
+    RESULTAT={name}
 )"""
         )
 
@@ -141,7 +208,7 @@ class ImprResu:
 
     @property
     def post_calc_include(self):
-        if len(self.part.fem.sections.solids) > 0:
+        if len(self.part.fem.sections.solids) > 0 or not _has_bending_shells(self.part):
             return ""
 
         return f"""_F(
@@ -162,14 +229,24 @@ class ImprResu:
 
     def write(self):
         # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
-        has_shells_or_beams = len(self.part.fem.sections.shells) > 0 or len(self.part.fem.sections.lines) > 0
+        from .fields import stress_fields
 
-        if has_shells_or_beams:
+        if "EFGE_ELNO" in stress_fields(self.part):
             result_nom_cham = '("DEPL", "EFGE_ELNO", "EFGE_NOEU")'
             result_nom_cham_med = self.med("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")
         else:
             result_nom_cham = '("DEPL",)'
             result_nom_cham_med = self.med("DISP")
+        special = ""
+        if _special_groups(self.part):
+            # The axial forces of trusses and cables and the in-plane forces per unit width of membranes.
+            special = f"""_F(
+            NOM_CHAM=("SIEF_ELNO",),
+            NOM_CHAM_MED={self.med("SECTION_FORCES_ELEM")},
+            RESULTAT={self.stat_nl.name},
+            GROUP_MA={_group_tuple(_special_groups(self.part))},
+        ),
+        """
 
         return f"""IMPR_RESU(
     RESU=(
@@ -178,7 +255,7 @@ class ImprResu:
             NOM_CHAM_MED={result_nom_cham_med},
             RESULTAT={self.stat_nl.name},
         ),
-        {self.post_calc_include}
+        {special}{self.post_calc_include}
     ),
     UNITE=80,
 )"""

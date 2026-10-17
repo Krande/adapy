@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         StepImplicitStatic,
         StepSteadyState,
     )
+    from ada.fem.cavities import FluidCavity
     from ada.fem.options import FemOptions
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
@@ -67,6 +68,7 @@ class FEM:
     predefined_fields: Dict[str, PredefinedField] = field(init=False, default_factory=dict)
     lcsys: Dict[str, Csys] = field(init=False, default_factory=dict)
     constraints: Dict[str, Constraint] = field(init=False, default_factory=dict)
+    fluid_cavities: Dict[str, FluidCavity] = field(init=False, default_factory=dict)
 
     bcs: List[Bc] = field(init=False, default_factory=list)
     steps: List[Union[StepSteadyState, StepEigen, StepImplicitStatic, StepExplicit]] = field(
@@ -280,6 +282,30 @@ class FEM:
         surface.parent = self
         self.surfaces[surface.name] = surface
         return surface
+
+    def add_fluid_cavity(self, cavity: FluidCavity) -> FluidCavity:
+        """Add a gas-filled cavity. Its surface (or element set) and reference node are added to this FEM as well
+        when they have no FEM yet."""
+        if cavity.name in self.fluid_cavities:
+            raise ValueError(f'Fluid cavity with name "{cavity.name}" already exists')
+        cavity.parent = self
+        region = cavity.surface
+        if region.parent is None:
+            if isinstance(region, Surface):
+                self.add_surface(region)
+                fem_sets = region.fem_set if isinstance(region.fem_set, list) else [region.fem_set]
+                for fs in fem_sets:
+                    if fs is not None and fs.parent is None:
+                        self.add_set(fs)
+            else:
+                self.add_set(region)
+        node = cavity.ref_node
+        if node.parent is None:
+            # A node of its own, wherever it is: one that happens to sit on a mesh node is still not that node.
+            node.parent = self
+            self.nodes.add(node, allow_coincident=True)
+        self.fluid_cavities[cavity.name] = cavity
+        return cavity
 
     def add_amplitude(self, amplitude: Amplitude) -> Amplitude:
         amplitude.parent = self
@@ -550,7 +576,7 @@ class FEM:
         # Everything else a FEM holds. These were left behind, so a model merged through here --
         # as every model ``ada.from_fem`` returns is -- lost its amplitudes, contact, initial
         # conditions and analysis steps even when the reader had read them.
-        for store in ("amplitudes", "intprops", "interactions", "predefined_fields"):
+        for store in ("amplitudes", "intprops", "interactions", "predefined_fields", "fluid_cavities"):
             for name, obj in getattr(other, store).items():
                 obj.parent = self
                 getattr(self, store)[name] = obj

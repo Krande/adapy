@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from ..grammar import render_keyword
 from .helper_utils import include_str, render_block
 from .templates import main_inp_str
+from .write_cavities import model_initial_conditions_str
 from .write_interactions import interact_str
 from .write_predefined_state import predefined_fields_str
 from .write_steps import abaqus_steps, constraint_control, main_step_inp_str
@@ -36,7 +37,11 @@ def write_main_inp_str(assembly: Assembly, analysis_dir) -> str:
         consec_str = include_str(f"{incl}\\connector_sections.inp")
     if len(assembly.fem.intprops) > 0:
         iprop_str = include_str(f"{incl}\\interaction_prop.inp")
-    if interact_str(assembly.fem) != "" or predefined_fields_str(assembly.fem) != "":
+    if (
+        interact_str(assembly.fem) != ""
+        or predefined_fields_str(assembly.fem) != ""
+        or model_initial_conditions_str(assembly) != ""
+    ):
         int_str = include_str(f"{incl}\\interactions.inp")
 
     mat_str = include_str(f"{incl}\\materials.inp")
