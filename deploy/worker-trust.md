@@ -82,6 +82,7 @@ api            pub/sub  ada.viewer.jobs.convert.>          # publish jobs
 worker-internal
                sub      ada.viewer.jobs.convert.>
                JS API   $JS.API.CONSUMER.{CREATE,MSG.NEXT}.ADA_VIEWER_JOBS.>
+                        $JS.API.STREAM.INFO.ADA_VIEWER_JOBS   # optional: which pools hold jobs
                KV       read/write
 
 worker-ext-01                                               # one per external host

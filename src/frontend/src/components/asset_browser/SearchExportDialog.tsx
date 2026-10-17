@@ -41,10 +41,11 @@ import {
     mergePreflights,
     meshPrompt,
     normalizeFolder,
-    queryForCollection,
+    queryForPartition,
     type GeometryPrompt,
     type MeshPrompt,
 } from "@/assets/searchExport";
+import {originLabel, partitionKey} from "@/assets/attributeSearch";
 import type {SearchHit, SearchQuery} from "@/services/api/attributeSearch";
 import {searchExportApi, type ExportAlso, type ExportGeometry, type ExportHit, type ExportRun} from "@/services/api/searchExport";
 import {viewerApi, ApiError} from "@/services/viewerApi";
@@ -71,6 +72,9 @@ export function preflightUnavailable(e: unknown): boolean {
     return e instanceof ApiError && (e.status === 404 || e.status === 405);
 }
 
+/** A tree request offer's identity: a provider, into one scope. */
+const treeRequestKey = (r: {provider: string; origin: string | null}) => `${r.provider}\u0000${r.origin ?? ""}`;
+
 /** A hit as the export takes it. */
 function exportHit(h: SearchHit): ExportHit {
     return {
@@ -83,6 +87,8 @@ function exportHit(h: SearchHit): ExportHit {
         depth: h.depth,
         path: h.path ?? [],
         attrs: h.attrs ?? {},
+        // Another scope's hit says where it lies: the server reads it there (and checks it may).
+        ...(h.shared && h.scope ? {scope: h.scope} : {}),
     };
 }
 
@@ -95,12 +101,13 @@ const SearchExportDialog: React.FC<{
     total: number;
     /** Collections the panel left out (already excluded in `query` and `picked`); shown, not applied. */
     leftOut?: string[];
-    /** The collections with matches being exported: the preflight checks them a few at a time, so
-     *  its progress can be shown. Absent or one: one check of the whole query. */
-    collections?: string[];
+    /** The partitions with matches being exported, by `partitionKey` -- one origin's collection
+     *  each: the preflight checks them a few at a time, so its progress can be shown. Absent or
+     *  one: one check of the whole query. */
+    partitions?: string[];
     onClose: () => void;
     onStarted: (run: ExportRun) => void;
-}> = ({scope, query, picked, total, leftOut = [], collections = [], onClose, onStarted}) => {
+}> = ({scope, query, picked, total, leftOut = [], partitions = [], onClose, onStarted}) => {
     const available = useScopeStore((s) => s.available);
     const targets = useMemo(() => exportTargetScopes(available), [available]);
     const [target, setTarget] = useState(() => (targets.some((t) => t.url === scope) ? scope : (targets[0]?.url ?? "user:me")));
@@ -165,10 +172,10 @@ const SearchExportDialog: React.FC<{
         let units: {query: SearchQuery; hits: ExportHit[] | null}[];
         if (which === "selected") {
             const by = new Map<string, ExportHit[]>();
-            for (const h of picked) by.set(h.collection, [...(by.get(h.collection) ?? []), exportHit(h)]);
-            units = [...by].map(([c, hits]) => ({query: queryForCollection(query, c), hits}));
+            for (const h of picked) by.set(partitionKey(h), [...(by.get(partitionKey(h)) ?? []), exportHit(h)]);
+            units = [...by].map(([k, hits]) => ({query: queryForPartition(query, k), hits}));
         } else {
-            units = collections.map((c) => ({query: queryForCollection(query, c), hits: null}));
+            units = partitions.map((k) => ({query: queryForPartition(query, k), hits: null}));
         }
         if (units.length <= 1) return one({query, hits: which === "selected" ? picked.map(exportHit) : null});
         setCheckProgress({done: 0, total: units.length});
@@ -270,15 +277,17 @@ const SearchExportDialog: React.FC<{
      *  what is ready can still be exported now, and the rest after the request finishes. */
     const requestTrees = async (r: MeshPrompt["requests"][number]) => {
         setBusy(true);
+        const key = treeRequestKey(r);
         try {
-            const run = await searchExportApi.requestTrees(scope, r.provider, r.collections);
+            // Into the scope the hits lie in -- the searched one, or (shared in) their origin.
+            const run = await searchExportApi.requestTrees(scope, r.provider, r.collections, r.origin);
             trackTreeRequest(scope, run.id, `${r.label}: ${r.collections.length} collection${r.collections.length === 1 ? "" : "s"}`);
             setTreeRequests((cur) => ({
                 ...cur,
-                [r.provider]: {ok: true, text: "Requested -- follow it in the toast, then export again."},
+                [key]: {ok: true, text: "Requested -- follow it in the toast, then export again."},
             }));
         } catch (e) {
-            setTreeRequests((cur) => ({...cur, [r.provider]: {ok: false, text: message(e)}}));
+            setTreeRequests((cur) => ({...cur, [key]: {ok: false, text: message(e)}}));
         } finally {
             setBusy(false);
         }
@@ -420,6 +429,7 @@ const SearchExportDialog: React.FC<{
                                 </div>
                             )}
                             {prompt.cannotRequest && <div className="text-red-300">Cannot request: {prompt.cannotRequest}</div>}
+                            {prompt.notHere && <div className="text-amber-300">{prompt.notHere}</div>}
                             {prompt.sweepNote && <div className="text-amber-300">{prompt.sweepNote}</div>}
                             {prompt.unknown.length > 0 && (
                                 <div className="space-y-1">
@@ -446,9 +456,9 @@ const SearchExportDialog: React.FC<{
                                 need -- so a collection can be searchable and still have nothing to cut from.
                             </div>
                             {meshAsk.requests.map((r) => {
-                                const done = treeRequests[r.provider];
+                                const done = treeRequests[treeRequestKey(r)];
                                 return (
-                                    <div key={r.provider} className="space-y-1">
+                                    <div key={treeRequestKey(r)} className="space-y-1">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <button
                                                 type="button"
@@ -457,7 +467,8 @@ const SearchExportDialog: React.FC<{
                                                 title={r.collections.join(", ")}
                                                 onClick={() => void requestTrees(r)}
                                             >
-                                                Only request: {r.label} ({r.collections.length} collection{r.collections.length === 1 ? "" : "s"})
+                                                Only request: {r.label} ({r.collections.length} collection{r.collections.length === 1 ? "" : "s"}
+                                                {r.origin ? ` into ${originLabel(r.origin)}` : ""})
                                             </button>
                                             {done && <span className={done.ok ? "text-emerald-300" : "text-red-300"}>{done.text}</span>}
                                         </div>

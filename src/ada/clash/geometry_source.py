@@ -104,6 +104,8 @@ class GeometrySourceIndex:
         self._manifests: dict[tuple[str, str, str], Any] = {}
         #: ``(id, label, provider)`` per row; provider is the row's own, else the slice's.
         self._spines: dict[tuple[str, str, str], tuple[tuple[str, str, str], ...] | None] = {}
+        #: Row id -> parent row id, per spine (filled beside ``_spines``).
+        self._parents: dict[tuple[str, str, str], dict[str, str | None]] = {}
         self._catalogs: dict[tuple[str, str], _ProviderCatalog] = {}
         #: Blobs fetched ahead by ``get_many``, each consumed by the one parse that wanted it
         #: (None: the batch found nothing there).
@@ -187,17 +189,59 @@ class GeometrySourceIndex:
         key = (manifest.collection, manifest.subject, manifest.revision)
         if key not in self._spines:
             rows = None
+            parents: dict[str, str | None] = {}
             try:
                 sliced = parse_hierarchy(self._get(self._spine_key(manifest)))
+                records = [r for r in sliced.records() if r.get("id") is not None]
                 rows = tuple(
-                    (str(r["id"]), str(r.get("label") or ""), str(r.get("provider") or ""))
-                    for r in sliced.records()
-                    if r.get("id") is not None
+                    (str(r["id"]), str(r.get("label") or ""), str(r.get("provider") or "")) for r in records
                 )
+                parents = {str(r["id"]): (str(r["parent"]) if r.get("parent") is not None else None) for r in records}
             except (FileNotFoundError, KeyError, ValueError, HierarchyError):
                 rows = None
             self._spines[key] = rows
+            self._parents[key] = parents
         return self._spines[key]
+
+    def member_row(self, member: Mapping[str, Any]) -> str | None:
+        """The row id the member's OWN provider published it under -- what that provider (or one
+        that finds nodes by another's rows) is asked for. A whole node is its own id; an element is
+        the row of its subject's spine named like it, the one whose ancestors end with ``path`` when
+        the name is not unique. None when the spine does not place it."""
+        target = member["target"]
+        if target.get("kind") != "node":
+            return None
+        element = member.get("element")
+        if not element:
+            return str(target.get("node") or target["subject"])
+        manifest = self._target_manifest(target)
+        if manifest is None:
+            return None
+        rows = self.spine(manifest) or ()
+        parents = self._parents.get((manifest.collection, manifest.subject, manifest.revision), {})
+        want = normalise_label(str(element))
+        hits = [i for i, lab, _prov in rows if normalise_label(lab) == want]
+        if not hits:
+            folded = want.casefold()
+            hits = [i for i, lab, _prov in rows if normalise_label(lab).casefold() == folded]
+        if len(hits) <= 1:
+            return hits[0] if hits else None
+        labels = {i: lab for i, lab, _prov in rows}
+        path = [normalise_label(str(p)) for p in (member.get("path") or ())]
+
+        def chain(node_id: str) -> list[str]:
+            out: list[str] = []
+            cur: str | None = node_id
+            while cur is not None and len(out) < 256:
+                out.append(normalise_label(labels.get(cur, "")))
+                cur = parents.get(cur)
+            return out[::-1]
+
+        if path:
+            placed = [i for i in hits if chain(i)[-len(path) :] == path]
+            if len(placed) == 1:
+                return placed[0]
+        return None
 
     # -- the geometry provider's side --------------------------------------------------------
 
@@ -389,9 +433,10 @@ class GeometryRemap:
     warnings: list[str] = field(default_factory=list)
     #: The members read as they are: files, and nodes ``provider`` published itself.
     unchanged: list[dict] = field(default_factory=list)
-    #: Per unmatched member, in the same order: ``{"member", "reason", "label"}`` -- the name it was
-    #: looked for under (None when its own provider published none), which is what a provider asked
-    #: to publish the element has to find it by.
+    #: Per unmatched member, in the same order: ``{"member", "reason", "label", "row"}`` -- the name
+    #: it was looked for under (None when its own provider published none), which is what a provider
+    #: asked to publish the element has to find it by, and the row id its own provider published it
+    #: under (None when its spine does not place it).
     unmatched_detail: list[dict] = field(default_factory=list)
 
 
@@ -420,7 +465,9 @@ def remap_group(group: Mapping[str, Any], provider: str, *, storage: Any) -> Geo
             warnings.append(reason)
             target = member["target"]
             label = member.get("element") or (index.node_label(target) if target.get("kind") == "node" else None)
-            unmatched_detail.append({"member": dict(member), "reason": reason, "label": label or None})
+            # The row its own provider published it under, so a request for it needs no tree walk.
+            row = index.member_row(member) if target.get("kind") == "node" else None
+            unmatched_detail.append({"member": dict(member), "reason": reason, "label": label or None, "row": row})
             continue
         if member["target"].get("kind") == "file":
             files += 1

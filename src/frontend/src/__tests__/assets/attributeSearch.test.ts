@@ -5,18 +5,26 @@ import {
   buildQuery,
   emptyForm,
   filterOptions,
+  hitExportNote,
   hitKey,
+  hitRevealScope,
   hitTreePath,
   mergePage,
   opTakesList,
   opTakesValue,
+  originBadge,
+  originLabel,
   parseStoredForm,
   partitionCounts,
+  partitionKey,
+  partitionsOfNames,
   pickSummary,
+  readScopePicks,
   shortName,
   totalCount,
   treeCollectionFor,
   walkHitPath,
+  withScopePicks,
   type FilterRow,
   type SearchForm,
 } from "../../assets/attributeSearch";
@@ -237,10 +245,89 @@ test("pages fold in order, without duplicates, with the latest counts and cursor
 test("partition counts split on the first slash and sum", () => {
   const counts = { "prov-a/ALPHA": 2, "prov-b/BETA/X": 5 };
   assert.deepEqual(partitionCounts(counts), [
-    { provider: "prov-b", collection: "BETA/X", count: 5 },
-    { provider: "prov-a", collection: "ALPHA", count: 2 },
+    { key: "prov-b/BETA/X", provider: "prov-b", collection: "BETA/X", count: 5 },
+    { key: "prov-a/ALPHA", provider: "prov-a", collection: "ALPHA", count: 2 },
   ]);
   assert.equal(totalCount(counts), 7);
+});
+
+// --- shared partitions ---------------------------------------------------------------------------
+
+test("an own and a shared partition of one name are different hits and different counts", () => {
+  const own = hit("a", { scope: "projects/p1", shared: false });
+  const theirs = hit("a", { scope: "projects/p2", shared: true });
+  assert.notEqual(hitKey(own), hitKey(theirs));
+  // a hit from a server before shares (no scope) keys as it always did
+  assert.equal(hitKey(hit("a")), "prov-a\u0000ALPHA\u0000a");
+  const folded = mergePage(null, { ...page([], null, {}), rows: [own, theirs, own] });
+  assert.equal(folded.hits.length, 2);
+
+  const counts = { "prov-a/ALPHA": 2, "prov-a/ALPHA@projects/p2": 5 };
+  const parts = partitionCounts(counts, [
+    { key: "prov-a/ALPHA", provider: "prov-a", collection: "ALPHA", scope: "projects/p1", shared: false, count: 2 },
+    { key: "prov-a/ALPHA@projects/p2", provider: "prov-a", collection: "ALPHA", scope: "projects/p2", shared: true, count: 5 },
+  ]);
+  assert.deepEqual(parts.map((p) => [p.key, p.scope, p.count]), [
+    ["prov-a/ALPHA@projects/p2", "projects/p2", 5],
+    ["prov-a/ALPHA", "projects/p1", 2],
+  ]);
+  assert.equal(totalCount(counts), 7);
+});
+
+test("a shared hit is badged with its origin and exported from here, read there", () => {
+  const names = (id: string) => (id === "p2" ? "plant-a" : undefined);
+  assert.equal(originBadge({ scope: "projects/p1", shared: false }), null);
+  assert.equal(originBadge({}), null);
+  assert.equal(originBadge({ scope: "projects/p2", shared: true }, names), "from plant-a");
+  assert.equal(originBadge({ scope: "projects/p9", shared: true }, names), "from project");
+  assert.equal(originBadge({ scope: "shared", shared: true }), "from Shared");
+  assert.equal(originLabel("users/u1"), "My files");
+  // revealed in its origin when the caller can name it there; exported from here, read at its origin
+  assert.deepEqual(hitRevealScope({ scope: "projects/p1", shared: false, scope_wire: "project:p1" }), { scope: null });
+  assert.deepEqual(hitRevealScope({ scope: "projects/p2", shared: true, scope_wire: "project:p2" }), { scope: "project:p2" });
+  assert.ok("blocked" in hitRevealScope({ scope: "users/u2", shared: true, scope_wire: null }));
+  assert.equal(hitExportNote({ scope: "projects/p1", shared: false }), null);
+  assert.match(hitExportNote({ scope: "shared", shared: true }) ?? "", /^Shared into this scope from Shared/);
+  assert.match(hitExportNote({ scope: "projects/p2", shared: true, admin: true }, names) ?? "", /admin search .* from plant-a/);
+});
+
+test("a partition is picked by the server's counts key, own and other scopes' apart", () => {
+  assert.equal(partitionKey({ provider: "v", collection: "alpha" }), "v/alpha");
+  assert.equal(partitionKey({ provider: "v", collection: "alpha", scope: "projects/p1", shared: false }), "v/alpha");
+  assert.equal(partitionKey({ provider: "v", collection: "alpha", scope: "shared", shared: true }), "v/alpha@shared");
+  assert.equal(partitionKey({ key: "server/key", provider: "v", collection: "alpha" }), "server/key");
+  const cols = [
+    { provider: "v", collection: "alpha" },
+    { provider: "v", collection: "alpha", scope: "shared", shared: true },
+    { provider: "v", collection: "beta", scope: "shared", shared: true },
+  ];
+  // A pick stored by name takes every origin of that name, as it always did.
+  assert.deepEqual(partitionsOfNames(["ALPHA"], cols), ["v/alpha", "v/alpha@shared"]);
+  const form: SearchForm = { ...emptyForm(), partitions: ["v/alpha@shared"], partitionMode: "exclude" };
+  const built = buildQuery(form);
+  assert.ok(built.ok);
+  if (built.ok) {
+    assert.deepEqual(built.query.exclude_partitions, ["v/alpha@shared"]);
+    assert.equal("partitions" in built.query || "all_scopes" in built.query, false, "only what is set is sent");
+  }
+  const admin = buildQuery({ ...emptyForm(), partitions: ["v/beta@shared"], allScopes: true });
+  assert.ok(admin.ok && admin.query.all_scopes === true && admin.query.partitions?.[0] === "v/beta@shared");
+});
+
+test("each scope remembers its own partition pick, and an empty pick leaves nothing behind", () => {
+  const one = withScopePicks(null, "user:me", { keys: ["v/alpha@shared", "v/alpha@shared"], mode: "exclude" });
+  const two = withScopePicks(one, "project:p1", { keys: ["v/beta"], mode: "include" });
+  assert.deepEqual(readScopePicks(two, "user:me"), { keys: ["v/alpha@shared"], mode: "exclude" });
+  assert.deepEqual(readScopePicks(two, "project:p1"), { keys: ["v/beta"], mode: "include" });
+  assert.equal(readScopePicks(two, "shared"), null);
+  assert.deepEqual(JSON.parse(withScopePicks(two, "user:me", { keys: [], mode: "exclude" })), {
+    "project:p1": { keys: ["v/beta"], mode: "include" },
+  });
+  assert.equal(readScopePicks("not json", "user:me"), null);
+  assert.equal(withScopePicks("[1]", "s", { keys: ["k"], mode: "include" }), '{"s":{"keys":["k"],"mode":"include"}}');
+  // A form stored before partition picks reads with none, and keeps its names for the picker.
+  const old = parseStoredForm(JSON.stringify({ collections: ["alpha"], collectionMode: "exclude" }));
+  assert.deepEqual([old?.partitions, old?.allScopes, old?.collections], [[], false, ["alpha"]]);
 });
 
 test("a hit's collection maps onto the tree's, exact first then ignoring case", () => {

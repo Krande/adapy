@@ -19,4 +19,22 @@ BUILTIN_SPEC_NAMES = (GIRDER_GUSSET_SPEC_NAME, BOX_JOINT_SPEC_NAME)
 #: decides whether a check needs routing to a pool before anything that registers checkers loads.
 BUILTIN_CHECKER = "adapy"
 
-__all__ = ["BOX_JOINT_SPEC_NAME", "BUILTIN_CHECKER", "BUILTIN_SPEC_NAMES", "GIRDER_GUSSET_SPEC_NAME"]
+#: Core's convex-contact checker and its one pass (``ada.clash.convex_contact``): convex-hull
+#: interference measured by adacpp, with a contact normal, penetration depth and contact patch.
+#: Wire constants -- the pass name is every joint's ``origin`` and part of its id.
+CONVEX_CONTACT_CHECKER = "convex-contact"
+CONVEX_CONTACT_PASS = "convex-contact"
+
+#: Every checker core itself registers. They run wherever core runs, so they are never routed to a
+#: pool: the api decides that from this list, before anything that registers checkers loads.
+CORE_CHECKERS = (BUILTIN_CHECKER, CONVEX_CONTACT_CHECKER)
+
+__all__ = [
+    "BOX_JOINT_SPEC_NAME",
+    "BUILTIN_CHECKER",
+    "BUILTIN_SPEC_NAMES",
+    "CONVEX_CONTACT_CHECKER",
+    "CONVEX_CONTACT_PASS",
+    "CORE_CHECKERS",
+    "GIRDER_GUSSET_SPEC_NAME",
+]

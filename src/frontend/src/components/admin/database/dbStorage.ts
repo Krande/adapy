@@ -1,4 +1,12 @@
-import type {DbAreaStorage, DbCollectionRef, DbPruneSpec} from "@/services/api/adminDb";
+import type {
+    DbAreaStorage,
+    DbAttributePartition,
+    DbAttrProviderShare,
+    DbCollectionRef,
+    DbDuplicateGroup,
+    DbPruneRevisionsResult,
+    DbPruneSpec,
+} from "@/services/api/adminDb";
 
 // Admin -> Database, the rules worth testing: reading the prune forms into the request the API
 // takes, and diffing the retention fields into what changed. React-free on purpose (see
@@ -67,6 +75,129 @@ export function retentionChanges(
         if ((saved[area] ?? null) !== days) changes[area] = days;
     }
     return {changes, invalid};
+}
+
+/** A scope a partition can be shared into, as the "Share with…" control lists it. */
+export interface ShareTarget {
+    /** Storage prefix: `shared`, `users/<sub>`, `projects/<id>`. */
+    scope: string;
+    label: string;
+}
+
+/** What "Share with…" offers: Shared, the admin's own personal scope, every live project -- never
+ *  the partition's own scope (it is searchable there already). Another user's personal scope is
+ *  not offered: there is no list of them to pick from, and a share there reads only for its owner. */
+export function shareTargets(
+    meSub: string | null | undefined,
+    projects: readonly {id: string; name: string; archived_at?: string | null}[],
+    own: string | null,
+): ShareTarget[] {
+    const out: ShareTarget[] = [{scope: "shared", label: "Shared"}];
+    if (meSub) out.push({scope: `users/${meSub}`, label: "My files"});
+    for (const p of [...projects].filter((p) => !p.archived_at).sort((a, b) => a.name.localeCompare(b.name))) {
+        out.push({scope: `projects/${p.id}`, label: p.name});
+    }
+    return out.filter((t) => t.scope !== own);
+}
+
+/** A scope prefix by the name `targets` give it, else the prefix itself. */
+export function shareLabel(scope: string, targets: readonly ShareTarget[]): string {
+    return targets.find((t) => t.scope === scope)?.label ?? scope;
+}
+
+/** One (scope, provider)'s partitions, as the Database tab's group row sums them. */
+export interface PartitionGroup {
+    /** `JSON.stringify([scope, provider])`; partitions without a catalogue row group under null. */
+    key: string;
+    scope: string | null;
+    provider: string | null;
+    partitions: DbAttributePartition[];
+    rows: number;
+    rowsExact: boolean;
+    totalBytes: number;
+    /** The scopes the WHOLE group is shared into (a group share, migration 040). */
+    sharedWith: string[];
+}
+
+/** Partitions grouped by (scope, provider), largest group first; within a group by collection.
+ *  `providerShares` gives each group its group-share targets (else read off its partitions). */
+export function groupPartitions(
+    partitions: readonly DbAttributePartition[],
+    providerShares: readonly DbAttrProviderShare[] = [],
+): PartitionGroup[] {
+    const groups = new Map<string, PartitionGroup>();
+    for (const p of partitions) {
+        const key = JSON.stringify([p.scope, p.provider]);
+        let g = groups.get(key);
+        if (!g) {
+            g = {key, scope: p.scope, provider: p.provider, partitions: [], rows: 0, rowsExact: true, totalBytes: 0, sharedWith: []};
+            groups.set(key, g);
+        }
+        g.partitions.push(p);
+        g.rows += p.rows;
+        g.rowsExact = g.rowsExact && p.rows_exact;
+        g.totalBytes += p.total_bytes;
+        for (const t of p.shared_with_group ?? []) if (!g.sharedWith.includes(t)) g.sharedWith.push(t);
+    }
+    for (const s of providerShares) {
+        const g = groups.get(JSON.stringify([s.scope, s.provider]));
+        if (g && !g.sharedWith.includes(s.target_scope)) g.sharedWith.push(s.target_scope);
+    }
+    const out = [...groups.values()];
+    for (const g of out) g.partitions.sort((a, b) => (a.collection ?? a.name).localeCompare(b.collection ?? b.name));
+    return out.sort((a, b) => b.totalBytes - a.totalBytes || String(a.key).localeCompare(String(b.key)));
+}
+
+/** A group's select-all box: every ticked / some ticked / none. */
+export function groupSelection(keys: readonly string[], selected: ReadonlySet<string>): "all" | "some" | "none" {
+    const n = keys.filter((k) => selected.has(k)).length;
+    return n === 0 ? "none" : n === keys.length ? "all" : "some";
+}
+
+/** Tick every key of a group, or (when all are ticked) untick them all. */
+export function toggleGroupSelection(keys: readonly string[], selected: ReadonlySet<string>): Set<string> {
+    const next = new Set(selected);
+    if (groupSelection(keys, selected) === "all") for (const k of keys) next.delete(k);
+    else for (const k of keys) next.add(k);
+    return next;
+}
+
+/** One line for a duplicate group: "prov: 89 collections held by both Plant A and Shared · 31 at
+ *  the same revision · 42 GB reclaimable". `bytes` formats a size. */
+export function duplicateSummary(
+    g: DbDuplicateGroup,
+    targets: readonly ShareTarget[],
+    bytes: (n: number) => string,
+): string {
+    const [a, b] = g.scopes;
+    // The narrower scope first, as an admin thinks of it: "<project> and Shared".
+    const names = (a === "shared" ? [b, a] : [a, b]).map((s) => shareLabel(s, targets));
+    const parts = [
+        `${g.provider}: ${g.collections} collection${g.collections === 1 ? "" : "s"} held by both ${names[0]} and ${names[1]}`,
+        `${g.same_revision} at the same revision`,
+    ];
+    if (g.reclaimable_bytes !== null) parts.push(`${bytes(g.reclaimable_bytes)} reclaimable`);
+    return parts.join(" · ");
+}
+
+/** Why a duplicate group cannot be folded, or null when it can. */
+export function foldBlocker(g: DbDuplicateGroup): string | null {
+    return g.keep_scope === "shared" && g.drop_scope
+        ? null
+        : "Neither copy is in Shared. A fold keeps the Shared copy only -- the one everyone may read -- so " +
+              "nothing is hidden from anyone; sweep the collections into Shared first, or prune one copy below.";
+}
+
+/** The copies a "Prune older revisions" left alone because the newest copy lies in a narrower
+ *  scope, flattened for the preview's separate list. */
+export function narrowingSkips(
+    result: Pick<DbPruneRevisionsResult, "collections">,
+): {provider: string; collection: string; scope: string; keptScope: string; bytes: number}[] {
+    return result.collections.flatMap((c) =>
+        c.skipped
+            .filter((s) => s.reason === "narrowing")
+            .map((s) => ({provider: c.provider, collection: c.collection, scope: s.scope, keptScope: c.kept.scope, bytes: s.bytes})),
+    );
 }
 
 /** "1.2M" / "~1.2M": an estimate is marked as one. */

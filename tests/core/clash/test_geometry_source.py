@@ -291,6 +291,34 @@ def test_a_group_is_remapped_with_every_read_cached(storage):
     assert len(remap.warnings) == 2
     # One read per blob, however many members asked.
     assert len(storage.reads) == len(set(storage.reads))
+    # Each left-out member carries the row its own provider published it under: what a request
+    # for it names, without walking the tree in the browser.
+    assert [d["row"] for d in remap.unmatched_detail] == ["fn03", "fn04"]
+
+
+def test_a_member_row_is_its_own_spines_row_disambiguated_by_path(storage):
+    index = GeometrySourceIndex(storage)
+    assert index.member_row(_mesh_member(None)) == "fnzone"
+    assert index.member_row(_mesh_member("Z100-BEAMS2")) == "fn01"
+    assert index.member_row(_mesh_member("/nowhere")) is None
+    # A name published twice is placed by the path's tail, and not at all when that does not tell.
+    _publish(
+        storage,
+        provider=MESH,
+        subject="fnzone",
+        revision=R2,
+        nodes=[
+            _row("fnzone", None, "/Z100-ZONE", leaf=False),
+            _row("fa", "fnzone", "/A", leaf=False),
+            _row("fb", "fnzone", "/B", leaf=False),
+            _row("fa1", "fa", "/BEAMS1"),
+            _row("fb1", "fb", "/BEAMS1"),
+        ],
+    )
+    index = GeometrySourceIndex(storage)
+    member = _mesh_member("/BEAMS1")
+    assert index.member_row({**member, "path": ["/Z100-ZONE", "/B", "/BEAMS1"]}) == "fb1"
+    assert index.member_row({**member, "path": ["/BEAMS1"]}) is None
 
 
 # ── the check ─────────────────────────────────────────────────────────

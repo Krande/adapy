@@ -86,6 +86,11 @@ worker:
   ##   ADA_STEP_STREAM_WORKERS              pool size override (default: cpu quota - 1, max 8)
   ##   ADA_STEP_STREAM_WORKER_SOFT_MEM_MB   idle-recycle threshold (0 disables)
   ##   ADA_STEP_STREAM_WORKER_HARD_MEM_MB   mid-solid kill + requeue-once threshold (0 disables)
+  ## and the attribute index's one-copy rule (the worker ingests the index):
+  ##   ADA_ATTR_INDEX_DEDUP                 0 = every ingest copies; default on: a collection the
+  ##                                        shared scope already holds at the same revision is
+  ##                                        shared into the ingesting scope instead of copied
+  ##                                        (src/ada/comms/rest/db/attribute_index.py)
   extraEnv: {}
   ## envFrom sources for this pool (e.g. [{secretRef: {name: my-secret}}]).
   ## For values that cannot live in a values file — credentials for a bucket

@@ -13,6 +13,15 @@
 //
 // State lives in `useAttributeSearchStore`, so results survive closing the panel and an export can
 // act on exactly the hits shown (`lastQuery`, `selectedHits()`).
+//
+// Partitions an admin shared into this scope from another are searched too -- and, for an admin
+// who ticks "All scopes", every provider scope's -- badged with where they come from ("from
+// <scope>"). Their tree and geometry are the origin scope's: "Show in tree" / "Load" on such a hit
+// switch to that scope first (`revealInSourceScope`, as revealing an exported file does), and an
+// export from here takes them, read at their origin.
+//
+// The collection picker lists PARTITIONS (one per origin of a collection name, `partitionKey`), so
+// one scope's copy can be left out while another's is kept; the pick is remembered per scope.
 
 import React, { useEffect, useMemo, useState } from "react";
 
@@ -21,11 +30,16 @@ import {
   attrKeysOf,
   filterOptions,
   formatAttr,
+  hitExportNote,
   hitKey,
+  hitRevealScope,
   newFilterRow,
   opTakesList,
   opTakesValue,
+  originBadge,
   partitionCounts,
+  partitionKey,
+  partitionsOfNames,
   pickSummary,
   splitList,
   totalCount,
@@ -34,7 +48,8 @@ import {
   type PickMode,
   type ScalarValue,
 } from "@/assets/attributeSearch";
-import { compactQuery, exportQuery, selectedTotal } from "@/assets/searchExport";
+import { compactQuery, exportQueryParts, selectedTotal } from "@/assets/searchExport";
+import { useMeStore } from "@/state/meStore";
 import { useProviderName } from "@/state/providerNamesStore";
 import {
   attributeSearchApi,
@@ -46,6 +61,7 @@ import { getSingletonViewerStores } from "@/state/AdaViewerContext";
 import { useAttributeSearchStore } from "@/state/attributeSearchStore";
 import { scopeUrlPart } from "@/state/scopeStore";
 import { useRunFocusStore } from "@/state/runFocusStore";
+import { revealInSourceScope } from "@/utils/tree_view/revealInSourceScope";
 import { revealSearchHit } from "@/utils/tree_view/revealSearchHit";
 
 import SearchExportDialog from "./SearchExportDialog";
@@ -58,6 +74,9 @@ const BTN_SECONDARY =
   "h-7 px-3 rounded-md text-xs font-medium border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50";
 const BTN_ROW = "px-1.5 py-0.5 rounded text-[11px] text-blue-300 hover:text-white hover:bg-gray-700 disabled:opacity-50";
 const LABEL = "text-[11px] uppercase tracking-wide text-gray-400";
+const BADGE = "ml-1 rounded-sm border border-violet-700 bg-violet-900/40 px-1 text-[10px] text-violet-200";
+/** Up to this many per-collection counts are shown unfolded by default. */
+const COUNTS_OPEN_UP_TO = 8;
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -281,6 +300,13 @@ const AttributeSearchPanel: React.FC = () => {
   const { useScopeStore } = getSingletonViewerStores();
   const scope = scopeUrlPart(useScopeStore((s) => s.current));
   const pn = useProviderName();
+  // A shared partition's origin by name, for the projects the caller can reach -- which, for a share
+  // the search returned at all, is every one of them.
+  const available = useScopeStore((s) => s.available);
+  const projectName = useMemo(() => {
+    const names = new Map(available.filter((s) => s.kind === "project" && s.id).map((s) => [s.id as string, s.name]));
+    return (id: string) => names.get(id);
+  }, [available]);
 
   const form = useAttributeSearchStore((s) => s.form);
   const results = useAttributeSearchStore((s) => s.results);
@@ -288,7 +314,16 @@ const AttributeSearchPanel: React.FC = () => {
   const error = useAttributeSearchStore((s) => s.error);
   const selected = useAttributeSearchStore((s) => s.selected);
   const resultScope = useAttributeSearchStore((s) => s.scope);
-  const { setForm, run, loadMore, toggleSelected, selectAll, resetForm } = useAttributeSearchStore.getState();
+  const { setForm, setPicks, loadPicks, run, loadMore, toggleSelected, selectAll, resetForm } =
+    useAttributeSearchStore.getState();
+  const isAdmin = useMeStore((s) => s.isAdmin);
+  // "All scopes" is an admin's; a form remembered from an admin session asks nothing of anyone else.
+  const allScopes = isAdmin && form.allScopes;
+  useEffect(() => {
+    if (!isAdmin && form.allScopes) setForm({ allScopes: false });
+  }, [isAdmin, form.allScopes, setForm]);
+  // Each scope's own remembered partition pick.
+  useEffect(() => loadPicks(scope), [scope, loadPicks]);
   // The filter area folds away to give the results the window; the query stays summed up in a line.
   const [filtersOpen, setFiltersOpen] = useState(readFiltersOpen);
   const toggleFilters = () => {
@@ -304,20 +339,31 @@ const AttributeSearchPanel: React.FC = () => {
     let live = true;
     setCollectionsError(null);
     attributeSearchApi
-      .searchCollections(scope)
+      .searchCollections(scope, { allScopes })
       .then((c) => live && setCollections(c))
       .catch((e) => live && setCollectionsError(message(e)));
     return () => {
       live = false;
     };
-  }, [scope]);
-  const partition = useMemo(
-    () => ({
-      provider: form.providers.length === 1 && form.providerMode !== "exclude" ? form.providers[0] : undefined,
-      collection: form.collections.length === 1 && form.collectionMode !== "exclude" ? form.collections[0] : undefined,
-    }),
-    [form.providers, form.collections, form.providerMode, form.collectionMode],
-  );
+  }, [scope, allScopes]);
+  // A form stored when the picker named collections: its names become those collections' partitions,
+  // every origin of each (what a pick by name took), once the partitions are known.
+  useEffect(() => {
+    if (!form.collections.length || !collections.length) return;
+    const keys = partitionsOfNames(form.collections, collections);
+    setForm({ collections: [] });
+    setPicks(scope, [...new Set([...form.partitions, ...keys])], form.collectionMode);
+  }, [collections, form.collections, form.collectionMode, form.partitions, scope, setForm, setPicks]);
+  const partition = useMemo(() => {
+    const one = form.partitions.length === 1 && form.partitionMode !== "exclude" ? form.partitions[0] : null;
+    const picked = one ? collections.find((c) => partitionKey(c) === one) : undefined;
+    return {
+      provider:
+        picked?.provider ?? (form.providers.length === 1 && form.providerMode !== "exclude" ? form.providers[0] : undefined),
+      collection: picked?.collection,
+      allScopes,
+    };
+  }, [form.providers, form.providerMode, form.partitions, form.partitionMode, collections, allScopes]);
   const [keys, setKeys] = useState<string[]>([]);
   useEffect(() => {
     let live = true;
@@ -330,17 +376,22 @@ const AttributeSearchPanel: React.FC = () => {
     };
   }, [scope, partition]);
 
-  const collectionOptions = useMemo(() => {
-    const by = new Map<string, SearchCollection[]>();
-    for (const c of collections) by.set(c.collection, [...(by.get(c.collection) ?? []), c]);
-    return [...by.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, parts]) => ({
-        value: name,
-        label: `${name} (${parts.reduce((n, p) => n + p.rows, 0).toLocaleString()})`,
-        title: parts.map((p) => `${pn(p.provider)}: ${p.rows.toLocaleString()} nodes, revision ${p.revision ?? "?"}, ingested ${p.ingested_at ?? "?"}`).join("\n"),
-      }));
-  }, [collections, pn]);
+  // One option per PARTITION: a collection name read from two scopes is two options, so one origin's
+  // can be left out and the other kept.
+  const collectionOptions = useMemo(
+    () =>
+      [...collections]
+        .sort((a, b) => a.collection.localeCompare(b.collection) || partitionKey(a).localeCompare(partitionKey(b)))
+        .map((p: SearchCollection) => {
+          const badge = originBadge(p, projectName);
+          return {
+            value: partitionKey(p),
+            label: `${p.collection} (${p.rows.toLocaleString()})${badge ? ` · ${badge}` : ""}`,
+            title: `${pn(p.provider)}${badge ? ` (${badge}${p.admin ? ", not shared here: your admin search of every scope" : ""})` : ""}: ${p.rows.toLocaleString()} nodes, revision ${p.revision ?? "?"}, ingested ${p.ingested_at ?? "?"}`,
+          };
+        }),
+    [collections, pn, projectName],
+  );
   const providerOptions = useMemo(
     () => [...new Set(collections.map((c) => c.provider))].sort().map((p) => ({ value: p, label: pn(p), title: p })),
     [collections, pn],
@@ -363,9 +414,12 @@ const AttributeSearchPanel: React.FC = () => {
   const patchAction = (k: string, a: RowAction) => setActions((cur) => new Map(cur).set(k, a));
   const reveal = async (hit: SearchHit, load: boolean) => {
     const k = hitKey(hit);
+    const where = hitRevealScope(hit);
+    if ("blocked" in where) return;
     patchAction(k, { busy: true, note: load ? "loading…" : "opening…", error: false });
     try {
-      const out = await revealSearchHit(hit, { load });
+      // A shared hit's tree is its origin's: switch there first.
+      const out = where.scope ? await revealInSourceScope(hit, where.scope, { load }) : await revealSearchHit(hit, { load });
       if (out.status === "superseded") {
         patchAction(k, { busy: false, note: null, error: false });
       } else if (out.status === "not-found") {
@@ -381,25 +435,40 @@ const AttributeSearchPanel: React.FC = () => {
   };
 
   const hits = results?.hits ?? [];
-  const counts = results ? partitionCounts(results.counts) : [];
+  const counts = results ? partitionCounts(results.counts, results.partitions) : [];
+  // Matches read from other scopes: exported too, read where they lie.
+  const sharedTotal = counts.reduce((n, c) => (c.shared ? n + c.count : n), 0);
   const total = results ? totalCount(results.counts) : 0;
   const allPicked = hits.length > 0 && hits.every((h) => selected.has(hitKey(h)));
 
   // Export: the dialog, and the runs list below the results. The list shows the searched scope's
   // runs -- or, sent here by the toast's "View run" on an export of another scope, that scope's.
   const lastQuery = useAttributeSearchStore((s) => s.lastQuery);
-  // Collections left out of the export, by clicking their count. About THESE results: a new search
-  // starts with every collection in.
+  // Partitions left out of the export, by clicking their count (keyed like `counts`, so one origin's
+  // copy of a collection can go and another's stay). About THESE results: a new search starts with
+  // every partition in.
   const [deselected, setDeselected] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => setDeselected(new Set()), [lastQuery]);
-  const toggleCollection = (c: string) =>
+  const toggleCollection = (key: string) =>
     setDeselected((cur) => {
       const next = new Set(cur);
-      if (next.has(c)) next.delete(c);
-      else next.add(c);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
-  const withHits = counts.filter((c) => c.count > 0).map((c) => c.collection);
+  const withHits = counts.filter((c) => c.count > 0).map((c) => c.key);
+  const countLabel = (key: string) => {
+    const c = counts.find((x) => x.key === key);
+    const badge = c ? originBadge(c, projectName) : null;
+    return c ? `${c.collection}${badge ? ` (${badge})` : ""}` : key;
+  };
+  // The per-collection counts fold away: a search over every project is a chip per project, and
+  // unfolded they push the results off a short panel. Open by default only while they are few;
+  // `null` is "not chosen for these results".
+  const [countsChoice, setCountsChoice] = useState<boolean | null>(null);
+  useEffect(() => setCountsChoice(null), [lastQuery]);
+  const countsOpen = countsChoice ?? counts.length <= COUNTS_OPEN_UP_TO;
+  const hitCollections = counts.filter((c) => c.count > 0).length;
   const exportTotal = selectedTotal(counts, deselected);
   const canExport = !!results && !!lastQuery && resultScope === scope && exportTotal > 0;
   const [exporting, setExporting] = useState(false);
@@ -412,21 +481,46 @@ const AttributeSearchPanel: React.FC = () => {
   }, [focus]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-gray-900 text-gray-100 text-xs">
+    // The panel scrolls as a whole once it is shorter than its parts: the results keep a minimum
+    // height, so on a short screen the counts, the results and the export runs below them are
+    // scrolled to rather than pushed out of sight below the panel's edge.
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-gray-900 text-gray-100 text-xs">
       {/* Not scrolled itself: that would clip the collection / provider pickers' drop-downs. A
           window too short for it folds the filters away instead. */}
       <div className="shrink-0 space-y-2 border-b border-gray-800 p-3">
+        {/* The fold's handle sits at the top of what it folds, where it is looked for. */}
+        <button
+          type="button"
+          className={`${LABEL} flex w-full items-center gap-1 text-left hover:text-white`}
+          aria-expanded={filtersOpen}
+          title={filtersOpen ? "Fold the search options away to give the results more room" : "Show the search options"}
+          onClick={toggleFilters}
+        >
+          <span className="text-gray-500">{filtersOpen ? "▾" : "▸"}</span>
+          Search options
+        </button>
         {filtersOpen && (
         <>
         <div className="flex flex-wrap items-center gap-2">
+          {/* By partition, remembered for this scope: "none of" is the list of what not to
+              consider right now, kept between visits. */}
           <MultiPick
             label="Collections"
             noun="collection"
             options={collectionOptions}
-            chosen={form.collections}
-            mode={form.collectionMode}
-            onChange={(c, m) => setForm({ collections: c, collectionMode: m })}
+            chosen={form.partitions}
+            mode={form.partitionMode}
+            onChange={(c, m) => setPicks(scope, c, m)}
           />
+          {isAdmin && (
+            <label
+              className="flex items-center gap-1.5 text-gray-300"
+              title="Admin: also search every provider scope -- shared, every project, the corpora -- whether or not it is shared into this one. Another user's personal scope is never included."
+            >
+              <input type="checkbox" checked={form.allScopes} onChange={(e) => setForm({ allScopes: e.target.checked })} />
+              All scopes
+            </label>
+          )}
           {(providerOptions.length > 1 || form.providers.length > 0) && (
             <MultiPick
               label="Providers"
@@ -528,20 +622,20 @@ const AttributeSearchPanel: React.FC = () => {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={BTN_SECONDARY}
-            aria-expanded={filtersOpen}
-            title={filtersOpen ? "Fold the filters away to give the results more room" : "Show the filters"}
-            onClick={toggleFilters}
-          >
-            {filtersOpen ? "Hide filters ▴" : "Filters ▾"}
-          </button>
           <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={submit}>
             {busy && !results ? "Searching…" : "Search"}
           </button>
           {filtersOpen && (
-            <button type="button" className={BTN_SECONDARY} disabled={busy} onClick={resetForm} title="Clear every filter and column">
+            <button
+              type="button"
+              className={BTN_SECONDARY}
+              disabled={busy}
+              onClick={() => {
+                resetForm();
+                setPicks(scope, [], "include");
+              }}
+              title="Clear every filter and column, this scope's remembered collection pick included"
+            >
               Reset
             </button>
           )}
@@ -558,7 +652,16 @@ const AttributeSearchPanel: React.FC = () => {
             type="button"
             className={BTN_SECONDARY}
             disabled={!canExport}
-            title={canExport ? "Write one IFC per hit into a folder" : "Search first -- the export takes the results' query"}
+            title={
+              (canExport
+                ? "Write the hits as files into a folder"
+                : results && resultScope === scope
+                  ? "Nothing left to export: every collection with matches is left out"
+                  : "Search first -- the export takes the results' query") +
+              (sharedTotal > 0
+                ? `\n${sharedTotal.toLocaleString()} of the matches come from other scopes: they are exported too, their geometry and attributes read where they lie`
+                : "")
+            }
             onClick={() => setExporting(true)}
           >
             Export results…
@@ -576,30 +679,52 @@ const AttributeSearchPanel: React.FC = () => {
           <span className="text-gray-500" title={`${results.pages} page(s), ${results.totalTookMs} ms on the server in all`}>
             {results.tookMs} ms
           </span>
-          {/* Each collection's count, clickable: a click leaves that collection out of the export
-              (and back in). A collection with no matches has nothing to leave out. */}
+          {counts.length > 0 && (
+            <button
+              type="button"
+              className="text-blue-300 hover:text-white"
+              aria-expanded={countsOpen}
+              title={countsOpen ? "Fold the per-collection counts away" : "Show the matches per collection"}
+              onClick={() => setCountsChoice(!countsOpen)}
+            >
+              {hitCollections.toLocaleString()} {hitCollections === 1 ? "collection" : "collections"} with matches {countsOpen ? "▴" : "▾"}
+            </button>
+          )}
+          {/* Each partition's count, clickable: a click leaves that partition out of the export
+              (and back in) -- one origin's copy of a collection, not every copy of its name. One
+              read from another scope keeps its origin badge; it is exported from here all the same.
+              A partition with no matches has nothing to leave out. Capped in height: unfolded, they
+              scroll among themselves. */}
+          {countsOpen && (
+          <div className="flex w-full max-h-32 flex-wrap items-center gap-x-3 gap-y-1 overflow-y-auto">
           {counts.map((c) => {
-            const out = deselected.has(c.collection);
+            const out = deselected.has(c.key);
             const label = `${c.collection}${providerOptions.length > 1 ? ` · ${pn(c.provider)}` : ""}: ${c.count.toLocaleString()}`;
+            const badge = originBadge(c, projectName);
+            const where = badge ? `, ${c.admin ? "read through your admin search" : "shared into this scope"} ${badge}` : "";
             return c.count > 0 ? (
               <button
-                key={`${c.provider}/${c.collection}`}
+                key={c.key}
                 type="button"
                 aria-pressed={!out}
                 className={`rounded-full px-2 py-0.5 border ${
                   out ? "border-gray-700 bg-transparent text-gray-500 line-through" : "border-gray-700 bg-gray-800 hover:bg-gray-700"
                 }`}
-                title={`${pn(c.provider)} / ${c.collection} -- ${out ? "left out of the export; click to include it" : "click to leave it out of the export"}`}
-                onClick={() => toggleCollection(c.collection)}
+                title={`${pn(c.provider)} / ${c.collection}${where} -- ${out ? "left out of the export; click to include it" : "click to leave it out of the export"}`}
+                onClick={() => toggleCollection(c.key)}
               >
                 {label}
+                {badge && <span className={BADGE}>{badge}</span>}
               </button>
             ) : (
-              <span key={`${c.provider}/${c.collection}`} className="rounded-full bg-gray-800 px-2 py-0.5 text-gray-500" title={`${pn(c.provider)} / ${c.collection}`}>
+              <span key={c.key} className="rounded-full bg-gray-800 px-2 py-0.5 text-gray-500" title={`${pn(c.provider)} / ${c.collection}${where}`}>
                 {label}
+                {badge && <span className={BADGE}>{badge}</span>}
               </span>
             );
           })}
+          </div>
+          )}
           {withHits.length > 1 && (
             <span className="inline-flex items-center gap-2">
               <button type="button" className="text-blue-300 hover:text-white" onClick={() => setDeselected(new Set(withHits))}>
@@ -615,15 +740,15 @@ const AttributeSearchPanel: React.FC = () => {
           {deselected.size > 0 && (
             <span className="text-gray-400">
               exporting <b className="text-gray-100">{exportTotal.toLocaleString()}</b> from{" "}
-              {withHits.filter((c) => !deselected.has(c)).length} of {withHits.length} collections
+              {withHits.filter((k) => !deselected.has(k)).length} of {withHits.length} collections
             </span>
           )}
           {resultScope && resultScope !== scope && <span className="text-amber-300">from scope {resultScope} -- search again for this one</span>}
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto">
-        {results && !hits.length && <div className="p-3 text-gray-400">Nothing matches.</div>}
+      <div className="flex-1 min-h-[12rem] overflow-auto">
+        {results && !hits.length &&<div className="p-3 text-gray-400">Nothing matches.</div>}
         {hits.length > 0 && (
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-gray-800 text-left text-gray-300">
@@ -650,13 +775,24 @@ const AttributeSearchPanel: React.FC = () => {
                 const attrsTitle = Object.entries(h.attrs ?? {})
                   .map(([a, v]) => `${a} = ${formatAttr(v)}`)
                   .join("\n");
+                const badge = originBadge(h, projectName);
+                const where = hitRevealScope(h, projectName);
+                const blocked = "blocked" in where ? where.blocked : null;
+                const elsewhere = "scope" in where && where.scope && badge ? ` -- switches to the scope it is shared ${badge}` : "";
                 return (
                   <tr key={k} className={`border-b border-gray-800 hover:bg-gray-800/60 ${selected.has(k) ? "bg-blue-900/30" : ""}`}>
                     <td className="px-2 py-1">
-                      <input type="checkbox" aria-label={`Pick ${h.full_name}`} checked={selected.has(k)} onChange={() => toggleSelected(k)} />
+                      <input
+                        type="checkbox"
+                        aria-label={`Pick ${h.full_name}`}
+                        title={hitExportNote(h, projectName) ?? undefined}
+                        checked={selected.has(k)}
+                        onChange={() => toggleSelected(k)}
+                      />
                     </td>
-                    <td className="px-2 py-1 whitespace-nowrap" title={pn(h.provider)}>
+                    <td className="px-2 py-1 whitespace-nowrap" title={`${pn(h.provider)}${badge ? `, shared into this scope ${badge}` : ""}`}>
                       {h.collection}
+                      {badge && <span className={BADGE}>{badge}</span>}
                     </td>
                     <td className="px-2 py-1 font-mono break-all" title={[h.source_ref ? `ref ${h.source_ref}` : "", attrsTitle].filter(Boolean).join("\n")}>
                       {h.full_name}
@@ -669,14 +805,23 @@ const AttributeSearchPanel: React.FC = () => {
                       </td>
                     ))}
                     <td className="px-2 py-1 whitespace-nowrap text-right">
-                      <button type="button" className={BTN_ROW} disabled={act?.busy} title="Open the Sources tree at this node and select it" onClick={() => void reveal(h, false)}>
+                      <button
+                        type="button"
+                        className={BTN_ROW}
+                        disabled={act?.busy || !!blocked}
+                        title={blocked ?? `Open the Sources tree at this node and select it${elsewhere}`}
+                        onClick={() => void reveal(h, false)}
+                      >
                         Show in tree
                       </button>
                       <button
                         type="button"
                         className={BTN_ROW}
-                        disabled={act?.busy}
-                        title="Show it in the tree, then load its geometry as the row's own Load into scene would (where one provider has geometry for it; otherwise the row offers the choice)"
+                        disabled={act?.busy || !!blocked}
+                        title={
+                          blocked ??
+                          `Show it in the tree, then load its geometry as the row's own Load into scene would (where one provider has geometry for it; otherwise the row offers the choice)${elsewhere}`
+                        }
                         onClick={() => void reveal(h, true)}
                       >
                         Load
@@ -713,11 +858,14 @@ const AttributeSearchPanel: React.FC = () => {
       {exporting && lastQuery && (
         <SearchExportDialog
           scope={scope}
-          query={exportQuery(lastQuery, deselected)}
-          picked={useAttributeSearchStore.getState().selectedHits().filter((h) => !deselected.has(h.collection))}
+          query={exportQueryParts(lastQuery, deselected)}
+          picked={useAttributeSearchStore
+            .getState()
+            .selectedHits()
+            .filter((h) => !deselected.has(partitionKey(h)))}
           total={exportTotal}
-          leftOut={[...deselected]}
-          collections={[...new Set(withHits.filter((c) => !deselected.has(c)))]}
+          leftOut={[...deselected].map(countLabel)}
+          partitions={withHits.filter((k) => !deselected.has(k))}
           onClose={() => setExporting(false)}
           onStarted={(run) => {
             setRunsScope(scope);

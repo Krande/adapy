@@ -25,7 +25,7 @@ import { conversionApi } from "@/services/api/conversion";
 import {
     ASSET_SCOPE_COLLECTIONS_KEY,
     assetProviderCollections,
-    enabledFor,
+    enabledForScope,
     isCollectionEnabled,
     parseScopeCollections,
     type AssetProviderCollections,
@@ -77,6 +77,7 @@ const RequestCollection: React.FC<{
     belowRequest?: React.ReactNode;
 }> = ({ scope, onPublished, onChanged, belowRequest }) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
+    const mySub = useMeStore((s) => s.sub);
     const pn = useProviderName();
     const [providers, setProviders] = useState<AssetProviderCollections[] | null>(null);
     const [grants, setGrants] = useState<ScopeCollectionsMap>({});
@@ -107,7 +108,9 @@ const RequestCollection: React.FC<{
     }, [load]);
 
     const provider = providers?.find((p) => p.providerId === providerId) ?? null;
-    const enabled = provider ? enabledFor(grants, scope, provider.providerId) : null;
+    // As the signed-in user: `user:me` reads their own `user:<sub>` entry, and offers nothing until
+    // an admin ticked something there.
+    const enabled = provider ? enabledForScope(grants, scope, provider.providerId, mySub) : null;
     const offered = useMemo(
         () => (provider ? provider.collections.filter((c) => isCollectionEnabled(enabled, c)) : []),
         [provider, enabled],

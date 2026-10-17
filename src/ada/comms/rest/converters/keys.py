@@ -328,6 +328,9 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     "_equipment/",
     "_engines/",
     "_groups/",
+    # Convex-contact clash runs (ada.clash.sidecar). Not client-written through the blob route: a
+    # browser's run is POSTed to /clash-contacts/runs, which validates it before storing it.
+    "_clash/",
 )
 
 

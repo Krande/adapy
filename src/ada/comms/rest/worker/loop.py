@@ -16,7 +16,7 @@ from ada.config import logger
 
 from .. import db as db_module
 from ..config import load_settings
-from ..plugin_registry import discover_local_plugins, locally_requested_capabilities
+from ..plugin_registry import discover_local_plugins, locally_preferred_pools, locally_requested_capabilities
 from ..queue import JOB_STATUS_ERROR, JobQueue
 from ..storage import Storage
 from . import state
@@ -33,9 +33,12 @@ from .pools import (
     _advance_pool_cursor,
     _bool_env,
     _capabilities_to_add,
+    _fetch_plan,
     _per_fetch_timeout,
     _pool_capabilities,
+    _preferred_indices,
     _worker_id,
+    summarise_names,
 )
 from .process import _process_one, _should_skip_cancelled
 from .registration import build_registration
@@ -143,7 +146,12 @@ async def _run() -> None:
     if settings.queue.url is None:
         raise SystemExit("ADA_VIEWER_NATS_URL not set; nothing for the worker to do")
 
-    logger.info("worker: booting capabilities=%s", os.environ.get("ADA_WORKER_CAPABILITIES", "base"))
+    # The capabilities are said in full ONCE, here, and summarised: one pool per
+    # collection makes this list long, and the registered/subscribing lines below
+    # only give counts. Everything in full is at DEBUG.
+    requested = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    logger.info("worker: booting, capabilities %s", summarise_names(requested))
+    logger.debug("worker: requested capabilities %s", requested)
     storage = Storage.from_settings(settings)
     state._WORKER_STORAGE = storage
     queue = JobQueue(settings.queue)
@@ -205,11 +213,8 @@ async def _run() -> None:
     _publish_registration = reg.publish
 
     await _publish_registration()
-    logger.info(
-        "worker: registered id=%s capabilities=%s",
-        worker_id,
-        ",".join(capabilities),
-    )
+    logger.info("worker: registered id=%s (%d capabilities)", worker_id, len(capabilities))
+    logger.debug("worker: registered capabilities %s", capabilities)
 
     # DB pool. Audit-log updates (queued -> done/error) degrade gracefully
     # without it, but procedural_build / relocations / engine builds REQUIRE it
@@ -265,10 +270,7 @@ async def _run() -> None:
         #
         # Neither is an error and neither can be retried into working, so this
         # is the one place that can say so.
-        logger.info(
-            "worker: no DATABASE_URL — job outcomes will not be recorded in the audit log, "
-            "and this worker reports no package manifest. Both are expected without a pool."
-        )
+        logger.info("worker: no DATABASE_URL — no audit-log outcomes or package manifest (expected without a pool)")
         # Source-node change tracking is the third consequence, and unlike the
         # other two it has an alternative -- so say which way this worker is
         # configured. Silence here is what made a pool-less worker look like it
@@ -282,9 +284,8 @@ async def _run() -> None:
             )
         else:
             logger.info(
-                "worker: source-node changes will NOT be recorded — a plugin that tracks an "
-                "external source will report that it cannot record. Set ADA_VIEWER_API_URL and "
-                "ADA_VIEWER_TOKEN to record over the API instead of a pool."
+                "worker: source-node changes NOT recorded — set ADA_VIEWER_API_URL + ADA_VIEWER_TOKEN "
+                "to record via the API"
             )
 
     # Subscribe to every capability this worker advertises, one durable
@@ -319,7 +320,8 @@ async def _run() -> None:
             "The registry row records why, per capability. Fix the environment "
             "or the requirements and restart."
         )
-    logger.info("worker: subscribing to capability pools %s", pool_capabilities)
+    logger.info("worker: subscribing to %d capability pools", len(pool_capabilities))
+    logger.debug("worker: capability pools %s", pool_capabilities)
     subs = [(cap, await queue.pull_subscribe(cap)) for cap in pool_capabilities]
 
     # Poll the pools round-robin, one fetch at a time, rather than fetching them
@@ -340,6 +342,14 @@ async def _run() -> None:
     # worker, which cost 20 minutes of a 907-cell sweep. POOL_STREAK_LIMIT is
     # the answer: stay on a pool that is producing, up to a bound that keeps
     # the others from starving.
+    #
+    # And the per-fetch division stops working with many pools: it is floored at
+    # 0.5 s, so 74 pools are a 37 s cycle, which is the pickup latency of an idle
+    # worker. So when the stream can say which pools hold messages, an idle round
+    # asks it once (`JobQueue.pending_pools`, no lease taken) and fetches only
+    # from those, then waits IDLE_WAIT_SECONDS on one pool before asking again
+    # (see `_fetch_plan`). Still one fetch at a time and one leased message.
+    # Without the permission to ask, the round-robin below is what runs.
     per_fetch_timeout = _per_fetch_timeout(len(subs))
 
     # Capabilities a plugin asked for after boot (`ada.plugins.request_worker_capabilities`),
@@ -419,6 +429,12 @@ async def _run() -> None:
     _touch_liveness()  # seed the heartbeat before the first fetch so the probe has a fresh mtime
     rr = 0  # round-robin cursor over `subs`
     streak = 0  # consecutive productive fetches on the current pool
+    yielded: int | None = None  # the pool that just used up its streak: tried last next round
+    # Whether the stream can be asked which pools hold messages (see JobQueue.pending_pools).
+    # Turned off, once and for good, the first time it cannot: a credential without the
+    # permission will not grow it mid-life, and asking every round would be a failed request
+    # per second for nothing.
+    probing = True
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
@@ -432,14 +448,43 @@ async def _run() -> None:
                 # fetch would have taken, so the liveness file stays fresh.
                 await asyncio.sleep(FETCH_TIMEOUT)
                 continue
-            cap, sub = subs[rr % len(subs)]
-            try:
-                msgs = await sub.fetch(batch=FETCH_BATCH, timeout=per_fetch_timeout)
-            except asyncio.TimeoutError:
-                msgs = []
+            pending = None
+            if probing and streak == 0:
+                pending = await queue.pending_pools()
+                if pending is None:
+                    probing = False
+                    logger.info(
+                        "worker: cannot ask the stream which pools hold jobs; polling the %d pools in turn",
+                        len(subs),
+                    )
+            pools = [c for c, _ in subs]
+            preferred = _preferred_indices(pools, locally_preferred_pools())
+            plan = _fetch_plan(
+                pools,
+                rr,
+                streak,
+                pending,
+                per_fetch_timeout=per_fetch_timeout,
+                yielded=yielded,
+                preferred=preferred,
+            )
+            # One fetch at a time, first message wins: never a second message leased.
+            msgs, idx = [], rr % len(subs)
+            for idx, timeout in plan:
+                try:
+                    msgs = await subs[idx][1].fetch(batch=FETCH_BATCH, timeout=timeout)
+                except asyncio.TimeoutError:
+                    msgs = []
+                if msgs or stop.is_set():
+                    break
+            if msgs and idx != rr % len(subs):
+                rr, streak = idx, 0  # a probe found work elsewhere: the streak starts there
             rr, streak = _advance_pool_cursor(rr, streak, bool(msgs))
+            yielded = idx if msgs and streak == 0 else None
             if not msgs:
                 continue
+            cap = subs[idx][0]
+            via = " (preferred)" if idx in preferred else ""
             for msg in msgs:
                 job_id = msg.data.decode("utf-8")
                 # NATS message metadata carries the delivery counter.
@@ -520,8 +565,10 @@ async def _run() -> None:
                     continue
 
                 logger.info(
-                    "worker: picked up job %s (delivery %d/%d)",
+                    "worker: picked up job %s from %s%s (delivery %d/%d)",
                     job_id,
+                    cap,
+                    via,
                     delivery_count,
                     MAX_DELIVERIES,
                 )

@@ -6,6 +6,7 @@ import {
     docFromMeta,
     exportFolderCandidates,
     exportQuery,
+    exportQueryParts,
     exportTargetScopes,
     filterByProjects,
     galleryProjects,
@@ -27,6 +28,7 @@ import {
     normalizeFolder,
     projectPages,
     queryForCollection,
+    queryForPartition,
     rerunnable,
     selectedTotal,
     stopOfAdjacentFile,
@@ -394,13 +396,48 @@ test("deselected collections join the query's exclusions, and the total drops by
     assert.deepEqual(q.exclude_collections, ["old", "alpha", "gamma"]);
     assert.deepEqual(q.where, Q.where, "the filters are the search's own");
     assert.equal(exportQuery(Q, new Set()), Q, "nothing left out sends the query untouched");
+});
+
+test("deselected partitions join exclude_partitions, and the total drops by their counts only", () => {
     const counts = [
-        {collection: "alpha", count: 300},
-        {collection: "beta", count: 200},
-        {collection: "gamma", count: 100},
+        {key: "p/alpha", count: 300},
+        {key: "p/alpha@shared", count: 50},
+        {key: "p/beta", count: 200},
+        {key: "p/gamma@projects/p2", count: 100},
     ];
-    assert.equal(selectedTotal(counts, out), 200);
-    assert.equal(selectedTotal(counts, new Set()), 600);
+    const out = new Set(["p/alpha@shared", "p/gamma@projects/p2"]);
+    assert.equal(selectedTotal(counts, out), 500, "the own alpha stays in");
+    assert.equal(selectedTotal(counts, new Set()), 650, "other scopes' matches count too");
+    const q = exportQueryParts({...Q, exclude_partitions: ["p/old"]}, out);
+    assert.deepEqual(q.exclude_partitions, ["p/old", "p/alpha@shared", "p/gamma@projects/p2"]);
+    assert.equal("partitions" in q, false, "no include list is made up");
+    assert.deepEqual(exportQueryParts({...Q, partitions: ["p/alpha", "p/alpha@shared"]}, out).partitions, ["p/alpha"]);
+    assert.equal(exportQueryParts(Q, new Set()), Q);
+    assert.deepEqual(queryForPartition(Q, "p/alpha@shared").partitions, ["p/alpha@shared"]);
+});
+
+test("missing geometry in a scope the user cannot publish into is said, not offered", () => {
+    const base = {collection: "alpha", hits: 3, ready: 0, missing: 3, listed: 3, unpublished: 0, unknown: 0, jobs: 1,
+        missing_reason: null, unknown_reason: null, unknown_examples: []};
+    const pre = {
+        geometry_provider: "g", hits: 6, ready: 0, missing: 6, unknown: 0, jobs: 2, took_ms: 1, sweep_running: null,
+        request: {available: true, allowed: true, reason: null, plugin_id: "x", label: null, per_job: 500},
+        collections: [base, {...base, collection: "beta", scope: "projects/p2", shared: true, request_blocked: "no"}],
+    };
+    const p = geometryPrompt(pre);
+    assert.match(p.notHere ?? "", /3 of the missing hits .*BETA/);
+    assert.equal(geometryPrompt({...pre, collections: [base]}).notHere, null);
+});
+
+test("tree requests of one provider into two scopes stay two offers", () => {
+    const part = (origin: string | null) => ({
+        geometry: "mesh" as const, hits: 1, ready: 0, no_tree: 1, unknown: 0, took_ms: 1, collections: [],
+        tree_requests: [{provider: "v", origin, collections: ["alpha"], available: true, allowed: true, reason: null,
+            label: null, plugin_id: "v", sweep_running: null}],
+    });
+    const merged = mergeMeshPreflights([part(null), part("shared"), part(null)]);
+    assert.deepEqual(merged.tree_requests.map((r) => r.origin), [null, "shared"]);
+    assert.deepEqual(meshPrompt(merged).requests.map((r) => r.origin), [null, "shared"]);
 });
 
 test("an include list loses the deselected collections too, ignoring case as the server does", () => {
@@ -443,7 +480,7 @@ test("the mesh prompt names the collections with no tree, offers their request a
     assert.deepEqual(p.readyCollections, ["delta"]);
     assert.deepEqual(p.emptyCollections, ["alpha", "gamma"]);
     assert.deepEqual(p.requests, [
-        {provider: "vendor", collections: ["alpha", "gamma"], label: "Request project tree (vendor)", cannot: null, sweepNote: null},
+        {provider: "vendor", origin: null, collections: ["alpha", "gamma"], label: "Request project tree (vendor)", cannot: null, sweepNote: null},
     ]);
     assert.equal(p.unknown[0].collection, "delta");
 });

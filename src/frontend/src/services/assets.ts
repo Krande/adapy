@@ -199,10 +199,14 @@ function isNotFound(e: unknown): boolean {
 // The reader a provider's request dialog narrows its picker with. Lives in its own pure module
 // (`services/assetScopeCollections.ts`) so it can be imported without the API client; re-exported
 // here so a plugin finds the whole asset surface in one place. The admin Providers tab writes it.
+// A picker for the scope the viewer is in asks `enabledForScope` with the signed-in user's sub:
+// a personal scope is keyed by its owner, and offers nothing until an admin ticks something.
 // ---------------------------------------------------------------------------------------------
 export {
   ASSET_SCOPE_COLLECTIONS_KEY,
   enabledFor,
+  enabledForScope,
+  entryKey,
   isCollectionEnabled,
   parseScopeCollections,
 } from "@/services/assetScopeCollections";

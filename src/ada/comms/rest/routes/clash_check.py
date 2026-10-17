@@ -27,7 +27,7 @@ from ada.assets.rollup import listing_token
 # numpy and no reader. `ada.clash.identify` (and the passes it imports) runs on a worker, and so
 # does `ada.clash.group_model`; `ada.clash.group` is its stdlib-only request half, and
 # `ada.clash.geometry_source` reads JSON only (manifests and hierarchy documents).
-from ada.clash.builtin_names import BUILTIN_CHECKER, BUILTIN_SPEC_NAMES
+from ada.clash.builtin_names import BUILTIN_CHECKER, BUILTIN_SPEC_NAMES, CORE_CHECKERS
 from ada.clash.geometry_source import node_group, plan_geometry
 from ada.clash.group import (
     GroupError,
@@ -236,6 +236,10 @@ async def _checker_capability(ctx: RestContext, checker: str | None) -> str | No
     unclaimed or come back with nothing checked.
     """
     if not checker or checker == BUILTIN_CHECKER:
+        return None
+    if checker in CORE_CHECKERS:
+        # Core's own: it runs wherever core runs, so it is never routed. A process without adacpp's
+        # pass does not register it, and a check sent there says so in its warnings.
         return None
     if ctx.jobs.kind == "local":
         # No pools to route to: the checker runs in this process or not at all.
@@ -876,10 +880,10 @@ async def api_clash_passes(
 
 
 def _core_clash_checkers() -> list[dict]:
-    """Core's own checker, in the catalog shape -- the ``code`` half of the checker union."""
+    """Core's own checkers registered in this process, in the catalog shape -- the ``code`` half of
+    the checker union."""
     try:
         import ada.clash.identify  # noqa: F401,PLC0415 - registers core's passes, which its checker lists
-        from ada.clash.passes import BUILTIN_CHECKER as _CORE
         from ada.clash.passes import list_checkers
     except ImportError:
         # The slim api cannot load the passes, but it can still NAME core's checker: it is always
@@ -897,7 +901,7 @@ def _core_clash_checkers() -> list[dict]:
                 "priority": 0,
             }
         ]
-    return [{**entry, "slug": entry["name"]} for entry in list_checkers() if entry["name"] == _CORE]
+    return [{**entry, "slug": entry["name"]} for entry in list_checkers() if entry["name"] in CORE_CHECKERS]
 
 
 @router.get("/scopes/{scope}/clash-check/checkers")

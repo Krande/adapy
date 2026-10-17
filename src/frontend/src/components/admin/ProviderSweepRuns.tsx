@@ -312,11 +312,51 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
         return () => clearInterval(t);
     }, [running, openId, load, openRun]);
 
+    // The history folds away: it only grows. Folded unless a sweep is running, or the user chose
+    // (remembered per provider), or "View run" asked for one of these.
+    const storageKey = `ada.admin.providers.sweepsOpen.${provider}`;
+    const [openChoice, setOpenChoice] = useState<boolean | null>(() => {
+        try {
+            const raw = localStorage.getItem(storageKey);
+            return raw === null ? null : raw === "1";
+        } catch {
+            return null;
+        }
+    });
+    // A run opened (by "View run" too) always shows, whatever was chosen.
+    const listOpen = open !== null || (openChoice ?? running);
+    const toggleList = () => {
+        const next = !listOpen;
+        if (!next) setOpen(null);
+        setOpenChoice(next);
+        try {
+            localStorage.setItem(storageKey, next ? "1" : "0");
+        } catch {
+            // Not remembered; still applied for this visit.
+        }
+    };
+    const latest = runs[0];
+
     if (!runs.length && !error) return null;
     return (
         <div className="space-y-1" data-testid="provider-sweep-runs">
-            <div className="text-[11px] text-gray-400">Sweeps</div>
+            <button
+                type="button"
+                className="flex items-center gap-2 text-[11px] text-gray-400 hover:text-white"
+                aria-expanded={listOpen}
+                title={listOpen ? "Fold the sweep history away" : "Show the sweep history"}
+                onClick={toggleList}
+            >
+                <span className="text-gray-500">{listOpen ? "▾" : "▸"}</span>
+                Sweeps ({runs.length})
+                {!listOpen && latest && (
+                    <span className="text-gray-500">
+                        · latest {fmt(latest.created_at)} <span className={STATUS_TONE[latest.status] ?? ""}>{latest.status}</span>
+                    </span>
+                )}
+            </button>
             {error && <div className="text-xs text-red-300">{error}</div>}
+            {listOpen && (
             <ul className="text-xs divide-y divide-gray-800 rounded-sm border border-gray-800">
                 {runs.map((r) => (
                     <li
@@ -409,6 +449,7 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
                     </li>
                 ))}
             </ul>
+            )}
         </div>
     );
 };

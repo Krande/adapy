@@ -27,8 +27,7 @@ import {
 } from "@/state/clashCheckStore";
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import { focusJoint as focusJointEverywhere } from "@/utils/scene/clashJointFocus";
-import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
+import { focusJoint as focusJointEverywhere, selectClashMembers } from "@/utils/scene/clashJointFocus";
 import IsolationControls from "./IsolationControls";
 import JointDetail from "./JointDetail";
 import { cursorIndex, groupRowFor, step, visibleRows, type JointRow } from "./rows";
@@ -258,8 +257,7 @@ const Row: React.FC<{
             className="text-[10px] text-blue-300 hover:text-white"
             title="Select every member in this group"
             onClick={() => {
-              if (!sourceName) return;
-              void selectInOtherModel({ file: sourceName, nodeNames: [...memberNamesForGroup(result, group.typeKey)] });
+              void selectClashMembers(group.jointIds, sourceName, [...memberNamesForGroup(result, group.typeKey)]);
             }}
           >
             select all
@@ -293,8 +291,7 @@ const Row: React.FC<{
           result={result}
           scope={scope}
           onSelectMembers={() => {
-            if (!sourceName) return;
-            void selectInOtherModel({ file: sourceName, nodeNames: joint.members.map((m) => m.name) });
+            void selectClashMembers([joint.id], sourceName, joint.members.map((m) => m.name));
           }}
         />
       )}

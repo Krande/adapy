@@ -1127,6 +1127,29 @@ class JobQueue:
             ),
         )
 
+    async def pending_pools(self) -> dict[str, int] | None:
+        """Messages held in the stream per pool, ``{capability token: count}``, in ONE request.
+
+        Takes no lease and fetches nothing: it is ``STREAM.INFO`` with a subject filter, which
+        the server answers from its per-subject index. A work-queue stream removes a message on
+        ack, so a count covers messages waiting AND messages another worker is running -- the
+        caller treats a non-zero count as "worth a fetch", never as "a fetch will return one".
+
+        None when it cannot be asked: a credential without the stream-info permission (see
+        deploy/worker-trust.md), an older server, a dropped connection. The worker then polls its
+        pools in turn as it did before this existed.
+        """
+        if self._js is None:
+            return None
+        prefix = f"{self._cfg.subject}."
+        try:
+            info = await self._js.stream_info(self._cfg.stream, subjects_filter=f"{prefix}>")
+        except Exception as exc:  # noqa: BLE001 - any failure means "cannot ask", not a fault
+            logger.debug("queue: stream_info with a subject filter failed: %s", exc)
+            return None
+        subjects = getattr(getattr(info, "state", None), "subjects", None) or {}
+        return {s[len(prefix) :]: int(n) for s, n in subjects.items() if s.startswith(prefix) and n}
+
 
 __all__ = [
     "Job",

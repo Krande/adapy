@@ -12,6 +12,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
+import { CONTACT_ORIGIN } from "@/services/clash/contactRuns";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import { useProviderName } from "@/state/providerNamesStore";
@@ -28,13 +29,16 @@ import {
 import { describeClashTarget, type ClashCheckTarget } from "@/services/api/clashCheck";
 import { rankSpecs } from "@/services/clashSpecProviders";
 import { startClashMarkerSync } from "@/utils/scene/clashJointMarkers";
+import { ROLE_COLOURS } from "@/utils/scene/clashContactPlan";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import { focusJoint as focusJointEverywhere } from "@/utils/scene/clashJointFocus";
-import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
+import { selectionGroupId } from "@/utils/groups/savedGroups";
+import { focusJoint as focusJointEverywhere, selectClashMembers } from "@/utils/scene/clashJointFocus";
 import {
   BUILTIN_CHECKER,
+  contactRunOf,
   detailBatches,
   checkedSourceName,
+  contactGeometryProvider,
   effectiveSpecProviders,
   facetOptions,
   filteredGroups,
@@ -65,6 +69,44 @@ const Banner: React.FC<{ tone: "info" | "warn" | "error"; children: React.ReactN
     {children}
   </div>
 );
+
+/** "Show contacts in 3D" for a convex-contact run, with the role legend the overlay is coloured by
+ *  (`ROLE_COLOURS`, read by both, so the swatches cannot disagree with the scene). */
+const ContactsToggle: React.FC<{ result: ClashResult }> = ({ result }) => {
+  const showContacts = useClashCheckStore((s) => s.showContacts);
+  const setShowContacts = useClashCheckStore((s) => s.setShowContacts);
+  const selectedJoint = useClashCheckStore((s) => s.selectedJoint);
+  const run = contactRunOf(useClashCheckStore((s) => s.result));
+  if (!run) return null;
+  const withRoles = run.contacts.filter((c) => c.roles).length;
+  const swatch = (color: string, label: string) => (
+    <span className="flex items-center gap-1">
+      <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
+      {label}
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+      <label
+        className="flex items-center gap-1 shrink-0"
+        title="Draw every contact the list shows: each patch on both members, in their roles' colours, and the contact normal (member i to member j) as an arrow. Click a patch to focus its contact. Off, only the contact selected in the list is drawn."
+      >
+        <input type="checkbox" checked={showContacts} onChange={(e) => setShowContacts(e.target.checked)} />
+        show contacts in 3D
+      </label>
+      {(showContacts || selectedJoint) && (
+        <>
+          {swatch(ROLE_COLOURS.incoming, "incoming")}
+          {swatch(ROLE_COLOURS.landing, "landing")}
+          {swatch(ROLE_COLOURS.unresolved, "role unresolved")}
+          <span title="How many of this run's contacts have their incoming / landing members resolved">
+            {withRoles}/{result.joints.length} with roles
+          </span>
+        </>
+      )}
+    </div>
+  );
+};
 
 const numberInput = (
   label: string,
@@ -209,11 +251,11 @@ const GeometryRequestStep: React.FC = () => {
                 className={`${btn} bg-blue-700 hover:bg-blue-600`}
                 onClick={() => answer("request")}
               >
-                Request, then check
+                {prompt.purpose === "annotate" ? "Request, then annotate" : "Request, then check"}
               </button>
             )}
             <button type="button" className={`${btn} bg-gray-700 hover:bg-gray-600`} onClick={() => answer("skip")}>
-              Check without {prompt.count === 1 ? "it" : "them"}
+              {prompt.purpose === "annotate" ? "Annotate" : "Check"} without {prompt.count === 1 ? "it" : "them"}
             </button>
             <button type="button" className={`${btn} bg-gray-700 hover:bg-gray-600`} onClick={() => answer("cancel")}>
               Cancel
@@ -245,6 +287,7 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
   const assetTarget = useClashCheckStore((s) => s.assetTarget);
   const targetLabel = useClashCheckStore((s) => s.sourceName);
   const setSource = useClashCheckStore((s) => s.setSource);
+  const setGroupTarget = useClashCheckStore((s) => s.setGroupTarget);
   const options = useClashCheckStore((s) => s.options);
   const checker = useClashCheckStore((s) => s.checker);
   const checkerSpec = useClashCheckStore((s) => s.availableCheckers?.find((c) => c.name === s.checker));
@@ -258,11 +301,22 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
   const browserStage = useClashCheckStore((s) => s.browserStage);
   const geometryPrompt = useClashCheckStore((s) => s.geometryPrompt);
   const geometryStage = useClashCheckStore((s) => s.geometryStage);
-  // Only IFC: the member scan is an IFC reader, so for anything else the option would be a
-  // checkbox that silently did nothing.
-  // The browser runs core's checker only; a contributed engine's code lives on its pool.
-  // A node or a group is read on the server whatever this says, so the option is not offered.
-  const browserPossible = isCore && !assetTarget && browserClashCheckSupports(sourceKey ?? "");
+  const loadContactRuns = useClashCheckStore((s) => s.loadContactRuns);
+  // The convex-contact CLASH check measures viewer GLBs: one model's (a file or a node) in the
+  // browser or on a worker, a saved group's several in the browser only -- so no switch for a group.
+  const isContact = checker === CONTACT_ORIGIN;
+  const isSavedGroup = assetTarget?.kind === "group" && Boolean(assetTarget.id);
+  const contactPossible = isContact && (Boolean(sourceKey) || assetTarget?.kind === "node" || isSavedGroup);
+  // Core's connectivity check in the browser: only IFC -- the member scan is an IFC reader, so for
+  // anything else the option would be a checkbox that silently did nothing. A node or a group is
+  // read on the server whatever this says, so the option is not offered for them.
+  const browserPossible =
+    (contactPossible && assetTarget?.kind !== "group") || (isCore && !assetTarget && browserClashCheckSupports(sourceKey ?? ""));
+
+  // A clash run outlives the page: list the target's runs whenever the target (or the engine) changes.
+  useEffect(() => {
+    if (contactPossible) void loadContactRuns(scope);
+  }, [contactPossible, sourceKey, assetTarget, scope, loadContactRuns]);
 
   return (
     <div className="flex flex-col gap-1 pb-1 border-b border-gray-700">
@@ -289,7 +343,29 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
       <CheckerOptionsForm />
       <PassSelector />
       <div className="flex flex-wrap items-center gap-2">
-        <ClashRootPicker value={options.root ?? null} onChange={(root) => setOptions({ root })} />
+        <ClashRootPicker
+          value={assetTarget?.kind === "group" ? null : (options.root ?? null)}
+          onChange={(root) => {
+            // A part names a part of the loaded model: leave a group target for the scene first.
+            if (assetTarget?.kind === "group") setSource(loadedSourceName, loadedSourceName);
+            setOptions({ root });
+          }}
+          scope={scope}
+          groupId={assetTarget?.kind === "group" ? (assetTarget.id ?? null) : null}
+          groupLabel={assetTarget?.kind === "group" ? assetTarget.name : null}
+          onPickGroup={(group) => {
+            setOptions({ root: null });
+            setGroupTarget(group);
+          }}
+          onPickSelection={(members) => {
+            setOptions({ root: null });
+            setGroupTarget({
+              id: selectionGroupId(members),
+              name: `selection (${members.length} member${members.length === 1 ? "" : "s"})`,
+              members,
+            });
+          }}
+        />
         {coreOptions && (
           <label className="flex items-center gap-1 text-[11px] text-gray-300">
             <input
@@ -303,7 +379,11 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
         {browserPossible && (
           <label
             className="flex items-center gap-1 text-[11px] text-gray-300"
-            title="Read the members with the wasm IFC scan and run the same ada.clash rules in the browser — no upload, no worker job. Costs a one-time pyodide load; produces no server-side result, so detailing a joint still needs a server run."
+            title={
+              isContact
+                ? "Measure the model's GLB in the browser with the same compiled clash check a worker runs — no worker job for the check itself. The run is saved beside the model; a worker then resolves which generators could detail each clash."
+                : "Read the members with the wasm IFC scan and run the same compiled beam-to-beam pass in the browser — no upload, no worker job. Produces no server-side result, so detailing a joint still needs a server run."
+            }
           >
             <input type="checkbox" checked={inBrowser} onChange={(e) => setInBrowser(e.target.checked)} />
             in browser
@@ -327,6 +407,57 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
           : "Run clash check"}
       </button>
       <GeometryRequestStep />
+      {contactPossible && <ContactRunHistory scope={scope} />}
+    </div>
+  );
+};
+
+/** The target's stored clash runs, newest first -- reopen one instead of measuring again. */
+const ContactRunHistory: React.FC<{ scope: string }> = ({ scope }) => {
+  const runs = useClashCheckStore((s) => s.contactRuns);
+  const runKey = useClashCheckStore((s) => s.runKey);
+  const busy = useClashCheckStore((s) => s.busy);
+  const openContactRun = useClashCheckStore((s) => s.openContactRun);
+  const annotateContactRun = useClashCheckStore((s) => s.annotateContactRun);
+  const through = useClashCheckStore((s) =>
+    contactGeometryProvider(s.assetTarget, s.geometryProvider, s.availableGeometryProviders),
+  );
+  if (runs.length === 0 && !runKey) return null;
+  return (
+    <div className="flex items-center gap-1">
+      {runs.length > 0 && (
+        <label className="flex flex-1 min-w-0 items-center gap-1 text-[11px] text-gray-300" title="Clash runs kept beside this model">
+          previous runs
+          <select
+            className="flex-1 min-w-0 bg-gray-800 text-gray-200 rounded-sm px-1 py-0.5"
+            value={runKey ?? ""}
+            disabled={busy}
+            onChange={(e) => e.target.value && void openContactRun(scope, e.target.value)}
+          >
+            <option value="">—</option>
+            {runs.map((r) => (
+              <option key={r.key} value={r.key}>
+                {`${r.created_at.replace("T", " ").replace("Z", "")} · ${r.contacts} clash${r.contacts === 1 ? "" : "es"} · ${r.engine === "wasm" ? "browser" : "worker"}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {runKey && (
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-sm px-1.5 py-0.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-[11px] text-gray-100"
+          title={
+            through
+              ? `Resolve this run's specs and member roles again, reading its members through ${through} (missing members can be requested first)`
+              : "Resolve this run's specs and member roles again, reading each member through its own provider"
+          }
+          onClick={() => void annotateContactRun(scope)}
+        >
+          Resolve specs
+        </button>
+      )}
     </div>
   );
 };
@@ -428,8 +559,7 @@ const GroupRow: React.FC<{ group: ClashGroup; result: ClashResult; scope: string
           className="text-[10px] text-blue-300 hover:text-white"
           title="Select every member in this group"
           onClick={() => {
-            if (!sourceName) return;
-            void selectInOtherModel({ file: sourceName, nodeNames: [...memberNamesForGroup(result, group.typeKey)] });
+            void selectClashMembers(group.jointIds, sourceName, [...memberNamesForGroup(result, group.typeKey)]);
           }}
         >
           select all
@@ -579,6 +709,8 @@ const ClashesPanel: React.FC = () => {
   const detailError = useClashCheckStore((s) => s.detailError);
   const showMarkers = useClashCheckStore((s) => s.showMarkers);
   const setShowMarkers = useClashCheckStore((s) => s.setShowMarkers);
+  const markerScale = useClashCheckStore((s) => s.markerScale);
+  const setMarkerScale = useClashCheckStore((s) => s.setMarkerScale);
   const detailBusy = useClashCheckStore((s) => s.detailBusy);
   const detailProgress = useClashCheckStore((s) => s.detailProgress);
   const runDetailAll = useClashCheckStore((s) => s.runDetailAll);
@@ -678,7 +810,23 @@ const ClashesPanel: React.FC = () => {
               <input type="checkbox" checked={showMarkers} onChange={(e) => setShowMarkers(e.target.checked)} />
               show in 3D
             </label>
+            {showMarkers && (
+              <input
+                type="range"
+                // Logarithmic, the default in the middle: 0.1x at the left, 10x at the right.
+                min={-100}
+                max={100}
+                step={5}
+                value={Math.round(Math.log10(markerScale) * 100)}
+                onChange={(e) => setMarkerScale(10 ** (Number(e.target.value) / 100))}
+                onDoubleClick={() => setMarkerScale(1)}
+                className="w-16 shrink-0 accent-blue-500"
+                aria-label="Joint marker size"
+                title={`Joint marker size: ${markerScale.toFixed(markerScale < 1 ? 2 : 1)}× the default (double-click to reset)`}
+              />
+            )}
           </div>
+          <ContactsToggle result={result} />
           <IsolationControls />
           <FilterBar result={result} filters={filters} onChange={setFilters} />
           <SpecProviderSelector />

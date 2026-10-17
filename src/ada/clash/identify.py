@@ -27,7 +27,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
 from ada.api.connections.spec import RegisteredConnection
-from ada.clash import native_joints
+from ada.clash import convex_contact, native_joints
+from ada.clash.builtin_names import CONVEX_CONTACT_PASS
 from ada.clash.classify import describe_member, type_key_for, type_label_for
 from ada.clash.match import _angle_between, applicable_specs
 from ada.clash.options import ClashOptions
@@ -312,8 +313,9 @@ def _plate_plate_pass(part, options: ClashOptions, *, beams, plates) -> list[_Fo
 
 #: Core's own passes, by name. The clash counterpart of ``BUILTIN_SPEC_NAMES``: these run
 #: wherever core runs and so always advertise ``capability: None``. Anything else in the registry
-#: was contributed, and is attributed to the pool that carries it.
-CORE_PASS_NAMES = frozenset({"beam-beam", "plate-beam", "plate-plate"})
+#: was contributed, and is attributed to the pool that carries it. The convex-contact pass is
+#: core's too, though it belongs to its own checker rather than to core's default one.
+CORE_PASS_NAMES = frozenset({"beam-beam", "plate-beam", "plate-plate", CONVEX_CONTACT_PASS})
 
 
 register_pass(
@@ -342,6 +344,9 @@ register_pass(
         priority=20,
     )
 )
+
+# Core's convex-contact checker and its pass, where adacpp carries the pass (see convex_contact).
+convex_contact.register()
 
 
 def _beam_type():

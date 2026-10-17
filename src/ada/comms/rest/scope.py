@@ -89,6 +89,20 @@ class Scope:
         raise AssertionError(f"unknown scope kind {self.kind!r}")
 
     @classmethod
+    def from_prefix(cls, prefix: str) -> "Scope":
+        """The scope a stored prefix names -- the inverse of :meth:`prefix`, for the tables that
+        record scopes that way (``attr_collections.scope``, ``asset_export_runs.scope``). Raises
+        ValueError for anything :meth:`prefix` could not have produced. Whether the scope exists
+        (a project row) is not checked here."""
+        if prefix == "shared":
+            return cls.shared()
+        kind, sep, ident = prefix.partition("/")
+        kinds = {"projects": "project", "users": "user", "corpus": "corpus"}
+        if not sep or kind not in kinds or not ident or ident != ident.strip() or "/" in ident:
+            raise ValueError(f"not a scope prefix: {prefix!r} (shared, projects/<id>, users/<sub> or corpus/<slug>)")
+        return cls(kind=kinds[kind], id=ident)  # type: ignore[arg-type]
+
+    @classmethod
     def shared(cls) -> "Scope":
         return cls(kind="shared")
 

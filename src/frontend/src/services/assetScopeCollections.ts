@@ -24,11 +24,12 @@
 // are already scope-gated, and hiding some would make the tree lie about what
 // the scope holds.
 //
-// MISSING IS NOT EMPTY. A scope, or a provider within it, that nobody has
-// configured is UNRESTRICTED -- every scope behaves as it did before this
+// MISSING IS NOT EMPTY. A shared or project scope, or a provider within it, that
+// nobody has configured is UNRESTRICTED -- it behaves as it did before this
 // existed. A stored `[]` enables NOTHING. `enabledFor` returns `null` for the
 // first and `[]` for the second, and the type says so, so a caller that forgets
-// the difference fails to compile rather than granting everything.
+// the difference fails to compile rather than granting everything. A PERSONAL
+// scope is the exception: missing is nothing (see `isPersonalKey`).
 //
 // SPELLING. A collection is stored exactly as the provider ADVERTISES it, and
 // core never translates: only the provider knows whether two spellings are one
@@ -86,15 +87,62 @@ export function parseScopeCollections(raw: unknown): ScopeCollectionsMap {
   return out;
 }
 
-/** The enabled collections for `provider` in `scope`: `null` when that pair is
- *  unrestricted, otherwise the stored list (possibly empty). */
+// PERSONAL SCOPES ARE KEYED BY THEIR OWNER: `user:<sub>`, never `user:me` -- which
+// names whoever is asking, so an entry under it would apply to every user's
+// personal scope at once. A stored `user:me` is a leftover from a version that did
+// that: it is never read (`entryKey` maps the caller's `user:me` to their own sub)
+// and the Providers tab lists it as stale, to be cleared.
+//
+// A PERSONAL SCOPE OFFERS NOTHING UNTIL AN ADMIN TICKS IT: a missing entry there
+// is `[]`, not unrestricted. Shared and projects keep "missing is everything".
+
+/** The stored key nobody's scope is read under any more (see above). */
+export const STALE_PERSONAL_KEY = "user:me";
+
+/** Whether `key` is ONE user's personal scope (`user:<sub>`) -- not the stale `user:me`. */
+export function isPersonalKey(key: string): boolean {
+  return key.startsWith("user:") && key !== STALE_PERSONAL_KEY && key.length > "user:".length;
+}
+
+/** The key of `sub`'s own personal scope. */
+export function personalKey(sub: string): string {
+  return `user:${sub}`;
+}
+
+/** The stored key a scope URL's entry is read under, for the caller `userSub`: the
+ *  caller's own `user:<sub>` for `user:me`, else the URL itself. Null for `user:me`
+ *  with nobody signed in -- which reads as nothing enabled. */
+export function entryKey(scope: string, userSub: string | null | undefined): string | null {
+  if (scope === STALE_PERSONAL_KEY) return userSub ? personalKey(userSub) : null;
+  return scope;
+}
+
+/** The enabled collections for `provider` under the STORED key `key`: the stored
+ *  list (possibly empty) when there is one; otherwise `null` (unrestricted) for
+ *  Shared and projects, and `[]` (nothing) for a personal scope. `user:me` is
+ *  always `[]`, whatever is stored under it: it names no one scope (a caller in
+ *  their personal scope asks `enabledForScope`, which reads their own key). */
 export function enabledFor(
+  map: ScopeCollectionsMap,
+  key: string,
+  provider: string,
+): EnabledCollections {
+  if (key === STALE_PERSONAL_KEY) return [];
+  const list = map[key]?.[provider];
+  if (list !== undefined) return list;
+  return isPersonalKey(key) ? [] : null;
+}
+
+/** `enabledFor` for the scope a viewer is IN (a URL, `user:me` included), as the
+ *  caller `userSub` -- what every picker reads. */
+export function enabledForScope(
   map: ScopeCollectionsMap,
   scope: string,
   provider: string,
+  userSub: string | null | undefined,
 ): EnabledCollections {
-  const list = map[scope]?.[provider];
-  return list === undefined ? null : list;
+  const key = entryKey(scope, userSub);
+  return key === null ? [] : enabledFor(map, key, provider);
 }
 
 /** Is `collection` enabled here? Always true when unrestricted. Compared

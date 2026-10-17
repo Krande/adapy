@@ -9,6 +9,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // the intersection.
 import {useOptionsStore} from "@/state/optionsStore";
 import {pickJointMarker} from "@/utils/scene/clashJointMarkers";
+import {pickContactPatch} from "@/utils/scene/clashContactOverlay";
 import {focusJoint} from "@/utils/scene/clashJointFocus";
 import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
@@ -133,7 +134,9 @@ export function setupPointerHandler(
         //    markers are annotations drawn ON the geometry they describe: resolved after the mesh
         //    pickers, a sphere sitting on a beam would never be clickable. One object and a few
         //    hundred instances, so the cost of asking on every click is nil.
-        const jointId = pickJointMarker(e, camera, renderer);
+        //    A contact patch of the contacts overlay (`clashContactOverlay`) counts the same: it
+        //    names one contact, and clicking it focuses that contact like its marker would.
+        const jointId = pickJointMarker(e, camera, renderer) ?? pickContactPatch(e, camera, renderer);
         if (jointId) {
             await focusJoint(jointId, {revealPanel: true});
             return;

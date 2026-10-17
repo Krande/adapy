@@ -8,8 +8,10 @@ the work for one batch, hit by hit, and reports per file -- a hit with no geomet
 write failed, is a row of the summary, not a failed job (``ada.comms.rest.search_export``).
 
 SYNTHETIC: the geometry comes from the geometry provider's concepts reader through the storage
-facade of the scope SEARCHED (``job.scope``), and the files go to the TARGET scope, which the
-API checked the user may write to before anything was queued.
+facade of the scope the hits LIE in -- the searched scope (``job.scope``), or the ``origin_scope`` the
+API names for a batch read from another scope's partition (:func:`_origin_of`), whose attribute rows
+and revision are read there too -- and the files go to the TARGET scope, which the API checked the
+user may write to before anything was queued.
 
 PHASES ARE TIMED, SUMMED OVER THE BATCH: ``resolve_ms`` (finding the geometry provider's subject
 for the hit), ``read_ms`` (the provider reading it into objects), ``attrs_ms`` (the attribute-index
@@ -104,6 +106,18 @@ def _source_scope_wire(raw: Any, scope) -> str | None:
         return scope.wire()
     except (ValueError, AssertionError, AttributeError):
         return str(raw) if isinstance(raw, str) and raw.strip() else None
+
+
+def _origin_of(opts: dict, scope):
+    """The scope the batch's hits are READ from: ``origin_scope`` (a storage prefix) when the API
+    named one -- the hits' partition lies in another scope than the export's (shared into it, or an
+    admin's search of every scope) -- else the job's own. Read only; the files go to the target."""
+    from ..scope import Scope
+
+    raw = opts.get("origin_scope")
+    if isinstance(raw, str) and raw and raw != scope.prefix():
+        return Scope.from_prefix(raw)
+    return scope
 
 
 class _PrefixFacade:
@@ -458,15 +472,16 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         from .. import db as db_module
 
         loop = asyncio.get_running_loop()
-        source = _PrefixFacade(ctx.storage, ctx.scope, loop)
+        origin = _origin_of(opts, ctx.scope)
+        source = _PrefixFacade(ctx.storage, origin, loop)
         index = GeometrySourceIndex(source)
         geometry_provider = str(opts.get("geometry_provider") or GEOMETRY_PROVIDER)
         include_attrs = bool(opts.get("include_source_attributes", True))
         also = [f for f in (opts.get("also") or []) if f in ("glb", "step")]
         query = opts.get("query") or {}
         run_id = opts.get("run_id")
-        scope_key = ctx.scope.prefix()
-        source_scope = _source_scope_wire(opts.get("source_scope"), ctx.scope)
+        scope_key = origin.prefix()
+        source_scope = _source_scope_wire(opts.get("source_scope"), origin)
         created_by = opts.get("requested_by")
         timings = {k: 0 for k in ("resolve_ms", "read_ms", "attrs_ms", "ifc_ms", "convert_ms", "thumb_ms", "upload_ms")}
         warnings: list[str] = []
@@ -750,15 +765,16 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         from .. import db as db_module
 
         loop = asyncio.get_running_loop()
-        source = _PrefixFacade(ctx.storage, ctx.scope, loop)
+        origin = _origin_of(opts, ctx.scope)
+        source = _PrefixFacade(ctx.storage, origin, loop)
         index = GeometrySourceIndex(source)
         geometry_provider = str(opts.get("geometry_provider") or GEOMETRY_PROVIDER)
         include_attrs = bool(opts.get("include_source_attributes", True))
         also = [f for f in (opts.get("also") or []) if f in ("glb", "step")]
         query = opts.get("query") or {}
         run_id = opts.get("run_id")
-        scope_key = ctx.scope.prefix()
-        source_scope = _source_scope_wire(opts.get("source_scope"), ctx.scope)
+        scope_key = origin.prefix()
+        source_scope = _source_scope_wire(opts.get("source_scope"), origin)
         created_by = opts.get("requested_by")
         timings = {k: 0 for k in ("resolve_ms", "read_ms", "attrs_ms", "ifc_ms", "convert_ms", "thumb_ms", "upload_ms")}
         warnings: list[str] = []
@@ -993,14 +1009,15 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         from ada.assets.build import patch_glb_provenance
 
         loop = asyncio.get_running_loop()
+        origin = _origin_of(opts, ctx.scope)
         query = opts.get("query") or {}
         run_id = opts.get("run_id")
-        source_scope = _source_scope_wire(opts.get("source_scope"), ctx.scope)
+        source_scope = _source_scope_wire(opts.get("source_scope"), origin)
         created_by = opts.get("requested_by")
         timings = {k: 0 for k in ("read_ms", "merge_ms", "thumb_ms", "upload_ms")}
         warnings: list[str] = []
         key = str(hits[0]["file"])
-        revision = await self._collection_revision(ctx, provider, collection)
+        revision = await self._collection_revision(ctx, provider, collection, origin)
 
         rows_out: list[dict] = []
         parts: list[tuple[dict, pathlib.Path]] = []
@@ -1031,7 +1048,8 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                     continue
                 t = time.perf_counter()
                 try:
-                    data = await ctx.storage.get_bytes(ctx.scope, str(mesh["glb_key"]))
+                    # The build ran in the hits' own scope (``routes/asset_exports.build_meshes``).
+                    data = await ctx.storage.get_bytes(origin, str(mesh["glb_key"]))
                     if data[:2] == b"\x1f\x8b":
                         import gzip
 
@@ -1203,14 +1221,15 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         if failed:
             warnings.append(f"{failed} of {len(joints)} hit thumbnail(s) of {key} could not be rendered")
 
-    async def _collection_revision(self, ctx, provider: str, collection: str):
-        """The indexed revision of (provider, collection), or None without a database."""
+    async def _collection_revision(self, ctx, provider: str, collection: str, origin=None):
+        """The indexed revision of (provider, collection) in ``origin`` (default the job's scope),
+        or None without a database."""
         if ctx.db_pool is None:
             return None
         from .. import db as db_module
 
         with contextlib.suppress(Exception):
-            for c in await db_module.list_attr_collections(ctx.db_pool, scope=ctx.scope.prefix()):
+            for c in await db_module.list_attr_collections(ctx.db_pool, scope=(origin or ctx.scope).prefix()):
                 if (c["provider"], c["collection"]) == (provider, collection):
                     return c.get("revision")
         return None
@@ -1228,22 +1247,15 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         from ada.assets.build import patch_glb_provenance
 
         loop = asyncio.get_running_loop()
+        origin = _origin_of(opts, ctx.scope)
         query = opts.get("query") or {}
         run_id = opts.get("run_id")
-        source_scope = _source_scope_wire(opts.get("source_scope"), ctx.scope)
+        source_scope = _source_scope_wire(opts.get("source_scope"), origin)
         created_by = opts.get("requested_by")
         timings = {k: 0 for k in ("read_ms", "thumb_ms", "upload_ms")}
         warnings: list[str] = []
         files: list[dict] = []
-
-        revision = None
-        if ctx.db_pool is not None:
-            from .. import db as db_module
-
-            with contextlib.suppress(Exception):
-                for c in await db_module.list_attr_collections(ctx.db_pool, scope=ctx.scope.prefix()):
-                    if (c["provider"], c["collection"]) == (provider, collection):
-                        revision = c.get("revision")
+        revision = await self._collection_revision(ctx, provider, collection, origin)
 
         thumb_note_logged = False
         for n, hit in enumerate(hits):
@@ -1263,7 +1275,7 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
             work = pathlib.Path(tempfile.mkdtemp(prefix="ada-search-export-"))
             try:
                 t = time.perf_counter()
-                data = await ctx.storage.get_bytes(ctx.scope, str(mesh["glb_key"]))
+                data = await ctx.storage.get_bytes(origin, str(mesh["glb_key"]))
                 if data[:2] == b"\x1f\x8b":
                     import gzip
 
