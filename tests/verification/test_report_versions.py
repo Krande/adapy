@@ -13,8 +13,9 @@ _VERIFICATION_DIR = pathlib.Path(__file__).resolve().parents[2] / "verification"
 if str(_VERIFICATION_DIR) not in sys.path:
     sys.path.insert(0, str(_VERIFICATION_DIR))
 
-import ada  # noqa: E402
 from filters import Versions  # noqa: E402
+
+import ada  # noqa: E402
 
 _INTRO = _VERIFICATION_DIR / "report" / "00-main" / "00-intro" / "00-intro.md"
 
