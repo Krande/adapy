@@ -14,6 +14,8 @@ def get_section_props(section: Section) -> ET.Element | None:
         return to_gxml_angular_section(section)
     elif section.type == section.TYPES.TUBULAR:
         return to_gxml_pipe_section(section)
+    elif section.type == section.TYPES.CIRCULAR:
+        return to_gxml_circular_section(section)
     elif section.type == section.TYPES.IPROFILE and section.w_btn == section.w_top:
         return to_gxml_i_section(section)
     elif section.type == section.TYPES.IPROFILE and section.w_btn != section.w_top:
@@ -112,6 +114,26 @@ def to_gxml_pipe_section(section: Section):
         dict(
             od=str(section.r * 2),
             th=str(section.wt),
+            fabrication="unknown",
+            **_shear_factors(section),
+            general_properties_method="computed",
+        ),
+    )
+
+
+def to_gxml_circular_section(section: Section) -> ET.Element:
+    """A solid round bar as GeniE has it: ``PipeSection(D, D/2)``, a pipe whose wall is the radius, i.e.
+    with no bore. GeniE V8.13-02 turns that into a Sesam GPIPE with DI = 0 (S11_ROD in
+    ``files/fem_files/sesam/section_props/genie_v8_13_shear_areas.js``), which the Sesam reader and
+    writer already treat as a solid round. The XML form of ``PipeSection`` is ``pipe_section od th``
+    (the repo's GeniE-exported samples), so the bar is written as ``pipe_section`` with ``th = od / 2``
+    and read back as CIRCULAR by
+    :func:`~ada.cadit.gxml.read.read_sections.pipe_section`."""
+    return ET.Element(
+        "pipe_section",
+        dict(
+            od=str(section.r * 2),
+            th=str(section.r),
             fabrication="unknown",
             **_shear_factors(section),
             general_properties_method="computed",

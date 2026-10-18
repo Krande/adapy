@@ -29,12 +29,10 @@ from ada.sections.concept import GeneralProperties
 # a GENERAL/POLY section carries).
 DIMENSIONS = ("h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt")
 
-# ``BaseTypes.CIRCULAR`` has no branch in ``get_section_props`` -- the writer logs
-# "not yet supported" and emits no ``<section>`` at all, so the beam's section_ref
-# dangles and the read fails outright with ``ValueError: The section id "CIRC100" is
-# not found``. That is a missing feature, not a silent dimension loss; it is pinned by
-# ``test_circular_is_refused_by_name`` below so it stays named rather than skipped.
-UNSUPPORTED = frozenset({BaseTypes.CIRCULAR})
+# Shapes ``get_section_props`` refuses (returns ``None``). Every ``BaseTypes`` example now has a
+# branch -- CIRCULAR is written as GeniE's solid round bar, ``PipeSection(D, D/2)`` -- so this is
+# empty; ``test_the_unsupported_set_is_exactly_what_the_writer_refuses`` keeps it honest.
+UNSUPPORTED: frozenset[BaseTypes] = frozenset()
 
 SUPPORTED_EXAMPLES = sorted(
     (bt.value, name)
@@ -136,24 +134,38 @@ def test_the_unsupported_set_is_exactly_what_the_writer_refuses():
     assert refused == set(UNSUPPORTED), refused
 
 
-def test_circular_is_refused_by_name(tmp_path):
-    """A CIRCULAR section is dropped by the writer, and the read then cannot resolve the
-    beam's section reference. Measured, so the gap is named rather than invisible.
-
-    Note what the drop leaves behind: the ``<section>`` element is skipped but the beam's
-    ``section_ref="CIRC100"`` is still written, so the file is internally inconsistent and
-    only the read reports it -- the export itself emits one ERROR line and succeeds.
-    """
+def test_circular_is_written_as_genies_solid_round_bar(tmp_path):
+    """A CIRCULAR section is GeniE's ``PipeSection(D, D/2)``: ``<pipe_section od=2r th=r>``. It used
+    to be dropped while the beam kept ``section_ref="CIRC100"``, a reference to nothing, which only
+    the read reported. The ``<section>`` is now written, the beam's reference resolves, and the bar
+    reads back as CIRCULAR (not as a tube with no bore)."""
     import xml.etree.ElementTree as ET
 
     a = ada.Assembly("rt") / (ada.Part("P") / ada.Beam("bm", (0, 0, 0), (2, 0, 0), "CIRC100"))
     xml_file = tmp_path / "circ.xml"
     a.to_genie_xml(xml_file)
 
-    written = [el.attrib["name"] for el in ET.parse(xml_file).getroot().findall(".//section")]
-    assert written == [], f"the writer now emits CIRCULAR; update UNSUPPORTED ({written})"
-    with pytest.raises(ValueError, match="CIRC100"):
-        ada.from_genie_xml(xml_file)
+    root = ET.parse(xml_file).getroot()
+    (sec_el,) = [el for el in root.iter("section") if el.get("name")]
+    assert sec_el.get("name") == "CIRC100"
+    (pipe,) = list(sec_el)
+    assert pipe.tag == "pipe_section"
+    assert (float(pipe.get("od")), float(pipe.get("th"))) == pytest.approx((0.2, 0.1))  # CIRC100 is r = 100 mm
+
+    refs = {el.get("section_ref") for el in root.iter() if el.get("section_ref")}
+    assert refs == {"CIRC100"}
+    (bm,) = ada.from_genie_xml(xml_file).get_all_physical_objects(by_type=ada.Beam)
+    assert bm.section.type == BaseTypes.CIRCULAR
+    assert bm.section.r == pytest.approx(0.1)
+
+
+def test_a_pipe_section_with_a_bore_stays_tubular(tmp_path):
+    """Only ``th == od / 2`` (no bore) is a solid bar; every real tube still reads as TUBULAR."""
+    a = ada.Assembly("rt") / (ada.Part("P") / ada.Beam("bm", (0, 0, 0), (2, 0, 0), "TUB200x10"))
+    xml_file = tmp_path / "tub.xml"
+    a.to_genie_xml(xml_file)
+    (bm,) = ada.from_genie_xml(xml_file).get_all_physical_objects(by_type=ada.Beam)
+    assert bm.section.type == BaseTypes.TUBULAR
 
 
 def test_a_general_section_keeps_every_explicit_property(tmp_path):
