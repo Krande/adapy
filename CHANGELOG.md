@@ -2,6 +2,13 @@
 
 
 
+## v0.118.1 (2026-10-19)
+
+### Fix
+
+* fix(verification): show the adapy version on the report&#39;s first page (#459) ([`f806430`](https://github.com/Krande/adapy/commit/f80643099220fbd658882ba4b8eca2d4843c52d1))
+
+
 ## v0.118.0 (2026-10-16)
 
 ### Feature
