@@ -205,8 +205,13 @@ const ThreeCanvas: React.FC = () => {
         }
 
         // === Render loop ===
+        // The cleanup cancels this: an uncancelled loop outlives its mount
+        // (Fast Refresh, zIsUp / controller flips) and keeps drawing the
+        // whole scene into the shared renderer every frame, alongside the
+        // new mount's loop.
+        let rafId = 0;
         const animate = () => {
-            requestAnimationFrame(animate);
+            rafId = requestAnimationFrame(animate);
             // 1) start all stats timers
             statsArray.forEach((s) => s.begin());
 
@@ -279,6 +284,7 @@ const ThreeCanvas: React.FC = () => {
         const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer, controls);
 
         return () => {
+            cancelAnimationFrame(rafId);
             // cleanupResizeHandler();
             // cleanupPointerHandler();
             // renderer.dispose();
@@ -301,6 +307,9 @@ const ThreeCanvas: React.FC = () => {
                 (controls as any).removeEventListener("controlstart", onControlStart);
                 (controls as any).removeEventListener("controlend", onControlEnd);
             }
+            // The canvas outlives the mount, so the controls' own pointer and
+            // wheel listeners on it must go too.
+            controls.dispose();
             // Clean up model scene from main scene
             // scene.clear();
 
