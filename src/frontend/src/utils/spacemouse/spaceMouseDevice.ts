@@ -240,6 +240,35 @@ function onInputReport(event: Event): void {
     }
 }
 
+// ---- the vendor driver's wheel events ---------------------------------------
+//
+// With the vendor's desktop driver running, the same cap motion we read over
+// WebHID also reaches the browser as mouse-wheel (and Ctrl+wheel) events from
+// the driver's profile for apps it does not know. The orbit controls take each
+// one as a discrete dolly step, which shows as the camera jumping ahead in the
+// middle of a smooth glide. While the cap is deflected, wheel events are
+// therefore swallowed before they reach the canvas; a real wheel turn while
+// holding the cap is not a thing anyone does.
+
+/** Wheel events this soon after a motion report with the cap off rest are the driver's. */
+const WHEEL_GUARD_MS = 150;
+
+function capDeflected(): boolean {
+    const r = axis.raw;
+    for (let i = 0; i < 6; i++) if (r[i] !== 0) return true;
+    return false;
+}
+
+function onWheel(event: WheelEvent): void {
+    if (!device || !(event.target instanceof HTMLCanvasElement)) return;
+    if (performance.now() - axis.lastMotionAt > WHEEL_GUARD_MS || !capDeflected()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (devStats) devStats.wheelsSwallowed++;
+}
+
+const WHEEL_OPTS: AddEventListenerOptions = {capture: true, passive: false};
+
 // ---- device handling ------------------------------------------------------
 
 let device: HidDevice | null = null;
@@ -333,6 +362,7 @@ async function enable(): Promise<void> {
     const gen = ++generation;
     hid.addEventListener("connect", onConnect);
     hid.addEventListener("disconnect", onDisconnect);
+    window.addEventListener("wheel", onWheel, WHEEL_OPTS);
     setConnection("disconnected");
     try {
         const d = pickDevice(await hid.getDevices());
@@ -348,6 +378,7 @@ function disable(): void {
     if (listening && hid) {
         hid.removeEventListener("connect", onConnect);
         hid.removeEventListener("disconnect", onDisconnect);
+        window.removeEventListener("wheel", onWheel, WHEEL_OPTS);
     }
     listening = false;
     releaseDevice();
@@ -412,7 +443,8 @@ export function bindSpaceMouseToOptions(): () => void {
 // With a real device it also says where stutter comes from: `gestures` (how
 // often the start/end bracket reopened), `staleCuts` (motion stopped for lack
 // of reports), `maxReportGapMs`/`reports` (the device's report cadence while
-// moving), and `maxFrameMs`/`slowFrames` (frames over 25 ms, i.e. render cost).
+// moving), `maxFrameMs`/`slowFrames` (frames over 25 ms, i.e. render cost),
+// and `wheelsSwallowed` (the vendor driver's wheel events dropped mid-glide).
 // Not compiled into production builds.
 
 interface DevStats {
@@ -424,11 +456,13 @@ interface DevStats {
     maxReportGapMs: number;
     maxFrameMs: number;
     slowFrames: number;
+    wheelsSwallowed: number;
 }
 let devStats: DevStats | null = null;
 let wasFresh = false;
 const emptyStats = (): DevStats => ({
     frames: 0, ms: 0, gestures: 0, staleCuts: 0, reports: 0, maxReportGapMs: 0, maxFrameMs: 0, slowFrames: 0,
+    wheelsSwallowed: 0,
 });
 
 if (import.meta.env?.DEV && typeof window !== "undefined") {
