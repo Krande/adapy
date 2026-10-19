@@ -18,10 +18,11 @@
 // all at rest, or when no motion report has arrived for STALE_MS -- not every
 // device sends a final all-zero report when the cap is released.
 //
-// SMOOTHNESS. The camera follows a low-passed copy of the axes (INPUT_TAU),
-// scaled by an averaged frame time (DT_EMA), so sensor noise and frame-time
-// swings do not turn into uneven speed; the gesture bracket outlives a stop by
-// LINGER_MS, so brushing the dead zone does not restart it.
+// SMOOTHNESS. The axes pass an adaptive low-pass before the dead zone
+// (./smoothing: hand tremor and sensor noise are what made a gentle glide
+// jitter), and motion is scaled by an averaged frame time (DT_EMA); the gesture
+// bracket outlives a stop by LINGER_MS, so brushing the dead zone does not
+// restart it.
 //
 // PEER OF THE MOUSE, NOT A RIVAL. The step moves the same camera position and
 // orbit target the orbit controls own, before the loop calls their `update`,
@@ -42,6 +43,7 @@ import {fitAllView, fitSelectionView} from "@/components/viewer/sceneHelpers/set
 import {
     applyInputReport,
     createAxisState,
+    FULL_SCALE,
     HID_FILTERS,
     isSpaceMouse,
     MULTI_AXIS_USAGE,
@@ -53,6 +55,7 @@ import {
     takePressedButtons,
 } from "./hidReport";
 import {applyObjectModeMotion} from "./navigation";
+import {createOneEuro, resetOneEuro, stepOneEuro} from "./smoothing";
 
 // The slice of WebHID this file uses. TypeScript's DOM lib does not carry the
 // API, and these few lines are cheaper than a types dependency.
@@ -92,10 +95,6 @@ const STALE_MS = 200;
 const LINGER_MS = 300;
 /** Longest frame step applied: a stalled tab must not jump the camera. */
 const MAX_DT = 0.1;
-/** Time constant of the input low-pass, in seconds. The raw axes carry sensor
- *  noise of a few counts, which at a gentle push is a large share of the signal
- *  and reads as jitter, most of all on several axes at once. */
-const INPUT_TAU = 0.05;
 /** Weight of the newest frame in the frame-time average. The camera moves by
  *  rate x frame time; the raw rAF delta swings with every heavy frame, which
  *  turns into uneven speed even at a steady push. */
@@ -115,8 +114,11 @@ export function isWebHidSupported(): boolean {
 
 const axis = createAxisState();
 const motion = new Float32Array(6);
-/** `motion` after the low-pass; this is what moves the camera. */
-const smoothed = new Float32Array(6);
+/** The raw axes after the adaptive low-pass (see ./smoothing), still in the
+ *  device frame and units; the dead zone and the camera see only these. */
+const filtered = new Float32Array(6);
+const filter = createOneEuro(6);
+const AT_REST = new Float32Array(6);
 let dtAvg = 1 / 60;
 let lastMovingAt = -Infinity;
 const _position = new Vector3();
@@ -134,7 +136,7 @@ const CC_END = {type: "controlend"};
 
 function endGesture(): void {
     active = false;
-    smoothed.fill(0);
+    resetOneEuro(filter);
     const c = gestureControls;
     if (!c) return;
     gestureControls = null;
@@ -150,9 +152,12 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     const now = performance.now();
     const settings = useSpaceMouseStore.getState();
     const fresh = now - axis.lastMotionAt <= STALE_MS || now <= holdUntil;
-    const moving = fresh && processAxes(axis.raw, settings, motion);
-    if (!moving) motion.fill(0);
-    else lastMovingAt = now;
+    const frameDt = frameDelta < MAX_DT ? frameDelta : MAX_DT;
+    // Without fresh reports the cap is taken as released: the filter eases
+    // toward rest instead of the camera stopping dead.
+    stepOneEuro(filter, fresh ? axis.raw : AT_REST, frameDt, FULL_SCALE, filtered);
+    const moving = processAxes(filtered, settings, motion);
+    if (moving) lastMovingAt = now;
     if (devStats) {
         if (wasFresh && !fresh && gestureControls) devStats.staleCuts++;
         wasFresh = fresh;
@@ -160,27 +165,17 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     // With several viewers on the page, the device drives the one in use.
     if (getViewerRuntime().controls.current !== controls) return;
 
+    if (!moving) {
+        if (now - lastMovingAt > LINGER_MS) endGesture();
+        return;
+    }
     const t0 = devStats ? performance.now() : 0;
-    const frameDt = frameDelta < MAX_DT ? frameDelta : MAX_DT;
     const opening = gestureControls !== controls;
     // A gesture's first frame takes the real delta; after that, the average.
     dtAvg = opening ? frameDt : dtAvg + (frameDt - dtAvg) * DT_EMA;
     const dt = dtAvg;
-    const k = 1 - Math.exp(-dt / INPUT_TAU);
-    let any = false;
-    for (let i = 0; i < 6; i++) {
-        let v = smoothed[i] + (motion[i] - smoothed[i]) * k;
-        if (motion[i] === 0 && (v < 0 ? -v : v) < 1e-4) v = 0;
-        smoothed[i] = v;
-        if (v !== 0) any = true;
-    }
-    if (!any) {
-        if (now - lastMovingAt > LINGER_MS) endGesture();
-        return;
-    }
     if (opening) {
-        // Close a gesture still open on another viewer's controls, keeping
-        // the motion just filtered for this one.
+        // Close a gesture still open on another viewer's controls.
         const prev = gestureControls;
         if (prev) (prev as any).dispatchEvent(prev instanceof OrbitControls ? ORBIT_END : CC_END);
         gestureControls = controls;
@@ -190,11 +185,11 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     if (controls instanceof OrbitControls) {
         // Moved in place; the loop's `controls.update()` re-aims the camera
         // and emits the change event the on-demand renderer listens for.
-        applyObjectModeMotion(camera.position, controls.target, camera.up, smoothed, dt, camera.fov, settings.sensitivity);
+        applyObjectModeMotion(camera.position, controls.target, camera.up, motion, dt, camera.fov, settings.sensitivity);
     } else {
         controls.getPosition(_position);
         controls.getTarget(_target);
-        if (applyObjectModeMotion(_position, _target, camera.up, smoothed, dt, camera.fov, settings.sensitivity)) {
+        if (applyObjectModeMotion(_position, _target, camera.up, motion, dt, camera.fov, settings.sensitivity)) {
             void controls.setLookAt(_position.x, _position.y, _position.z, _target.x, _target.y, _target.z, false);
         }
     }
