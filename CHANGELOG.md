@@ -2,6 +2,13 @@
 
 
 
+## v0.118.3 (2026-10-19)
+
+### Fix
+
+* fix(gxml): write CIRCULAR sections instead of dangling section_ref (#462) ([`b2d689b`](https://github.com/Krande/adapy/commit/b2d689bd549cf194ead26f6cc8c1df2204631daa))
+
+
 ## v0.118.2 (2026-10-19)
 
 ### Fix
