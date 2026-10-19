@@ -7,6 +7,7 @@ import DisplayOptions from "./options/DisplayOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
 import PerformanceOptions from "./options/PerformanceOptions";
 import ShortcutsModal from "./options/ShortcutsModal";
+import SpaceMouseOptions from "./options/SpaceMouseOptions";
 import ThemeOptions from "./options/ThemeOptions";
 
 // REST-only controls (scope picker, signed-in row, admin button) live
@@ -113,6 +114,10 @@ function OptionsComponent() {
             <hr className="border-gray-600"/>
             <CollapsibleSection title="Performance">
                 <PerformanceOptions/>
+            </CollapsibleSection>
+            <hr className="border-gray-600"/>
+            <CollapsibleSection title="3D mouse">
+                <SpaceMouseOptions/>
             </CollapsibleSection>
             <hr className="border-gray-600"/>
             {/* The in-browser (WASM) conversion engine only makes sense for the

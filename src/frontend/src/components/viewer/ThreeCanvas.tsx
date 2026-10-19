@@ -22,6 +22,7 @@ import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {consumeDirty, isRenderSuspended, requestRender, usePerfStore} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
+import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -67,6 +68,10 @@ const ThreeCanvas: React.FC = () => {
             ro.disconnect();
         };
     }, []);
+
+    // The 3D mouse follows its Options toggle while a canvas is mounted; off,
+    // it costs nothing.
+    useEffect(() => bindSpaceMouseToOptions(), []);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -218,6 +223,10 @@ const ThreeCanvas: React.FC = () => {
             // session is active or play isn't pressed.
             tickFeaAnimation(frameDelta);
             const feaPlaying = useFeaAnimationStore.getState().isPlaying;
+
+            // 3D-mouse motion moves the pose the controls own, so it goes in
+            // before their update. Returns at once while the device is idle.
+            tickSpaceMouse(frameDelta, camera, controls);
 
             if (controls instanceof OrbitControls) {
                 controls.update();

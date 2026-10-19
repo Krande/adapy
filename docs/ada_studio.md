@@ -69,6 +69,30 @@ joints match the built-in girder-gusset rule, and **generate detail model** buil
 
 ![A clash check: every joint in the model, grouped by type](screenshots/ada-studio/clash.png)
 
+## Navigate with a 3D mouse
+
+A 3Dconnexion SpaceMouse (or an older SpaceNavigator, SpacePilot or SpaceExplorer) can fly
+the 3D view alongside the mouse. The viewer reads the device directly through
+[WebHID](https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API), so no driver is needed,
+but the browser must be Chromium-based: Chrome, Edge or Opera. Firefox and Safari have no
+WebHID, and the option is greyed out there.
+
+1. Open **Options → 3D mouse** and tick **Enable 3D mouse**. It is off by default, and while it
+   is off the viewer never asks the browser for the device.
+2. Click **Connect SpaceMouse…** and pick the device in the browser's chooser. The browser
+   remembers the choice, so later visits reconnect on their own, and unplugging and
+   replugging the device is picked up while the page is open.
+
+The model follows the cap: push it sideways or lift it to pan, pull it toward you to zoom in,
+twist or tilt it to turn the model about the orbit target. The view stays level, so a sideways
+roll does nothing. The two side buttons fit the whole model and fit the selection (the same
+as Shift+A and Shift+F), and **Shift+F** is also how you move the point the view turns about
+onto the selection. In the same section you can set the speed, the dead zone around rest, invert
+any axis, keep only the strongest axis, lock rotation or panning, and remap the buttons.
+
+On Windows, the vendor's 3DxWare driver may hold the device. If the status reads **Could not
+connect**, quit the driver (the 3DxService process) and connect again.
+
 ## What else is in it
 
 - **Assets and sources:** project trees that providers publish into a scope, with a

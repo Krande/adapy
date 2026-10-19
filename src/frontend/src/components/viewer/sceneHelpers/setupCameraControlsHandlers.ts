@@ -104,26 +104,9 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "u") {
             unhideAllRanges();
         } else if (shift && key === "f") {
-            // Builder cells are __excludeFromFit (they're a tool overlay), so
-            // centerViewOnSelection finds nothing for a cell selection — frame
-            // the selected cells directly, same as the mobile "Go to object"
-            // button. Falls through to the draw-range selection otherwise.
-            const cb = useCellBuilderStore.getState();
-            if (cb.active !== null && cb.selection !== null && frameCells(cb.selectedCellIds, controls, camera)) {
-                requestRender();
-            } else {
-                centerViewOnSelection(controls, camera);
-            }
+            fitSelectionView(camera, controls);
         } else if (shift && key === "a") {
-            // Likewise "fit all": a procedural model in the cellbuilder shows
-            // only excluded cell boxes until it's compiled, so zoomToAll would
-            // frame nothing — frame all cells instead when the builder is active.
-            const cb = useCellBuilderStore.getState();
-            if (cb.active !== null && Object.keys(cb.cells).length > 0 && frameCells("all", controls, camera)) {
-                requestRender();
-            } else {
-                zoomToAll(scene, camera, controls);
-            }
+            fitAllView(scene, camera, controls);
         } else if (shift && key === "enter") {
             // ⇧↵ — preview-compile the current (uncommitted) procedural model:
             // the fast path when editing, and what makes a side-by-side result
@@ -215,6 +198,37 @@ export function setupCameraControlsHandlers(
             if (onFocusOut) scopeEl.removeEventListener("focusout", onFocusOut as EventListener);
         }
     };
+}
+
+/** Shift+F: frame the selection. Shared with the 3D mouse's buttons. */
+export function fitSelectionView(camera: THREE.PerspectiveCamera, controls: CameraControls | OrbitControls): void {
+    // Builder cells are __excludeFromFit (they're a tool overlay), so
+    // centerViewOnSelection finds nothing for a cell selection — frame
+    // the selected cells directly, same as the mobile "Go to object"
+    // button. Falls through to the draw-range selection otherwise.
+    const cb = useCellBuilderStore.getState();
+    if (cb.active !== null && cb.selection !== null && frameCells(cb.selectedCellIds, controls, camera)) {
+        requestRender();
+    } else {
+        centerViewOnSelection(controls, camera);
+    }
+}
+
+/** Shift+A: frame everything. Shared with the 3D mouse's buttons. */
+export function fitAllView(
+    scene: THREE.Scene,
+    camera: THREE.PerspectiveCamera,
+    controls: CameraControls | OrbitControls,
+): void {
+    // Likewise "fit all": a procedural model in the cellbuilder shows
+    // only excluded cell boxes until it's compiled, so zoomToAll would
+    // frame nothing — frame all cells instead when the builder is active.
+    const cb = useCellBuilderStore.getState();
+    if (cb.active !== null && Object.keys(cb.cells).length > 0 && frameCells("all", controls, camera)) {
+        requestRender();
+    } else {
+        zoomToAll(scene, camera, controls);
+    }
 }
 
 // Skip helper subtrees (section planes, caps, the transform gizmo) and hidden
