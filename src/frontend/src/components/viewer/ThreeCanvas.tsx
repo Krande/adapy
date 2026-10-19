@@ -285,8 +285,8 @@ const ThreeCanvas: React.FC = () => {
 
         return () => {
             cancelAnimationFrame(rafId);
-            // cleanupResizeHandler();
-            // cleanupPointerHandler();
+            cleanupResizeHandler();
+            cleanupPointerHandler();
             // renderer.dispose();
             // containerRef.current?.removeChild(renderer.domElement);
             if (gizmo && containerRef.current?.contains(gizmo)) {

@@ -48,9 +48,15 @@ export function setupPointerHandler(
     let lastTapTime = 0;
     let lastTapPos: { x: number; y: number } | null = null;
 
+    // One signal detaches every listener below: the container outlives a
+    // canvas re-mount, and a listener left behind would pick with the old
+    // camera on every click, next to the new one.
+    const listeners = new AbortController();
+    const {signal} = listeners;
+
     container.addEventListener("pointerdown", (e) => {
         pointerDownPos = {x: e.clientX, y: e.clientY};
-    });
+    }, {signal});
 
     container.addEventListener("click", async (e: MouseEvent) => {
         if (!pointerDownPos) return;
@@ -94,7 +100,7 @@ export function setupPointerHandler(
         lastTapTime = now;
         lastTapPos = {x: e.clientX, y: e.clientY};
         await pickAndSelect(e);
-    });
+    }, {signal});
 
     // RIGHT-CLICK: the Scene's menu for what is under the cursor -- the same menu its tree row has.
     // A right DRAG pans the camera, so only a click that stayed put opens it. An object already in
@@ -125,7 +131,7 @@ export function setupPointerHandler(
         const rows = selectedLeafNodes();
         const api = tv.tree && typeof tv.tree.get === "function" ? tv.tree.get(row.id) : null;
         useSceneMenuStore.getState().open({row, rows: rows.length ? rows : [row], node: api ?? undefined, x: e.clientX, y: e.clientY});
-    });
+    }, {signal});
 
     /** What a left click selects at the cursor: a joint marker, a point, a beam line or a mesh, or
      *  nothing (empty space clears the selection). Shared with the right-click menu. */
@@ -317,12 +323,7 @@ export function setupPointerHandler(
         }
     }
 
-    return () => {
-        container.removeEventListener("pointerdown", () => {
-        });
-        container.removeEventListener("click", () => {
-        });
-    };
+    return () => listeners.abort();
 }
 
 /** Select a picked FEM concept and show it in the Selected Object Info panel. A plain click
