@@ -2,6 +2,13 @@
 
 
 
+## v0.118.2 (2026-10-19)
+
+### Fix
+
+* fix(fem): read a shell surface side one way in every writer, so SNEG is not written as SPOS (#461) ([`1edb813`](https://github.com/Krande/adapy/commit/1edb8133b23497e818d9af4975247678de0e323d))
+
+
 ## v0.118.1 (2026-10-19)
 
 ### Fix
