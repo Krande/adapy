@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from ada.fem import Surface
+from ada.fem.shell_sides import SHELL_SIDE_NEGATIVE, normalise_shell_side
 
 from ..grammar import format_number
 from .helper_utils import get_instance_name, render_block
@@ -14,6 +15,21 @@ def surfaces_str(fem: "FEM", on_assembly_level):
         return "** No Surfaces"
 
     return "\n".join([surface_str(s, on_assembly_level) for s in fem.surfaces.values()])
+
+
+def shell_face_label(el_f_index) -> str:
+    """``SPOS`` / ``SNEG`` for a shell surface's side, through the reading every writer shares.
+
+    ``"SNEG"`` and ``-1`` both give SNEG; a side that names neither face is refused rather than
+    written as SPOS (issue #412). One spelling is added here and not in the shared reading: ``0``.
+    It is Abaqus' own 0-based first face -- ``SPOS`` is a shell's face 1 -- the writer has always
+    taken it as SPOS, and the model zoo holds shell surfaces built that way. The pressure writers
+    keep refusing it (Sesam documents SIDE 0 as illegal), so it is not a side in general.
+    """
+    if el_f_index == 0 and not isinstance(el_f_index, bool):
+        return "SPOS"
+    side = normalise_shell_side(el_f_index)
+    return "SNEG" if side == SHELL_SIDE_NEGATIVE else "SPOS"
 
 
 def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
@@ -62,7 +78,7 @@ def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
         if el_type == ElemType.SOLID:
             fs_str += f"{set_ref}, S{el_f_index + 1}\n"
         elif el_type == ElemType.SHELL:
-            face_str = "SNEG" if el_f_index == -1 else "SPOS"
+            face_str = shell_face_label(el_f_index)
             fs_str += f"{set_ref}, {face_str}\n"
         else:
             raise NotImplementedError()

@@ -7,6 +7,11 @@ import numpy as np
 from ada import FEM
 from ada.fem.loads import Load
 from ada.fem.loads.fe_loads import LOAD_CASE_NUMBER
+from ada.fem.shell_sides import (
+    SHELL_SIDE_POSITIVE,
+    UnsupportedShellSide,
+    normalise_shell_side,
+)
 from ada.fem.steps import Step
 
 from .not_held import STAGE, report
@@ -300,16 +305,6 @@ PRESSURE_LAYER = 0
 #: version. The default rule has been used" -- measured, same story as LAYER.
 PRESSURE_INTNO = 0
 
-#: Surface sides that name the face on an element's *negative* normal. The Abaqus reader
-#: normalises a single-elset shell surface to ``-1`` (``read_steps``/``reader``), a surface
-#: built from nodes with ``shell_positive=False`` carries the same, and a deck that listed its
-#: rows by name carries the label itself.
-_NEGATIVE_SIDES = frozenset({-1, "SNEG"})
-
-#: ... and the ones that name the face on its positive normal. ``None`` is in here too: a plain
-#: element set names no side at all, and Abaqus' own default for a shell surface is SPOS.
-_POSITIVE_SIDES = frozenset({None, "", 1, "SPOS"})
-
 
 def _pressure_region(load: Load):
     """The region a pressure load acts on: a ``Surface`` if it has one, else its ``FemSet``.
@@ -358,11 +353,14 @@ def _pressure_side_and_sign(side) -> tuple[int, float] | None:
     are the same discretisation and differ only here. See
     ``tests/fem/test_pressure_load_cross_format.py``.
     """
-    if side in _POSITIVE_SIDES:
+    # The sides are read by ``ada.fem.shell_sides``, the one reading every writer shares.
+    try:
+        normalised = normalise_shell_side(side)
+    except UnsupportedShellSide:
+        return None
+    if normalised == SHELL_SIDE_POSITIVE:
         return SIDE_POSITIVE, -1.0
-    if side in _NEGATIVE_SIDES:
-        return SIDE_NEGATIVE, 1.0
-    return None
+    return SIDE_NEGATIVE, 1.0
 
 
 def load_pressure(load: Load, load_id: int) -> str:
