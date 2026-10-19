@@ -7,6 +7,12 @@ import numpy as np
 
 from ada.fem import Load, LoadLine, LoadPressure
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
+from ada.fem.shell_sides import (
+    SHELL_SIDE_NEGATIVE,
+    SHELL_SIDE_POSITIVE,
+    UnsupportedShellSide,
+    normalise_shell_side,
+)
 
 from .names import concept_name
 
@@ -97,17 +103,16 @@ def point_load_str(load: Load) -> str:
 #: same Abaqus measurement.
 PRESSURE_SIGN = {"positive": +1.0, "negative": -1.0}
 
-#: Surface sides naming an element's negative-normal face, and its positive-normal face. Shared
-#: reading with the Sesam and Calculix writers: the Abaqus reader normalises a single-elset shell
-#: surface to ``-1``, and a plain element set names no side, which is Abaqus' own default of SPOS.
-_NEGATIVE_SIDES = frozenset({-1, "SNEG"})
-_POSITIVE_SIDES = frozenset({None, "", 1, "SPOS"})
-
 
 def _pressure_sign(side) -> float:
-    if side in _POSITIVE_SIDES:
+    # Sides are read by ``ada.fem.shell_sides``, shared with every other writer.
+    try:
+        normalised = normalise_shell_side(side)
+    except UnsupportedShellSide:
+        normalised = None
+    if normalised == SHELL_SIDE_POSITIVE:
         return PRESSURE_SIGN["positive"]
-    if side in _NEGATIVE_SIDES:
+    if normalised == SHELL_SIDE_NEGATIVE:
         return PRESSURE_SIGN["negative"]
     raise UnsupportedLoadType(
         f"a pressure on surface side {side!r} has no Code_Aster FORCE_COQUE form; a shell pressure names "
