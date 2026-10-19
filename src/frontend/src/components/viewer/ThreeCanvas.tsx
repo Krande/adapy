@@ -172,7 +172,11 @@ const ThreeCanvas: React.FC = () => {
         const applyPixelRatio = (interacting: boolean) => {
             const p = usePerfStore.getState();
             const cap = interacting && p.adaptivePixelRatio ? 1.0 : p.pixelRatioCap;
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+            const ratio = Math.min(window.devicePixelRatio, cap);
+            // setPixelRatio always reassigns the canvas size, which drops and
+            // reallocates the drawing buffer even at an unchanged ratio: a
+            // visible hitch at every gesture start/end. Only pay it on a change.
+            if (renderer.getPixelRatio() !== ratio) renderer.setPixelRatio(ratio);
             requestRender();
         };
         const onControlChange = () => requestRender();

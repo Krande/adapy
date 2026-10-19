@@ -13,10 +13,15 @@
 // LATENCY AND COST. An input report only folds its values into a preallocated
 // array (no allocation, no React state) and marks a gesture active; the NEXT
 // animation frame of the viewer's own render loop applies it, scaled by that
-// frame's real delta. There is no second rAF loop and no queue. While idle the
-// step returns at its first line. A gesture ends when the processed axes are
+// frame's delta. There is no second rAF loop and no queue. While idle the
+// step returns at its first line. Motion stops when the processed axes are
 // all at rest, or when no motion report has arrived for STALE_MS -- not every
 // device sends a final all-zero report when the cap is released.
+//
+// SMOOTHNESS. The camera follows a low-passed copy of the axes (INPUT_TAU),
+// scaled by an averaged frame time (DT_EMA), so sensor noise and frame-time
+// swings do not turn into uneven speed; the gesture bracket outlives a stop by
+// LINGER_MS, so brushing the dead zone does not restart it.
 //
 // PEER OF THE MOUSE, NOT A RIVAL. The step moves the same camera position and
 // orbit target the orbit controls own, before the loop calls their `update`,
@@ -79,10 +84,22 @@ interface Hid extends EventTarget {
 
 type Controls = CameraControls | OrbitControls;
 
-/** A gesture ends this long after the last motion report. */
-const STALE_MS = 100;
+/** Motion counts as stopped this long after the last motion report. */
+const STALE_MS = 200;
+/** The gesture (and the controls' start/end bracket) stays open this long
+ *  after motion stops, so a glide that brushes the dead zone or skips a report
+ *  is one gesture, not a start/end per hiccup. */
+const LINGER_MS = 300;
 /** Longest frame step applied: a stalled tab must not jump the camera. */
-const MAX_DT = 0.05;
+const MAX_DT = 0.1;
+/** Time constant of the input low-pass, in seconds. The raw axes carry sensor
+ *  noise of a few counts, which at a gentle push is a large share of the signal
+ *  and reads as jitter, most of all on several axes at once. */
+const INPUT_TAU = 0.05;
+/** Weight of the newest frame in the frame-time average. The camera moves by
+ *  rate x frame time; the raw rAF delta swings with every heavy frame, which
+ *  turns into uneven speed even at a steady push. */
+const DT_EMA = 0.2;
 
 function getHid(): Hid | null {
     if (typeof navigator === "undefined") return null;
@@ -98,6 +115,10 @@ export function isWebHidSupported(): boolean {
 
 const axis = createAxisState();
 const motion = new Float32Array(6);
+/** `motion` after the low-pass; this is what moves the camera. */
+const smoothed = new Float32Array(6);
+let dtAvg = 1 / 60;
+let lastMovingAt = -Infinity;
 const _position = new Vector3();
 const _target = new Vector3();
 let active = false;
@@ -113,6 +134,7 @@ const CC_END = {type: "controlend"};
 
 function endGesture(): void {
     active = false;
+    smoothed.fill(0);
     const c = gestureControls;
     if (!c) return;
     gestureControls = null;
@@ -127,29 +149,52 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     if (!active) return;
     const now = performance.now();
     const settings = useSpaceMouseStore.getState();
-    if ((now - axis.lastMotionAt > STALE_MS && now > holdUntil) || !processAxes(axis.raw, settings, motion)) {
-        endGesture();
-        return;
+    const fresh = now - axis.lastMotionAt <= STALE_MS || now <= holdUntil;
+    const moving = fresh && processAxes(axis.raw, settings, motion);
+    if (!moving) motion.fill(0);
+    else lastMovingAt = now;
+    if (devStats) {
+        if (wasFresh && !fresh && gestureControls) devStats.staleCuts++;
+        wasFresh = fresh;
     }
     // With several viewers on the page, the device drives the one in use.
     if (getViewerRuntime().controls.current !== controls) return;
 
     const t0 = devStats ? performance.now() : 0;
-    if (gestureControls !== controls) {
-        endGesture();
-        active = true;
+    const frameDt = frameDelta < MAX_DT ? frameDelta : MAX_DT;
+    const opening = gestureControls !== controls;
+    // A gesture's first frame takes the real delta; after that, the average.
+    dtAvg = opening ? frameDt : dtAvg + (frameDt - dtAvg) * DT_EMA;
+    const dt = dtAvg;
+    const k = 1 - Math.exp(-dt / INPUT_TAU);
+    let any = false;
+    for (let i = 0; i < 6; i++) {
+        let v = smoothed[i] + (motion[i] - smoothed[i]) * k;
+        if (motion[i] === 0 && (v < 0 ? -v : v) < 1e-4) v = 0;
+        smoothed[i] = v;
+        if (v !== 0) any = true;
+    }
+    if (!any) {
+        if (now - lastMovingAt > LINGER_MS) endGesture();
+        return;
+    }
+    if (opening) {
+        // Close a gesture still open on another viewer's controls, keeping
+        // the motion just filtered for this one.
+        const prev = gestureControls;
+        if (prev) (prev as any).dispatchEvent(prev instanceof OrbitControls ? ORBIT_END : CC_END);
         gestureControls = controls;
         (controls as any).dispatchEvent(controls instanceof OrbitControls ? ORBIT_START : CC_START);
+        if (devStats) devStats.gestures++;
     }
-    const dt = frameDelta < MAX_DT ? frameDelta : MAX_DT;
     if (controls instanceof OrbitControls) {
         // Moved in place; the loop's `controls.update()` re-aims the camera
         // and emits the change event the on-demand renderer listens for.
-        applyObjectModeMotion(camera.position, controls.target, camera.up, motion, dt, camera.fov, settings.sensitivity);
+        applyObjectModeMotion(camera.position, controls.target, camera.up, smoothed, dt, camera.fov, settings.sensitivity);
     } else {
         controls.getPosition(_position);
         controls.getTarget(_target);
-        if (applyObjectModeMotion(_position, _target, camera.up, motion, dt, camera.fov, settings.sensitivity)) {
+        if (applyObjectModeMotion(_position, _target, camera.up, smoothed, dt, camera.fov, settings.sensitivity)) {
             void controls.setLookAt(_position.x, _position.y, _position.z, _target.x, _target.y, _target.z, false);
         }
     }
@@ -157,6 +202,9 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     if (devStats) {
         devStats.frames++;
         devStats.ms += performance.now() - t0;
+        const fms = frameDelta * 1000;
+        if (fms > devStats.maxFrameMs) devStats.maxFrameMs = fms;
+        if (fms > 25) devStats.slowFrames++;
     }
 }
 
@@ -178,7 +226,14 @@ function runButton(action: SpaceMouseButtonAction): void {
 
 function onInputReport(event: Event): void {
     const e = event as HidInputReportEvent;
-    const kind = applyInputReport(axis, e.reportId, e.data, performance.now());
+    const now = performance.now();
+    const prevMotionAt = axis.lastMotionAt;
+    const kind = applyInputReport(axis, e.reportId, e.data, now);
+    if (devStats && kind === REPORT_MOTION && gestureControls) {
+        const gap = now - prevMotionAt;
+        if (gap > devStats.maxReportGapMs) devStats.maxReportGapMs = gap;
+        devStats.reports++;
+    }
     if (kind === REPORT_MOTION) {
         active = true;
     } else if (kind === REPORT_BUTTONS) {
@@ -359,12 +414,30 @@ export function bindSpaceMouseToOptions(): () => void {
 // +-350 = full deflection) drives the camera as if the cap were held for `ms`,
 // with no device; `stats()` reports how many frames the step applied and the
 // time spent in it. Lets the per-frame cost be measured on a loaded scene.
+// With a real device it also says where stutter comes from: `gestures` (how
+// often the start/end bracket reopened), `staleCuts` (motion stopped for lack
+// of reports), `maxReportGapMs`/`reports` (the device's report cadence while
+// moving), and `maxFrameMs`/`slowFrames` (frames over 25 ms, i.e. render cost).
 // Not compiled into production builds.
 
-let devStats: {frames: number; ms: number} | null = null;
+interface DevStats {
+    frames: number;
+    ms: number;
+    gestures: number;
+    staleCuts: number;
+    reports: number;
+    maxReportGapMs: number;
+    maxFrameMs: number;
+    slowFrames: number;
+}
+let devStats: DevStats | null = null;
+let wasFresh = false;
+const emptyStats = (): DevStats => ({
+    frames: 0, ms: 0, gestures: 0, staleCuts: 0, reports: 0, maxReportGapMs: 0, maxFrameMs: 0, slowFrames: 0,
+});
 
 if (import.meta.env?.DEV && typeof window !== "undefined") {
-    devStats = {frames: 0, ms: 0};
+    devStats = emptyStats();
     (window as any).__adaSpaceMouse = {
         feed(values: number[], ms = 1000) {
             for (let i = 0; i < 6; i++) axis.raw[i] = values[i] ?? 0;
@@ -381,8 +454,7 @@ if (import.meta.env?.DEV && typeof window !== "undefined") {
             return {...devStats!, msPerFrame: devStats!.frames ? devStats!.ms / devStats!.frames : 0};
         },
         resetStats() {
-            devStats!.frames = 0;
-            devStats!.ms = 0;
+            Object.assign(devStats!, emptyStats());
         },
     };
 }
