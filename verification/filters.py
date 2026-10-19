@@ -150,16 +150,25 @@ class Beam(Filter):
 
 
 class Versions(Filter):
-    """Solver version strings.
+    """Solver version strings, and the adapy version that built the report.
 
-    Stays data-fed for now; solver versions are environmental (probed
-    from PATH executables), not task-produced. A future `version_probe`
-    integration could move this onto a runner-backed pattern.
+    Stays data-fed for now; solver versions come from the cases' own results, not from a task
+    of their own. A future `version_probe` integration could move this onto a runner-backed
+    pattern. The adapy version is the one running this build (``ada.__version__``) unless the
+    caller passes an ``"adapy"`` entry.
     """
 
     def __init__(self, versions: dict, **kw):
         super().__init__(**kw)
         self._v = versions
+
+    @attr
+    def adapy(self) -> str:
+        if "adapy" in self._v:
+            return str(self._v["adapy"])
+        from ada import __version__
+
+        return __version__
 
     @attr
     def ccx(self) -> str:

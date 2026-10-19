@@ -1,3 +1,5 @@
+import math
+
 from ada import Part, Section
 from ada.api.containers import Sections
 from ada.sections import GeneralProperties
@@ -227,12 +229,21 @@ def unsymm_isec(name, sec_prop) -> Section:
 
 
 def pipe_section(name, sec_prop) -> Section:
+    """Genie ``pipe_section`` -> adapy TUBULAR, or CIRCULAR when the wall is the radius (``th == od / 2``).
+
+    ``PipeSection(D, D/2)`` has no bore: it is GeniE's solid round bar, and what the writer emits for a
+    CIRCULAR section (the Sesam reader makes the same call for a GPIPE with DI = 0).
+    """
+    od = float(sec_prop.attrib["od"])
+    th = float(sec_prop.attrib["th"])
+    if math.isclose(th, od / 2, rel_tol=1e-9):
+        return Section(name=name, sec_type=Section.TYPES.CIRCULAR, sec_str=name, r=od / 2)
     return Section(
         name=name,
         sec_type=Section.TYPES.TUBULAR,
         sec_str=name,
-        r=float(sec_prop.attrib["od"]) / 2,
-        wt=float(sec_prop.attrib["th"]),
+        r=od / 2,
+        wt=th,
     )
 
 

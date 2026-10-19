@@ -2,6 +2,27 @@
 
 
 
+## v0.118.3 (2026-10-19)
+
+### Fix
+
+* fix(gxml): write CIRCULAR sections instead of dangling section_ref (#462) ([`b2d689b`](https://github.com/Krande/adapy/commit/b2d689bd549cf194ead26f6cc8c1df2204631daa))
+
+
+## v0.118.2 (2026-10-19)
+
+### Fix
+
+* fix(fem): read a shell surface side one way in every writer, so SNEG is not written as SPOS (#461) ([`1edb813`](https://github.com/Krande/adapy/commit/1edb8133b23497e818d9af4975247678de0e323d))
+
+
+## v0.118.1 (2026-10-19)
+
+### Fix
+
+* fix(verification): show the adapy version on the report&#39;s first page (#459) ([`f806430`](https://github.com/Krande/adapy/commit/f80643099220fbd658882ba4b8eca2d4843c52d1))
+
+
 ## v0.118.0 (2026-10-16)
 
 ### Feature

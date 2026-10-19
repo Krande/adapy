@@ -40,9 +40,10 @@ R9  A beam section's ``section_type`` / ``line1`` / ``temperature`` metadata is 
     compared -- except R16.)
 R10 A surface is compared as the list of ``(set, face label)`` data lines it stands for, with the
     labels Abaqus uses: ``S<n>`` on a solid face, ``SPOS``/``SNEG`` on a shell side. adapy's
-    shell face index carries only the sign (the writer writes -1 as SNEG, any other value as
-    SPOS), and ``id_refs`` is the same list held pre-formatted -- which of the two a model holds
-    is representation. A node surface's weight is compared as a field.
+    shell face index carries only the sign (the writer writes -1 / "SNEG" as SNEG, and 0 / 1 /
+    "SPOS" as SPOS; anything else is refused), and ``id_refs`` is the same list held
+    pre-formatted -- which of the two a model holds is representation. A node surface's weight is
+    compared as a field.
 R11 Connectors are compared assembly-wide, keyed by element id, with their end nodes as
     ``(part, node id)``: the writer writes every connector at assembly level (it may join
     instances), so a connector defined in a part reads back on the assembly. The connector's own
