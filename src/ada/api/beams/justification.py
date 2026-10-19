@@ -245,10 +245,14 @@ class OffsetHelper:
 
                 # --- section-specific rules (match Genie semantics) ---
                 if sec0.type == sec0.TYPES.ANGULAR:
+                    # An angle's profile hangs below its origin (z in [-h, 0]), so flush_top is the
+                    # origin on the node line and flush_bottom is the origin h ABOVE it: e = -h * up,
+                    # the same vector ``resolve_justification`` gives. This was +h * up, which put the
+                    # profile 2h below the node and gave an HP220x10 -0.35543 where GeniE has +0.08457.
                     if just == Justification.FLUSH_TOP:
                         e_abs = zv_abs * 0.0
                     else:
-                        e_abs = zv_abs * float(sec0.h)
+                        e_abs = -zv_abs * float(sec0.h)
 
                 elif sec0.type == sec0.TYPES.TUBULAR:
                     e_abs = flush_factor * zv_abs * float(sec0.r)
