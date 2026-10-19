@@ -1,5 +1,7 @@
 # Open Source FEA using adapy
 
+Generated with _adapy_ v${ versions.adapy }.
+
 This report describes the main verification work of the simulation results produced by the
 Open Source Finite Element (FE) solvers [Code Aster](https://www.code-aster.org/spip.php?rubrique2)
 and [Calculix](http://www.dhondt.de/).
@@ -40,6 +42,8 @@ and compare the results from different FEA software.
 The following python packages were instrumental in the creation of this document and the FEA results herein.
 
 ### Adapy
+
+This report was generated with _adapy_ v${ versions.adapy }.
 
 The intention behind _adapy_ is to make it easier to work with finite element models
 and BIM models and act as a high-level scripting library for parametric and procedural modelling techniques.
