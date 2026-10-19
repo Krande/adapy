@@ -6,6 +6,12 @@ import numpy as np
 
 from ada.fem import Load, LoadLine
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
+from ada.fem.shell_sides import (
+    SHELL_SIDE_NEGATIVE,
+    SHELL_SIDE_POSITIVE,
+    UnsupportedShellSide,
+    normalise_shell_side,
+)
 
 if TYPE_CHECKING:
     from .writer import DeckContext
@@ -155,13 +161,6 @@ PRESSURE_LABEL = "P"
 #: the same way it does through Abaqus, Code_Aster and Sestra instead of the opposite way.
 PRESSURE_SIGN = {"positive": -1.0, "negative": +1.0}
 
-#: Surface sides naming the face on an element's negative normal, and on its positive normal. The
-#: same two sets the Sesam writer resolves a pressure with, so the two decks read one model
-#: identically: the Abaqus reader normalises a single-elset shell surface to ``-1``, and a plain
-#: element set names no side at all, which is Abaqus' own default of SPOS.
-_NEGATIVE_SIDES = frozenset({-1, "SNEG"})
-_POSITIVE_SIDES = frozenset({None, "", 1, "SPOS"})
-
 
 def _pressure_region(load: Load):
     """The region a pressure acts on: its ``Surface`` if it has one, else its ``FemSet``.
@@ -175,9 +174,14 @@ def _pressure_region(load: Load):
 
 def _pressure_sign(side) -> float:
     """The factor for one surface side, or raise -- a side that is not a shell face is not guessed."""
-    if side in _POSITIVE_SIDES:
+    # Sides are read by ``ada.fem.shell_sides``, so every deck reads one model identically.
+    try:
+        normalised = normalise_shell_side(side)
+    except UnsupportedShellSide:
+        normalised = None
+    if normalised == SHELL_SIDE_POSITIVE:
         return PRESSURE_SIGN["positive"]
-    if side in _NEGATIVE_SIDES:
+    if normalised == SHELL_SIDE_NEGATIVE:
         return PRESSURE_SIGN["negative"]
     raise UnsupportedLoadType(
         f"a pressure on surface side {side!r} has no Calculix form; *DLOAD on a shell names one of "
