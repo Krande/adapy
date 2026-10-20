@@ -1,9 +1,11 @@
 import {create} from "zustand";
 
 import type {Aabb, BoxSelectMode, Vec3} from "@/utils/bboxSelection/boxMath";
+import {highestBoxNumber} from "@/utils/bboxSelection/boxStorage";
 
 // Selection boxes: world-space boxes that select the elements they touch or contain.
-// Plain data only; BBoxSelectionController owns the three.js side.
+// Plain data only; BBoxSelectionController owns the three.js side. `boxes` and `activeId` are
+// kept per scope in this browser by utils/bboxSelection/boxPersistence.
 
 export interface SelectionBox {
     id: string;
@@ -35,6 +37,10 @@ interface BBoxSelectionState {
     setActive: (id: string | null) => void;
     openMenu: (menu: SelectionBoxMenu) => void;
     closeMenu: () => void;
+    /** Replace every box, e.g. with the ones kept from an earlier page. Applies no selection. */
+    restore: (boxes: SelectionBox[], activeId: string | null) => void;
+    /** Delete every box. */
+    clearAll: () => void;
 }
 
 const DEFAULT_COLOR = "#33aaff";
@@ -74,4 +80,9 @@ export const useBBoxSelectionStore = create<BBoxSelectionState>()((set, get) => 
     setActive: (activeId) => set({activeId}),
     openMenu: (menu) => set({menu, activeId: menu.boxId}),
     closeMenu: () => set({menu: null}),
+    restore: (boxes, activeId) => {
+        counter = Math.max(counter, highestBoxNumber(boxes));
+        set({boxes, activeId: boxes.some((b) => b.id === activeId) ? activeId : null, menu: null});
+    },
+    clearAll: () => set({boxes: [], activeId: null, menu: null}),
 }));

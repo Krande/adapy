@@ -7,12 +7,14 @@ import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionSto
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {applyBoxSelection} from "@/utils/bboxSelection/applyBoxSelection";
+import {bindBBoxSelectionStorage} from "@/utils/bboxSelection/boxPersistence";
 import {BOX_FACES, boxCenter, boxSize, centeredAt, faceCenter, moveFace, type Aabb, type Vec3} from "@/utils/bboxSelection/boxMath";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {lineParamFromRay} from "./cellbuilder/geometryHelpers";
 
 // Headless: draws the selection boxes, a move gizmo and six face handles on the active
-// box, and re-applies the active box's selection whenever its bounds or mode change.
+// box, and re-applies the active box's selection whenever its bounds or mode change. While
+// mounted, the boxes are kept in this browser (boxPersistence).
 
 const HANDLE_COLOR = [0xe5484d, 0x30a46c, 0x3e63dd] as const;
 /** Handle radius as a fraction of its distance from the camera: constant on screen. */
@@ -50,6 +52,7 @@ export function pickSelectionBox(clientX: number, clientY: number): string | nul
 const BBoxSelectionController: React.FC = () => {
     const {scene: sceneRef, camera: cameraRef, renderer: rendererRef} = useViewerRefs();
     React.useEffect(() => {
+        const unbindStorage = bindBBoxSelectionStorage();
         let cleanup: (() => void) | null = null;
         let raf = 0;
         const tryInit = () => {
@@ -66,6 +69,7 @@ const BBoxSelectionController: React.FC = () => {
         return () => {
             cancelAnimationFrame(raf);
             cleanup?.();
+            unbindStorage();
         };
     }, []);
     return null;

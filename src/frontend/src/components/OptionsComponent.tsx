@@ -6,6 +6,7 @@ import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
 import PerformanceOptions from "./options/PerformanceOptions";
+import SceneRestoreOptions from "./options/SceneRestoreOptions";
 import ShortcutsModal from "./options/ShortcutsModal";
 import SpaceMouseOptions from "./options/SpaceMouseOptions";
 import ThemeOptions from "./options/ThemeOptions";
@@ -103,6 +104,14 @@ function OptionsComponent() {
                 </div>
             </CollapsibleSection>
             <hr className="border-gray-600"/>
+            {runtime.isRestMode() && (
+                <>
+                    <CollapsibleSection title="Session restore">
+                        <SceneRestoreOptions/>
+                    </CollapsibleSection>
+                    <hr className="border-gray-600"/>
+                </>
+            )}
             <CollapsibleSection title="Theme">
                 <ThemeOptions/>
                 {/* Renders nothing unless a build actually carries more than one
