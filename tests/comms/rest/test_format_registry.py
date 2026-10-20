@@ -49,6 +49,8 @@ CHAIN_KINDS = [
     ("clash_contacts", True),
     # Synthetic for the same reason: a published node's selection is read by its provider.
     ("export_selection_asset", True),
+    # And a group's members, read like a group clash check's.
+    ("export_selection_group", True),
     ("export_search_asset", True),
     ("utility", False),
     ("fea_artefacts", False),

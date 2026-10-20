@@ -29,19 +29,19 @@ const loaded = (provider: string, subject: string, glbKey?: string): LoadedAsset
 });
 
 const providers: WireGeometryProvider[] = [
-  { id: "csg", label: "CSG", readable: true },
+  { id: "solid", label: "Solid", readable: true },
   { id: "mesh", label: "Mesh", readable: false, unavailable_reason: "no reader" },
   { id: "other", readable: false },
 ];
 
 test("a member whose model was loaded without a derived GLB was delivered as a mesh", () => {
-  const members = [node("mesh", "s1", "bm1"), node("csg", "s2", "bm2")];
-  assert.deepEqual(meshDeliveredProviders(members, [loaded("mesh", "s1"), loaded("csg", "s2", "glb/key")]), ["mesh"]);
+  const members = [node("mesh", "s1", "bm1"), node("solid", "s2", "bm2")];
+  assert.deepEqual(meshDeliveredProviders(members, [loaded("mesh", "s1"), loaded("solid", "s2", "glb/key")]), ["mesh"]);
 });
 
 test("with a mesh member the default is a readable provider and each model's own is disabled", () => {
   const plan = planGroupExport({ members: [node("mesh", "s1", "bm1")], loadedAssets: [loaded("mesh", "s1")], providers });
-  assert.equal(plan.defaultProvider, "csg");
+  assert.equal(plan.defaultProvider, "solid");
   assert.equal(plan.choices[0].id, null);
   assert.equal(plan.choices[0].disabled, true);
   // The mesh provider itself is not offered as a source of objects.
@@ -49,12 +49,12 @@ test("with a mesh member the default is a readable provider and each model's own
   // Unreadable providers come last, disabled.
   assert.deepEqual(
     plan.choices.slice(1).map((c) => [c.id, c.disabled]),
-    [["csg", false], ["other", true]],
+    [["solid", false], ["other", true]],
   );
 });
 
 test("without a mesh member each model's own provider is the default", () => {
-  const plan = planGroupExport({ members: [node("csg", "s2", "bm2")], loadedAssets: [loaded("csg", "s2", "glb")], providers });
+  const plan = planGroupExport({ members: [node("solid", "s2", "bm2")], loadedAssets: [loaded("solid", "s2", "glb")], providers });
   assert.equal(plan.defaultProvider, null);
   assert.equal(groupExportBlocker(plan, null), null);
 });
@@ -68,14 +68,14 @@ test("file members alone offer no provider choice", () => {
 test("a mesh member read from its own provider is blocked, with what to do about it", () => {
   const plan = planGroupExport({ members: [node("mesh", "s1", "bm1")], loadedAssets: [loaded("mesh", "s1")], providers });
   assert.match(groupExportBlocker(plan, null) ?? "", /choose a provider/);
-  assert.equal(groupExportBlocker(plan, "csg"), null);
+  assert.equal(groupExportBlocker(plan, "solid"), null);
 });
 
 test("a mesh member with no readable provider says so", () => {
   const plan = planGroupExport({
     members: [node("mesh", "s1", "bm1")],
     loadedAssets: [loaded("mesh", "s1")],
-    providers: [{ id: "csg", readable: false }],
+    providers: [{ id: "solid", readable: false }],
   });
   assert.equal(plan.defaultProvider, null);
   assert.match(groupExportBlocker(plan, null) ?? "", /no provider/);
@@ -88,5 +88,5 @@ test("the body carries the group, and the provider only when one is chosen", () 
     format: "ifc",
     label: "picked",
   });
-  assert.equal(groupExportBody(members, "picked", "step", "csg").geometry_provider, "csg");
+  assert.equal(groupExportBody(members, "picked", "step", "solid").geometry_provider, "solid");
 });
