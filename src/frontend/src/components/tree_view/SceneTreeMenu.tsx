@@ -30,6 +30,8 @@ import {
 
 import type {TreeNodeData} from "./CustomNode";
 import {AddToGroupPromptHost, addToGroupBlocker, useAddToGroupPromptStore} from "./AddToGroupPrompt";
+import {BBoxSelectionMenuHost} from "@/components/viewer/BBoxSelectionMenu";
+import {addBoxAroundSelection} from "@/utils/bboxSelection/applyBoxSelection";
 
 /** "Load from <provider>" for a row of a model loaded from a provider: null for a row of anything
  *  else (a file), else the options -- or why there are none. */
@@ -85,6 +87,7 @@ export const SceneMenuHost: React.FC = () => {
         <>
             {menu && <SceneTreeMenu {...menu} onClose={close}/>}
             <AddToGroupPromptHost/>
+            <BBoxSelectionMenuHost/>
         </>
     );
 };
@@ -128,6 +131,14 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
             title: noGeometry,
         },
         {key: "show-all", label: "Unhide all  (Shift+U)", onClick: showAll},
+        {
+            key: "bbox-select",
+            label: "Select with bounding box",
+            onClick: () => void addBoxAroundSelection(),
+            disabled: total === 0,
+            title: noGeometry ?? "A box around the selection that selects what it touches or contains; move it and drag its faces",
+            separatorBefore: true,
+        },
         {
             key: "copy",
             label: "Copy names  (Ctrl+C)",

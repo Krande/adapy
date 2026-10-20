@@ -25,6 +25,8 @@ import {selectedLeafNodes} from "@/utils/tree_view/treeNavigation";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {pickFemConcept} from "@/components/viewer/FemConceptsController";
+import {pickSelectionBox} from "@/components/viewer/BBoxSelectionController";
+import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import type {FemConceptRef} from "@/utils/fem/femSelection";
 
 // A second click/tap inside this window + radius counts as a double.
@@ -114,6 +116,12 @@ export function setupPointerHandler(
             const dx = e.clientX - pointerDownPos.x;
             const dy = e.clientY - pointerDownPos.y;
             if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
+        }
+        // A selection box in front of the geometry has its own menu.
+        const boxId = pickSelectionBox(e.clientX, e.clientY);
+        if (boxId) {
+            useBBoxSelectionStore.getState().openMenu({boxId, x: e.clientX, y: e.clientY});
+            return;
         }
         let pick: ReturnType<typeof gpuMeshPicker.pickAt> = null;
         try {

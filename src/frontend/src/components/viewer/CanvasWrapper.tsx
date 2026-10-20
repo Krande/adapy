@@ -8,6 +8,7 @@ import CellBuilderController from "./CellBuilderController";
 import TypeIconController from "./TypeIconController";
 import ProceduralFollowerController from "./ProceduralFollowerController";
 import GalleryControls from "./GalleryControls";
+import BBoxSelectionController from "./BBoxSelectionController";
 
 export interface CanvasWrapperProps {
   /**
@@ -40,6 +41,8 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
       <GalleryControls />
       {/* Headless: reconciles section-plane clipping/caps/gizmo with the scene. */}
       <SectionPlanesController />
+      {/* Headless: selection boxes -- their gizmo, face handles and the selection they make. */}
+      <BBoxSelectionController />
       {/* Headless: draws the FEM-concept glyph overlay (masses / BCs / loads). */}
       <FemConceptsController />
       {/* Headless: procedural cellbuilder box meshes + snapping/face-drag. */}

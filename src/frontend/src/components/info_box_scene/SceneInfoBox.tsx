@@ -8,6 +8,7 @@ import ModelStatsSection from "./ModelStatsSection";
 import GroupsSection from "./GroupsSection";
 import SavedGroupsSection from "./SavedGroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
+import BBoxSelectionSection from "./BBoxSelectionSection";
 import FacePickingToggle from "./FacePickingToggle";
 import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
@@ -225,7 +226,12 @@ const SceneInfoBox = () => {
                         </CollapsibleSection>
                     </>
                 ) : tab === "tools" ? (
-                    <UtilitiesSection />
+                    <>
+                        <CollapsibleSection title="Selection boxes" defaultOpen>
+                            <BBoxSelectionSection />
+                        </CollapsibleSection>
+                        <UtilitiesSection />
+                    </>
                 ) : tab === "clip" ? (
                     <SectionPlanesPanel />
                 ) : tab === "mesh" ? (
