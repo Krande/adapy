@@ -1018,3 +1018,75 @@ def start_export_selection(
 
     threading.Thread(target=_run, name="local-export-selection", daemon=True).start()
     return job
+
+
+def start_export_selection_group(
+    *,
+    options: dict[str, Any],
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Write a group's members as one STEP/IFC in a thread -- the queue-less twin of the worker's
+    ``export_selection_group`` kind, through the same ``export_group_selection``."""
+    from ada.comms.rest.selection_export import (
+        EXPORT_LOG_SUFFIX,
+        SELECTION_EXPORT_FORMATS,
+        SelectionExportError,
+        export_group_selection,
+    )
+    from ada.comms.rest.worker import _SyncStorageFacade
+    from ada.core.file_system import new_temp_path
+
+    fmt = str(options.get("format") or "")
+    if fmt not in SELECTION_EXPORT_FORMATS:
+        raise LookupError(f"unsupported export format {fmt!r} (expected one of {sorted(SELECTION_EXPORT_FORMATS)})")
+    group = options.get("group")
+    if not isinstance(group, dict) or not group.get("members"):
+        raise LookupError("export_selection_group needs 'group' in its options")
+    geometry_provider = options.get("geometry_provider") or None
+
+    sync_storage = _SyncStorageFacade(storage, scope, asyncio.get_running_loop())
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id="export_selection",
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _run() -> None:
+        out_path = new_temp_path(suffix=SELECTION_EXPORT_FORMATS[fmt])
+        try:
+            job.stage, job.progress = "export", 0.3
+            warnings = export_group_selection(
+                group, storage=sync_storage, fmt=fmt, out_path=out_path, geometry_provider=geometry_provider
+            )
+            if job.status != STATUS_RUNNING:
+                return
+            job.stage, job.progress = "upload", 0.9
+            sync_storage.put_path(derived_key, out_path)
+            report = {"geometry_provider": geometry_provider, "members": len(group["members"]), "warnings": warnings}
+            sync_storage.put_bytes(f"{derived_key}{EXPORT_LOG_SUFFIX}", json.dumps(report).encode("utf-8"))
+            job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
+        except Exception as exc:  # noqa: BLE001 — the export's failure is data, not ours
+            if job.status != STATUS_RUNNING:
+                return
+            if job.cancel_event.is_set():
+                job.status, job.stage = STATUS_CANCELLED, "cancelled"
+                return
+            job.status = STATUS_ERROR
+            job.stage = "error"
+            if isinstance(exc, SelectionExportError):
+                job.error = str(exc)
+                return
+            logger.exception("local export_selection_group %s failed", job.job_id)
+            job.error = f"{type(exc).__name__}: {exc}"
+            logger.debug("local export_selection_group traceback:\n%s", traceback.format_exc())
+        finally:
+            out_path.unlink(missing_ok=True)
+
+    threading.Thread(target=_run, name="local-export-selection-group", daemon=True).start()
+    return job

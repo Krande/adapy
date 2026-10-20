@@ -66,6 +66,8 @@ register(clash_detail.ClashDetailGroupHandler())
 register(clash_contacts.ClashContactsHandler())
 # Synthetic for the same reason: a published node's selection is read by its provider.
 register(export_selection.ExportSelectionAssetHandler())
+# And several elements as one file: a group's members, read like a group clash check's.
+register(export_selection.ExportSelectionGroupHandler())
 # Synthetic as well: attribute-search hits, each read through the geometry provider's concepts
 # and written as IFC into the user's target scope.
 register(export_search.ExportSearchAssetHandler())

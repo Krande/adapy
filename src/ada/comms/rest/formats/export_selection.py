@@ -18,6 +18,7 @@ export makes for its ``.ifc``.
 from __future__ import annotations
 
 import asyncio
+import json
 import traceback as tb_module
 from typing import Callable
 
@@ -26,9 +27,11 @@ from ada.core.file_system import new_temp_path
 
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job
 from ..selection_export import (
+    EXPORT_LOG_SUFFIX,
     SELECTION_EXPORT_FORMATS,
     SelectionExportError,
     export_asset_selection,
+    export_group_selection,
     export_source_selection,
 )
 from ..worker.audit import _audit_done
@@ -36,11 +39,14 @@ from .registry import JobContext, SourceFormatHandler, SyntheticFormatHandler
 
 EXPORT_SELECTION_KIND = "export_selection"
 EXPORT_SELECTION_ASSET_KIND = "export_selection_asset"
+EXPORT_SELECTION_GROUP_KIND = "export_selection_group"
 
 __all__ = [
     "EXPORT_SELECTION_ASSET_KIND",
+    "EXPORT_SELECTION_GROUP_KIND",
     "EXPORT_SELECTION_KIND",
     "ExportSelectionAssetHandler",
+    "ExportSelectionGroupHandler",
     "ExportSelectionHandler",
 ]
 
@@ -50,8 +56,17 @@ async def _fail(job: Job, ctx: JobContext, stage: str, msg: str, trace: str | No
     await _audit_done(ctx.db_pool, job.job_id, "error", msg, ctx.started_at, traceback=trace)
 
 
-async def _export_and_upload(job: Job, ctx: JobContext, produce: Callable[[object], object]) -> None:
-    """Run ``produce(out_path)`` off the loop, then store the file at the job's derived key."""
+async def _export_and_upload(
+    job: Job,
+    ctx: JobContext,
+    produce: Callable[[object], object],
+    report: Callable[[], dict | None] | None = None,
+) -> None:
+    """Run ``produce(out_path)`` off the loop, then store the file at the job's derived key.
+
+    ``report()``, when given and not None, is stored as JSON at ``<derived key>.log.json`` before
+    the job is done, so a client that sees "done" can read it.
+    """
     fmt = str((job.conversion_options or {}).get("format") or "")
     if fmt not in SELECTION_EXPORT_FORMATS:
         await _fail(
@@ -84,6 +99,11 @@ async def _export_and_upload(job: Job, ctx: JobContext, produce: Callable[[objec
             await ctx.queue.update(job.job_id, stage="upload", progress=0.9)
             # Streamed from disk: an export of a whole subject can be as large as its source.
             await ctx.storage.put_path(ctx.scope, job.derived_key, out_path)
+            doc = report() if report is not None else None
+            if doc is not None:
+                await ctx.storage.put_bytes(
+                    ctx.scope, f"{job.derived_key}{EXPORT_LOG_SUFFIX}", json.dumps(doc).encode("utf-8")
+                )
         except Exception as exc:
             logger.exception("worker: %s upload failed for job %s", job.target_format, job.job_id)
             await _fail(job, ctx, "upload", str(exc), tb_module.format_exc())
@@ -150,3 +170,39 @@ class ExportSelectionAssetHandler(SyntheticFormatHandler):
             )
 
         await _export_and_upload(job, ctx, _produce)
+
+
+class ExportSelectionGroupHandler(SyntheticFormatHandler):
+    """Several elements, from one or several models, written as one file. Synthetic for the reason
+    ``clash_check_group`` is: the members' sources are read through the storage facade, each once."""
+
+    kind = EXPORT_SELECTION_GROUP_KIND
+
+    async def run(self, job: Job, ctx: JobContext) -> None:
+        from ..worker.source_nodes import _SyncStorageFacade
+
+        opts = job.conversion_options or {}
+        group = opts.get("group")
+        if not isinstance(group, dict) or not group.get("members"):
+            await _fail(job, ctx, "export", f"{EXPORT_SELECTION_GROUP_KIND} needs 'group' in conversion_options")
+            return
+
+        storage = _SyncStorageFacade(ctx.storage, ctx.scope, asyncio.get_running_loop())
+        geometry_provider = opts.get("geometry_provider") or None
+        warnings: list[str] = []
+
+        def _produce(out_path):
+            warnings.extend(
+                export_group_selection(
+                    group,
+                    storage=storage,
+                    fmt=str(opts.get("format")),
+                    out_path=out_path,
+                    geometry_provider=geometry_provider,
+                )
+            )
+
+        def _report() -> dict:
+            return {"geometry_provider": geometry_provider, "members": len(group["members"]), "warnings": warnings}
+
+        await _export_and_upload(job, ctx, _produce, _report)

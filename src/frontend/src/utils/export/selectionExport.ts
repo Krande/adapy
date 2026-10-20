@@ -12,14 +12,21 @@
 //
 //   - no server (a notebook, a file opened from disk): there is nothing to re-read the model;
 //   - a GLB, or a source whose tree is not built from objects (a FEM deck): nothing behind it;
-//   - a provider's node delivered as a MESH: triangles only, so no STEP; and an IFC would be a
-//     tessellated shell of what the user thinks they are downloading, so not that either.
+//   - a provider's node delivered as a MESH, read from that provider: triangles only, so no STEP;
+//     and an IFC would be a tessellated shell of what the user thinks they are downloading. Read
+//     from another provider that publishes objects for the same elements, it can be
+//     (`planGroupExport`'s "Geometry from").
+//
+// SEVERAL ELEMENTS go to the route as a `group` and come back as ONE file, each element under the
+// levels it sits in at its source.
 //
 // React-free and store-free (types only), so it runs under `node --test` without stubs; the
 // panel assembles the real dependencies, as `assets/delivery.ts`'s `loadNode` callers do.
 
 import type { NodeRef } from "@/assets/delivery";
 import type { TreeNodeData } from "@/components/tree_view/CustomNode";
+import type { WireGeometryProvider } from "@/services/api/clashCheck";
+import type { GroupMember } from "@/utils/groups/savedGroups";
 import type { TreeIndices } from "@/utils/tree_view/treeGraph";
 
 export type SelectionExportFormat = "step" | "ifc";
@@ -235,6 +242,118 @@ export function selectionExportBody(request: SelectionExportRequest, format: Sel
   };
 }
 
+// --- several elements, and where their geometry is read from --------------------------------
+
+/** One choice of the "Geometry from" select: a provider id, or `null` for each model's own. */
+export interface GeometrySourceChoice {
+  readonly id: string | null;
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly title?: string;
+}
+
+export interface GroupExportPlan {
+  readonly members: readonly GroupMember[];
+  /** Providers among the members whose models were delivered as a mesh (no objects behind them). */
+  readonly meshProviders: readonly string[];
+  /** Whether any member is a published node, so a geometry provider applies at all. */
+  readonly hasNodes: boolean;
+  readonly choices: readonly GeometrySourceChoice[];
+  /** What the select starts on: a readable provider when a member is mesh-only, else each model's own. */
+  readonly defaultProvider: string | null;
+}
+
+function sameNode(a: NodeRef, t: Extract<GroupMember["target"], { kind: "node" }>): boolean {
+  return a.provider === t.provider && a.collection === t.collection && a.subject === t.subject && (a.revision || null) === (t.revision || null);
+}
+
+/** Which providers the members' models were delivered by as a MESH: a load the asset browser
+ *  recorded without a derived GLB key. */
+export function meshDeliveredProviders(members: readonly GroupMember[], loadedAssets: readonly LoadedAssetFacts[]): string[] {
+  const out = new Set<string>();
+  for (const m of members) {
+    if (m.target.kind !== "node") continue;
+    const t = m.target;
+    const loaded = loadedAssets.find((a) => sameNode(a.ref, t));
+    if (loaded && !loaded.glbKey) out.add(t.provider);
+  }
+  return [...out].sort();
+}
+
+/** The "Geometry from" choices and the default for `members`. `providers` is the server's list of
+ *  providers a live pool can read into objects; `null` when it is not known. */
+export function planGroupExport(args: {
+  readonly members: readonly GroupMember[];
+  readonly loadedAssets: readonly LoadedAssetFacts[];
+  readonly providers: readonly WireGeometryProvider[] | null;
+  readonly providerName?: (id: string) => string;
+}): GroupExportPlan {
+  const { members, loadedAssets, providers } = args;
+  const name = args.providerName ?? ((id: string) => id);
+  const meshProviders = meshDeliveredProviders(members, loadedAssets);
+  const hasNodes = members.some((m) => m.target.kind === "node");
+  const own: GeometrySourceChoice = meshProviders.length
+    ? {
+        id: null,
+        label: "Each model's own provider",
+        disabled: true,
+        title: `${meshProviders.map(name).join(", ")} delivered a mesh: no objects behind it to write a STEP or IFC from`,
+      }
+    : { id: null, label: "Each model's own provider", disabled: false };
+  const listed: GeometrySourceChoice[] = (providers ?? [])
+    .filter((p) => !meshProviders.includes(p.id))
+    .map((p) => ({
+      id: p.id,
+      label: p.label || name(p.id),
+      disabled: !p.readable,
+      title: p.readable ? undefined : p.unavailable_reason || "can't be read into objects right now",
+    }))
+    .sort((a, b) => Number(a.disabled) - Number(b.disabled) || a.label.localeCompare(b.label));
+  const firstReadable = listed.find((c) => !c.disabled)?.id ?? null;
+  return {
+    members,
+    meshProviders,
+    hasNodes,
+    choices: hasNodes ? [own, ...listed] : [own],
+    defaultProvider: meshProviders.length ? firstReadable : null,
+  };
+}
+
+/** Why the export cannot run with `provider`, or null when it can. */
+export function groupExportBlocker(plan: GroupExportPlan, provider: string | null): string | null {
+  if (plan.members.length === 0) return "Nothing selected belongs to a model loaded from storage.";
+  if (provider === null && plan.meshProviders.length) {
+    const readable = plan.choices.some((c) => c.id !== null && !c.disabled);
+    return readable
+      ? "Part of the selection was delivered as a mesh: choose a provider to read its objects from."
+      : `Part of the selection was delivered as a mesh by ${plan.meshProviders.join(", ")}, and no provider ` +
+          "that publishes objects can be read right now.";
+  }
+  return null;
+}
+
+/** The route's body for several elements written as one file. */
+export function groupExportBody(
+  members: readonly GroupMember[],
+  label: string,
+  format: SelectionExportFormat,
+  provider: string | null,
+): Record<string, unknown> {
+  return {
+    group: { name: label, members },
+    format,
+    label,
+    ...(provider ? { geometry_provider: provider } : {}),
+  };
+}
+
+/** What a several-element export's `.log.json` says (`{geometry_provider, members, warnings}`). */
+export interface GroupExportLog {
+  readonly geometry_provider: string | null;
+  readonly members: number;
+  readonly warnings: readonly string[];
+}
+
 // --- the flow ------------------------------------------------------------------------------
 
 export interface SelectionExportDeps {
@@ -272,7 +391,16 @@ export async function runSelectionExport(
   request: SelectionExportRequest,
   format: SelectionExportFormat,
 ): Promise<{ derivedKey: string; filename: string; cached: boolean }> {
-  const resp = await deps.api.exportSelection(scope, selectionExportBody(request, format));
+  return runExportBody(deps, scope, selectionExportBody(request, format));
+}
+
+/** `runSelectionExport` for any body the route takes (one selection, or a `group`). */
+export async function runExportBody(
+  deps: SelectionExportDeps,
+  scope: string,
+  body: Record<string, unknown>,
+): Promise<{ derivedKey: string; filename: string; cached: boolean }> {
+  const resp = await deps.api.exportSelection(scope, body);
   if (!resp.cached) {
     if (!resp.job_id) throw new SelectionExportError("the export reported neither a stored file nor a job id");
     deps.trackJob?.({ jobId: resp.job_id, label: `Export: ${resp.filename}`, derivedKey: resp.derived_key });

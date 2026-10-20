@@ -52,6 +52,10 @@ __all__ = [
 #: format a "download this part" button has no business choosing for the user.
 SELECTION_EXPORT_FORMATS: dict[str, str] = {"step": ".step", "ifc": ".ifc"}
 
+#: Beside a several-element export's file: which provider its geometry came from, and the members
+#: that were left out (``{geometry_provider, members, warnings}``).
+EXPORT_LOG_SUFFIX = ".log.json"
+
 #: Sources whose GLB tree is named after the objects a re-read produces, so a selection can find
 #: its way back. FEM decks are deliberately absent: their tree is elements and sets, not the
 #: concept objects a CAD export would be made of, and a selection there has no honest meaning.
@@ -169,13 +173,73 @@ def scope_to_selection(model: Any, element: str | None, path: Sequence[str] = ()
         return model
 
     out = ada.Assembly(str(getattr(model, "name", None) or "selection"), units=model.units)
-    if element is None:
-        target = model
-    else:
-        target = find_selection(model, element, path)
-
-    _mark_added(reparent_selection(target, out))
+    target = model if element is None else find_selection(model, element, path)
+    # Beneath its whole ancestry: no element lands in the file without the levels above it.
+    place_rooted(target, out, {}, keep_root=False)
+    for part in list(out.parts.values()):
+        _mark_added(part)
     return out
+
+
+def _unique_part_name(parent: Any, name: str) -> str:
+    taken = {str(p.name) for p in parent.parts.values()}
+    if name not in taken:
+        return name
+    n = 2
+    while f"{name} ({n})" in taken:
+        n += 1
+    return f"{name} ({n})"
+
+
+def place_rooted(target: Any, into: Any, shells: dict[int, Any], *, keep_root: bool) -> None:
+    """Move ``target`` under ``into`` beneath copies of ALL its ancestors, up to its model's top.
+
+    Each ancestor becomes a part of the same name and placement; ``shells`` maps an ancestor to
+    its copy, so selections sharing an ancestor share it in the result. The model's root
+    ``Assembly`` is copied only with ``keep_root`` -- when it is dropped, its placement is folded
+    into the first level kept, so everything stays where its source put it. ``target`` may be a
+    part, one physical object, or a whole model (an ``Assembly``, whose top level moves).
+    """
+    import ada
+
+    if isinstance(target, ada.Assembly):
+        holder = into
+        if keep_root:
+            holder = shells.get(id(target))
+            if holder is None:
+                holder = ada.Part(_unique_part_name(into, str(target.name)), placement=target.placement.copy_to())
+                into.add_part(holder)
+                shells[id(target)] = holder
+        for child in list(target.parts.values()):
+            holder.add_part(child)
+        for direct in list(target.get_all_physical_objects(sub_elements_only=True)):
+            holder.add_object(direct)
+        return
+
+    ancestors = list(reversed(target.get_ancestors(include_self=False)))
+    dropped_root = bool(ancestors) and isinstance(ancestors[0], ada.Assembly) and not keep_root
+    if dropped_root:
+        ancestors = ancestors[1:]
+    parent = into
+    for i, anc in enumerate(ancestors):
+        shell = shells.get(id(anc))
+        if shell is None:
+            placement = (
+                anc.placement.get_absolute_placement(include_rotations=True).copy_to()
+                if i == 0 and dropped_root
+                else anc.placement.copy_to()
+            )
+            shell = ada.Part(_unique_part_name(parent, str(anc.name)), placement=placement)
+            parent.add_part(shell)
+            shells[id(anc)] = shell
+        parent = shell
+    if isinstance(target, ada.Part):
+        if parent is into and dropped_root:
+            # A top-level part of a dropped root: the root's placement goes with it.
+            target.placement = target.placement.get_absolute_placement(include_rotations=True).copy_to()
+        parent.add_part(target)
+    else:
+        parent.add_object(target)
 
 
 def reparent_selection(target: Any, into: Any) -> Any:
@@ -306,3 +370,36 @@ def export_asset_selection(
 
     part = part_for_asset_node(collection=collection, subject=subject, storage=storage, revision=revision, node=node)
     return write_selection(scope_to_selection(part, element, _parse_path(path)), fmt, out_path)
+
+
+def group_export_derived_key(group_token: str, geometry_token: str, filename: str) -> str:
+    """Where a several-element export lands: one key per (members and their sources' contents,
+    the geometry they were read from, file name -- which carries the format)."""
+    return f"_derived/export/group/{group_token}/{geometry_token}/{filename}"
+
+
+def export_group_selection(
+    group: dict[str, Any],
+    *,
+    storage: Any,
+    fmt: str,
+    out_path: pathlib.Path,
+    geometry_provider: str | None = None,
+) -> list[str]:
+    """Write a NORMALISED group's members (``ada.clash.group.normalise_group``) as ONE file.
+
+    The members are assembled the way a group clash check assembles them
+    (``ada.clash.group_model.build_group_model``): each source read once, one part per member,
+    and -- with ``geometry_provider`` -- every node member re-addressed to that provider's publish
+    of the same element first. Returns the warnings: members that were left out, and why.
+    """
+    from ada.clash.group_model import GroupModelError, build_group_model
+
+    try:
+        built = build_group_model(group, storage=storage, geometry_provider=geometry_provider, rooted=True)
+    except GroupModelError as exc:
+        raise SelectionExportError(str(exc)) from exc
+    for part in list(built.model.parts.values()):
+        _mark_added(part)
+    write_selection(built.model, fmt, out_path)
+    return list(built.warnings)

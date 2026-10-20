@@ -103,6 +103,7 @@ def build_group_model(
     load_file: Callable | None = None,
     read_node: Callable[..., Any] | None = None,
     geometry_provider: str | None = None,
+    rooted: bool = False,
 ) -> GroupModel:
     """The combined model of a NORMALISED group (``ada.clash.group.normalise_group``).
 
@@ -116,6 +117,11 @@ def build_group_model(
     element BEFORE anything is read (``ada.clash.geometry_source.remap_group``); the members it
     cannot match are warnings, like a member that cannot be found. ``GroupModel.group`` is then the
     re-addressed group, which is what a detail job has to rebuild from.
+
+    ``rooted`` places each member beneath copies of its ancestors up to its model's top level
+    (``selection_export.place_rooted``) instead of in a ``"<n>: <label>"`` part of its own -- what
+    an export needs, so no element is written without the levels above it. With members from
+    several sources, each source's root is kept as a top-level part.
     """
     import ada
     from ada.comms.rest.selection_export import SelectionExportError, find_selection
@@ -209,6 +215,20 @@ def build_group_model(
         raise GroupModelError(f"none of the {asked} member(s) of this group could be resolved: {detail}")
 
     asm = ada.Assembly(str(group.get("name") or "group"))
+    if rooted:
+        from ada.comms.rest.selection_export import place_rooted
+
+        sources = {source_identity(placed[n][0]["target"]) for n in placed}
+        if len(sources) == 1:
+            # One model: the file's root stands for that model's root, named after it.
+            first = placed[min(placed)][1]
+            top = first if isinstance(first, ada.Assembly) else first.get_ancestors(include_self=True)[-1]
+            if isinstance(top, ada.Assembly):
+                asm = ada.Assembly(str(top.name), units=top.units)
+        shells: dict[int, Any] = {}
+        for n in sorted(placed):
+            place_rooted(placed[n][1], asm, shells, keep_root=len(sources) > 1)
+        return GroupModel(model=asm, warnings=warnings, resolved=len(placed), group=dict(group), remap=remap)
     # Moved only now, after every source's selections were found: see the module docstring.
     for n in sorted(placed):
         member, obj = placed[n]

@@ -587,6 +587,22 @@ class LocalJobTransport(_BaseTransport):
         this process reads, or a published node whose provider is installed here -- told apart
         by what the route put in the options, as ``_submit_clash_check`` does."""
         opts = dict(req.conversion_options or {})
+        if req.target_format == "export_selection_group":
+            try:
+                job = local_jobs.start_export_selection_group(
+                    options=opts, derived_key=req.derived_key or "", storage=self._storage, scope=req.scope
+                )
+            except LookupError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return SubmittedJob(
+                job_id=job.job_id,
+                derived_key=job.derived_key,
+                status=job.status,
+                stage=job.stage,
+                progress=job.progress,
+                target_capability=None,
+                payload=job.as_json(),
+            )
         try:
             job = local_jobs.start_export_selection(
                 source_key=None if opts.get("collection") else str(opts.get("source_key") or req.source_key),

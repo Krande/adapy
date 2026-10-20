@@ -13,6 +13,9 @@ format into ``ada`` objects (``collection`` + ``subject``). What the user select
 model rides separately as ``element`` (the tree row's name; omitted for the model's root row)
 and ``path`` (the row names from below the root down to it), because names repeat.
 
+SEVERAL ELEMENTS, from one model or several, are a third form: ``group`` (``_submit_group_export``),
+written as one file with one part per member.
+
 A NODE DELIVERED AS A MESH IS REFUSED HERE, not in the job: a mesh-only provider hands over
 triangles and no objects, so there is nothing to write a STEP from and an IFC could only be a
 tessellated shell of what the user thinks they are downloading. Saying so before anything is
@@ -34,9 +37,20 @@ from ..selection_export import (
     SELECTION_EXPORT_FORMATS,
     SELECTION_SOURCE_EXTS,
     export_filename,
+    group_export_derived_key,
     selection_derived_key,
 )
-from .clash_check import _asset_source_key, _source_content_token
+from ada.clash.group import group_token
+from ada.clash.options import ClashOptions
+
+from .clash_check import (
+    _asset_source_key,
+    _geometry_options_token,
+    _group_from_body,
+    _resolve_group,
+    _route_with_reader,
+    _source_content_token,
+)
 from .deps import RestContext, rest_context, scope_from_path
 
 router = APIRouter()
@@ -75,6 +89,8 @@ async def api_export_selection(
     fmt = str(body.get("format") or "").lower()
     if fmt not in SELECTION_EXPORT_FORMATS:
         raise HTTPException(status_code=400, detail=f"'format' must be one of {sorted(SELECTION_EXPORT_FORMATS)}")
+    if body.get("group") is not None:
+        return await _submit_group_export(body, request, ctx, scope_obj, user, fmt)
     source_key = str(body.get("source_key") or "")
     collection = str(body.get("collection") or "")
     subject = str(body.get("subject") or "")
@@ -159,6 +175,73 @@ async def api_export_selection(
             "export_selection",
             key=derived_key,
             target_format=target_format,
+            status="queued",
+            job_id=submitted.job_id,
+        ),
+    )
+    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False, "filename": filename})
+
+
+async def _submit_group_export(
+    body: dict,
+    request: Request,
+    ctx: RestContext,
+    scope_obj: Scope,
+    user: User,
+    fmt: str,
+) -> JSONResponse:
+    """Several elements as one file: ``{group: {name, members}, format, geometry_provider?, label?,
+    force?}``, members in the group clash check's form (``ada.clash.group.normalise_group``).
+
+    ``geometry_provider`` reads every node member from that provider's publish of the same element
+    (``ada.clash.geometry_source``) -- how a selection made in a mesh-only provider's model is
+    written from a provider that has objects behind it. Members it cannot match are left out and
+    named in the ``.log.json`` beside the file.
+    """
+    if body.get("source_key") or body.get("collection") or body.get("subject"):
+        raise HTTPException(status_code=400, detail="'group' names the models itself: send it without 'source_key' or 'collection'/'subject'")
+    raw_provider = body.get("geometry_provider")
+    if raw_provider is not None and not isinstance(raw_provider, str):
+        raise HTTPException(status_code=400, detail="'geometry_provider' must be a provider id")
+    group = _group_from_body(body.get("group"))
+
+    ctx.jobs.require("export_selection")
+
+    resolved, content = await _resolve_group(ctx, scope_obj, group)
+    provider = (raw_provider or "").strip() or None
+    if provider and all(m["target"]["kind"] == "file" or m["target"].get("provider") == provider for m in resolved["members"]):
+        # Nothing to re-address: the same export as asking for no provider, so the same file.
+        provider = None
+    capability = await _route_with_reader(ctx, None, provider, needs="the selection export")
+
+    token = group_token(resolved["members"], content)
+    collections = [m["target"]["collection"] for m in resolved["members"] if m["target"]["kind"] == "node"]
+    geometry_token = await _geometry_options_token(ctx, scope_obj, ClashOptions(geometry_provider=provider), collections)
+    filename = export_filename(str(body.get("label") or "") or resolved["name"], fmt)
+    derived_key = group_export_derived_key(token, geometry_token, filename)
+
+    if not bool(body.get("force")) and await ctx.storage.exists(scope_obj, derived_key):
+        return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True, "filename": filename})
+
+    submitted = await ctx.jobs.submit(
+        JobRequest(
+            source_key=f"group:{token}",
+            # A literal, as for the other two kinds.
+            target_format="export_selection_group",
+            scope=scope_obj,
+            feature="export_selection",
+            derived_prefix=derived_key.rsplit("/", 1)[0],
+            derived_key=derived_key,
+            conversion_options={"group": resolved, "format": fmt, "geometry_provider": provider},
+            target_capability=capability,
+        ),
+        before_dispatch=lambda submitted: ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "export_selection",
+            key=derived_key,
+            target_format="export_selection_group",
             status="queued",
             job_id=submitted.job_id,
         ),
