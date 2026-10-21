@@ -1,7 +1,8 @@
 import * as THREE from "three";
-import {useModelState} from "@/state/modelState"; // assuming correct path
+import {useModelState} from "@/state/modelState";
+import type {OwnedSceneObjects} from "@/utils/scene/ownedSceneObjects";
 
-export function addDynamicGridHelper(scene: THREE.Scene): THREE.GridHelper {
+export function addDynamicGridHelper(owned: OwnedSceneObjects): THREE.GridHelper {
     const {zIsUp} = useModelState.getState();
 
     const grid = new THREE.GridHelper(100, 100, 0x888888, 0x444444);
@@ -14,6 +15,5 @@ export function addDynamicGridHelper(scene: THREE.Scene): THREE.GridHelper {
         grid.rotation.x = Math.PI / 2;
     }
 
-    scene.add(grid);
-    return grid;
+    return owned.add(grid);
 }

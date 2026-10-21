@@ -1,11 +1,12 @@
 import * as THREE from "three";
+import type {OwnedSceneObjects} from "@/utils/scene/ownedSceneObjects";
 import { addCameraLightWithTracking } from "./addCameraLight";
 
-export function setupLights(scene: THREE.Scene, camera: THREE.Camera) {
-  const ambientLight = new THREE.AmbientLight(0xffffff, Math.PI / 2);
-  scene.add(ambientLight);
+/** The viewer's lighting, added through `owned` so a remount replaces it rather than adding to it. */
+export function setupLights(owned: OwnedSceneObjects, camera: THREE.Camera) {
+  owned.add(new THREE.AmbientLight(0xffffff, Math.PI / 2));
 
-  const updateCameraLight = addCameraLightWithTracking(camera, scene);
+  const updateCameraLight = addCameraLightWithTracking(camera, owned);
 
   return {
     updateCameraLight,

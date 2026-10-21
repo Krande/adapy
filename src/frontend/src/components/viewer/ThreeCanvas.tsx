@@ -9,6 +9,7 @@ import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHan
 import {setupCamera} from "./sceneHelpers/setupCamera";
 import {setupControls} from "./sceneHelpers/setupControls";
 import {setupLights} from "./sceneHelpers/setupLights";
+import {claimSceneObjects} from "@/utils/scene/ownedSceneObjects";
 import {addDynamicGridHelper} from "./sceneHelpers/addDynamicGridHelper";
 import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
@@ -40,7 +41,6 @@ const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const {modelUrl, zIsUp, defaultOrbitController} = useModelState();
     const {showPerf} = useOptionsStore();
-    const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
     const statsRef = useRef<{
         statsArray: any[];
         callsPanel: any;
@@ -89,10 +89,9 @@ const ThreeCanvas: React.FC = () => {
             sceneRef.current = scene;
         }
         const scene = sceneRef.current;
-
-        // Create the animation controller
-        modelGroupRef.current = new THREE.Group();
-
+        // The scene outlives this mount: what the mount adds to it goes
+        // through `owned`, so a rerun replaces it instead of stacking a copy.
+        const owned = claimSceneObjects(scene, "viewer-canvas");
 
         // === Renderer ===
         // Antialias is decided at construction time only; toggling the
@@ -135,11 +134,11 @@ const ThreeCanvas: React.FC = () => {
         );
 
         // === Lights ===
-        const {updateCameraLight} = setupLights(scene, camera);
+        const {updateCameraLight} = setupLights(owned, camera);
         updatelightRef.current = updateCameraLight;
 
         // === Helpers ===
-        const grid_helper = addDynamicGridHelper(scene);
+        const grid_helper = addDynamicGridHelper(owned);
 
         let gizmo: OrientationGizmo | null = null;
         if (containerRef.current && camera && controls) {
@@ -158,11 +157,6 @@ const ThreeCanvas: React.FC = () => {
                 runtime.clearB64Gltf();
             }
         }
-        if (modelGroupRef.current) {
-            // If a model is already loaded, add it to the scene
-            scene.add(modelGroupRef.current);
-        }
-
         // === Controls events for on-demand render + adaptive DPR ===
         // OrbitControls emits 'change'/'start'/'end'; CameraControls
         // uses 'update'/'controlstart'/'controlend'. Both extend the
@@ -293,7 +287,8 @@ const ThreeCanvas: React.FC = () => {
                 containerRef.current.removeChild(gizmo);
             }
             grid_helper.dispose();
-            scene.remove(grid_helper);
+            owned.dispose(); // lights, the grid: everything this mount added
+            if (updatelightRef.current === updateCameraLight) updatelightRef.current = null;
             removeKeyHandlers?.(); // cleanup key listeners
             if (interactingTimer) clearTimeout(interactingTimer);
             // Detach control-event listeners so they don't pile up on
