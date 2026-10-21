@@ -17,6 +17,16 @@ export function toggledExcluded(excluded: readonly string[], collection: string,
     return [...next].sort();
 }
 
+/** The excluded list with every one of `collections` set to run (or not run) together. */
+export function excludedWithAll(excluded: readonly string[], collections: readonly string[], run: boolean): string[] {
+    const next = new Set(excluded);
+    for (const c of collections) {
+        if (run) next.delete(c);
+        else next.add(c);
+    }
+    return [...next].sort();
+}
+
 const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
     const [open, setOpen] = useState(false);
     const [collections, setCollections] = useState<string[]>([]);
@@ -96,6 +106,27 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
                         Ticked collections run in every new sweep; unticked ones start as "not run" and can still be ticked in a
                         running sweep.
                     </div>
+                    {shown.length > 0 && (
+                        // Act on what the filter shows: all of it unfiltered.
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-2 py-0.5 rounded-sm"
+                                disabled={shown.every((c) => !excluded.includes(c))}
+                                onClick={() => setExcluded(excludedWithAll(excluded, shown, true))}
+                            >
+                                Select all{filter.trim() ? " shown" : ""}
+                            </button>
+                            <button
+                                type="button"
+                                className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-2 py-0.5 rounded-sm"
+                                disabled={shown.every((c) => excluded.includes(c))}
+                                onClick={() => setExcluded(excludedWithAll(excluded, shown, false))}
+                            >
+                                Deselect all{filter.trim() ? " shown" : ""}
+                            </button>
+                        </div>
+                    )}
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-x-2 gap-y-0.5 max-h-56 overflow-y-auto">
                         {shown.map((c) => (
                             <label key={c} className="inline-flex items-center gap-1 font-mono">
