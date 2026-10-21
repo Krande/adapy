@@ -97,6 +97,17 @@ test("a finished bulk load saves the view framing everything it loaded, in the p
   assert.deepEqual(camera.position.toArray(), [0, 0, 50]);
 });
 
+test("a bulk load asked to save nothing leaves no loading view behind", () => {
+  const camera = new THREE.PerspectiveCamera(90, 1);
+  camera.position.set(0, 0, 50);
+  camera.lookAt(0, 0, 0);
+  runtime().camera.current = camera;
+  const session = beginBulkLoad("user:me", "restore", { view: null, save: false });
+  noteBulkModel(new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)));
+  endBulkLoad(session);
+  assert.equal(readLoadingView("user:me", "restore"), null);
+});
+
 test("a finished bulk load leaves a saved view alone, and an overtaken session ends nothing", () => {
   runtime().camera.current = new THREE.PerspectiveCamera(60, 1);
   const mine: LoadingView = { v: 1, translation: null, position: [1, 1, 1], target: [0, 0, 0], up: [0, 0, 1] };

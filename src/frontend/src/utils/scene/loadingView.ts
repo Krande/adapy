@@ -174,6 +174,8 @@ interface Session {
   /** The camera has been placed (a saved view applied, or the first model framed). */
   placed: boolean;
   loaded: number;
+  /** Save the project's loading view at the end when it has none. */
+  save: boolean;
 }
 
 let session: Session | null = null;
@@ -186,10 +188,17 @@ export function bulkLoadActive(): boolean {
 /** Start loading many models of `project` in `scope`: the camera goes to the project's loading
  *  view now, when there is one, and stays there. Returns the handle `endBulkLoad` takes -- a
  *  second bulk load started meanwhile takes the session over, and the first one's end then leaves
- *  it alone. */
-export function beginBulkLoad(scope: string, project: string): object {
-  const view = readLoadingView(scope, project);
-  const s: Session = { scope, project, box: new THREE.Box3(), placed: false, loaded: 0 };
+ *  it alone.
+ *
+ *  `opts.view` places the camera there instead of the project's loading view (null: frame the
+ *  first model); `opts.save: false` leaves the project's loading view as it is at the end. */
+export function beginBulkLoad(
+  scope: string,
+  project: string,
+  opts: { view?: LoadingView | null; save?: boolean } = {},
+): object {
+  const view = opts.view !== undefined ? opts.view : readLoadingView(scope, project);
+  const s: Session = { scope, project, box: new THREE.Box3(), placed: false, loaded: 0, save: opts.save ?? true };
   // Taking over from a session still running: the camera was already placed for this scene.
   if (session) s.placed = true;
   session = s;
@@ -223,7 +232,7 @@ export function endBulkLoad(handle: object): void {
   if (session !== handle) return;
   const s = session;
   session = null;
-  if (s.loaded === 0 || readLoadingView(s.scope, s.project)) return;
+  if (!s.save || s.loaded === 0 || readLoadingView(s.scope, s.project)) return;
   const camera = getViewerRuntime().camera.current as THREE.PerspectiveCamera | null;
   if (!camera) return;
   const fit = fitView(s.box, camera.getWorldDirection(new THREE.Vector3()), camera.fov, camera.aspect);

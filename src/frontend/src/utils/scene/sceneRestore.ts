@@ -18,7 +18,10 @@ import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
 import {useSceneRestoreStore} from "@/state/sceneRestoreStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {applyLoadingView, captureLoadingView} from "@/utils/scene/loadingView";
+import {beginBulkLoad, captureLoadingView, endBulkLoad} from "@/utils/scene/loadingView";
+
+/** The bulk-load session's project name: it saves no loading view, so the name is only a label. */
+const RESTORE_SESSION = "scene-restore";
 
 import {
     EMPTY_SCENE_RECORD,
@@ -170,33 +173,35 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         const generation = restoreGeneration;
         const progress = {total: plan.length, done: 0, failed: 0, running: true};
         setProgress({...progress});
-        let loaded = 0;
-        for (const m of plan) {
-            if (generation !== restoreGeneration || currentScope() !== scope || !useSceneRestoreStore.getState().enabled) break;
-            const name = recordedSourceName(m);
-            let ok = useModelState.getState().loadedSourceNames.has(name);
-            if (!ok) {
-                try {
-                    ok = m.kind === "file" ? await loadFile(m) : await loadAsset(scope, m);
-                } catch (e) {
-                    console.warn("scene restore: load failed for", name, e);
+        // One bulk load: the camera goes to where it was before the reload, and no model's own
+        // fit moves it afterwards. Without a saved camera the first model is framed.
+        const session = beginBulkLoad(scope, RESTORE_SESSION, {view: rec.camera ?? null, save: false});
+        try {
+            for (const m of plan) {
+                if (generation !== restoreGeneration || currentScope() !== scope || !useSceneRestoreStore.getState().enabled) break;
+                const name = recordedSourceName(m);
+                let ok = useModelState.getState().loadedSourceNames.has(name);
+                if (!ok) {
+                    try {
+                        ok = m.kind === "file" ? await loadFile(m) : await loadAsset(scope, m);
+                    } catch (e) {
+                        console.warn("scene restore: load failed for", name, e);
+                    }
                 }
+                if (ok) {
+                    recordedScope.set(name, scope);
+                    requestRender();
+                } else {
+                    // Kept in the record: a load can fail for a while (a backend still starting) and
+                    // the next reload should try again. "Forget restored scene" clears it for good.
+                    console.warn(`scene restore: "${name}" could not be loaded; kept for the next reload`);
+                    progress.failed += 1;
+                }
+                progress.done += 1;
+                setProgress({...progress});
             }
-            if (ok) {
-                recordedScope.set(name, scope);
-                loaded += 1;
-                requestRender();
-            } else {
-                // Kept in the record: a load can fail for a while (a backend still starting) and the
-                // next reload should try again. "Forget restored scene" clears it for good.
-                console.warn(`scene restore: "${name}" could not be loaded; kept for the next reload`);
-                progress.failed += 1;
-            }
-            progress.done += 1;
-            setProgress({...progress});
-        }
-        if (loaded && rec.camera && generation === restoreGeneration && currentScope() === scope) {
-            applyLoadingView(rec.camera);
+        } finally {
+            endBulkLoad(session);
         }
         setProgress({...progress, running: false});
     } catch (e) {
