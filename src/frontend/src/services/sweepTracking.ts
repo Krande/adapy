@@ -73,6 +73,60 @@ function terminal(status: string, head: string, progress: number, error: string 
     return {status: "cancelled", progress, stage: `${head} · ${status}`, error: status === "interrupted" ? "the API process driving it stopped" : null};
 }
 
+/** One item in flight on a run -- a worker's current job. */
+export interface ActiveItem {
+    position: number;
+    collection: string;
+    stage: string;
+    /** 0..1, or null while its job reports none. */
+    progress: number | null;
+}
+
+const clamp01 = (p: number | null | undefined): number | null => (p == null ? null : Math.min(1, Math.max(0, p)));
+
+/** A sweep's items in flight, in run order: one per busy worker when it runs several at once. */
+export function sweepActiveItems(run: SweepRun): ActiveItem[] {
+    return (run.items ?? [])
+        .filter((i) => i.status === "fetching" || i.status === "publishing")
+        .map((i) => ({position: i.position, collection: i.collection, stage: i.stage ?? i.status, progress: clamp01(i.progress)}));
+}
+
+/** The job ids a run's items are running or have run: a sweep item's fetch and publish jobs, an
+ *  export item's job. What tells the toast which of its job entries are that run's workers. */
+export function runJobIds(run: SweepRun | ExportRun): Set<string> {
+    const ids = new Set<string>();
+    for (const i of run.items ?? []) {
+        for (const id of "fetch_job_id" in i ? [i.fetch_job_id, i.publish_job_id] : [i.job_id]) {
+            if (id) ids.add(id);
+        }
+    }
+    return ids;
+}
+
+/** What a run's worker job is called in the toast: its item's collection, and for a sweep item's
+ *  publish job, that it is publishing. Null for a job no watched run owns. */
+export function workerLabel(jobId: string): string | null {
+    if (!jobId) return null;
+    for (const seen of latest.values()) {
+        for (const i of seen.run.items ?? []) {
+            if ("fetch_job_id" in i) {
+                if (i.fetch_job_id === jobId) return i.collection;
+                if (i.publish_job_id === jobId) return `${i.collection} · publishing`;
+            } else if (i.job_id === jobId) {
+                return i.collection;
+            }
+        }
+    }
+    return null;
+}
+
+/** The watched run (its toast key) that `jobId` is a worker of, from the runs' latest reads. */
+export function parentRunOf(jobId: string): string | null {
+    if (!jobId) return null;
+    for (const [key, seen] of latest) if (runJobIds(seen.run).has(jobId)) return key;
+    return null;
+}
+
 /** The toast's view of a sweep: status, progress over all collections, and a one-line stage. */
 export function sweepToastState(run: SweepRun): ToastState {
     const items = run.items ?? [];
@@ -80,13 +134,19 @@ export function sweepToastState(run: SweepRun): ToastState {
     const excluded = items.filter((i) => i.status === "excluded").length;
     const total = Math.max(1, (run.total || items.length) - excluded);
     const finished = items.filter((i) => FINISHED.has(i.status)).length;
-    const current = items.find((i) => i.status === "fetching" || i.status === "publishing");
+    const active = sweepActiveItems(run);
     const failed = items.filter((i) => i.status === "error").length;
-    const within = current?.progress != null ? Math.min(1, Math.max(0, current.progress)) : 0;
-    const progress = Math.min(1, (finished + (current ? within : 0)) / total);
+    // Every item in flight counts its share: a sweep may run several at once.
+    const within = active.reduce((n, i) => n + (i.progress ?? 0), 0);
+    const progress = Math.min(1, (finished + within) / total);
     const head = `${finished}/${total}${failed ? ` · ${failed} failed` : ""}`;
     if (run.status === "running") {
-        const where = current ? ` · ${current.collection}: ${current.stage ?? current.status}` : "";
+        const where =
+            active.length === 1
+                ? ` · ${active[0].collection}: ${active[0].stage}`
+                : active.length > 1
+                  ? ` · ${active.length} running`
+                  : "";
         const skipping = run.skip_position != null ? " · skipping…" : "";
         return {status: "running", progress, stage: head + where + skipping, error: null};
     }
