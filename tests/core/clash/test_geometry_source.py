@@ -73,7 +73,10 @@ class _Storage:
 
 
 def _publish(s: _Storage, *, provider, subject, revision, nodes, build_source=None, node=None) -> None:
-    spine = build_hierarchy(provider=provider, collection=COLLECTION, produced_at=revision, nodes=nodes)
+    extra = ("full_name",) if any("full_name" in n for n in nodes) else ()
+    spine = build_hierarchy(
+        provider=provider, collection=COLLECTION, produced_at=revision, nodes=nodes, extra_cols=extra
+    )
     s.blobs[asset_key(COLLECTION, subject, revision, HIERARCHY_FILENAME)] = spine.to_json()
     artefacts = [ArtefactEntry(role="hierarchy", file=HIERARCHY_FILENAME, sha256="", size=1)]
     build = None
@@ -294,6 +297,74 @@ def test_a_group_is_remapped_with_every_read_cached(storage):
     # Each left-out member carries the row its own provider published it under: what a request
     # for it names, without walking the tree in the browser.
     assert [d["row"] for d in remap.unmatched_detail] == ["fn03", "fn04"]
+
+
+def _deep_fixture(s: _Storage) -> None:
+    """A frame both providers publish: the mesh-only spine three levels deep, labelled by full name;
+    the reader's spine one level shallower (its piece is a leaf), labelled by refs of its own with
+    the full names beside them."""
+    _publish(
+        s,
+        provider=MESH,
+        subject="fnframe",
+        revision=R2,
+        nodes=[
+            _row("fnframe", None, "/F1", leaf=False),
+            _row("fnpiece", "fnframe", "PIECE 1 of FRAME /F1", leaf=False),
+            _row("fnpart", "fnpiece", "PART 1 of PIECE 1 of FRAME /F1"),
+            _row("fnside", "fnframe", "PIECE 2 of FRAME /F1", leaf=False),
+            _row("fnlost", "fnside", "PART 9 of PIECE 2 of FRAME /F1"),
+        ],
+    )
+    _publish(
+        s,
+        provider=READER,
+        subject="ref-200",
+        revision=R1,
+        build_source=b"PIECE_1_of_FRAME 0 0 0 1 0 0",
+        nodes=[
+            {**_row("ref-200", None, "/F1", leaf=False), "full_name": "/F1"},
+            {**_row("ref-201", "ref-200", "=1/201"), "full_name": "PIECE 1 of FRAME /F1"},
+            {**_row("ref-202", "ref-200", "=1/202", leaf=False), "full_name": "PIECE 2 of FRAME /F1"},
+            {**_row("ref-203", "ref-202", "=1/203"), "full_name": "PART 1 of PIECE 2 of FRAME /F1"},
+        ],
+    )
+
+
+def _frame_member(element: str) -> dict:
+    target = {"kind": "node", "provider": MESH, "collection": COLLECTION, "subject": "fnframe", "revision": R2}
+    return {"target": target, "element": element, "path": []}
+
+
+def test_an_unnamed_element_is_matched_by_the_full_name_and_found_by_it(storage):
+    # The reader labels the row by its ref; its full name is the member's name, and the name the
+    # reader's objects carry, so that is what the read is asked for.
+    _deep_fixture(storage)
+    new, warning = remap_to_provider(
+        _frame_member("PIECE 1 of FRAME /F1"), READER, index=GeometrySourceIndex(storage)
+    )
+    assert warning is None
+    assert new["target"]["subject"] == "ref-200"
+    assert new["element"] == "PIECE 1 of FRAME /F1"
+
+
+def test_an_element_below_where_the_providers_spine_stops_is_read_from_that_ancestor(storage):
+    _deep_fixture(storage)
+    new, warning = remap_to_provider(
+        _frame_member("PART 1 of PIECE 1 of FRAME /F1"), READER, index=GeometrySourceIndex(storage)
+    )
+    assert warning is None
+    assert new["target"]["subject"] == "ref-200"
+    assert new["element"] == "PART 1 of PIECE 1 of FRAME /F1"
+
+
+def test_an_element_missing_where_the_providers_spine_goes_on_is_left_out(storage):
+    # The reader publishes PIECE 2's parts, and this one is not among them.
+    _deep_fixture(storage)
+    new, warning = remap_to_provider(
+        _frame_member("PART 9 of PIECE 2 of FRAME /F1"), READER, index=GeometrySourceIndex(storage)
+    )
+    assert new is None and "left out" in warning
 
 
 def test_a_member_row_is_its_own_spines_row_disambiguated_by_path(storage):

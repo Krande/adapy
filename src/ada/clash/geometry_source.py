@@ -15,15 +15,24 @@ THE MATCH, in order:
 2. The geometry provider's candidates are the subjects of the SAME collection whose newest complete
    revision it published (the collection-level subject, which every provider publishing into the
    collection shares, is searched for that provider's newest publish). Their spines are indexed by
-   normalised label: trimmed, a leading ``/`` optional; compared case-sensitively first and
-   case-insensitively only when that finds nothing.
+   normalised label AND by the row's ``full_name`` where the spine publishes one (a provider may
+   label a row with an id of its own while another names the same element by its full name):
+   trimmed, a leading ``/`` optional; compared case-sensitively first and case-insensitively only
+   when that finds nothing.
 3. One node id must answer. Two different nodes under one name is ambiguous and the member is left
    out with a warning naming both -- guessing would check the wrong steel.
 4. The node is read through a subject that can be READ (its manifest claims a build): the node's own
    subject when it is one, as a whole; otherwise the narrowest readable subject whose spine holds
-   it, with the element found in that read by NAME alone (an empty ``path``). The spine's
-   intermediate labels are the provider's display names, not promised to be the names its objects
-   carry, so a path built from them could refuse a read that the name alone resolves.
+   it, with the element found in that read by NAME alone (an empty ``path``) -- the row's full name
+   where published, else its label. The spine's intermediate labels are the provider's display
+   names, not promised to be the names its objects carry, so a path built from them could refuse a
+   read that the name alone resolves.
+5. A spine may stop short of the member's depth. When no row answers to the member's name, its
+   ancestors (from its OWN provider's spine, nearest first) are looked up instead. The first that
+   answers is read as in 4 when the provider's spine publishes nothing below it, and the member is
+   found in that read by its own name; a member the read does not hold is then reported by the
+   reader, like any member it cannot find. When the spine does go on below that ancestor, the
+   provider has no such member, and it is left out.
 
 A member that cannot be matched is a WARNING and is left out, the same rule ``group_model`` keeps
 for a member it cannot find: only a check where nothing resolves fails. File members are left as
@@ -48,6 +57,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 __all__ = [
+    "MATCH_RULES",
     "GeometryRemap",
     "GeometrySourceIndex",
     "node_group",
@@ -56,6 +66,12 @@ __all__ = [
     "remap_group",
     "remap_to_provider",
 ]
+
+
+#: The version of the match rules above. A result read through another provider's geometry is
+#: cached under it (``routes/clash_check._geometry_options_token``): change it whenever a change
+#: here can match a member differently, so results made under the old rules are not served.
+MATCH_RULES = 2
 
 
 def normalise_label(label: Any) -> str:
@@ -85,9 +101,18 @@ class _Spine:
 @dataclass
 class _ProviderCatalog:
     spines: list[_Spine]
-    #: normalised label -> {row id: label as published}
+    #: normalised label or full name -> {row id: label as published}
     exact: dict[str, dict[str, str]]
     folded: dict[str, dict[str, str]]
+    #: row id -> the name its object carries when read: the full name where one is published,
+    #: else the label (a label may be a bare id where the full name is what a reader names by).
+    names: dict[str, str] = field(default_factory=dict)
+    #: Row ids some published row names as its parent: where the spine goes deeper.
+    branches: frozenset[str] = frozenset()
+
+    def lookup(self, name: str) -> dict[str, str]:
+        norm = normalise_label(name)
+        return self.exact.get(norm) or self.folded.get(norm.casefold()) or {}
 
 
 class GeometrySourceIndex:
@@ -106,6 +131,8 @@ class GeometrySourceIndex:
         self._spines: dict[tuple[str, str, str], tuple[tuple[str, str, str], ...] | None] = {}
         #: Row id -> parent row id, per spine (filled beside ``_spines``).
         self._parents: dict[tuple[str, str, str], dict[str, str | None]] = {}
+        #: Row id -> full name, per spine, for the rows that publish one.
+        self._full_names: dict[tuple[str, str, str], dict[str, str]] = {}
         self._catalogs: dict[tuple[str, str], _ProviderCatalog] = {}
         #: Blobs fetched ahead by ``get_many``, each consumed by the one parse that wanted it
         #: (None: the batch found nothing there).
@@ -190,6 +217,7 @@ class GeometrySourceIndex:
         if key not in self._spines:
             rows = None
             parents: dict[str, str | None] = {}
+            full_names: dict[str, str] = {}
             try:
                 sliced = parse_hierarchy(self._get(self._spine_key(manifest)))
                 records = [r for r in sliced.records() if r.get("id") is not None]
@@ -197,11 +225,47 @@ class GeometrySourceIndex:
                     (str(r["id"]), str(r.get("label") or ""), str(r.get("provider") or "")) for r in records
                 )
                 parents = {str(r["id"]): (str(r["parent"]) if r.get("parent") is not None else None) for r in records}
+                full_names = {str(r["id"]): str(r["full_name"]) for r in records if r.get("full_name")}
             except (FileNotFoundError, KeyError, ValueError, HierarchyError):
                 rows = None
             self._spines[key] = rows
             self._parents[key] = parents
+            self._full_names[key] = full_names
         return self._spines[key]
+
+    def ancestor_names(self, member: Mapping[str, Any]) -> list[str]:
+        """The names of the member's ancestors in its OWN provider's spine, nearest first -- each
+        row's full name where it publishes one, else its label. Empty when no spine places it."""
+        target = member["target"]
+        if target.get("kind") != "node":
+            return []
+        row = self.member_row(member)
+        if row is None:
+            return []
+        own = self._target_manifest(target)
+        searched = [own] if own is not None else []
+        index = self.latest_manifest(
+            str(target["collection"]), str(target["collection"]), provider=own.provider if own is not None else None
+        )
+        if index is not None:
+            searched.append(index)
+        for manifest in searched:
+            rows = self.spine(manifest) or ()
+            key = (manifest.collection, manifest.subject, manifest.revision)
+            parents = self._parents.get(key, {})
+            if row not in parents:
+                continue
+            labels = {i: lab for i, lab, _prov in rows}
+            full = self._full_names.get(key, {})
+            out: list[str] = []
+            cur = parents.get(row)
+            while cur is not None and len(out) < 256:
+                name = full.get(cur) or labels.get(cur, "")
+                if name:
+                    out.append(name)
+                cur = parents.get(cur)
+            return out
+        return []
 
     def member_row(self, member: Mapping[str, Any]) -> str | None:
         """The row id the member's OWN provider published it under -- what that provider (or one
@@ -277,18 +341,32 @@ class GeometrySourceIndex:
             rows = tuple((i, lab) for i, lab, prov in (self.spine(manifest) or ()) if prov in ("", provider))
             spines.append(_Spine(subject=subject, revision=manifest.revision, manifest=manifest, rows=rows))
         labels: dict[str, str] = {}
+        full_names: dict[str, str] = {}
+        branches: set[str] = set()
         for spine in spines:
             for node_id, label in spine.rows:
                 labels.setdefault(node_id, label)
+            m = spine.manifest
+            key_m = (m.collection, m.subject, m.revision)
+            for node_id, full in self._full_names.get(key_m, {}).items():
+                full_names.setdefault(node_id, full)
+            ids = {i for i, _ in spine.rows}
+            parents = self._parents.get(key_m, {})
+            branches.update(p for i, p in parents.items() if p is not None and i in ids)
         exact: dict[str, dict[str, str]] = {}
         folded: dict[str, dict[str, str]] = {}
         for node_id, label in labels.items():
-            norm = normalise_label(label)
-            if not norm:
-                continue
-            exact.setdefault(norm, {})[node_id] = label
-            folded.setdefault(norm.casefold(), {})[node_id] = label
-        self._catalogs[key] = _ProviderCatalog(spines=spines, exact=exact, folded=folded)
+            # A row is found by its label and by its full name: where a provider labels a row with
+            # an id of its own, the full name is the one another provider's member is named by.
+            for name in {normalise_label(label), normalise_label(full_names.get(node_id, ""))}:
+                if not name:
+                    continue
+                exact.setdefault(name, {})[node_id] = label
+                folded.setdefault(name.casefold(), {})[node_id] = label
+        names = {node_id: full_names.get(node_id) or label for node_id, label in labels.items()}
+        self._catalogs[key] = _ProviderCatalog(
+            spines=spines, exact=exact, folded=folded, names=names, branches=frozenset(branches)
+        )
         return self._catalogs[key]
 
     # -- the member's own side ---------------------------------------------------------------
@@ -372,35 +450,69 @@ def remap_to_provider(
             None,
             f"{_describe(member)}: provider {provider!r} published nothing in collection {collection!r}; left out",
         )
-    norm = normalise_label(name)
-    hits = catalog.exact.get(norm) or catalog.folded.get(norm.casefold()) or {}
-    if not hits:
-        return (
-            None,
-            f"{_describe(member)}: no node of provider {provider!r} in {collection!r} is named {name!r}; left out",
-        )
+    hits = catalog.lookup(name)
     if len(hits) > 1:
-        ids = ", ".join(sorted(hits))
-        return None, (
-            f"{_describe(member)}: {len(hits)} nodes of provider {provider!r} are named {name!r} ({ids}), "
-            "so which one is meant cannot be told from the name; left out"
-        )
-    ((node_id, label),) = hits.items()
+        return None, _ambiguous(member, provider, name, hits)
+    if hits:
+        ((node_id, label),) = hits.items()
+        own_subject = next((s for s in catalog.spines if s.node == node_id and s.readable), None)
+        if own_subject is not None:
+            # The element is a subject of its own: read it whole, nothing to find inside it.
+            return {"target": _node_target(provider, collection, own_subject), "element": None, "path": []}, None
+        # Found in the read by the name its object carries, which is not always the row's label.
+        return _found_in_cover(member, provider, collection, catalog, node_id, label, catalog.names.get(node_id) or label)
 
-    own_subject = next((s for s in catalog.spines if s.node == node_id and s.readable), None)
-    if own_subject is not None:
-        # The element is a subject of its own: read it whole, nothing to find inside it.
-        new_target = {
-            "kind": "node",
-            "provider": provider,
-            "collection": collection,
-            "subject": own_subject.subject,
-            "revision": own_subject.revision,
-            "node": own_subject.node,
-        }
-        return {"target": new_target, "element": None, "path": []}, None
+    # Not a row of the provider's spine. Where that spine STOPS at an ancestor (publishes nothing
+    # below it), the member may be inside that ancestor's read: read it, and find the member there
+    # by its own name. Where the spine goes on below the ancestor without the member, the provider
+    # does not have it.
+    for ancestor in index.ancestor_names(member):
+        found = catalog.lookup(ancestor)
+        if len(found) > 1:
+            return None, _ambiguous(member, provider, ancestor, found)
+        if not found:
+            continue
+        ((node_id, label),) = found.items()
+        if node_id in catalog.branches:
+            break
+        return _found_in_cover(member, provider, collection, catalog, node_id, label, name)
+    return (
+        None,
+        f"{_describe(member)}: no node of provider {provider!r} in {collection!r} is named {name!r}; left out",
+    )
 
-    covers = [s for s in catalog.spines if s.readable and any(i == node_id for i, _ in s.rows)]
+
+def _node_target(provider: str, collection: str, spine: _Spine) -> dict:
+    return {
+        "kind": "node",
+        "provider": provider,
+        "collection": collection,
+        "subject": spine.subject,
+        "revision": spine.revision,
+        "node": spine.node,
+    }
+
+
+def _ambiguous(member: Mapping[str, Any], provider: str, name: str, hits: Mapping[str, str]) -> str:
+    ids = ", ".join(sorted(hits))
+    return (
+        f"{_describe(member)}: {len(hits)} nodes of provider {provider!r} are named {name!r} ({ids}), "
+        "so which one is meant cannot be told from the name; left out"
+    )
+
+
+def _found_in_cover(
+    member: Mapping[str, Any],
+    provider: str,
+    collection: str,
+    catalog: _ProviderCatalog,
+    node_id: str,
+    label: str,
+    element: str,
+) -> tuple[dict | None, str | None]:
+    """``element`` read from the narrowest readable subject of ``provider`` that holds ``node_id``:
+    the row itself when it is a subject, else a subject whose spine lists it."""
+    covers = [s for s in catalog.spines if s.readable and (s.node == node_id or any(i == node_id for i, _ in s.rows))]
     if not covers:
         return None, (
             f"{_describe(member)}: provider {provider!r} lists {label!r} ({node_id}) but publishes no "
@@ -408,15 +520,7 @@ def remap_to_provider(
         )
     # The narrowest cover: the smallest read, and the fewest other objects to share the name with.
     cover = min(covers, key=lambda s: (len(s.rows), s.subject))
-    new_target = {
-        "kind": "node",
-        "provider": provider,
-        "collection": collection,
-        "subject": cover.subject,
-        "revision": cover.revision,
-        "node": cover.node,
-    }
-    return {"target": new_target, "element": label, "path": []}, None
+    return {"target": _node_target(provider, collection, cover), "element": element, "path": []}, None
 
 
 @dataclass

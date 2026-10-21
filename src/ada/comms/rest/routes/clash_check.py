@@ -100,13 +100,18 @@ async def _geometry_options_token(ctx: RestContext, scope: Scope, options: Clash
     the safe direction, and one ``list_prefix`` per collection rather than a manifest read per
     subject.
 
+    The match rules' version (``geometry_source.MATCH_RULES``) is part of it too: a result is as
+    much a function of how members were matched as of what was published.
+
     Without a geometry provider the plain options token is returned unchanged, so the derived key of
     every default check -- and every result cached before this -- stays where it was.
     """
     token = _options_token(options)
     if options.geometry_provider is None:
         return token
-    parts = [token]
+    from ada.clash.geometry_source import MATCH_RULES
+
+    parts = [token, f"match={MATCH_RULES}"]
     for collection in sorted(set(collections)):
         entries = await ctx.storage.list_prefix(scope, f"{ASSET_PREFIX}/{collection}/")
         parts.append(f"{collection}={listing_token(entries, salt=_GEOMETRY_STATE_SALT)}")
