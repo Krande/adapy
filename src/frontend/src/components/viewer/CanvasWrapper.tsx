@@ -9,6 +9,8 @@ import TypeIconController from "./TypeIconController";
 import ProceduralFollowerController from "./ProceduralFollowerController";
 import GalleryControls from "./GalleryControls";
 import BBoxSelectionController from "./BBoxSelectionController";
+import SpaceMouseConnectChip from "./SpaceMouseConnectChip";
+import RenderRecordingHud from "./RenderRecordingHud";
 
 export interface CanvasWrapperProps {
   /**
@@ -39,6 +41,10 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
       </div>
       {/* Gallery HUD (opt-in via Theme options): prev/next over the scope's files. */}
       <GalleryControls />
+      {/* With the 3D mouse option on and nothing connected: the click the browser's chooser needs. */}
+      <SpaceMouseConnectChip />
+      {/* Admin render profiling: recording badge and live frame stats, top right of the screen. */}
+      <RenderRecordingHud />
       {/* Headless: reconciles section-plane clipping/caps/gizmo with the scene. */}
       <SectionPlanesController />
       {/* Headless: selection boxes -- their gizmo, face handles and the selection they make. */}

@@ -6,6 +6,7 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useGalleryStore} from "@/state/galleryStore";
 import {useMeStore} from "@/state/meStore";
+import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
@@ -135,6 +136,15 @@ export function setupCameraControlsHandlers(
             event.preventDefault();
             if (open === "admin") closePanel();
             else openPanel("admin");
+        } else if (shift && key === "r" && !ctrl && !event.altKey) {
+            // Shift+R: start / end a render-profiling session (the Performance option "Record render
+            // metrics"), administrators only. A render is requested so the profiler sees the switch
+            // at once, not on the next camera move.
+            if (!useMeStore.getState().isAdmin) return;
+            event.preventDefault();
+            const m = useViewMetricsStore.getState();
+            m.setCollectRenderMetrics(!m.collectRenderMetrics);
+            requestRender();
         } else if (shift && key === "t" && !ctrl && !event.altKey) {
             // Shift+T: open the tree at the selected element and focus it for the arrow keys (or,
             // open but unfocused, just focus it there). Closing is Shift+T or Esc from INSIDE the

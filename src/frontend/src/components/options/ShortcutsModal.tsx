@@ -38,6 +38,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Shift", "Q"], description: "Toggle the Options menu" },
       { keys: ["Shift", "W"], description: "Toggle gallery mode" },
       { keys: ["Shift", "P"], description: "Toggle the Admin panel (administrators only)" },
+      { keys: ["Shift", "R"], description: "Start / end a render-profiling session (administrators only)" },
       { keys: ["Shift", "T"], description: "Open the tree at the selected element and focus it for arrow-key navigation; pressed while the tree is focused, close it" },
       {
         keys: ["Shift", "C"],

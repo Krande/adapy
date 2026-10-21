@@ -62,15 +62,19 @@ const SpaceMouseOptions: React.FC = () => {
                         </span>
                         {s.error && <span className="block text-red-300">{s.error}</span>}
                     </div>
-                    {s.connection !== "connected" && (
-                        <button
-                            type="button"
-                            className="bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded-sm"
-                            onClick={() => void requestSpaceMouse()}
-                        >
-                            Connect SpaceMouse…
-                        </button>
+                    {s.connection === "connected" && /receiver/i.test(s.deviceName ?? "") && (
+                        <div className="text-xs text-amber-300">
+                            Over the wireless receiver, motion arrives in sparse bursts. With the cable plugged in,
+                            pick the cabled device under “Use another device…”.
+                        </div>
                     )}
+                    <button
+                        type="button"
+                        className="bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded-sm"
+                        onClick={() => void requestSpaceMouse()}
+                    >
+                        {s.connection === "connected" ? "Use another device…" : "Connect SpaceMouse…"}
+                    </button>
 
                     <label className="flex items-center gap-2 text-xs">
                         <span className="w-20">Sensitivity</span>

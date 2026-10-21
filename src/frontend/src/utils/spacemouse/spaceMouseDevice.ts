@@ -56,6 +56,7 @@ import {
 } from "./hidReport";
 import {applyObjectModeMotion} from "./navigation";
 import {createOneEuro, resetOneEuro, stepOneEuro} from "./smoothing";
+import type {InputWindow} from "@/utils/scene/renderInputSummary";
 
 // The slice of WebHID this file uses. TypeScript's DOM lib does not carry the
 // API, and these few lines are cheaper than a types dependency.
@@ -86,6 +87,9 @@ interface Hid extends EventTarget {
 }
 
 type Controls = CameraControls | OrbitControls;
+
+/** 3Dconnexion wireless receivers: the SpaceMouse Wireless one and the Universal Receiver. */
+const RECEIVER_PRODUCT_IDS: readonly number[] = [0xc62f, 0xc652];
 
 /** Motion counts as stopped this long after the last motion report. */
 const STALE_MS = 200;
@@ -158,8 +162,11 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     stepOneEuro(filter, fresh ? axis.raw : AT_REST, frameDt, FULL_SCALE, filtered);
     const moving = processAxes(filtered, settings, motion);
     if (moving) lastMovingAt = now;
-    if (devStats) {
-        if (wasFresh && !fresh && gestureControls) devStats.staleCuts++;
+    if (devStats || probe) {
+        if (wasFresh && !fresh && gestureControls) {
+            if (devStats) devStats.staleCuts++;
+            if (probe) probe.staleCuts++;
+        }
         wasFresh = fresh;
     }
     // With several viewers on the page, the device drives the one in use.
@@ -181,6 +188,7 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
         gestureControls = controls;
         (controls as any).dispatchEvent(controls instanceof OrbitControls ? ORBIT_START : CC_START);
         if (devStats) devStats.gestures++;
+        if (probe) probe.gestures++;
     }
     if (controls instanceof OrbitControls) {
         // Moved in place; the loop's `controls.update()` re-aims the camera
@@ -219,16 +227,25 @@ function runButton(action: SpaceMouseButtonAction): void {
     requestRender();
 }
 
+/** The browser delivers HID reports whatever window is in front; the device
+ *  drives this page only while it has focus, like the mouse and keyboard. */
+function pageFocused(): boolean {
+    return typeof document === "undefined" || document.hasFocus();
+}
+
 function onInputReport(event: Event): void {
+    if (!pageFocused()) return;
     const e = event as HidInputReportEvent;
     const now = performance.now();
     const prevMotionAt = axis.lastMotionAt;
     const kind = applyInputReport(axis, e.reportId, e.data, now);
+    if (probe) probe.hidReports++;
     if (devStats && kind === REPORT_MOTION && gestureControls) {
         const gap = now - prevMotionAt;
         if (gap > devStats.maxReportGapMs) devStats.maxReportGapMs = gap;
         devStats.reports++;
     }
+    if (probe && kind === REPORT_MOTION) recordReport(probe, prevMotionAt, now);
     if (kind === REPORT_MOTION) {
         active = true;
     } else if (kind === REPORT_BUTTONS) {
@@ -260,7 +277,9 @@ function capDeflected(): boolean {
 }
 
 function onWheel(event: WheelEvent): void {
-    if (!device || !(event.target instanceof HTMLCanvasElement)) return;
+    if (!(event.target instanceof HTMLCanvasElement)) return;
+    if (probe) probe.wheels++;
+    if (!device) return;
     if (performance.now() - axis.lastMotionAt > WHEEL_GUARD_MS || !capDeflected()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -268,6 +287,12 @@ function onWheel(event: WheelEvent): void {
 }
 
 const WHEEL_OPTS: AddEventListenerOptions = {capture: true, passive: false};
+
+/** Focus left the page mid-glide: stop, rather than keep the last deflection. */
+function onBlur(): void {
+    endGesture();
+    resetAxes(axis);
+}
 
 // ---- device handling ------------------------------------------------------
 
@@ -285,16 +310,27 @@ function deviceLabel(d: HidDevice): string {
     return d.productName || "3D mouse";
 }
 
-/** The granted device to use: a 3D mouse, preferably the HID interface that
- *  carries the multi-axis collection when the browser lists several. */
+/** A wireless receiver rather than the device on its cable. A receiver's
+ *  reports come over the radio link, sparser and burstier than over the cable. */
+function isReceiver(d: HidDevice): boolean {
+    return RECEIVER_PRODUCT_IDS.includes(d.productId) || /receiver/i.test(d.productName ?? "");
+}
+
+/** How much a granted device is preferred: a cabled device over a receiver,
+ *  and the HID interface carrying the multi-axis collection over another. */
+function deviceRank(d: HidDevice): number {
+    const multiAxis = d.collections?.some((c) => c.usagePage === MULTI_AXIS_USAGE_PAGE && c.usage === MULTI_AXIS_USAGE);
+    return (isReceiver(d) ? 0 : 2) + (multiAxis ? 1 : 0);
+}
+
+/** The granted 3D mouse to use, the best ranked when the browser lists several. */
 function pickDevice(devices: readonly HidDevice[]): HidDevice | null {
-    let fallback: HidDevice | null = null;
+    let best: HidDevice | null = null;
     for (const d of devices) {
         if (!isSpaceMouse(d.vendorId, d.productId)) continue;
-        if (d.collections?.some((c) => c.usagePage === MULTI_AXIS_USAGE_PAGE && c.usage === MULTI_AXIS_USAGE)) return d;
-        fallback ??= d;
+        if (!best || deviceRank(d) > deviceRank(best)) best = d;
     }
-    return fallback;
+    return best;
 }
 
 function errorText(err: unknown): string {
@@ -337,7 +373,9 @@ function releaseDevice(): void {
 
 function onConnect(event: Event): void {
     const d = (event as HidConnectionEvent).device;
-    if (device || !isSpaceMouse(d.vendorId, d.productId)) return;
+    if (!isSpaceMouse(d.vendorId, d.productId)) return;
+    // A cable plugged in while the receiver is in use takes over from it.
+    if (device && deviceRank(d) <= deviceRank(device)) return;
     void openDevice(d, generation);
 }
 
@@ -363,6 +401,7 @@ async function enable(): Promise<void> {
     hid.addEventListener("connect", onConnect);
     hid.addEventListener("disconnect", onDisconnect);
     window.addEventListener("wheel", onWheel, WHEEL_OPTS);
+    window.addEventListener("blur", onBlur);
     setConnection("disconnected");
     try {
         const d = pickDevice(await hid.getDevices());
@@ -379,6 +418,7 @@ function disable(): void {
         hid.removeEventListener("connect", onConnect);
         hid.removeEventListener("disconnect", onDisconnect);
         window.removeEventListener("wheel", onWheel, WHEEL_OPTS);
+        window.removeEventListener("blur", onBlur);
     }
     listening = false;
     releaseDevice();
@@ -434,6 +474,62 @@ export function bindSpaceMouseToOptions(): () => void {
     };
 }
 
+// ---- render-profile probe ---------------------------------------------------
+//
+// While the admin render profiler runs, each of its windows also records the
+// device's report cadence, so input stutter lands in the same audit row as the
+// frame times: gaps between motion reports while the cap is held, and the
+// spans of the slow ones, which the profiler matches against main-thread long
+// tasks (a busy main thread delays every report queued behind it).
+
+/** A gap longer than this, between reports of one hold, is the device going quiet. */
+const HOLD_GAP_MS = 1000;
+/** Gaps longer than this are kept as spans, to match against long tasks. */
+const SLOW_GAP_MS = 50;
+const MAX_SLOW_GAPS = 200;
+
+interface Probe {
+    gaps: number[];
+    slowGaps: Array<[number, number]>;
+    gestures: number;
+    staleCuts: number;
+    /** Every input report, of any kind; motion ones are in `gaps`. */
+    hidReports: number;
+    /** Wheel events on a canvas, swallowed or not: the vendor driver's show here. */
+    wheels: number;
+}
+let probe: Probe | null = null;
+
+function recordReport(p: Probe, prevAt: number, now: number): void {
+    const gap = now - prevAt;
+    if (!(gap <= HOLD_GAP_MS)) return;
+    p.gaps.push(gap);
+    if (gap > SLOW_GAP_MS && p.slowGaps.length < MAX_SLOW_GAPS) p.slowGaps.push([prevAt, now]);
+}
+
+/** Start (or restart) collecting a window. */
+export function startSpaceMouseProbe(): void {
+    probe = {gaps: [], slowGaps: [], gestures: 0, staleCuts: 0, hidReports: 0, wheels: 0};
+}
+
+/** Stop collecting; returns the window, or null while the 3D mouse option is off. */
+export function takeSpaceMouseProbe(): InputWindow | null {
+    const p = probe;
+    probe = null;
+    if (!p || !listening) return null;
+    return {
+        connection: useSpaceMouseStore.getState().connection,
+        device: device ? deviceLabel(device) : null,
+        product_id: device ? device.productId.toString(16).padStart(4, "0") : null,
+        hidReports: p.hidReports,
+        wheels: p.wheels,
+        gaps: p.gaps,
+        slowGaps: p.slowGaps,
+        gestures: p.gestures,
+        staleCuts: p.staleCuts,
+    };
+}
+
 // ---- dev-only measurement hook --------------------------------------------
 //
 // `__adaSpaceMouse.feed([tx, ty, tz, rx, ry, rz], ms)` (device-frame units,
@@ -484,6 +580,18 @@ if (import.meta.env?.DEV && typeof window !== "undefined") {
         },
         resetStats() {
             Object.assign(devStats!, emptyStats());
+        },
+        /** This module's own view, to compare with what Options shows. */
+        state() {
+            return {
+                listening,
+                bindCount,
+                device: device ? {name: deviceLabel(device), productId: device.productId.toString(16), opened: device.opened} : null,
+                connection: useSpaceMouseStore.getState().connection,
+                enabled: useSpaceMouseStore.getState().enabled,
+                probing: probe !== null,
+                active,
+            };
         },
     };
 }
