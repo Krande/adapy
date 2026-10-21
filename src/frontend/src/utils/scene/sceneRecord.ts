@@ -18,6 +18,8 @@ export type RecordedModel =
           subject: string;
           revision: string;
           node?: string;
+          /** The name its root row showed, so a restore names it the same. */
+          label?: string;
       };
 
 /** Camera position, orbit target and up, minus the recentring offset (`translation`), as the
@@ -57,8 +59,8 @@ export function assetRef(m: Extract<RecordedModel, {kind: "asset"}>): NodeRef {
     };
 }
 
-/** The record entry for a loaded asset node. */
-export function recordedAsset(ref: NodeRef): RecordedModel {
+/** The record entry for a loaded asset node, and the name it was shown under. */
+export function recordedAsset(ref: NodeRef, label?: string | null): RecordedModel {
     return {
         kind: "asset",
         provider: ref.provider,
@@ -66,6 +68,7 @@ export function recordedAsset(ref: NodeRef): RecordedModel {
         subject: ref.subject,
         revision: ref.revision,
         ...(ref.node && ref.node !== ref.subject ? {node: ref.node} : {}),
+        ...(label ? {label} : {}),
     };
 }
 
@@ -89,10 +92,13 @@ export function parseRecordedModel(raw: unknown): RecordedModel | null {
         return raw.streamer === true ? {kind: "file", name: raw.name, streamer: true} : {kind: "file", name: raw.name};
     }
     if (raw.kind === "asset") {
-        const {provider, collection, subject, revision, node} = raw;
+        const {provider, collection, subject, revision, node, label} = raw;
         if (!nonEmpty(provider) || !nonEmpty(collection) || !nonEmpty(subject) || !nonEmpty(revision)) return null;
         if (node !== undefined && node !== null && typeof node !== "string") return null;
-        return recordedAsset({provider, collection, subject, revision, ...(nonEmpty(node) ? {node} : {})});
+        return recordedAsset(
+            {provider, collection, subject, revision, ...(nonEmpty(node) ? {node} : {})},
+            nonEmpty(label) ? label : null,
+        );
     }
     return null;
 }

@@ -77,7 +77,7 @@ export function startSceneRecording(): void {
         const before = new Set(prev.loaded.map((a) => a.sourceName));
         const live = useModelState.getState().loadedSourceNames;
         for (const a of s.loaded) {
-            if (!before.has(a.sourceName) && live.has(a.sourceName)) record(recordedAsset(a.ref));
+            if (!before.has(a.sourceName) && live.has(a.sourceName)) record(recordedAsset(a.ref, a.label));
         }
     });
 
@@ -145,7 +145,7 @@ async function loadAsset(scope: string, m: Extract<RecordedModel, {kind: "asset"
         subject: ref.subject,
         revision: ref.revision,
         node: ref.node ?? null,
-    });
+    }, m.label);
     return useModelState.getState().loadedSourceNames.has(recordedSourceName(m));
 }
 

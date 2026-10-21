@@ -52,6 +52,8 @@ function otherProviderLoads(row: TreeNodeData): {
     const load = async (o: ProviderAlternative) => {
         if (!scope) return;
         const deps = realDeliveryDeps((name) => stores.useModelState.getState().loadedSourceNames.has(name));
+        // Named as the row it was asked from, with the provider: it sits beside that row's model.
+        const base = (row.id === root.id ? root.top_name : row.name) ?? row.name;
         try {
             await loadAssetNode(scope, deps, {
                 kind: "node",
@@ -60,7 +62,7 @@ function otherProviderLoads(row: TreeNodeData): {
                 subject: o.subject,
                 revision: o.revision,
                 node: o.node !== o.subject ? o.node : null,
-            });
+            }, `${base} · ${providerName(o.provider)}`);
             requestRender();
         } catch (e) {
             // Recorded on the row in the Sources tab as well (the shared load does that).

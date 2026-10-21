@@ -53,6 +53,14 @@ test("an asset is recorded under its scene name", () => {
     assert.equal(recordedSourceName(file), "models/frame.ifc");
 });
 
+test("an asset keeps the name it was shown under, which does not change its scene name", () => {
+    const ref = {provider: "p", collection: "c", subject: "s", revision: "r1"};
+    const named = recordedAsset(ref, "/SITE-A");
+    assert.deepEqual(parseSceneRecord(serialiseSceneRecord({v: 1, models: [named], camera: null})).models, [named]);
+    assert.equal(recordedSourceName(named), assetSourceName(ref));
+    assert.equal("label" in recordedAsset(ref, ""), false);
+});
+
 test("unreadable data reads as an empty record", () => {
     for (const raw of [null, "", "{", "[]", "{}", '{"v":2,"models":[]}', '{"v":1,"models":"x"}']) {
         assert.deepEqual(parseSceneRecord(raw), EMPTY_SCENE_RECORD, String(raw));

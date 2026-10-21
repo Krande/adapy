@@ -11,6 +11,7 @@ import { assetsApi } from "@/services/api/assets";
 import type { ScopeUrl } from "@/services/api/client";
 import { getSingletonViewerStores } from "@/state/AdaViewerContext";
 import { requestRender } from "@/state/perfStore";
+import { providerName } from "@/state/providerNamesStore";
 
 import type { GroupMember, SavedGroup } from "./savedGroups";
 import { groupSourceKey, sourcesToLoad } from "./groupSources";
@@ -65,13 +66,32 @@ export async function loadSavedGroup(
   return { loaded, already, failed, selection };
 }
 
-/** Put one published node in the scene from `target.provider`'s claim -- shared by a group's load
- *  and the Scene tree's "Load from <provider>", and registered with the asset browser as its own
- *  Load is. A build that finds nothing to draw is recorded, not thrown. */
+/** The name a node's model is shown under: `label` when the caller knows it, else the node's label
+ *  in the Sources tree when that collection is open there. Never the bare id -- a model's root row
+ *  falls back to its own root's name, then its source name, by itself. With more than one provider
+ *  naming the node, the provider is added, as the Sources tab's own Load does. */
+export function nodeDisplayName(
+  target: Extract<GroupMember["target"], { kind: "node" }>,
+  label?: string | null,
+): string | undefined {
+  const node = target.node ?? target.subject;
+  const browser = getSingletonViewerStores().useAssetBrowserStore.getState();
+  const known = browser.collection === target.collection ? browser.forest.nodes.get(node) : undefined;
+  const base = label?.trim() || known?.label?.trim();
+  if (!base) return undefined;
+  const several = (browser.forest.namedBy.get(node)?.size ?? 0) > 1;
+  return several && !label ? `${base} · ${providerName(target.provider)}` : base;
+}
+
+/** Put one published node in the scene from `target.provider`'s claim -- shared by a group's load,
+ *  the Scene tree's "Load from <provider>" and the scene restore, and registered with the asset
+ *  browser as its own Load is. `label` names the model's root row (`nodeDisplayName`). A build
+ *  that finds nothing to draw is recorded, not thrown. */
 export async function loadAssetNode(
   scope: string,
   deps: LoadNodeDeps,
   target: Extract<GroupMember["target"], { kind: "node" }>,
+  label?: string | null,
 ): Promise<void> {
   const node = target.node ?? target.subject;
   // The delivery claim AS PUBLISHED by the target's provider -- the revision pinned, or the latest
@@ -94,7 +114,7 @@ export async function loadAssetNode(
   const key = `${node}\u0000${target.provider}`;
   store.getState().beginLoad(key);
   try {
-    const asset = await loadPrepared(deps, ref, prepareNode(deps, scope, ref, claim), node);
+    const asset = await loadPrepared(deps, ref, prepareNode(deps, scope, ref, claim), nodeDisplayName(target, label));
     store.getState().endLoad(key, asset);
   } catch (e) {
     // A member whose build found nothing to draw is an answer, not a failure of the group's load.
