@@ -59,6 +59,24 @@ test("without a mesh member each model's own provider is the default", () => {
   assert.equal(groupExportBlocker(plan, null), null);
 });
 
+test("a member from a provider the server cannot read defaults to one it can, even with a GLB", () => {
+  const plan = planGroupExport({
+    members: [node("mesh", "s1", "bm1")],
+    loadedAssets: [loaded("mesh", "s1", "glb/key")],
+    providers,
+  });
+  assert.equal(plan.defaultProvider, "solid");
+  assert.equal(plan.choices[0].disabled, true);
+  assert.match(groupExportBlocker(plan, null) ?? "", /cannot be read into objects/);
+});
+
+test("a provider the list does not name counts as unreadable once the list is known", () => {
+  const plan = planGroupExport({ members: [node("unlisted", "s1", "bm1")], loadedAssets: [], providers });
+  assert.equal(plan.defaultProvider, "solid");
+  // Unknown list: nothing is assumed about the member's provider.
+  assert.equal(planGroupExport({ members: [node("unlisted", "s1", "bm1")], loadedAssets: [], providers: null }).defaultProvider, null);
+});
+
 test("file members alone offer no provider choice", () => {
   const plan = planGroupExport({ members: [file("bm1"), file("bm2")], loadedAssets: [], providers });
   assert.equal(plan.hasNodes, false);

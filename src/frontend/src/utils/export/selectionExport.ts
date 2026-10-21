@@ -254,7 +254,8 @@ export interface GeometrySourceChoice {
 
 export interface GroupExportPlan {
   readonly members: readonly GroupMember[];
-  /** Providers among the members whose models were delivered as a mesh (no objects behind them). */
+  /** Providers among the members that cannot be written from: delivered as a mesh, or not readable
+   *  into objects by the server. */
   readonly meshProviders: readonly string[];
   /** Whether any member is a published node, so a geometry provider applies at all. */
   readonly hasNodes: boolean;
@@ -290,14 +291,21 @@ export function planGroupExport(args: {
 }): GroupExportPlan {
   const { members, loadedAssets, providers } = args;
   const name = args.providerName ?? ((id: string) => id);
-  const meshProviders = meshDeliveredProviders(members, loadedAssets);
+  // Members that cannot be written from their own provider: delivered as a mesh, or from a provider
+  // the server says it cannot read into objects (or does not list at all, once the list is known).
+  const readable = new Set((providers ?? []).filter((p) => p.readable).map((p) => p.id));
+  const unreadable = new Set(meshDeliveredProviders(members, loadedAssets));
+  if (providers !== null) {
+    for (const m of members) if (m.target.kind === "node" && !readable.has(m.target.provider)) unreadable.add(m.target.provider);
+  }
+  const meshProviders = [...unreadable].sort();
   const hasNodes = members.some((m) => m.target.kind === "node");
   const own: GeometrySourceChoice = meshProviders.length
     ? {
         id: null,
         label: "Each model's own provider",
         disabled: true,
-        title: `${meshProviders.map(name).join(", ")} delivered a mesh: no objects behind it to write a STEP or IFC from`,
+        title: `${meshProviders.map(name).join(", ")} cannot be read into objects here: nothing to write a STEP or IFC from`,
       }
     : { id: null, label: "Each model's own provider", disabled: false };
   const listed: GeometrySourceChoice[] = (providers ?? [])
@@ -325,9 +333,9 @@ export function groupExportBlocker(plan: GroupExportPlan, provider: string | nul
   if (provider === null && plan.meshProviders.length) {
     const readable = plan.choices.some((c) => c.id !== null && !c.disabled);
     return readable
-      ? "Part of the selection was delivered as a mesh: choose a provider to read its objects from."
-      : `Part of the selection was delivered as a mesh by ${plan.meshProviders.join(", ")}, and no provider ` +
-          "that publishes objects can be read right now.";
+      ? `${plan.meshProviders.join(", ")} cannot be read into objects: choose a provider to read the selection from.`
+      : `${plan.meshProviders.join(", ")} cannot be read into objects, and no provider that publishes objects ` +
+          "can be read right now.";
   }
   return null;
 }

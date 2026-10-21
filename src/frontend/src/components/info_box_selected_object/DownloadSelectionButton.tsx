@@ -1,4 +1,5 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {runtime} from '@/runtime/config';
 import {scopeUrlPart, useScopeStore} from '@/state/scopeStore';
@@ -47,6 +48,8 @@ const DownloadSelectionButton: React.FC = () => {
     const providerName = useProviderName();
 
     const [open, setOpen] = useState(false);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const closeMenu = useCallback(() => setOpen(false), []);
     const [busy, setBusy] = useState<SelectionExportFormat | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [note, setNote] = useState<{text: string; title: string} | null>(null);
@@ -152,6 +155,7 @@ const DownloadSelectionButton: React.FC = () => {
     return (
         <div className="relative inline-flex flex-col">
             <button
+                ref={buttonRef}
                 type="button"
                 onClick={() => setOpen((o) => !o)}
                 disabled={busy !== null || (!enabled && !showSource)}
@@ -165,7 +169,7 @@ const DownloadSelectionButton: React.FC = () => {
                 {busy ? `Exporting ${busy.toUpperCase()}…` : count > 1 ? `Download as… (${count})` : 'Download as…'}
             </button>
             {open && (
-                <div role="menu" className="absolute top-full left-0 mt-1 z-10 bg-gray-800 border border-gray-600 rounded-sm shadow-lg min-w-44">
+                <FloatingMenu anchorRef={buttonRef} onClose={closeMenu}>
                     {showSource && (
                         <label className="block px-2 py-1 text-[10px] text-gray-300 border-b border-gray-700">
                             Geometry from
@@ -195,7 +199,7 @@ const DownloadSelectionButton: React.FC = () => {
                             {label}
                         </button>
                     ))}
-                </div>
+                </FloatingMenu>
             )}
             {/* The reason is on screen, not only in the tooltip: a tooltip does not exist on a
                 touch screen, and "why is this greyed out" is the first question it raises. */}
@@ -203,6 +207,64 @@ const DownloadSelectionButton: React.FC = () => {
             {note && <div className="text-[10px] text-amber-300 mt-0.5 max-w-64" title={note.title}>{note.text}</div>}
             {error && <div className="text-[10px] text-red-400 mt-0.5 max-w-64 break-words">{error}</div>}
         </div>
+    );
+};
+
+/** The dropdown, portaled to the page so the panel's scroll area cannot clip it: below the button,
+ *  or above it when there is no room below, kept inside the window. */
+const FloatingMenu: React.FC<{
+    anchorRef: React.RefObject<HTMLButtonElement | null>;
+    onClose: () => void;
+    children: React.ReactNode;
+}> = ({anchorRef, onClose, children}) => {
+    const menuRef = useRef<HTMLDivElement>(null);
+    const [style, setStyle] = useState<React.CSSProperties>({visibility: 'hidden'});
+
+    useLayoutEffect(() => {
+        const place = () => {
+            const rect = anchorRef.current?.getBoundingClientRect();
+            const menu = menuRef.current;
+            if (!rect || !menu) return;
+            const w = menu.offsetWidth;
+            const h = menu.offsetHeight;
+            const left = Math.max(8, Math.min(rect.left, window.innerWidth - w - 8));
+            let top = rect.bottom + 4;
+            if (top + h > window.innerHeight - 8) top = Math.max(8, rect.top - h - 4);
+            setStyle({top, left});
+        };
+        place();
+        const outside = (e: Event) => {
+            const t = e.target as Node | null;
+            if (!t || menuRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+            onClose();
+        };
+        const escape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        document.addEventListener('mousedown', outside);
+        document.addEventListener('touchstart', outside);
+        document.addEventListener('keydown', escape);
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+        return () => {
+            document.removeEventListener('mousedown', outside);
+            document.removeEventListener('touchstart', outside);
+            document.removeEventListener('keydown', escape);
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', place, true);
+        };
+    }, [anchorRef, onClose]);
+
+    return createPortal(
+        <div
+            ref={menuRef}
+            role="menu"
+            style={style}
+            className="fixed z-[70] bg-gray-800 border border-gray-600 rounded-sm shadow-lg min-w-44"
+        >
+            {children}
+        </div>,
+        document.body,
     );
 };
 
