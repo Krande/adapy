@@ -21,6 +21,11 @@ such seat declares ``"parallel": n`` on its sweep entry, and the sweep then runs
 collections at once -- capped by the live workers serving it, since each runs one job at a time
 (``sweep_width``). Each lane is still one collection at a time, so timings stay per collection.
 
+A JOB MAY STAGE A COLLECTION IN PARTS: ``asset_staging_ids`` instead of one ``asset_staging_id``,
+each published in turn (a provider that exports a collection a piece at a time, to keep each file
+small). And an entry may declare ``"fetch_timeout_s"`` when one collection's job runs longer than
+:data:`FETCH_TIMEOUT_S`.
+
 EVERY PHASE IS TIMED, AND NOTHING IS AGGREGATED. An item records the provider's phases as its
 summary reports them (``timings`` -- e.g. login / export / stage), core's derive and write as the
 publish summary reports them, and the wall-clock seen from here: how long the fetch job waited
@@ -261,6 +266,30 @@ async def start_sweep(
 
 #: Upper bound on a sweep's parallel lanes, whatever a provider declares.
 MAX_SWEEP_WIDTH = 16
+#: Upper bound on an entry's own fetch timeout.
+MAX_FETCH_TIMEOUT_S = 24 * 3600
+
+
+def fetch_timeout(entry: dict) -> float:
+    """How long one collection's fetch job may run: the entry's ``fetch_timeout_s`` when it
+    declares one (bounded), else :data:`FETCH_TIMEOUT_S`."""
+    try:
+        declared = float(entry.get("fetch_timeout_s") or 0)
+    except (TypeError, ValueError):
+        declared = 0
+    return min(declared, MAX_FETCH_TIMEOUT_S) if declared > 0 else FETCH_TIMEOUT_S
+
+
+def staging_ids_of(summary: dict) -> list[str]:
+    """What a fetch job staged: ``asset_staging_ids`` (several parts), else the one
+    ``asset_staging_id``. Blank and repeated ids are dropped."""
+    raw = summary.get("asset_staging_ids")
+    ids = raw if isinstance(raw, list) else [summary.get("asset_staging_id")]
+    out: list[str] = []
+    for value in ids:
+        if isinstance(value, str) and value.strip() and value.strip() not in out:
+            out.append(value.strip())
+    return out
 
 
 async def sweep_width(ctx: RestContext, spec: dict, entry: dict) -> int:
@@ -420,7 +449,7 @@ async def _sweep_one(
         )
         await item(fetch_job_id=fetch_job)
         timings["queued_ms"], timings["fetch_ms"] = await _wait(
-            ctx, pool, run_id, fetch_job, FETCH_TIMEOUT_S, position=position
+            ctx, pool, run_id, fetch_job, fetch_timeout(entry), position=position
         )
         summary = _json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
         if not isinstance(summary, dict):
@@ -436,26 +465,50 @@ async def _sweep_one(
         if summary.get("asset_nothing") is True:
             await finish("nothing", message=summary.get("message"))
             return True
-        staging_id = summary.get("asset_staging_id")
-        if not isinstance(staging_id, str) or not staging_id.strip():
+        staging_ids = staging_ids_of(summary)
+        if not staging_ids:
             raise RuntimeError(
                 "the provider's job finished without an asset_staging_id, so there is nothing to publish"
             )
 
+        # Several staged parts (a provider that stages a collection in pieces) are published one
+        # after another; one that fails is counted and the rest still publish.
         await item(status="publishing")
-        staged = await staged_by_role(ctx, scope_obj, staging_id.strip())
         t_pub = time.monotonic()
-        publish_job, publish_key = await submit_asset_publish(
-            ctx, scope_obj, provider=provider, staged=staged, user=user
-        )
-        await item(publish_job_id=publish_job)
-        await _wait(ctx, pool, run_id, publish_job, PUBLISH_TIMEOUT_S, position=position)
+        revision = None
+        publish_failed: list[str] = []
+        for staging_id in staging_ids:
+            try:
+                staged = await staged_by_role(ctx, scope_obj, staging_id)
+                publish_job, publish_key = await submit_asset_publish(
+                    ctx, scope_obj, provider=provider, staged=staged, user=user
+                )
+                await item(publish_job_id=publish_job)
+                await _wait(ctx, pool, run_id, publish_job, PUBLISH_TIMEOUT_S, position=position)
+            except (_Cancelled, ItemSkipped):
+                raise
+            except Exception as exc:  # noqa: BLE001 - one part's failure is counted, not fatal
+                if len(staging_ids) == 1:
+                    raise
+                publish_failed.append(f"{staging_id}: {exc}")
+                continue
+            outcome = _json_of(await ctx.storage.get_bytes(scope_obj, publish_key))
+            outcome = outcome if isinstance(outcome, dict) else {}
+            if isinstance(outcome.get("timings"), dict) and len(staging_ids) == 1:
+                timings["publish"] = outcome["timings"]
+            revision = outcome.get("revision") or revision
         timings["publish_ms"] = _ms(time.monotonic() - t_pub)
-        outcome = _json_of(await ctx.storage.get_bytes(scope_obj, publish_key))
-        outcome = outcome if isinstance(outcome, dict) else {}
-        if isinstance(outcome.get("timings"), dict):
-            timings["publish"] = outcome["timings"]
-        await finish("done", revision=outcome.get("revision"))
+        if len(staging_ids) > 1:
+            timings["published_parts"] = len(staging_ids) - len(publish_failed)
+        if publish_failed:
+            await finish(
+                "error",
+                revision=revision,
+                error=f"{len(publish_failed)} of {len(staging_ids)} staged part(s) failed to publish: "
+                + "; ".join(publish_failed[:3]),
+            )
+            return False
+        await finish("done", revision=revision)
         return True
     except _Cancelled:
         await finish("skipped", message="the sweep was cancelled")

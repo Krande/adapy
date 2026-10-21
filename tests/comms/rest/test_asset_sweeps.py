@@ -75,9 +75,10 @@ def test_every_collection_of_every_worker_in_first_seen_order():
 class _World:
     """A transport, storage and DB that answer like a finished provider job and publish."""
 
-    def __init__(self, *, fetch_summaries: dict[str, dict], fail_publish: bool = False):
+    def __init__(self, *, fetch_summaries: dict[str, dict], fail_publish: bool = False, fail_staging: frozenset = frozenset()):
         self.fetch_summaries = fetch_summaries  # collection -> provider summary
         self.fail_publish = fail_publish
+        self.fail_staging = fail_staging  # staging ids whose publish fails
         self.blobs: dict[str, bytes] = {}
         self.jobs_status: dict[str, str] = {}
         self.enqueued: list[dict] = []
@@ -112,16 +113,18 @@ class _World:
         job_id = f"fetch-{len(self.enqueued)}"
         collection = kw["options"]["project"]
         self.blobs[kw["derived_key"]] = gzip.compress(json.dumps(self.fetch_summaries[collection]).encode())
-        staging = self.fetch_summaries[collection].get("asset_staging_id")
-        if staging:
-            self.blobs[f"assets/_staging/{staging}/csg.db"] = b"x"
+        summary = self.fetch_summaries[collection]
+        for staging in summary.get("asset_staging_ids") or [summary.get("asset_staging_id")]:
+            if staging:
+                self.blobs[f"assets/_staging/{staging}/csg.db"] = b"x"
         self.jobs_status[job_id] = "done"
         return job_id
 
     async def publish(self, ctx, scope_obj, *, provider, staged, user, **kw):
         self.published.append({"provider": provider, "staged": staged, "user": user})
         job_id, key = f"publish-{len(self.published)}", f"_derived/pub/{len(self.published)}.json"
-        self.jobs_status[job_id] = "error" if self.fail_publish else "done"
+        failing = self.fail_publish or any(f"/{s}/" in str(staged.get("csg.db")) for s in self.fail_staging)
+        self.jobs_status[job_id] = "error" if failing else "done"
         self.blobs[key] = json.dumps({"revision": "r1", "timings": {"derive_ms": 5, "write_ms": 7}}).encode()
         return job_id, key
 
@@ -247,6 +250,42 @@ async def test_one_failed_collection_is_its_row_not_the_sweep(world):
     assert [w.items[i]["status"] for i in (0, 1)] == ["error", "error"]
     assert w.items[0]["error"] == "boom" and len(w.enqueued) == 2  # BETA still ran
     assert w.finished == ("error", "2 of 2 collection(s) failed")
+
+
+@pytest.mark.asyncio
+async def test_a_collection_staged_in_parts_publishes_every_part(world):
+    w = world(fetch_summaries={"ALPHA": {"asset_staging_ids": ["s-1", "s-2", "s-3"]}})
+    await sweeps._drive(
+        w.ctx, None, RUN, scope_obj=Scope.shared(), spec=SPEC, entry=SWEEP_ENTRY, collections=["ALPHA"], user=None
+    )
+    assert [p["staged"]["csg.db"] for p in w.published] == [f"assets/_staging/s-{i}/csg.db" for i in (1, 2, 3)]
+    assert w.items[0]["status"] == "done" and w.items[0]["timings"]["published_parts"] == 3
+    assert w.finished == ("done", None)
+
+
+@pytest.mark.asyncio
+async def test_a_part_that_fails_to_publish_is_counted_and_the_rest_still_publish(world):
+    w = world(fetch_summaries={"ALPHA": {"asset_staging_ids": ["s-1", "s-2", "s-3"]}}, fail_staging=frozenset({"s-2"}))
+    await sweeps._drive(
+        w.ctx, None, RUN, scope_obj=Scope.shared(), spec=SPEC, entry=SWEEP_ENTRY, collections=["ALPHA"], user=None
+    )
+    assert len(w.published) == 3
+    item = w.items[0]
+    assert item["status"] == "error" and item["error"].startswith("1 of 3 staged part(s) failed to publish")
+    assert item["timings"]["published_parts"] == 2
+
+
+def test_staging_ids_take_the_list_and_fall_back_to_the_one_id():
+    assert sweeps.staging_ids_of({"asset_staging_ids": ["a", " b ", "a", "", None]}) == ["a", "b"]
+    assert sweeps.staging_ids_of({"asset_staging_id": "x"}) == ["x"]
+    assert sweeps.staging_ids_of({}) == []
+
+
+def test_an_entry_may_lengthen_its_fetch_timeout_within_a_bound():
+    assert sweeps.fetch_timeout({}) == sweeps.FETCH_TIMEOUT_S
+    assert sweeps.fetch_timeout({"fetch_timeout_s": 7200}) == 7200
+    assert sweeps.fetch_timeout({"fetch_timeout_s": 10**9}) == sweeps.MAX_FETCH_TIMEOUT_S
+    assert sweeps.fetch_timeout({"fetch_timeout_s": "nonsense"}) == sweeps.FETCH_TIMEOUT_S
 
 
 @pytest.mark.asyncio
