@@ -17,7 +17,8 @@ interface ScopeState {
     /** All scopes the current user can access. Filled from /api/me. */
     available: ScopeOption[];
     setCurrent: (s: ScopeOption) => void;
-    setAvailable: (xs: ScopeOption[]) => void;
+    /** `preferred` (URL form) is taken when this tab has no scope of its own yet. */
+    setAvailable: (xs: ScopeOption[], preferred?: string | null) => void;
 }
 
 export const useScopeStore = create<ScopeState>()(
@@ -26,7 +27,7 @@ export const useScopeStore = create<ScopeState>()(
             current: null,
             available: [],
             setCurrent: (s) => set({current: s}),
-            setAvailable: (xs) =>
+            setAvailable: (xs, preferred) =>
                 set((prev) => {
                     // Reconcile: if the previously-selected scope is no
                     // longer available (project archived, etc.), fall
@@ -37,6 +38,9 @@ export const useScopeStore = create<ScopeState>()(
                             (x) => x.kind === prev.current!.kind && x.id === prev.current!.id,
                         );
                         if (stillThere) return {available: xs};
+                    } else if (preferred) {
+                        const recalled = xs.find((x) => scopeUrlPart(x) === preferred);
+                        if (recalled) return {available: xs, current: recalled};
                     }
                     return {available: xs, current: xs[0] ?? null};
                 }),

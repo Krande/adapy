@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {bootstrap, isAuthEnabled, isSignedIn, signIn} from "@/services/auth/oidc";
 import {viewerApi} from "@/services/viewerApi";
 import {useScopeStore} from "@/state/scopeStore";
+import {followScope, recallScope} from "@/state/lastScope";
 import {useMeStore} from "@/state/meStore";
 import {subscribeSpecsToScope} from "@/state/componentSpecsStore";
 import {loadInitialServerState} from "@/utils/websocket/initWebSocket";
@@ -19,13 +20,18 @@ import {loadInitialServerState} from "@/utils/websocket/initWebSocket";
 async function loadMe(): Promise<void> {
     try {
         const me = await viewerApi.me();
-        useScopeStore.getState().setAvailable(me.scopes);
+        // Who the user is first: a scope switch runs every scope subscriber, and one failing
+        // there must not leave the user without their admin rights.
         useMeStore.getState().set({
             sub: me.sub,
             email: me.email,
             displayName: me.displayName,
             isAdmin: me.isAdmin,
         });
+        // A tab without a scope of its own (a new window, a restarted browser) starts in the one
+        // this user last browsed.
+        useScopeStore.getState().setAvailable(me.scopes, recallScope(me.sub));
+        if (me.sub) followScope(me.sub);
     } catch (err) {
         console.warn("failed to load /api/me", err);
     }
