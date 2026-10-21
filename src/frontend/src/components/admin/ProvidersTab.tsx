@@ -16,6 +16,7 @@ import {
     personalKey,
     serialiseScopeCollections,
     storedProviders,
+    setCollections,
     toggleCollection,
     withEnabled,
 } from "@/services/assetScopeCollections";
@@ -515,7 +516,17 @@ const ProvidersTab: React.FC = () => {
                                                     <span className="text-xs text-gray-500">
                                                         Unrestricted — every advertised collection is offered.
                                                     </span>
-                                                ) : (
+                                                ) : (() => {
+                                                    // The bulk buttons act on what the filter shows: all of it unfiltered.
+                                                    const shown = fuzzyFilter(choices, filter, (c) => c.collection);
+                                                    const scope = filter.trim() ? " shown" : "";
+                                                    const setShown = (on: boolean) =>
+                                                        void persist(
+                                                            row.scope,
+                                                            providerId,
+                                                            setCollections(enabled, advertised, shown.map((c) => c.collection), on),
+                                                        );
+                                                    return (
                                                     <div className="space-y-1">
                                                         <button
                                                             type="button"
@@ -564,8 +575,28 @@ const ProvidersTab: React.FC = () => {
                                                                         Nothing is advertised and nothing is enabled.
                                                                     </div>
                                                                 )}
+                                                                {shown.length > 0 && (
+                                                                    <div className="flex gap-2">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                                                                            disabled={busy === key || shown.every((c) => c.enabled)}
+                                                                            onClick={() => setShown(true)}
+                                                                        >
+                                                                            Select all{scope}
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                                                                            disabled={busy === key || shown.every((c) => !c.enabled)}
+                                                                            onClick={() => setShown(false)}
+                                                                        >
+                                                                            Deselect all{scope}
+                                                                        </button>
+                                                                    </div>
+                                                                )}
                                                                 <ul className="max-h-64 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-x-2">
-                                                                    {fuzzyFilter(choices, filter, (c) => c.collection).map((c) => (
+                                                                    {shown.map((c) => (
                                                                         <li key={c.collection}>
                                                                             <label
                                                                                 className="flex items-center gap-2 py-0.5 px-1 text-xs rounded-sm cursor-pointer hover:bg-gray-800/60"
@@ -607,7 +638,8 @@ const ProvidersTab: React.FC = () => {
                                                             </div>
                                                         )}
                                                     </div>
-                                                )}
+                                                    );
+                                                })()}
                                             </td>
                                         </tr>
                                     );

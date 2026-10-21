@@ -516,6 +516,20 @@ export function toggleCollection(
   return on ? uniq([...rest, collection]) : rest;
 }
 
+/** `enabled` with every one of `collections` switched on or off together;
+ *  everything else stays as it was (as `toggleCollection`, for many). */
+export function setCollections(
+  enabled: EnabledCollections,
+  advertised: readonly string[],
+  collections: readonly string[],
+  on: boolean,
+): readonly string[] {
+  const base = enabled === null ? [...advertised] : [...enabled];
+  const these = new Set(collections);
+  const rest = base.filter((c) => !these.has(c));
+  return on ? uniq([...rest, ...collections]) : rest;
+}
+
 /** Providers the stored map mentions, whether or not a worker declares them now. */
 export function storedProviders(map: ScopeCollectionsMap): string[] {
   const out = new Set<string>();

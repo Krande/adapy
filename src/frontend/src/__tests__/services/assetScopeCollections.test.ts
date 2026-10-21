@@ -9,6 +9,7 @@ import {
   isCollectionEnabled,
   parseScopeCollections,
   serialiseScopeCollections,
+  setCollections,
   storedProviders,
   toggleCollection,
   withEnabled,
@@ -241,6 +242,13 @@ test("collectionChoices reads unrestricted as every advertised collection enable
 test("toggleCollection never drops an unadvertised grant it was not asked about", () => {
   assert.deepEqual(toggleCollection(["GONE"], ["A"], "A", true), ["GONE", "A"]);
   assert.deepEqual(toggleCollection(["GONE", "A"], ["A"], "A", false), ["GONE"]);
+});
+
+test("setCollections switches only the given collections, on or off together", () => {
+  assert.deepEqual(setCollections(["GONE"], ["A", "B", "C"], ["A", "B", "C"], true), ["GONE", "A", "B", "C"]);
+  assert.deepEqual(setCollections(["GONE", "A", "B"], ["A", "B", "C"], ["A", "B"], false), ["GONE"]);
+  assert.deepEqual(setCollections(null, ["A", "B", "C"], ["B"], false), ["A", "C"]);
+  assert.deepEqual(setCollections(["A"], ["A", "B"], ["A", "B"], true), ["A", "B"]);
 });
 
 test("toggleCollection from unrestricted switches off only the one collection", () => {
