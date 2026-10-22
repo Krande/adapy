@@ -1,6 +1,6 @@
 /**
- * Selection boxes against the scene: a box made around the current selection, and
- * the selection a box makes.
+ * Selection boxes against the scene: a box made around the current selection, the
+ * selection a box makes, and the selection a rectangle drawn on the screen makes.
  */
 
 import * as THREE from "three";
@@ -14,6 +14,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
 import {padded, type Aabb} from "./boxMath";
 import {boundsOfRanges, rangesInBox} from "./rangeBounds";
+import {rangesInScreenRect, type NdcRect, type ScreenBoxMode} from "./screenBox";
 
 function effectivelyVisible(o: THREE.Object3D): boolean {
     for (let cur: THREE.Object3D | null = o; cur; cur = cur.parent) if (!cur.visible) return false;
@@ -70,6 +71,27 @@ export function applyBoxSelection(id: string): number {
     const info = useObjectInfoStore.getState();
     info.setName(`${box.label}: ${batch.length} element${batch.length === 1 ? "" : "s"}`);
     info.setSelectedNodeId(null);
+    requestRender();
+    return batch.length;
+}
+
+/** Add what a rectangle drawn on the screen takes (`screenBox`) to the selection. Returns how
+ *  many elements it took. */
+export function selectInScreenRect(rect: NdcRect, mode: ScreenBoxMode, camera: THREE.Camera): number {
+    const scene = getViewerRuntime().scene.current;
+    if (!scene) return 0;
+    camera.updateMatrixWorld();
+    const viewProj = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const batch: [CustomBatchedMesh, string][] = [];
+    for (const mesh of visibleMeshes(scene)) {
+        for (const id of rangesInScreenRect(mesh, viewProj, rect, mode, mesh.getHiddenRanges())) batch.push([mesh, id]);
+    }
+    if (batch.length) {
+        useSelectedObjectStore.getState().addBatchofMeshes(batch);
+        const info = useObjectInfoStore.getState();
+        info.setName(`${mode === "window" ? "Window" : "Crossing"} selection: ${batch.length} element${batch.length === 1 ? "" : "s"}`);
+        info.setSelectedNodeId(null);
+    }
     requestRender();
     return batch.length;
 }

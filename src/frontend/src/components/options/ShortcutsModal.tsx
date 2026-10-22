@@ -29,6 +29,12 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     context: "Global / viewer",
     when: "Active whenever the viewer has focus (ignored while typing in a field)",
     shortcuts: [
+      {
+        keys: ["Shift", "Left-drag"],
+        description:
+          "Box select, added to the selection: dragged rightwards a window (wholly inside), leftwards a crossing (touching)",
+      },
+      { keys: ["Ctrl", "Left-drag"], description: "Pan the view" },
       { keys: ["Shift", "H"], description: "Hide the current selection" },
       { keys: ["Shift", "I"], description: "Hide everything except the current selection" },
       { keys: ["Shift", "G"], description: "Save the selection as a named group (shared in the scope)" },
