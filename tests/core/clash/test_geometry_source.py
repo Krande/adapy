@@ -253,6 +253,21 @@ def test_an_ambiguous_name_is_refused_with_both_candidates(storage):
     assert "2 nodes" in warning and "ref-103" in warning and "ref-104" in warning
 
 
+def test_a_row_no_readable_subject_covers_does_not_make_a_name_ambiguous(storage):
+    # The reader's collection index names the element under an id its later publish no longer uses;
+    # only the readable zone can be read, so that is the one meant.
+    _publish(
+        storage,
+        provider=READER,
+        subject=COLLECTION,
+        revision=R1,
+        nodes=[_row("ref-100", None, "/Z100-ZONE", READER, False), _row("old-105", "ref-100", "Z100-FAR", READER)],
+    )
+    new, warning = remap_to_provider(_mesh_member("/Z100-FAR"), READER, index=GeometrySourceIndex(storage))
+    assert warning is None
+    assert new["target"]["subject"] == "ref-100" and new["element"] == "Z100-FAR"
+
+
 def test_an_unknown_name_is_left_out_with_a_reason(storage):
     new, warning = remap_to_provider(_mesh_member("/LOST"), READER, index=GeometrySourceIndex(storage))
     assert new is None

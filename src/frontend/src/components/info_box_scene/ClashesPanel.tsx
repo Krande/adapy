@@ -408,7 +408,61 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
       </button>
       <GeometryRequestStep />
       {contactPossible && <ContactRunHistory scope={scope} />}
+      <RecentClashRuns scope={scope} />
     </div>
+  );
+};
+
+/** The scope's previous clash runs over every target, collapsed until asked for: reopening one moves
+ *  the panel to the model, node or group it was made on. Listed when first opened, and again after
+ *  each run while open. */
+const RecentClashRuns: React.FC<{ scope: string }> = ({ scope }) => {
+  const [open, setOpen] = useState(false);
+  const runs = useClashCheckStore((s) => s.recentContactRuns);
+  const runKey = useClashCheckStore((s) => s.runKey);
+  const busy = useClashCheckStore((s) => s.busy);
+  const load = useClashCheckStore((s) => s.loadRecentContactRuns);
+  const openRun = useClashCheckStore((s) => s.openRecentContactRun);
+
+  useEffect(() => {
+    if (open) void load(scope);
+  }, [open, scope, runKey, load]);
+
+  return (
+    <details
+      className="text-[11px] text-gray-300"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer select-none text-gray-400 hover:text-gray-200">
+        Previous clash runs{open && runs.length > 0 ? ` (${runs.length})` : ""}
+      </summary>
+      {open && runs.length === 0 && <div className="pl-3 pt-1 text-gray-500">No clash runs in this scope yet.</div>}
+      {open && runs.length > 0 && (
+        <ul className="mt-1 max-h-48 overflow-y-auto divide-y divide-gray-800 rounded-sm border border-gray-800">
+          {runs.map((r) => (
+            <li key={r.key}>
+              <button
+                type="button"
+                disabled={busy}
+                className={`w-full text-left px-2 py-1 hover:bg-gray-800 disabled:opacity-50 ${
+                  r.key === runKey ? "bg-gray-800 text-gray-100" : ""
+                }`}
+                title={`Reopen this run on ${r.label ?? "its target"}`}
+                onClick={() => void openRun(scope, r.key)}
+              >
+                <div className="truncate">{r.label ?? r.run_id}</div>
+                <div className="text-gray-500">
+                  {`${r.created_at.replace("T", " ").replace("Z", "")} · ${r.contacts} clash${r.contacts === 1 ? "" : "es"} · ${
+                    r.engine === "wasm" ? "browser" : "worker"
+                  }`}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 };
 

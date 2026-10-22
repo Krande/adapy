@@ -113,6 +113,12 @@ def _run_on_worker(client) -> str:
     return r.json()["run_key"]
 
 
+def _ungzip(raw: bytes) -> bytes:
+    import gzip
+
+    return gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
+
+
 def _read(client, key):
     r = client.get(f"/api/scopes/{SCOPE}/clash-contacts/run", params={"key": key})
     assert r.status_code == 200, r.text
@@ -137,6 +143,28 @@ def test_a_worker_run_is_stored_listed_and_read_back(client):
     assert not any(
         str(f.get("key", "")).startswith("_clash/") for f in files.get("files", files) if isinstance(f, dict)
     )
+
+
+def test_the_scopes_recent_runs_name_their_target(client, frame_bytes):
+    run_key = _run_on_worker(client)
+    # An index line written before lines carried their target is completed from the run.
+    index = next(client.scope_dir.rglob("index.json"))
+    doc = json.loads(_ungzip(index.read_bytes()))
+    for line in doc["runs"]:
+        line.pop("target", None)
+        line.pop("label", None)
+    index.write_bytes(json.dumps(doc).encode("utf-8"))
+    later = check_glb(frame_bytes[1], target=TARGET, glb_key=GLB_KEY, engine="wasm")
+    assert client.post(f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": later.to_dict(), "annotate": False}).status_code == 200
+
+    r = client.get(f"/api/scopes/{SCOPE}/clash-contacts/recent")
+    assert r.status_code == 200, r.text
+    runs = r.json()["runs"]
+    assert [x["engine"] for x in runs] == ["wasm", "worker"]
+    assert runs[1]["key"] == run_key
+    leaf = TARGET["source_key"].rsplit("/", 1)[-1]
+    assert all(x["target"] == TARGET and x["label"] == leaf for x in runs)
+    assert len(client.get(f"/api/scopes/{SCOPE}/clash-contacts/recent", params={"limit": 1}).json()["runs"]) == 1
 
 
 def test_a_browser_run_is_validated_stored_and_annotated(client, frame_bytes):

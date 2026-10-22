@@ -233,11 +233,22 @@ class ContactRun:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))
 
+    def label(self) -> str:
+        """What the run was made on, as the panel names it: the group, the node or the file."""
+        kind = self.target.get("kind")
+        if kind == "group":
+            return str((self.group or {}).get("name") or self.target.get("group_id") or "group")
+        if kind == "node":
+            return str(self.target.get("node") or self.target.get("subject") or "node")
+        return str(self.target.get("source_key") or "file").rsplit("/", 1)[-1]
+
     def summary(self, key: str) -> dict:
         """The run's line in its target's index."""
         return {
             "run_id": self.run_id,
             "key": key,
+            "target": dict(self.target),
+            "label": self.label(),
             "created_at": self.created_at,
             "engine": self.engine,
             "geometry_sha256": self.geometry.get("sha256"),

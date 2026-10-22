@@ -1,6 +1,6 @@
 """A saved GROUP's convex-contact run through the ``/clash-contacts`` routes: measured in a browser over
 several GLBs (``ada.clash.sidecar``'s group runs), posted, annotated against one rebuilt model per part,
-listed under the group id and read back -- and refused for detailing, for now.
+listed under the group id, read back and detailed, each member rebuilt from its own model.
 
 Unlike ``test_clash_contacts_routes.py`` this needs no adacpp: nothing here measures, the run is
 written as the browser would post it.
@@ -86,7 +86,14 @@ def client(tmp_path):
         _stage(scope_dir, key, path.read_bytes())
     app = create_app(_settings(tmp_path / "store"))
     with TestClient(app) as c:
+        c.scope_dir = scope_dir
         yield c
+
+
+def _ungzip(raw: bytes) -> bytes:
+    import gzip
+
+    return gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
 
 
 def _group_run(run_id: str = "r1") -> dict:
@@ -202,19 +209,55 @@ def test_a_group_run_whose_models_do_not_rebuild_gets_its_roles_from_the_meshes(
     assert run.provenance["roles"] == {"members": 0, "mesh": 1, "unresolved": 0}
 
 
-def test_a_group_run_is_not_detailed_yet_and_not_checked_on_a_worker(client):
-    r = client.post(f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": _group_run(), "annotate": False})
+def _staged_group_run(client, run_id: str = "r1") -> dict:
+    """A group run whose part GLBs are stored with the sha256 the run records, so a detail accepts it."""
+    import hashlib
+
+    doc = _group_run(run_id)
+    for n, part in enumerate(doc["geometry"]["parts"]):
+        data = f"glb {n}".encode()
+        _stage(client.scope_dir, part["key"], data)
+        part["sha256"] = hashlib.sha256(data).hexdigest()
+    doc["geometry"]["sha256"] = group_geometry_sha256(doc["geometry"]["parts"])
+    return doc
+
+
+def test_a_group_run_is_detailed_with_each_member_from_its_own_model(client):
+    r = client.post(f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": _staged_group_run(client)})
     assert r.status_code == 200, r.text
+    assert _wait(client, r.json()["job_id"])["status"] == "done"
+    key = r.json()["run_key"]
+    run = parse_run(client.get(f"/api/scopes/{SCOPE}/clash-contacts/run", params={"key": key}).json())
+    (clash,) = run.contacts
+    assert clash.applicable, "the annotate offered no spec to detail with"
+    spec = clash.applicable[0]["spec"]
+
     d = client.post(
         f"/api/scopes/{SCOPE}/clash-contacts/detail",
-        json={
-            "run_key": r.json()["run_key"],
-            "contact_ids": [contact_id(["0:1", "1:1"])],
-            "spec": "builtin.girder_gusset",
-        },
+        json={"run_key": key, "contact_ids": [clash.id], "spec": spec},
     )
-    assert d.status_code == 409 and "not supported yet" in d.json()["detail"]
+    assert d.status_code == 200, d.text
+    status = _wait(client, d.json()["job_id"])
+    assert status["status"] == "done", status
+    stats = json.loads(_ungzip((client.scope_dir / d.json()["derived_key"]).read_bytes()))
+    assert sum(stats["built_by"].values()) == 1 and not stats.get("skipped")
 
+
+def test_a_group_run_whose_geometry_changed_is_not_detailed(client):
+    doc = _staged_group_run(client)
+    r = client.post(f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": doc, "annotate": False})
+    assert r.status_code == 200, r.text
+    _stage(client.scope_dir, doc["geometry"]["parts"][1]["key"], b"re-converted")
+    d = client.post(
+        f"/api/scopes/{SCOPE}/clash-contacts/detail",
+        json={"run_key": r.json()["run_key"], "contact_ids": [doc["contacts"][0]["id"]], "spec": "builtin.girder_gusset"},
+    )
+    assert d.status_code == 200, d.text
+    status = _wait(client, d.json()["job_id"])
+    assert status["status"] == "error" and "_derived/models/b.ifc.glb" in status["error"], status
+
+
+def test_a_group_run_is_not_checked_on_a_worker(client):
     w = client.post(f"/api/scopes/{SCOPE}/clash-contacts", json={"target": TARGET, "glb_key": "x.glb"})
     assert w.status_code == 400 and "runs in the browser" in w.json()["detail"]
 

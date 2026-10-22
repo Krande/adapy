@@ -1314,6 +1314,8 @@ interface ClashCheckState {
   runKey: string | null;
   /** The current target's convex-contact runs, newest first -- they outlive the page. */
   contactRuns: readonly ContactRunSummary[];
+  /** The scope's newest convex-contact runs over every target, each with its target and label. */
+  recentContactRuns: readonly ContactRunSummary[];
   cached: boolean;
   result: ClashResult | null;
   busy: boolean;
@@ -1427,6 +1429,10 @@ interface ClashCheckState {
   loadContactRuns: (scope: string) => Promise<void>;
   /** Reopen a stored convex-contact run as the result. */
   openContactRun: (scope: string, key: string) => Promise<void>;
+  /** List the scope's newest runs over every target. Best effort: none is an answer. */
+  loadRecentContactRuns: (scope: string) => Promise<void>;
+  /** Reopen a run made on any target: the panel moves to that target, then shows the run. */
+  openRecentContactRun: (scope: string, key: string) => Promise<void>;
   /** Resolve the open run's specs and member roles again -- through the geometry provider
    *  (`contactGeometryProvider`) when its members' own cannot be read, after the missing-geometry
    *  step; else through each member's own. */
@@ -1714,6 +1720,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   derivedKey: null,
   runKey: null,
   contactRuns: [],
+  recentContactRuns: [],
   cached: false,
   result: null,
   busy: false,
@@ -2072,6 +2079,49 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         selectedJoints: [],
         selectedJoint: null,
       });
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  loadRecentContactRuns: async (scope) => {
+    try {
+      set({ recentContactRuns: await contactRunsApi.listRecent(scope) });
+    } catch {
+      set({ recentContactRuns: [] });
+    }
+  },
+
+  openRecentContactRun: async (scope, key) => {
+    if (get().busy) return;
+    set({ busy: true, error: null });
+    try {
+      const run = await contactRunsApi.getRun(scope, key);
+      const t = run.target;
+      // The run's own target, so a re-annotate or a detail reads the members it was made on.
+      set({ busy: false });
+      if (t.kind === "group") {
+        get().setGroupTarget({
+          id: t.group_id,
+          name: run.group?.name ?? t.group_id,
+          members: run.group?.members ?? [],
+        });
+      } else if (t.kind === "node") {
+        get().setAssetTarget(t.node ?? t.subject, t);
+      } else {
+        get().setSource(t.source_key, t.source_key);
+      }
+      set({
+        result: contactRunToResult(run, key),
+        runKey: key,
+        derivedKey: null,
+        cached: true,
+        checker: CONTACT_ORIGIN,
+        selectedGroup: null,
+        selectedJoints: [],
+        selectedJoint: null,
+      });
+      void get().loadContactRuns(scope);
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) });
     }

@@ -93,6 +93,9 @@ export interface ContactRunSummary {
   contacts: number;
   members: number;
   options?: Record<string, unknown>;
+  /** What the run was made on, and its name for the panel (`GET …/recent` always gives both). */
+  target?: ContactTarget;
+  label?: string;
 }
 
 /** The raw columns `findGlbContacts` returns (see utils/clashContacts). */
@@ -437,6 +440,11 @@ export const contactRunsApi = {
   async listRuns(scope: ScopeUrl, target: ContactTarget): Promise<ContactRunSummary[]> {
     const r = await authedFetch(`${base(scope)}/runs?target=${encodeURIComponent(JSON.stringify(target))}`);
     return (await jsonOrThrow<{ runs?: ContactRunSummary[] }>(r, "clash-contacts runs")).runs ?? [];
+  },
+  /** The scope's newest runs over every target. */
+  async listRecent(scope: ScopeUrl, limit = 20): Promise<ContactRunSummary[]> {
+    const r = await authedFetch(`${base(scope)}/recent?limit=${limit}`);
+    return (await jsonOrThrow<{ runs?: ContactRunSummary[] }>(r, "clash-contacts recent")).runs ?? [];
   },
   async getRun(scope: ScopeUrl, key: string): Promise<ContactRunDoc> {
     const r = await authedFetch(`${base(scope)}/run?key=${encodeURIComponent(key)}`);

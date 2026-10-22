@@ -14,9 +14,11 @@ ONE KIND, THREE MODES (``conversion_options["mode"]``):
   its own part's model.
 * ``detail``: build the named clashes with a registered spec. The clashes come FROM THE RUN -- contact
   points, normal, distance, patch polygons -- and are not re-measured; the members a builder cuts are
-  rebuilt from the run's target and bound by name (``ada.clash.contacts.founds_by_id``). A GLB that has
-  changed since the run (its sha256 no longer matches) is refused: the stored clashes would describe
-  geometry that is no longer there. A group's run is refused (:data:`GROUP_DETAIL_REFUSAL`).
+  rebuilt as its annotate rebuilt them -- through the geometry provider the request names, else one
+  model per part of a group, else the target's model -- and bound by name
+  (``ada.clash.contacts.founds_by_id``). A GLB that has changed since the run (its sha256 no longer
+  matches; each part's, for a group) is refused: the stored clashes would describe geometry that is no
+  longer there.
 
 SYNTHETIC, like ``clash_check_asset``: what is read (the GLB, the run, the source a target names) is
 fetched through the storage facade, not pre-downloaded by extension. And never short-circuited on an
@@ -51,7 +53,6 @@ CONTACT_MODES = ("check", "annotate", "detail")
 __all__ = [
     "CLASH_CONTACTS_KIND",
     "CONTACT_MODES",
-    "GROUP_DETAIL_REFUSAL",
     "ClashContactsHandler",
     "contacts_work",
     "load_target_model",
@@ -60,14 +61,6 @@ __all__ = [
 
 class ContactsJobError(ValueError):
     """A request the job cannot answer; its message is the whole story."""
-
-
-#: Why a group run is not detailed (yet): a builder is handed members of ONE model, and a group's
-#: clashes pair members of different models.
-GROUP_DETAIL_REFUSAL = (
-    "detailing the clashes of a saved group's run is not supported yet: check the clash's models one at a "
-    "time (or together in one file) and detail from that run"
-)
 
 
 def load_target_model(target: dict, storage):
@@ -196,6 +189,33 @@ def _load_through_provider(run, storage, geometry_provider: str) -> tuple[object
     }
 
 
+def _rebuild_members(run, storage, geometry_provider: str | None) -> tuple[object, dict]:
+    """The model(s) a run's members bind in, and what to record about where they were read from
+    (empty without a provider): through ``geometry_provider`` when one is named, else a group run's
+    one model per part, else its target's model. Annotate and detail rebuild alike, so a clash that
+    bound when its specs were resolved binds when it is detailed."""
+    if run.target.get("kind") == "file":
+        geometry_provider = None
+    if geometry_provider:
+        return _load_through_provider(run, storage, geometry_provider)
+    if run.target.get("kind") == "group":
+        return _load_part_models(run, storage), {}
+    return load_target_model(dict(run.target), storage), {}
+
+
+def _check_geometry_unchanged(run, storage) -> None:
+    """Refuse a run whose measured GLB(s) changed since: its stored clashes would describe geometry
+    that is no longer there. A group run checks each of its parts."""
+    parts = run.parts or ({"key": run.geometry.get("key"), "sha256": run.geometry.get("sha256")},)
+    for part in parts:
+        key = str(part.get("key") or "")
+        if key and hashlib.sha256(storage.get_bytes(key)).hexdigest() != part.get("sha256"):
+            raise ContactsJobError(
+                f"the geometry of this run has changed since it was checked ({key}): run the clash "
+                "check again before detailing from it"
+            )
+
+
 #: Provenance one annotate writes about where its members were read from; dropped by the next.
 _GEOMETRY_PROVENANCE = ("geometry_provider", "geometry_remap", "geometry_unmatched", "geometry_warnings")
 
@@ -218,12 +238,7 @@ def _annotate(run, storage, capability_of, progress, geometry_provider: str | No
     if run.target.get("kind") == "file":
         geometry_provider = None
     try:
-        if geometry_provider:
-            model, geometry = _load_through_provider(run, storage, geometry_provider)
-        elif run.target.get("kind") == "group":
-            model = _load_part_models(run, storage)
-        else:
-            model = load_target_model(dict(run.target), storage)
+        model, geometry = _rebuild_members(run, storage, geometry_provider)
     except Exception as exc:  # noqa: BLE001 - a run without specs is still a run
         logger.warning(f"clash contacts: specs not resolved, the target did not rebuild: {exc}")
         model, error = None, f"{type(exc).__name__}: {exc}"
@@ -280,8 +295,6 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
 
     if mode != "detail":
         raise ContactsJobError(f"unknown clash_contacts mode {mode!r} (one of {', '.join(CONTACT_MODES)})")
-    if run.target.get("kind") == "group":
-        raise ContactsJobError(GROUP_DETAIL_REFUSAL)
 
     from ada.api.connections.spec import get_registered
     from ada.clash.builtin_specs import register_builtin_specs
@@ -301,16 +314,9 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
         ) from exc
 
     progress("geometry", 0.1)
-    glb_key = str(run.geometry.get("key") or "")
-    if glb_key:
-        now = hashlib.sha256(storage.get_bytes(glb_key)).hexdigest()
-        if now != run.geometry.get("sha256"):
-            raise ContactsJobError(
-                f"the geometry of this run has changed since it was checked ({glb_key}): run the clash "
-                "check again before detailing from it"
-            )
+    _check_geometry_unchanged(run, storage)
     progress("members", 0.3)
-    model = load_target_model(dict(run.target), storage)
+    model, _geometry = _rebuild_members(run, storage, opts.get("geometry_provider") or None)
     by_id, problems = founds_by_id(run, model, ids)
     if not by_id:
         raise ContactsJobError(

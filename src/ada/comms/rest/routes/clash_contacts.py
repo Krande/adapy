@@ -9,14 +9,15 @@ A clash run measures the members of a viewer GLB (``ada.clash.contacts``) and is
   an ``annotate`` job that resolves which specs could detail each clash -- the one thing a browser
   has no registry for.
 * ``GET /clash-contacts/runs?target=...`` / ``GET /clash-contacts/run?key=...`` -- list a target's
-  runs and read one back: a run outlives the page that made it.
+  runs and read one back: a run outlives the page that made it. ``GET /clash-contacts/recent`` lists
+  the scope's newest runs over every target.
 * ``POST /clash-contacts/annotate`` -- the specs half alone, for an existing run.
 * ``POST /clash-contacts/detail`` -- build named clashes of a run with a registered spec, from the
   stored contacts.
 
 A saved GROUP's run (``{"kind": "group", "group_id"}``, see ``ada.clash.sidecar``) spans several GLBs:
-it is measured in the browser only, then stored, listed, read and annotated like any other run. It
-is not detailed yet (409).
+it is measured in the browser only, then stored, listed, read, annotated and detailed like any other
+run, each member rebuilt in its own model's part.
 
 LIGHT, like ``clash_check``'s router: the slim API imports it, so only stdlib modules and
 ``ada.clash.sidecar`` are imported here; the work runs in a ``clash_contacts`` job.
@@ -53,14 +54,6 @@ router = APIRouter()
 
 KIND = "clash_contacts"
 _UP_AXES = ("z", "y")
-
-
-#: Why a group run is not detailed (yet) -- ``formats.clash_contacts.GROUP_DETAIL_REFUSAL``'s words,
-#: restated so this light router does not import the job module.
-_GROUP_DETAIL_REFUSAL = (
-    "detailing the clashes of a saved group's run is not supported yet: check the clash's models one at a "
-    "time (or together in one file) and detail from that run"
-)
 
 
 def _target_from(raw: Any) -> dict:
@@ -289,6 +282,37 @@ async def api_clash_contacts_list(
     return JSONResponse({"target": target_obj, "runs": runs})
 
 
+@router.get("/scopes/{scope}/clash-contacts/recent")
+async def api_clash_contacts_recent(
+    limit: int = 20,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """The scope's runs over every target, newest first, each with its ``target`` and ``label`` -- how
+    a run is reopened when the panel is on another target. A line indexed before it carried those is
+    completed from the run itself; one whose run cannot be read is left out."""
+    limit = max(1, min(int(limit), 100))
+    runs: list[dict] = []
+    for entry in await ctx.storage.list_prefix(scope_obj, CLASH_SIDECAR_PREFIX):
+        if not entry.key.endswith("/index.json"):
+            continue
+        try:
+            runs.extend(parse_index(await ctx.storage.get_bytes(scope_obj, entry.key)))
+        except (FileNotFoundError, KeyError, SidecarError, json.JSONDecodeError):
+            continue
+    runs.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
+    out: list[dict] = []
+    for line in runs[:limit]:
+        if "target" not in line or "label" not in line:
+            try:
+                run = parse_run(await ctx.storage.get_bytes(scope_obj, str(line.get("key"))))
+            except (FileNotFoundError, KeyError, SidecarError, json.JSONDecodeError):
+                continue
+            line = {**line, "target": dict(run.target), "label": run.label()}
+        out.append(line)
+    return JSONResponse({"runs": out})
+
+
 @router.get("/scopes/{scope}/clash-contacts/run")
 async def api_clash_contacts_read(
     key: str,
@@ -344,10 +368,13 @@ async def api_clash_contacts_detail(
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Detail clashes of a run with a registered spec, from the stored contacts. Body
-    ``{run_key, contact_ids, spec, options?}``. Returns ``{job_id, derived_key, glb_key}``.
+    ``{run_key, contact_ids, spec, options?, geometry_provider?}``. Returns ``{job_id, derived_key,
+    glb_key}``.
 
-    Routed to the spec's pool (a built-in runs anywhere). The ids are checked against the run before
-    anything is enqueued, so a stale selection is a 404 naming them rather than a failed job."""
+    The members are rebuilt as the run's last annotate bound them: through the ``geometry_provider``
+    it recorded, unless the body names another. Routed to the spec's pool (a built-in runs anywhere)
+    that also reads that provider. The ids are checked against the run before anything is enqueued,
+    so a stale selection is a 404 naming them rather than a failed job."""
     key = _require_run_key(str(body.get("run_key") or ""))
     ids = sorted({str(i) for i in (body.get("contact_ids") or []) if str(i).strip()})
     spec_name = str(body.get("spec") or "")
@@ -363,14 +390,21 @@ async def api_clash_contacts_detail(
     absent = [i for i in ids if i not in known]
     if absent:
         raise HTTPException(status_code=404, detail=f"clash id(s) not in this run: {', '.join(absent)}")
-    if run.target.get("kind") == "group":
-        raise HTTPException(status_code=409, detail=_GROUP_DETAIL_REFUSAL)
-    if run.target.get("kind") not in ("file", "node"):
+    if run.target.get("kind") not in ("file", "node", "group"):
         raise HTTPException(status_code=409, detail="this run's target cannot be rebuilt into members")
+    if body.get("geometry_provider") is not None:
+        provider = _geometry_provider(body, dict(run.target))
+    else:
+        recorded = run.provenance.get("geometry_provider")
+        provider = str(recorded) if recorded and run.target.get("kind") != "file" else None
 
-    capability = await _spec_capability(ctx, spec_name)
+    capability = await _route_with_reader(
+        ctx, await _spec_capability(ctx, spec_name), provider, needs=f"spec {spec_name!r}"
+    )
     ids_token = hashlib.sha256("|".join(ids).encode("utf-8")).hexdigest()[:16]
-    opts_token = hashlib.sha256(json.dumps(gen_options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    opts_token = hashlib.sha256(
+        json.dumps({"options": gen_options, "geometry_provider": provider}, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
     run_token = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     prefix = f"_derived/clash/contacts-detail/{spec_name}/{run_token}/{ids_token}/{opts_token}"
     derived_key, glb_key = f"{prefix}/result.stats.json", f"{prefix}/model.glb"
@@ -389,6 +423,7 @@ async def api_clash_contacts_detail(
             "spec": spec_name,
             "options": gen_options,
             "glb_key": glb_key,
+            **({"geometry_provider": provider} if provider else {}),
         },
         capability=capability,
     )

@@ -19,8 +19,11 @@ THE MATCH, in order:
    label a row with an id of its own while another names the same element by its full name):
    trimmed, a leading ``/`` optional; compared case-sensitively first and case-insensitively only
    when that finds nothing.
-3. One node id must answer. Two different nodes under one name is ambiguous and the member is left
-   out with a warning naming both -- guessing would check the wrong steel.
+3. One node id must answer. Where several do, those no readable subject covers are dropped first:
+   they cannot be read whichever is meant, and they are what a provider's older publish leaves
+   behind when its ids for the same element have since changed. Two readable nodes under one name
+   are ambiguous and the member is left out with a warning naming both -- guessing would check the
+   wrong steel.
 4. The node is read through a subject that can be READ (its manifest claims a build): the node's own
    subject when it is one, as a whole; otherwise the narrowest readable subject whose spine holds
    it, with the element found in that read by NAME alone (an empty ``path``) -- the row's full name
@@ -71,7 +74,7 @@ __all__ = [
 #: The version of the match rules above. A result read through another provider's geometry is
 #: cached under it (``routes/clash_check._geometry_options_token``): change it whenever a change
 #: here can match a member differently, so results made under the old rules are not served.
-MATCH_RULES = 2
+MATCH_RULES = 3
 
 
 def normalise_label(label: Any) -> str:
@@ -111,8 +114,16 @@ class _ProviderCatalog:
     branches: frozenset[str] = frozenset()
 
     def lookup(self, name: str) -> dict[str, str]:
+        """The rows named ``name``; of several, only those a readable subject covers, unless none is."""
         norm = normalise_label(name)
-        return self.exact.get(norm) or self.folded.get(norm.casefold()) or {}
+        hits = self.exact.get(norm) or self.folded.get(norm.casefold()) or {}
+        if len(hits) <= 1:
+            return hits
+        return {i: lab for i, lab in hits.items() if self.covers(i)} or hits
+
+    def covers(self, node_id: str) -> list[_Spine]:
+        """The readable subjects holding ``node_id``: the row itself, or a subject whose spine lists it."""
+        return [s for s in self.spines if s.readable and (s.node == node_id or any(i == node_id for i, _ in s.rows))]
 
 
 class GeometrySourceIndex:
@@ -512,7 +523,7 @@ def _found_in_cover(
 ) -> tuple[dict | None, str | None]:
     """``element`` read from the narrowest readable subject of ``provider`` that holds ``node_id``:
     the row itself when it is a subject, else a subject whose spine lists it."""
-    covers = [s for s in catalog.spines if s.readable and (s.node == node_id or any(i == node_id for i, _ in s.rows))]
+    covers = catalog.covers(node_id)
     if not covers:
         return None, (
             f"{_describe(member)}: provider {provider!r} lists {label!r} ({node_id}) but publishes no "
