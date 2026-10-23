@@ -13,6 +13,8 @@ export interface SceneRestoreProgress {
     /** Models that could not be loaded, and were dropped from the record. */
     failed: number;
     running: boolean;
+    /** One short line about recorded hidden / selected objects the restore did not find. */
+    note?: string | null;
 }
 
 interface SceneRestoreState {

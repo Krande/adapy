@@ -17,16 +17,18 @@ const SceneRestoreOptions: React.FC = () => {
                     Restore loaded models after reload
                     <span className="block text-xs text-gray-400">
                         Models loaded from the file and asset browsers are remembered per scope in
-                        this browser, with the camera, and loaded again when the page reloads.
+                        this browser, with the camera, the hidden objects and the selection, and
+                        loaded again when the page reloads.
                     </span>
                 </span>
             </label>
-            {progress && (
+            {progress && progress.total > 0 && (
                 <div className="text-xs text-gray-300">
                     {progress.running ? "Restoring" : "Restored"} {progress.done - progress.failed} of {progress.total}
                     {progress.failed > 0 && `, ${progress.failed} failed (kept for the next reload; Forget to drop)`}
                 </div>
             )}
+            {progress?.note && <div className="text-xs text-gray-400">{progress.note}.</div>}
             <button
                 type="button"
                 className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded-sm"

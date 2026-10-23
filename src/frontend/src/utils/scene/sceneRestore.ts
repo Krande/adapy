@@ -5,8 +5,11 @@
  * (a stored file, by key) and the asset browser's loads (a published node, by node ref). A model
  * leaving the scene leaves the record. The camera is added when the page is hidden.
  *
+ * The hidden objects and the selection are recorded too, by element id per model, a moment after
+ * each change and when the page is hidden (utils/scene/sceneViewRestore).
+ *
  * RESTORING loads the recorded models through those same paths, one at a time, skipping any
- * already in the scene. A model that does not load stays in the record and is tried again on the
+ * already in the scene, then hides and selects again what was hidden and selected. A model that does not load stays in the record and is tried again on the
  * next reload; "Forget restored scene" clears it. Gated by
  * `useSceneRestoreStore.enabled`; with it off, the previous page's record is discarded.
  *
@@ -18,7 +21,10 @@ import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
 import {useSceneRestoreStore} from "@/state/sceneRestoreStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {useVisibilityStore} from "@/state/visibilityStore";
 import {beginBulkLoad, captureLoadingView, endBulkLoad} from "@/utils/scene/loadingView";
+import {applyRecordedView, captureView} from "@/utils/scene/sceneViewRestore";
 
 /** The bulk-load session's project name: it saves no loading view, so the name is only a label. */
 const RESTORE_SESSION = "scene-restore";
@@ -26,6 +32,7 @@ const RESTORE_SESSION = "scene-restore";
 import {
     EMPTY_SCENE_RECORD,
     assetRef,
+    missingNote,
     readSceneRecord,
     recordedAsset,
     recordedSourceName,
@@ -36,6 +43,7 @@ import {
     withoutNames,
     writeSceneRecord,
     type RecordedModel,
+    type SceneRecord,
 } from "./sceneRecord";
 
 /** Scene name -> the scope whose record holds it, for models in the scene on this page. */
@@ -44,6 +52,34 @@ let recording = false;
 let restoreStarted = false;
 /** Bumped to stop a running restore. */
 let restoreGeneration = 0;
+/** Whether the hidden objects and the selection are written to the record. Not until the restore
+ *  has re-applied the previous page's: the models arriving one by one would otherwise overwrite
+ *  that view with the empty one of a half-loaded scene. */
+let viewSaving = false;
+let viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const VIEW_SAVE_DELAY_MS = 1500;
+
+/** Write what is hidden and selected now into the current scope's record. */
+function saveView(): void {
+    if (!viewSaving) return;
+    try {
+        const scope = currentScope();
+        const r = readSceneRecord(scope);
+        if (!r.models.length) return;
+        writeSceneRecord(scope, {...r, view: captureView()});
+    } catch (e) {
+        console.warn("scene restore: cannot record the hidden objects and the selection", e);
+    }
+}
+
+function scheduleViewSave(): void {
+    if (!viewSaving) return;
+    if (viewSaveTimer) clearTimeout(viewSaveTimer);
+    viewSaveTimer = setTimeout(() => {
+        viewSaveTimer = null;
+        saveView();
+    }, VIEW_SAVE_DELAY_MS);
+}
 
 const currentScope = () => scopeUrlPart(useScopeStore.getState().current);
 
@@ -94,15 +130,26 @@ export function startSceneRecording(): void {
         })
         .catch((e) => console.warn("scene restore: cannot follow the load queue", e));
 
+    // What is hidden and selected follows every change, a moment after it settles; the page
+    // hiding below writes it once more, in case the last change was too recent.
+    useVisibilityStore.subscribe(scheduleViewSave);
+    useSelectedObjectStore.subscribe((s, prev) => {
+        if (s.selectedObjects !== prev.selectedObjects) scheduleViewSave();
+    });
+
     window.addEventListener("pagehide", () => {
+        if (viewSaveTimer) {
+            clearTimeout(viewSaveTimer);
+            viewSaveTimer = null;
+        }
         try {
             const scope = currentScope();
             const r = readSceneRecord(scope);
             if (!r.models.length) return;
             const camera = captureLoadingView();
-            if (camera) writeSceneRecord(scope, {...r, camera});
+            writeSceneRecord(scope, {...r, ...(camera ? {camera} : {}), ...(viewSaving ? {view: captureView()} : {})});
         } catch {
-            // The camera is a convenience.
+            // The camera and the view are a convenience.
         }
     });
 }
@@ -168,7 +215,11 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
             if (live.has(name) || skip.has(name)) recordedScope.set(name, scope);
         }
         const plan = restorePlan(rec, live, skip);
-        if (!plan.length) return;
+        if (!plan.length) {
+            const note = await restoreView(rec.view, scope);
+            if (note) setProgress({total: 0, done: 0, failed: 0, running: false, note});
+            return;
+        }
 
         const generation = restoreGeneration;
         const progress = {total: plan.length, done: 0, failed: 0, running: true};
@@ -203,11 +254,30 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         } finally {
             endBulkLoad(session);
         }
-        setProgress({...progress, running: false});
+        // The models are in: hide and select again what was hidden and selected before.
+        const note = await restoreView(rec.view, scope);
+        setProgress({...progress, running: false, note});
     } catch (e) {
         console.warn("scene restore: stopped", e);
         const p = useSceneRestoreStore.getState().progress;
         if (p) setProgress({...p, running: false});
+    } finally {
+        // From now on the record follows what is hidden and selected on this page.
+        viewSaving = true;
+    }
+}
+
+/** Re-apply the recorded hidden objects and selection to the models now loaded; returns the one
+ *  short note about recorded objects that were not found, or null. */
+async function restoreView(view: SceneRecord["view"], scope: string): Promise<string | null> {
+    if (!view || currentScope() !== scope) return null;
+    try {
+        const note = missingNote(await applyRecordedView(view));
+        if (note) console.info(`scene restore: ${note}`);
+        return note;
+    } catch (e) {
+        console.warn("scene restore: cannot restore the hidden objects and the selection", e);
+        return null;
     }
 }
 

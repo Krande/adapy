@@ -32,13 +32,120 @@ export interface RecordedCamera {
     up: [number, number, number];
 }
 
+/**
+ * What was hidden and selected in one recorded model, by element id (the draw-range key, stable
+ * across reloads of the same model) -- never by scene object, which a reload replaces.
+ *
+ * Visibility is stored whichever way is shorter: `hidden` lists the hidden elements, or `shown`
+ * lists the only ones left drawn (an isolation, where the hidden list would be nearly the model).
+ */
+export interface RecordedSourceView {
+    hidden?: string[];
+    shown?: string[];
+    selected?: string[];
+}
+
+/** Hidden / selected elements per recorded model, keyed by the model's scene name. */
+export interface RecordedView {
+    v: 1;
+    sources: Record<string, RecordedSourceView>;
+}
+
 export interface SceneRecord {
     v: 1;
     models: RecordedModel[];
     camera: RecordedCamera | null;
+    /** Absent in records written before visibility and selection were kept. */
+    view?: RecordedView | null;
 }
 
 export const EMPTY_SCENE_RECORD: SceneRecord = {v: 1, models: [], camera: null};
+
+/** The longest serialised view a record keeps. The record shares the origin's localStorage (some
+ *  5 MB, in UTF-16) with everything else; past this the selection is dropped first, then the view. */
+export const MAX_VIEW_CHARS = 1_000_000;
+
+/** One model's visibility, in its shorter form: the hidden elements, or -- when more are hidden
+ *  than drawn -- the drawn ones. Null when nothing is hidden. */
+export function compactVisibility(hidden: readonly string[], shown: readonly string[]): Pick<RecordedSourceView, "hidden" | "shown"> | null {
+    if (hidden.length === 0) return null;
+    return shown.length < hidden.length ? {shown: [...shown].sort()} : {hidden: [...hidden].sort()};
+}
+
+/** `view` cut to fit `limit` characters: whole, without the selection, or not at all (null). */
+export function fitView(view: RecordedView | null, limit = MAX_VIEW_CHARS): RecordedView | null {
+    if (!view || Object.keys(view.sources).length === 0) return null;
+    if (JSON.stringify(view).length <= limit) return view;
+    const sources: Record<string, RecordedSourceView> = {};
+    for (const [name, s] of Object.entries(view.sources)) {
+        const lean: RecordedSourceView = {};
+        if (s.shown) lean.shown = s.shown;
+        else if (s.hidden) lean.hidden = s.hidden;
+        if (lean.hidden || lean.shown) sources[name] = lean;
+    }
+    const lean: RecordedView = {v: 1, sources};
+    if (Object.keys(sources).length && JSON.stringify(lean).length <= limit) return lean;
+    return null;
+}
+
+/** What re-applying one model's recorded view does to each of its meshes (given by the element
+ *  ids each one draws): which ranges to hide, or which to keep under an isolation, and which to
+ *  select. Ids no mesh draws any more are counted, not applied. */
+export function planSourceView(
+    view: RecordedSourceView,
+    meshes: readonly ReadonlySet<string>[],
+): {
+    perMesh: {hide: string[]; keep: Set<string> | null; select: string[]}[];
+    missing: {hidden: number; selected: number};
+} {
+    const drawn = (id: string) => meshes.some((ids) => ids.has(id));
+    const visibility = view.shown ?? view.hidden ?? [];
+    const missing = {
+        hidden: visibility.filter((id) => !drawn(id)).length,
+        selected: (view.selected ?? []).filter((id) => !drawn(id)).length,
+    };
+    const shown = view.shown ? new Set(view.shown) : null;
+    const perMesh = meshes.map((ids) => ({
+        hide: view.hidden ? view.hidden.filter((id) => ids.has(id)) : [],
+        keep: shown ? new Set([...ids].filter((id) => shown.has(id))) : null,
+        // A selected element left hidden by the view is not selected (hidden is never selected).
+        select: (view.selected ?? []).filter((id) => ids.has(id)),
+    }));
+    return {perMesh, missing};
+}
+
+/** The one short note a restore leaves about what it could not find, or null. */
+export function missingNote(missing: {hidden: number; selected: number}): string | null {
+    const parts: string[] = [];
+    const n = (k: number, what: string) => `${k} ${what} object${k === 1 ? "" : "s"}`;
+    if (missing.hidden) parts.push(n(missing.hidden, "hidden"));
+    if (missing.selected) parts.push(n(missing.selected, "selected"));
+    if (!parts.length) return null;
+    const one = parts.length === 1 && missing.hidden + missing.selected === 1;
+    return `${parts.join(" and ")} ${one ? "was" : "were"} not found`;
+}
+
+const stringList = (v: unknown): string[] | undefined =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : undefined;
+
+/** The view in `raw`, or null when it is missing or not the known shape. */
+export function parseRecordedView(raw: unknown): RecordedView | null {
+    if (!isRecord(raw) || raw.v !== 1 || !isRecord(raw.sources)) return null;
+    const sources: Record<string, RecordedSourceView> = {};
+    for (const [name, s] of Object.entries(raw.sources)) {
+        if (!name || !isRecord(s)) continue;
+        const hidden = stringList(s.hidden);
+        const shown = stringList(s.shown);
+        const selected = stringList(s.selected);
+        const out: RecordedSourceView = {};
+        // `shown` is an isolation and wins: both at once would contradict each other.
+        if (shown) out.shown = shown;
+        else if (hidden?.length) out.hidden = hidden;
+        if (selected?.length) out.selected = selected;
+        if (out.shown || out.hidden || out.selected) sources[name] = out;
+    }
+    return Object.keys(sources).length ? {v: 1, sources} : null;
+}
 
 const KEY_PREFIX = "ada.sceneRestore:";
 
@@ -131,11 +238,13 @@ export function parseSceneRecord(raw: string | null): SceneRecord {
         const m = parseRecordedModel(r);
         if (m) models = withModel(models, m);
     }
-    return {v: 1, models, camera: parseRecordedCamera(doc.camera)};
+    const view = parseRecordedView(doc.view);
+    return {v: 1, models, camera: parseRecordedCamera(doc.camera), ...(view ? {view} : {})};
 }
 
 export function serialiseSceneRecord(r: SceneRecord): string {
-    return JSON.stringify({v: 1, models: r.models, camera: r.camera});
+    const view = fitView(r.view ?? null);
+    return JSON.stringify({v: 1, models: r.models, camera: r.camera, ...(view ? {view} : {})});
 }
 
 /** `models` with `m` appended, unless a model of the same scene name is already there. */
