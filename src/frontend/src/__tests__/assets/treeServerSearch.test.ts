@@ -36,15 +36,18 @@ const hit = (node_id: string, provider = "prov-a", patch: Partial<SearchHit> = {
   ...patch,
 });
 
-test("the tree's partitions: every provider's own partition of its collection, any case, never a shared one", () => {
+test("the tree's partitions: every partition of its collection this scope reads, any case, shared ones too", () => {
   const listed = [
     part("prov-b", "aaa"),
     part("prov-a", "AAA"),
     part("prov-a", "bbb"),
     part("prov-c", "aaa", { key: "prov-c/aaa@shared", scope: "shared", shared: true }),
   ];
-  assert.deepEqual(treeSearchPartitions(listed, "aaa"), ["prov-a/AAA", "prov-b/aaa"]);
-  assert.deepEqual(treeSearchPartitions(listed, "AAA"), ["prov-a/AAA", "prov-b/aaa"]);
+  // A collection whose ONLY index is shared in (its tree requested here, its index elsewhere) is the
+  // common case, and the one that found nothing before.
+  assert.deepEqual(treeSearchPartitions(listed, "aaa"), ["prov-a/AAA", "prov-b/aaa", "prov-c/aaa@shared"]);
+  assert.deepEqual(treeSearchPartitions(listed, "AAA"), ["prov-a/AAA", "prov-b/aaa", "prov-c/aaa@shared"]);
+  assert.deepEqual(treeSearchPartitions([listed[3]], "aaa"), ["prov-c/aaa@shared"]);
   assert.deepEqual(treeSearchPartitions(listed, "ccc"), []);
   assert.deepEqual(treeSearchPartitions(listed, null), []);
   // a listing that names its keys is taken at its word

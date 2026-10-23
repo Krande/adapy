@@ -10,11 +10,14 @@
 // WHICH PARTITIONS. The tree shows one collection of this scope, drawn from whichever providers
 // published it; each provider's attribute index of it is its own partition, and the index keys
 // collections in lower case (a provider writing `AAA` and another `aaa` name one collection). So
-// the query names every partition of this scope whose collection is the tree's, ignoring case --
-// never one shared in from another scope, whose tree is that scope's, not the one on screen.
+// the query names every partition this scope can read whose collection is the tree's, ignoring
+// case -- SHARED ONES INCLUDED. A scope often has no index of its own for a collection it shows: its
+// tree was requested here, its index lies in the scope it is shared in from. That is safe because a
+// hit is revealed by walking its PATH, by name, through the tree on screen (`revealSearchHit`), and
+// the providers mint a node's id from its full name, so a shared hit names the same node here.
 // Naming them is also what lets the server run a `contains` match at all (it scans).
 
-import { isShared, partitionKey } from "@/assets/attributeSearch";
+import { partitionKey } from "@/assets/attributeSearch";
 import type { SearchCollection, SearchHit, SearchQuery } from "@/services/api/attributeSearch";
 
 /** How long the term must sit still before the server is asked (after the tree's own filter). */
@@ -22,11 +25,12 @@ export const TREE_SERVER_SEARCH_DEBOUNCE_MS = 400;
 /** Hits asked for per term: a hint list under the tree, not a result table. */
 export const TREE_SERVER_SEARCH_LIMIT = 25;
 
-/** The partition keys the tree's collection is indexed under in this scope (own partitions only). */
+/** The partition keys the tree's collection is indexed under, as this scope reads them (its own and
+ *  shared-in ones alike). */
 export function treeSearchPartitions(collections: readonly SearchCollection[], collection: string | null): string[] {
   if (!collection) return [];
   const want = collection.toLowerCase();
-  const keys = collections.filter((c) => !isShared(c) && c.collection.toLowerCase() === want).map(partitionKey);
+  const keys = collections.filter((c) => c.collection.toLowerCase() === want).map(partitionKey);
   return [...new Set(keys)].sort();
 }
 
