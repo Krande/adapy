@@ -10,6 +10,7 @@ import {
   hitRevealScope,
   hitTreePath,
   mergePage,
+  nameScanBounded,
   opTakesList,
   opTakesValue,
   originBadge,
@@ -416,4 +417,38 @@ test("a stored form is read back defensively", () => {
   const built = buildQuery(back);
   assert.ok(built.ok);
   assert.deepEqual(built.query.where, [{ key: "FUNC", in: [1, "B"] }]);
+});
+
+test("a name becomes name.contains, only when set, and needs a bounded read", () => {
+  const plain = buildQuery(form({}));
+  assert.ok(plain.ok);
+  assert.equal("name" in plain.query, false); // what an older server takes
+  const named = buildQuery(form({ name: "  /PIPE-1 ", partitions: ["prov/aaa"] }));
+  assert.ok(named.ok);
+  assert.deepEqual(named.query.name, { contains: "/PIPE-1" });
+  // nothing names what it reads: refused here rather than by the server
+  const unbounded = buildQuery(form({ name: "x" }));
+  assert.equal(unbounded.ok, false);
+  assert.equal(buildQuery(form({ name: "x", partitions: ["prov/aaa"], partitionMode: "exclude" })).ok, false);
+  // a picked provider or collection, or an = / in attribute filter, bounds it
+  assert.ok(buildQuery(form({ name: "x", providers: ["prov"] })).ok);
+  assert.ok(buildQuery(form({ name: "x", collections: ["AAA"] })).ok);
+  assert.ok(buildQuery(form({ name: "x", rows: [row("TYPE", "eq", "PIPE")] })).ok);
+  assert.equal(buildQuery(form({ name: "x", rows: [row("TYPE", "ne", "PIPE")] })).ok, false);
+  assert.equal(buildQuery(form({ name: "x".repeat(501), providers: ["prov"] })).ok, false);
+  assert.equal(nameScanBounded({ providers: null, collections: null, partitions: null, where: [{ key: "K", in: ["a"] }] }), true);
+});
+
+test("a stored form without a name still loads, and one with a name keeps it", () => {
+  const old = parseStoredForm(JSON.stringify({ partitions: ["prov/aaa"], rows: [{ key: "A", op: "eq", value: "1" }] }));
+  assert.ok(old);
+  assert.equal(old.name, "");
+  const built = buildQuery(old);
+  assert.ok(built.ok);
+  assert.equal("name" in built.query, false);
+  const back = parseStoredForm(JSON.stringify({ ...emptyForm(), name: "/SITE-A", partitions: ["prov/aaa"] }));
+  assert.equal(back?.name, "/SITE-A");
+  // a form object from before the field (no `name` key at all) builds too
+  const { name: _drop, ...legacy } = emptyForm();
+  assert.ok(buildQuery(legacy as SearchForm).ok);
 });

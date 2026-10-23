@@ -564,6 +564,19 @@ const AttributeSearchPanel: React.FC = () => {
         </div>
         {collectionsError && <div className="rounded-sm bg-red-900/60 px-2 py-1 text-red-100">Could not read the indexed collections: {collectionsError}</div>}
 
+        <div className="flex items-center gap-1.5">
+          <span className={`${LABEL} w-16 shrink-0`}>Name</span>
+          <input
+            aria-label="Name contains"
+            className={`${CONTROL} flex-1 min-w-0 font-mono`}
+            placeholder="Name contains… (any case)"
+            title="Only nodes whose full name contains this, ignoring case. It reads each chosen collection whole, so pick the collections (or add an = / in attribute filter). Blank = any name"
+            value={form.name ?? ""}
+            onChange={(e) => setForm({ name: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+        </div>
+
         <div className="space-y-1.5">
           <div className={LABEL}>Attributes</div>
           <datalist id="attr-search-keys">

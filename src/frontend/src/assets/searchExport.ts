@@ -462,6 +462,12 @@ export function compactQuery(q: SearchQuery | null | undefined): string {
   if (q.exclude_collections?.length) parts.push(`not collections ${q.exclude_collections.join(", ")}`);
   if (q.providers?.length) parts.push(`providers ${q.providers.join(", ")}`);
   if (q.exclude_providers?.length) parts.push(`not providers ${q.exclude_providers.join(", ")}`);
+  if (q.name) {
+    const n = q.name;
+    if ("eq" in n) parts.push(`name = ${n.eq}`);
+    else if ("prefix" in n) parts.push(`name starts ${n.prefix}`);
+    else parts.push(`name contains ${n.contains}`);
+  }
   if (q.kind?.length) parts.push(`kind ${q.kind.join(", ")}`);
   if (q.depth) {
     if ("eq" in q.depth) parts.push(`depth ${q.depth.eq}`);

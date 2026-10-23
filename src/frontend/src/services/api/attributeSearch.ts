@@ -38,6 +38,16 @@ export type SearchWhere =
 
 export type SearchDepth = { eq: number } | { min?: number; max?: number };
 
+/** A match on the node's NAME -- its `full_name`, which is a column of the index, not an attribute
+ *  (`refs: true` also matches `source_ref`). `ignore_case` defaults to true for `contains`, false
+ *  otherwise. A case-sensitive `eq` / `prefix` of the name uses the server's name index; anything
+ *  else scans, so the server refuses it (400) unless the query names its providers, collections or
+ *  partitions (or carries an `eq` / `in` attribute filter). */
+export type SearchName = ({ eq: string } | { prefix: string } | { contains: string }) & {
+  ignore_case?: boolean;
+  refs?: boolean;
+};
+
 /** The search body (contract `POST /api/scopes/{scope}/assets/search`). `null` = no constraint;
  *  `select: null` = every attribute of each hit. The `exclude_*` lists leave those providers /
  *  collections out whatever the includes say (optional: a query stored before they existed has
@@ -56,6 +66,8 @@ export interface SearchQuery {
   kind: string[] | null;
   depth: SearchDepth | null;
   where: SearchWhere[];
+  /** Optional, like the exclusions: a query stored before it existed has none. */
+  name?: SearchName | null;
   select: string[] | null;
   limit: number;
   cursor: string | null;

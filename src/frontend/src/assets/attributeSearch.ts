@@ -122,6 +122,9 @@ export interface SearchForm {
   depthMin: string;
   depthMax: string;
   rows: FilterRow[];
+  /** The node's name contains this, ignoring case (`name.contains`); blank = any name. Optional: a
+   *  form stored before it existed has none. */
+  name?: string;
   /** Attribute keys shown as result columns; also what the search asks the server to return. */
   columns: string[];
   limit: number;
@@ -151,9 +154,25 @@ export function emptyForm(): SearchForm {
     depthMin: "",
     depthMax: "",
     rows: [newFilterRow()],
+    name: "",
     columns: [],
     limit: DEFAULT_LIMIT,
   };
+}
+
+/** Longest name the server takes in a `name` filter. */
+export const NAME_MAX_LEN = 500;
+
+/** Whether a query names what a scanning `name` match reads -- the server's rule for one
+ *  (`contains`, `ignore_case` or `refs`): included providers, collections or partitions, or an
+ *  `eq` / `in` attribute filter the index narrows by. Exclusions alone bound nothing. */
+export function nameScanBounded(q: Pick<SearchQuery, "providers" | "collections" | "partitions" | "where">): boolean {
+  return (
+    !!q.providers?.length ||
+    !!q.collections?.length ||
+    !!q.partitions?.length ||
+    q.where.some((w) => "eq" in w || "in" in w)
+  );
 }
 
 /** Comma-separated text -> trimmed, non-empty, de-duplicated items, in order. */
@@ -229,6 +248,20 @@ export function buildQuery(form: SearchForm, cursor: string | null = null): Buil
   const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(form.limit) || DEFAULT_LIMIT));
   const picked = (names: readonly string[], mode: PickMode, want: PickMode) =>
     names.length && mode === want ? [...names] : null;
+  const name = (form.name ?? "").trim();
+  if (name.length > NAME_MAX_LEN) return { ok: false, error: `Name: at most ${NAME_MAX_LEN} characters` };
+  const bounds = {
+    providers: picked(form.providers, form.providerMode, "include"),
+    collections: picked(form.collections, form.collectionMode, "include"),
+    partitions: form.partitions.length && form.partitionMode !== "exclude" ? form.partitions : null,
+    where,
+  };
+  if (name && !nameScanBounded(bounds)) {
+    return {
+      ok: false,
+      error: "Name: pick the collections to search (or add an = / in attribute filter) -- a name match reads each collection whole",
+    };
+  }
   return {
     ok: true,
     query: {
@@ -246,6 +279,8 @@ export function buildQuery(form: SearchForm, cursor: string | null = null): Buil
       kind: kinds.length ? kinds : null,
       depth,
       where,
+      // Sent only when set, like the partitions.
+      ...(name ? { name: { contains: name } } : {}),
       // No columns chosen: every attribute, so a hit's detail (and an export) has them all.
       select: form.columns.length ? [...form.columns] : null,
       limit,
@@ -566,6 +601,7 @@ export function parseStoredForm(raw: string | null): SearchForm | null {
     depthMin: str(o.depthMin),
     depthMax: str(o.depthMax),
     rows: rows.length ? rows : base.rows,
+    name: str(o.name),
     columns: strs(o.columns),
     limit,
   };
