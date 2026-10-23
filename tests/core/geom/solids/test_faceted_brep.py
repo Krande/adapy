@@ -1,4 +1,7 @@
+import math
+
 import ifcopenshell
+import pytest
 
 from ada.cad import active_backend
 from ada.cadit.ifc.read.geom.solids import faceted_brep as read_faceted_brep
@@ -89,3 +92,39 @@ def test_faceted_brep_with_voids_roundtrip():
 
     occ_shape = active_backend().build(Geometry("hollow", fb))
     assert active_backend().shape_type(occ_shape) in ("solid", "shell", "compound")
+
+
+def _faceted_cube(name, origin=(0.0, 0.0, 0.0), size=1.0, reversed_faces=False):
+    import ada
+    from ada.geom import solids as geo_so
+
+    shell = _cube_shell(origin, size)
+    if reversed_faces:
+        for face in shell.cfs_faces:
+            face.bounds[0].bound.polygon.reverse()
+    return ada.Shape(name, geom=Geometry(name, geo_so.FacetedBrep(outer=shell), None))
+
+
+@pytest.mark.parametrize("reversed_faces", [False, True])
+def test_faceted_brep_is_a_solid_whichever_way_its_faces_wind(backend, reversed_faces):
+    cube = _faceted_cube("cube", reversed_faces=reversed_faces)
+    assert backend.volume(backend.build(cube.solid_geom())) == pytest.approx(1.0, rel=1e-9)
+
+
+@pytest.mark.parametrize("reversed_faces", [False, True])
+def test_a_faceted_brep_minus_a_cylinder_loses_the_whole_bore(backend, reversed_faces):
+    import ada
+
+    cube = _faceted_cube("cube", reversed_faces=reversed_faces)
+    cube.add_boolean(ada.PrimCyl("bore", (0.5, 0.5, -1.0), (0.5, 0.5, 2.0), 0.25))
+    expected = 1.0 - math.pi * 0.25**2
+    assert backend.volume(backend.build(cube.solid_geom())) == pytest.approx(expected, rel=1e-6)
+
+
+@pytest.mark.parametrize("reversed_faces", [False, True])
+def test_a_faceted_brep_cuts_as_a_solid(backend, reversed_faces):
+    import ada
+
+    box = ada.PrimBox("box", (-1.0, -1.0, -1.0), (2.0, 2.0, 2.0))
+    box.add_boolean(_faceted_cube("cutter", reversed_faces=reversed_faces))
+    assert backend.volume(backend.build(box.solid_geom())) == pytest.approx(26.0, rel=1e-9)

@@ -859,14 +859,20 @@ class AdacppBackend:
             faces = [self._cad.polygon_face(world[:4])]
             for i in range(4):
                 faces.append(self._cad.polygon_face([world[i], world[(i + 1) % 4], world[4]]))
-            shape = self._cad.sew_faces(faces)
+            shape = self._solid_from_faces(faces)
         elif isinstance(g, so.FacetedBrep):
+            # A SOLID, not the sewn shell of its faces. Sewn, the outer shell is a surface: its
+            # volume reads right, but a boolean with it is not a solid boolean -- a box minus a
+            # faceted cube came out empty, and a faceted cube minus a cylinder lost only part of
+            # the bore. The faces are made into the volume they bound, whichever way they wind.
             from ada.geom import Geometry as _Geometry
             from ada.geom.booleans import BoolOpEnum
 
-            shape = self.build(_Geometry(geometry.id, g.outer))
+            shape = self._solid_from_faces(self._shell_faces(geometry.id, g.outer))
             for void in g.voids:
-                shape = self.boolean(BoolOpEnum.DIFFERENCE, shape, self.build(_Geometry(geometry.id, void)))
+                shape = self.boolean(
+                    BoolOpEnum.DIFFERENCE, shape, self._solid_from_faces(self._shell_faces(geometry.id, void))
+                )
         elif isinstance(g, so.SweptDiskSolid):
             # Disk swept along the directrix; the native verb extracts the start frame and
             # builds the circular profile in C++ (robust for any directrix kind).
@@ -902,6 +908,28 @@ class AdacppBackend:
         # Apply booleans natively (operands built recursively in adacpp).
         for op in geometry.bool_operations:
             shape = self.boolean(op.operator, shape, self.build(op.second_operand))
+        return shape
+
+    def _shell_faces(self, geometry_id, shell) -> list:
+        """The face handles of a ClosedShell / OpenShell, each built on its own."""
+        from ada.geom import Geometry as _Geometry
+
+        faces = [self.build(_Geometry(geometry_id, face)) for face in shell.cfs_faces]
+        if not faces:
+            raise NotImplementedError("AdacppBackend.build: shell has no faces")
+        return faces
+
+    def _solid_from_faces(self, faces: list) -> ShapeHandle:
+        """The solid a closed set of faces bounds (BOPAlgo_MakerVolume), independent of how the
+        faces wind. More than one cell (faces that touch inside) is fused back into one solid."""
+        from ada.geom.booleans import BoolOpEnum
+
+        volumes = self._cad.make_volumes_from_faces(faces)
+        if not volumes:
+            raise ValueError("AdacppBackend.build: the faces bound no volume (the shell is not closed)")
+        shape = volumes[0]
+        for other in volumes[1:]:
+            shape = self.boolean(BoolOpEnum.UNION, shape, other)
         return shape
 
     def _loft_planar_sweep(self, g, area) -> ShapeHandle:
