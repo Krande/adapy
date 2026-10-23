@@ -382,7 +382,10 @@ async def _run() -> None:
                 logger.exception("worker: could not subscribe to requested pool %s", cap)
         if added:
             per_fetch_timeout = _per_fetch_timeout(len(subs))
-            logger.info("worker: now also serving capability pools %s (requested by a plugin)", added)
+            # Summarised like the boot line: a plugin that discovers its pools adds them in one
+            # go, and the full list of ninety names was one unreadable line per worker.
+            logger.info("worker: now also serving capability pools %s (requested by a plugin)", summarise_names(added))
+            logger.debug("worker: added capability pools %s", added)
             await _publish_registration()
 
     # Warm the heavy CAD imports in this (parent) process before the per-job fork
