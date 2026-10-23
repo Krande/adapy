@@ -38,21 +38,40 @@ function batchedUnder(root: THREE.Object3D): CustomBatchedMesh[] {
     return out;
 }
 
+/** One model's hidden elements, in their compact form, or null when none is hidden. */
+function visibilityOf(group: THREE.Object3D): Pick<RecordedSourceView, "hidden" | "shown"> | null {
+    const hidden = new Set<string>();
+    const drawn = new Set<string>();
+    for (const mesh of batchedUnder(group)) {
+        const h = mesh.getHiddenRanges();
+        for (const id of mesh.drawRanges.keys()) (h.has(id) ? hidden : drawn).add(id);
+    }
+    // An element drawn by any of its meshes is not hidden.
+    for (const id of drawn) hidden.delete(id);
+    return compactVisibility([...hidden], [...drawn]);
+}
+
+/** What is hidden and selected in the one model whose root is `group` -- what removing it from
+ *  the scene would lose -- or null when nothing is. */
+export function captureSourceView(group: THREE.Object3D): RecordedSourceView | null {
+    const out: RecordedSourceView = {...(visibilityOf(group) ?? {})};
+    const selected = new Set<string>();
+    for (const [obj, ids] of useSelectedObjectStore.getState().selectedObjects) {
+        let inside = false;
+        for (let cur: THREE.Object3D | null = obj; cur && !inside; cur = cur.parent) inside = cur === group;
+        if (inside) for (const id of ids) selected.add(id);
+    }
+    if (selected.size) out.selected = [...selected].sort();
+    return out.hidden || out.shown || out.selected ? out : null;
+}
+
 /** The view of what is loaded now, or null when nothing is hidden or selected. */
 export function captureView(): RecordedView | null {
     const sources: Record<string, RecordedSourceView> = {};
     const nameOf = new Map<THREE.Object3D, string>();
     for (const [name, group] of loadedSourceGroups.entries()) {
         nameOf.set(group, name);
-        const hidden = new Set<string>();
-        const drawn = new Set<string>();
-        for (const mesh of batchedUnder(group)) {
-            const h = mesh.getHiddenRanges();
-            for (const id of mesh.drawRanges.keys()) (h.has(id) ? hidden : drawn).add(id);
-        }
-        // An element drawn by any of its meshes is not hidden.
-        for (const id of drawn) hidden.delete(id);
-        const vis = compactVisibility([...hidden], [...drawn]);
+        const vis = visibilityOf(group);
         if (vis) sources[name] = vis;
     }
 
@@ -80,7 +99,14 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function applyRecordedView(
     view: RecordedView | null | undefined,
     retryMs: readonly number[] = RETRY_MS,
+    opts: {
+        /** Replace the selection with the view's (a restore), or add to it (a model loaded again). */
+        replaceSelection?: boolean;
+        /** Start the undo history clean afterwards (a restore), or leave it (an undo step). */
+        resetHistory?: boolean;
+    } = {},
 ): Promise<{hidden: number; selected: number}> {
+    const {replaceSelection = true, resetHistory = true} = opts;
     const missing = {hidden: 0, selected: 0};
     if (!view) return missing;
     const done = new Set<CustomBatchedMesh>();
@@ -107,12 +133,12 @@ export async function applyRecordedView(
             missing.selected += all.missing.selected;
         }
         const sel = useSelectedObjectStore.getState();
-        if (first && Object.values(view.sources).some((s) => s.selected?.length)) sel.clearSelectedObjects();
+        if (first && replaceSelection && Object.values(view.sources).some((s) => s.selected?.length)) sel.clearSelectedObjects();
         if (batch.length) sel.addBatchofMeshes(batch);
         first = false;
         requestRender();
         // Restoring is not something to undo; nor may an undo reach back past it.
-        useViewerHistoryStore.getState().reset();
+        if (resetHistory) useViewerHistoryStore.getState().reset();
         if ((missing.hidden === 0 && missing.selected === 0) || attempt >= retryMs.length) break;
         await sleep(retryMs[attempt]);
     }

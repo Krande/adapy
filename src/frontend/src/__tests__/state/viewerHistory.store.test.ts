@@ -113,3 +113,28 @@ test("labels name what changed", () => {
   assert.equal(describeViewerAction("select", { hidden: 0, shown: 0, selected: 500 }), "select 500 objects");
   assert.equal(describeViewerAction("select", { hidden: 0, shown: 0, selected: 0 }), "clear selection");
 });
+
+test("an async step holds every other undo / redo off until it settles", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  st().record(step("sync"));
+  st().record({ label: "async", undo: () => gate, redo: () => {} });
+  assert.equal(st().undo()?.label, "async");
+  assert.ok(st().applying);
+  assert.equal(st().undo(), null, "busy: ignored");
+  assert.equal(st().redo(), null, "busy: ignored");
+  st().record(step("during"));
+  assert.deepEqual(st().past.map((e) => e.label), ["sync"], "nothing records while busy");
+  release();
+  await st().pending;
+  assert.ok(!st().applying);
+  assert.equal(st().undo()?.label, "sync");
+});
+
+test("a failing async step still frees the history", async () => {
+  st().record({ label: "boom", undo: () => Promise.reject(new Error("load failed")), redo: () => {} });
+  st().undo();
+  await st().pending;
+  assert.ok(!st().applying);
+  assert.equal(st().redo()?.label, "boom");
+});

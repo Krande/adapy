@@ -39,7 +39,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Shift", "I"], description: "Hide everything except the current selection" },
       { keys: ["Shift", "G"], description: "Save the selection as a named group (shared in the scope)" },
       { keys: ["Shift", "U"], description: "Unhide everything" },
-      { keys: ["Ctrl / ⌘", "Z"], description: "Undo the last hide / show / isolate or selection change" },
+      { keys: ["Ctrl / ⌘", "Z"], description: "Undo the last hide / show / isolate, selection change, model load or removal, selection box or section plane edit" },
       { keys: ["Ctrl / ⌘", "Y"], description: "Redo (also Ctrl / ⌘ + Shift + Z)" },
       { keys: ["Shift", "F"], description: "Center the view on the selection" },
       { keys: ["Shift", "A"], description: "Zoom to fit the whole model" },

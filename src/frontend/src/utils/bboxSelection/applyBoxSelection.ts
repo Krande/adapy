@@ -5,7 +5,7 @@
 
 import * as THREE from "three";
 
-import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
+import {recordBoxAction, useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -56,9 +56,12 @@ export function addBoxAroundSelection(): string | null {
     const b = selectionBounds();
     if (!b) return null;
     const diag = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
-    const id = useBBoxSelectionStore.getState().add(padded(b, Math.max(0.05, diag * 0.02)));
-    applyBoxSelection(id);
-    return id;
+    // The box and the selection it then makes are one undo step.
+    return recordBoxAction("box-add", () => {
+        const id = useBBoxSelectionStore.getState().add(padded(b, Math.max(0.05, diag * 0.02)));
+        applyBoxSelection(id);
+        return id;
+    });
 }
 
 /** Replace the selection with what box `id` takes. Returns how many elements that is. */

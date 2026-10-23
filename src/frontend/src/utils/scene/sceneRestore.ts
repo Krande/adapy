@@ -25,6 +25,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {beginBulkLoad, captureLoadingView, endBulkLoad} from "@/utils/scene/loadingView";
 import {applyRecordedView, captureView} from "@/utils/scene/sceneViewRestore";
+import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 
 /** The bulk-load session's project name: it saves no loading view, so the name is only a label. */
 const RESTORE_SESSION = "scene-restore";
@@ -83,10 +84,41 @@ function scheduleViewSave(): void {
 
 const currentScope = () => scopeUrlPart(useScopeStore.getState().current);
 
+/** How each model loaded on this page can be loaded again, by scene name. Kept after the model
+ *  leaves the scene: undoing its removal loads it again from here. */
+const reloadable = new Map<string, RecordedModel>();
+/** True while a restore loads the previous page's models: those loads are not undo steps. */
+let restoring = false;
+
 function record(m: RecordedModel): void {
     const scope = currentScope();
+    reloadable.set(recordedSourceName(m), m);
     recordedScope.set(recordedSourceName(m), scope);
     updateSceneRecord(scope, (r) => ({...r, models: withModel(r.models, m)}));
+}
+
+/** How the model loaded under `name` can be loaded again -- a stored file's key or a published
+ *  node's ref -- or null when this page does not know (it was not loaded through a path a reload
+ *  can repeat). */
+export function describeLoadedModel(name: string): RecordedModel | null {
+    const known = reloadable.get(name);
+    if (known) return known;
+    try {
+        return readSceneRecord(currentScope()).models.find((m) => recordedSourceName(m) === name) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/** Load `m` again through the path it was loaded by first, as a normal load (the load queue for
+ *  a stored file, the asset browser's load for a node); true when it is in the scene afterwards. */
+export function reloadRecordedModel(m: RecordedModel): Promise<boolean> {
+    return m.kind === "file" ? loadFile(m) : loadAsset(currentScope(), m);
+}
+
+/** Whether a page restore is loading models now. */
+export function sceneRestoreRunning(): boolean {
+    return restoring;
 }
 
 /** Start recording loads and unloads. Idempotent. */
@@ -212,6 +244,7 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         const live = useModelState.getState().loadedSourceNames;
         for (const m of rec.models) {
             const name = recordedSourceName(m);
+            reloadable.set(name, m);
             if (live.has(name) || skip.has(name)) recordedScope.set(name, scope);
         }
         const plan = restorePlan(rec, live, skip);
@@ -221,6 +254,7 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
             return;
         }
 
+        restoring = true;
         const generation = restoreGeneration;
         const progress = {total: plan.length, done: 0, failed: 0, running: true};
         setProgress({...progress});
@@ -257,11 +291,14 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         // The models are in: hide and select again what was hidden and selected before.
         const note = await restoreView(rec.view, scope);
         setProgress({...progress, running: false, note});
+        // The restored scene is where the undo history starts: its loads are not steps to undo.
+        useViewerHistoryStore.getState().reset();
     } catch (e) {
         console.warn("scene restore: stopped", e);
         const p = useSceneRestoreStore.getState().progress;
         if (p) setProgress({...p, running: false});
     } finally {
+        restoring = false;
         // From now on the record follows what is hidden and selected on this page.
         viewSaving = true;
     }
