@@ -1085,10 +1085,12 @@ class AdacppBackend:
                 mid = self._arc_midpoint(b, p1, p2, curve.sense_agreement)
                 return [[1.0, *p1, *mid, *p2]]
             if isinstance(b, cu.Ellipse):
-                # adacpp has no ellipse edge record — sample the trimmed arc
-                # (parametric angle; trims normalized to radians at read) into
-                # a fine polyline. Profile use only, so chord error at 64
-                # segments/full-turn is well under tessellation deflection.
+                # EXACT: the ellipse edge record (kind 4, the one _encode_oriented_edge writes),
+                # trimmed between the arc's two points -- not a polyline of it. A dished end
+                # revolved from a sampled quarter ellipse was a faceted solid with a volume
+                # short by the chords. The record trims walking the parameter up from start to
+                # end, so an arc run against the ellipse is the same point set about the
+                # opposite axis (see _encode_oriented_edge).
                 c = _np.asarray(self._xyz(b.position.location), dtype=float)
                 z = _np.asarray(self._xyz(b.position.axis) if b.position.axis is not None else [0, 0, 1], dtype=float)
                 x = _np.asarray(
@@ -1107,14 +1109,22 @@ class AdacppBackend:
                     return float(_np.arctan2(float(d @ y) / sa2, float(d @ x) / sa1))
 
                 a0, a1 = _param_of(t1), _param_of(t2)
-                if curve.sense_agreement and a1 <= a0:
-                    a1 += 2.0 * _np.pi
-                elif not curve.sense_agreement and a1 >= a0:
-                    a1 -= 2.0 * _np.pi
-                n = max(8, int(abs(a1 - a0) / (2.0 * _np.pi) * 64))
-                ts = _np.linspace(a0, a1, n + 1)
-                pts = [c + sa1 * _np.cos(t) * x + sa2 * _np.sin(t) * y for t in ts]
-                return [[0.0, *[float(v) for v in p], *[float(v) for v in q]] for p, q in zip(pts[:-1], pts[1:])]
+                p0 = c + sa1 * _np.cos(a0) * x + sa2 * _np.sin(a0) * y
+                p1 = c + sa1 * _np.cos(a1) * x + sa2 * _np.sin(a1) * y
+                axis = z if curve.sense_agreement else -z
+                return [
+                    [
+                        4.0,
+                        *[float(v) for v in c],
+                        *[float(v) for v in axis],
+                        *[float(v) for v in x],
+                        sa1,
+                        sa2,
+                        1.0,
+                        *[float(v) for v in p0],
+                        *[float(v) for v in p1],
+                    ]
+                ]
             raise NotImplementedError(
                 f"AdacppBackend.build: TrimmedCurve basis {type(b).__name__!r} not yet ported to adacpp."
             )
