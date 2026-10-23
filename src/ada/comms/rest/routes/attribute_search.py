@@ -24,13 +24,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
-from ..db.attribute_index import SearchQueryError, parse_search_query
+from ..db.attribute_index import SEARCH_STATEMENT_TIMEOUT, SearchQueryError, parse_search_query
 from ..scope import Scope
 from .deps import require_pool, scope_from_path
 
@@ -84,7 +85,7 @@ async def api_asset_search(
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Body: ``{providers, collections, exclude_providers, exclude_collections, partitions,
-    exclude_partitions, all_scopes, kind, depth, where, select, limit, cursor}`` (all optional).
+    exclude_partitions, all_scopes, kind, depth, where, name, select, limit, cursor}`` (all optional).
 
     ``providers`` / ``collections`` include (``null``: every one); ``exclude_providers`` /
     ``exclude_collections`` leave those out whatever the includes say, and are never read.
@@ -105,6 +106,14 @@ async def api_asset_search(
     beside a positive filter they refine its matches cheaply, but a query of ONLY such filters scans
     every chosen collection and may hit the search's statement timeout (a 30 s ceiling) on large
     scopes -- narrow it with a positive filter, a kind or the collections.
+
+    ``name`` matches the node's NAME -- the ``full_name`` column, which no provider need repeat as
+    an attribute: ``{"eq": s}``, ``{"prefix": s}`` or ``{"contains": s}``, with ``"ignore_case"``
+    (default true for ``contains``, false otherwise) and ``"refs": true`` to match ``source_ref``
+    too (either one). A case-sensitive ``eq`` / ``prefix`` of the name alone uses the partition's
+    name index. Anything else scans, so it is refused (400) unless the body names ``providers``,
+    ``collections`` or ``partitions`` (or carries an ``eq`` / ``in`` attribute filter); it is still
+    bounded by the statement timeout, which answers 504. Case folding is ASCII-only.
 
     Response: ``{rows, next_cursor, counts, partitions, took_ms}`` where ``counts`` is the whole
     query's match count per partition -- keyed ``<provider>/<collection>`` for the scope's own,
@@ -128,6 +137,12 @@ async def api_asset_search(
         )
     except SearchQueryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.QueryCanceledError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=f"the search did not finish within {SEARCH_STATEMENT_TIMEOUT}; narrow it (collections, kind, "
+            "an attribute filter, or a name prefix instead of 'contains')",
+        ) from exc
     return JSONResponse(result)
 
 

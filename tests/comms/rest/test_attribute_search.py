@@ -193,6 +193,69 @@ def test_depth_range_kind_and_unfiltered():
     assert ai.parse_search_query({"limit": 5000}).limit == ai.SEARCH_MAX_LIMIT
 
 
+def test_an_exact_or_prefix_name_uses_the_full_name_btree_first():
+    sql, args = ai.build_filters(ai.parse_search_query({"name": {"eq": "/PIPE-1"}, "kind": ["PIPE"]}))
+    assert sql == 'full_name = $2::text COLLATE "C" AND kind = ANY($1::text[])'
+    assert args == [["PIPE"], "/PIPE-1"]
+    sql, args = ai.build_filters(ai.parse_search_query({"name": {"prefix": "/SITE-A/50%_x\\"}}))
+    assert sql == 'full_name LIKE $1::text COLLATE "C"'
+    assert args == ["/SITE-A/50\\%\\_x\\\\%"]  # LIKE wildcards in the name are literal
+    assert not ai.name_scans(ai.parse_search_query({"name": {"prefix": "/A"}}).name)
+
+
+def test_contains_ignore_case_and_refs_scan_last_and_need_a_bounded_read():
+    body = {"collections": ["AAA"], "name": {"contains": "pipe_1", "refs": True}, "where": [{"key": "T", "eq": "X"}]}
+    q = ai.parse_search_query(body)
+    assert q.name == {"op": "contains", "value": "pipe_1", "ignore_case": True, "refs": True}
+    sql, args = ai.build_filters(q)
+    assert sql == 'attrs @> $1::jsonb AND (full_name ILIKE $2::text COLLATE "C" OR source_ref ILIKE $2::text)'
+    assert args[1] == "%pipe\\_1%"
+    # case-sensitive contains is LIKE; a case-insensitive eq is an ILIKE of the escaped value
+    q = ai.parse_search_query({"providers": ["p"], "name": {"contains": "A", "ignore_case": False}})
+    assert ai.build_filters(q)[0] == 'full_name LIKE $1::text COLLATE "C"'
+    q = ai.parse_search_query({"partitions": ["p/aaa"], "name": {"eq": "a%", "ignore_case": True}})
+    assert ai.build_filters(q) == ('full_name ILIKE $1::text COLLATE "C"', ["a\\%"])
+    q = ai.parse_search_query({"collections": ["aaa"], "name": {"eq": "=1/2", "refs": True}})
+    assert ai.build_filters(q) == ('(full_name = $1::text COLLATE "C" OR source_ref = $1::text)', ["=1/2"])
+    # unbounded scans are refused; an indexed attribute filter or a named read bounds them
+    for name in ({"contains": "x"}, {"eq": "x", "ignore_case": True}, {"prefix": "x", "refs": True}):
+        with pytest.raises(ai.SearchQueryError, match="scans"):
+            ai.parse_search_query({"name": name})
+        with pytest.raises(ai.SearchQueryError, match="scans"):
+            ai.parse_search_query({"name": name, "where": [{"key": "T", "ne": "X"}], "kind": ["PIPE"]})
+        ai.parse_search_query({"name": name, "where": [{"key": "T", "in": ["X"]}]})
+    ai.parse_search_query({"name": {"eq": "/A"}})  # the btree needs no bound
+
+
+def test_a_name_joins_the_fingerprint_and_the_filtered_flag_only_when_set():
+    base = ai.parse_search_query(CANONICAL)
+    assert ai.parse_search_query({**CANONICAL, "name": None}).fingerprint() == base.fingerprint()
+    named = ai.parse_search_query({**CANONICAL, "name": {"eq": "/A"}})
+    assert named.fingerprint() != base.fingerprint()
+    assert named.fingerprint() != ai.parse_search_query({**CANONICAL, "name": {"prefix": "/A"}}).fingerprint()
+    assert ai.parse_search_query({"name": {"eq": "/A"}}).filtered
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "x",
+        {},
+        {"eq": ""},
+        {"eq": "a", "prefix": "a"},
+        {"contains": 3},
+        {"regex": ".*"},
+        {"eq": "a", "ignore_case": "yes"},
+        {"eq": "a", "refs": 1},
+        {"eq": "a", "other": True},
+        {"eq": "x" * (ai.NAME_MAX_LEN + 1)},
+    ],
+)
+def test_malformed_names_are_refused(name):
+    with pytest.raises(ai.SearchQueryError, match="name"):
+        ai.parse_search_query({"collections": ["aaa"], "name": name})
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -560,6 +623,67 @@ async def test_negative_filters_presence_and_exclusions(pg):
             scope=pg.scope,
             query=ai.parse_search_query({**q, "exclude_collections": ["gamma"], "cursor": first["next_cursor"]}),
         )
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_a_name_search_finds_nodes_by_full_name_and_ref(pg):
+    """``name`` matches the ``full_name`` column (no NAME attribute is written), deep nodes included;
+    LIKE wildcards in it are literal; it ANDs with ``where`` / ``kind``; ``refs`` adds source_ref."""
+    alpha = _nodes("alpha", 30, seed=6)
+    deep = [
+        ("d1", "alpha-z0", "/SITE-A/PIPE-1", "PIPE", 3, "=9/1", {"TYPE": "PIPE"}),
+        ("d2", "d1", "/SITE-A/PIPE-1/BRAN-1", "BRAN", 4, "=9/2", {"TYPE": "PIPE"}),
+        ("d3", "d2", "/SITE-A/Pipe-1/ATTA_50%", "ATTA", 5, "=9/3", {"TYPE": "STRU"}),
+        ("d4", "d2", "/SITE-A/PIPEX1/ATTAx50y", "ATTA", 5, "=9/4", {"TYPE": "STRU"}),
+    ]
+    for node_id, parent, name, kind, depth, ref, attrs in deep:
+        alpha.append(
+            {"node_id": node_id, "parent_id": parent, "full_name": name, "source_ref": ref, "kind": kind,
+             "depth": depth, "attrs": attrs}
+        )  # fmt: skip
+    await _ingest(pg, "AAA", alpha)
+    await _ingest(pg, "beta", _nodes("beta", 10, seed=7))
+
+    async def ids(body: dict) -> list[str]:
+        rows, pages = await _all_pages(pg, body, 1000)
+        assert sum(pages[0]["counts"].values()) == len(rows)
+        return sorted(r["node_id"] for r in rows)
+
+    # exact, case-sensitive, through the btree: no collections needed
+    assert await ids({"name": {"eq": "/SITE-A/PIPE-1"}}) == ["d1"]
+    assert await ids({"name": {"eq": "/site-a/pipe-1"}}) == []
+    # prefix; `_` and `%` in it are literal (PIPEX1 must not match PIPE_1)
+    assert await ids({"name": {"prefix": "/SITE-A/PIPE-1"}}) == ["d1", "d2"]
+    assert await ids({"name": {"prefix": "/SITE-A/Pipe-1/ATTA_50%"}}) == ["d3"]
+    # contains is case-insensitive by default; the collection compares case-insensitively too
+    assert await ids({"collections": ["aaa"], "name": {"contains": "pipe-1"}}) == ["d1", "d2", "d3"]
+    assert await ids({"collections": ["AAA"], "name": {"contains": "pipe-1", "ignore_case": False}}) == []
+    assert await ids({"providers": [pg.provider], "name": {"contains": "_50%"}}) == ["d3"]
+    # the deep hit carries its whole path, root first
+    rows, _ = await _all_pages(pg, {"collections": ["aaa"], "name": {"contains": "atta_50"}}, 10)
+    assert [p["node_id"] for p in rows[0]["path"]] == ["alpha-site", "alpha-z0", "d1", "d2"]
+    # AND with where and kind
+    body = {"collections": ["aaa"], "name": {"contains": "pipe"}, "where": [{"key": "TYPE", "eq": "STRU"}]}
+    assert await ids(body) == ["d3", "d4"]
+    assert await ids({**body, "kind": ["BRAN"]}) == []
+    assert await ids({"name": {"prefix": "/SITE-A/"}, "kind": ["PIPE", "BRAN"]}) == ["d1", "d2"]
+    # refs: the name OR the source ref
+    assert await ids({"collections": ["aaa"], "name": {"contains": "=9/", "refs": True}}) == ["d1", "d2", "d3", "d4"]
+    assert await ids({"collections": ["aaa"], "name": {"eq": "=9/2", "refs": True}}) == ["d2"]
+    assert await ids({"collections": ["aaa"], "name": {"contains": "=9/"}}) == []
+    # beta has no such names, and is counted as empty
+    res = await ai.search_attributes(
+        pg.pool, scope=pg.scope, query=ai.parse_search_query({"name": {"prefix": "/SITE-A/"}})
+    )
+    assert res["counts"] == {f"{pg.provider}/aaa": 4, f"{pg.provider}/beta": 0}
+    # an export of a name search takes the same hits
+    from ada.comms.rest.routes import asset_exports as ex
+
+    body = {"collections": ["aaa"], "name": {"contains": "pipe-1"}, "limit": 2}
+    hits = await ex.all_hits(pg.pool, scope=pg.scope, query_body=body)
+    assert sorted(h["node_id"] for h in hits) == ["d1", "d2", "d3"]
 
 
 @needs_postgres

@@ -27,6 +27,12 @@ filter they only refine what the index narrowed, alone they scan the partition (
 the statement timeout). Excluded providers / collections are dropped when the partitions are
 chosen, so they are never read at all.
 
+A NAME IS A COLUMN, NOT AN ATTRIBUTE. ``name`` matches ``full_name`` (and with ``refs``,
+``source_ref``). A case-sensitive ``eq`` / ``prefix`` of ``full_name`` is answered by its btree (the
+column is ``COLLATE "C"``, so ``LIKE 'x%'`` is a range scan of it); ``contains``, ``ignore_case`` and
+``refs`` are ``(I)LIKE`` scans, so the parser refuses them unless the query names what it reads
+(:func:`name_scans`), and they stay under the statement timeout.
+
 PAGINATION IS A KEYSET over (provider, collection, node_id), walked partition by partition in
 that order with ``node_id > $last ORDER BY node_id`` on each -- the btree on node_id makes a page of
 a broad query as cheap as a page of a narrow one. The cursor is opaque base64 carrying the last
@@ -932,6 +938,9 @@ class SearchQuery:
     #: An ADMIN's search of every provider scope's partitions, shared here or not
     #: (:func:`admin_search_origins`). The route refuses it for anyone else; here it is only a flag.
     all_scopes: bool = False
+    #: A match on the node's NAME (the ``full_name`` column -- not an attribute), parsed by
+    #: :func:`_parse_name`: ``{"op": "eq"|"prefix"|"contains", "value", "ignore_case", "refs"}``.
+    name: Optional[dict] = None
 
     def fingerprint(self) -> str:
         """What a cursor is valid for: the filters, not the page size or the projection. A filter
@@ -951,12 +960,14 @@ class SearchQuery:
             doc += [{"partitions": self.partitions, "exclude_partitions": self.exclude_partitions}]
         if self.all_scopes:
             doc += [{"all_scopes": True}]
+        if self.name:
+            doc += [{"name": self.name}]
         return hashlib.sha1(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:12]
 
     @property
     def filtered(self) -> bool:
         return (
-            bool(self.kind or self.where)
+            bool(self.kind or self.where or self.name)
             or self.depth_eq is not None
             or self.depth_min is not None
             or (self.depth_max is not None)
@@ -995,6 +1006,46 @@ def _scalar(v: Any, what: str):
     if isinstance(v, (str, bool, int, float)) and v is not None:
         return v
     raise SearchQueryError(f"{what} must be a string, number or boolean")
+
+
+#: The operators a ``name`` filter may carry (exactly one), and its flags.
+_NAME_OPS = ("eq", "prefix", "contains")
+_NAME_FLAGS = ("ignore_case", "refs")
+#: Longest name a ``name`` filter may ask for.
+NAME_MAX_LEN = 500
+
+
+def _parse_name(raw: Any) -> Optional[dict]:
+    """``name``: ``{"eq"|"prefix"|"contains": str, "ignore_case"?: bool, "refs"?: bool}``.
+    ``ignore_case`` defaults to true for ``contains`` and false otherwise."""
+    if raw is None:
+        return None
+    shape = '\'name\' must be {"eq"|"prefix"|"contains": "...", "ignore_case": bool, "refs": bool}'
+    if not isinstance(raw, dict):
+        raise SearchQueryError(shape)
+    ops = [op for op in _NAME_OPS if op in raw]
+    if len(ops) != 1 or set(raw) - {*_NAME_OPS, *_NAME_FLAGS}:
+        raise SearchQueryError(shape)
+    op = ops[0]
+    value = raw[op]
+    if not isinstance(value, str) or not value:
+        raise SearchQueryError(f"name.{op} must be a non-empty string")
+    if len(value) > NAME_MAX_LEN:
+        raise SearchQueryError(f"name.{op} is longer than {NAME_MAX_LEN} characters")
+    flags = {}
+    for flag in _NAME_FLAGS:
+        v = raw.get(flag)
+        if v is not None and not isinstance(v, bool):
+            raise SearchQueryError(f"name.{flag} must be true or false")
+        flags[flag] = v
+    ignore_case = flags["ignore_case"] if flags["ignore_case"] is not None else op == "contains"
+    return {"op": op, "value": value, "ignore_case": ignore_case, "refs": flags["refs"] is True}
+
+
+def name_scans(name: Optional[dict]) -> bool:
+    """Whether a ``name`` filter cannot be answered by the partitions' ``full_name`` btree: a
+    ``contains``, any case-insensitive match, or one that also tests ``source_ref`` (unindexed)."""
+    return bool(name) and (name["op"] == "contains" or name["ignore_case"] or name["refs"])
 
 
 def parse_search_query(body: Any) -> SearchQuery:
@@ -1061,6 +1112,16 @@ def parse_search_query(body: Any) -> SearchQuery:
                 raise SearchQueryError(f"where[{i}].prefix must be a non-empty string")
             values = [p]
         q.where.append({"key": key, "op": _WHERE_OP_NORMAL.get(op, op), "values": values})
+    q.name = _parse_name(body.get("name"))
+    if name_scans(q.name) and not (
+        q.providers or q.collections or q.partitions or any(w["op"] == "in" for w in q.where)
+    ):
+        # An unindexed name match scans every partition it reads: it must name what it reads (or
+        # ride on an indexed attribute filter), and it still runs under the statement timeout.
+        raise SearchQueryError(
+            "a name 'contains', case-insensitive or 'refs' match scans the partitions it reads: name the "
+            "'providers', 'collections' or 'partitions' to search, or add an 'eq' / 'in' attribute filter"
+        )
     limit = body.get("limit")
     if limit is not None:
         q.limit = max(1, min(_int(limit, "limit"), SEARCH_MAX_LIMIT))
@@ -1153,7 +1214,34 @@ def build_filters(q: SearchQuery, first_arg: int = 1) -> tuple[str, list[Any]]:
     for w in of("not_in"):
         s = probes(w)
         clauses.append(f"NOT {s}" if s.startswith("(") else f"NOT ({s})")
+    if q.name:
+        clause = name_clause(q.name, arg)
+        # the btree answers an exact / prefix name first; a scanning match refines what is left last
+        clauses.insert(0 if not name_scans(q.name) else len(clauses), clause)
     return (" AND ".join(clauses) if clauses else "TRUE"), args
+
+
+def name_clause(name: dict, arg) -> str:
+    """The SQL of a parsed ``name`` filter; ``arg`` binds a value and returns its placeholder.
+
+    A case-sensitive ``eq`` / ``prefix`` on ``full_name`` alone is ``=`` / ``LIKE 'x%'`` in the
+    column's ``"C"`` collation, which its btree answers (the LIKE wildcards in the value escaped).
+    Anything else -- ``contains``, ``ignore_case``, ``refs`` -- is a ``(I)LIKE`` scan."""
+    value, op = name["value"], name["op"]
+    if op == "eq" and not name["ignore_case"]:
+        cols = [("full_name", '::text COLLATE "C"')] + ([("source_ref", "::text")] if name["refs"] else [])
+        p = arg(value)
+        parts = [f"{col} = {p}{cast}" for col, cast in cols]
+    else:
+        pattern = escape_like(value)
+        if op == "prefix":
+            pattern += "%"
+        elif op == "contains":
+            pattern = f"%{pattern}%"
+        like = "ILIKE" if name["ignore_case"] else "LIKE"
+        p = arg(pattern)
+        parts = [f'full_name {like} {p}::text COLLATE "C"'] + ([f"source_ref {like} {p}::text"] if name["refs"] else [])
+    return parts[0] if len(parts) == 1 else "(" + " OR ".join(parts) + ")"
 
 
 def encode_cursor(doc: dict) -> str:
