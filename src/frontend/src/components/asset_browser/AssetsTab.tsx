@@ -45,7 +45,7 @@ import {
 import { geometryIndex, rowHasGeometry, rowLoadable } from "@/assets/geometryMarks";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
 import { providerIdTitle } from "@/assets/providerNames";
-import { MIN_SEARCH_CHARS, changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
+import { changeOwners, isSearchTerm, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { levelKey, levelWanted } from "@/assets/spines";
 import { actionTargets } from "@/assets/treeKeys";
 import { bothKeep, loadsProvider, membersForIds, setMembership, treeSetFilter, type TreeSet } from "@/assets/treeSets";
@@ -86,6 +86,7 @@ import TreeLegend from "./TreeLegend";
 import ProviderOptionsPanel from "./ProviderOptionsPanel";
 import TreeOptionsPanel from "./TreeOptionsPanel";
 import TreeServerHits from "./TreeServerHits";
+import SourcesSearchBox from "./SourcesSearchBox";
 import TreeSetsPanel from "./TreeSetsPanel";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
@@ -2297,20 +2298,7 @@ const AssetsTab: React.FC = () => {
                     </div>
                 )}
                 <div className="px-2 pt-2 shrink-0">
-                    <div className={`${CONTROL} flex items-center gap-2 px-2`}>
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="text-gray-400 shrink-0">
-                            <circle cx="7" cy="7" r="4.5" />
-                            <path d="M10.5 10.5 14 14" />
-                        </svg>
-                        <input
-                            aria-label="Search assets"
-                            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-gray-100 placeholder:text-gray-500"
-                            placeholder="Search names and refs"
-                            title={`Case-insensitive; searches from ${MIN_SEARCH_CHARS} characters. Filters the loaded rows (branches are fetched a level at a time as they are opened); matches in unopened branches are listed below the tree from the scope's index`}
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
+                    <SourcesSearchBox value={searchTerm} onChange={setSearchTerm} className={CONTROL} />
                 </div>
                 {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown || providerFilter || view?.hasChangeOwners || (view?.pending.length ?? 0) > 0) && (
                     <div className="px-2 pt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400 shrink-0">
