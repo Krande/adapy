@@ -29,7 +29,9 @@ def _cone(name: str) -> ada.Shape:
 def _mesh_volume(backend, shape) -> float:
     mesh = backend.tessellate(shape, linear_deflection=1e-4)
     p = np.asarray(mesh.positions, dtype=float).reshape(-1, 3)
-    t = np.asarray(mesh.indices, dtype=int).reshape(-1, 3)
+    # adacpp's Mesh names its triangles `indices`, OCC's TriangleMesh `faces`.
+    tris = mesh.indices if hasattr(mesh, "indices") else mesh.faces
+    t = np.asarray(tris, dtype=int).reshape(-1, 3)
     return float(np.einsum("ij,ij->i", p[t[:, 0]], np.cross(p[t[:, 1]], p[t[:, 2]])).sum() / 6.0)
 
 
