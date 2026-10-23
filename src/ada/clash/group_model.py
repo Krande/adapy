@@ -25,13 +25,60 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
+from ada.clash.geometry_source import NO_PROVIDER_GEOMETRY
 from ada.clash.group import member_label, source_identity
 
-__all__ = ["GroupModel", "GroupModelError", "build_group_model", "clash_check_group", "geometry_provenance"]
+__all__ = [
+    "GroupModel",
+    "GroupModelError",
+    "NoProviderGeometryError",
+    "build_group_model",
+    "clash_check_group",
+    "geometry_provenance",
+]
 
 
 class GroupModelError(ValueError):
     """No member of the group could be resolved, so there is no model to check."""
+
+
+class NoProviderGeometryError(GroupModelError):
+    """No member could be matched because the geometry provider has published NOTHING in their
+    collection(s) yet: not a naming problem, so the per-member reasons would only repeat it.
+    The only fix is to ask that provider for the geometry, and :meth:`detail` carries what that
+    request needs (``ada.clash.geometry_source.GeometryRemap.unmatched_detail``)."""
+
+    code = NO_PROVIDER_GEOMETRY
+
+    def __init__(self, provider: str, collections: list[str], unmatched: list[dict], *, action: str = "try again"):
+        self.provider = provider
+        self.collections = list(collections)
+        self.unmatched = [dict(d) for d in unmatched]
+        super().__init__(self.sentence(action))
+
+    def sentence(self, action: str = "try again") -> str:
+        """One sentence for the whole group: "<collection> has no <provider> geometry in this scope
+        yet (N members); request it from <provider>, then <action>." """
+        names = self.collections
+        where = names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
+        n = len(self.unmatched)
+        return (
+            f"{where} {'has' if len(names) == 1 else 'have'} no {self.provider} geometry in this scope yet "
+            f"({n} member{'' if n == 1 else 's'}); request it from {self.provider}, then {action}."
+        )
+
+    def detail(self, action: str = "try again") -> dict:
+        """The machine-readable form: what a client needs to offer the request and make it."""
+        return {
+            "code": self.code,
+            "message": self.sentence(action),
+            "geometry_provider": self.provider,
+            "collections": list(self.collections),
+            "members": len(self.unmatched),
+            # The geometry plan's shape (`plan_geometry`'s `unmatched`): the member, why, the name it
+            # was looked for under, and its row in its own provider's tree.
+            "unmatched": [{k: d.get(k) for k in ("member", "reason", "label", "row", "cause")} for d in self.unmatched],
+        }
 
 
 @dataclass
@@ -134,6 +181,8 @@ def build_group_model(
         remap = remap_group(group, geometry_provider, storage=storage)
         group = remap.group
         if not group["members"]:
+            if remap.only_missing_geometry:
+                raise NoProviderGeometryError(geometry_provider, remap.empty_collections, remap.unmatched_detail)
             detail = "; ".join(remap.warnings[:5]) or "no members"
             raise GroupModelError(
                 f"none of the {asked} member(s) of this group could be matched to provider "

@@ -244,16 +244,26 @@ def test_a_member_that_is_not_found_is_left_out_and_named_in_the_log(client_and_
 
 def test_a_group_repeat_is_answered_from_the_store(client_and_scope, ifc_source_key):
     client, _ = client_and_scope
-    body = {"group": {"name": "g", "members": [_file_member(ifc_source_key, "bm1", ["deck_a", "bm1"])]}, "format": "ifc"}
+    body = {
+        "group": {"name": "g", "members": [_file_member(ifc_source_key, "bm1", ["deck_a", "bm1"])]},
+        "format": "ifc",
+    }
     first = _export(client, body)
     second = client.post(f"/api/scopes/{SCOPE}/export-selection", json=body).json()
     assert second == {**first, "job_id": None, "cached": True}
 
 
-def test_a_geometry_provider_nobody_can_read_is_refused_before_anything_is_queued(client_and_scope, published_lines_node):
+def test_a_geometry_provider_nobody_can_read_is_refused_before_anything_is_queued(
+    client_and_scope, published_lines_node
+):
     client, _ = client_and_scope
     member = {
-        "target": {"kind": "node", "provider": LINES_PROVIDER, "collection": LINES_COLLECTION, "subject": LINES_SUBJECT},
+        "target": {
+            "kind": "node",
+            "provider": LINES_PROVIDER,
+            "collection": LINES_COLLECTION,
+            "subject": LINES_SUBJECT,
+        },
         "element": "bm1",
         "path": ["bm1"],
     }
@@ -527,3 +537,64 @@ async def test_the_worker_writes_a_group_and_its_log(tmp_path):
     assert (await storage.get_bytes(Scope.shared(), job.derived_key)).startswith(b"ISO-10303-21")
     log = json.loads(await storage.get_bytes(Scope.shared(), job.derived_key + ".log.json"))
     assert log == {"geometry_provider": None, "members": 2, "warnings": []}
+
+
+@pytest.mark.asyncio
+async def test_a_group_whose_geometry_provider_published_nothing_fails_with_a_structured_log(tmp_path):
+    """The members' collection has nothing of the geometry provider: one sentence for the job, and
+    the same outcome as data in the log, so the viewer can offer to request the geometry."""
+    import json
+
+    from obstore.store import LocalStore
+
+    from ada.clash.group import normalise_group
+    from ada.comms.rest.queue import Job
+    from ada.comms.rest.scope import Scope
+    from ada.comms.rest.storage import Storage
+    from ada.comms.rest.worker import _process_one
+
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    storage = Storage(LocalStore(str(store_dir)), prefix="")
+    target = {
+        "kind": "node",
+        "provider": "tree-only",
+        "collection": "aaa",
+        "subject": "fn-1",
+        "revision": LINES_REVISION,
+        "node": "fn-1",
+    }
+    group = normalise_group(
+        {
+            "name": "g",
+            "members": [
+                {"target": target, "element": "/PIPE-1", "path": ["/PIPE-1"]},
+                {"target": target, "element": "/PIPE-2", "path": ["/PIPE-2"]},
+            ],
+        }
+    )
+    job = Job(
+        job_id="job-export-group-empty",
+        source_key="group:t",
+        derived_key="_derived/export/group/t/g/g.step",
+        status="queued",
+        target_format="export_selection_group",
+        conversion_options={"group": group, "format": "step", "geometry_provider": "csg-provider"},
+    )
+    queue = _FakeQueue(job)
+    await _process_one(job.job_id, queue, storage, None, None)
+    sentence = (
+        "aaa has no csg-provider geometry in this scope yet (2 members); "
+        "request it from csg-provider, then export again."
+    )
+    assert queue.updates[-1]["status"] == "error"
+    assert queue.updates[-1]["error"] == sentence
+    log = json.loads(await storage.get_bytes(Scope.shared(), job.derived_key + ".log.json"))
+    assert log["error"]["code"] == "no_provider_geometry"
+    assert log["error"]["message"] == sentence
+    assert log["error"]["geometry_provider"] == "csg-provider"
+    assert log["error"]["collections"] == ["aaa"]
+    assert log["error"]["members"] == 2
+    assert [u["member"]["element"] for u in log["error"]["unmatched"]] == ["/PIPE-1", "/PIPE-2"]
+    # No file: the log is all there is, and the route will not answer it as a stored export.
+    assert not await storage.exists(Scope.shared(), job.derived_key)

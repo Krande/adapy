@@ -40,6 +40,7 @@ __all__ = [
     "export_asset_selection",
     "export_filename",
     "export_source_selection",
+    "failure_log",
     "find_selection",
     "reparent_selection",
     "scope_to_selection",
@@ -53,7 +54,9 @@ __all__ = [
 SELECTION_EXPORT_FORMATS: dict[str, str] = {"step": ".step", "ifc": ".ifc"}
 
 #: Beside a several-element export's file: which provider its geometry came from, and the members
-#: that were left out (``{geometry_provider, members, warnings}``).
+#: that were left out (``{geometry_provider, members, warnings}``). Also written when the export
+#: FAILS with a :class:`SelectionExportError` that carries a ``detail``, as ``error`` -- then there is
+#: no file beside it, and the job's own ``error`` is ``error.message``.
 EXPORT_LOG_SUFFIX = ".log.json"
 
 #: Sources whose GLB tree is named after the objects a re-read produces, so a selection can find
@@ -67,7 +70,15 @@ _UNSAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._ -]+")
 
 
 class SelectionExportError(ValueError):
-    """The selection cannot be exported, with the reason a user can act on."""
+    """The selection cannot be exported, with the reason a user can act on.
+
+    ``detail``, when set, is the same failure in machine-readable form (``{code, message, ...}``):
+    the job stores it as ``error`` in the export's ``.log.json`` beside where the file would have
+    been, so a client can offer the fix rather than only print the sentence."""
+
+    def __init__(self, message: str, *, detail: dict | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -378,6 +389,16 @@ def group_export_derived_key(group_token: str, geometry_token: str, filename: st
     return f"_derived/export/group/{group_token}/{geometry_token}/{filename}"
 
 
+def failure_log(report: dict | None, exc: BaseException) -> dict | None:
+    """The ``.log.json`` a FAILED export leaves beside its (absent) file: ``report`` plus the
+    failure's ``detail`` as ``error``. None when the failure carries no detail -- then only the
+    job's error sentence says what happened, as before."""
+    detail = getattr(exc, "detail", None)
+    if not isinstance(exc, SelectionExportError) or not isinstance(detail, dict):
+        return None
+    return {**dict(report or {}), "error": detail}
+
+
 def export_group_selection(
     group: dict[str, Any],
     *,
@@ -393,10 +414,14 @@ def export_group_selection(
     and -- with ``geometry_provider`` -- every node member re-addressed to that provider's publish
     of the same element first. Returns the warnings: members that were left out, and why.
     """
-    from ada.clash.group_model import GroupModelError, build_group_model
+    from ada.clash.group_model import GroupModelError, NoProviderGeometryError, build_group_model
 
     try:
         built = build_group_model(group, storage=storage, geometry_provider=geometry_provider, rooted=True)
+    except NoProviderGeometryError as exc:
+        # The geometry was never published here: say so once, with what a request for it needs.
+        action = "export again"
+        raise SelectionExportError(exc.sentence(action), detail=exc.detail(action)) from exc
     except GroupModelError as exc:
         raise SelectionExportError(str(exc)) from exc
     for part in list(built.model.parts.values()):

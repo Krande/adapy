@@ -33,6 +33,7 @@ from ..selection_export import (
     export_asset_selection,
     export_group_selection,
     export_source_selection,
+    failure_log,
 )
 from ..worker.audit import _audit_done
 from .registry import JobContext, SourceFormatHandler, SyntheticFormatHandler
@@ -65,7 +66,8 @@ async def _export_and_upload(
     """Run ``produce(out_path)`` off the loop, then store the file at the job's derived key.
 
     ``report()``, when given and not None, is stored as JSON at ``<derived key>.log.json`` before
-    the job is done, so a client that sees "done" can read it.
+    the job is done, so a client that sees "done" can read it -- and also when ``produce`` fails
+    with a :class:`SelectionExportError` carrying a ``detail``, with that ``detail`` as ``error``.
     """
     fmt = str((job.conversion_options or {}).get("format") or "")
     if fmt not in SELECTION_EXPORT_FORMATS:
@@ -86,6 +88,15 @@ async def _export_and_upload(
         except SelectionExportError as exc:
             # The selection's own problem -- not found, ambiguous, a source with no objects behind
             # its tree. A user reads this, so it goes out without a traceback.
+            doc = failure_log(report() if report is not None else None, exc)
+            if doc is not None:
+                # Before the job reads as failed, so a client that sees "error" can read it.
+                try:
+                    await ctx.storage.put_bytes(
+                        ctx.scope, f"{job.derived_key}{EXPORT_LOG_SUFFIX}", json.dumps(doc).encode("utf-8")
+                    )
+                except Exception:  # noqa: BLE001 - the sentence still says what failed
+                    logger.warning("worker: could not write the failure log of job %s", job.job_id, exc_info=True)
             await _fail(job, ctx, "export", str(exc))
             return
         except Exception as exc:

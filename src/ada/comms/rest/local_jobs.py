@@ -1034,6 +1034,7 @@ def start_export_selection_group(
         SELECTION_EXPORT_FORMATS,
         SelectionExportError,
         export_group_selection,
+        failure_log,
     )
     from ada.comms.rest.worker import _SyncStorageFacade
     from ada.core.file_system import new_temp_path
@@ -1077,11 +1078,20 @@ def start_export_selection_group(
             if job.cancel_event.is_set():
                 job.status, job.stage = STATUS_CANCELLED, "cancelled"
                 return
+            if isinstance(exc, SelectionExportError):
+                report = {"geometry_provider": geometry_provider, "members": len(group["members"]), "warnings": []}
+                doc = failure_log(report, exc)
+                if doc is not None:
+                    # Before the job reads as failed, as the worker's handler does.
+                    try:
+                        sync_storage.put_bytes(f"{derived_key}{EXPORT_LOG_SUFFIX}", json.dumps(doc).encode("utf-8"))
+                    except Exception:  # noqa: BLE001 - the sentence still says what failed
+                        logger.warning("local export_selection_group %s: no failure log", job.job_id, exc_info=True)
+                job.error = str(exc)
+                job.status, job.stage = STATUS_ERROR, "error"
+                return
             job.status = STATUS_ERROR
             job.stage = "error"
-            if isinstance(exc, SelectionExportError):
-                job.error = str(exc)
-                return
             logger.exception("local export_selection_group %s failed", job.job_id)
             job.error = f"{type(exc).__name__}: {exc}"
             logger.debug("local export_selection_group traceback:\n%s", traceback.format_exc())

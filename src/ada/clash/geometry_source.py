@@ -61,6 +61,7 @@ from typing import Any, Iterable, Mapping
 
 __all__ = [
     "MATCH_RULES",
+    "NO_PROVIDER_GEOMETRY",
     "GeometryRemap",
     "GeometrySourceIndex",
     "node_group",
@@ -75,6 +76,11 @@ __all__ = [
 #: cached under it (``routes/clash_check._geometry_options_token``): change it whenever a change
 #: here can match a member differently, so results made under the old rules are not served.
 MATCH_RULES = 3
+
+#: The cause of a member left out because the provider published NOTHING in its collection: no
+#: name can match there, and only asking the provider for the geometry changes that. Also the
+#: error code a group whose every member was left out for it fails with (``group_model``).
+NO_PROVIDER_GEOMETRY = "no_provider_geometry"
 
 
 def normalise_label(label: Any) -> str:
@@ -232,9 +238,7 @@ class GeometrySourceIndex:
             try:
                 sliced = parse_hierarchy(self._get(self._spine_key(manifest)))
                 records = [r for r in sliced.records() if r.get("id") is not None]
-                rows = tuple(
-                    (str(r["id"]), str(r.get("label") or ""), str(r.get("provider") or "")) for r in records
-                )
+                rows = tuple((str(r["id"]), str(r.get("label") or ""), str(r.get("provider") or "")) for r in records)
                 parents = {str(r["id"]): (str(r["parent"]) if r.get("parent") is not None else None) for r in records}
                 full_names = {str(r["id"]): str(r["full_name"]) for r in records if r.get("full_name")}
             except (FileNotFoundError, KeyError, ValueError, HierarchyError):
@@ -471,7 +475,9 @@ def remap_to_provider(
             # The element is a subject of its own: read it whole, nothing to find inside it.
             return {"target": _node_target(provider, collection, own_subject), "element": None, "path": []}, None
         # Found in the read by the name its object carries, which is not always the row's label.
-        return _found_in_cover(member, provider, collection, catalog, node_id, label, catalog.names.get(node_id) or label)
+        return _found_in_cover(
+            member, provider, collection, catalog, node_id, label, catalog.names.get(node_id) or label
+        )
 
     # Not a row of the provider's spine. Where that spine STOPS at an ancestor (publishes nothing
     # below it), the member may be inside that ancestor's read: read it, and find the member there
@@ -548,11 +554,32 @@ class GeometryRemap:
     warnings: list[str] = field(default_factory=list)
     #: The members read as they are: files, and nodes ``provider`` published itself.
     unchanged: list[dict] = field(default_factory=list)
-    #: Per unmatched member, in the same order: ``{"member", "reason", "label", "row"}`` -- the name
-    #: it was looked for under (None when its own provider published none), which is what a provider
-    #: asked to publish the element has to find it by, and the row id its own provider published it
-    #: under (None when its spine does not place it).
+    #: Per unmatched member, in the same order: ``{"member", "reason", "label", "row", "cause"}`` --
+    #: the name it was looked for under (None when its own provider published none), which is what a
+    #: provider asked to publish the element has to find it by, the row id its own provider published
+    #: it under (None when its spine does not place it), and :data:`NO_PROVIDER_GEOMETRY` when the
+    #: provider published nothing at all in the member's collection (None for any other reason).
     unmatched_detail: list[dict] = field(default_factory=list)
+
+    @property
+    def empty_collections(self) -> list[str]:
+        """The collections, in member order, where the provider published nothing for an
+        unmatched member: no name could match there, so only a request for the geometry helps."""
+        return list(
+            dict.fromkeys(
+                str(d["member"]["target"]["collection"])
+                for d in self.unmatched_detail
+                if d.get("cause") == NO_PROVIDER_GEOMETRY
+            )
+        )
+
+    @property
+    def only_missing_geometry(self) -> bool:
+        """Every unmatched member was left out because the provider published nothing in its
+        collection -- and there was at least one."""
+        return bool(self.unmatched_detail) and all(
+            d.get("cause") == NO_PROVIDER_GEOMETRY for d in self.unmatched_detail
+        )
 
 
 def remap_group(group: Mapping[str, Any], provider: str, *, storage: Any) -> GeometryRemap:
@@ -582,7 +609,17 @@ def remap_group(group: Mapping[str, Any], provider: str, *, storage: Any) -> Geo
             label = member.get("element") or (index.node_label(target) if target.get("kind") == "node" else None)
             # The row its own provider published it under, so a request for it needs no tree walk.
             row = index.member_row(member) if target.get("kind") == "node" else None
-            unmatched_detail.append({"member": dict(member), "reason": reason, "label": label or None, "row": row})
+            # Nothing of the provider in the collection at all (a cached catalog, no further read).
+            empty = target.get("kind") == "node" and not index.catalog(str(target["collection"]), provider).spines
+            unmatched_detail.append(
+                {
+                    "member": dict(member),
+                    "reason": reason,
+                    "label": label or None,
+                    "row": row,
+                    "cause": NO_PROVIDER_GEOMETRY if empty else None,
+                }
+            )
             continue
         if member["target"].get("kind") == "file":
             files += 1

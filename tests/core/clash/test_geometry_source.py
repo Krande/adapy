@@ -39,13 +39,19 @@ from ada.clash import ClashOptions
 from ada.clash.detail import joints_by_id
 from ada.clash.from_asset import clash_check_from_asset_node
 from ada.clash.geometry_source import (
+    NO_PROVIDER_GEOMETRY,
     GeometrySourceIndex,
     normalise_label,
     remap_group,
     remap_to_provider,
 )
 from ada.clash.group import normalise_group
-from ada.clash.group_model import GroupModelError, build_group_model, clash_check_group
+from ada.clash.group_model import (
+    GroupModelError,
+    NoProviderGeometryError,
+    build_group_model,
+    clash_check_group,
+)
 
 COLLECTION = "plant"
 MESH = "mesh-only"
@@ -355,9 +361,7 @@ def test_an_unnamed_element_is_matched_by_the_full_name_and_found_by_it(storage)
     # The reader labels the row by its ref; its full name is the member's name, and the name the
     # reader's objects carry, so that is what the read is asked for.
     _deep_fixture(storage)
-    new, warning = remap_to_provider(
-        _frame_member("PIECE 1 of FRAME /F1"), READER, index=GeometrySourceIndex(storage)
-    )
+    new, warning = remap_to_provider(_frame_member("PIECE 1 of FRAME /F1"), READER, index=GeometrySourceIndex(storage))
     assert warning is None
     assert new["target"]["subject"] == "ref-200"
     assert new["element"] == "PIECE 1 of FRAME /F1"
@@ -443,6 +447,57 @@ def test_a_group_nothing_of_which_matches_fails_by_name(storage, reader):
         build_group_model(
             _group(_mesh_member("/LOST"), _mesh_member("/DUP")), storage=storage, geometry_provider=READER
         )
+
+
+def test_a_group_nothing_of_which_matches_for_a_naming_reason_carries_no_code(storage, reader):
+    with pytest.raises(GroupModelError) as caught:
+        build_group_model(_group(_mesh_member("/LOST")), storage=storage, geometry_provider=READER)
+    assert not isinstance(caught.value, NoProviderGeometryError)
+    remap = remap_group(_group(_mesh_member("/LOST")), READER, storage=storage)
+    assert [d["cause"] for d in remap.unmatched_detail] == [None]
+    assert remap.empty_collections == [] and not remap.only_missing_geometry
+
+
+def test_a_provider_with_nothing_in_the_collection_is_one_structured_outcome(storage, reader):
+    members = [_mesh_member(e) for e in ("/Z100-BEAMS2", "/z100-beams3", "/LOST")]
+    remap = remap_group(_group(*members), "csg-provider", storage=storage)
+    assert remap.only_missing_geometry
+    assert remap.empty_collections == [COLLECTION]
+    assert {d["cause"] for d in remap.unmatched_detail} == {NO_PROVIDER_GEOMETRY}
+
+    with pytest.raises(NoProviderGeometryError) as caught:
+        build_group_model(_group(*members), storage=storage, geometry_provider="csg-provider")
+    exc = caught.value
+    # A GroupModelError still, so every caller that reports one keeps doing so.
+    assert isinstance(exc, GroupModelError)
+    # ONE sentence for the group, not one clause per member.
+    assert str(exc) == (
+        f"{COLLECTION} has no csg-provider geometry in this scope yet (3 members); "
+        "request it from csg-provider, then try again."
+    )
+    detail = exc.detail("export again")
+    assert detail["code"] == NO_PROVIDER_GEOMETRY == "no_provider_geometry"
+    assert detail["message"].endswith("then export again.")
+    assert detail["geometry_provider"] == "csg-provider"
+    assert detail["collections"] == [COLLECTION]
+    assert detail["members"] == 3
+    # What a request needs per member: the member itself, the name and the own-tree row.
+    # (In the normalised group's order.)
+    by_element = {u["member"]["element"]: u for u in detail["unmatched"]}
+    assert {e: u["row"] for e, u in by_element.items()} == {
+        "/Z100-BEAMS2": "fn01",
+        "/z100-beams3": "fn02",
+        "/LOST": "fn04",
+    }
+    assert all(u["label"] == e for e, u in by_element.items())
+    json.dumps(detail)  # it crosses a job boundary
+
+
+def test_the_outcome_sentence_names_every_empty_collection_and_counts_one_member():
+    one = NoProviderGeometryError("p", ["aaa"], [{"member": {}, "reason": "r"}])
+    assert str(one) == "aaa has no p geometry in this scope yet (1 member); request it from p, then try again."
+    two = NoProviderGeometryError("p", ["aaa", "bbb"], [{"member": {}}, {"member": {}}])
+    assert two.sentence("export again").startswith("aaa and bbb have no p geometry")
 
 
 def test_a_detail_rebuild_from_the_recorded_members_reproduces_the_ids(storage, reader):
