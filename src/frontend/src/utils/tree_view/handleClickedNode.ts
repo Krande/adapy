@@ -4,6 +4,7 @@ import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 
 
 export async function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {
@@ -55,8 +56,11 @@ export async function handleTreeSelectionChange(ids: NodeApi[]) {
         }
         let const_meshes_and_draw_ranges = await get_mesh_and_draw_ranges(nodes);
 
-        selectedObjectStore.clearSelectedObjects();
-        selectedObjectStore.addBatchofMeshes(const_meshes_and_draw_ranges);
+        // One tree selection, one undo entry (Ctrl+Z / Ctrl+Y), however large the subtree.
+        recordViewerAction("select", () => {
+            selectedObjectStore.clearSelectedObjects();
+            selectedObjectStore.addBatchofMeshes(const_meshes_and_draw_ranges);
+        });
         // Report the selected node itself, not `nodes[nodes.length-1]`. `nodes`
         // is a DFS pre-order walk of the selection's whole subtree, so its last
         // entry is the deepest-last DESCENDANT — select a container and the info
@@ -73,7 +77,7 @@ export async function handleTreeSelectionChange(ids: NodeApi[]) {
         useObjectInfoStore.getState().setName(selected.data.name);
         useObjectInfoStore.getState().setSelectedNodeId(selected.id);
     } else {
-        selectedObjectStore.clearSelectedObjects();
+        recordViewerAction("clear-selection", () => selectedObjectStore.clearSelectedObjects());
         useObjectInfoStore.getState().setSelectedNodeId(null);
     }
 }

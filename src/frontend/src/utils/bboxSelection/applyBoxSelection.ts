@@ -11,6 +11,7 @@ import {requestRender} from "@/state/perfStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 
 import {padded, type Aabb} from "./boxMath";
 import {boundsOfRanges, rangesInBox} from "./rangeBounds";
@@ -65,12 +66,16 @@ export function applyBoxSelection(id: string): number {
     const scene = getViewerRuntime().scene.current;
     if (!box || !scene) return 0;
     const batch = boxBatch(box, scene);
-    const sel = useSelectedObjectStore.getState();
-    sel.clearSelectedObjects();
-    if (batch.length) sel.addBatchofMeshes(batch);
-    const info = useObjectInfoStore.getState();
-    info.setName(`${box.label}: ${batch.length} element${batch.length === 1 ? "" : "s"}`);
-    info.setSelectedNodeId(null);
+    // Dragging a box's handles re-applies it on every move: the moves of one drag coalesce into
+    // one undo entry.
+    recordViewerAction("select", () => {
+        const sel = useSelectedObjectStore.getState();
+        sel.clearSelectedObjects();
+        if (batch.length) sel.addBatchofMeshes(batch);
+        const info = useObjectInfoStore.getState();
+        info.setName(`${box.label}: ${batch.length} element${batch.length === 1 ? "" : "s"}`);
+        info.setSelectedNodeId(null);
+    }, {coalesce: `box:${id}`});
     requestRender();
     return batch.length;
 }
@@ -87,10 +92,13 @@ export function selectInScreenRect(rect: NdcRect, mode: ScreenBoxMode, camera: T
         for (const id of rangesInScreenRect(mesh, viewProj, rect, mode, mesh.getHiddenRanges())) batch.push([mesh, id]);
     }
     if (batch.length) {
-        useSelectedObjectStore.getState().addBatchofMeshes(batch);
-        const info = useObjectInfoStore.getState();
-        info.setName(`${mode === "window" ? "Window" : "Crossing"} selection: ${batch.length} element${batch.length === 1 ? "" : "s"}`);
-        info.setSelectedNodeId(null);
+        // The whole drag is one undo entry (Ctrl+Z), however many elements it took.
+        recordViewerAction("select", () => {
+            useSelectedObjectStore.getState().addBatchofMeshes(batch);
+            const info = useObjectInfoStore.getState();
+            info.setName(`${mode === "window" ? "Window" : "Crossing"} selection: ${batch.length} element${batch.length === 1 ? "" : "s"}`);
+            info.setSelectedNodeId(null);
+        });
     }
     requestRender();
     return batch.length;

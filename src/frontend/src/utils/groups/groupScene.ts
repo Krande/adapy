@@ -10,6 +10,7 @@ import { useTreeViewStore } from "@/state/treeViewStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
 import type { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
+import { recordViewerAction } from "@/utils/scene/viewerHistory";
 import { buildTreeIndices, type TreeIndices } from "@/utils/tree_view/treeGraph";
 
 import {
@@ -38,6 +39,15 @@ function indices(): TreeIndices | null {
     cachedRoot = root;
   }
   return cachedIndices;
+}
+
+/** Make `batch` the selection, as one undo entry (Ctrl+Z / Ctrl+Y). */
+function replaceSelection(batch: readonly [CustomBatchedMesh, string][]): void {
+  recordViewerAction("select", () => {
+    const sel = useSelectedObjectStore.getState();
+    sel.clearSelectedObjects();
+    if (batch.length) sel.addBatchofMeshes([...batch]);
+  });
 }
 
 /** The tree rows behind every selected draw range, by the unique `(model key, range id)`. */
@@ -145,9 +155,7 @@ export function selectModelElements(refs: readonly { readonly source: GroupMembe
       }
     }
   }
-  const sel = useSelectedObjectStore.getState();
-  sel.clearSelectedObjects();
-  if (batch.length) sel.addBatchofMeshes(batch);
+  replaceSelection(batch);
   useObjectInfoStore.getState().setName(batch.length ? label : "");
   requestRender();
   return batch.length;
@@ -176,9 +184,7 @@ export function selectSourceElements(refs: readonly { readonly sourceName: strin
       if (mesh) batch.push([mesh, row.rangeId]);
     }
   }
-  const sel = useSelectedObjectStore.getState();
-  sel.clearSelectedObjects();
-  if (batch.length) sel.addBatchofMeshes(batch);
+  replaceSelection(batch);
   useObjectInfoStore.getState().setName(batch.length ? label : "");
   requestRender();
   return batch.length;
@@ -200,9 +206,7 @@ export function selectSavedGroup(group: SavedGroup): GroupSelectionOutcome {
 
   // One clear and ONE batch for every member across every model: clearing per member would leave
   // only the last model selected.
-  const sel = useSelectedObjectStore.getState();
-  sel.clearSelectedObjects();
-  if (batch.length) sel.addBatchofMeshes(batch);
+  replaceSelection(batch);
   const info = useObjectInfoStore.getState();
   info.setName(batch.length ? `Group: ${group.name}` : "");
   // No single tree row stands for a group; a stale level id would let the panel claim one.

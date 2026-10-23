@@ -6,7 +6,7 @@ import React, { useEffect, useState } from "react";
 // the modal renders straight from this array.
 //
 // Inventory mirrors the real handlers:
-//   * Global / viewer  → sceneHelpers/setupCameraControlsHandlers.ts
+//   * Global / viewer  → sceneHelpers/setupCameraControlsHandlers.ts (undo / redo: utils/scene/viewerHistory.ts)
 //   * Gallery walk      → viewer/GalleryControls.tsx
 //   * Procedural cellbuilder → viewer/CellBuilderController.tsx (capture phase)
 
@@ -39,6 +39,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Shift", "I"], description: "Hide everything except the current selection" },
       { keys: ["Shift", "G"], description: "Save the selection as a named group (shared in the scope)" },
       { keys: ["Shift", "U"], description: "Unhide everything" },
+      { keys: ["Ctrl / ⌘", "Z"], description: "Undo the last hide / show / isolate or selection change" },
+      { keys: ["Ctrl / ⌘", "Y"], description: "Redo (also Ctrl / ⌘ + Shift + Z)" },
       { keys: ["Shift", "F"], description: "Center the view on the selection" },
       { keys: ["Shift", "A"], description: "Zoom to fit the whole model" },
       { keys: ["Shift", "Q"], description: "Toggle the Options menu" },

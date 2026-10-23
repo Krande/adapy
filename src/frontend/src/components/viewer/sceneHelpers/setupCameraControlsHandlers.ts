@@ -20,6 +20,9 @@ import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
+import {undoRedoIntent} from "@/utils/keyboard/undoRedoKeys";
+import {redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
+import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -66,6 +69,20 @@ export function setupCameraControlsHandlers(
 
     const handleKeyDown = (event: KeyboardEvent) => {
         if (!inScope) return;
+
+        // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z, Cmd on macOS): step the viewer's hide / show / selection
+        // history. undoRedoIntent leaves a text field's own undo alone; an open procedural cell
+        // builder has its own history and takes the keys first.
+        const intent = undoRedoIntent(event);
+        if (intent) {
+            if (useCellBuilderStore.getState().active !== null) return;
+            event.preventDefault();
+            if (intent === "undo") undoViewerAction();
+            else redoViewerAction();
+            return;
+        }
+
+
         // Don't hijack shortcuts while the user is typing in a form
         // field — same trap browsers use for `/` etc. The standalone
         // never had this check either, but the embed amplifies the
@@ -184,6 +201,8 @@ export function setupCameraControlsHandlers(
     };
 
     window.addEventListener("keydown", handleKeyDown);
+    // An undo must never reach into a scene that has since been replaced.
+    const unbindHistoryReset = bindViewerHistoryReset();
 
     // An emptied scene returns the camera to its starting pose. Subscribed to
     // the model state rather than hooked into the unload handlers because there
@@ -200,6 +219,7 @@ export function setupCameraControlsHandlers(
 
     return () => {
         unsubscribeLoaded();
+        unbindHistoryReset();
         window.removeEventListener("keydown", handleKeyDown);
         if (scopeEl) {
             if (onEnter) scopeEl.removeEventListener("mouseenter", onEnter);
