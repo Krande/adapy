@@ -293,6 +293,7 @@ class Shape(BackendGeom):
                 geo_su.TriangulatedFaceSet,  # pre-tessellated (IfcTriangulatedFaceSet) — direct mesh path
                 geo_su.PolygonalFaceSet,  # IfcPolygonalFaceSet — shared point list + n-gon faces
                 geo_so.FacetedBrep,
+                geo_so.AdvancedBrep,
                 geo_so.Box,
                 geo_so.Sphere,
                 geo_so.Cylinder,

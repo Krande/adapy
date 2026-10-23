@@ -873,6 +873,10 @@ class AdacppBackend:
                 shape = self.boolean(
                     BoolOpEnum.DIFFERENCE, shape, self._solid_from_faces(self._shell_faces(geometry.id, void))
                 )
+        elif isinstance(g, so.AdvancedBrep):
+            # A solid bounded by B-rep faces (an oblique cone's two rational B-spline faces, say):
+            # the volume they bound, as for a FacetedBrep -- a sewn shell is not a solid to a boolean.
+            shape = self._solid_from_faces(self._shell_faces(geometry.id, g.outer))
         elif isinstance(g, so.SweptDiskSolid):
             # Disk swept along the directrix; the native verb extracts the start frame and
             # builds the circular profile in C++ (robust for any directrix kind).

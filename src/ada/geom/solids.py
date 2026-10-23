@@ -302,6 +302,74 @@ class FacetedBrep:
     voids: list[ClosedShell] = field(default_factory=list)
 
 
+def oblique_cone(
+    base_centre: Point | tuple,
+    normal: Direction | tuple,
+    ref_direction: Direction | tuple,
+    radius: float,
+    apex: Point | tuple,
+) -> AdvancedBrep:
+    """An exact circular cone closed at its apex, the apex anywhere above the base -- oblique or
+    right -- as an :class:`AdvancedBrep` of two rational B-spline faces.
+
+    THE LATERAL FACE IS THE RULED SURFACE between the base circle (the exact rational quadratic
+    circle: nine poles, weights 1 and sqrt(1/2)) and the apex (the same nine poles collapsed onto
+    it): every generator a straight line from the rim to the apex, which is the cone. THE BASE IS
+    THE SAME CONSTRUCTION towards the base centre, a flat disc. Neither face needs a bound: each is
+    its surface's whole parameter domain, and the two meet on the rim.
+
+    No analytic surface carries this solid -- a conical surface is circular across its own axis,
+    an oblique cone only across the base's normal -- and a tapered extrusion cannot end in a
+    point. Built and cut as a solid by both backends (they make the volume the two faces bound).
+    """
+    import math
+
+    import numpy as np
+
+    from ada.geom.curves import KnotType
+    from ada.geom.surfaces import AdvancedFace, BSplineSurfaceForm, RationalBSplineSurfaceWithKnots
+
+    if radius <= 0:
+        raise ValueError("oblique_cone: the base radius must be positive")
+    c = np.asarray(tuple(base_centre), dtype=float)
+    z = np.asarray(tuple(normal), dtype=float)
+    z = z / np.linalg.norm(z)
+    x = np.asarray(tuple(ref_direction), dtype=float)
+    x = x - z * float(x @ z)
+    if np.linalg.norm(x) < 1e-12:
+        raise ValueError("oblique_cone: ref_direction runs along the normal")
+    x = x / np.linalg.norm(x)
+    y = np.cross(z, x)
+    a = np.asarray(tuple(apex), dtype=float)
+    if abs(float((a - c) @ z)) < 1e-12:
+        raise ValueError("oblique_cone: the apex lies in the base plane")
+
+    w = math.sqrt(0.5)
+    ring = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1), (1, 0)]
+    weights = [1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0]
+    rim = [c + radius * (px * x + py * y) for px, py in ring]
+
+    def ruled(towards) -> AdvancedFace:
+        surface = RationalBSplineSurfaceWithKnots(
+            u_degree=2,
+            v_degree=1,
+            control_points_list=[[Point(*p), Point(*towards)] for p in rim],
+            surface_form=BSplineSurfaceForm.UNSPECIFIED,
+            u_closed=True,
+            v_closed=False,
+            self_intersect=False,
+            u_multiplicities=[3, 2, 2, 2, 3],
+            v_multiplicities=[2, 2],
+            u_knots=[0.0, 1.0, 2.0, 3.0, 4.0],
+            v_knots=[0.0, 1.0],
+            knot_spec=KnotType.UNSPECIFIED,
+            weights_data=[[wt, wt] for wt in weights],
+        )
+        return AdvancedFace(bounds=[], face_surface=surface, same_sense=True)
+
+    return AdvancedBrep(outer=ClosedShell(cfs_faces=[ruled(a), ruled(c)]))
+
+
 SOLID_GEOM_TYPES = Union[
     ExtrudedAreaSolid,
     RevolvedAreaSolid,

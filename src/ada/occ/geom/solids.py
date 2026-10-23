@@ -188,6 +188,11 @@ def make_faceted_brep_from_geom(brep: geo_so.FacetedBrep) -> TopoDS_Shape | Topo
     return solid
 
 
+def make_advanced_brep_from_geom(brep: geo_so.AdvancedBrep) -> TopoDS_Shape | TopoDS_Solid:
+    """An AdvancedBrep's outer shell, sewn and made an outward solid (see _closed_solid_from_shell)."""
+    return _closed_solid_from_shell(brep.outer)
+
+
 def _closed_solid_from_shell(shell) -> TopoDS_Solid:
     """A ClosedShell as a SOLID a boolean can use: its faces SEWN (shared edges, not one free
     edge per face, which is what the shell builder alone gives), made a solid and oriented
