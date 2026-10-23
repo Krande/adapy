@@ -85,6 +85,7 @@ import RequestCollection, { requestDeps } from "./RequestCollection";
 import TreeLegend from "./TreeLegend";
 import ProviderOptionsPanel from "./ProviderOptionsPanel";
 import TreeOptionsPanel from "./TreeOptionsPanel";
+import TreeServerHits from "./TreeServerHits";
 import TreeSetsPanel from "./TreeSetsPanel";
 import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
@@ -2305,7 +2306,7 @@ const AssetsTab: React.FC = () => {
                             aria-label="Search assets"
                             className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-gray-100 placeholder:text-gray-500"
                             placeholder="Search names and refs"
-                            title={`Case-insensitive; searches from ${MIN_SEARCH_CHARS} characters. Searches loaded rows only -- branches are fetched a level at a time as they are opened`}
+                            title={`Case-insensitive; searches from ${MIN_SEARCH_CHARS} characters. Filters the loaded rows (branches are fetched a level at a time as they are opened); matches in unopened branches are listed below the tree from the scope's index`}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -2444,6 +2445,10 @@ const AssetsTab: React.FC = () => {
                         />
                     )}
                 </div>
+                {/* The box filters the rows held; the server's index finds the ones not loaded yet. */}
+                {view && searchActive && (
+                    <TreeServerHits scope={scope} collection={view.collection} term={searchTerm} held={(id) => view.hierarchy.byId.has(id)} />
+                )}
                 {view && (
                     <Orphans
                         orphans={view.orphans}
