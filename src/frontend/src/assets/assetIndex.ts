@@ -14,6 +14,7 @@
  */
 
 import { ASSET_PREFIX, STAGING_SEGMENT, parseAssetKey } from "./keys";
+import { sortProjects } from "@/utils/sortProjects";
 import type {
   Actor,
   AssetIndex,
@@ -148,7 +149,7 @@ export function revisionsOf(index: AssetIndex, collection: string): string[] {
 }
 
 export function collectionsOf(index: AssetIndex): string[] {
-  return [...index.collections.keys()].sort();
+  return sortProjects([...index.collections.keys()]);
 }
 
 /** Open on the collection holding the newest revision, not the alphabetically

@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 
 import {ApiError, viewerApi} from "@/services/viewerApi";
+import {sortProjects} from "@/utils/sortProjects";
 
 // Admin → Providers → a provider's DEFAULT sweep list: which collections every new sweep of it --
 // scheduled or one-off -- starts with ticked off. Some collections are too big for a routine sweep;
@@ -42,7 +43,7 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
             .adminAssetSweepDefaults(provider)
             .then((d) => {
                 if (!alive) return;
-                setCollections(d.collections ?? []);
+                setCollections(sortProjects(d.collections ?? []));
                 setSaved(d.excluded);
                 setExcluded(d.excluded);
                 setError(null);
@@ -53,6 +54,7 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
         };
     }, [provider]);
 
+    const notRun = useMemo(() => sortProjects(saved), [saved]);
     const dirty = useMemo(() => saved.join("\n") !== excluded.join("\n"), [saved, excluded]);
     const shown = useMemo(() => {
         const f = filter.trim().toLowerCase();
@@ -77,7 +79,7 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
         <div className="text-xs space-y-1" data-testid="sweep-defaults">
             <button type="button" className="text-[11px] text-gray-400 hover:text-gray-200" onClick={() => setOpen(!open)}>
                 {open ? "▾" : "▸"} Default projects for new sweeps
-                {saved.length ? ` · ${saved.length} not run (${saved.slice(0, 4).join(", ")}${saved.length > 4 ? ", …" : ""})` : " · all run"}
+                {notRun.length ? ` · ${notRun.length} not run (${notRun.slice(0, 4).join(", ")}${notRun.length > 4 ? ", …" : ""})` : " · all run"}
             </button>
             {open && (
                 <div className="rounded-sm border border-gray-800 p-2 space-y-1.5">

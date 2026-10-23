@@ -51,6 +51,7 @@ import {searchExportApi, type ExportAlso, type ExportGeometry, type ExportHit, t
 import {viewerApi, ApiError} from "@/services/viewerApi";
 import {trackExport, trackTreeRequest} from "@/services/sweepTracking";
 import {useScopeStore} from "@/state/scopeStore";
+import {sortProjects, sortProjectsBy} from "@/utils/sortProjects";
 
 const CONTROL = "h-7 rounded-md border border-gray-700 bg-gray-800 px-2 text-xs text-gray-100 placeholder:text-gray-500";
 const LABEL = "text-[11px] uppercase tracking-wide text-gray-400";
@@ -349,7 +350,7 @@ const SearchExportDialog: React.FC<{
                         </label>
                         {leftOut.length > 0 && (
                             <div className="text-gray-400 break-words" title="Click a collection's count in the results to put it back">
-                                Leaving out {leftOut.length} collection{leftOut.length === 1 ? "" : "s"}: {leftOut.join(", ")}
+                                Leaving out {leftOut.length} collection{leftOut.length === 1 ? "" : "s"}: {sortProjects(leftOut).join(", ")}
                             </div>
                         )}
                         <label
@@ -434,7 +435,7 @@ const SearchExportDialog: React.FC<{
                             {prompt.unknown.length > 0 && (
                                 <div className="space-y-1">
                                     <div className="text-gray-300">Not in the design system's published tree (a request by node will not find these):</div>
-                                    {prompt.unknown.map((u) => (
+                                    {sortProjectsBy(prompt.unknown, (u) => u.collection).map((u) => (
                                         <div key={u.collection} className="pl-2 text-gray-400 break-words">
                                             <span className="text-gray-200">
                                                 {u.collection} {u.count.toLocaleString()}
@@ -464,7 +465,7 @@ const SearchExportDialog: React.FC<{
                                                 type="button"
                                                 className="h-7 px-3 rounded-md text-xs font-medium border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50"
                                                 disabled={busy || r.cannot != null || done?.ok}
-                                                title={r.collections.join(", ")}
+                                                title={sortProjects(r.collections).join(", ")}
                                                 onClick={() => void requestTrees(r)}
                                             >
                                                 Only request: {r.label} ({r.collections.length} collection{r.collections.length === 1 ? "" : "s"}
@@ -480,7 +481,7 @@ const SearchExportDialog: React.FC<{
                             {meshAsk.unknown.length > 0 && (
                                 <div className="space-y-1">
                                     <div className="text-gray-300">Not in their provider's tree (a fresh tree request adds them if the tree is out of date):</div>
-                                    {meshAsk.unknown.map((u) => (
+                                    {sortProjectsBy(meshAsk.unknown, (u) => u.collection).map((u) => (
                                         <div key={u.collection} className="pl-2 text-gray-400 break-words">
                                             <span className="text-gray-200">
                                                 {u.collection} {u.count.toLocaleString()}
@@ -532,7 +533,7 @@ const SearchExportDialog: React.FC<{
                             disabled={busy || meshAsk.ready === 0}
                             title={
                                 meshAsk.emptyCollections.length
-                                    ? `Leaves out ${meshAsk.emptyCollections.length} collection(s) with nothing to cut: ${meshAsk.emptyCollections.join(", ")}`
+                                    ? `Leaves out ${meshAsk.emptyCollections.length} collection(s) with nothing to cut: ${sortProjects(meshAsk.emptyCollections).join(", ")}`
                                     : undefined
                             }
                             onClick={() => void start(false, meshAsk.emptyCollections)}

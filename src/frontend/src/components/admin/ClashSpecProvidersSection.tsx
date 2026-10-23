@@ -16,6 +16,7 @@ import {
     withPreference,
 } from "@/services/clashSpecProviders";
 import {viewerApi} from "@/services/viewerApi";
+import {sortProjects} from "@/utils/sortProjects";
 
 import AdminSection from "./AdminSection";
 
@@ -77,7 +78,7 @@ const ClashSpecProvidersSection: React.FC<{rows: readonly SpecProviderScopeRow[]
 
     const allRows = [...rows];
     const known = new Set(rows.map((r) => r.scope));
-    for (const scope of Object.keys(map).sort()) {
+    for (const scope of sortProjects(Object.keys(map))) {
         if (!known.has(scope)) allRows.push({scope, label: scope, hint: "not a current project", stale: true});
     }
 

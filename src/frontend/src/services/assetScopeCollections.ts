@@ -37,6 +37,7 @@
 
 // React-free and import-free, so this module stays DOM-free.
 import { declaredOptions, type PluginJobOption } from "@/components/admin/pluginOptionFields";
+import { compareProjects as compare } from "@/utils/sortProjects";
 
 /** The public setting holding the per-scope enabled collections. */
 export const ASSET_SCOPE_COLLECTIONS_KEY = "public.assets.scope_collections";
@@ -543,8 +544,4 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function uniq(list: readonly string[]): string[] {
   return [...new Set(list)];
-}
-
-function compare(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 }

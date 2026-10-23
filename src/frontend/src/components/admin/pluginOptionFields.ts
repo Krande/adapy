@@ -17,6 +17,8 @@
 // React-free and viewerApi-free on purpose: this is where the rules are, and it
 // should be testable without a bundler (see adminTabs.ts for the same reasoning).
 
+import {sortProjects} from "@/utils/sortProjects";
+
 export type PluginOptionValue = boolean | string | number | string[];
 
 /** One option a plugin advertises for its jobs. */
@@ -197,7 +199,9 @@ function specStringList(spec: unknown, key: string): string[] | undefined {
     const raw = (spec as Record<string, unknown> | null)?.[key];
     if (!Array.isArray(raw)) return undefined;
     const items = raw.filter((v): v is string => typeof v === "string" && v.length > 0);
-    return items.length ? items : undefined;
+    // A unioned key (the fleet's projects, say) has no order of its own -- it is whatever order the
+    // workers' lists merged in -- so it is offered alphabetically, like every project list.
+    return items.length ? sortProjects(items) : undefined;
 }
 
 export function declaredOptions(spec: unknown): PluginJobOption[] {

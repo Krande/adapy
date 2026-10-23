@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {AdminProject, ApiError, ProjectMember, viewerApi} from "@/services/viewerApi";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 import {useTableLayout} from "@/components/common/useTableLayout";
+import {sortProjectsBy} from "@/utils/sortProjects";
 
 // Project management. Two layouts:
 // * sm:↑ side-by-side list + member detail (the desktop two-pane view).
@@ -19,7 +20,7 @@ const ProjectsTab: React.FC = () => {
         setLoading(true);
         try {
             const xs = await viewerApi.adminListProjects();
-            setProjects(xs);
+            setProjects(sortProjectsBy(xs, (p) => p.name));
             if (selected) {
                 const still = xs.find((p) => p.id === selected.id);
                 setSelected(still || null);

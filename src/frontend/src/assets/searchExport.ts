@@ -20,6 +20,7 @@ import type {
 } from "@/services/api/searchExport";
 import type { SearchHit, SearchQuery } from "@/services/api/attributeSearch";
 import { collectFolderPaths, isUiHiddenKey } from "@/utils/storage/fileTree";
+import { compareProjects } from "@/utils/sortProjects";
 
 /** `key` with its last extension replaced by `suffix` (a key with none just gets it appended). The
  *  extension is looked for in the last path segment only: a dot in a folder name is not one. */
@@ -242,7 +243,7 @@ export function exportTargetScopes(
   return available
     .filter((s) => s.kind === "user" || s.kind === "shared" || (s.kind === "project" && s.id))
     .slice()
-    .sort((a, b) => rank(a.kind) - rank(b.kind) || a.name.localeCompare(b.name))
+    .sort((a, b) => rank(a.kind) - rank(b.kind) || compareProjects(a.name, b.name))
     .map((s) => ({
       url: s.kind === "user" ? "user:me" : s.kind === "shared" ? "shared" : `project:${s.id}`,
       label: s.kind === "project" ? `Project · ${s.name}` : s.name,

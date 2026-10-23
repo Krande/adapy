@@ -63,6 +63,7 @@ import { scopeUrlPart } from "@/state/scopeStore";
 import { useRunFocusStore } from "@/state/runFocusStore";
 import { revealInSourceScope } from "@/utils/tree_view/revealInSourceScope";
 import { revealSearchHit } from "@/utils/tree_view/revealSearchHit";
+import { compareProjects } from "@/utils/sortProjects";
 
 import SearchExportDialog from "./SearchExportDialog";
 import SearchExportRuns from "./SearchExportRuns";
@@ -381,7 +382,7 @@ const AttributeSearchPanel: React.FC = () => {
   const collectionOptions = useMemo(
     () =>
       [...collections]
-        .sort((a, b) => a.collection.localeCompare(b.collection) || partitionKey(a).localeCompare(partitionKey(b)))
+        .sort((a, b) => compareProjects(a.collection, b.collection) || partitionKey(a).localeCompare(partitionKey(b)))
         .map((p: SearchCollection) => {
           const badge = originBadge(p, projectName);
           return {

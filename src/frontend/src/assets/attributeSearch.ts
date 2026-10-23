@@ -45,6 +45,7 @@ import type {
   SearchResponse,
   SearchWhere,
 } from "@/services/api/attributeSearch";
+import { compareProjects } from "@/utils/sortProjects";
 
 export type FilterOp = "eq" | "ne" | "in" | "not_in" | "prefix" | "exists" | "missing";
 
@@ -434,7 +435,7 @@ export function partitionCounts(counts: Record<string, number>, partitions?: rea
           ? { key, provider: "", collection: key, count }
           : { key, provider: key.slice(0, i), collection: key.slice(i + 1), count };
       });
-  return rows.sort((a, b) => b.count - a.count || a.collection.localeCompare(b.collection) || a.key.localeCompare(b.key));
+  return rows.sort((a, b) => b.count - a.count || compareProjects(a.collection, b.collection) || a.key.localeCompare(b.key));
 }
 
 export function totalCount(counts: Record<string, number>): number {

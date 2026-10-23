@@ -35,6 +35,7 @@ import {useProviderNamesStore} from "@/state/providerNamesStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useMeStore} from "@/state/meStore";
 import {rescanStoreKey, startProviderRescan} from "@/services/providerRescan";
+import {sortProjects, sortProjectsBy} from "@/utils/sortProjects";
 
 import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
@@ -286,9 +287,11 @@ const ProvidersTab: React.FC = () => {
                 hint: `${myName || mySub} only -- nothing is offered here until you tick it`,
             });
         }
-        for (const p of projects) out.push({scope: `project:${p.id}`, label: p.name, hint: p.slug});
+        // "Shared" (and the personal scope) stay first by design; the projects, then any stale
+        // stored scopes, alphabetically.
+        for (const p of sortProjectsBy(projects, (x) => x.name)) out.push({scope: `project:${p.id}`, label: p.name, hint: p.slug});
         const known = new Set(out.map((r) => r.scope));
-        for (const scope of Object.keys(map).sort()) {
+        for (const scope of sortProjects(Object.keys(map))) {
             // Another user's personal scope is theirs (another admin ticking their own): not listed here.
             if (known.has(scope) || isPersonalKey(scope)) continue;
             out.push({
@@ -544,7 +547,7 @@ const ProvidersTab: React.FC = () => {
                                                         </button>
                                                         {showEnabled && enabled.length > 0 && (
                                                             <ul className="inline-flex flex-wrap gap-1 align-middle ml-2" aria-label="Enabled collections">
-                                                                {[...enabled].sort().map((c) => {
+                                                                {sortProjects(enabled).map((c) => {
                                                                     const live = advertised.includes(c);
                                                                     return (
                                                                         <li

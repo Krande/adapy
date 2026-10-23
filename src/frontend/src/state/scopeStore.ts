@@ -1,6 +1,8 @@
 import {create} from "zustand";
 import {persist} from "zustand/middleware";
 
+import {sortProjectsAmong} from "@/utils/sortProjects";
+
 // One scope the user is browsing right now. Mirrors the backend's
 // /api/me response.
 export interface ScopeOption {
@@ -8,6 +10,18 @@ export interface ScopeOption {
     // 'me' for user-scope; null for shared; the corpus slug for corpus.
     id: string | null;
     name: string;
+}
+
+/** `/api/me`'s scopes as every picker lists them: projects (and corpora) alphabetically among
+ *  their own slots, while the fixed entries the server puts first -- "Personal", "Shared", the
+ *  default landing scope -- stay where they are. */
+export function sortScopeOptions<T extends Pick<ScopeOption, "kind" | "name">>(scopes: readonly T[]): T[] {
+    const byName = (s: T) => s.name;
+    return sortProjectsAmong(
+        sortProjectsAmong(scopes, (s) => s.kind === "project", byName),
+        (s) => s.kind === "corpus",
+        byName,
+    );
 }
 
 interface ScopeState {
@@ -27,8 +41,9 @@ export const useScopeStore = create<ScopeState>()(
             current: null,
             available: [],
             setCurrent: (s) => set({current: s}),
-            setAvailable: (xs, preferred) =>
+            setAvailable: (given, preferred) =>
                 set((prev) => {
+                    const xs = sortScopeOptions(given);
                     // Reconcile: if the previously-selected scope is no
                     // longer available (project archived, etc.), fall
                     // back to the first available one. Same kind+id is

@@ -10,6 +10,7 @@ import type {
     ScheduleSetting,
 } from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
+import {sortProjects} from "@/utils/sortProjects";
 
 import AdminSection from "./AdminSection";
 import ProviderSweepRuns from "./ProviderSweepRuns";
@@ -173,7 +174,8 @@ const AddSchedule: React.FC<{
 }> = ({provider, rows, frequencies, onAdded, onSwept}) => {
     const [jobId, setJobId] = useState(provider.jobs[0]?.id ?? "");
     const [scope, setScope] = useState(rows[0]?.scope ?? "");
-    const [collection, setCollection] = useState(provider.collections[0] ?? "");
+    const collections = useMemo(() => sortProjects(provider.collections), [provider.collections]);
+    const [collection, setCollection] = useState(collections[0] ?? "");
     const [frequency, setFrequency] = useState("daily");
     const [settings, setSettings] = useState<Record<string, unknown>>({});
     const [busy, setBusy] = useState(false);
@@ -242,7 +244,7 @@ const AddSchedule: React.FC<{
                         onChange={(e) => setCollection(e.target.value)}
                         aria-label="Collection"
                     >
-                        {provider.collections.map((c) => (
+                        {collections.map((c) => (
                             <option key={c} value={c}>
                                 {c}
                             </option>
