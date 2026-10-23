@@ -355,11 +355,14 @@ export function groupExportBody(
   };
 }
 
-/** What a several-element export's `.log.json` says (`{geometry_provider, members, warnings}`). */
+/** What a several-element export's `.log.json` says (`{geometry_provider, members, warnings}`), and
+ *  -- when the export FAILED in a way the server describes as data -- `error` (`{code, message, …}`,
+ *  read by `noProviderGeometryOf`). An older server writes no log for a failure. */
 export interface GroupExportLog {
   readonly geometry_provider: string | null;
   readonly members: number;
   readonly warnings: readonly string[];
+  readonly error?: unknown;
 }
 
 // --- the flow ------------------------------------------------------------------------------
@@ -380,9 +383,18 @@ export interface SelectionExportDeps {
 }
 
 export class SelectionExportError extends Error {
-  constructor(message: string) {
+  /** The failed job and where its file would have been, when a job ran: a group export's
+   *  `.log.json` there may say more than the message (`noProviderGeometryOf`). */
+  readonly jobId?: string;
+  readonly derivedKey?: string;
+
+  constructor(message: string, job?: { jobId: string; derivedKey: string }) {
     super(message);
     this.name = "SelectionExportError";
+    if (job) {
+      this.jobId = job.jobId;
+      this.derivedKey = job.derivedKey;
+    }
   }
 }
 
@@ -419,7 +431,10 @@ export async function runExportBody(
       const status = await deps.api.jobStatus(resp.job_id);
       if (status.status === "done") break;
       if (status.status === "error" || status.status === "cancelled") {
-        throw new SelectionExportError(status.error || `the export ${status.status}`);
+        throw new SelectionExportError(status.error || `the export ${status.status}`, {
+          jobId: resp.job_id,
+          derivedKey: resp.derived_key,
+        });
       }
       if (now() - startedAt >= POLL_TIMEOUT_MS) {
         throw new SelectionExportError(

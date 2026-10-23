@@ -69,8 +69,8 @@ import {
   type SpecProviderPreference,
 } from "@/services/clashSpecProviders";
 import { trackJob } from "@/services/jobTracking";
-import { describeRequestOutcome, planNodeCount, requestGroupGeometry } from "@/utils/groups/groupRequest";
-import { describeMember, groupNodePlan, memberKey, parseMember, type GroupMember } from "@/utils/groups/savedGroups";
+import { requestUnmatchedMembers } from "@/utils/groups/groupRequest";
+import { describeMember, memberKey, type GroupMember } from "@/utils/groups/savedGroups";
 
 // ---------------------------------------------------------------------------------------------
 // The browser's model. Camel-cased, `applicable` normalised (`capability` stays `null` rather
@@ -1098,47 +1098,8 @@ async function requestMissing(
   plan: WireGeometryPlan,
   stage: (s: string | null) => void,
 ): Promise<string[]> {
-  const notes: string[] = [];
-  const members: GroupMember[] = [];
-  const labels = new Map<string, string>();
-  // The rows the plan already placed (from the members' own published hierarchy); the tree walk is
-  // only for the ones it could not.
-  const rows = new Map<string, string>();
-  for (const u of plan.unmatched) {
-    const member = parseMember(u.member);
-    if (!member) continue;
-    members.push(member);
-    if (u.label) labels.set(memberKey(member), u.label);
-    if (u.row && member.element !== null) rows.set(memberKey(member), u.row);
-  }
-  const unplaced = members.filter((m) => m.element !== null && !rows.has(memberKey(m)));
-  if (unplaced.length > 0) {
-    stage("finding the missing members in the published tree");
-    for (const [key, row] of await deps.resolveRows(scope, unplaced)) rows.set(key, row);
-  }
-  const nodePlan = groupNodePlan(members, rows, labels);
-  if (nodePlan.unresolved.length > 0) {
-    const first = nodePlan.unresolved[0];
-    notes.push(
-      `${nodePlan.unresolved.length} member${nodePlan.unresolved.length === 1 ? "" : "s"} could not be requested: ` +
-        `${first.reason}${nodePlan.unresolved.length > 1 ? " (and others)" : ""}.`,
-    );
-  }
-  const count = planNodeCount(nodePlan);
-  if (count === 0) return notes;
-  stage(`requesting ${count} node${count === 1 ? "" : "s"} from ${provider}`);
-  const requestDeps: CollectionRequestDeps = {
-    ...deps.request,
-    onStage: (s) => {
-      deps.request.onStage?.(s);
-      stage(s);
-    },
-  };
-  const out = await requestGroupGeometry(requestDeps, scope, [{ providerId: provider, req }], nodePlan);
-  notes.push(`Requested from ${provider}: ${describeRequestOutcome(out)}`);
-  if (out.failed.length) notes.push(`${out.failed.length} request${out.failed.length === 1 ? "" : "s"} failed: ${out.failed.join("; ")}`);
-  if (out.published > 0) await deps.afterRequest?.();
-  return notes;
+  // One implementation with the selection export's "request it now?" (`requestUnmatchedMembers`).
+  return (await requestUnmatchedMembers(deps, scope, provider, req, plan.unmatched, stage)).notes;
 }
 
 /** The options a run sends, from what the panel holds.
