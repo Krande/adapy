@@ -12,6 +12,7 @@
 import type * as THREE from "three";
 
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {boxCutAway, type PlaneLike} from "@/utils/mesh_select/rangeVisibility";
 
 import {rangeBounds} from "./rangeBounds";
 
@@ -68,8 +69,9 @@ export function triangleMeetsRect(a: Projected, b: Projected, c: Projected, r: N
 }
 
 /**
- * The ranges of `mesh` the rectangle takes, skipping `hidden` ones. `viewProj` is
- * the camera's projection x view matrix.
+ * The ranges of `mesh` the rectangle takes, skipping `hidden` ones and any a section plane
+ * (`planes`) cuts away whole -- what is not drawn is not taken. `viewProj` is the camera's
+ * projection x view matrix.
  */
 export function rangesInScreenRect(
     mesh: CustomBatchedMesh,
@@ -77,6 +79,7 @@ export function rangesInScreenRect(
     rect: NdcRect,
     mode: ScreenBoxMode,
     hidden: ReadonlySet<string> = new Set(),
+    planes: readonly PlaneLike[] | null = null,
 ): string[] {
     const rb = rangeBounds(mesh);
     if (!rb) return [];
@@ -101,7 +104,7 @@ export function rangesInScreenRect(
         const id = rb.ids[r];
         if (hidden.has(id)) continue;
         const o = r * 6;
-        if (!Number.isFinite(b[o])) continue;
+        if (!Number.isFinite(b[o]) || boxCutAway(b, o, planes)) continue;
         // The projected AABB: decides most elements without touching their geometry.
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, allFront = true;
         for (let c = 0; c < 8; c++) {

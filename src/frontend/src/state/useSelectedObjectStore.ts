@@ -3,6 +3,7 @@ import {CustomBatchedMesh} from '../utils/mesh_select/CustomBatchedMesh';
 import * as THREE from "three";
 import {Object3D} from "three";
 import {clearPointSelectionMask} from "../utils/scene/pointsImpostor";
+import {rangeHidden, withoutHidden} from "../utils/mesh_select/rangeVisibility";
 
 // Map keys are typed as Object3D (rather than CustomBatchedMesh) because
 // the store also accepts Points and plain meshes; the body dispatches
@@ -31,8 +32,12 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
     setAdditiveMode: (v) => set({additiveMode: v}),
     toggleAdditiveMode: () => set((state) => ({additiveMode: !state.additiveMode})),
 
+    // Both adders drop hidden ranges (utils/mesh_select/rangeVisibility): a hidden object is never
+    // selected, whichever path asks -- a click, a box, a tree row over a partly hidden branch, a
+    // group, a search.
     addSelectedObject: (mesh, drawRangeId) =>
         set((state) => {
+            if (rangeHidden(mesh, drawRangeId)) return {};
             // Clone the map and update the set for this mesh
             const newMap = new Map(state.selectedObjects);
             const existingSet = new Set(newMap.get(mesh) || []);
@@ -118,8 +123,10 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
             return {selectedObjects: new Map()};
         }),
 
-    addBatchofMeshes: (batch) =>
+    addBatchofMeshes: (given) =>
         set((state) => {
+            const batch = withoutHidden(given);
+            if (batch.length === 0) return {};
             const newMap = new Map(state.selectedObjects);
             const drawRangeGroups = new Map<Object3D, Set<string>>();
 

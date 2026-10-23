@@ -12,6 +12,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import {sectionClippingPlanes} from "@/utils/scene/section_clipping";
 
 import {padded, type Aabb} from "./boxMath";
 import {boundsOfRanges, rangesInBox} from "./rangeBounds";
@@ -88,8 +89,12 @@ export function selectInScreenRect(rect: NdcRect, mode: ScreenBoxMode, camera: T
     camera.updateMatrixWorld();
     const viewProj = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     const batch: [CustomBatchedMesh, string][] = [];
+    // Only what is drawn is taken: hidden ranges, hidden models and ranges a section plane cuts
+    // away whole are skipped where the candidates are collected, so the count and the highlight
+    // agree with the screen.
+    const planes = sectionClippingPlanes();
     for (const mesh of visibleMeshes(scene)) {
-        for (const id of rangesInScreenRect(mesh, viewProj, rect, mode, mesh.getHiddenRanges())) batch.push([mesh, id]);
+        for (const id of rangesInScreenRect(mesh, viewProj, rect, mode, mesh.getHiddenRanges(), planes)) batch.push([mesh, id]);
     }
     if (batch.length) {
         // The whole drag is one undo entry (Ctrl+Z), however many elements it took.
@@ -107,8 +112,9 @@ export function selectInScreenRect(rect: NdcRect, mode: ScreenBoxMode, camera: T
 function boxBatch(box: SelectionBox, scene: THREE.Object3D): [CustomBatchedMesh, string][] {
     const bounds: Aabb = {min: box.min, max: box.max};
     const batch: [CustomBatchedMesh, string][] = [];
+    const planes = sectionClippingPlanes();
     for (const mesh of visibleMeshes(scene)) {
-        for (const id of rangesInBox(mesh, bounds, box.mode, mesh.getHiddenRanges())) batch.push([mesh, id]);
+        for (const id of rangesInBox(mesh, bounds, box.mode, mesh.getHiddenRanges(), planes)) batch.push([mesh, id]);
     }
     return batch;
 }

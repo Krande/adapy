@@ -10,6 +10,7 @@
 import * as THREE from "three";
 
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {boxCutAway, type PlaneLike} from "@/utils/mesh_select/rangeVisibility";
 
 import {containedAt, overlapsAt, triangleTouchesBox, type Aabb, type BoxSelectMode, type Vec3} from "./boxMath";
 
@@ -102,12 +103,14 @@ export function boundsOfRanges(mesh: CustomBatchedMesh, rangeIds: Iterable<strin
     return out;
 }
 
-/** The ranges of `mesh` the box takes in `mode`, skipping `hidden` ones. */
+/** The ranges of `mesh` the box takes in `mode`, skipping `hidden` ones and any a section plane
+ *  (`planes`) cuts away whole. */
 export function rangesInBox(
     mesh: CustomBatchedMesh,
     box: Aabb,
     mode: BoxSelectMode,
     hidden: ReadonlySet<string> = new Set(),
+    planes: readonly PlaneLike[] | null = null,
 ): string[] {
     const rb = rangeBounds(mesh);
     if (!rb) return [];
@@ -127,7 +130,7 @@ export function rangesInBox(
     };
     for (let r = 0; r < rb.ids.length; r++) {
         const id = rb.ids[r];
-        if (hidden.has(id) || !overlapsAt(rb.bounds, r, box)) continue;
+        if (hidden.has(id) || boxCutAway(rb.bounds, r * 6, planes) || !overlapsAt(rb.bounds, r, box)) continue;
         if (containedAt(rb.bounds, r, box)) {
             out.push(id);
             continue;
