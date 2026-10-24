@@ -1,0 +1,2100 @@
+{
+  "eig_freq_vs_mode": {
+    "key": "eig_freq_vs_mode",
+    "plot_type": "plotly",
+    "figure": {
+      "data": [
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_solid_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_solid_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#636efa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_solid_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Tu53KAr0KUCTb7a5MU00QCzUmuYdT0lA4gZ8fhhZU0AB++jUlYdYQI2XbhKDoGBAylTBqKQ6Y0CuR+F6FFJmQDVeukkM1mpA4lgXt9Gub0AgQfFjzABwQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_solid_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_solid_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#EF553B",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_solid_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Z7gBnx+WL0Dv/nivWsVJQKLRHcTOblhA1XjpJjFsWkDaG3xhMk5wQBdIUPwYsnBATDeJQWD3cUBq3nGKjgV7QL3jFB3JfX9AjnVxGw3cgECamZmZmbGCQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_shell_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_shell_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#00cc96",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_shell_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Sino9pKGKUCFd7mI72QzQDRo6J/g/klAp5at9UXMUkChhJm2f/tXQGwJ+aBnR19AC7WmecexYUB3LSEf9KBkQAkbnl4pw2dAFD/G3LWubEBX7C+7J1lvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_shell_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_shell_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#ab63fa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_shell_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "1eyBVmBIK0D7y+7JwzI0QNuizAaZGEpAAaQ2cXLhU0Cq8dJNYnBZQJJc/kP6RV9AGsBbIEHlYUBMN4lBYNVkQOwvuycP8WdAi2zn+6nPbEB0tRX7yxVwQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_line_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_line_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#FFA15A",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_line_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Wi+GcqJ9KED7Bbth2+IpQJVIopdRYEJAdAzIXu9GSUCI9NvXgadOQJhuEoPA8lNAZtr+lZV8VUDwhclUwaxbQNDVVuwv82BAveMUHckVZEAFNBE2PD9nQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_solid_o1_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_solid_o1_hqTrue_riTrue",
+          "line": {
+            "color": "#19d3f3",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_solid_o1_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "ukkMAisHKUBqvHSTGBRBQAaBlUOLzEhAppvEILCiS0DsUbgehRNQQIGVQ4tst1JAJzEIrByCVkCF61G4HiVfQEjhehSuf2NAZmZmZmb+Y0BSuB6F61FkQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_solid_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_solid_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#FF6692",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_solid_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "H4XrUbjeKkBCYOXQIrs0QBBYObTIVklAQmDl0CKzVEBcj8L1KAxZQBSuR+F65GtAj8L1KFzfb0CamZmZmUFwQIXrUbgeyXhAzczMzMz8ekCPwvUoXG9+QA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_solid_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_solid_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#B6E880",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_solid_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "FK5H4XqUL0BqvHSTGMRJQBKDwMqhZVhAMzMzMzMzWkA9CtejcElwQFyPwvUopHBAzczMzMzQcUApXI/C9QR7QPYoXI/CTX9ArkfhehSygEAK16NwPaaCQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_solid_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_solid_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#FF97FF",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_solid_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Y5y/CYXoKUB6U5EKYws0QI5AvK5fRElA8iTpmskvU0CVDtb/OV5YQD2bVZ+rW2BAxEKtad6PYkAW+8vuyYdlQBTQRNjwPGlAnu+nxkvLbkA5tMh2vpdvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_solid_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_solid_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#FECB52",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_solid_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Ksb5m1DoKUDs+gW7YUs0QDcawFsgRUlATkUqjC1IU0CsxacAGHVYQAFNhA1Pj2BAOdbFbTQ0Y0AdyeU/pENmQPwYc9cS+mpAeAskKH6mb0CQoPgx5s5vQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_shell_o1_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_shell_o1_hqTrue_riTrue",
+          "line": {
+            "color": "#636efa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_shell_o1_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "5dAi2/m+KEB7FK5H4TozQOkmMQis7ElAwcqhRbZjUkBMN4lBYG1XQEjhehSut19Aw/UoXI8SYkBcj8L1KAxlQLgehetRsGhAcT0K16MobkAK16NwPaJuQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_shell_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_shell_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#EF553B",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_shell_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "j8L1KFyPKUArhxbZzpczQDm0yHa+/0lAwcqhRbbrUkD+1HjpJhlYQD0K16NwvV9ACtejcD0yYkAUrkfheixlQAAAAAAA2GhAmpmZmZlRbkBI4XoUro9vQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_shell_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_shell_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#00cc96",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_shell_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "+8vuycOCKUBiFW9kHnkzQI7MI38w/ElAmYHK+PfHUkCmD11Q3/hXQGx4eqUsP19AaCJseHrHYUBJLv8h/bZkQCS5/If0/2dAKxiV1AkUbUA7AU2EDUNvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_shell_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_shell_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#ab63fa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_shell_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "iZgSSfSCKUBwtrkxPYEzQMcuUb01/ElAYr68APvKUkBo0NA/wftXQInS3uALS19A48eYu5bYYUBCPujZrMpkQMRCrWneKWhACD2bVZ9TbUBSJ6CJsEdvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_shell_o1_hqFalse_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_shell_o1_hqFalse_riTrue",
+          "line": {
+            "color": "#FFA15A",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_shell_o1_hqFalse_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "qz5XW7FfK0DM7snDQl00QJyiI7n8F0pAE2HD0ysNVECYbhKDwIJZQMuhRbbzBV9AZDvfT40vYkCkcD0K1xNlQF66SQwC92hApHA9CtdfbkD+1HjpJhdwQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_line_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_line_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#19d3f3",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_line_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "UrgeheuRJUBCYOXQItspQLKd76fGK0BAL90kBoFFSUA9CtejcO1KQG3n+6nx0lJA9ihcj8LlU0BU46WbxChYQGZmZmZmdl1AzczMzMxcYUBxPQrXo/hjQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ses_line_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ses_line_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#FF6692",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ses_line_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "a2XCL/UTJEAmUwWjkjolQGt9kdCWGz5AWYtPATCeRECsqME0DBNJQH41BwjmVFBABfpEniSJUUDjcOZXc4RWQDVeukkMeltAOdbFbTQ0YEAJih9j7qZiQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_line_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_line_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#B6E880",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_line_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "NSkF3V7yKUCsxacAGEtKQCswZHWrSVRA3+ALk6lUbEAs1JrmHbVwQMpUwaikznNAHcnlP6TwekCitDf4wql7QCqpE9DExIZASgwCK4cSiUDWxW00ADaKQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_solid_o2_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_solid_o2_hqTrue_riTrue",
+          "line": {
+            "color": "#FF97FF",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_solid_o2_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "iUFg5dDiKUCBlUOLbAc0QDm0yHa+P0lAhxbZzvcrU0AbL90kBllYQFK4HoXrWWBA16NwPQqPYkA9CtejcIVlQHsUrkfhOmlAPQrXo3DFbkAK16NwPZJvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_solid_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_solid_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#FECB52",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_solid_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "KVyPwvXoKUBmZmZmZiY0QGiR7Xw/RUlAKVyPwvU4U0C8dJMYBGZYQKRwPQrXa2BAH4XrUbi+YkA9CtejcL1lQOF6FK5HqWlAMzMzMzNrb0A9CtejcJ1vQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_solid_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_solid_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#636efa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_solid_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "nMQgsHLoKUAlBoGVQ0s0QIXrUbgeRUlA1XjpJjFIU0CF61G4HnVYQI/C9Shcj2BAXI/C9Sg0Y0CkcD0K10NmQArXo3A9+mpAZmZmZmamb0DXo3A9Cs9vQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_line_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_line_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#EF553B",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_line_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "ttl036J9KEA0HWrsa/UpQBi26qtRYEJAWOd5uFp6SkAfmS7hgadOQMqd0c3EVVRAYFMnkpV8VUDshNtCwaxbQAn0aFIw82BAS3AbXckVZEDuJqVzPD9nQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_line_o1_hqFalse_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_line_o1_hqFalse_riTrue",
+          "line": {
+            "color": "#00cc96",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_line_o1_hqFalse_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "NSkF3V7yKUCsxacAGEtKQCswZHWrSVRA3+ALk6lUbEAs1JrmHbVwQMpUwaikznNAHcnlP6TwekCitDf4wql7QCqpE9DExIZASgwCK4cSiUDWxW00ADaKQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_shell_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_shell_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#ab63fa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_shell_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "FhObj2tzK0Dj/E0oRFhCQHIz3IDPH0pAPu3w12TtVEBI4XoUrp1gQN6Th4VaRWtAsHJoke0zcECx4emVsp1yQHzysFBrB3NAEqW9wRffdkDwp8ZLNwx3QA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_shell_o2_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_shell_o2_hqTrue_riTrue",
+          "line": {
+            "color": "#FFA15A",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_shell_o2_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "arx0kxiEKUAj2/l+anwzQDm0yHa+/0lAqMZLN4nJUkB7FK5H4fpXQAAAAAAAQF9ACtejcD3KYUAzMzMzM7tkQPYoXI/CBWhApHA9CtcbbUA9CtejcEVvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_shell_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_shell_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#19d3f3",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_shell_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "arx0kxiEKUAj2/l+anwzQDm0yHa+/0lAqMZLN4nJUkB7FK5H4fpXQAAAAAAAQF9ACtejcD3KYUAzMzMzM7tkQPYoXI/CBWhApHA9CtcbbUA9CtejcEVvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_shell_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_shell_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#FF6692",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_shell_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "UI2XbhKDKUD+1HjpJpEzQHnpJjEI/ElA4XoUrkfJUkDy0k1iEABYQD0K16NwTV9AcT0K16PYYUAzMzMzM9NkQHsUrkfhGmhA7FG4HoUrbUBcj8L1KERvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_shell_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_shell_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#B6E880",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_shell_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "kjNoaLZIK0Drt4+uB2s0QMABwOyqGEpAaA6JZDbqU0C5+rr/qYBZQEidMOViXV9A7gi0SaEcYkChBgsQcB5lQA3bqFXlZWhAlk5ksK5jbUC28XfCixZwQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_shell_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_shell_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#FF97FF",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_shell_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "LNSa5h2HKUDhtOBFX6EzQGRA9nr3/0lAHuG04EXdUkCpTZzc7xJYQFOWIY51eV9A16NwPQopYkDOGVHaGy5lQOf7qfHSD2lA4lgXt9HobkAvbqMBvHFvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_shell_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_shell_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#FECB52",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_shell_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "0+sOjOhKKkBp6r2U0fgzQEFxr4yeB0pAT2zRchtPU0CduVH8wrBYQKC/jS1JXF9Ahqvpd6L7YUAAy7JbK/9kQEHTQxS3PmhAmXseDCU6bUDVolU5rxFwQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_aba_line_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_aba_line_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#636efa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_aba_line_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "30+Nl26SJUB3vp8aL90pQOf7qfHSLUBAnu+nxktHSUDXo3A9CvdKQOOlm8Qg4FJAsp3vp8brU0Db+X5qvERYQJqZmZmZqV1A16NwPQqHYUCamZmZmTlkQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_shell_o1_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_shell_o1_hqTrue_riTrue",
+          "line": {
+            "color": "#EF553B",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_shell_o1_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "wvo/h/mCLEC9NbBVgqFKQOrsZHCU+lVAfPKwUGt2XkCIhVrTvPltQI4G8BZIbXBA7Q2+MJnRdkBWfa62Yvx6QKUsQxzrO3xAgy9MpgoHfUD5oGez6mmCQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_shell_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_shell_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#00cc96",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_shell_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "3h/vVSuDKUCDUUmdgIYzQHh/vFet/ElAmSoYldTLUkDZfFwbKv5XQPYoXI/CXV9ApHA9CtffYUCY3ZOHhdJkQE3zjlN0QGhAF9nO91OBbUATYcPTK0lvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_shell_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_shell_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#ab63fa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_shell_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "5e6YMF2DKUDivFhPbnMzQF0o2mkp/ElA4jg2+zvJUkDK17lWuvdXQAo4j9eQRV9AjuuN/H3LYUBUepdNRblkQIy9cuf9DGhA51mf43QsbUCOBCQImEVvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_shell_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_shell_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#FFA15A",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_shell_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "TpfFxOaDKUBjKCfaVZAzQKFns+pz/UlAmpSCbi/RUkAKLlbUYAJYQCL99nXgeF9AdEaU9gb3YUBwXwfOGetkQPXb14FzcmhA/yH99nXMbUDf4AuTqVBvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_shell_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_shell_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#19d3f3",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_shell_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "pcMmcyCDKUCAID2ePHkzQDtvWSwo/ElA/MYv9QLIUkApxfao6fhXQNjfqY4kP19Ay+sIenPHYUAWQ1GdALdkQMnZi2by/2dAhDAhbBkUbUCgjY+cEENvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_shell_o2_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_shell_o2_hqTrue_riTrue",
+          "line": {
+            "color": "#FF6692",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_shell_o2_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "whcmUwWDKUBxAz4/jIAzQLgGtkqw/ElAVFc+y/PIUkAWGLK61ftXQNUJaCJsUF9AR3L5D+nPYUAIrBxaZL9kQPJBz2bVG2hALNSa5h1LbUAJ+aBns0RvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_solid_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_solid_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#B6E880",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_solid_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "7PoFu2HbL0A6BmSvd8tJQLivA+eMnFlAHcnlP6QvXUDXo3A9Cl5wQLAD54woy3FAnKIjufxQdkBE+u3rwAV7QJ+rrdhfioBArWnecYrPgkAOvjCZKk2DQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_solid_o1_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_solid_o1_hqFalse_riFalse",
+          "line": {
+            "color": "#FF97FF",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_solid_o1_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Ca7BXvnaL0D2y5/EKMtJQJ2pLpQ/mllA18363MkgXUDOiwzZ41xwQBYXD49xx3FAAAy3VuVEdkB8Fr21mgV7QE19D5/og4BAakg/ZbDMgkCXnxAePUGDQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_solid_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_solid_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#FECB52",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_solid_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "6KT3ja89K0DEd2LWixE1QD1+b9OfaUlAg6Pk1TkEVUD+ZffkYZVZQE7RkVz+Z2xAMuauJeT7b0CjkjoBTahwQJvmHafofXlADJOpglEDe0Dpt68D505/QA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_solid_o1_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_solid_o1_hqTrue_riFalse",
+          "line": {
+            "color": "#636efa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_solid_o1_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "/BmqPK89K0BfgKCtixE1QNppI7+faUlAtDA92TkEVUA6OOMZYZVZQKDBFTH+Z2xAJg5O2eP7b0C74cYJTahwQKA5RrLofXlAPNrMgFEDe0B/a8wD505/QA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_solid_o1_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_solid_o1_hqTrue_riTrue",
+          "line": {
+            "color": "#EF553B",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_solid_o1_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "X3tmSYCaLEDT2cngKNVJQKUsQxzrDlZAVp+rrdg3XUCNl24SgxhuQIQNT6+UJHBAtaZ5xyn9dUCOBvAWSP96QPhT46WbcHtAh6dXyjKMfEB4CyQofjSCQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_solid_o1_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_solid_o1_hqTrue_riTrue",
+          "line": {
+            "color": "#00cc96",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_solid_o1_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "EtwzmuIOK0C9qGsIvF5BQC7X1alFXklAYWfckvSSVEBXSNdxXtNeQEMztZ90ZGJACAjLwY2oaUD5ZQq+hH9uQLX5JRrO2m9AxKf3rDWucUCtKXWm9BNzQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_solid_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_solid_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#ab63fa",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_solid_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "DaZh+IjoKUDEsS5uo0k0QJp3nKIjRUlACfmgZ7NOU0B/EwoRcHZYQHgLJCh+oGBAwcqhRbZZY0BXW7G/7KBmQCDSb18HcGtADr4wmSqmb0BHcvkP6dVvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_solid_o2_hqFalse_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_solid_o2_hqFalse_riFalse",
+          "line": {
+            "color": "#FFA15A",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_solid_o2_hqFalse_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "01/KAonoKUDGKq+So0k0QD1BUr8jRUlAAV2q/7JOU0CoW6hIb3ZYQCBi14RxoGBAiKFx3ahZY0ApK40V2aBmQLP0o8bnb2tAPI2aLiqmb0CRuSEx5dVvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_solid_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_solid_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#19d3f3",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_solid_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "DMhe7/7oKUADQ1a3eiY0QL6kMVpHRUlALH3ogvo4U0DEmV/NAWZYQKs+V1uxa2BA1JrmHae+YkBBguLHmL1lQBfZzvdTqWlAyXa+nxprb0CFfNCzWZ1vQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_solid_o2_hqTrue_riFalse<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_solid_o2_hqTrue_riFalse",
+          "line": {
+            "color": "#FF6692",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_solid_o2_hqTrue_riFalse",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "M7oL//7oKUCK2E+seiY0QDSCAXdHRUlABW9jc/o4U0A8LQ20AWZYQP7//6Wwa2BAXkhwfae+YkCTst6cmL1lQI+rM5hVqWlAjas1mh1rb0B1EUihWZ1vQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ccx_solid_o2_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ccx_solid_o2_hqTrue_riTrue",
+          "line": {
+            "color": "#B6E880",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ccx_solid_o2_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "ppvEILDiKUDWbrvQXAc0QA+cM6K0P0lAWRe30QAsU0D7eVORCllYQIMvTKYKWmBAnu+nxkuPYkDZPXlYqIVlQEVHcvkPO2lAMlUwKqnFbkB/2T15WJJvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        },
+        {
+          "hovertemplate": "case=cantilever_EIG_ca_solid_o2_hqTrue_riTrue<br>Mode number=%{x}<br>Frequency [Hz]=%{y}<extra></extra>",
+          "legendgroup": "cantilever_EIG_ca_solid_o2_hqTrue_riTrue",
+          "line": {
+            "color": "#FF97FF",
+            "dash": "solid"
+          },
+          "marker": {
+            "symbol": "circle"
+          },
+          "mode": "lines+markers",
+          "name": "cantilever_EIG_ca_solid_o2_hqTrue_riTrue",
+          "orientation": "v",
+          "showlegend": true,
+          "x": {
+            "dtype": "i1",
+            "bdata": "AQIDBAUGBwgJCgs="
+          },
+          "xaxis": "x",
+          "y": {
+            "dtype": "f8",
+            "bdata": "Rjn9x6/iKUAbZyanXAc0QGIo16C0P0lAj5ODZf8rU0AtNOXtCVlYQNeSDLzjWWBAofkyhC2PYkAbPNjNe4VlQPqtcvzaOmlAcFuazUfFbkCOXc22V5JvQA=="
+          },
+          "yaxis": "y",
+          "type": "scatter"
+        }
+      ],
+      "layout": {
+        "legend": {
+          "orientation": "h",
+          "title": {
+            "text": ""
+          },
+          "tracegroupgap": 0,
+          "x": 0.5,
+          "xanchor": "center",
+          "y": -0.2,
+          "yanchor": "top"
+        },
+        "template": {
+          "data": {
+            "barpolar": [
+              {
+                "marker": {
+                  "line": {
+                    "color": "#E5ECF6",
+                    "width": 0.5
+                  },
+                  "pattern": {
+                    "fillmode": "overlay",
+                    "size": 10,
+                    "solidity": 0.2
+                  }
+                },
+                "type": "barpolar"
+              }
+            ],
+            "bar": [
+              {
+                "error_x": {
+                  "color": "#2a3f5f"
+                },
+                "error_y": {
+                  "color": "#2a3f5f"
+                },
+                "marker": {
+                  "line": {
+                    "color": "#E5ECF6",
+                    "width": 0.5
+                  },
+                  "pattern": {
+                    "fillmode": "overlay",
+                    "size": 10,
+                    "solidity": 0.2
+                  }
+                },
+                "type": "bar"
+              }
+            ],
+            "carpet": [
+              {
+                "aaxis": {
+                  "endlinecolor": "#2a3f5f",
+                  "gridcolor": "white",
+                  "linecolor": "white",
+                  "minorgridcolor": "white",
+                  "startlinecolor": "#2a3f5f"
+                },
+                "baxis": {
+                  "endlinecolor": "#2a3f5f",
+                  "gridcolor": "white",
+                  "linecolor": "white",
+                  "minorgridcolor": "white",
+                  "startlinecolor": "#2a3f5f"
+                },
+                "type": "carpet"
+              }
+            ],
+            "choropleth": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "type": "choropleth"
+              }
+            ],
+            "contourcarpet": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "type": "contourcarpet"
+              }
+            ],
+            "contour": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "colorscale": [
+                  [
+                    0.0,
+                    "#0d0887"
+                  ],
+                  [
+                    0.1111111111111111,
+                    "#46039f"
+                  ],
+                  [
+                    0.2222222222222222,
+                    "#7201a8"
+                  ],
+                  [
+                    0.3333333333333333,
+                    "#9c179e"
+                  ],
+                  [
+                    0.4444444444444444,
+                    "#bd3786"
+                  ],
+                  [
+                    0.5555555555555556,
+                    "#d8576b"
+                  ],
+                  [
+                    0.6666666666666666,
+                    "#ed7953"
+                  ],
+                  [
+                    0.7777777777777778,
+                    "#fb9f3a"
+                  ],
+                  [
+                    0.8888888888888888,
+                    "#fdca26"
+                  ],
+                  [
+                    1.0,
+                    "#f0f921"
+                  ]
+                ],
+                "type": "contour"
+              }
+            ],
+            "heatmap": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "colorscale": [
+                  [
+                    0.0,
+                    "#0d0887"
+                  ],
+                  [
+                    0.1111111111111111,
+                    "#46039f"
+                  ],
+                  [
+                    0.2222222222222222,
+                    "#7201a8"
+                  ],
+                  [
+                    0.3333333333333333,
+                    "#9c179e"
+                  ],
+                  [
+                    0.4444444444444444,
+                    "#bd3786"
+                  ],
+                  [
+                    0.5555555555555556,
+                    "#d8576b"
+                  ],
+                  [
+                    0.6666666666666666,
+                    "#ed7953"
+                  ],
+                  [
+                    0.7777777777777778,
+                    "#fb9f3a"
+                  ],
+                  [
+                    0.8888888888888888,
+                    "#fdca26"
+                  ],
+                  [
+                    1.0,
+                    "#f0f921"
+                  ]
+                ],
+                "type": "heatmap"
+              }
+            ],
+            "histogram2dcontour": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "colorscale": [
+                  [
+                    0.0,
+                    "#0d0887"
+                  ],
+                  [
+                    0.1111111111111111,
+                    "#46039f"
+                  ],
+                  [
+                    0.2222222222222222,
+                    "#7201a8"
+                  ],
+                  [
+                    0.3333333333333333,
+                    "#9c179e"
+                  ],
+                  [
+                    0.4444444444444444,
+                    "#bd3786"
+                  ],
+                  [
+                    0.5555555555555556,
+                    "#d8576b"
+                  ],
+                  [
+                    0.6666666666666666,
+                    "#ed7953"
+                  ],
+                  [
+                    0.7777777777777778,
+                    "#fb9f3a"
+                  ],
+                  [
+                    0.8888888888888888,
+                    "#fdca26"
+                  ],
+                  [
+                    1.0,
+                    "#f0f921"
+                  ]
+                ],
+                "type": "histogram2dcontour"
+              }
+            ],
+            "histogram2d": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "colorscale": [
+                  [
+                    0.0,
+                    "#0d0887"
+                  ],
+                  [
+                    0.1111111111111111,
+                    "#46039f"
+                  ],
+                  [
+                    0.2222222222222222,
+                    "#7201a8"
+                  ],
+                  [
+                    0.3333333333333333,
+                    "#9c179e"
+                  ],
+                  [
+                    0.4444444444444444,
+                    "#bd3786"
+                  ],
+                  [
+                    0.5555555555555556,
+                    "#d8576b"
+                  ],
+                  [
+                    0.6666666666666666,
+                    "#ed7953"
+                  ],
+                  [
+                    0.7777777777777778,
+                    "#fb9f3a"
+                  ],
+                  [
+                    0.8888888888888888,
+                    "#fdca26"
+                  ],
+                  [
+                    1.0,
+                    "#f0f921"
+                  ]
+                ],
+                "type": "histogram2d"
+              }
+            ],
+            "histogram": [
+              {
+                "marker": {
+                  "pattern": {
+                    "fillmode": "overlay",
+                    "size": 10,
+                    "solidity": 0.2
+                  }
+                },
+                "type": "histogram"
+              }
+            ],
+            "mesh3d": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "type": "mesh3d"
+              }
+            ],
+            "parcoords": [
+              {
+                "line": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "parcoords"
+              }
+            ],
+            "pie": [
+              {
+                "automargin": true,
+                "type": "pie"
+              }
+            ],
+            "scatter3d": [
+              {
+                "line": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scatter3d"
+              }
+            ],
+            "scattercarpet": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scattercarpet"
+              }
+            ],
+            "scattergeo": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scattergeo"
+              }
+            ],
+            "scattergl": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scattergl"
+              }
+            ],
+            "scattermapbox": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scattermapbox"
+              }
+            ],
+            "scattermap": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scattermap"
+              }
+            ],
+            "scatterpolargl": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scatterpolargl"
+              }
+            ],
+            "scatterpolar": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scatterpolar"
+              }
+            ],
+            "scatter": [
+              {
+                "fillpattern": {
+                  "fillmode": "overlay",
+                  "size": 10,
+                  "solidity": 0.2
+                },
+                "type": "scatter"
+              }
+            ],
+            "scatterternary": [
+              {
+                "marker": {
+                  "colorbar": {
+                    "outlinewidth": 0,
+                    "ticks": ""
+                  }
+                },
+                "type": "scatterternary"
+              }
+            ],
+            "surface": [
+              {
+                "colorbar": {
+                  "outlinewidth": 0,
+                  "ticks": ""
+                },
+                "colorscale": [
+                  [
+                    0.0,
+                    "#0d0887"
+                  ],
+                  [
+                    0.1111111111111111,
+                    "#46039f"
+                  ],
+                  [
+                    0.2222222222222222,
+                    "#7201a8"
+                  ],
+                  [
+                    0.3333333333333333,
+                    "#9c179e"
+                  ],
+                  [
+                    0.4444444444444444,
+                    "#bd3786"
+                  ],
+                  [
+                    0.5555555555555556,
+                    "#d8576b"
+                  ],
+                  [
+                    0.6666666666666666,
+                    "#ed7953"
+                  ],
+                  [
+                    0.7777777777777778,
+                    "#fb9f3a"
+                  ],
+                  [
+                    0.8888888888888888,
+                    "#fdca26"
+                  ],
+                  [
+                    1.0,
+                    "#f0f921"
+                  ]
+                ],
+                "type": "surface"
+              }
+            ],
+            "table": [
+              {
+                "cells": {
+                  "fill": {
+                    "color": "#EBF0F8"
+                  },
+                  "line": {
+                    "color": "white"
+                  }
+                },
+                "header": {
+                  "fill": {
+                    "color": "#C8D4E3"
+                  },
+                  "line": {
+                    "color": "white"
+                  }
+                },
+                "type": "table"
+              }
+            ]
+          },
+          "layout": {
+            "annotationdefaults": {
+              "arrowcolor": "#2a3f5f",
+              "arrowhead": 0,
+              "arrowwidth": 1
+            },
+            "autotypenumbers": "strict",
+            "coloraxis": {
+              "colorbar": {
+                "outlinewidth": 0,
+                "ticks": ""
+              }
+            },
+            "colorscale": {
+              "diverging": [
+                [
+                  0,
+                  "#8e0152"
+                ],
+                [
+                  0.1,
+                  "#c51b7d"
+                ],
+                [
+                  0.2,
+                  "#de77ae"
+                ],
+                [
+                  0.3,
+                  "#f1b6da"
+                ],
+                [
+                  0.4,
+                  "#fde0ef"
+                ],
+                [
+                  0.5,
+                  "#f7f7f7"
+                ],
+                [
+                  0.6,
+                  "#e6f5d0"
+                ],
+                [
+                  0.7,
+                  "#b8e186"
+                ],
+                [
+                  0.8,
+                  "#7fbc41"
+                ],
+                [
+                  0.9,
+                  "#4d9221"
+                ],
+                [
+                  1,
+                  "#276419"
+                ]
+              ],
+              "sequential": [
+                [
+                  0.0,
+                  "#0d0887"
+                ],
+                [
+                  0.1111111111111111,
+                  "#46039f"
+                ],
+                [
+                  0.2222222222222222,
+                  "#7201a8"
+                ],
+                [
+                  0.3333333333333333,
+                  "#9c179e"
+                ],
+                [
+                  0.4444444444444444,
+                  "#bd3786"
+                ],
+                [
+                  0.5555555555555556,
+                  "#d8576b"
+                ],
+                [
+                  0.6666666666666666,
+                  "#ed7953"
+                ],
+                [
+                  0.7777777777777778,
+                  "#fb9f3a"
+                ],
+                [
+                  0.8888888888888888,
+                  "#fdca26"
+                ],
+                [
+                  1.0,
+                  "#f0f921"
+                ]
+              ],
+              "sequentialminus": [
+                [
+                  0.0,
+                  "#0d0887"
+                ],
+                [
+                  0.1111111111111111,
+                  "#46039f"
+                ],
+                [
+                  0.2222222222222222,
+                  "#7201a8"
+                ],
+                [
+                  0.3333333333333333,
+                  "#9c179e"
+                ],
+                [
+                  0.4444444444444444,
+                  "#bd3786"
+                ],
+                [
+                  0.5555555555555556,
+                  "#d8576b"
+                ],
+                [
+                  0.6666666666666666,
+                  "#ed7953"
+                ],
+                [
+                  0.7777777777777778,
+                  "#fb9f3a"
+                ],
+                [
+                  0.8888888888888888,
+                  "#fdca26"
+                ],
+                [
+                  1.0,
+                  "#f0f921"
+                ]
+              ]
+            },
+            "colorway": [
+              "#636efa",
+              "#EF553B",
+              "#00cc96",
+              "#ab63fa",
+              "#FFA15A",
+              "#19d3f3",
+              "#FF6692",
+              "#B6E880",
+              "#FF97FF",
+              "#FECB52"
+            ],
+            "font": {
+              "color": "#2a3f5f"
+            },
+            "geo": {
+              "bgcolor": "white",
+              "lakecolor": "white",
+              "landcolor": "#E5ECF6",
+              "showlakes": true,
+              "showland": true,
+              "subunitcolor": "white"
+            },
+            "hoverlabel": {
+              "align": "left"
+            },
+            "hovermode": "closest",
+            "mapbox": {
+              "style": "light"
+            },
+            "paper_bgcolor": "white",
+            "plot_bgcolor": "#E5ECF6",
+            "polar": {
+              "angularaxis": {
+                "gridcolor": "white",
+                "linecolor": "white",
+                "ticks": ""
+              },
+              "bgcolor": "#E5ECF6",
+              "radialaxis": {
+                "gridcolor": "white",
+                "linecolor": "white",
+                "ticks": ""
+              }
+            },
+            "scene": {
+              "xaxis": {
+                "backgroundcolor": "#E5ECF6",
+                "gridcolor": "white",
+                "gridwidth": 2,
+                "linecolor": "white",
+                "showbackground": true,
+                "ticks": "",
+                "zerolinecolor": "white"
+              },
+              "yaxis": {
+                "backgroundcolor": "#E5ECF6",
+                "gridcolor": "white",
+                "gridwidth": 2,
+                "linecolor": "white",
+                "showbackground": true,
+                "ticks": "",
+                "zerolinecolor": "white"
+              },
+              "zaxis": {
+                "backgroundcolor": "#E5ECF6",
+                "gridcolor": "white",
+                "gridwidth": 2,
+                "linecolor": "white",
+                "showbackground": true,
+                "ticks": "",
+                "zerolinecolor": "white"
+              }
+            },
+            "shapedefaults": {
+              "line": {
+                "color": "#2a3f5f"
+              }
+            },
+            "ternary": {
+              "aaxis": {
+                "gridcolor": "white",
+                "linecolor": "white",
+                "ticks": ""
+              },
+              "baxis": {
+                "gridcolor": "white",
+                "linecolor": "white",
+                "ticks": ""
+              },
+              "bgcolor": "#E5ECF6",
+              "caxis": {
+                "gridcolor": "white",
+                "linecolor": "white",
+                "ticks": ""
+              }
+            },
+            "title": {
+              "x": 0.05
+            },
+            "xaxis": {
+              "automargin": true,
+              "gridcolor": "white",
+              "linecolor": "white",
+              "ticks": "",
+              "title": {
+                "standoff": 15
+              },
+              "zerolinecolor": "white",
+              "zerolinewidth": 2
+            },
+            "yaxis": {
+              "automargin": true,
+              "gridcolor": "white",
+              "linecolor": "white",
+              "ticks": "",
+              "title": {
+                "standoff": 15
+              },
+              "zerolinecolor": "white",
+              "zerolinewidth": 2
+            }
+          }
+        },
+        "title": {
+          "text": "Eigenfrequency vs. mode number, per FEA case"
+        },
+        "xaxis": {
+          "anchor": "y",
+          "domain": [
+            0.0,
+            1.0
+          ],
+          "title": {
+            "text": "Mode number"
+          }
+        },
+        "yaxis": {
+          "anchor": "x",
+          "domain": [
+            0.0,
+            1.0
+          ],
+          "title": {
+            "text": "Frequency [Hz]"
+          }
+        }
+      }
+    },
+    "caption": "Eigenfrequency vs. mode number across FEA cases.",
+    "width": 900,
+    "height": 500,
+    "metadata": {}
+  }
+}
