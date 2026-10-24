@@ -58,3 +58,31 @@ def test_make_3d_segments_short_leg_between_bends():
     tight_segments = segments3d_from_points3d(tight, radius=0.3)
     for a, b in zip(tight_segments[:-1], tight_segments[1:]):
         assert a.p2.is_equal(b.p1)
+
+def test_a_plain_point_between_two_filleted_corners_does_not_move_the_second_bend():
+    # A U-shaped path: a leg down, a bend, the run across, a bend, a leg up. A point on the run between
+    # the two bends (no radius of its own) must leave the path as it was without it: the corner loop
+    # used to build the second bend from the leg before that point, a whole leg early, and a sweep along
+    # the path came out 11 % light.
+    r = 0.074
+    plain = [(0, 0.163, 0), (0, 0, 0, r), (-0.288, 0, 0, r), (-0.288, 0.163, 0)]
+    with_mid = [(0, 0.163, 0), (0, 0, 0, r), (-0.144, 0, 0), (-0.288, 0, 0, r), (-0.288, 0.163, 0)]
+
+    def run(points):
+        pts = [ada.Point(*p[:3]) for p in points]
+        radii = {i: p[3] for i, p in enumerate(points) if len(p) == 4}
+        return segments3d_from_points3d(pts, radius_dict=radii)
+
+    def shape(segments):
+        return [(type(s).__name__, round(s.length, 5)) for s in segments]
+
+    # legs 0.163 - 0.074, the run 0.288 - 2 x 0.074, 0.163 - 0.074; the arcs' chords are r x sqrt(2)
+    expected = [
+        ("LineSegment", 0.089),
+        ("ArcSegment", 0.10465),
+        ("LineSegment", 0.14),
+        ("ArcSegment", 0.10465),
+        ("LineSegment", 0.089),
+    ]
+    assert shape(run(plain)) == expected
+    assert shape(run(with_mid)) == expected

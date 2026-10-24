@@ -951,10 +951,44 @@ def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSe
     return prelim_segments
 
 
+def _without_collinear_points(points, radius_dict: dict, tol: float = 1e-9):
+    """``points`` without the interior points the path runs straight on through, and ``radius_dict``
+    re-keyed to the surviving indices.
+
+    A point with a radius is a corner and stays. One without, between two filleted corners, used to
+    derail the corner loop in `segments3d_from_points3d`: it joins the legs either side of it as a
+    parallel pair, and the NEXT corner is then built from the leg before the point instead of the leg
+    after it, so the second bend lands a whole leg early (a U with two R74 bends and a point on the
+    run between them swept 390,779 mm3 against 440,146 without the point).
+    """
+    pts = [np.asarray(p, dtype=float) for p in points]
+    keep = [0]
+    for i in range(1, len(pts) - 1):
+        if i in radius_dict:
+            keep.append(i)
+            continue
+        a = pts[i] - pts[keep[-1]]
+        b = pts[i + 1] - pts[i]
+        la, lb = np.linalg.norm(a), np.linalg.norm(b)
+        if la < tol or lb < tol:
+            keep.append(i)
+            continue
+        if float(np.linalg.norm(np.cross(a, b))) / (la * lb) < tol and float(np.dot(a, b)) > 0.0:
+            continue
+        keep.append(i)
+    keep.append(len(pts) - 1)
+    if len(keep) == len(pts):
+        return points, radius_dict
+    return [points[i] for i in keep], {new: radius_dict[old] for new, old in enumerate(keep) if old in radius_dict}
+
+
 def segments3d_from_points3d(
     points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
 ) -> list[LineSegment | ArcSegment]:
     from ada.api.curves import ArcSegment, LineSegment
+
+    if isinstance(radius_dict, dict) and radius_dict:
+        points, radius_dict = _without_collinear_points(points, radius_dict)
 
     prelim_segments = line_segments3d_from_points3d(points)
 
