@@ -72,3 +72,31 @@ def test_the_half_ellipsoid_is_written_with_its_ellipse(tmp_path):
     assert "ELLIPSE(" in step
     assert "IFCREVOLVEDAREASOLID" in ifc and "IFCELLIPSE" in ifc
     assert "IFCTRIANGULATEDFACESET" not in ifc
+
+
+def test_a_tall_quarter_ellipse_revolves_too(backend):
+    """Semi-axis along the profile's X shorter than along its Y: the kernel's ellipse wants its
+    major radius first, and the profile's quarter ellipse is the same curve either way."""
+    r, h = 0.5, 1.5
+    quarter = geo_cu.TrimmedCurve(
+        basis_curve=geo_cu.Ellipse(Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)), r, h),
+        trim1=Point(r, 0, 0),
+        trim2=Point(0, h, 0),
+        sense_agreement=True,
+        master_representation="CARTESIAN",
+    )
+    profile = geo_cu.CompositeCurve(
+        [
+            geo_cu.CompositeCurveSegment(geo_cu.PolyLine([Point(0, 0, 0), Point(r, 0, 0)]), True),
+            geo_cu.CompositeCurveSegment(quarter, True),
+            geo_cu.CompositeCurveSegment(geo_cu.PolyLine([Point(0, h, 0), Point(0, 0, 0)]), True),
+        ]
+    )
+    solid = geo_so.RevolvedAreaSolid(
+        swept_area=geo_su.ArbitraryProfileDef(geo_su.ProfileType.AREA, profile),
+        position=Axis2Placement3D(Point(0, 0, 0), Direction(0, -1, 0), Direction(1, 0, 0)),
+        axis=Axis1Placement(Point(0, 0, 0), Direction(0, 0, 1)),
+        angle=360.0,
+    )
+    shape = backend.build(ada.Shape("tall", geom=Geometry("tall", solid, None)).solid_geom())
+    assert backend.volume(shape) == pytest.approx(2.0 / 3.0 * math.pi * r * r * h, rel=1e-9)

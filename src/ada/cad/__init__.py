@@ -1116,6 +1116,11 @@ class AdacppBackend:
                 p0 = c + sa1 * _np.cos(a0) * x + sa2 * _np.sin(a0) * y
                 p1 = c + sa1 * _np.cos(a1) * x + sa2 * _np.sin(a1) * y
                 axis = z if curve.sense_agreement else -z
+                # The kernel's ellipse takes its MAJOR radius first and refuses a minor one there
+                # (gp_Elips: "invalid construction parameters"): a taller-than-wide quarter ellipse
+                # is the same point set with its reference turned onto the longer semi-axis.
+                if sa1 < sa2:
+                    x, sa1, sa2 = y, sa2, sa1
                 return [
                     [
                         4.0,
