@@ -59,6 +59,7 @@ def test_make_3d_segments_short_leg_between_bends():
     for a, b in zip(tight_segments[:-1], tight_segments[1:]):
         assert a.p2.is_equal(b.p1)
 
+
 def test_a_plain_point_between_two_filleted_corners_does_not_move_the_second_bend():
     # A U-shaped path: a leg down, a bend, the run across, a bend, a leg up. A point on the run between
     # the two bends (no radius of its own) must leave the path as it was without it: the corner loop
