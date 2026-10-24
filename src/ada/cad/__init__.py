@@ -1499,7 +1499,7 @@ class AdacppBackend:
         fn = getattr(self._cad, "tessellate_stream", None)
         if fn is None:
             raise NotImplementedError(
-                "this adacpp build has no tessellate_stream — rebuild adacpp (feat/libtess2-tessellator)"
+                "this adacpp build has no tessellate_stream — upgrade ada-cpp to a release that includes it"
             )
         import numpy as np
 
