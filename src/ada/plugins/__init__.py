@@ -51,6 +51,8 @@ __all__ = [
     "discover_plugins",
     "request_worker_capabilities",
     "requested_worker_capabilities",
+    "register_preferred_pools",
+    "preferred_worker_pools",
     "reset_registry",
 ]
 
@@ -74,6 +76,11 @@ _ARTEFACT_CONTRIBUTORS: dict[str, Callable[[dict], Any]] = {}
 # worker loop reads from the event loop.
 _REQUESTED_CAPABILITIES: list[str] = []
 _REQUESTED_LOCK = threading.Lock()
+
+# plugin id -> callable returning the pools this process's worker should fetch first (see
+# register_preferred_pools). Guarded by _REQUESTED_LOCK: registered from an import, read from the
+# worker loop.
+_PREFERRED_POOL_PROVIDERS: dict[str, Callable[[], Iterable[str]]] = {}
 
 
 def register_plugin_backend(
@@ -243,9 +250,55 @@ def requested_worker_capabilities() -> list[str]:
         return list(_REQUESTED_CAPABILITIES)
 
 
+def register_preferred_pools(plugin_id: str, provider: Callable[[], Iterable[str]]) -> None:
+    """Tell the worker running this process which of its pools to look at FIRST.
+
+    ``provider()`` returns capability names (any spelling: they are normalised like
+    ``ADA_WORKER_CAPABILITIES``), or nothing. The worker calls it before every fetch round and
+    fetches those pools before the others, and waits on the first of them while idle. A name
+    the worker does not serve is ignored, so this can only reorder, never widen.
+
+    For a plugin whose worker holds something expensive to set up -- an open dataset, a warm
+    session, a loaded model -- that only serves jobs from one pool: preferring that pool makes
+    the NEXT job for it land on the worker already holding it, rather than on whichever of
+    several interchangeable workers happened to fetch first. Return nothing once it has been
+    released.
+
+    Called on the worker's event loop, so it must be cheap and must not block: return a value
+    the plugin already holds, never one it has to ask a device or a server for. An exception is
+    logged at DEBUG and treated as "no preference". Fairness is kept by the worker: a preferred
+    pool that has served ``ADA_WORKER_POOL_STREAK_LIMIT`` jobs in a row still yields a turn.
+    Idempotent by ``plugin_id``.
+    """
+    if not callable(provider):
+        raise TypeError("provider must be callable")
+    with _REQUESTED_LOCK:
+        _PREFERRED_POOL_PROVIDERS[plugin_id] = provider
+
+
+def preferred_worker_pools() -> list[str]:
+    """Every registered provider's preferred pools, in registration order, de-duplicated."""
+    with _REQUESTED_LOCK:
+        providers = list(_PREFERRED_POOL_PROVIDERS.items())
+    out: list[str] = []
+    for plugin_id, provider in providers:
+        try:
+            names = list(provider() or [])
+        except Exception as exc:  # noqa: BLE001 - a broken provider means "no preference"
+            logger.debug("ada.plugins: preferred pools of %s failed: %s", plugin_id, exc)
+            continue
+        for name in names:
+            name = str(name or "").strip()
+            if name and name not in out:
+                out.append(name)
+    return out
+
+
 def reset_registry() -> None:
     """Clear every registry — for tests only."""
     _PLUGIN_REGISTRY.clear()
     _ARTEFACT_CONTRIBUTORS.clear()
+    with _REQUESTED_LOCK:
+        _PREFERRED_POOL_PROVIDERS.clear()
     with _REQUESTED_LOCK:
         _REQUESTED_CAPABILITIES.clear()

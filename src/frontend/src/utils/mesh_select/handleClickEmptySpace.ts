@@ -5,12 +5,13 @@ import {clearPointSelectionMask} from "../scene/pointsImpostor";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clearFaceHighlight} from "./faceHighlight";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 
 export function handleClickEmptySpace(_event: MouseEvent) {
     // Fully deselect: clearSelectedObjects clears each object's visual selection groups AND
     // empties the selectedObjects map, so the info box / tree view also drop the selection.
     // (Clearing only the visual groups, as this used to, left a stale selection in the store.)
-    useSelectedObjectStore.getState().clearSelectedObjects();
+    recordViewerAction("clear-selection", () => useSelectedObjectStore.getState().clearSelectedObjects());
     // Drop any per-face highlight + its Properties row along with the object selection.
     clearFaceHighlight();
     useObjectInfoStore.getState().setClickedFace(null);

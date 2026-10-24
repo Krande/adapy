@@ -18,13 +18,19 @@ const globals = globalThis as unknown as {sessionStorage: unknown; localStorage:
 globals.sessionStorage = storage;
 globals.localStorage = storage;
 
-const {toggledExcluded} = await import("@/components/admin/SweepDefaults");
+const {excludedWithAll, toggledExcluded} = await import("@/components/admin/SweepDefaults");
 const {canToggleRun} = await import("@/components/admin/ProviderSweepRuns");
 
 test("toggling a default keeps the excluded list sorted and unique", () => {
     assert.deepEqual(toggledExcluded(["BETA"], "ALPHA", false), ["ALPHA", "BETA"]);
     assert.deepEqual(toggledExcluded(["ALPHA", "BETA"], "BETA", true), ["ALPHA"]);
     assert.deepEqual(toggledExcluded(["BETA"], "BETA", false), ["BETA"]);
+});
+
+test("select all / deselect all switch only the given collections", () => {
+    assert.deepEqual(excludedWithAll(["BETA", "GAMMA"], ["ALPHA", "BETA"], true), ["GAMMA"]);
+    assert.deepEqual(excludedWithAll(["GAMMA"], ["BETA", "ALPHA"], false), ["ALPHA", "BETA", "GAMMA"]);
+    assert.deepEqual(excludedWithAll([], [], false), []);
 });
 
 test("only collections a running sweep has not reached can be ticked on or off", () => {

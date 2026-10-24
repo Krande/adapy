@@ -20,6 +20,7 @@ import type {
 } from "@/services/api/searchExport";
 import type { SearchHit, SearchQuery } from "@/services/api/attributeSearch";
 import { collectFolderPaths, isUiHiddenKey } from "@/utils/storage/fileTree";
+import { compareProjects } from "@/utils/sortProjects";
 
 /** `key` with its last extension replaced by `suffix` (a key with none just gets it appended). The
  *  extension is looked for in the last path segment only: a dot in a folder name is not one. */
@@ -63,9 +64,14 @@ export interface GeometryPrompt {
   cannotRequest: string | null;
   /** Set when a sweep of the geometry provider is running on the same seat. */
   sweepNote: string | null;
+  /** Missing hits a request from HERE cannot fix -- they lie in a scope this user cannot publish
+   *  into -- and what to do instead; null when there are none. */
+  notHere: string | null;
 }
 
 export function geometryPrompt(pre: ExportPreflight): GeometryPrompt {
+  const blocked = pre.collections.filter((c) => c.missing > 0 && c.request_blocked);
+  const blockedHits = blocked.reduce((n, c) => n + c.missing, 0);
   const lacking = pre.missing + pre.unknown;
   const byCollection = pre.collections
     .filter((c) => c.missing > 0)
@@ -91,6 +97,11 @@ export function geometryPrompt(pre: ExportPreflight): GeometryPrompt {
       ? "A sweep is running on the design-system worker; requests will interleave with it and may cost extra " +
         "project switches -- consider waiting for it or pausing it."
       : null,
+    notHere: blockedHits
+      ? `${blockedHits.toLocaleString()} of the missing hits lie in a scope you cannot publish into ` +
+        `(${[...new Set(blocked.map((c) => c.collection.toUpperCase()))].join(", ")}): a request from here skips them -- ` +
+        "request their geometry from that scope"
+      : null,
   };
 }
 
@@ -108,6 +119,8 @@ export interface MeshPrompt {
   /** Per provider: its collection request for the collections with no tree, or hits outside it. */
   requests: {
     provider: string;
+    /** The scope the trees are requested INTO (a storage prefix); null is this scope. */
+    origin: string | null;
     collections: string[];
     label: string;
     /** Null when the user may run it, else why not. */
@@ -142,6 +155,7 @@ export function meshPrompt(pre: MeshPreflight): MeshPrompt {
     emptyCollections: [...new Set(pre.collections.filter((c) => c.ready === 0).map((c) => c.collection))],
     requests: pre.tree_requests.map((r) => ({
       provider: r.provider,
+      origin: r.origin ?? null,
       collections: r.collections,
       label: r.label ?? `Request project trees (${r.provider})`,
       cannot: !r.available || !r.allowed ? (r.reason ?? "the request is not available") : null,
@@ -229,7 +243,7 @@ export function exportTargetScopes(
   return available
     .filter((s) => s.kind === "user" || s.kind === "shared" || (s.kind === "project" && s.id))
     .slice()
-    .sort((a, b) => rank(a.kind) - rank(b.kind) || a.name.localeCompare(b.name))
+    .sort((a, b) => rank(a.kind) - rank(b.kind) || compareProjects(a.name, b.name))
     .map((s) => ({
       url: s.kind === "user" ? "user:me" : s.kind === "shared" ? "shared" : `project:${s.id}`,
       label: s.kind === "project" ? `Project · ${s.name}` : s.name,
@@ -448,6 +462,12 @@ export function compactQuery(q: SearchQuery | null | undefined): string {
   if (q.exclude_collections?.length) parts.push(`not collections ${q.exclude_collections.join(", ")}`);
   if (q.providers?.length) parts.push(`providers ${q.providers.join(", ")}`);
   if (q.exclude_providers?.length) parts.push(`not providers ${q.exclude_providers.join(", ")}`);
+  if (q.name) {
+    const n = q.name;
+    if ("eq" in n) parts.push(`name = ${n.eq}`);
+    else if ("prefix" in n) parts.push(`name starts ${n.prefix}`);
+    else parts.push(`name contains ${n.contains}`);
+  }
   if (q.kind?.length) parts.push(`kind ${q.kind.join(", ")}`);
   if (q.depth) {
     if ("eq" in q.depth) parts.push(`depth ${q.depth.eq}`);
@@ -488,6 +508,23 @@ export function exportQuery(query: SearchQuery, deselected: ReadonlySet<string>)
 /** `query` narrowed to one collection (its include list, if any, already holds it). */
 export function queryForCollection(query: SearchQuery, collection: string): SearchQuery {
   return { ...query, collections: [collection] };
+}
+
+/** `query` narrowed to one partition, by key (`partitionKey`): one origin's collection, where a
+ *  name would take every scope's of that name. An include list the query had is replaced -- it
+ *  held this one -- and its exclusions stay. */
+export function queryForPartition(query: SearchQuery, key: string): SearchQuery {
+  return { ...query, partitions: [key] };
+}
+
+/** The query an export of "all matches" sends when the panel left partitions out (by clicking
+ *  their counts): they join its `exclude_partitions`, and an include list loses them -- as
+ *  `exportQuery` does for names. */
+export function exportQueryParts(query: SearchQuery, deselected: ReadonlySet<string>): SearchQuery {
+  if (!deselected.size) return query;
+  const exclude = [...new Set([...(query.exclude_partitions ?? []), ...deselected])];
+  const include = query.partitions ? query.partitions.filter((k) => !deselected.has(k)) : undefined;
+  return { ...query, ...(include ? { partitions: include } : {}), exclude_partitions: exclude };
 }
 
 /** Run `fn` over `items`, at most `width` at a time, calling `onDone` after each. Results in order. */
@@ -531,14 +568,15 @@ export function mergePreflights(parts: readonly ExportPreflight[]): ExportPrefli
 }
 
 /** Per-collection mesh preflights as the one preflight of all of them: each provider's tree request
- *  covers every collection any part found without a tree. */
+ *  -- one per scope the trees go into -- covers every collection any part found without a tree. */
 export function mergeMeshPreflights(parts: readonly MeshPreflight[]): MeshPreflight {
   const sum = (k: "hits" | "ready" | "no_tree" | "unknown") => parts.reduce((n, p) => n + p[k], 0);
   const requests = new Map<string, MeshPreflight["tree_requests"][number]>();
   for (const r of parts.flatMap((p) => p.tree_requests)) {
-    const seen = requests.get(r.provider);
+    const key = `${r.provider}\u0000${r.origin ?? ""}`;
+    const seen = requests.get(key);
     requests.set(
-      r.provider,
+      key,
       seen
         ? { ...seen, collections: [...new Set([...seen.collections, ...r.collections])], sweep_running: seen.sweep_running ?? r.sweep_running }
         : { ...r },
@@ -556,10 +594,11 @@ export function mergeMeshPreflights(parts: readonly MeshPreflight[]): MeshPrefli
   };
 }
 
-/** The matches left once `deselected` collections are out: the sum of the other partitions. */
+/** The matches left once the `deselected` partitions (by `counts` key) are out: the sum of the
+ *  others -- own and other scopes' alike, since an export takes them all. */
 export function selectedTotal(
-  counts: readonly { collection: string; count: number }[],
+  counts: readonly { key: string; count: number }[],
   deselected: ReadonlySet<string>,
 ): number {
-  return counts.reduce((n, c) => (deselected.has(c.collection) ? n : n + c.count), 0);
+  return counts.reduce((n, c) => (deselected.has(c.key) ? n : n + c.count), 0);
 }

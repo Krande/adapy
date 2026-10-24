@@ -259,6 +259,25 @@ def _ok(staging, mode="adopted"):
     return {"asset_staging_id": staging, "login": {"mode": mode}, "timings": {"login_ms": 5, "export_ms": 9}}
 
 
+def test_hits_from_a_scope_the_user_cannot_publish_into_are_reported_not_requested(monkeypatch):
+    """Shared in from a project this caller is no member of (here: no database, so no member of
+    any): classified THERE, nothing requested, the item says where to ask instead."""
+    hits = [{**_hit(i), "origin": "projects/p-9"} for i in range(2)]
+    w = _World(monkeypatch, answers=[], states_for=lambda c, hs: _states(hs))
+    seen = []
+
+    async def classify(storage, scope_obj, groups, provider=se.GEOMETRY_PROVIDER):
+        seen.append(scope_obj)
+        return [_states(h) for _, h in groups]
+
+    monkeypatch.setattr(greq, "classify_in_scope", classify)
+    w.drive([("vendor-a", "alpha", hits)])
+    assert seen == [Scope.project("p-9")]
+    assert w.enqueued == [] and w.published == [] and w.events == ["export"]
+    [batch] = w.items[0]["timings"]["request_batches"]
+    assert batch["status"] == "error" and "cannot publish into" in batch["message"]
+
+
 def test_missing_nodes_are_requested_back_to_back_published_then_exported(monkeypatch):
     monkeypatch.setattr(greq, "NODES_PER_REQUEST", 2)
     hits = [_hit(i) for i in range(5)]

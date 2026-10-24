@@ -181,14 +181,39 @@ def make_faceted_brep_from_geom(brep: geo_so.FacetedBrep) -> TopoDS_Shape | Topo
     """Build a faceted B-rep: the outer closed shell becomes a solid, and each inner void shell
     is made solid and cut out."""
     from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+
+    solid = _closed_solid_from_shell(brep.outer)
+    for void in brep.voids:
+        solid = BRepAlgoAPI_Cut(solid, _closed_solid_from_shell(void)).Shape()
+    return solid
+
+
+def make_advanced_brep_from_geom(brep: geo_so.AdvancedBrep) -> TopoDS_Shape | TopoDS_Solid:
+    """An AdvancedBrep's outer shell, sewn and made an outward solid (see _closed_solid_from_shell)."""
+    return _closed_solid_from_shell(brep.outer)
+
+
+def _closed_solid_from_shell(shell) -> TopoDS_Solid:
+    """A ClosedShell as a SOLID a boolean can use: its faces SEWN (shared edges, not one free
+    edge per face, which is what the shell builder alone gives), made a solid and oriented
+    outward whichever way the faces were wound. Unsewn and unoriented, a box minus a faceted
+    cube came out inside out and a faceted cube with a reversed winding measured -1."""
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+    from OCC.Core.BRepLib import breplib
+    from OCC.Core.TopAbs import TopAbs_SHELL
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopoDS import topods
 
     from ada.occ.geom.surfaces import make_closed_shell_from_geom
 
-    solid = BRepBuilderAPI_MakeSolid(make_closed_shell_from_geom(brep.outer)).Solid()
-    for void in brep.voids:
-        void_solid = BRepBuilderAPI_MakeSolid(make_closed_shell_from_geom(void)).Solid()
-        solid = BRepAlgoAPI_Cut(solid, void_solid).Shape()
+    sewing = BRepBuilderAPI_Sewing(1e-7)
+    sewing.Add(make_closed_shell_from_geom(shell))
+    sewing.Perform()
+    explorer = TopExp_Explorer(sewing.SewedShape(), TopAbs_SHELL)
+    if not explorer.More():
+        raise ValueError("faceted B-rep: its faces do not sew into a shell")
+    solid = BRepBuilderAPI_MakeSolid(topods.Shell(explorer.Current())).Solid()
+    breplib.OrientClosedSolid(solid)
     return solid
 
 

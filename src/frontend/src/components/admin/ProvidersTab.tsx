@@ -9,10 +9,14 @@ import {
     ScopeCollectionsMap,
     assetProviderCollections,
     collectionChoices,
+    STALE_PERSONAL_KEY,
     enabledFor,
+    isPersonalKey,
     parseScopeCollections,
+    personalKey,
     serialiseScopeCollections,
     storedProviders,
+    setCollections,
     toggleCollection,
     withEnabled,
 } from "@/services/assetScopeCollections";
@@ -28,7 +32,12 @@ import {
     withProviderAlias,
 } from "@/assets/providerNames";
 import {useProviderNamesStore} from "@/state/providerNamesStore";
+import {useConversionStore} from "@/state/conversionStore";
+import {useMeStore} from "@/state/meStore";
+import {rescanStoreKey, startProviderRescan} from "@/services/providerRescan";
+import {sortProjects, sortProjectsBy} from "@/utils/sortProjects";
 
+import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
 import ProviderSchedulesSection from "./ProviderSchedulesSection";
 
@@ -54,7 +63,11 @@ import ProviderSchedulesSection from "./ProviderSchedulesSection";
 // a worker advertises it, and marked when none does -- so an admin opening this
 // while a host reboots does not revoke that host's collections by saving.
 //
-// Personal scopes are left out: a grant on one has no second party to protect.
+// YOUR PERSONAL SCOPE IS ONE ROW, keyed `user:<your sub>`: an admin can tick collections for their
+// OWN personal scope, and nobody else's is listed or touched by it. A personal scope offers NOTHING
+// until something is ticked there -- unlike Shared and projects, where nothing configured is
+// everything. A `user:me` key (an earlier version keyed every user's personal scope at once by it)
+// is never read; it is listed as stale so it can be cleared.
 
 interface ScopeRow {
     scope: string;
@@ -129,69 +142,18 @@ interface RescanState {
     failed?: boolean;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const SHOW_ENABLED_KEY = "ada.admin.providers.showEnabled";
 
-/** How long a rescan job may take before the tab stops watching it. A scan of two
- *  file servers has been measured at ~11 s; this is generous on purpose. */
-const RESCAN_JOB_TIMEOUT_MS = 5 * 60_000;
-/** How long to wait for the new list to arrive on a heartbeat after the job. The
- *  worker re-reads its spec every heartbeat (15 s), so two of them and a margin. */
-const RESCAN_ADVERT_TIMEOUT_MS = 45_000;
-
-/** Run a provider's declared rescan and wait for its new list to be advertised.
- *
- *  THREE HOPS, and the tab only sees the last one: the job rescans on the worker,
- *  the worker re-registers its spec, and the next heartbeat carries it to the API.
- *  So the job finishing is not the list changing, and the tab keeps reading
- *  `GET /plugins` until it does -- or until two heartbeats have passed, since an
- *  unchanged list is a legitimate answer. Returns the job's own `message`, which
- *  is the provider's sentence about what it found. */
-async function runRescan(
-    providerId: string,
-    refresh: AssetCollectionsRefresh,
-    before: readonly string[],
-    onLive: (live: AssetProviderCollections[]) => void,
-    onStage: (note: string) => void,
-): Promise<string> {
-    const {job_id, derived_key} = await viewerApi.pluginJob(refresh.pluginId, {
-        options: {...refresh.options, requested_at: new Date().toISOString()},
-    });
-    onStage("Rescanning…");
-    const deadline = Date.now() + RESCAN_JOB_TIMEOUT_MS;
-    for (;;) {
-        const st = await viewerApi.convertStatus(job_id);
-        if (st.status === "done") break;
-        if (st.status === "error" || st.status === "cancelled") {
-            throw new Error(st.error || `the rescan job ${st.status}`);
-        }
-        if (Date.now() > deadline) throw new Error("the rescan job did not finish in five minutes");
-        if (st.stage) onStage(`Rescanning… ${st.stage}`);
-        await sleep(2000);
+/** A rescan's state as the tab shows it, from its toast entry (`services/providerRescan.ts`): the
+ *  job's progress and stage while it runs, the provider's sentence when it is done. */
+function rescanStateOf(entry: {status: string; progress: number; stage: string; error: string | null} | undefined): RescanState | null {
+    if (!entry) return null;
+    if (entry.status === "queued" || entry.status === "running") {
+        const pct = Math.round(Math.min(1, Math.max(0, entry.progress || 0)) * 100);
+        return {running: true, note: `Rescanning… ${pct}%${entry.stage ? ` · ${entry.stage}` : ""}`};
     }
-
-    let message = "";
-    try {
-        const doc = JSON.parse(new TextDecoder().decode(await viewerApi.getBlob("shared", derived_key)));
-        if (doc && typeof doc.message === "string") message = doc.message;
-    } catch {
-        // The summary is a courtesy; the list below is the answer.
-    }
-
-    onStage("Waiting for the worker to advertise the new list…");
-    const was = JSON.stringify(before);
-    const advertDeadline = Date.now() + RESCAN_ADVERT_TIMEOUT_MS;
-    for (;;) {
-        const plugins = await viewerApi.listBackendPlugins().catch(() => ({plugins: []}));
-        const live = assetProviderCollections(plugins.plugins ?? []);
-        const now = live.find((p) => p.providerId === providerId)?.collections ?? [];
-        if (JSON.stringify(now) !== was || Date.now() > advertDeadline) {
-            onLive(live);
-            return message || (JSON.stringify(now) === was ? "No change." : "Updated.");
-        }
-        await sleep(3000);
-    }
+    if (entry.status === "done") return {running: false, note: entry.stage || "Done."};
+    return {running: false, note: entry.error || `the rescan ${entry.status}`, failed: true};
 }
 
 const ProvidersTab: React.FC = () => {
@@ -205,6 +167,9 @@ const ProvidersTab: React.FC = () => {
     const [filter, setFilter] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [rescans, setRescans] = useState<Record<string, RescanState>>({});
+    // The signed-in admin: their own personal scope is the one personal row.
+    const mySub = useMeStore((s) => s.sub);
+    const myName = useMeStore((s) => s.displayName || s.email);
     // A viewer convenience, so per browser: whether each restricted row lists its enabled
     // collections as tags beside the count.
     const [showEnabled, setShowEnabled] = useState<boolean>(() => {
@@ -223,14 +188,23 @@ const ProvidersTab: React.FC = () => {
         }
     };
 
-    const rescan = useCallback(async (providerId: string, refresh: AssetCollectionsRefresh, before: readonly string[]) => {
-        const set = (s: RescanState) => setRescans((prev) => ({...prev, [providerId]: s}));
-        set({running: true, note: "Asking the worker…"});
+    // A rescan runs in the global toast (`startProviderRescan`), not here: leaving the tab, or
+    // reloading, does not stop it. The tab only shows its entry -- and `rescans` what went wrong
+    // before there was one (the enqueue refused).
+    const toastJobs = useConversionStore((s) => s.jobs);
+    const rescanOf = (providerId: string): RescanState | null =>
+        rescanStateOf(toastJobs[rescanStoreKey(providerId)]) ?? rescans[providerId] ?? null;
+    const rescan = useCallback(async (providerId: string, refresh: AssetCollectionsRefresh, before: readonly string[], label: string) => {
+        setRescans((prev) => ({...prev, [providerId]: {running: true, note: "Asking the worker…"}}));
         try {
-            const note = await runRescan(providerId, refresh, before, setLive, (n) => set({running: true, note: n}));
-            set({running: false, note});
+            await startProviderRescan(providerId, refresh, before, label);
+            setRescans((prev) => {
+                const next = {...prev};
+                delete next[providerId];
+                return next;
+            });
         } catch (e) {
-            set({running: false, note: e instanceof Error ? e.message : String(e), failed: true});
+            setRescans((prev) => ({...prev, [providerId]: {running: false, note: e instanceof Error ? e.message : String(e), failed: true}}));
         }
     }, []);
 
@@ -259,6 +233,21 @@ const ProvidersTab: React.FC = () => {
         void refresh();
     }, [refresh]);
 
+    // A rescan that finishes while the tab is open -- its finisher saw the new list, or waited it
+    // out -- shows the advertised collections at once.
+    const finishedRescans = Object.entries(toastJobs)
+        .filter(([key, j]) => key.startsWith(rescanStoreKey("")) && j.status === "done")
+        .map(([key]) => key)
+        .sort()
+        .join("\u0000");
+    useEffect(() => {
+        if (!finishedRescans) return;
+        void viewerApi
+            .listBackendPlugins()
+            .then((plugins) => setLive(assetProviderCollections(plugins.plugins ?? [])))
+            .catch(() => {});
+    }, [finishedRescans]);
+
     // Live providers, plus any the stored maps name that no worker declares now.
     const sections: ProviderSection[] = useMemo(() => {
         const byId = new Map(live.map((p) => [p.providerId, p]));
@@ -280,7 +269,8 @@ const ProvidersTab: React.FC = () => {
             await viewerApi.adminSetSetting(PROVIDER_LABELS_KEY, serialiseProviderAliases(next));
             setAliases(next);
             // A viewer of that scope in THIS browser sees the new name without a reload.
-            void useProviderNamesStore.getState().load(scope, true);
+            // Your own personal row is keyed `user:<sub>`; the API names that scope `user:me`.
+            void useProviderNamesStore.getState().load(isPersonalKey(scope) ? "user:me" : scope, true);
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         } finally {
@@ -290,13 +280,36 @@ const ProvidersTab: React.FC = () => {
 
     const rows: ScopeRow[] = useMemo(() => {
         const out: ScopeRow[] = [{scope: "shared", label: "Shared", hint: "everyone with access to this viewer"}];
-        for (const p of projects) out.push({scope: `project:${p.id}`, label: p.name, hint: p.slug});
+        if (mySub) {
+            out.push({
+                scope: personalKey(mySub),
+                label: "Your personal scope",
+                hint: `${myName || mySub} only -- nothing is offered here until you tick it`,
+            });
+        }
+        // "Shared" (and the personal scope) stay first by design; the projects, then any stale
+        // stored scopes, alphabetically.
+        for (const p of sortProjectsBy(projects, (x) => x.name)) out.push({scope: `project:${p.id}`, label: p.name, hint: p.slug});
         const known = new Set(out.map((r) => r.scope));
-        for (const scope of Object.keys(map).sort()) {
-            if (!known.has(scope)) out.push({scope, label: scope, hint: "not a current project", stale: true});
+        for (const scope of sortProjects(Object.keys(map))) {
+            // Another user's personal scope is theirs (another admin ticking their own): not listed here.
+            if (known.has(scope) || isPersonalKey(scope)) continue;
+            out.push({
+                scope,
+                label: scope,
+                hint:
+                    scope === STALE_PERSONAL_KEY
+                        ? "applied to every personal scope by an earlier version; never read now -- clear it"
+                        : "not a current project",
+                stale: true,
+            });
+        }
+        // A display name stored under the stale key is listed too, so it can be cleared.
+        if (aliases[STALE_PERSONAL_KEY] && !out.some((r) => r.scope === STALE_PERSONAL_KEY)) {
+            out.push({scope: STALE_PERSONAL_KEY, label: STALE_PERSONAL_KEY, hint: "never read now -- clear it", stale: true});
         }
         return out;
-    }, [projects, map]);
+    }, [projects, map, aliases, mySub, myName]);
 
     const persist = useCallback(async (scope: string, provider: string, enabled: EnabledCollections) => {
         const key = rowKey(scope, provider);
@@ -384,33 +397,14 @@ const ProvidersTab: React.FC = () => {
             {sections.map(({providerId, live: declared}) => {
                 const advertised = declared?.collections ?? [];
                 const refresh = declared?.refresh ?? null;
-                const rs = rescans[providerId];
+                const rs = rescanOf(providerId);
                 return (
-                    <section key={providerId} className="border-b border-gray-800">
-                        <div className="px-3 pt-3 pb-1">
-                            {refresh && (
-                                // Declared by the provider (`asset_collections_refresh`), so
-                                // only a provider that knows how to look again offers it. It
-                                // is how a collection the worker missed at boot -- a share that
-                                // refused a folder for a moment -- comes back without a restart.
-                                <div className="float-right flex items-center gap-2">
-                                    {rs?.note && (
-                                        <span className={`text-xs ${rs.failed ? "text-red-300" : "text-gray-400"}`}>
-                                            {rs.note}
-                                        </span>
-                                    )}
-                                    <button
-                                        type="button"
-                                        className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
-                                        disabled={rs?.running}
-                                        title={`Ask ${refresh.pluginId} to look for its collections again`}
-                                        onClick={() => void rescan(providerId, refresh, advertised)}
-                                    >
-                                        {rs?.running ? "Rescanning…" : "Rescan"}
-                                    </button>
-                                </div>
-                            )}
-                            <div className="text-sm font-medium">
+                    <AdminSection
+                        key={providerId}
+                        kind="Asset provider"
+                        storageKey={`ada.admin.providers.open.${providerId}`}
+                        title={
+                            <>
                                 <code>{providerId}</code>
                                 {declared?.label && (
                                     <span className="ml-2 text-xs font-normal text-gray-300" title="The provider's own display name">
@@ -422,13 +416,38 @@ const ProvidersTab: React.FC = () => {
                                         {declared.titles.join(", ")}
                                     </span>
                                 )}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                                {declared
-                                    ? `${advertised.length} collection${advertised.length === 1 ? "" : "s"} advertised by ${declared.pluginIds.join(", ") || "an online worker"}`
-                                    : "No online worker declares this provider right now. Its stored grants are kept, and listed below."}
-                            </div>
-                        </div>
+                            </>
+                        }
+                        subtitle={
+                            declared
+                                ? `${advertised.length} collection${advertised.length === 1 ? "" : "s"} advertised by ${declared.pluginIds.join(", ") || "an online worker"}`
+                                : "No online worker declares this provider right now. Its stored grants are kept, and listed below."
+                        }
+                        actions={
+                            refresh && (
+                                // Declared by the provider (`asset_collections_refresh`), so
+                                // only a provider that knows how to look again offers it. It
+                                // is how a collection the worker missed at boot -- a share that
+                                // refused a folder for a moment -- comes back without a restart.
+                                <>
+                                    {rs?.note && (
+                                        <span className={`text-xs ${rs.failed ? "text-red-300" : "text-gray-400"}`}>
+                                            {rs.note}
+                                        </span>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                                        disabled={rs?.running}
+                                        title={`Ask ${refresh.pluginId} to look for its collections again -- followed in the job toast, so it carries on if you leave this tab`}
+                                        onClick={() => void rescan(providerId, refresh, advertised, declared?.label ?? providerId)}
+                                    >
+                                        {rs?.running ? "Rescanning…" : "Rescan"}
+                                    </button>
+                                </>
+                            )
+                        }
+                    >
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="text-left text-xs uppercase text-gray-500">
@@ -441,7 +460,13 @@ const ProvidersTab: React.FC = () => {
                             <tbody>
                                 {rows.map((row) => {
                                     const key = rowKey(row.scope, providerId);
-                                    const enabled = enabledFor(map, row.scope, providerId);
+                                    // The stale `user:me` row shows what is STORED (to clear it); every
+                                    // other row what it resolves to -- a personal one, nothing by default.
+                                    const enabled =
+                                        row.scope === STALE_PERSONAL_KEY
+                                            ? (map[row.scope]?.[providerId] ?? null)
+                                            : enabledFor(map, row.scope, providerId);
+                                    const personal = isPersonalKey(row.scope);
                                     const choices = collectionChoices(advertised, enabled);
                                     const unadvertised = choices.filter((c) => !c.advertised).length;
                                     const isOpen = open === key;
@@ -463,6 +488,13 @@ const ProvidersTab: React.FC = () => {
                                                 />
                                             </td>
                                             <td className="px-3 py-2 align-top">
+                                                {personal ? (
+                                                    // No "All collections" for a personal scope: missing is
+                                                    // nothing there, so only ticks can give it anything.
+                                                    <span className="text-xs text-gray-400" title="A personal scope offers nothing until a collection is ticked for it">
+                                                        Only ticked (none by default)
+                                                    </span>
+                                                ) : (
                                                 <select
                                                     className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-sm"
                                                     value={enabled === null ? "all" : "ticked"}
@@ -480,13 +512,24 @@ const ProvidersTab: React.FC = () => {
                                                     <option value="all">All collections</option>
                                                     <option value="ticked">Only ticked</option>
                                                 </select>
+                                                )}
                                             </td>
                                             <td className="px-3 py-2 align-top">
                                                 {enabled === null ? (
                                                     <span className="text-xs text-gray-500">
                                                         Unrestricted — every advertised collection is offered.
                                                     </span>
-                                                ) : (
+                                                ) : (() => {
+                                                    // The bulk buttons act on what the filter shows: all of it unfiltered.
+                                                    const shown = fuzzyFilter(choices, filter, (c) => c.collection);
+                                                    const scope = filter.trim() ? " shown" : "";
+                                                    const setShown = (on: boolean) =>
+                                                        void persist(
+                                                            row.scope,
+                                                            providerId,
+                                                            setCollections(enabled, advertised, shown.map((c) => c.collection), on),
+                                                        );
+                                                    return (
                                                     <div className="space-y-1">
                                                         <button
                                                             type="button"
@@ -504,7 +547,7 @@ const ProvidersTab: React.FC = () => {
                                                         </button>
                                                         {showEnabled && enabled.length > 0 && (
                                                             <ul className="inline-flex flex-wrap gap-1 align-middle ml-2" aria-label="Enabled collections">
-                                                                {[...enabled].sort().map((c) => {
+                                                                {sortProjects(enabled).map((c) => {
                                                                     const live = advertised.includes(c);
                                                                     return (
                                                                         <li
@@ -535,8 +578,28 @@ const ProvidersTab: React.FC = () => {
                                                                         Nothing is advertised and nothing is enabled.
                                                                     </div>
                                                                 )}
+                                                                {shown.length > 0 && (
+                                                                    <div className="flex gap-2">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                                                                            disabled={busy === key || shown.every((c) => c.enabled)}
+                                                                            onClick={() => setShown(true)}
+                                                                        >
+                                                                            Select all{scope}
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                                                                            disabled={busy === key || shown.every((c) => !c.enabled)}
+                                                                            onClick={() => setShown(false)}
+                                                                        >
+                                                                            Deselect all{scope}
+                                                                        </button>
+                                                                    </div>
+                                                                )}
                                                                 <ul className="max-h-64 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-x-2">
-                                                                    {fuzzyFilter(choices, filter, (c) => c.collection).map((c) => (
+                                                                    {shown.map((c) => (
                                                                         <li key={c.collection}>
                                                                             <label
                                                                                 className="flex items-center gap-2 py-0.5 px-1 text-xs rounded-sm cursor-pointer hover:bg-gray-800/60"
@@ -578,14 +641,15 @@ const ProvidersTab: React.FC = () => {
                                                             </div>
                                                         )}
                                                     </div>
-                                                )}
+                                                    );
+                                                })()}
                                             </td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
                         </table>
-                    </section>
+                    </AdminSection>
                 );
             })}
 

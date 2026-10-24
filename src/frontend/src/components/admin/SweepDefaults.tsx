@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 
 import {ApiError, viewerApi} from "@/services/viewerApi";
+import {sortProjects} from "@/utils/sortProjects";
 
 // Admin → Providers → a provider's DEFAULT sweep list: which collections every new sweep of it --
 // scheduled or one-off -- starts with ticked off. Some collections are too big for a routine sweep;
@@ -14,6 +15,16 @@ export function toggledExcluded(excluded: readonly string[], collection: string,
     const next = new Set(excluded);
     if (run) next.delete(collection);
     else next.add(collection);
+    return [...next].sort();
+}
+
+/** The excluded list with every one of `collections` set to run (or not run) together. */
+export function excludedWithAll(excluded: readonly string[], collections: readonly string[], run: boolean): string[] {
+    const next = new Set(excluded);
+    for (const c of collections) {
+        if (run) next.delete(c);
+        else next.add(c);
+    }
     return [...next].sort();
 }
 
@@ -32,7 +43,7 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
             .adminAssetSweepDefaults(provider)
             .then((d) => {
                 if (!alive) return;
-                setCollections(d.collections ?? []);
+                setCollections(sortProjects(d.collections ?? []));
                 setSaved(d.excluded);
                 setExcluded(d.excluded);
                 setError(null);
@@ -43,6 +54,7 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
         };
     }, [provider]);
 
+    const notRun = useMemo(() => sortProjects(saved), [saved]);
     const dirty = useMemo(() => saved.join("\n") !== excluded.join("\n"), [saved, excluded]);
     const shown = useMemo(() => {
         const f = filter.trim().toLowerCase();
@@ -67,7 +79,7 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
         <div className="text-xs space-y-1" data-testid="sweep-defaults">
             <button type="button" className="text-[11px] text-gray-400 hover:text-gray-200" onClick={() => setOpen(!open)}>
                 {open ? "▾" : "▸"} Default projects for new sweeps
-                {saved.length ? ` · ${saved.length} not run (${saved.slice(0, 4).join(", ")}${saved.length > 4 ? ", …" : ""})` : " · all run"}
+                {notRun.length ? ` · ${notRun.length} not run (${notRun.slice(0, 4).join(", ")}${notRun.length > 4 ? ", …" : ""})` : " · all run"}
             </button>
             {open && (
                 <div className="rounded-sm border border-gray-800 p-2 space-y-1.5">
@@ -96,6 +108,27 @@ const SweepDefaults: React.FC<{provider: string}> = ({provider}) => {
                         Ticked collections run in every new sweep; unticked ones start as "not run" and can still be ticked in a
                         running sweep.
                     </div>
+                    {shown.length > 0 && (
+                        // Act on what the filter shows: all of it unfiltered.
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-2 py-0.5 rounded-sm"
+                                disabled={shown.every((c) => !excluded.includes(c))}
+                                onClick={() => setExcluded(excludedWithAll(excluded, shown, true))}
+                            >
+                                Select all{filter.trim() ? " shown" : ""}
+                            </button>
+                            <button
+                                type="button"
+                                className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-2 py-0.5 rounded-sm"
+                                disabled={shown.every((c) => excluded.includes(c))}
+                                onClick={() => setExcluded(excludedWithAll(excluded, shown, false))}
+                            >
+                                Deselect all{filter.trim() ? " shown" : ""}
+                            </button>
+                        </div>
+                    )}
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-x-2 gap-y-0.5 max-h-56 overflow-y-auto">
                         {shown.map((c) => (
                             <label key={c} className="inline-flex items-center gap-1 font-mono">

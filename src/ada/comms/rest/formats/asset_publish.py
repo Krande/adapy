@@ -294,7 +294,11 @@ async def _run_asset_publish(
         summary.get("collection"),
         summary.get("revision"),
         len(summary.get("subjects") or []),
-        f", {attributes['rows']} attribute row(s)" if attributes and attributes.get("ingested") else "",
+        (
+            f", attribute index shared from {attributes['deduplicated_into']} (already there at this revision)"
+            if attributes and attributes.get("deduplicated_into")
+            else f", {attributes['rows']} attribute row(s)" if attributes and attributes.get("ingested") else ""
+        ),
         ", dry run" if dry_run else "",
         job_id,
     )

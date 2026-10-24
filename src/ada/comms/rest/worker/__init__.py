@@ -63,8 +63,10 @@ from .memory import (  # noqa: F401
 from .pools import (  # noqa: F401
     BUS_HEARTBEAT_FAILURE_LIMIT,
     BUS_HEARTBEAT_SECONDS,
+    CANDIDATE_FETCH_TIMEOUT,
     FETCH_BATCH,
     FETCH_TIMEOUT,
+    IDLE_WAIT_SECONDS,
     IN_PROGRESS_REFRESH_SECONDS,
     MAX_DELIVERIES,
     POOL_STREAK_LIMIT,
@@ -72,9 +74,12 @@ from .pools import (  # noqa: F401
     _bool_env,
     _capabilities_to_add,
     _declared_capabilities,
+    _fetch_plan,
     _per_fetch_timeout,
     _pool_capabilities,
+    _preferred_indices,
     _worker_id,
+    summarise_names,
 )
 from .process import _process_one, _should_skip_cancelled  # noqa: F401
 from .registration import Registration, build_registration  # noqa: F401

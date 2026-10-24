@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {FileEntry, viewerApi} from "@/services/viewerApi";
 import {buildFileTree} from "@/utils/storage/fileTree";
-import {scopeUrlPart} from "@/state/scopeStore";
+import {scopeUrlPart, sortScopeOptions} from "@/state/scopeStore";
 import {formatBytes} from "@/utils/format";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 import FileTreeView from "../FileTreeView";
@@ -92,7 +92,7 @@ const CopyFromScopeModal: React.FC<{
             try {
                 const me = await viewerApi.me();
                 setScopes(
-                    me.scopes
+                    sortScopeOptions(me.scopes)
                         .map((s) => ({name: s.name, url: scopeUrlPart(s)}))
                         .filter((s) => s.url !== dstScope),
                 );

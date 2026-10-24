@@ -191,6 +191,101 @@ def test_a_malformed_request_is_400(client_and_scope, body, fragment):
     assert fragment in r.json()["detail"]
 
 
+# ── several elements as one file (``group``) ─────────────────────────────
+
+
+def _file_member(source_key: str, element: str, path: list[str]) -> dict:
+    return {"target": {"kind": "file", "source_key": source_key}, "element": element, "path": path}
+
+
+def _log(client, out: dict) -> dict:
+    import json
+
+    return json.loads(_download(client, out["derived_key"] + ".log.json"))
+
+
+def test_several_elements_download_as_one_ifc(client_and_scope, ifc_source_key, tmp_path):
+    import ada
+
+    client, _ = client_and_scope
+    group = {
+        "name": "picked",
+        "members": [
+            _file_member(ifc_source_key, "bm1", ["deck_a", "bm1"]),
+            _file_member(ifc_source_key, "bm2", ["deck_b", "bm2"]),
+        ],
+    }
+    out = _export(client, {"group": group, "format": "ifc", "label": "picked"})
+    assert out["filename"] == "picked.ifc"
+    dest = tmp_path / "group.ifc"
+    dest.write_bytes(_download(client, out["derived_key"]))
+    objs = {o.name: o for o in ada.from_ifc(dest).get_all_physical_objects()}
+    assert sorted(objs) == ["bm1", "bm2"]
+    # Each in the level it sits in at the source, not loose under the file's root.
+    assert objs["bm1"].parent.name == "deck_a"
+    assert objs["bm2"].parent.name == "deck_b"
+    assert _log(client, out) == {"geometry_provider": None, "members": 2, "warnings": []}
+
+
+def test_a_member_that_is_not_found_is_left_out_and_named_in_the_log(client_and_scope, ifc_source_key):
+    client, _ = client_and_scope
+    group = {
+        "name": "picked",
+        "members": [
+            _file_member(ifc_source_key, "bm2", ["deck_b", "bm2"]),
+            _file_member(ifc_source_key, "nope", ["deck_b", "nope"]),
+        ],
+    }
+    out = _export(client, {"group": group, "format": "step"})
+    assert _download(client, out["derived_key"]).startswith(b"ISO-10303-21")
+    warnings = _log(client, out)["warnings"]
+    assert len(warnings) == 1 and "nope" in warnings[0]
+
+
+def test_a_group_repeat_is_answered_from_the_store(client_and_scope, ifc_source_key):
+    client, _ = client_and_scope
+    body = {
+        "group": {"name": "g", "members": [_file_member(ifc_source_key, "bm1", ["deck_a", "bm1"])]},
+        "format": "ifc",
+    }
+    first = _export(client, body)
+    second = client.post(f"/api/scopes/{SCOPE}/export-selection", json=body).json()
+    assert second == {**first, "job_id": None, "cached": True}
+
+
+def test_a_geometry_provider_nobody_can_read_is_refused_before_anything_is_queued(
+    client_and_scope, published_lines_node
+):
+    client, _ = client_and_scope
+    member = {
+        "target": {
+            "kind": "node",
+            "provider": LINES_PROVIDER,
+            "collection": LINES_COLLECTION,
+            "subject": LINES_SUBJECT,
+        },
+        "element": "bm1",
+        "path": ["bm1"],
+    }
+    r = client.post(
+        f"/api/scopes/{SCOPE}/export-selection",
+        json={"group": {"name": "g", "members": [member]}, "format": "ifc", "geometry_provider": "nobody-reads-this"},
+    )
+    assert r.status_code == 409
+    assert "nobody-reads-this" in r.json()["detail"]
+
+
+def test_a_group_with_another_model_named_too_is_400(client_and_scope, ifc_source_key):
+    client, _ = client_and_scope
+    body = {
+        "group": {"name": "g", "members": [_file_member(ifc_source_key, "bm1", ["deck_a", "bm1"])]},
+        "source_key": ifc_source_key,
+        "format": "ifc",
+    }
+    r = client.post(f"/api/scopes/{SCOPE}/export-selection", json=body)
+    assert r.status_code == 400
+
+
 # ── a published node, read by its provider ─────────────────────────────
 
 LINES_PROVIDER = "fixture-lines"
@@ -398,3 +493,108 @@ async def test_the_worker_reads_a_published_node_without_downloading_anything(mo
     await _process_one(job.job_id, queue, Storage(LocalStore(str(tmp_path)), prefix=""), None, None)
     assert queue.updates[-1]["status"] == "error"
     assert "needs 'collection' and 'subject'" in queue.updates[-1]["error"]
+
+
+@pytest.mark.asyncio
+async def test_the_worker_writes_a_group_and_its_log(tmp_path):
+    import json
+
+    from obstore.store import LocalStore
+
+    from ada.clash.group import normalise_group
+    from ada.comms.rest.queue import Job
+    from ada.comms.rest.scope import Scope
+    from ada.comms.rest.storage import Storage
+    from ada.comms.rest.worker import _process_one
+
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    storage = Storage(LocalStore(str(store_dir)), prefix="")
+    src = tmp_path / "decks.ifc"
+    _two_deck_model().to_ifc(src)
+    await storage.put_bytes(Scope.shared(), "models/decks.ifc", src.read_bytes())
+
+    group = normalise_group(
+        {
+            "name": "g",
+            "members": [
+                _file_member("models/decks.ifc", "bm1", ["deck_a", "bm1"]),
+                _file_member("models/decks.ifc", "bm2", ["deck_b", "bm2"]),
+            ],
+        }
+    )
+    job = Job(
+        job_id="job-export-group",
+        source_key="group:t",
+        derived_key="_derived/export/group/t/g/g.step",
+        status="queued",
+        target_format="export_selection_group",
+        conversion_options={"group": group, "format": "step", "geometry_provider": None},
+    )
+    queue = _FakeQueue(job)
+    await _process_one(job.job_id, queue, storage, None, None)
+    assert queue.updates[-1] == {"status": "done", "stage": "ready", "progress": 1.0, "error": None}
+    assert (await storage.get_bytes(Scope.shared(), job.derived_key)).startswith(b"ISO-10303-21")
+    log = json.loads(await storage.get_bytes(Scope.shared(), job.derived_key + ".log.json"))
+    assert log == {"geometry_provider": None, "members": 2, "warnings": []}
+
+
+@pytest.mark.asyncio
+async def test_a_group_whose_geometry_provider_published_nothing_fails_with_a_structured_log(tmp_path):
+    """The members' collection has nothing of the geometry provider: one sentence for the job, and
+    the same outcome as data in the log, so the viewer can offer to request the geometry."""
+    import json
+
+    from obstore.store import LocalStore
+
+    from ada.clash.group import normalise_group
+    from ada.comms.rest.queue import Job
+    from ada.comms.rest.scope import Scope
+    from ada.comms.rest.storage import Storage
+    from ada.comms.rest.worker import _process_one
+
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    storage = Storage(LocalStore(str(store_dir)), prefix="")
+    target = {
+        "kind": "node",
+        "provider": "tree-only",
+        "collection": "aaa",
+        "subject": "fn-1",
+        "revision": LINES_REVISION,
+        "node": "fn-1",
+    }
+    group = normalise_group(
+        {
+            "name": "g",
+            "members": [
+                {"target": target, "element": "/PIPE-1", "path": ["/PIPE-1"]},
+                {"target": target, "element": "/PIPE-2", "path": ["/PIPE-2"]},
+            ],
+        }
+    )
+    job = Job(
+        job_id="job-export-group-empty",
+        source_key="group:t",
+        derived_key="_derived/export/group/t/g/g.step",
+        status="queued",
+        target_format="export_selection_group",
+        conversion_options={"group": group, "format": "step", "geometry_provider": "csg-provider"},
+    )
+    queue = _FakeQueue(job)
+    await _process_one(job.job_id, queue, storage, None, None)
+    sentence = (
+        "aaa has no csg-provider geometry in this scope yet (2 members); "
+        "request it from csg-provider, then export again."
+    )
+    assert queue.updates[-1]["status"] == "error"
+    assert queue.updates[-1]["error"] == sentence
+    log = json.loads(await storage.get_bytes(Scope.shared(), job.derived_key + ".log.json"))
+    assert log["error"]["code"] == "no_provider_geometry"
+    assert log["error"]["message"] == sentence
+    assert log["error"]["geometry_provider"] == "csg-provider"
+    assert log["error"]["collections"] == ["aaa"]
+    assert log["error"]["members"] == 2
+    assert [u["member"]["element"] for u in log["error"]["unmatched"]] == ["/PIPE-1", "/PIPE-2"]
+    # No file: the log is all there is, and the route will not answer it as a stored export.
+    assert not await storage.exists(Scope.shared(), job.derived_key)

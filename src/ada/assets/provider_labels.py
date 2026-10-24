@@ -9,7 +9,8 @@ three answers in order:
        {"<scope wire form>": {"<provider id>": "<display name>"}}
 
    keyed by the same scope strings as ``public.assets.scope_collections`` (``shared``,
-   ``project:<uuid>``). Per scope because what a provider's output is called is a project's
+   ``project:<uuid>``, and ``user:<sub>`` for ONE user's personal scope -- never ``user:me``, which
+   would name everyone's). Per scope because what a provider's output is called is a project's
    vocabulary, not the deployment's.
 2. The provider's own label: ``asset_provider_label`` on a backend plugin spec that declares
    ``asset_provider_id`` (or a ``{provider id: label}`` mapping, for a spec naming several), or

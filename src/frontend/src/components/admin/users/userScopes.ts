@@ -3,6 +3,7 @@
 // the whole viewer in.
 
 import type {AdminUser} from "@/services/api/adminUsers";
+import {sortProjectsBy} from "@/utils/sortProjects";
 
 export interface UserScope {
     kind: "user" | "shared" | "project" | "corpus";
@@ -35,7 +36,8 @@ export function userScopes(u: AdminUser): UserScope[] {
         {kind: "user", id: u.sub, name: "Personal", implicit: true},
         {kind: "shared", id: null, name: "Shared", implicit: true},
     ];
-    for (const p of u.projects) {
+    // Personal and Shared first by design; the projects alphabetically, as the picker lists them.
+    for (const p of sortProjectsBy(u.projects, (x) => x.name)) {
         out.push({
             kind: "project",
             id: p.id,

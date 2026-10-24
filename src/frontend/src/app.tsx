@@ -13,6 +13,7 @@ import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import {AdaViewerProvider} from "./state/AdaViewerContext";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
+import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
 
 // REST-only UI lives in its own chunk so the embedded desktop bundle
@@ -120,6 +121,7 @@ function App() {
 function AppBody() {
     const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     useUrlParamLoad();
+    useSceneRestore();
 
     const tree = (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>

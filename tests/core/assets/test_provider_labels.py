@@ -108,3 +108,23 @@ def test_registered_labels_are_only_those_given():
         assert registered_provider_labels() == {"fixture-lines": "Lines"}
     finally:
         clear_asset_providers()
+
+
+def test_a_personal_scope_reads_its_owners_aliases_and_never_the_stale_user_me_key():
+    """A personal scope's display names are its OWNER's entry (``user:<sub>``): the caller's own
+    scope is the only personal one they reach, so nobody reads another's -- and an entry under
+    ``user:me`` (once meant for everyone's personal scope) is read by nobody."""
+    pytest.importorskip("fastapi")  # the REST routes; the core test env has no server deps
+    from ada.comms.rest.routes.assets import provider_alias_key
+    from ada.comms.rest.scope import Scope
+
+    aliases = {"user:me": {"vendor": "For everyone"}, "user:u1": {"vendor": "Mine"}, "shared": {"vendor": "S"}}
+    assert provider_alias_key(Scope.user("u1")) == "user:u1"
+    assert provider_alias_key(Scope.shared()) == "shared"
+    assert provider_alias_key(Scope.project("p1")) == "project:p1"
+    assert resolve_provider_labels(provider_alias_key(Scope.user("u1")), aliases, {"vendor": "Own"}) == {
+        "vendor": "Mine"
+    }
+    assert resolve_provider_labels(provider_alias_key(Scope.user("u2")), aliases, {"vendor": "Own"}) == {
+        "vendor": "Own"
+    }

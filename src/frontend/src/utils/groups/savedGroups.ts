@@ -218,7 +218,9 @@ export interface LoadedRef {
   readonly ref: NodeRef;
 }
 
-function refOfSourceName(sourceName: string, loaded: readonly LoadedRef[]): NodeRef | null {
+/** Which published node a model loaded under `sourceName` is: what the asset browser recorded for
+ *  it, else what the `assets:` name says; null for a file source. */
+export function refOfSourceName(sourceName: string, loaded: readonly LoadedRef[]): NodeRef | null {
   return loaded.find((a) => a.sourceName === sourceName)?.ref ?? parseAssetSourceName(sourceName);
 }
 
@@ -339,9 +341,60 @@ export function membersForRows(
   return { members, skipped };
 }
 
+/** Members for a set of tree rows as picked -- levels, leaves, whole model roots, in any mix:
+ *  every geometry row under them, folded up to whole levels the way a 3D/tree selection is
+ *  (`collapseSelectedRows`), then one member per folded row. What the Scene menu's "Add to group…"
+ *  stores for the rows it was opened on. */
+export function membersForPickedRows(
+  rows: readonly TreeNodeData[],
+  idx: TreeIndices,
+  loaded: readonly LoadedRef[],
+): CapturedMembers {
+  const ids = new Set(geometryRowsUnder(rows).map((r) => r.id));
+  return membersForRows(collapseSelectedRows(ids, idx), idx, loaded);
+}
+
+/** `group` with `members` appended -- those it does not hold already (by `memberKey`), in order.
+ *  `added` is how many were new; with none, `group` comes back unchanged (same object, no
+ *  `updated_at` bump), so a caller can skip the write. */
+export function addMembersToGroup(
+  group: SavedGroup,
+  members: readonly GroupMember[],
+  at: string,
+): { readonly group: SavedGroup; readonly added: number } {
+  const seen = new Set(group.members.map(memberKey));
+  const fresh: GroupMember[] = [];
+  for (const m of members) {
+    const key = memberKey(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(m);
+  }
+  if (fresh.length === 0) return { group, added: 0 };
+  return { group: { ...group, updated_at: at, members: [...group.members, ...fresh] }, added: fresh.length };
+}
+
 /** A member's identity, for de-duplication. */
 export function memberKey(m: GroupMember): string {
   return JSON.stringify([targetKey(m.target), m.element, m.path]);
+}
+
+/** The id an UNSAVED selection is checked under: `selection-` and a hash of its member keys, in any
+ *  order. A convex-contact run is filed under its group's id, so the same selection checked twice
+ *  lists its runs together, and a different one never mixes with them. A saved group's id
+ *  (`newGroupId`) never starts with `selection-`, so the two cannot collide. */
+export function selectionGroupId(members: readonly GroupMember[]): string {
+  const text = [...new Set(members.map(memberKey))].sort().join("\n");
+  // FNV-1a over two lanes with different offset bases: synchronous (it names a target in a click
+  // handler) and 64 bits wide, ample for the selections of one scope.
+  let a = 0x811c9dc5;
+  let b = 0x050c5d1f;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x01000193) >>> 0;
+  }
+  return `selection-${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`;
 }
 
 function targetKey(t: GroupMemberTarget): string {
@@ -467,6 +520,49 @@ export function geometryRowsUnder(rows: readonly TreeNodeData[]): TreeNodeData[]
     for (const child of row.children ?? []) stack.push(child);
   }
   return out;
+}
+
+/** One loaded model a group's members are in, for a clash run over the group. */
+export interface GroupScenePart {
+  /** The model's root row in the scene tree. */
+  readonly root: TreeNodeData;
+  /** The member target of the first member found in it -- what the run records as its source. */
+  readonly target: GroupMemberTarget;
+  /** The draw-range element ids of every geometry row the group covers in it, each once. (Their
+   *  order is not the run's: a run takes its members in the GLB's order.) */
+  readonly elements: readonly string[];
+}
+
+/** The loaded models a group's members resolve to (`resolveMembers`), in group order, each with the
+ *  element ids under its members -- a whole model (`element: null`) is all of them. */
+export function groupScenePartsOf(
+  members: readonly GroupMember[],
+  idx: TreeIndices,
+  loaded: readonly LoadedRef[],
+): { readonly parts: GroupScenePart[]; readonly notLoaded: GroupMember[]; readonly notFound: GroupMember[] } {
+  const byRoot = new Map<string, { root: TreeNodeData; target: GroupMemberTarget; elements: string[]; seen: Set<string> }>();
+  const notLoaded: GroupMember[] = [];
+  const notFound: GroupMember[] = [];
+  for (const member of members) {
+    const r = resolveMembers([member], idx, loaded);
+    notLoaded.push(...r.notLoaded);
+    notFound.push(...r.notFound);
+    for (const row of geometryRowsUnder(r.rows)) {
+      const root = modelRootOf(row, idx);
+      if (!root || row.rangeId == null) continue;
+      let part = byRoot.get(root.id);
+      if (!part) {
+        part = { root, target: member.target, elements: [], seen: new Set() };
+        byRoot.set(root.id, part);
+      }
+      const element = String(row.rangeId);
+      if (part.seen.has(element)) continue;
+      part.seen.add(element);
+      part.elements.push(element);
+    }
+  }
+  const parts = [...byRoot.values()].map(({ root, target, elements }) => ({ root, target, elements }));
+  return { parts, notLoaded, notFound };
 }
 
 /** How a member reads in a list: its element (or the whole model) and where it lives. */

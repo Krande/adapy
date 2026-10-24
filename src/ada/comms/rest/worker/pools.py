@@ -110,6 +110,23 @@ def _worker_id() -> str:
     return os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
 
 
+def licensed_pools(capabilities: list[str]) -> set[str]:
+    """The pools (capability tokens) among ``capabilities`` that need a licence or an interactive
+    session to run anything.
+
+    ``ADA_WORKER_LICENSED_CAPABILITIES`` is a comma list of capabilities, or ``*`` for every one the
+    worker serves. Whoever launches a worker on a licensed seat sets it; nothing is inferred from a
+    pool's name. It does not change what the worker serves, only what the API prefers when a job
+    could run on a licence-free pool instead (:func:`routes.clash_check._route_with_reader`).
+    """
+    raw = os.environ.get("ADA_WORKER_LICENSED_CAPABILITIES", "")
+    names = [c.strip() for c in raw.split(",") if c.strip()]
+    tokens = {t for c in capabilities if (t := capability_token(c))}
+    if "*" in names:
+        return {t for t in tokens if t != "base"}
+    return {t for c in names if (t := capability_token(c)) and t in tokens}
+
+
 def _declared_capabilities() -> list[str]:
     """What this worker advertises, after subtracting any disabled by env.
 
@@ -277,6 +294,34 @@ def _capabilities_to_add(requested: list[str], serving: list[str]) -> list[str]:
     return out
 
 
+def summarise_names(names: list[str], limit: int = 3) -> str:
+    """``names`` for a log line: all of them when few, else the first ``limit`` and a count.
+
+    ``['a', 'b', 'c', 'd', 'e']`` -> ``'5: a, b, c, … (+2)'``. A worker can serve one pool per
+    collection, and a startup log that prints every list in full on every line buries the lines
+    that matter; the full list goes to DEBUG beside the summary. Pure, for the tests.
+    """
+    if len(names) <= limit + 1:  # "(+1)" would be no shorter than the name it hides
+        return ", ".join(names)
+    shown = ", ".join(names[: max(0, limit)])
+    return f"{len(names)}: {shown}, … (+{len(names) - max(0, limit)})"
+
+
+def _preferred_indices(pools: list[str], names: list[str]) -> list[int]:
+    """Where in ``pools`` (tokens) the plugin-preferred ``names`` are, in the order named.
+
+    Normalised like the capabilities, so ``Alpha`` finds ``alpha``; a name this worker does not
+    serve is dropped -- a preference reorders this worker's pools and never adds one.
+    """
+    index = {p: i for i, p in enumerate(pools)}
+    out: list[int] = []
+    for name in names:
+        i = index.get(capability_token(name))
+        if i is not None and i not in out:
+            out.append(i)
+    return out
+
+
 def _per_fetch_timeout(n_pools: int) -> float:
     """Per-pool fetch timeout so one full round-robin cycle takes ~FETCH_TIMEOUT.
 
@@ -286,6 +331,71 @@ def _per_fetch_timeout(n_pools: int) -> float:
     into a busy-loop of near-instant fetches.
     """
     return max(0.5, FETCH_TIMEOUT / max(1, n_pools))
+
+
+# An IDLE worker that can see which pools hold messages (``JobQueue.pending_pools``) asks once
+# per round instead of walking its pools: it fetches from the pools that hold something, then
+# waits on one pool for this long and asks again. So pickup latency is about this, whatever the
+# number of pools -- the walk cost ``_per_fetch_timeout`` per pool, 37 s a cycle at 74 pools.
+IDLE_WAIT_SECONDS = 1.0
+
+# The fetch timeout for a pool the stream says holds messages. Short: a message that is waiting
+# comes back at once, and the only way to wait the full timeout is a pool whose messages are all
+# being run by other workers (a work-queue stream counts those until they are acked).
+CANDIDATE_FETCH_TIMEOUT = 0.5
+
+
+def _fetch_plan(
+    pools: list[str],
+    rr: int,
+    streak: int,
+    pending: dict[str, int] | None,
+    *,
+    per_fetch_timeout: float,
+    yielded: int | None = None,
+    preferred: list[int] | tuple[int, ...] = (),
+) -> list[tuple[int, float]]:
+    """This round's fetches, in order: ``[(index into pools, timeout), ...]``.
+
+    The loop runs them ONE AT A TIME and stops at the first that returns a message, so the
+    worker still never holds more than one leased message: a plan is an order, not a batch of
+    concurrent pulls. (Concurrent pulls on several pools would let two messages arrive; the
+    second would sit leased, un-acked, for the whole first job, and then be redelivered with a
+    delivery spent.)
+
+    * mid-streak (``streak > 0``): the pool that just produced, as ``_advance_pool_cursor`` decided;
+    * ``pending`` None (the stream cannot be asked): the round-robin pool, as before;
+    * else every pool the stream says holds messages, round-robin order from the cursor, the pool
+      that just used up its streak (``yielded``) last -- then a wait of :data:`IDLE_WAIT_SECONDS`
+      on the cursor's pool, so an idle worker still has a pull open while it waits.
+
+    ``preferred`` (indices, from ``ada.plugins.register_preferred_pools``) go FIRST: before the
+    other pools holding messages, and as the pool waited on -- so while this worker holds what a
+    pool needs, it has a pull open on that pool most of the time and wins its next job over a
+    worker that would have to set up first. Without a probe, the preferred pools are fetched
+    before the round-robin pool every round. Mid-streak nothing changes, and a preferred pool
+    that just used up its streak is not preferred for the round after, so it cannot starve
+    the rest.
+
+    Pure, like the other helpers here.
+    """
+    n = len(pools)
+    if n == 0:
+        return []
+    start = rr % n
+    if streak > 0:
+        return [(start, per_fetch_timeout)]
+    first = [i for i in dict.fromkeys(preferred) if 0 <= i < n and i != yielded]
+    if pending is None:
+        return [*((i, per_fetch_timeout) for i in first if i != start), (start, per_fetch_timeout)]
+    rotation = [(start + k) % n for k in range(n)]
+    candidates = [i for i in [*first, *rotation] if pending.get(pools[i], 0) > 0]
+    candidates = list(dict.fromkeys(candidates))
+    if yielded is not None and yielded in candidates:
+        candidates.remove(yielded)
+        candidates.append(yielded)
+    wait_on = first[0] if first else start
+    return [*((i, CANDIDATE_FETCH_TIMEOUT) for i in candidates), (wait_on, IDLE_WAIT_SECONDS)]
 
 
 def _advance_pool_cursor(rr: int, streak: int, produced: bool, limit: int = POOL_STREAK_LIMIT) -> tuple[int, int]:

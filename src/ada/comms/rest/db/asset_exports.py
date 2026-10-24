@@ -54,6 +54,8 @@ def _item_row(r, *, with_hits: bool = False) -> dict:
         "position": r["position"],
         "provider": r["provider"],
         "collection": r["collection"],
+        # Where the hits are read from (migration 041); null is the run's own scope.
+        "origin_scope": r["origin_scope"],
         "hits": len(hits),
         "status": r["status"],
         "job_id": r["job_id"],
@@ -76,7 +78,7 @@ _RUN_COLS = (
     f"(heartbeat_at < NOW() - INTERVAL '{HEARTBEAT_STALE_S} seconds') AS stale"
 )
 _ITEM_COLS = (
-    "position, provider, collection, hits, status, job_id, message, error, timings, files, file_errors, "
+    "position, provider, collection, origin_scope, hits, status, job_id, message, error, timings, files, file_errors, "
     "started_at, finished_at"
 )
 
@@ -93,7 +95,8 @@ async def insert_asset_export_run(
     requested_by: Optional[str],
 ) -> dict:
     """The run and its items (one per ``(provider, collection, hits)`` batch), pending, in one
-    transaction."""
+    transaction. An item's ``origin_scope`` is its hits' ``origin`` (they share one: see
+    ``routes/asset_exports.batch_hits``) when that is not the run's ``scope``."""
     async with pool.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
             f"""
@@ -111,9 +114,17 @@ async def insert_asset_export_run(
             requested_by,
             len(batches),
         )
+
+        def origin(hits: list[dict]) -> Optional[str]:
+            o = hits[0].get("origin") if hits else None
+            return o if isinstance(o, str) and o and o != scope else None
+
         await conn.executemany(
-            "INSERT INTO asset_export_items (run_id, position, provider, collection, hits) VALUES ($1, $2, $3, $4, $5::jsonb)",
-            [(row["id"], i, p, c, json.dumps(h)) for i, (p, c, h) in enumerate(batches)],
+            """
+            INSERT INTO asset_export_items (run_id, position, provider, collection, origin_scope, hits)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            """,
+            [(row["id"], i, p, c, origin(h), json.dumps(h)) for i, (p, c, h) in enumerate(batches)],
         )
     return _run_row(row)
 

@@ -22,10 +22,24 @@ import {useMeStore} from "@/state/meStore";
 import {CallProfiler} from "@/utils/scene/callProfiler";
 import {getDeviceId} from "@/utils/deviceId";
 import {perfOptionsSnapshot} from "@/state/perfStore";
+import {startSpaceMouseProbe, takeSpaceMouseProbe} from "@/utils/spacemouse/spaceMouseDevice";
+import {type Span, summariseInput, summariseLongTasks} from "@/utils/scene/renderInputSummary";
 
 const WINDOW_MS = 8000; // flush cadence
 const MIN_FRAMES = 30; // don't post a window with too few samples
 const LONG_FRAME_MS = 50;
+const MAX_LONG_TASKS = 500;
+const LIVE_FRAMES = 240;
+const LIVE_SPAN_MS = 1000;
+
+export interface LiveProfile {
+    elapsedMs: number;
+    fps: number | null;
+    renderMs: number | null;
+    gpuMs: number | null;
+    longTasks: number;
+    windowsPosted: number;
+}
 
 interface GpuQuery {
     q: WebGLQuery;
@@ -49,6 +63,16 @@ class RenderProfiler {
     private geometries = 0;
     private textures = 0;
     private longFrames = 0;
+    private longTasks: Span[] = [];
+    private longTaskObserver: PerformanceObserver | null = null;
+
+    // Live readout for the recording HUD, kept across windows.
+    private sessionStart = 0;
+    private windowsPosted = 0;
+    private sessionLongTasks = 0;
+    private recentFrames: number[] = [];
+    private lastRenderMs = 0;
+    private lastGpuMs: number | null = null;
 
     private gl: WebGL2RenderingContext | null = null;
     private ext: any = null;
@@ -68,7 +92,18 @@ class RenderProfiler {
             } catch {
                 on = false;
             }
-            if (on && !this.enabled) this.reset(nowTs); // entering — start a clean window
+            if (on && !this.enabled) {
+                this.sessionStart = nowTs;
+                this.windowsPosted = 0;
+                this.sessionLongTasks = 0;
+                this.recentFrames = [];
+                this.lastGpuMs = null;
+                this.observeLongTasks(true);
+                this.reset(nowTs); // entering — start a clean window
+            } else if (!on && this.enabled) {
+                this.observeLongTasks(false);
+                takeSpaceMouseProbe();
+            }
             this.enabled = on;
         }
         return this.enabled;
@@ -85,6 +120,8 @@ class RenderProfiler {
         this.geometries = 0;
         this.textures = 0;
         this.longFrames = 0;
+        this.longTasks = [];
+        startSpaceMouseProbe();
         // Start a fresh per-window call profiler when "Profile calls" is on.
         // 16ms interval (~one sample/frame) keeps the sampling overhead — and
         // its observer effect on the frame times we're measuring — modest.
@@ -94,6 +131,26 @@ class RenderProfiler {
             const p = new CallProfiler(16);
             p.start();
             if (p.active) this.callProfiler = p;
+        }
+    }
+
+    /** Main-thread tasks over 50 ms, kept per window: the time the page could
+     *  neither render nor take input (the 3D mouse's reports wait behind them). */
+    private observeLongTasks(on: boolean): void {
+        this.longTaskObserver?.disconnect();
+        this.longTaskObserver = null;
+        if (!on || typeof PerformanceObserver === "undefined") return;
+        try {
+            const obs = new PerformanceObserver((list) => {
+                for (const e of list.getEntries()) {
+                    this.sessionLongTasks++;
+                    if (this.longTasks.length < MAX_LONG_TASKS) this.longTasks.push([e.startTime, e.startTime + e.duration]);
+                }
+            });
+            obs.observe({type: "longtask"});
+            this.longTaskObserver = obs;
+        } catch {
+            /* longtask not supported */
         }
     }
 
@@ -149,6 +206,9 @@ class RenderProfiler {
         // CPU render submission wall time.
         const renderMs = nowTs - this.renderStartTs;
         this.renderMs.push(renderMs);
+        this.lastRenderMs = renderMs;
+        this.recentFrames.push(nowTs);
+        if (this.recentFrames.length > LIVE_FRAMES) this.recentFrames.shift();
         // Inter-frame interval -> FPS.
         if (this.lastFrameTs > 0) {
             const interval = nowTs - this.lastFrameTs;
@@ -190,6 +250,7 @@ class RenderProfiler {
                 if (available) {
                     const ns = this.gl.getQueryParameter(p.q, this.gl.QUERY_RESULT) as number;
                     this.gpuMs.push(ns / 1e6);
+                    this.lastGpuMs = ns / 1e6;
                     this.gl.deleteQuery(p.q);
                 } else {
                     keep.push(p);
@@ -238,9 +299,30 @@ class RenderProfiler {
             dpr: window.devicePixelRatio || 1,
             device_id: getDeviceId(),
             perf_options: perfOptionsSnapshot(), // which perf toggles were active
+            ...summariseLongTasks(this.longTasks),
         };
+        const input = takeSpaceMouseProbe();
+        if (input) cm["spacemouse"] = summariseInput(input, this.longTasks);
         this.post(cm, prof).catch(() => {});
+        this.windowsPosted++;
         this.reset(nowTs);
+    }
+
+    /** What the recording HUD shows; null until the profiler has seen a frame while on.
+     *  `fps` is over the last second of rendered frames, null while nothing renders. */
+    live(): LiveProfile | null {
+        if (!this.enabled) return null;
+        const now = performance.now();
+        const f = this.recentFrames.filter((t) => now - t <= LIVE_SPAN_MS);
+        const fps = f.length >= 2 ? ((f.length - 1) * 1000) / (f[f.length - 1] - f[0]) : null;
+        return {
+            elapsedMs: now - this.sessionStart,
+            fps,
+            renderMs: fps === null ? null : this.lastRenderMs,
+            gpuMs: fps === null ? null : this.lastGpuMs,
+            longTasks: this.sessionLongTasks,
+            windowsPosted: this.windowsPosted,
+        };
     }
 
     private async post(cm: Record<string, unknown>, prof: CallProfiler | null): Promise<void> {

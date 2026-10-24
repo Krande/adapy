@@ -9,6 +9,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // the intersection.
 import {useOptionsStore} from "@/state/optionsStore";
 import {pickJointMarker} from "@/utils/scene/clashJointMarkers";
+import {pickContactPatch} from "@/utils/scene/clashContactOverlay";
 import {focusJoint} from "@/utils/scene/clashJointFocus";
 import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
@@ -24,7 +25,11 @@ import {selectedLeafNodes} from "@/utils/tree_view/treeNavigation";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {pickFemConcept} from "@/components/viewer/FemConceptsController";
+import {pickSelectionBox} from "@/components/viewer/BBoxSelectionController";
+import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import type {FemConceptRef} from "@/utils/fem/femSelection";
+import {selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
+import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
 
 // A second click/tap inside this window + radius counts as a double.
 // 350ms matches the OS-level double-tap threshold on iOS / Android and
@@ -47,11 +52,59 @@ export function setupPointerHandler(
     let lastTapTime = 0;
     let lastTapPos: { x: number; y: number } | null = null;
 
+    // One signal detaches every listener below: the container outlives a
+    // canvas re-mount, and a listener left behind would pick with the old
+    // camera on every click, next to the new one.
+    const listeners = new AbortController();
+    const {signal} = listeners;
+
+    // SHIFT + LEFT DRAG draws a selection rectangle (`screenBox`): rightwards a window, leftwards
+    // a crossing. Taken in the capture phase, before the camera controls on the canvas see the
+    // press -- three's OrbitControls would otherwise pan on Shift (Ctrl keeps panning). A Shift
+    // press that does not move is still a Shift+click: the click below adds what is under it.
+    let marquee: {start: {x: number; y: number}; el: HTMLDivElement | null} | null = null;
+    let swallowClick = false;
+    const endMarquee = () => {
+        marquee?.el?.remove();
+        marquee = null;
+        window.removeEventListener("pointermove", onMarqueeMove);
+        window.removeEventListener("pointerup", onMarqueeUp);
+    };
+    const onMarqueeMove = (e: PointerEvent) => {
+        if (!marquee) return;
+        const {start} = marquee;
+        if (!marquee.el && Math.hypot(e.clientX - start.x, e.clientY - start.y) <= clickThreshold) return;
+        marquee.el ??= marqueeElement(container);
+        drawMarquee(marquee.el, container, start, {x: e.clientX, y: e.clientY});
+    };
+    const onMarqueeUp = (e: PointerEvent) => {
+        if (!marquee) return;
+        const {start, el} = marquee;
+        endMarquee();
+        if (!el) return; // never moved: the click that follows is a Shift+click
+        swallowClick = true;
+        const rect = renderer.domElement.getBoundingClientRect();
+        selectInScreenRect(ndcRect(start, {x: e.clientX, y: e.clientY}, rect), screenBoxMode(start.x, e.clientX), camera);
+    };
+    signal.addEventListener("abort", endMarquee);
+
     container.addEventListener("pointerdown", (e) => {
         pointerDownPos = {x: e.clientX, y: e.clientY};
-    });
+        swallowClick = false;
+        if (e.button !== 0 || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (useCellBuilderStore.getState().active !== null) return; // its own Shift gestures
+        e.stopPropagation();
+        endMarquee();
+        marquee = {start: {x: e.clientX, y: e.clientY}, el: null};
+        window.addEventListener("pointermove", onMarqueeMove);
+        window.addEventListener("pointerup", onMarqueeUp);
+    }, {signal, capture: true});
 
     container.addEventListener("click", async (e: MouseEvent) => {
+        if (swallowClick) {
+            swallowClick = false;
+            return;
+        }
         if (!pointerDownPos) return;
         const dx = e.clientX - pointerDownPos.x;
         const dy = e.clientY - pointerDownPos.y;
@@ -93,7 +146,7 @@ export function setupPointerHandler(
         lastTapTime = now;
         lastTapPos = {x: e.clientX, y: e.clientY};
         await pickAndSelect(e);
-    });
+    }, {signal});
 
     // RIGHT-CLICK: the Scene's menu for what is under the cursor -- the same menu its tree row has.
     // A right DRAG pans the camera, so only a click that stayed put opens it. An object already in
@@ -107,6 +160,12 @@ export function setupPointerHandler(
             const dx = e.clientX - pointerDownPos.x;
             const dy = e.clientY - pointerDownPos.y;
             if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
+        }
+        // A selection box in front of the geometry has its own menu.
+        const boxId = pickSelectionBox(e.clientX, e.clientY);
+        if (boxId) {
+            useBBoxSelectionStore.getState().openMenu({boxId, x: e.clientX, y: e.clientY});
+            return;
         }
         let pick: ReturnType<typeof gpuMeshPicker.pickAt> = null;
         try {
@@ -124,7 +183,7 @@ export function setupPointerHandler(
         const rows = selectedLeafNodes();
         const api = tv.tree && typeof tv.tree.get === "function" ? tv.tree.get(row.id) : null;
         useSceneMenuStore.getState().open({row, rows: rows.length ? rows : [row], node: api ?? undefined, x: e.clientX, y: e.clientY});
-    });
+    }, {signal});
 
     /** What a left click selects at the cursor: a joint marker, a point, a beam line or a mesh, or
      *  nothing (empty space clears the selection). Shared with the right-click menu. */
@@ -133,7 +192,9 @@ export function setupPointerHandler(
         //    markers are annotations drawn ON the geometry they describe: resolved after the mesh
         //    pickers, a sphere sitting on a beam would never be clickable. One object and a few
         //    hundred instances, so the cost of asking on every click is nil.
-        const jointId = pickJointMarker(e, camera, renderer);
+        //    A contact patch of the contacts overlay (`clashContactOverlay`) counts the same: it
+        //    names one contact, and clicking it focuses that contact like its marker would.
+        const jointId = pickJointMarker(e, camera, renderer) ?? pickContactPatch(e, camera, renderer);
         if (jointId) {
             await focusJoint(jointId, {revealPanel: true});
             return;
@@ -314,12 +375,28 @@ export function setupPointerHandler(
         }
     }
 
-    return () => {
-        container.removeEventListener("pointerdown", () => {
-        });
-        container.removeEventListener("click", () => {
-        });
-    };
+    return () => listeners.abort();
+}
+
+/** The selection rectangle's element, over the canvas and transparent to the pointer. */
+function marqueeElement(container: HTMLElement): HTMLDivElement {
+    const el = document.createElement("div");
+    el.style.cssText = "position:absolute;pointer-events:none;z-index:30;box-sizing:border-box;";
+    container.appendChild(el);
+    return el;
+}
+
+/** Place the rectangle between two client points; styled as CAD tools style it: a window solid
+ *  blue, a crossing dashed green. */
+function drawMarquee(el: HTMLDivElement, container: HTMLElement, a: {x: number; y: number}, b: {x: number; y: number}): void {
+    const r = container.getBoundingClientRect();
+    const crossing = screenBoxMode(a.x, b.x) === "crossing";
+    el.style.left = `${Math.min(a.x, b.x) - r.left}px`;
+    el.style.top = `${Math.min(a.y, b.y) - r.top}px`;
+    el.style.width = `${Math.abs(b.x - a.x)}px`;
+    el.style.height = `${Math.abs(b.y - a.y)}px`;
+    el.style.border = crossing ? "1px dashed rgb(74 222 128)" : "1px solid rgb(96 165 250)";
+    el.style.background = crossing ? "rgb(74 222 128 / 0.08)" : "rgb(96 165 250 / 0.08)";
 }
 
 /** Select a picked FEM concept and show it in the Selected Object Info panel. A plain click

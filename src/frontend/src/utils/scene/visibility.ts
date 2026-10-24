@@ -21,12 +21,17 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 
 /** Hide every draw range currently selected. No-op when nothing is
  * selected. Walks past wrapper Object3Ds the same way the existing
  * Shift+H handler does — selection entries can be keyed by either a
  * CustomBatchedMesh or a wrapper whose subtree contains one. */
 export function hideSelectedRanges(): void {
+    recordViewerAction("hide", hideSelectedRangesNow);
+}
+
+function hideSelectedRangesNow(): void {
     const store = useSelectedObjectStore.getState();
     const selected = store.selectedObjects;
     if (selected.size === 0) return;
@@ -63,6 +68,10 @@ export function hideSelectedRanges(): void {
  * Ranges hidden before stay hidden -- a selected range that was already hidden is not resurrected
  * by hiding the others. */
 export function hideUnselectedRanges(): void {
+    recordViewerAction("hide-others", hideUnselectedRangesNow);
+}
+
+function hideUnselectedRangesNow(): void {
     const selected = useSelectedObjectStore.getState().selectedObjects;
     if (selected.size === 0) return;
     const scene = getViewerRuntime().scene.current;
@@ -94,8 +103,14 @@ export function hideUnselectedRanges(): void {
 }
 
 /** Unhide every draw range across every loaded mesh. No-op when
- * nothing is hidden — safe to call unconditionally. */
+ * nothing is hidden — safe to call unconditionally. Recorded for undo / redo (Ctrl+Z / Ctrl+Y). */
 export function unhideAllRanges(): void {
+    recordViewerAction("show-all", unhideAllRangesUnrecorded);
+}
+
+/** ``unhideAllRanges`` without an undo entry -- for modes that drive visibility themselves (the
+ * gallery walk resets the scene before every step) rather than a user hiding and showing. */
+export function unhideAllRangesUnrecorded(): void {
     const scene = getViewerRuntime().scene.current;
     if (!scene) return;
     scene.traverse((obj) => {

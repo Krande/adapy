@@ -377,8 +377,8 @@ def test_the_batch_job_writes_files_sidecars_and_reports_no_geometry(monkeypatch
 
     def fake_resolve(index, collection, hit, **kw):
         if hit["node_id"] == "fn-missing":
-            raise se.NoGeometry("provider 'external-csg' has no node '/GONE' in 'alpha'")
-        return SimpleNamespace(provider="external-csg", subject="fn-zone", revision="r9"), hit["node_id"]
+            raise se.NoGeometry("provider 'design-reader' has no node '/GONE' in 'alpha'")
+        return SimpleNamespace(provider="design-reader", subject="fn-zone", revision="r9"), hit["node_id"]
 
     monkeypatch.setattr(job_mod, "resolve_geometry", fake_resolve)
     monkeypatch.setattr("ada.assets.concepts.part_for_manifest", lambda m, storage, node: _geometry_part())
@@ -428,7 +428,7 @@ def test_the_batch_job_writes_files_sidecars_and_reports_no_geometry(monkeypatch
     meta = json.loads(store.blobs[("users/someone", "out/alpha/STRU-1.meta.json")])
     assert meta["schema"] == "ada.files/meta@1" and meta["source"]["node_id"] == "fn-hit"
     assert meta["matched"] == {"FUNC": "MS"} and meta["run_id"] == "run-1"
-    assert meta["geometry"]["provider"] == "external-csg"
+    assert meta["geometry"]["provider"] == "design-reader"
     assert meta["source"]["scope"] == "shared"
     # No database here, so no member matched a row: the levels and the hit carry their sets.
     assert [e["role"] for e in meta["elements"]] == ["level", "level", "hit"]
@@ -439,6 +439,76 @@ def test_the_batch_job_writes_files_sidecars_and_reports_no_geometry(monkeypatch
     psets, _ = _psets(ifc)
     assert psets["/SITE-A"]["ADA_Provenance"]["source_scope"] == "shared"
     assert {p["ADA_Source"]["scope"] for p in psets.values() if "ADA_Source" in p} == {"shared"}
+
+
+def test_a_batch_of_another_scopes_hits_is_read_there_and_written_to_the_target(monkeypatch):
+    """``origin_scope``: the geometry and the provenance are the origin's, the summary the job's own
+    scope's, the files the target's."""
+    store, queue = _Store(), _Queue()
+    own, origin = Scope.user("me"), Scope.project("p-2")
+    read_from = []
+
+    def fake_resolve(index, collection, hit, **kw):
+        return SimpleNamespace(provider="design-reader", subject="fn-zone", revision="r9"), hit["node_id"]
+
+    def fake_part(m, storage, node):
+        read_from.append(storage._scope)
+        return _geometry_part()
+
+    monkeypatch.setattr(job_mod, "resolve_geometry", fake_resolve)
+    monkeypatch.setattr("ada.assets.concepts.part_for_manifest", fake_part)
+
+    async def no_audit(*a, **k):
+        return None
+
+    monkeypatch.setattr(job_mod, "_audit_done", no_audit)
+    job = SimpleNamespace(
+        job_id="j1",
+        derived_key="_derived/search-export/run-1/0.json",
+        conversion_options={
+            "run_id": "run-1",
+            "source_scope": "project:p-2",
+            "origin_scope": origin.prefix(),
+            "target_scope": {"kind": "user", "id": "me"},
+            "target_folder": "out",
+            "query": QUERY,
+            "provider": "vendor-a",
+            "collection": "alpha",
+            "hits": [{**HIT, "origin": origin.prefix(), "file": "out/alpha/STRU-1.ifc"}],
+            "also": [],
+        },
+    )
+    ctx = SimpleNamespace(scope=own, storage=store, queue=queue, db_pool=None, started_at=0.0)
+    asyncio.run(job_mod.ExportSearchAssetHandler().run(job, ctx))
+    assert queue.updates[-1]["status"] == "done", queue.updates[-1]
+    assert read_from == [origin]
+    assert ("users/me", job.derived_key) in store.blobs
+    meta = json.loads(store.blobs[("users/me", "out/alpha/STRU-1.meta.json")])
+    assert meta["source"]["scope"] == "project:p-2"
+    assert job_mod._origin_of({"origin_scope": "users/me"}, own) == own
+    assert job_mod._origin_of({}, own) == own
+
+
+def test_a_shared_batch_runs_in_the_exports_scope_and_tells_the_job_where_to_read(export_world):
+    w = export_world()
+    hits = [ex.clean_hit({**HIT, "scope": "shared"}, [], "projects/p-1")]
+    batches = ex.batch_hits(hits, "out")
+    asyncio.run(
+        ex.drive_export(
+            w.ctx,
+            None,
+            RUN,
+            scope_obj=Scope.project("p-1"),
+            target=Scope.shared(),
+            batches=batches,
+            job_opts={**JOB_OPTS, "source_scope": "project:p-1"},
+            user=None,
+        )
+    )
+    [req] = w.submitted
+    assert req.scope == Scope.project("p-1")
+    assert req.conversion_options["origin_scope"] == "shared" and req.conversion_options["source_scope"] == "shared"
+    assert w.finished == ("done", None)
 
 
 def test_the_source_scope_is_the_jobs_own_scope_in_path_form():
@@ -570,7 +640,7 @@ def _hits():
         },
         {"provider": "vendor-a", "collection": "alpha", "node_id": "fn-2", "full_name": "/A-2", "path": []},
         {"provider": "vendor-a", "collection": "beta", "node_id": "fn-3", "full_name": "/B-1", "path": []},
-        {"provider": "external-csg", "collection": "alpha", "node_id": "fn-1", "full_name": "/A-1", "path": []},
+        {"provider": "design-reader", "collection": "alpha", "node_id": "fn-1", "full_name": "/A-1", "path": []},
         {
             "provider": "vendor-a",
             "collection": "alpha",
@@ -588,7 +658,7 @@ def test_hits_are_batched_per_provider_collection_with_unique_file_keys():
     assert [(p, c, len(h)) for p, c, h in batches] == [
         ("vendor-a", "alpha", 2),
         ("vendor-a", "beta", 1),
-        ("external-csg", "alpha", 1),
+        ("design-reader", "alpha", 1),
     ]
     assert batches[0][2][0]["attrs"] == {"FUNC": "MS"}  # only the matched keys travel
     files = [h["file"] for _, _, hs in batches for h in hs]
@@ -600,7 +670,7 @@ def test_every_hit_query_keeps_negative_filters_and_exclusions(monkeypatch):
     negative operators reach it, the page size and cursor are the export's own."""
     seen = []
 
-    async def fake_search(pool, *, scope, query):
+    async def fake_search(pool, *, scope, query, **kw):
         seen.append(query)
         return {"rows": [], "next_cursor": None, "counts": {}}
 
@@ -609,13 +679,13 @@ def test_every_hit_query_keeps_negative_filters_and_exclusions(monkeypatch):
         **QUERY,
         "where": [*QUERY["where"], {"key": "PURP", "ne": "X"}, {"key": "OWNER", "missing": True}],
         "exclude_collections": ["BETA"],
-        "exclude_providers": ["external-csg"],
+        "exclude_providers": ["design-reader"],
         "limit": 5,
         "cursor": "stale",
     }
     asyncio.run(ex.all_hits(None, scope="projects/p", query_body=query))
     (q,) = seen
-    assert q.exclude_collections == ["beta"] and q.exclude_providers == ["external-csg"]
+    assert q.exclude_collections == ["beta"] and q.exclude_providers == ["design-reader"]
     assert [w["op"] for w in q.where] == ["in", "in", "not_in", "missing"]
     assert q.limit == 1000 and q.cursor is None
 
@@ -1441,8 +1511,8 @@ def _merge_job(monkeypatch, hits, *, geometry=None):
 def test_the_merged_design_job_writes_one_ifc_holding_every_hit(monkeypatch):
     def fake_resolve(index, collection, hit, **kw):
         if hit["node_id"] == "fn-missing":
-            raise se.NoGeometry("provider 'external-csg' has no node '/GONE' in 'alpha'")
-        return SimpleNamespace(provider="external-csg", subject="fn-zone", revision="r9"), hit["node_id"]
+            raise se.NoGeometry("provider 'design-reader' has no node '/GONE' in 'alpha'")
+        return SimpleNamespace(provider="design-reader", subject="fn-zone", revision="r9"), hit["node_id"]
 
     monkeypatch.setattr(job_mod, "resolve_geometry", fake_resolve)
     monkeypatch.setattr(
@@ -1642,7 +1712,7 @@ VENDOR_SPEC = {
 
 
 def _mesh_preflight_world(monkeypatch, *, admin_only=False, sweep=None, missing="unpublished"):
-    async def classify(storage, scope_obj, groups, provider="external-csg"):
+    async def classify(storage, scope_obj, groups, provider="design-reader"):
         out = []
         for collection, hits in groups:
             state = "ready" if collection == "alpha" else missing

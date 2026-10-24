@@ -6,6 +6,7 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useGalleryStore} from "@/state/galleryStore";
 import {useMeStore} from "@/state/meStore";
+import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
@@ -19,6 +20,9 @@ import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
+import {undoRedoIntent} from "@/utils/keyboard/undoRedoKeys";
+import {redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
+import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -65,6 +69,20 @@ export function setupCameraControlsHandlers(
 
     const handleKeyDown = (event: KeyboardEvent) => {
         if (!inScope) return;
+
+        // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z, Cmd on macOS): step the viewer's hide / show / selection
+        // history. undoRedoIntent leaves a text field's own undo alone; an open procedural cell
+        // builder has its own history and takes the keys first.
+        const intent = undoRedoIntent(event);
+        if (intent) {
+            if (useCellBuilderStore.getState().active !== null) return;
+            event.preventDefault();
+            if (intent === "undo") undoViewerAction();
+            else redoViewerAction();
+            return;
+        }
+
+
         // Don't hijack shortcuts while the user is typing in a form
         // field — same trap browsers use for `/` etc. The standalone
         // never had this check either, but the embed amplifies the
@@ -104,26 +122,9 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "u") {
             unhideAllRanges();
         } else if (shift && key === "f") {
-            // Builder cells are __excludeFromFit (they're a tool overlay), so
-            // centerViewOnSelection finds nothing for a cell selection — frame
-            // the selected cells directly, same as the mobile "Go to object"
-            // button. Falls through to the draw-range selection otherwise.
-            const cb = useCellBuilderStore.getState();
-            if (cb.active !== null && cb.selection !== null && frameCells(cb.selectedCellIds, controls, camera)) {
-                requestRender();
-            } else {
-                centerViewOnSelection(controls, camera);
-            }
+            fitSelectionView(camera, controls);
         } else if (shift && key === "a") {
-            // Likewise "fit all": a procedural model in the cellbuilder shows
-            // only excluded cell boxes until it's compiled, so zoomToAll would
-            // frame nothing — frame all cells instead when the builder is active.
-            const cb = useCellBuilderStore.getState();
-            if (cb.active !== null && Object.keys(cb.cells).length > 0 && frameCells("all", controls, camera)) {
-                requestRender();
-            } else {
-                zoomToAll(scene, camera, controls);
-            }
+            fitAllView(scene, camera, controls);
         } else if (shift && key === "enter") {
             // ⇧↵ — preview-compile the current (uncommitted) procedural model:
             // the fast path when editing, and what makes a side-by-side result
@@ -152,6 +153,15 @@ export function setupCameraControlsHandlers(
             event.preventDefault();
             if (open === "admin") closePanel();
             else openPanel("admin");
+        } else if (shift && key === "r" && !ctrl && !event.altKey) {
+            // Shift+R: start / end a render-profiling session (the Performance option "Record render
+            // metrics"), administrators only. A render is requested so the profiler sees the switch
+            // at once, not on the next camera move.
+            if (!useMeStore.getState().isAdmin) return;
+            event.preventDefault();
+            const m = useViewMetricsStore.getState();
+            m.setCollectRenderMetrics(!m.collectRenderMetrics);
+            requestRender();
         } else if (shift && key === "t" && !ctrl && !event.altKey) {
             // Shift+T: open the tree at the selected element and focus it for the arrow keys (or,
             // open but unfocused, just focus it there). Closing is Shift+T or Esc from INSIDE the
@@ -191,6 +201,8 @@ export function setupCameraControlsHandlers(
     };
 
     window.addEventListener("keydown", handleKeyDown);
+    // An undo must never reach into a scene that has since been replaced.
+    const unbindHistoryReset = bindViewerHistoryReset();
 
     // An emptied scene returns the camera to its starting pose. Subscribed to
     // the model state rather than hooked into the unload handlers because there
@@ -207,6 +219,7 @@ export function setupCameraControlsHandlers(
 
     return () => {
         unsubscribeLoaded();
+        unbindHistoryReset();
         window.removeEventListener("keydown", handleKeyDown);
         if (scopeEl) {
             if (onEnter) scopeEl.removeEventListener("mouseenter", onEnter);
@@ -215,6 +228,37 @@ export function setupCameraControlsHandlers(
             if (onFocusOut) scopeEl.removeEventListener("focusout", onFocusOut as EventListener);
         }
     };
+}
+
+/** Shift+F: frame the selection. Shared with the 3D mouse's buttons. */
+export function fitSelectionView(camera: THREE.PerspectiveCamera, controls: CameraControls | OrbitControls): void {
+    // Builder cells are __excludeFromFit (they're a tool overlay), so
+    // centerViewOnSelection finds nothing for a cell selection — frame
+    // the selected cells directly, same as the mobile "Go to object"
+    // button. Falls through to the draw-range selection otherwise.
+    const cb = useCellBuilderStore.getState();
+    if (cb.active !== null && cb.selection !== null && frameCells(cb.selectedCellIds, controls, camera)) {
+        requestRender();
+    } else {
+        centerViewOnSelection(controls, camera);
+    }
+}
+
+/** Shift+A: frame everything. Shared with the 3D mouse's buttons. */
+export function fitAllView(
+    scene: THREE.Scene,
+    camera: THREE.PerspectiveCamera,
+    controls: CameraControls | OrbitControls,
+): void {
+    // Likewise "fit all": a procedural model in the cellbuilder shows
+    // only excluded cell boxes until it's compiled, so zoomToAll would
+    // frame nothing — frame all cells instead when the builder is active.
+    const cb = useCellBuilderStore.getState();
+    if (cb.active !== null && Object.keys(cb.cells).length > 0 && frameCells("all", controls, camera)) {
+        requestRender();
+    } else {
+        zoomToAll(scene, camera, controls);
+    }
 }
 
 // Skip helper subtrees (section planes, caps, the transform gizmo) and hidden

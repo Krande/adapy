@@ -16,6 +16,9 @@ import {
     withPreference,
 } from "@/services/clashSpecProviders";
 import {viewerApi} from "@/services/viewerApi";
+import {sortProjects} from "@/utils/sortProjects";
+
+import AdminSection from "./AdminSection";
 
 // Admin → Providers: which joint-detailing spec PROVIDERS each scope uses by default, and in
 // which order of preference. The Clashes panel starts from this and may override it for a session.
@@ -75,14 +78,18 @@ const ClashSpecProvidersSection: React.FC<{rows: readonly SpecProviderScopeRow[]
 
     const allRows = [...rows];
     const known = new Set(rows.map((r) => r.scope));
-    for (const scope of Object.keys(map).sort()) {
+    for (const scope of sortProjects(Object.keys(map))) {
         if (!known.has(scope)) allRows.push({scope, label: scope, hint: "not a current project", stale: true});
     }
 
     return (
-        <section className="border-b border-gray-800" data-testid="clash-spec-providers-admin">
-            <div className="px-3 pt-3 pb-1 space-y-1">
-                <div className="text-sm font-medium">Joint detailing spec providers</div>
+        <AdminSection
+            title="Joint detailing spec providers"
+            kind="Spec providers"
+            storageKey="ada.admin.providers.open.clash-spec-providers"
+            testId="clash-spec-providers-admin"
+        >
+            <div className="px-3 pt-2 pb-1 space-y-1">
                 <div className="text-xs text-gray-400">
                     Which providers' connection specs detail the joints a clash check finds, first preferred. A
                     scope left on “All providers” offers every spec, ranked by its own priority. The Clashes panel
@@ -191,7 +198,7 @@ const ClashSpecProvidersSection: React.FC<{rows: readonly SpecProviderScopeRow[]
                     })}
                 </tbody>
             </table>
-        </section>
+        </AdminSection>
     );
 };
 

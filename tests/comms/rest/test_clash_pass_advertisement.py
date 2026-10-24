@@ -100,6 +100,38 @@ def test_checkers_advertise_core_as_capability_free_and_keep_a_stated_pool():
         passes_mod._CHECKERS.pop("test-chk2", None)
 
 
+def test_core_convex_contact_checker_is_attributed_to_no_pool():
+    """Core's second checker runs wherever core runs. A worker declaring one pool would otherwise
+    claim it, and the api would route every convex-contact check to that pool alone."""
+    from ada.clash import passes as passes_mod
+    from ada.clash.builtin_names import CONVEX_CONTACT_CHECKER, CONVEX_CONTACT_PASS
+    from ada.clash.passes import (
+        ClashChecker,
+        ClashPass,
+        register_checker,
+        register_pass,
+    )
+    from ada.comms.rest.worker.registration import _clash_checkers_for_heartbeat
+
+    # Registered by hand where this env's adacpp does not carry the pass (then ada.clash does not).
+    added_pass = passes_mod.get_pass(CONVEX_CONTACT_PASS) is None
+    added_checker = passes_mod._CHECKERS.get(CONVEX_CONTACT_CHECKER) is None
+    if added_pass:
+        register_pass(ClashPass(name=CONVEX_CONTACT_PASS, label="C", checker=CONVEX_CONTACT_CHECKER, fn=None))
+    if added_checker:
+        register_checker(ClashChecker(name=CONVEX_CONTACT_CHECKER, label="C", passes=(CONVEX_CONTACT_PASS,)))
+    try:
+        checkers = {e["name"]: e for e in _clash_checkers_for_heartbeat(["base", "one"])}
+        passes = {e["name"]: e for e in _clash_passes_for_heartbeat(["base", "one"])}
+        assert checkers[CONVEX_CONTACT_CHECKER]["capability"] is None
+        assert passes[CONVEX_CONTACT_PASS]["capability"] is None
+    finally:
+        if added_pass:
+            passes_mod._REGISTRY.pop(CONVEX_CONTACT_PASS, None)
+        if added_checker:
+            passes_mod._CHECKERS.pop(CONVEX_CONTACT_CHECKER, None)
+
+
 def test_concept_readers_are_advertised_with_their_availability_and_this_workers_pool():
     """What the panel's "geometry from" choice is offered from: only a provider some live worker can
     READ into objects can be the source of a check's members."""

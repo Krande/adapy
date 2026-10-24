@@ -582,6 +582,8 @@ def test_a_geometry_provider_moves_the_key_only_where_it_can_change_the_model(
     )
     assert other.status_code == 200, other.text
     assert other.json()["derived_key"] != node_key
-    # Nothing of "other" is published, so the job fails by name rather than checking nothing.
+    # Nothing of "other" is published, so the job fails -- once, saying to request it -- rather
+    # than checking nothing.
     status = _wait_done(client, other.json()["job_id"])
-    assert status["status"] == "error" and "'other'" in (status.get("error") or ""), status
+    assert status["status"] == "error", status
+    assert "has no other geometry in this scope yet" in (status.get("error") or ""), status

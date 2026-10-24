@@ -14,7 +14,7 @@
 #   (fix/step-emit-degenerate-loop) is fully contained in the pinned 0.17.1.
 #   2026-07-15 — overlay retired. Everything the previous markers were previewing (selectable
 #   tessellation tracks, boundary pinning ON by default, the watertight `cdt` track) shipped in
-#   ada-cpp 0.14.0, which pixi.toml now pins. The worker takes it from conda.
+#   ada-cpp, at the version pixi.toml pins. The worker takes it from conda.
 #
 #   NOTE: unsetting this file's default is NOT enough to stop the overlay — it is driven by the
 #   forgejo repo variable ADACPP_BRANCH (Settings -> Actions -> Variables). While that variable

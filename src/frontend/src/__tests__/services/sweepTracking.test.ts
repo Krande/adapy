@@ -20,7 +20,9 @@ const globals = globalThis as unknown as {sessionStorage: unknown; localStorage:
 globals.sessionStorage = storage;
 globals.localStorage = storage;
 
-const {sweepToastState, exportToastState, sweepSkipTarget, exportSkipTarget} = await import("@/services/sweepTracking");
+const {sweepToastState, exportToastState, sweepSkipTarget, exportSkipTarget, sweepActiveItems, runJobIds} = await import(
+    "@/services/sweepTracking"
+);
 const {toastRunTarget} = await import("@/state/runFocusStore");
 
 const item = (position: number, status: SweepItem["status"], extra: Partial<SweepItem> = {}): SweepItem => ({
@@ -70,6 +72,31 @@ test("a running sweep reports progress across collections and the current one's 
     assert.equal(s.status, "running");
     assert.equal(s.progress, 2.5 / 4);
     assert.equal(s.stage, "2/4 · 1 failed · C2: site 3/10");
+});
+
+test("a sweep running several collections at once lists each worker and counts every one's share", () => {
+    const r = run("running", [
+        item(0, "done"),
+        item(1, "fetching", {stage: "export", progress: 0.5}),
+        item(2, "publishing", {stage: null, progress: null}),
+        item(3, "pending"),
+    ]);
+    assert.deepEqual(sweepActiveItems(r), [
+        {position: 1, collection: "C1", stage: "export", progress: 0.5},
+        {position: 2, collection: "C2", stage: "publishing", progress: null},
+    ]);
+    const s = sweepToastState(r);
+    assert.equal(s.progress, 1.5 / 4);
+    assert.match(s.stage, / · 2 running$/);
+});
+
+test("a sweep's job ids are its items' fetch and publish jobs: the toast's entries it owns", () => {
+    const r = run("running", [
+        item(0, "done", {fetch_job_id: "f0", publish_job_id: "p0"}),
+        item(1, "fetching", {fetch_job_id: "f1"}),
+        item(2, "pending"),
+    ]);
+    assert.deepEqual([...runJobIds(r)].sort(), ["f0", "f1", "p0"]);
 });
 
 test("collections ticked off are not counted as work left", () => {

@@ -10,6 +10,7 @@ from ada.geom.placement import Axis2Placement3D
 
 from .curves import (
     circle_curve,
+    composite_curve,
     edge_loop,
     indexed_poly_curve_or_composite,
     poly_line,
@@ -26,6 +27,10 @@ def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file)
         outer_curve = indexed_poly_curve_or_composite(apd.outer_curve, f)
     elif isinstance(apd.outer_curve, geo_cu.Circle):
         outer_curve = circle_curve(apd.outer_curve, f)
+    elif isinstance(apd.outer_curve, geo_cu.CompositeCurve):
+        # Lines and arcs, an elliptical arc among them (a dished end's quarter ellipse):
+        # an IfcCompositeCurve of trimmed curves, exact.
+        outer_curve = composite_curve(apd.outer_curve, f)
     else:
         raise NotImplementedError(f"Unsupported outer curve type: {type(apd.outer_curve)}")
 
@@ -35,6 +40,8 @@ def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file)
             inner_curves.append(indexed_poly_curve_or_composite(ic, f))
         elif isinstance(ic, geo_cu.Circle):
             inner_curves.append(circle_curve(ic, f))
+        elif isinstance(ic, geo_cu.CompositeCurve):
+            inner_curves.append(composite_curve(ic, f))
         else:
             raise NotImplementedError(f"Unsupported inner curve type: {type(ic)}")
 

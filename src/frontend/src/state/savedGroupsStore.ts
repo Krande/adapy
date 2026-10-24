@@ -5,7 +5,7 @@
 import { create } from "zustand";
 
 import { changeGroups, readGroupsDoc } from "@/services/savedGroups";
-import { newGroupId, type GroupMember, type SavedGroup } from "@/utils/groups/savedGroups";
+import { addMembersToGroup, newGroupId, type GroupMember, type SavedGroup } from "@/utils/groups/savedGroups";
 
 interface SavedGroupsState {
   /** The scope `groups` belong to; null until loaded. */
@@ -19,6 +19,9 @@ interface SavedGroupsState {
 
   load: (scope: string) => Promise<void>;
   create: (scope: string, name: string, members: readonly GroupMember[], createdBy?: string | null) => Promise<SavedGroup | null>;
+  /** Append `members` to the group `groupId`, skipping those it holds already. The result, or
+   *  null when the write failed (`error` says why). `added: 0` wrote nothing. */
+  addMembers: (scope: string, groupId: string, members: readonly GroupMember[]) => Promise<{ group: SavedGroup; added: number } | null>;
   rename: (scope: string, id: string, name: string) => Promise<void>;
   remove: (scope: string, id: string) => Promise<void>;
 }
@@ -75,6 +78,22 @@ export const useSavedGroupsStore = create<SavedGroupsState>((set, get) => {
       };
       const ok = await mutate(scope, async () => (await changeGroups(scope, { kind: "put", group })).groups);
       return ok ? group : null;
+    },
+
+    addMembers: async (scope, groupId, members) => {
+      let out: { group: SavedGroup; added: number } | null = null;
+      const ok = await mutate(scope, async () => {
+        // Merged into the group as stored NOW, not as this list last showed it: a `put` replaces
+        // the whole group, and members someone else added meanwhile must survive it.
+        const latest = await readGroupsDoc(scope);
+        const current = latest.groups.find((g) => g.id === groupId);
+        if (!current) throw new Error("that group no longer exists -- someone may have deleted it");
+        const merged = addMembersToGroup(current, members, new Date().toISOString());
+        out = merged;
+        if (merged.added === 0) return latest.groups;
+        return (await changeGroups(scope, { kind: "put", group: merged.group })).groups;
+      });
+      return ok ? out : null;
     },
 
     rename: async (scope, id, name) => {

@@ -58,6 +58,36 @@ export function clearJointIsolation(): void {
   requestRender();
 }
 
+/** Isolate by DRAW RANGE, across several loaded models at once: each target's `keep` ranges stay solid
+ *  and every other range of that model fades (or hides) -- a target with an empty `keep` is a model
+ *  faded whole. What a convex-contact run isolates by: its members are element ids per model
+ *  (`clashContactPlan.contactIsolationTargets`), never names, which repeat.
+ *
+ *  A user's own hidden ranges stay out of `keep` (and come back hidden afterwards, as below). Returns
+ *  how many ranges were asked to stay solid; none asked isolates nothing. */
+export function isolateElementRanges(
+  targets: readonly { readonly sourceName: string; readonly keep: ReadonlySet<string> }[],
+  mode: IsolationMode,
+  opacity: number,
+): number {
+  clearJointIsolation();
+  if (mode === "off" || !targets.some((t) => t.keep.size > 0)) return 0;
+  let kept = 0;
+  for (const { sourceName, keep } of targets) {
+    kept += keep.size;
+    for (const mesh of meshesOf(sourceName).meshes) {
+      // Captured after the restore above, so it is the user's own hidden set, not an isolation's.
+      const wasHidden = new Set(mesh.getHiddenRanges());
+      const solid = wasHidden.size ? new Set([...keep].filter((id) => !wasHidden.has(id))) : keep;
+      mesh.setHiddenAppearance(mode === "ghost" ? "ghost" : "invisible", opacity);
+      mesh.isolateDrawRanges(solid);
+      isolated.push({ mesh, wasHidden });
+    }
+  }
+  requestRender();
+  return kept;
+}
+
 /** Leave `memberNames` visible in `file` and put the rest out of the way.
  *
  *  Returns how many ranges were kept. ZERO keeps nothing isolated: hiding a whole model because a

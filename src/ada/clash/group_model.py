@@ -25,13 +25,60 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
+from ada.clash.geometry_source import NO_PROVIDER_GEOMETRY
 from ada.clash.group import member_label, source_identity
 
-__all__ = ["GroupModel", "GroupModelError", "build_group_model", "clash_check_group", "geometry_provenance"]
+__all__ = [
+    "GroupModel",
+    "GroupModelError",
+    "NoProviderGeometryError",
+    "build_group_model",
+    "clash_check_group",
+    "geometry_provenance",
+]
 
 
 class GroupModelError(ValueError):
     """No member of the group could be resolved, so there is no model to check."""
+
+
+class NoProviderGeometryError(GroupModelError):
+    """No member could be matched because the geometry provider has published NOTHING in their
+    collection(s) yet: not a naming problem, so the per-member reasons would only repeat it.
+    The only fix is to ask that provider for the geometry, and :meth:`detail` carries what that
+    request needs (``ada.clash.geometry_source.GeometryRemap.unmatched_detail``)."""
+
+    code = NO_PROVIDER_GEOMETRY
+
+    def __init__(self, provider: str, collections: list[str], unmatched: list[dict], *, action: str = "try again"):
+        self.provider = provider
+        self.collections = list(collections)
+        self.unmatched = [dict(d) for d in unmatched]
+        super().__init__(self.sentence(action))
+
+    def sentence(self, action: str = "try again") -> str:
+        """One sentence for the whole group: "<collection> has no <provider> geometry in this scope
+        yet (N members); request it from <provider>, then <action>." """
+        names = self.collections
+        where = names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
+        n = len(self.unmatched)
+        return (
+            f"{where} {'has' if len(names) == 1 else 'have'} no {self.provider} geometry in this scope yet "
+            f"({n} member{'' if n == 1 else 's'}); request it from {self.provider}, then {action}."
+        )
+
+    def detail(self, action: str = "try again") -> dict:
+        """The machine-readable form: what a client needs to offer the request and make it."""
+        return {
+            "code": self.code,
+            "message": self.sentence(action),
+            "geometry_provider": self.provider,
+            "collections": list(self.collections),
+            "members": len(self.unmatched),
+            # The geometry plan's shape (`plan_geometry`'s `unmatched`): the member, why, the name it
+            # was looked for under, and its row in its own provider's tree.
+            "unmatched": [{k: d.get(k) for k in ("member", "reason", "label", "row", "cause")} for d in self.unmatched],
+        }
 
 
 @dataclass
@@ -103,6 +150,7 @@ def build_group_model(
     load_file: Callable | None = None,
     read_node: Callable[..., Any] | None = None,
     geometry_provider: str | None = None,
+    rooted: bool = False,
 ) -> GroupModel:
     """The combined model of a NORMALISED group (``ada.clash.group.normalise_group``).
 
@@ -116,6 +164,11 @@ def build_group_model(
     element BEFORE anything is read (``ada.clash.geometry_source.remap_group``); the members it
     cannot match are warnings, like a member that cannot be found. ``GroupModel.group`` is then the
     re-addressed group, which is what a detail job has to rebuild from.
+
+    ``rooted`` places each member beneath copies of its ancestors up to its model's top level
+    (``selection_export.place_rooted``) instead of in a ``"<n>: <label>"`` part of its own -- what
+    an export needs, so no element is written without the levels above it. With members from
+    several sources, each source's root is kept as a top-level part.
     """
     import ada
     from ada.comms.rest.selection_export import SelectionExportError, find_selection
@@ -128,6 +181,8 @@ def build_group_model(
         remap = remap_group(group, geometry_provider, storage=storage)
         group = remap.group
         if not group["members"]:
+            if remap.only_missing_geometry:
+                raise NoProviderGeometryError(geometry_provider, remap.empty_collections, remap.unmatched_detail)
             detail = "; ".join(remap.warnings[:5]) or "no members"
             raise GroupModelError(
                 f"none of the {asked} member(s) of this group could be matched to provider "
@@ -209,6 +264,20 @@ def build_group_model(
         raise GroupModelError(f"none of the {asked} member(s) of this group could be resolved: {detail}")
 
     asm = ada.Assembly(str(group.get("name") or "group"))
+    if rooted:
+        from ada.comms.rest.selection_export import place_rooted
+
+        sources = {source_identity(placed[n][0]["target"]) for n in placed}
+        if len(sources) == 1:
+            # One model: the file's root stands for that model's root, named after it.
+            first = placed[min(placed)][1]
+            top = first if isinstance(first, ada.Assembly) else first.get_ancestors(include_self=True)[-1]
+            if isinstance(top, ada.Assembly):
+                asm = ada.Assembly(str(top.name), units=top.units)
+        shells: dict[int, Any] = {}
+        for n in sorted(placed):
+            place_rooted(placed[n][1], asm, shells, keep_root=len(sources) > 1)
+        return GroupModel(model=asm, warnings=warnings, resolved=len(placed), group=dict(group), remap=remap)
     # Moved only now, after every source's selections were found: see the module docstring.
     for n in sorted(placed):
         member, obj = placed[n]

@@ -27,7 +27,7 @@ from ada.assets.rollup import listing_token
 # numpy and no reader. `ada.clash.identify` (and the passes it imports) runs on a worker, and so
 # does `ada.clash.group_model`; `ada.clash.group` is its stdlib-only request half, and
 # `ada.clash.geometry_source` reads JSON only (manifests and hierarchy documents).
-from ada.clash.builtin_names import BUILTIN_CHECKER, BUILTIN_SPEC_NAMES
+from ada.clash.builtin_names import BUILTIN_CHECKER, BUILTIN_SPEC_NAMES, CORE_CHECKERS
 from ada.clash.geometry_source import node_group, plan_geometry
 from ada.clash.group import (
     GroupError,
@@ -100,13 +100,18 @@ async def _geometry_options_token(ctx: RestContext, scope: Scope, options: Clash
     the safe direction, and one ``list_prefix`` per collection rather than a manifest read per
     subject.
 
+    The match rules' version (``geometry_source.MATCH_RULES``) is part of it too: a result is as
+    much a function of how members were matched as of what was published.
+
     Without a geometry provider the plain options token is returned unchanged, so the derived key of
     every default check -- and every result cached before this -- stays where it was.
     """
     token = _options_token(options)
     if options.geometry_provider is None:
         return token
-    parts = [token]
+    from ada.clash.geometry_source import MATCH_RULES
+
+    parts = [token, f"match={MATCH_RULES}"]
     for collection in sorted(set(collections)):
         entries = await ctx.storage.list_prefix(scope, f"{ASSET_PREFIX}/{collection}/")
         parts.append(f"{collection}={listing_token(entries, salt=_GEOMETRY_STATE_SALT)}")
@@ -175,12 +180,26 @@ def _readable_pools(entry: dict | None) -> set[str | None]:
     return {capability_token(cap) or None if isinstance(cap, str) and cap.strip() else None}
 
 
+def _licensed_pools(entry: dict | None) -> set[str]:
+    """Pools whose workers need a licence or session, from the entry's unioned ``licensed_pools``."""
+    pools = (entry or {}).get("licensed_pools")
+    if not isinstance(pools, list):
+        return set()
+    return {capability_token(p) for p in pools if isinstance(p, str) and capability_token(p)}
+
+
+async def _reader_entry(ctx: RestContext, provider: str) -> dict | None:
+    if ctx.jobs.kind == "local":
+        return None
+    return (await ctx.jobs.advertised_specs("asset_concept_readers")).get(provider)
+
+
 async def _reader_pools(ctx: RestContext, provider: str) -> set[str | None]:
     if ctx.jobs.kind == "local":
         # No pools: the reader is in this process or nowhere.
         row = next((r for r in _local_concept_readers(ctx) if r["slug"] == provider), None)
         return {None} if row is not None and row["readable"] else set()
-    return _readable_pools((await ctx.jobs.advertised_specs("asset_concept_readers")).get(provider))
+    return _readable_pools(await _reader_entry(ctx, provider))
 
 
 def _pool_name(pool: str | None) -> str:
@@ -196,13 +215,15 @@ async def _route_with_reader(ctx: RestContext, pool: str | None, provider: str |
     there with "cannot be read into objects". So the reader's pools are a second constraint --
 
     * no live worker reads the provider: refused by name (409), not enqueued to fail;
-    * the rest of the job runs anywhere: the reader's pool (the default pool when one reads it there);
+    * the rest of the job runs anywhere: the reader's pool (the default pool when one reads it there,
+      else a pool that needs no licence, else a licensed one -- see ``licensed_pools``);
     * the rest needs a pool that also reads the provider: that pool;
     * the rest needs a pool that does not: refused (409) naming both, because one job runs on one pool.
     """
     if not provider:
         return pool
-    pools = await _reader_pools(ctx, provider)
+    entry = await _reader_entry(ctx, provider)
+    pools = await _reader_pools(ctx, provider) if ctx.jobs.kind == "local" else _readable_pools(entry)
     if not pools:
         where = "this viewer cannot" if ctx.jobs.kind == "local" else "no live worker can"
         raise HTTPException(
@@ -213,7 +234,13 @@ async def _route_with_reader(ctx: RestContext, pool: str | None, provider: str |
             ),
         )
     if pool is None:
-        return None if None in pools else sorted(p for p in pools if p is not None)[0]
+        if None in pools:
+            return None
+        # Reading is not licensed work: a pool that needs no licence or session is preferred over one
+        # that does, whatever it sorts like. Only when licensed pools are the sole readers do they serve.
+        named = sorted(p for p in pools if p is not None)
+        licensed = _licensed_pools(entry)
+        return next((p for p in named if p not in licensed), named[0])
     if pool in pools:
         return pool
     readers = ", ".join(_pool_name(p) for p in sorted(pools, key=lambda p: (p is not None, p or "")))
@@ -236,6 +263,10 @@ async def _checker_capability(ctx: RestContext, checker: str | None) -> str | No
     unclaimed or come back with nothing checked.
     """
     if not checker or checker == BUILTIN_CHECKER:
+        return None
+    if checker in CORE_CHECKERS:
+        # Core's own: it runs wherever core runs, so it is never routed. A process without adacpp's
+        # pass does not register it, and a check sent there says so in its warnings.
         return None
     if ctx.jobs.kind == "local":
         # No pools to route to: the checker runs in this process or not at all.
@@ -876,10 +907,10 @@ async def api_clash_passes(
 
 
 def _core_clash_checkers() -> list[dict]:
-    """Core's own checker, in the catalog shape -- the ``code`` half of the checker union."""
+    """Core's own checkers registered in this process, in the catalog shape -- the ``code`` half of
+    the checker union."""
     try:
         import ada.clash.identify  # noqa: F401,PLC0415 - registers core's passes, which its checker lists
-        from ada.clash.passes import BUILTIN_CHECKER as _CORE
         from ada.clash.passes import list_checkers
     except ImportError:
         # The slim api cannot load the passes, but it can still NAME core's checker: it is always
@@ -897,7 +928,7 @@ def _core_clash_checkers() -> list[dict]:
                 "priority": 0,
             }
         ]
-    return [{**entry, "slug": entry["name"]} for entry in list_checkers() if entry["name"] == _CORE]
+    return [{**entry, "slug": entry["name"]} for entry in list_checkers() if entry["name"] in CORE_CHECKERS]
 
 
 @router.get("/scopes/{scope}/clash-check/checkers")

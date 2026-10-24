@@ -15,6 +15,7 @@ import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {unhideAllRanges} from "@/utils/scene/visibility";
 
 /** A batched mesh, by what it can do rather than `instanceof`: a hot reload can leave the scene
@@ -132,16 +133,22 @@ export function rowVisibility(node: TreeNodeData, version: number, tree: unknown
     return hidden === total ? "hidden" : "partial";
 }
 
+// Each of these is one undo / redo entry (Ctrl+Z / Ctrl+Y), however many ranges the rows hold.
+
 export function hideRows(rows: readonly TreeNodeData[]): void {
-    for (const [mesh, ids] of rangesUnder(rows)) mesh.hideBatchDrawRange(ids);
-    // As Shift+H: the selection overlay would keep drawing what was just hidden.
-    useSelectedObjectStore.getState().clearSelectedObjects();
-    useObjectInfoStore.getState().setName(null);
+    recordViewerAction("hide", () => {
+        for (const [mesh, ids] of rangesUnder(rows)) mesh.hideBatchDrawRange(ids);
+        // As Shift+H: the selection overlay would keep drawing what was just hidden.
+        useSelectedObjectStore.getState().clearSelectedObjects();
+        useObjectInfoStore.getState().setName(null);
+    });
     requestRender();
 }
 
 export function showRows(rows: readonly TreeNodeData[]): void {
-    for (const [mesh, ids] of rangesUnder(rows)) mesh.unhideBatchDrawRange(ids);
+    recordViewerAction("show", () => {
+        for (const [mesh, ids] of rangesUnder(rows)) mesh.unhideBatchDrawRange(ids);
+    });
     requestRender();
 }
 
@@ -150,8 +157,10 @@ export function isolateRows(rows: readonly TreeNodeData[]): void {
     const scene = getViewerRuntime().scene.current;
     if (!scene) return;
     const keep = rangesUnder(rows);
-    scene.traverse((obj) => {
-        if (obj instanceof CustomBatchedMesh) obj.isolateDrawRanges(keep.get(obj) ?? new Set());
+    recordViewerAction("isolate", () => {
+        scene.traverse((obj) => {
+            if (obj instanceof CustomBatchedMesh) obj.isolateDrawRanges(keep.get(obj) ?? new Set());
+        });
     });
     requestRender();
 }

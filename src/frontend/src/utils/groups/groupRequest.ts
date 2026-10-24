@@ -11,7 +11,7 @@
 import { nodeBatches, requestNodes, type CollectionRequestDeps } from "@/assets/collectionRequest";
 import type { AssetNodeRequest } from "@/services/assetScopeCollections";
 
-import type { GroupNodePlan } from "./savedGroups";
+import { groupNodePlan, memberKey, parseMember, type GroupMember, type GroupNodePlan } from "./savedGroups";
 
 /** A provider to ask, and how it takes node requests. */
 export interface GroupRequestProvider {
@@ -79,4 +79,91 @@ export function planNodeCount(plan: GroupNodePlan): number {
   let n = 0;
   for (const targets of plan.byCollection.values()) n += targets.length;
   return n;
+}
+
+// --- members a geometry provider had nothing for -------------------------------------------------
+
+/** A member left out by a geometry provider, as the server reports one -- the geometry plan's
+ *  `unmatched` (`POST …/clash-check/geometry-plan`) and a failed export's `error.unmatched`: the
+ *  member in the group wire shape, why, the name it was looked for under, and its row in its own
+ *  provider's tree (`null` when that tree does not place it). */
+export interface UnmatchedMember {
+  readonly member: unknown;
+  readonly reason?: string;
+  readonly label?: string | null;
+  readonly row?: string | null;
+}
+
+/** The members `unmatched` names, and what the server already knows about each by `memberKey`: the
+ *  label it looked for and the row it placed. Entries that are not a member are dropped. */
+export function unmatchedRequestParts(unmatched: readonly UnmatchedMember[]): {
+  members: GroupMember[];
+  labels: Map<string, string>;
+  rows: Map<string, string>;
+} {
+  const members: GroupMember[] = [];
+  const labels = new Map<string, string>();
+  const rows = new Map<string, string>();
+  for (const u of unmatched) {
+    const member = parseMember(u.member);
+    if (!member) continue;
+    members.push(member);
+    if (u.label) labels.set(memberKey(member), u.label);
+    if (u.row && member.element !== null) rows.set(memberKey(member), u.row);
+  }
+  return { members, labels, rows };
+}
+
+export interface UnmatchedRequestDeps {
+  /** Element members -> the published tree's row ids (`resolveElementRows`). */
+  resolveRows(scope: string, members: readonly GroupMember[]): Promise<ReadonlyMap<string, string>>;
+  /** The request jobs' own deps -- the same ones "Request geometry…" uses. */
+  request: CollectionRequestDeps;
+  /** After a request published something: let the asset browser re-read what is published. */
+  afterRequest?: () => Promise<void> | void;
+}
+
+/** Request exactly the `unmatched` members from `provider`, through the shared group request:
+ *  element members at the rows the server placed (the tree walk only for the ones it could not),
+ *  whole nodes by their own id, each with the label it was looked for under (a provider may need it
+ *  to find a node another provider published), in the provider's batches. Resolves the notes for the
+ *  panel and the request's outcome (`null` when there was nothing to request). */
+export async function requestUnmatchedMembers(
+  deps: UnmatchedRequestDeps,
+  scope: string,
+  provider: string,
+  req: AssetNodeRequest,
+  unmatched: readonly UnmatchedMember[],
+  stage: (s: string | null) => void = () => {},
+): Promise<{ notes: string[]; outcome: GroupRequestOutcome | null }> {
+  const notes: string[] = [];
+  const { members, labels, rows } = unmatchedRequestParts(unmatched);
+  const unplaced = members.filter((m) => m.element !== null && !rows.has(memberKey(m)));
+  if (unplaced.length > 0) {
+    stage("finding the missing members in the published tree");
+    for (const [key, row] of await deps.resolveRows(scope, unplaced)) rows.set(key, row);
+  }
+  const nodePlan = groupNodePlan(members, rows, labels);
+  if (nodePlan.unresolved.length > 0) {
+    const first = nodePlan.unresolved[0];
+    notes.push(
+      `${nodePlan.unresolved.length} member${nodePlan.unresolved.length === 1 ? "" : "s"} could not be requested: ` +
+        `${first.reason}${nodePlan.unresolved.length > 1 ? " (and others)" : ""}.`,
+    );
+  }
+  const count = planNodeCount(nodePlan);
+  if (count === 0) return { notes, outcome: null };
+  stage(`requesting ${count} node${count === 1 ? "" : "s"} from ${provider}`);
+  const requestDeps: CollectionRequestDeps = {
+    ...deps.request,
+    onStage: (s) => {
+      deps.request.onStage?.(s);
+      stage(s);
+    },
+  };
+  const out = await requestGroupGeometry(requestDeps, scope, [{ providerId: provider, req }], nodePlan);
+  notes.push(`Requested from ${provider}: ${describeRequestOutcome(out)}`);
+  if (out.failed.length) notes.push(`${out.failed.length} request${out.failed.length === 1 ? "" : "s"} failed: ${out.failed.join("; ")}`);
+  if (out.published > 0) await deps.afterRequest?.();
+  return { notes, outcome: out };
 }

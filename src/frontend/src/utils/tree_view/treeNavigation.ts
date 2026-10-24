@@ -14,6 +14,7 @@ import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {buildTreeIndices, lowestCommonAncestor, selectableParent, TreeIndices} from "./treeGraph";
 
 // --- indices cache (rebuilt only when treeData identity changes) ---------- //
@@ -99,12 +100,14 @@ export async function selectTreeNode(node: TreeNodeData): Promise<void> {
     collectSubtree(node, nodes);
     const batch = await meshesAndRanges(nodes);
 
-    const sel = useSelectedObjectStore.getState();
-    sel.clearSelectedObjects();
-    sel.addBatchofMeshes(batch);
+    recordViewerAction("select", () => {
+        const sel = useSelectedObjectStore.getState();
+        sel.clearSelectedObjects();
+        sel.addBatchofMeshes(batch);
 
-    useObjectInfoStore.getState().setName(node.name);
-    useObjectInfoStore.getState().setSelectedNodeId(node.id);
+        useObjectInfoStore.getState().setName(node.name);
+        useObjectInfoStore.getState().setSelectedNodeId(node.id);
+    });
     const tv = useTreeViewStore.getState();
     tv.setScope(node.id, node.name);
 

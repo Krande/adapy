@@ -72,6 +72,8 @@ export interface LoadedAsset {
   readonly glbKey?: string;
   readonly counts?: Readonly<Record<string, number>>;
   readonly warnings?: readonly string[];
+  /** The name the model was loaded under (its root row's label), when the loader was given one. */
+  readonly label?: string;
 }
 
 /** A refusal this module makes on purpose -- an unreadable/disagreeing build
@@ -414,6 +416,7 @@ export async function loadPrepared(
     ...(p.glbKey ? { glbKey: p.glbKey } : {}),
     ...(p.counts ? { counts: p.counts } : {}),
     ...(p.warnings ? { warnings: p.warnings } : {}),
+    ...(displayName ? { label: displayName } : {}),
   };
 }
 

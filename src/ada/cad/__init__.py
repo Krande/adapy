@@ -859,14 +859,24 @@ class AdacppBackend:
             faces = [self._cad.polygon_face(world[:4])]
             for i in range(4):
                 faces.append(self._cad.polygon_face([world[i], world[(i + 1) % 4], world[4]]))
-            shape = self._cad.sew_faces(faces)
+            shape = self._solid_from_faces(faces)
         elif isinstance(g, so.FacetedBrep):
+            # A SOLID, not the sewn shell of its faces. Sewn, the outer shell is a surface: its
+            # volume reads right, but a boolean with it is not a solid boolean -- a box minus a
+            # faceted cube came out empty, and a faceted cube minus a cylinder lost only part of
+            # the bore. The faces are made into the volume they bound, whichever way they wind.
             from ada.geom import Geometry as _Geometry
             from ada.geom.booleans import BoolOpEnum
 
-            shape = self.build(_Geometry(geometry.id, g.outer))
+            shape = self._solid_from_faces(self._shell_faces(geometry.id, g.outer))
             for void in g.voids:
-                shape = self.boolean(BoolOpEnum.DIFFERENCE, shape, self.build(_Geometry(geometry.id, void)))
+                shape = self.boolean(
+                    BoolOpEnum.DIFFERENCE, shape, self._solid_from_faces(self._shell_faces(geometry.id, void))
+                )
+        elif isinstance(g, so.AdvancedBrep):
+            # A solid bounded by B-rep faces (an oblique cone's two rational B-spline faces, say):
+            # the volume they bound, as for a FacetedBrep -- a sewn shell is not a solid to a boolean.
+            shape = self._solid_from_faces(self._shell_faces(geometry.id, g.outer))
         elif isinstance(g, so.SweptDiskSolid):
             # Disk swept along the directrix; the native verb extracts the start frame and
             # builds the circular profile in C++ (robust for any directrix kind).
@@ -902,6 +912,28 @@ class AdacppBackend:
         # Apply booleans natively (operands built recursively in adacpp).
         for op in geometry.bool_operations:
             shape = self.boolean(op.operator, shape, self.build(op.second_operand))
+        return shape
+
+    def _shell_faces(self, geometry_id, shell) -> list:
+        """The face handles of a ClosedShell / OpenShell, each built on its own."""
+        from ada.geom import Geometry as _Geometry
+
+        faces = [self.build(_Geometry(geometry_id, face)) for face in shell.cfs_faces]
+        if not faces:
+            raise NotImplementedError("AdacppBackend.build: shell has no faces")
+        return faces
+
+    def _solid_from_faces(self, faces: list) -> ShapeHandle:
+        """The solid a closed set of faces bounds (BOPAlgo_MakerVolume), independent of how the
+        faces wind. More than one cell (faces that touch inside) is fused back into one solid."""
+        from ada.geom.booleans import BoolOpEnum
+
+        volumes = self._cad.make_volumes_from_faces(faces)
+        if not volumes:
+            raise ValueError("AdacppBackend.build: the faces bound no volume (the shell is not closed)")
+        shape = volumes[0]
+        for other in volumes[1:]:
+            shape = self.boolean(BoolOpEnum.UNION, shape, other)
         return shape
 
     def _loft_planar_sweep(self, g, area) -> ShapeHandle:
@@ -1057,10 +1089,12 @@ class AdacppBackend:
                 mid = self._arc_midpoint(b, p1, p2, curve.sense_agreement)
                 return [[1.0, *p1, *mid, *p2]]
             if isinstance(b, cu.Ellipse):
-                # adacpp has no ellipse edge record — sample the trimmed arc
-                # (parametric angle; trims normalized to radians at read) into
-                # a fine polyline. Profile use only, so chord error at 64
-                # segments/full-turn is well under tessellation deflection.
+                # EXACT: the ellipse edge record (kind 4, the one _encode_oriented_edge writes),
+                # trimmed between the arc's two points -- not a polyline of it. A dished end
+                # revolved from a sampled quarter ellipse was a faceted solid with a volume
+                # short by the chords. The record trims walking the parameter up from start to
+                # end, so an arc run against the ellipse is the same point set about the
+                # opposite axis (see _encode_oriented_edge).
                 c = _np.asarray(self._xyz(b.position.location), dtype=float)
                 z = _np.asarray(self._xyz(b.position.axis) if b.position.axis is not None else [0, 0, 1], dtype=float)
                 x = _np.asarray(
@@ -1079,14 +1113,27 @@ class AdacppBackend:
                     return float(_np.arctan2(float(d @ y) / sa2, float(d @ x) / sa1))
 
                 a0, a1 = _param_of(t1), _param_of(t2)
-                if curve.sense_agreement and a1 <= a0:
-                    a1 += 2.0 * _np.pi
-                elif not curve.sense_agreement and a1 >= a0:
-                    a1 -= 2.0 * _np.pi
-                n = max(8, int(abs(a1 - a0) / (2.0 * _np.pi) * 64))
-                ts = _np.linspace(a0, a1, n + 1)
-                pts = [c + sa1 * _np.cos(t) * x + sa2 * _np.sin(t) * y for t in ts]
-                return [[0.0, *[float(v) for v in p], *[float(v) for v in q]] for p, q in zip(pts[:-1], pts[1:])]
+                p0 = c + sa1 * _np.cos(a0) * x + sa2 * _np.sin(a0) * y
+                p1 = c + sa1 * _np.cos(a1) * x + sa2 * _np.sin(a1) * y
+                axis = z if curve.sense_agreement else -z
+                # The kernel's ellipse takes its MAJOR radius first and refuses a minor one there
+                # (gp_Elips: "invalid construction parameters"): a taller-than-wide quarter ellipse
+                # is the same point set with its reference turned onto the longer semi-axis.
+                if sa1 < sa2:
+                    x, sa1, sa2 = y, sa2, sa1
+                return [
+                    [
+                        4.0,
+                        *[float(v) for v in c],
+                        *[float(v) for v in axis],
+                        *[float(v) for v in x],
+                        sa1,
+                        sa2,
+                        1.0,
+                        *[float(v) for v in p0],
+                        *[float(v) for v in p1],
+                    ]
+                ]
             raise NotImplementedError(
                 f"AdacppBackend.build: TrimmedCurve basis {type(b).__name__!r} not yet ported to adacpp."
             )
@@ -1452,7 +1499,7 @@ class AdacppBackend:
         fn = getattr(self._cad, "tessellate_stream", None)
         if fn is None:
             raise NotImplementedError(
-                "this adacpp build has no tessellate_stream — rebuild adacpp (feat/libtess2-tessellator)"
+                "this adacpp build has no tessellate_stream — upgrade ada-cpp to a release that includes it"
             )
         import numpy as np
 

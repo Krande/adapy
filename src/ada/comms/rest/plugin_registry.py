@@ -74,6 +74,21 @@ def locally_requested_capabilities() -> list[str]:
         return []
 
 
+def locally_preferred_pools() -> list[str]:
+    """Pools a plugin in this process asked the worker to fetch first
+    (``ada.plugins.register_preferred_pools``); ``[]`` when there is no registry or it predates
+    the hook. Called every fetch round, so a failure is logged at DEBUG, not as an exception."""
+    registry = local_plugin_registry()
+    fn = getattr(registry, "preferred_worker_pools", None) if registry is not None else None
+    if fn is None:
+        return []
+    try:
+        return list(fn())
+    except Exception as exc:
+        logger.debug("failed to read preferred worker pools (non-fatal): %s", exc)
+        return []
+
+
 def locally_registered_spec(plugin_id: str) -> dict | None:
     """The spec this process registered for ``plugin_id``, or ``None`` — both
     for "not registered" and for "no registry here", which read the same to a

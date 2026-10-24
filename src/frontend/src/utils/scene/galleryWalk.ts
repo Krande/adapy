@@ -6,7 +6,7 @@ import {useModelState} from "@/state/modelState";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {requestRender} from "@/state/perfStore";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
-import {unhideAllRanges} from "@/utils/scene/visibility";
+import {unhideAllRangesUnrecorded as unhideAllRanges} from "@/utils/scene/visibility";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 import {query_ws_server_mesh_info} from "@/utils/mesh_select/handlers/send_mesh_selected_info_callback";
 import {computeRangeStats, DEFAULT_SPIKE_THRESHOLDS} from "@/utils/mesh_select/meshStats";

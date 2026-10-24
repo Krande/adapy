@@ -39,13 +39,19 @@ from ada.clash import ClashOptions
 from ada.clash.detail import joints_by_id
 from ada.clash.from_asset import clash_check_from_asset_node
 from ada.clash.geometry_source import (
+    NO_PROVIDER_GEOMETRY,
     GeometrySourceIndex,
     normalise_label,
     remap_group,
     remap_to_provider,
 )
 from ada.clash.group import normalise_group
-from ada.clash.group_model import GroupModelError, build_group_model, clash_check_group
+from ada.clash.group_model import (
+    GroupModelError,
+    NoProviderGeometryError,
+    build_group_model,
+    clash_check_group,
+)
 
 COLLECTION = "plant"
 MESH = "mesh-only"
@@ -73,7 +79,10 @@ class _Storage:
 
 
 def _publish(s: _Storage, *, provider, subject, revision, nodes, build_source=None, node=None) -> None:
-    spine = build_hierarchy(provider=provider, collection=COLLECTION, produced_at=revision, nodes=nodes)
+    extra = ("full_name",) if any("full_name" in n for n in nodes) else ()
+    spine = build_hierarchy(
+        provider=provider, collection=COLLECTION, produced_at=revision, nodes=nodes, extra_cols=extra
+    )
     s.blobs[asset_key(COLLECTION, subject, revision, HIERARCHY_FILENAME)] = spine.to_json()
     artefacts = [ArtefactEntry(role="hierarchy", file=HIERARCHY_FILENAME, sha256="", size=1)]
     build = None
@@ -250,6 +259,21 @@ def test_an_ambiguous_name_is_refused_with_both_candidates(storage):
     assert "2 nodes" in warning and "ref-103" in warning and "ref-104" in warning
 
 
+def test_a_row_no_readable_subject_covers_does_not_make_a_name_ambiguous(storage):
+    # The reader's collection index names the element under an id its later publish no longer uses;
+    # only the readable zone can be read, so that is the one meant.
+    _publish(
+        storage,
+        provider=READER,
+        subject=COLLECTION,
+        revision=R1,
+        nodes=[_row("ref-100", None, "/Z100-ZONE", READER, False), _row("old-105", "ref-100", "Z100-FAR", READER)],
+    )
+    new, warning = remap_to_provider(_mesh_member("/Z100-FAR"), READER, index=GeometrySourceIndex(storage))
+    assert warning is None
+    assert new["target"]["subject"] == "ref-100" and new["element"] == "Z100-FAR"
+
+
 def test_an_unknown_name_is_left_out_with_a_reason(storage):
     new, warning = remap_to_provider(_mesh_member("/LOST"), READER, index=GeometrySourceIndex(storage))
     assert new is None
@@ -291,6 +315,100 @@ def test_a_group_is_remapped_with_every_read_cached(storage):
     assert len(remap.warnings) == 2
     # One read per blob, however many members asked.
     assert len(storage.reads) == len(set(storage.reads))
+    # Each left-out member carries the row its own provider published it under: what a request
+    # for it names, without walking the tree in the browser.
+    assert [d["row"] for d in remap.unmatched_detail] == ["fn03", "fn04"]
+
+
+def _deep_fixture(s: _Storage) -> None:
+    """A frame both providers publish: the mesh-only spine three levels deep, labelled by full name;
+    the reader's spine one level shallower (its piece is a leaf), labelled by refs of its own with
+    the full names beside them."""
+    _publish(
+        s,
+        provider=MESH,
+        subject="fnframe",
+        revision=R2,
+        nodes=[
+            _row("fnframe", None, "/F1", leaf=False),
+            _row("fnpiece", "fnframe", "PIECE 1 of FRAME /F1", leaf=False),
+            _row("fnpart", "fnpiece", "PART 1 of PIECE 1 of FRAME /F1"),
+            _row("fnside", "fnframe", "PIECE 2 of FRAME /F1", leaf=False),
+            _row("fnlost", "fnside", "PART 9 of PIECE 2 of FRAME /F1"),
+        ],
+    )
+    _publish(
+        s,
+        provider=READER,
+        subject="ref-200",
+        revision=R1,
+        build_source=b"PIECE_1_of_FRAME 0 0 0 1 0 0",
+        nodes=[
+            {**_row("ref-200", None, "/F1", leaf=False), "full_name": "/F1"},
+            {**_row("ref-201", "ref-200", "=1/201"), "full_name": "PIECE 1 of FRAME /F1"},
+            {**_row("ref-202", "ref-200", "=1/202", leaf=False), "full_name": "PIECE 2 of FRAME /F1"},
+            {**_row("ref-203", "ref-202", "=1/203"), "full_name": "PART 1 of PIECE 2 of FRAME /F1"},
+        ],
+    )
+
+
+def _frame_member(element: str) -> dict:
+    target = {"kind": "node", "provider": MESH, "collection": COLLECTION, "subject": "fnframe", "revision": R2}
+    return {"target": target, "element": element, "path": []}
+
+
+def test_an_unnamed_element_is_matched_by_the_full_name_and_found_by_it(storage):
+    # The reader labels the row by its ref; its full name is the member's name, and the name the
+    # reader's objects carry, so that is what the read is asked for.
+    _deep_fixture(storage)
+    new, warning = remap_to_provider(_frame_member("PIECE 1 of FRAME /F1"), READER, index=GeometrySourceIndex(storage))
+    assert warning is None
+    assert new["target"]["subject"] == "ref-200"
+    assert new["element"] == "PIECE 1 of FRAME /F1"
+
+
+def test_an_element_below_where_the_providers_spine_stops_is_read_from_that_ancestor(storage):
+    _deep_fixture(storage)
+    new, warning = remap_to_provider(
+        _frame_member("PART 1 of PIECE 1 of FRAME /F1"), READER, index=GeometrySourceIndex(storage)
+    )
+    assert warning is None
+    assert new["target"]["subject"] == "ref-200"
+    assert new["element"] == "PART 1 of PIECE 1 of FRAME /F1"
+
+
+def test_an_element_missing_where_the_providers_spine_goes_on_is_left_out(storage):
+    # The reader publishes PIECE 2's parts, and this one is not among them.
+    _deep_fixture(storage)
+    new, warning = remap_to_provider(
+        _frame_member("PART 9 of PIECE 2 of FRAME /F1"), READER, index=GeometrySourceIndex(storage)
+    )
+    assert new is None and "left out" in warning
+
+
+def test_a_member_row_is_its_own_spines_row_disambiguated_by_path(storage):
+    index = GeometrySourceIndex(storage)
+    assert index.member_row(_mesh_member(None)) == "fnzone"
+    assert index.member_row(_mesh_member("Z100-BEAMS2")) == "fn01"
+    assert index.member_row(_mesh_member("/nowhere")) is None
+    # A name published twice is placed by the path's tail, and not at all when that does not tell.
+    _publish(
+        storage,
+        provider=MESH,
+        subject="fnzone",
+        revision=R2,
+        nodes=[
+            _row("fnzone", None, "/Z100-ZONE", leaf=False),
+            _row("fa", "fnzone", "/A", leaf=False),
+            _row("fb", "fnzone", "/B", leaf=False),
+            _row("fa1", "fa", "/BEAMS1"),
+            _row("fb1", "fb", "/BEAMS1"),
+        ],
+    )
+    index = GeometrySourceIndex(storage)
+    member = _mesh_member("/BEAMS1")
+    assert index.member_row({**member, "path": ["/Z100-ZONE", "/B", "/BEAMS1"]}) == "fb1"
+    assert index.member_row({**member, "path": ["/BEAMS1"]}) is None
 
 
 # ── the check ─────────────────────────────────────────────────────────
@@ -331,6 +449,57 @@ def test_a_group_nothing_of_which_matches_fails_by_name(storage, reader):
         )
 
 
+def test_a_group_nothing_of_which_matches_for_a_naming_reason_carries_no_code(storage, reader):
+    with pytest.raises(GroupModelError) as caught:
+        build_group_model(_group(_mesh_member("/LOST")), storage=storage, geometry_provider=READER)
+    assert not isinstance(caught.value, NoProviderGeometryError)
+    remap = remap_group(_group(_mesh_member("/LOST")), READER, storage=storage)
+    assert [d["cause"] for d in remap.unmatched_detail] == [None]
+    assert remap.empty_collections == [] and not remap.only_missing_geometry
+
+
+def test_a_provider_with_nothing_in_the_collection_is_one_structured_outcome(storage, reader):
+    members = [_mesh_member(e) for e in ("/Z100-BEAMS2", "/z100-beams3", "/LOST")]
+    remap = remap_group(_group(*members), "csg-provider", storage=storage)
+    assert remap.only_missing_geometry
+    assert remap.empty_collections == [COLLECTION]
+    assert {d["cause"] for d in remap.unmatched_detail} == {NO_PROVIDER_GEOMETRY}
+
+    with pytest.raises(NoProviderGeometryError) as caught:
+        build_group_model(_group(*members), storage=storage, geometry_provider="csg-provider")
+    exc = caught.value
+    # A GroupModelError still, so every caller that reports one keeps doing so.
+    assert isinstance(exc, GroupModelError)
+    # ONE sentence for the group, not one clause per member.
+    assert str(exc) == (
+        f"{COLLECTION} has no csg-provider geometry in this scope yet (3 members); "
+        "request it from csg-provider, then try again."
+    )
+    detail = exc.detail("export again")
+    assert detail["code"] == NO_PROVIDER_GEOMETRY == "no_provider_geometry"
+    assert detail["message"].endswith("then export again.")
+    assert detail["geometry_provider"] == "csg-provider"
+    assert detail["collections"] == [COLLECTION]
+    assert detail["members"] == 3
+    # What a request needs per member: the member itself, the name and the own-tree row.
+    # (In the normalised group's order.)
+    by_element = {u["member"]["element"]: u for u in detail["unmatched"]}
+    assert {e: u["row"] for e, u in by_element.items()} == {
+        "/Z100-BEAMS2": "fn01",
+        "/z100-beams3": "fn02",
+        "/LOST": "fn04",
+    }
+    assert all(u["label"] == e for e, u in by_element.items())
+    json.dumps(detail)  # it crosses a job boundary
+
+
+def test_the_outcome_sentence_names_every_empty_collection_and_counts_one_member():
+    one = NoProviderGeometryError("p", ["aaa"], [{"member": {}, "reason": "r"}])
+    assert str(one) == "aaa has no p geometry in this scope yet (1 member); request it from p, then try again."
+    two = NoProviderGeometryError("p", ["aaa", "bbb"], [{"member": {}}, {"member": {}}])
+    assert two.sentence("export again").startswith("aaa and bbb have no p geometry")
+
+
 def test_a_detail_rebuild_from_the_recorded_members_reproduces_the_ids(storage, reader):
     doc = clash_check_group(
         _group(_mesh_member("/Z100-BEAMS2"), _mesh_member("/z100-beams3")),
@@ -359,3 +528,50 @@ def test_a_single_node_is_checked_through_the_geometry_provider(storage, reader)
     assert member["target"]["subject"] == "ref-100" and member["element"] is None
     rebuilt = build_group_model(prov["group"], storage=storage).model
     assert {j["id"] for j in doc["joints"]} <= set(joints_by_id(rebuilt, ClashOptions.from_dict(doc["options"])))
+
+
+# ── a provider that published only a TREE ─────────────────────────────
+
+
+def _tree_only_storage() -> _Storage:
+    """The member-reader published the collection's tree (every element listed, nothing readable);
+    the mesh-only provider published the zone its members were picked in."""
+    s = _Storage()
+    _publish(
+        s,
+        provider=READER,
+        subject=COLLECTION,
+        revision=R1,
+        nodes=[_row("ref-100", None, "/Z100-ZONE", READER, False)],
+    )
+    _publish(
+        s,
+        provider=MESH,
+        subject="fnzone",
+        revision=R2,
+        nodes=[_row("fnzone", None, "/Z100-ZONE", leaf=False), _row("fn01", "fnzone", "/Z100-BEAMS2")],
+    )
+    return s
+
+
+def test_a_listed_element_with_no_readable_subject_is_a_missing_geometry_cause():
+    """The provider lists the zone (its tree names it) but no subject of it reads into objects: the
+    remedy is to ask it for the geometry, exactly as for an empty collection -- not a naming problem."""
+    remap = remap_group(_group(_mesh_member("/Z100-BEAMS2")), READER, storage=_tree_only_storage())
+    assert remap.group["members"] == []
+    assert [d["cause"] for d in remap.unmatched_detail] == [NO_PROVIDER_GEOMETRY]
+    assert remap.only_missing_geometry
+    assert remap.empty_collections == [COLLECTION]
+
+
+def test_a_tree_only_provider_fails_the_group_with_the_request_shape():
+    with pytest.raises(NoProviderGeometryError) as caught:
+        build_group_model(_group(_mesh_member("/Z100-BEAMS2")), storage=_tree_only_storage(), geometry_provider=READER)
+    assert caught.value.detail()["code"] == NO_PROVIDER_GEOMETRY
+    assert caught.value.collections == [COLLECTION]
+    assert "request it from" in str(caught.value)
+
+
+def test_an_unmatched_name_beside_readable_geometry_is_not_a_missing_geometry_cause(storage):
+    remap = remap_group(_group(_mesh_member("/LOST")), READER, storage=storage)
+    assert [d["cause"] for d in remap.unmatched_detail] == [None]

@@ -79,6 +79,41 @@ def _default_relative_placement(f):
     return None
 
 
+def _ifc_profile(area, f):
+    """An ada profile as an IFC profile def: arbitrary (any curve, an elliptical arc included) or
+    a circle (IfcCircleProfileDef, centred on the solid's position)."""
+    from ada.cadit.ifc.write.geom.surfaces import arbitrary_profile_def
+
+    if isinstance(area, geo_su.CircleProfileDef):
+        return f.create_entity("IfcCircleProfileDef", ProfileType="AREA", Radius=area.radius)
+    return arbitrary_profile_def(area, f)
+
+
+def _ifc_revolved_area_solid(ras, f):
+    from ada.cadit.ifc.write.geom.solids import revolved_area_solid
+
+    return revolved_area_solid(ras, f, profile=_ifc_profile(ras.swept_area, f))
+
+
+def _ifc_extruded_area_solid(eas, f):
+    from ada.cadit.ifc.write.geom.solids import extruded_area_solid
+
+    return extruded_area_solid(eas, f, profile=_ifc_profile(eas.swept_area, f))
+
+
+def _ifc_extruded_area_solid_tapered(eas, f):
+    from ada.cadit.ifc.write.geom.placement import direction, ifc_placement_from_axis3d
+
+    return f.create_entity(
+        "IfcExtrudedAreaSolidTapered",
+        SweptArea=_ifc_profile(eas.swept_area, f),
+        Position=ifc_placement_from_axis3d(eas.position, f),
+        ExtrudedDirection=direction(eas.extruded_direction, f),
+        Depth=eas.depth,
+        EndSweptArea=_ifc_profile(eas.end_swept_area, f),
+    )
+
+
 def update_ifc_shape(ifc_store: IfcStore, shape: Shape):
     logger.warning("Updating IFC shape not implemented yet")
 
@@ -208,6 +243,12 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         # tessellation fallback would need a kernel build these kinds don't have.
         geo_su.TriangulatedFaceSet: triangulated_face_set,
         geo_so.FacetedBrep: faceted_brep,
+        # Swept solids handed over as bare geometry (a Shape with an ada.geom solid rather than
+        # a Prim*): a revolve whose profile carries an elliptical arc, an oblique tapered
+        # extrusion. Written as the swept solid they are, not tessellated.
+        geo_so.RevolvedAreaSolid: _ifc_revolved_area_solid,
+        geo_so.ExtrudedAreaSolid: _ifc_extruded_area_solid,
+        geo_so.ExtrudedAreaSolidTapered: _ifc_extruded_area_solid_tapered,
         # Curve-only bodies (SAT wire bodies import as bare curve geometry):
         # emitted as a Curve3D representation instead of failing solid_occ().
         geo_cu.Edge: _edge_as_polyline,
@@ -243,6 +284,9 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         geo_su.ClosedShell: "AdvancedSurface",
         geo_su.TriangulatedFaceSet: "Tessellation",
         geo_so.FacetedBrep: "Brep",
+        geo_so.RevolvedAreaSolid: "SweptSolid",
+        geo_so.ExtrudedAreaSolid: "SweptSolid",
+        geo_so.ExtrudedAreaSolidTapered: "SweptSolid",
         geo_cu.Edge: "Curve3D",
         geo_cu.IndexedPolyCurve: "Curve3D",
         geo_cu.PolyLine: "Curve3D",

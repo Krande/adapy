@@ -8,7 +8,7 @@ import {viewerApi} from "@/services/viewerApi";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
-import {hasRunView, toastSkipAction, viewToastRun} from "@/services/sweepTracking";
+import {hasRunView, parentRunOf, toastSkipAction, viewToastRun, workerLabel} from "@/services/sweepTracking";
 
 // Shared dismiss button. Hit area is 28×28 (Apple HIG min is 44 but
 // the toast is dense; 28 still beats the 24 we shipped with and stays
@@ -453,11 +453,13 @@ const JobRow: React.FC<{
     const pct = Math.round((job.progress || 0) * 100);
     const isCancellable = job.status === "queued" || job.status === "running";
     const isRun = !!storeKey && (storeKey.startsWith("sweep:") || storeKey.startsWith("export:"));
+    // A watched run's worker job is named by the item it runs, not by its internal source key.
+    const label = workerLabel(job.jobId) ?? job.sourceKey;
     return (
         <div className="space-y-1 min-w-0">
             <div className="flex justify-between items-center gap-2 min-w-0">
                 <span className="truncate min-w-0 flex-1 text-gray-100" title={job.sourceKey}>
-                    {job.sourceKey}
+                    {label}
                 </span>
                 <span className="ml-2 text-gray-400 shrink-0">
                     {STATUS_LABEL[job.status] || job.status} {pct}%
@@ -501,6 +503,8 @@ const ConversionRows: React.FC<{
     onClearJob: (storeKey: string) => void;
 }> = ({jobs, onClearJob}) => {
     const [expanded, setExpanded] = useState(false);
+    const [workersOpen, setWorkersOpen] = useState(false);
+    const [workerAt, setWorkerAt] = useState(0);
     if (jobs.length === 0) return null;
     // Newest first by startedAt — most-recently kicked-off conversion
     // becomes the "top" job shown in the compact view. A watched sweep or export
@@ -512,8 +516,18 @@ const ConversionRows: React.FC<{
         (a, b) => Number(isRunKey(b.storeKey)) - Number(isRunKey(a.storeKey)) || b.startedAt - a.startedAt,
     );
     const top = sorted[0];
-    const extras = sorted.slice(1);
-    const total = jobs.length;
+    // The top run's own jobs are its WORKERS, not more conversions beside it: shown under it, one
+    // at a time or all, and left out of the "+N more" count (which would count the run twice).
+    const workers = isRunKey(top.storeKey)
+        ? sorted.slice(1).filter((j) => parentRunOf(j.jobId) === top.storeKey).sort((a, b) => a.startedAt - b.startedAt)
+        : [];
+    const extras = sorted.slice(1).filter((j) => !workers.includes(j));
+    const total = jobs.length - workers.length;
+    const at = Math.min(workerAt, Math.max(0, workers.length - 1));
+    const pager = "px-1 rounded-sm text-gray-400 hover:text-gray-100 hover:bg-gray-700 disabled:opacity-30";
+    const workerRow = (j: ToastJob) => (
+        <JobRow job={j} storeKey={j.storeKey} onCancel={() => onClearJob(j.storeKey)} showCancel={true}/>
+    );
 
     return (
         <div className="space-y-1">
@@ -523,6 +537,58 @@ const ConversionRows: React.FC<{
                 onCancel={() => onClearJob(top.storeKey)}
                 showCancel={true}
             />
+            {workers.length > 0 && (
+                <div className="pt-1 border-t border-gray-700/60 space-y-1">
+                    {workersOpen ? (
+                        <div className="space-y-2 max-h-64 overflow-auto">
+                            {workers.map((j) => (
+                                <div key={j.storeKey}>{workerRow(j)}</div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex items-start gap-1 min-w-0">
+                            {workers.length > 1 && (
+                                <div className="flex items-center shrink-0 pt-0.5">
+                                    <button type="button" className={pager} disabled={at === 0} aria-label="Previous worker" onClick={() => setWorkerAt(at - 1)}>
+                                        ‹
+                                    </button>
+                                    <span className="text-[10px] text-gray-500 tabular-nums">
+                                        {at + 1}/{workers.length}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        className={pager}
+                                        disabled={at === workers.length - 1}
+                                        aria-label="Next worker"
+                                        onClick={() => setWorkerAt(at + 1)}
+                                    >
+                                        ›
+                                    </button>
+                                </div>
+                            )}
+                            <div className="min-w-0 flex-1">{workerRow(workers[at])}</div>
+                        </div>
+                    )}
+                    {workers.length > 1 && (
+                        <button
+                            type="button"
+                            onClick={() => setWorkersOpen(!workersOpen)}
+                            className="text-[11px] text-blue-300 hover:text-blue-200 flex items-center gap-1"
+                            title={workersOpen ? "Show one worker at a time" : "Show every active worker"}
+                        >
+                            <span className="font-mono bg-blue-900/40 border border-blue-700 px-1.5 py-0.5 rounded-sm">
+                                {workersOpen ? workers.length : `+${workers.length - 1}`}
+                            </span>
+                            <span>
+                                {workersOpen
+                                    ? "active workers"
+                                    : `more active ${workers.length - 1 === 1 ? "worker" : "workers"}`}
+                            </span>
+                            <span className="ml-1">{workersOpen ? "▾" : "▸"}</span>
+                        </button>
+                    )}
+                </div>
+            )}
             {extras.length > 0 && (
                 <div className="pt-1 border-t border-gray-700/60">
                     <button

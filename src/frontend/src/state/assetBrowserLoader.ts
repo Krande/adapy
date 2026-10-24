@@ -17,6 +17,7 @@ import { parseHierarchySlice } from "@/assets/projection";
 import { levelKey, type LevelRequest } from "@/assets/spines";
 import type { TreeViewHints } from "@/assets/treeView";
 import type { AssetNode, WireAssetIndex, WireGeometryRollup, WireHierarchySlice } from "@/assets/types";
+import { sortProjects } from "@/utils/sortProjects";
 
 import type { AssetBrowserState } from "./assetBrowserStore";
 
@@ -130,7 +131,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     try {
       const all = indexFromWire(await api.getAssetIndex(scope));
       if (!alive(gen, scope, null)) return;
-      const names = [...all.collections.keys()].sort();
+      const names = sortProjects([...all.collections.keys()]);
       const cur = store.getState();
       cur.setCollections(names);
       const keep = cur.collection && names.includes(cur.collection) ? cur.collection : defaultCollection(all);
@@ -303,7 +304,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     const gen = ++generation;
     let names: string[];
     try {
-      names = [...indexFromWire(await api.getAssetIndex(scope)).collections.keys()].sort();
+      names = sortProjects([...indexFromWire(await api.getAssetIndex(scope)).collections.keys()]);
     } catch (e) {
       if (alive(gen, scope, s.collection)) store.getState().setIndexError(message(e));
       return;

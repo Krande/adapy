@@ -231,7 +231,7 @@ const AdminMetricsRows: React.FC = () => {
                 checked={collectRenderMetrics}
                 onChange={() => setCollectRenderMetrics(!collectRenderMetrics)}
                 title="Record render metrics (FPS / draw calls / GPU)"
-                blurb="Samples the render loop and posts a rolling window: FPS, CPU frame time, draw calls, and true GPU ms (timer query) so CPU-bound vs GPU-bound is clear. Adds per-frame cost — default off."
+                blurb="Samples the render loop and posts a rolling window: FPS, CPU frame time, draw calls, and true GPU ms (timer query) so CPU-bound vs GPU-bound is clear, main-thread long tasks, and a connected 3D mouse's report cadence. Adds per-frame cost — default off."
             />
         </>
     );

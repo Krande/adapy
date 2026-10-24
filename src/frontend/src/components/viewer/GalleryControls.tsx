@@ -27,6 +27,7 @@ import {
 } from "@/assets/searchExport";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {searchExportApi, type ExportDoc} from "@/services/api/searchExport";
+import {sortProjectsBy} from "@/utils/sortProjects";
 import GalleryProvenance from "./GalleryProvenance";
 
 // Gallery HUD. Three "walk" types (dropdown):
@@ -561,7 +562,8 @@ const GalleryControls: React.FC = () => {
                         </button>
                     </div>
                     <div className="grid max-h-40 grid-cols-2 gap-x-3 overflow-y-auto">
-                        {projects.map((p) => (
+                        {/* The checklist alphabetically; the walk itself keeps the export's order. */}
+                        {sortProjectsBy(projects, (p) => p.name).map((p) => (
                             <label key={p.name} className="flex min-w-0 items-center gap-1">
                                 <input type="checkbox" checked={!hiddenProjects.has(p.name)} onChange={() => toggleProject(p.name)} />
                                 <span className="truncate" title={p.name}>

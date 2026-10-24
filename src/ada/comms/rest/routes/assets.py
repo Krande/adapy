@@ -166,12 +166,21 @@ async def _scope_provider_labels(request: Request, ctx: RestContext, scope_obj: 
             aliases = parse_provider_aliases(await db_module.get_setting(pool, PROVIDER_LABELS_SETTING))
         except Exception as exc:  # noqa: BLE001 - as above
             logger.warning("asset providers: could not read %s: %s", PROVIDER_LABELS_SETTING, exc)
+    return resolve_provider_labels(provider_alias_key(scope_obj), aliases, declared, registered_provider_labels())
+
+
+def provider_alias_key(scope_obj: Scope) -> str | None:
+    """The key a scope's entry has in the admin settings keyed by scope (provider display names,
+    the per-scope collections): its path form, and for a personal scope ``user:<sub>`` -- the
+    OWNER's, which is the only personal scope a caller can reach (``user:me`` resolves to it), so
+    nobody reads another user's entry. A stored ``user:me`` key is never read: it would name every
+    user's scope at once."""
+    if scope_obj.kind == "user":
+        return f"user:{scope_obj.id}" if scope_obj.id else None
     try:
-        scope_key: str | None = scope_obj.wire()
+        return scope_obj.wire()
     except ValueError:
-        # A personal scope has no admin aliases (the Providers tab leaves personal scopes out).
-        scope_key = None
-    return resolve_provider_labels(scope_key, aliases, declared, registered_provider_labels())
+        return None
 
 
 @router.get("/scopes/{scope}/assets/providers")

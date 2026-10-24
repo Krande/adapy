@@ -9,6 +9,7 @@ import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHan
 import {setupCamera} from "./sceneHelpers/setupCamera";
 import {setupControls} from "./sceneHelpers/setupControls";
 import {setupLights} from "./sceneHelpers/setupLights";
+import {claimSceneObjects} from "@/utils/scene/ownedSceneObjects";
 import {addDynamicGridHelper} from "./sceneHelpers/addDynamicGridHelper";
 import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
@@ -22,6 +23,7 @@ import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {consumeDirty, isRenderSuspended, requestRender, usePerfStore} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
+import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -39,7 +41,6 @@ const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const {modelUrl, zIsUp, defaultOrbitController} = useModelState();
     const {showPerf} = useOptionsStore();
-    const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
     const statsRef = useRef<{
         statsArray: any[];
         callsPanel: any;
@@ -68,6 +69,10 @@ const ThreeCanvas: React.FC = () => {
         };
     }, []);
 
+    // The 3D mouse follows its Options toggle while a canvas is mounted; off,
+    // it costs nothing.
+    useEffect(() => bindSpaceMouseToOptions(), []);
+
     useEffect(() => {
         if (!containerRef.current) return;
 
@@ -84,10 +89,9 @@ const ThreeCanvas: React.FC = () => {
             sceneRef.current = scene;
         }
         const scene = sceneRef.current;
-
-        // Create the animation controller
-        modelGroupRef.current = new THREE.Group();
-
+        // The scene outlives this mount: what the mount adds to it goes
+        // through `owned`, so a rerun replaces it instead of stacking a copy.
+        const owned = claimSceneObjects(scene, "viewer-canvas");
 
         // === Renderer ===
         // Antialias is decided at construction time only; toggling the
@@ -130,11 +134,11 @@ const ThreeCanvas: React.FC = () => {
         );
 
         // === Lights ===
-        const {updateCameraLight} = setupLights(scene, camera);
+        const {updateCameraLight} = setupLights(owned, camera);
         updatelightRef.current = updateCameraLight;
 
         // === Helpers ===
-        const grid_helper = addDynamicGridHelper(scene);
+        const grid_helper = addDynamicGridHelper(owned);
 
         let gizmo: OrientationGizmo | null = null;
         if (containerRef.current && camera && controls) {
@@ -153,11 +157,6 @@ const ThreeCanvas: React.FC = () => {
                 runtime.clearB64Gltf();
             }
         }
-        if (modelGroupRef.current) {
-            // If a model is already loaded, add it to the scene
-            scene.add(modelGroupRef.current);
-        }
-
         // === Controls events for on-demand render + adaptive DPR ===
         // OrbitControls emits 'change'/'start'/'end'; CameraControls
         // uses 'update'/'controlstart'/'controlend'. Both extend the
@@ -167,7 +166,11 @@ const ThreeCanvas: React.FC = () => {
         const applyPixelRatio = (interacting: boolean) => {
             const p = usePerfStore.getState();
             const cap = interacting && p.adaptivePixelRatio ? 1.0 : p.pixelRatioCap;
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+            const ratio = Math.min(window.devicePixelRatio, cap);
+            // setPixelRatio always reassigns the canvas size, which drops and
+            // reallocates the drawing buffer even at an unchanged ratio: a
+            // visible hitch at every gesture start/end. Only pay it on a change.
+            if (renderer.getPixelRatio() !== ratio) renderer.setPixelRatio(ratio);
             requestRender();
         };
         const onControlChange = () => requestRender();
@@ -196,8 +199,13 @@ const ThreeCanvas: React.FC = () => {
         }
 
         // === Render loop ===
+        // The cleanup cancels this: an uncancelled loop outlives its mount
+        // (Fast Refresh, zIsUp / controller flips) and keeps drawing the
+        // whole scene into the shared renderer every frame, alongside the
+        // new mount's loop.
+        let rafId = 0;
         const animate = () => {
-            requestAnimationFrame(animate);
+            rafId = requestAnimationFrame(animate);
             // 1) start all stats timers
             statsArray.forEach((s) => s.begin());
 
@@ -218,6 +226,10 @@ const ThreeCanvas: React.FC = () => {
             // session is active or play isn't pressed.
             tickFeaAnimation(frameDelta);
             const feaPlaying = useFeaAnimationStore.getState().isPlaying;
+
+            // 3D-mouse motion moves the pose the controls own, so it goes in
+            // before their update. Returns at once while the device is idle.
+            tickSpaceMouse(frameDelta, camera, controls);
 
             if (controls instanceof OrbitControls) {
                 controls.update();
@@ -266,15 +278,17 @@ const ThreeCanvas: React.FC = () => {
         const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer, controls);
 
         return () => {
-            // cleanupResizeHandler();
-            // cleanupPointerHandler();
+            cancelAnimationFrame(rafId);
+            cleanupResizeHandler();
+            cleanupPointerHandler();
             // renderer.dispose();
             // containerRef.current?.removeChild(renderer.domElement);
             if (gizmo && containerRef.current?.contains(gizmo)) {
                 containerRef.current.removeChild(gizmo);
             }
             grid_helper.dispose();
-            scene.remove(grid_helper);
+            owned.dispose(); // lights, the grid: everything this mount added
+            if (updatelightRef.current === updateCameraLight) updatelightRef.current = null;
             removeKeyHandlers?.(); // cleanup key listeners
             if (interactingTimer) clearTimeout(interactingTimer);
             // Detach control-event listeners so they don't pile up on
@@ -288,6 +302,9 @@ const ThreeCanvas: React.FC = () => {
                 (controls as any).removeEventListener("controlstart", onControlStart);
                 (controls as any).removeEventListener("controlend", onControlEnd);
             }
+            // The canvas outlives the mount, so the controls' own pointer and
+            // wheel listeners on it must go too.
+            controls.dispose();
             // Clean up model scene from main scene
             // scene.clear();
 

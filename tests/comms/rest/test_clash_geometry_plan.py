@@ -657,7 +657,8 @@ def test_the_heartbeat_advertises_the_pools_that_can_read_a_provider_as_a_union_
         # Every pool this worker serves -- the default one (via `base`) as well as its own.
         assert entries["member-reader"]["readable_pools"] == [None, "one"]
         assert entries["missing-dep"]["readable_pools"] == []
-        assert entries["member-reader"]["union_fields"] == ["readable_pools"]
+        assert entries["member-reader"]["union_fields"] == ["readable_pools", "licensed_pools"]
+        assert entries["member-reader"]["licensed_pools"] == []
         # A COMBINED worker (many pools in one process) reads the provider on all of them, so a
         # check whose checker lives on one of its named pools is routable -- it used to be refused
         # as needing two pools, because a multi-pool worker was attributed to the default pool only.
@@ -666,6 +667,52 @@ def test_the_heartbeat_advertises_the_pools_that_can_read_a_provider_as_a_union_
         assert combined["member-reader"]["capability"] is None
     finally:
         clear_asset_concepts()
+
+
+def test_a_worker_on_a_licensed_seat_marks_its_pools_licensed(monkeypatch):
+    from ada.assets.concepts import clear_asset_concepts, register_asset_concepts
+    from ada.comms.rest.worker.registration import _asset_concept_readers_for_heartbeat
+
+    register_asset_concepts("member-reader", lambda: object())
+    try:
+        caps = ["seat", "seat-a", "other"]
+        monkeypatch.delenv("ADA_WORKER_LICENSED_CAPABILITIES", raising=False)
+        (entry,) = [e for e in _asset_concept_readers_for_heartbeat(caps) if e["id"] == "member-reader"]
+        assert entry["licensed_pools"] == []
+        monkeypatch.setenv("ADA_WORKER_LICENSED_CAPABILITIES", "Seat, seat-a, not-served")
+        (entry,) = [e for e in _asset_concept_readers_for_heartbeat(caps) if e["id"] == "member-reader"]
+        assert entry["licensed_pools"] == ["seat", "seat-a"]
+        assert "other" in entry["readable_pools"]
+        monkeypatch.setenv("ADA_WORKER_LICENSED_CAPABILITIES", "*")
+        (entry,) = [e for e in _asset_concept_readers_for_heartbeat(["base", *caps]) if e["id"] == "member-reader"]
+        assert entry["licensed_pools"] == ["other", "seat", "seat-a"]
+    finally:
+        clear_asset_concepts()
+
+
+@pytest.mark.asyncio
+async def test_a_read_prefers_a_pool_that_needs_no_licence():
+    from ada.comms.rest.routes.clash_check import _route_with_reader
+
+    def entry(pools, licensed):
+        return {
+            **_reader_entry(*pools),
+            "licensed_pools": licensed,
+            "union_fields": ["readable_pools", "licensed_pools"],
+        }
+
+    # The licensed pool sorts first; the licence-free one still wins.
+    ctx = _ctx({READER: entry(["a-licensed", "z-plain"], ["a-licensed"])})
+    assert await _route_with_reader(ctx, None, READER, needs="x") == "z-plain"
+    # The default pool beats both.
+    ctx = _ctx({READER: entry([None, "a-licensed"], ["a-licensed"])})
+    assert await _route_with_reader(ctx, None, READER, needs="x") is None
+    # Licensed pools are the only readers: they still serve rather than the read being refused.
+    ctx = _ctx({READER: entry(["a-licensed", "b-licensed"], ["a-licensed", "b-licensed"])})
+    assert await _route_with_reader(ctx, None, READER, needs="x") == "a-licensed"
+    # A pool the rest of the job needs is never overridden by the preference.
+    ctx = _ctx({READER: entry(["a-licensed", "z-plain"], ["a-licensed"])})
+    assert await _route_with_reader(ctx, "a-licensed", READER, needs="x") == "a-licensed"
 
 
 def test_a_combined_worker_routes_a_named_pool_checker_through_a_geometry_provider():
