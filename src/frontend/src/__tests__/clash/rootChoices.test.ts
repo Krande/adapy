@@ -5,6 +5,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+// The picker reaches `services/auth/oidc.ts` (through viewerApi), which reads `sessionStorage`
+// at module load; a bare node process has none, so stub the browser globals BEFORE the import.
+const memory = new Map<string, string>();
+const storage = {
+  getItem: (k: string): string | null => (memory.has(k) ? (memory.get(k) as string) : null),
+  setItem: (k: string, v: string): void => void memory.set(k, String(v)),
+  removeItem: (k: string): void => void memory.delete(k),
+  clear: (): void => memory.clear(),
+  key: (): string | null => null,
+  get length(): number {
+    return memory.size;
+  },
+};
+const globals = globalThis as unknown as { sessionStorage: unknown; localStorage: unknown };
+globals.sessionStorage = storage;
+globals.localStorage = storage;
+
 const { rootChoices } = await import("@/components/info_box_scene/ClashRootPicker");
 
 type Node = { id: string; name: string; children: Node[] };

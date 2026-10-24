@@ -94,7 +94,9 @@ const EXPECTED_METHODS = [
   // The mesh export's preflight and the tree request it offers.
   "meshExportPreflight", "requestTrees", "treeRequestRun",
   // Admin -> Database (adminDb).
-  "adminDbPrune", "adminDbSetRetention", "adminDbStorage", "adminDbTableRows",
+  "adminDbFoldAttr", "adminDbPrune", "adminDbPruneAttrRevisions", "adminDbSetRetention",
+  "adminDbShareAttrCollection", "adminDbShareAttrProvider", "adminDbStorage", "adminDbTableRows",
+  "adminDbUnshareAttrCollection", "adminDbUnshareAttrProvider",
 ].sort();
 
 test("viewerApi exposes exactly the pinned method set", () => {
