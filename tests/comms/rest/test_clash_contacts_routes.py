@@ -155,7 +155,12 @@ def test_the_scopes_recent_runs_name_their_target(client, frame_bytes):
         line.pop("label", None)
     index.write_bytes(json.dumps(doc).encode("utf-8"))
     later = check_glb(frame_bytes[1], target=TARGET, glb_key=GLB_KEY, engine="wasm")
-    assert client.post(f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": later.to_dict(), "annotate": False}).status_code == 200
+    assert (
+        client.post(
+            f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": later.to_dict(), "annotate": False}
+        ).status_code
+        == 200
+    )
 
     r = client.get(f"/api/scopes/{SCOPE}/clash-contacts/recent")
     assert r.status_code == 200, r.text

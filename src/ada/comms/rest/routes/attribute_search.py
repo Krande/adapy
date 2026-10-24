@@ -31,7 +31,11 @@ from fastapi.responses import JSONResponse
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
-from ..db.attribute_index import SEARCH_STATEMENT_TIMEOUT, SearchQueryError, parse_search_query
+from ..db.attribute_index import (
+    SEARCH_STATEMENT_TIMEOUT,
+    SearchQueryError,
+    parse_search_query,
+)
 from ..scope import Scope
 from .deps import require_pool, scope_from_path
 

@@ -566,9 +566,7 @@ def test_a_listed_element_with_no_readable_subject_is_a_missing_geometry_cause()
 
 def test_a_tree_only_provider_fails_the_group_with_the_request_shape():
     with pytest.raises(NoProviderGeometryError) as caught:
-        build_group_model(
-            _group(_mesh_member("/Z100-BEAMS2")), storage=_tree_only_storage(), geometry_provider=READER
-        )
+        build_group_model(_group(_mesh_member("/Z100-BEAMS2")), storage=_tree_only_storage(), geometry_provider=READER)
     assert caught.value.detail()["code"] == NO_PROVIDER_GEOMETRY
     assert caught.value.collections == [COLLECTION]
     assert "request it from" in str(caught.value)

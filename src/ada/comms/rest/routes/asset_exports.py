@@ -587,9 +587,11 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
             {
                 **_origin_fields(origin_obj, scope_obj, user),
                 # A request publishes into the scope the hits lie in; null when this user may.
-                "request_blocked": None
-                if writable[origin_obj]
-                else f"its geometry lies in {origin_obj.prefix()}, which you cannot publish into -- request it from that scope",
+                "request_blocked": (
+                    None
+                    if writable[origin_obj]
+                    else f"its geometry lies in {origin_obj.prefix()}, which you cannot publish into -- request it from that scope"
+                ),
                 "collection": collection,
                 "hits": len(rows),
                 "ready": len(by.get("ready", ())),

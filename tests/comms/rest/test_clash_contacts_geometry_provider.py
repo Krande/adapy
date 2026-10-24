@@ -39,7 +39,12 @@ from ada.assets.manifest import (  # noqa: E402
 from ada.assets.projection import build_hierarchy  # noqa: E402
 from ada.clash.sidecar import contact_id, group_geometry_sha256, parse_run  # noqa: E402
 from ada.comms.rest.app import create_app  # noqa: E402
-from ada.comms.rest.config import AuthConfig, LocalConfig, QueueConfig, Settings  # noqa: E402
+from ada.comms.rest.config import (  # noqa: E402
+    AuthConfig,
+    LocalConfig,
+    QueueConfig,
+    Settings,
+)
 
 SCOPE = "user:me"
 SCOPE_DIR = "users/local-dev"

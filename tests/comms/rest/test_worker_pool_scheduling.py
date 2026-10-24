@@ -121,7 +121,11 @@ def test_a_saturated_single_pool_stops_paying_the_walk():
 
 # ── an idle worker asks the stream instead of walking its pools ─────
 
-from ada.comms.rest.worker import CANDIDATE_FETCH_TIMEOUT, IDLE_WAIT_SECONDS, _fetch_plan  # noqa: E402
+from ada.comms.rest.worker import (  # noqa: E402
+    CANDIDATE_FETCH_TIMEOUT,
+    IDLE_WAIT_SECONDS,
+    _fetch_plan,
+)
 
 POOLS = ["base", "alpha", "beta", "gamma"]
 

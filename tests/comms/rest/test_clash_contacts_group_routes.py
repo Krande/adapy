@@ -24,7 +24,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 import ada  # noqa: E402
 from ada.clash.sidecar import contact_id, group_geometry_sha256, parse_run  # noqa: E402
 from ada.comms.rest.app import create_app  # noqa: E402
-from ada.comms.rest.config import AuthConfig, LocalConfig, QueueConfig, Settings  # noqa: E402
+from ada.comms.rest.config import (  # noqa: E402
+    AuthConfig,
+    LocalConfig,
+    QueueConfig,
+    Settings,
+)
 
 SCOPE = "user:me"
 SCOPE_DIR = "users/local-dev"
@@ -250,7 +255,11 @@ def test_a_group_run_whose_geometry_changed_is_not_detailed(client):
     _stage(client.scope_dir, doc["geometry"]["parts"][1]["key"], b"re-converted")
     d = client.post(
         f"/api/scopes/{SCOPE}/clash-contacts/detail",
-        json={"run_key": r.json()["run_key"], "contact_ids": [doc["contacts"][0]["id"]], "spec": "builtin.girder_gusset"},
+        json={
+            "run_key": r.json()["run_key"],
+            "contact_ids": [doc["contacts"][0]["id"]],
+            "spec": "builtin.girder_gusset",
+        },
     )
     assert d.status_code == 200, d.text
     status = _wait(client, d.json()["job_id"])

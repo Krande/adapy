@@ -414,7 +414,11 @@ def export_group_selection(
     and -- with ``geometry_provider`` -- every node member re-addressed to that provider's publish
     of the same element first. Returns the warnings: members that were left out, and why.
     """
-    from ada.clash.group_model import GroupModelError, NoProviderGeometryError, build_group_model
+    from ada.clash.group_model import (
+        GroupModelError,
+        NoProviderGeometryError,
+        build_group_model,
+    )
 
     try:
         built = build_group_model(group, storage=storage, geometry_provider=geometry_provider, rooted=True)

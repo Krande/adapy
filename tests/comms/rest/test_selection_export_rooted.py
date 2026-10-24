@@ -13,7 +13,8 @@ from ada.comms.rest.selection_export import scope_to_selection
 
 def _site_model(name: str = "asm", offset=(0.0, 0.0, 0.0)) -> ada.Assembly:
     deck = ada.Part("deck", placement=ada.Placement(origin=offset)) / [
-        ada.Part("frame") / [ada.Beam("bm1", (0, 0, 0), (5, 0, 0), "IPE300"), ada.Beam("bm2", (0, 0, 0), (0, 5, 0), "IPE300")],
+        ada.Part("frame")
+        / [ada.Beam("bm1", (0, 0, 0), (5, 0, 0), "IPE300"), ada.Beam("bm2", (0, 0, 0), (0, 5, 0), "IPE300")],
         ada.Part("stair") / [ada.Beam("bm3", (0, 0, 3), (5, 0, 3), "IPE300")],
     ]
     return ada.Assembly(name) / [ada.Part("site") / [deck]]

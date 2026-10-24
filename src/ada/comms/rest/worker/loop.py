@@ -16,7 +16,11 @@ from ada.config import logger
 
 from .. import db as db_module
 from ..config import load_settings
-from ..plugin_registry import discover_local_plugins, locally_preferred_pools, locally_requested_capabilities
+from ..plugin_registry import (
+    discover_local_plugins,
+    locally_preferred_pools,
+    locally_requested_capabilities,
+)
 from ..queue import JOB_STATUS_ERROR, JobQueue
 from ..storage import Storage
 from . import state

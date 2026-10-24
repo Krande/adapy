@@ -327,7 +327,11 @@ def oblique_cone(
     import numpy as np
 
     from ada.geom.curves import KnotType
-    from ada.geom.surfaces import AdvancedFace, BSplineSurfaceForm, RationalBSplineSurfaceWithKnots
+    from ada.geom.surfaces import (
+        AdvancedFace,
+        BSplineSurfaceForm,
+        RationalBSplineSurfaceWithKnots,
+    )
 
     if radius <= 0:
         raise ValueError("oblique_cone: the base radius must be positive")

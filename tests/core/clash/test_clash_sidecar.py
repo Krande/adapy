@@ -177,7 +177,10 @@ def test_member_vertices_reads_each_parts_glb_by_element_and_skips_a_changed_one
     doc["geometry"]["sha256"] = group_geometry_sha256(doc["geometry"]["parts"])
     run = parse_run(doc)
     # Both GLBs carry an element "4" and a "7"; each member is taken from its own part only.
-    by_glb = {b"A": [("4", "col", COL_MESH), ("7", "x", BEAM_MESH)], b"B": [("4", "y", COL_MESH), ("7", "beam", BEAM_MESH)]}
+    by_glb = {
+        b"A": [("4", "col", COL_MESH), ("7", "x", BEAM_MESH)],
+        b"B": [("4", "y", COL_MESH), ("7", "beam", BEAM_MESH)],
+    }
     seen_axes = []
 
     def read(glb, up_axis):

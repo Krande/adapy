@@ -695,7 +695,11 @@ async def test_a_read_prefers_a_pool_that_needs_no_licence():
     from ada.comms.rest.routes.clash_check import _route_with_reader
 
     def entry(pools, licensed):
-        return {**_reader_entry(*pools), "licensed_pools": licensed, "union_fields": ["readable_pools", "licensed_pools"]}
+        return {
+            **_reader_entry(*pools),
+            "licensed_pools": licensed,
+            "union_fields": ["readable_pools", "licensed_pools"],
+        }
 
     # The licensed pool sorts first; the licence-free one still wins.
     ctx = _ctx({READER: entry(["a-licensed", "z-plain"], ["a-licensed"])})

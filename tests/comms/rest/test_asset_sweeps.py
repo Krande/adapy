@@ -75,7 +75,9 @@ def test_every_collection_of_every_worker_in_first_seen_order():
 class _World:
     """A transport, storage and DB that answer like a finished provider job and publish."""
 
-    def __init__(self, *, fetch_summaries: dict[str, dict], fail_publish: bool = False, fail_staging: frozenset = frozenset()):
+    def __init__(
+        self, *, fetch_summaries: dict[str, dict], fail_publish: bool = False, fail_staging: frozenset = frozenset()
+    ):
         self.fetch_summaries = fetch_summaries  # collection -> provider summary
         self.fail_publish = fail_publish
         self.fail_staging = fail_staging  # staging ids whose publish fails
