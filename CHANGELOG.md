@@ -2,6 +2,17 @@
 
 
 
+## v0.119.0 (2026-10-24)
+
+### Feature
+
+* feat: a core convex-contact clash checker, measured by adacpp (#457)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`5a2969e`](https://github.com/Krande/adapy/commit/5a2969e32096b3865606fbd5112c08dec959b753))
+
+
 ## v0.118.3 (2026-10-19)
 
 ### Fix
@@ -1574,7 +1585,7 @@ Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`ec25512`](https:
 The pull-loop heartbeat livenessProbe (task #74) was emitted for EVERY worker
 pool, but only the adapy worker image writes /tmp/worker-alive. The abaqus and
 weld-gen capability pools run foreign images (adapy-viewer-worker-abaqus, an old
-base; a plugin runner) that never write it, so the probe failed every cycle
+base; asa-weld-gen-runner) that never write it, so the probe failed every cycle
 and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in turn spammed
 PodCrashLooping/PodCrashLoopingSlow alerts all night.
 
