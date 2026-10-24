@@ -1,4 +1,5 @@
-﻿import pytest
+import numpy as np
+import pytest
 
 import ada
 import ada.geom.curves as geo_cu
@@ -122,3 +123,54 @@ def test_a_profile_thinner_than_the_point_tolerance_raises_instead_of_dropping_i
     with pytest.raises(ValueError, match="tol"):
         _ = CurvePoly2d(strip).segments
     assert len(CurvePoly2d(strip, tol=1e-5).segments) == 4
+
+
+def _outline_area(segments) -> float:
+    """Area enclosed by a closed outline of line and arc segments: the shoelace area of the segment end points,
+    plus the circular-segment area of every arc (the fillets here bulge outwards from their chord)."""
+    import math
+
+    pts = [np.asarray(s.p1, dtype=float)[:2] for s in segments]
+    shoelace = 0.5 * sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1]))
+    area = abs(shoelace)
+    for s in segments:
+        if isinstance(s, ada.ArcSegment):
+            chord = np.linalg.norm(np.asarray(s.p2, dtype=float)[:2] - np.asarray(s.p1, dtype=float)[:2])
+            theta = 2 * math.asin(min(1.0, chord / (2 * s.radius)))
+            area += 0.5 * s.radius**2 * (theta - math.sin(theta))
+    return area
+
+
+def _assert_closed(segments):
+    for a, b in zip(segments, segments[1:] + segments[:1]):
+        assert np.allclose(np.asarray(a.p2, dtype=float)[:2], np.asarray(b.p1, dtype=float)[:2], atol=1e-6)
+
+
+def test_a_plain_first_corner_before_filleted_second_and_last_corners_is_kept():
+    # A rectangle with fillets on two opposite corners, started at a plain corner whose neighbours on both
+    # sides are the filleted ones.
+    W, H, R = 2.53, 3.48, 0.1
+    segments = CurvePoly2d([(0, 0), (0, H, R), (W, H), (W, 0, R)]).segments
+    assert len(segments) == 6  # four sides and two fillet arcs; each fillet removes (1 - pi/4) R^2
+    _assert_closed(segments)
+    assert _outline_area(segments) == pytest.approx(W * H - 2 * (1 - np.pi / 4) * R**2, abs=1e-6)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_every_start_and_fillet_mask_of_a_rectangle_closes_with_the_right_area(reverse):
+    import itertools
+
+    W, H, R = 2.53, 3.48, 0.1
+    corners = [(0, 0), (W, 0), (W, H), (0, H)]
+    if reverse:
+        corners = corners[::-1]
+    for mask in itertools.product([False, True], repeat=4):
+        pts = [(x, y, R) if m else (x, y) for (x, y), m in zip(corners, mask)]
+        expected = W * H - sum(mask) * (4 - np.pi) / 4 * R**2
+        for start in range(4):
+            rotated = pts[start:] + pts[:start]
+            segments = CurvePoly2d(rotated).segments
+            ctx = f"mask={mask} start={start} reverse={reverse}"
+            assert len(segments) == 4 + sum(mask), ctx
+            _assert_closed(segments)
+            assert _outline_area(segments) == pytest.approx(expected, abs=1e-6), ctx

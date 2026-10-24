@@ -325,7 +325,14 @@ class SegCreator:
                         )
                     self.curve_data.p1 = self.p1
         elif self.pseg is None:
-            pass
+            # Nothing is emitted yet: the loop's first point is a plain corner and its last point is filleted
+            # (so point 0 added no edge of its own), and this is the first filleted point after it. The edge
+            # from the first corner to this arc must be added here. Without it the closing edge, which
+            # runs to the first emitted segment's start, skips the first corner altogether.
+            if vector_length_2d(np.array(self.curve_data.p1) - self.p1) > self._tol:
+                self._seg_list.append(LineSegment(p1=self.p1, p2=self.curve_data.p1))
+            else:
+                self.curve_data.p1 = self.p1
         else:
             if vector_length_2d(self.pseg.p2 - self.curve_data.p1) < self._tol:
                 if self._debug is True:
