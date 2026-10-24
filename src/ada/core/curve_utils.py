@@ -885,8 +885,40 @@ def build_polycurve(
 
         return [LineSegment(p1=local_points2d[0], p2=local_points2d[1])]
 
+    local_points2d = _merge_repeated_points(local_points2d, is_closed)
     segc = SegCreator(local_points2d, tol=tol, debug=debug, debug_name=debug_name, is_closed=is_closed)
-    return segc.build()
+    segments = segc.build()
+    if (
+        is_closed
+        and len(local_points2d) >= 3
+        and len(segments) < 3
+        and not any(s.__class__.__name__ == "ArcSegment" for s in segments)
+    ):
+        raise ValueError(
+            f"The closed curve collapsed to {len(segments)} straight segment(s): its edges are shorter than the "
+            f"point tolerance ({tol}) and were merged away. Pass a smaller `tol` for a profile this thin or small."
+        )
+    return segments
+
+
+def _merge_repeated_points(points: list[tuple], is_closed: bool, atol: float = 1e-9) -> list[tuple]:
+    """``points`` with a vertex written twice in a row (or the last equal to the first, on a closed curve)
+    reduced to one, keeping the larger fillet radius. The zero-length edge between the two cannot be
+    normalised by the corner builder."""
+    out: list[tuple] = []
+    for p in points:
+        if out and np.linalg.norm(np.asarray(p[:2], dtype=float) - np.asarray(out[-1][:2], dtype=float)) <= atol:
+            if len(p) == 3 and (len(out[-1]) < 3 or abs(p[2]) > abs(out[-1][2])):
+                out[-1] = p
+            continue
+        out.append(p)
+    if is_closed and len(out) > 1:
+        first, last = out[0], out[-1]
+        if np.linalg.norm(np.asarray(first[:2], dtype=float) - np.asarray(last[:2], dtype=float)) <= atol:
+            if len(last) == 3 and (len(first) < 3 or abs(last[2]) > abs(first[2])):
+                out[0] = last
+            out.pop()
+    return out
 
 
 def s_curve(ramp_up_t, ramp_down_t, magnitude, sustained_time=0.0):
@@ -951,7 +983,17 @@ def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSe
     return prelim_segments
 
 
-def _without_collinear_points(points, radius_dict: dict, tol: float = 1e-9):
+#: sin of the largest turn (about 0.5 degrees) a plain point may make and still count as straight.
+_NEAR_STRAIGHT_SIN = 1e-2
+
+
+def _off_line(a, p, b) -> float:
+    """Distance from ``p`` to the line through ``a`` and ``b``."""
+    ab = b - a
+    return float(np.linalg.norm(np.cross(p - a, ab)) / np.linalg.norm(ab))
+
+
+def _without_collinear_points(points, radius_dict: dict, tol: float = 1e-9, len_tol: float = 1e-3):
     """``points`` without the interior points the path runs straight on through, and ``radius_dict``
     re-keyed to the surviving indices.
 
@@ -960,6 +1002,9 @@ def _without_collinear_points(points, radius_dict: dict, tol: float = 1e-9):
     parallel pair, and the NEXT corner is then built from the leg before the point instead of the leg
     after it, so the second bend lands a whole leg early (a U with two R74 bends and a point on the
     run between them swept 390,779 mm3 against 440,146 without the point).
+
+    A point only nearly on the line (a turn under ~0.5 degrees, and no further than ``len_tol`` off the
+    line through its neighbours) is the same hand-placed straight run and derails the loop the same way.
     """
     pts = [np.asarray(p, dtype=float) for p in points]
     keep = [0]
@@ -973,7 +1018,9 @@ def _without_collinear_points(points, radius_dict: dict, tol: float = 1e-9):
         if la < tol or lb < tol:
             keep.append(i)
             continue
-        if float(np.linalg.norm(np.cross(a, b))) / (la * lb) < tol and float(np.dot(a, b)) > 0.0:
+        sin_turn = float(np.linalg.norm(np.cross(a, b))) / (la * lb)
+        near = sin_turn < _NEAR_STRAIGHT_SIN and _off_line(pts[keep[-1]], pts[i], pts[i + 1]) < len_tol
+        if float(np.dot(a, b)) > 0.0 and (sin_turn < tol or near):
             continue
         keep.append(i)
     keep.append(len(pts) - 1)
@@ -988,7 +1035,7 @@ def segments3d_from_points3d(
     from ada.api.curves import ArcSegment, LineSegment
 
     if isinstance(radius_dict, dict) and radius_dict:
-        points, radius_dict = _without_collinear_points(points, radius_dict)
+        points, radius_dict = _without_collinear_points(points, radius_dict, len_tol=len_tol)
 
     prelim_segments = line_segments3d_from_points3d(points)
 

@@ -1,4 +1,4 @@
-import math
+﻿import math
 
 import numpy as np
 import pytest
@@ -250,3 +250,18 @@ def test_swept_beam_follows_a_planar_curve():
     mesh = _stream_mesh(bm)
     assert mesh.is_watertight
     assert mesh.volume == pytest.approx(TUBE_AREA * (5 + math.sqrt(50)), rel=0.03)
+
+
+def test_sweep_a_closed_ring_path():
+    # A path that returns to its start (two half circles) has no start-to-end chord to take the beam
+    # axis from; the sweep used to fail on a zero vector.
+    ring_r = 2.0
+    ring = gc.IndexedPolyCurve(
+        [
+            gc.ArcLine((ring_r, 0, 0), (0, ring_r, 0), (-ring_r, 0, 0)),
+            gc.ArcLine((-ring_r, 0, 0), (0, -ring_r, 0), (ring_r, 0, 0)),
+        ]
+    )
+    bm = BeamSweep("ring", ring, SEC_TUBE)
+    mesh = _stream_mesh(bm)
+    assert mesh.volume == pytest.approx(TUBE_AREA * 2 * math.pi * ring_r, rel=0.03)

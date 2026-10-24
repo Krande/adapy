@@ -1,5 +1,8 @@
+﻿import pytest
+
 import ada
 import ada.geom.curves as geo_cu
+from ada.api.curves import CurvePoly2d
 from ada.core.curve_utils import segments3d_from_points3d
 
 
@@ -53,7 +56,7 @@ def test_make_3d_segments_short_leg_between_bends():
     for a, b in zip(segments[:-1], segments[1:]):
         assert a.p2.is_equal(b.p1), f"discontinuity: {a.p2} != {b.p1}"
 
-    # An even shorter leg (0.05 m) used to crash on a None arc midpoint — must not.
+    # An even shorter leg (0.05 m) used to crash on a None arc midpoint â€” must not.
     tight = [ada.Point(*p) for p in [(0, 0, 0), (1, 0, 0), (1, 0.05, 0), (2, 0.05, 0)]]
     tight_segments = segments3d_from_points3d(tight, radius=0.3)
     for a, b in zip(tight_segments[:-1], tight_segments[1:]):
@@ -87,3 +90,35 @@ def test_a_plain_point_between_two_filleted_corners_does_not_move_the_second_ben
     ]
     assert shape(run(plain)) == expected
     assert shape(run(with_mid)) == expected
+
+
+def test_a_plain_point_a_fraction_of_a_millimetre_off_the_run_is_straight():
+    # The same U as above, with the point between the bends 0.12 mm off the line of its neighbours (a
+    # turn of 0.05 degrees): a hand-placed straight run, not a corner.
+    r = 0.074
+    expected = [
+        ("LineSegment", 0.089),
+        ("ArcSegment", 0.10465),
+        ("LineSegment", 0.14),
+        ("ArcSegment", 0.10465),
+        ("LineSegment", 0.089),
+    ]
+    pts = [ada.Point(*p) for p in [(0, 0.163, 0), (0, 0, 0), (-0.144, 0.00012, 0), (-0.288, 0, 0), (-0.288, 0.163, 0)]]
+    segments = segments3d_from_points3d(pts, radius_dict={1: r, 3: r})
+    assert [(type(s).__name__, round(s.length, 5)) for s in segments] == expected
+
+
+def test_a_profile_vertex_written_twice_is_one_corner():
+    # A repeated vertex, the second carrying a fillet, left a zero-length edge the corner builder could not
+    # normalise.
+    plain = CurvePoly2d([(0, 0), (2, 0), (2, 1), (0, 1)])
+    repeated = CurvePoly2d([(0, 0), (2, 0), (2, 1), (2, 1, 0.2), (0, 1)])
+    assert len(plain.segments) == 4
+    assert len(repeated.segments) == 5  # four sides and the fillet arc at (2, 1)
+
+
+def test_a_profile_thinner_than_the_point_tolerance_raises_instead_of_dropping_its_ends():
+    strip = [(0, 0), (1, 0), (1, 0.0005), (0, 0.0005)]  # 0.5 mm wide, 1 m long
+    with pytest.raises(ValueError, match="tol"):
+        _ = CurvePoly2d(strip).segments
+    assert len(CurvePoly2d(strip, tol=1e-5).segments) == 4
