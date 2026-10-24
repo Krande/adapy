@@ -150,8 +150,30 @@ def _build_with(reg, spec_name: str, jid: str, found, gen_options) -> "list[Any]
             # A builder's own prerequisites can be finer than a spec's criteria express; the other
             # joints in the batch are still worth building. Only a run where NOTHING built fails.
             return f"{type(exc).__name__}: {exc}"
+        _record_connection(conn, reg.spec.name, landing=landing, incoming=incoming, centre=found.centre)
         built.append(conn)
     return built
+
+
+def _record_connection(conn, spec_name: str, *, landing, incoming, centre) -> None:
+    """Give a builder's connection the ``connection_info`` record the take-off reads, when the
+    builder wrote none. The built-in specs write their own; a provider's builder is not asked to, and
+    without it the take-off listed its joint with no members, no plates and no welds."""
+    from ada.api.connections.joints import Connection
+
+    if not isinstance(conn, Connection):
+        return
+    metadata = conn.metadata
+    if metadata.get("connection_info"):
+        return
+    metadata["connection_info"] = {
+        "name": conn.name,
+        "spec_name": getattr(conn, "spec_name", None) or spec_name,
+        "member_roles": {"landing": [landing.name], "incoming": [incoming.name]},
+        "plate_names": [p.name for p in conn.plates],
+        "weld_names": [w.name for w in conn.welds],
+        "centre": [round(float(v), 4) for v in centre] if centre is not None else None,
+    }
 
 
 def _fallbacks(registered, found) -> list:

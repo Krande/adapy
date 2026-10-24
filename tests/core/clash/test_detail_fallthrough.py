@@ -126,3 +126,24 @@ def test_when_every_candidate_declines_the_joint_names_each_reason():
             get_registered("prov.stub"), spec_name="prov.stub", joint_ids=["j1"], by_id={"j1": _joint()}, gen_options={}
         )
     assert "prov.stub: needs cuts" in str(err.value) and "prov.plain: needs a gap" in str(err.value)
+
+
+def test_a_providers_connection_is_recorded_for_the_takeoff():
+    """A builder that returns a Connection and writes no ``connection_info`` still shows its members
+    and welds in the take-off, instead of a joint with none."""
+
+    @register_connection(_spec("prov.welded", 10, "pool-x"))
+    def welded(*, landing, incoming, name="welded", **_):
+        conn = ada.Connection(name=name, spec_name="prov.welded")
+        conn.add_weld(
+            ada.Weld("w1", p1=(0, 0, 0), p2=(0.3, 0, 0), xdir=(0, 0, 1), throat=0.005, members=(incoming, landing))
+        )
+        return conn
+
+    _, stats = build_detail(
+        get_registered("prov.welded"), spec_name="prov.welded", joint_ids=["j1"], by_id={"j1": _joint()}, gen_options={}
+    )
+    (item,) = stats["joints"]["items"]
+    assert item["welds"] == 1 and item["plates"] == 0
+    assert item["members"] == ["incoming", "landing"]
+    assert item["centre"] == [1.0, 0.0, 0.0]
