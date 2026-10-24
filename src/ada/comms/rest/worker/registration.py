@@ -22,7 +22,7 @@ from .advertise import (
     _capture_worker_packages,
     _gate_advertised_engines,
 )
-from .pools import _declared_capabilities, _worker_id
+from .pools import _declared_capabilities, _worker_id, licensed_pools
 
 
 @dataclass
@@ -220,6 +220,10 @@ def _asset_concept_readers_for_heartbeat(capabilities: list[str]) -> list[dict]:
     except Exception:
         logger.exception("worker: listing concepts readers failed (non-fatal)")
         return []
+    # The pools of this worker that need a licence or a desktop session to run anything. A job that
+    # merely READS through a provider prefers a pool that does not (``routes/clash_check.py``).
+    licensed = licensed_pools(capabilities)
+    licensed_served = [p for p in serves if p is not None and p in licensed]
     out: list[dict] = []
     for row in rows:
         readable = bool(row.get("available", True))
@@ -230,7 +234,8 @@ def _asset_concept_readers_for_heartbeat(capabilities: list[str]) -> list[dict]:
                 "readable": readable,
                 "capability": own_capability,
                 "readable_pools": serves if readable else [],
-                "union_fields": ["readable_pools"],
+                "licensed_pools": licensed_served if readable else [],
+                "union_fields": ["readable_pools", "licensed_pools"],
             }
         )
     return out

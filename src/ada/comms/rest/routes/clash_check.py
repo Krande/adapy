@@ -180,12 +180,26 @@ def _readable_pools(entry: dict | None) -> set[str | None]:
     return {capability_token(cap) or None if isinstance(cap, str) and cap.strip() else None}
 
 
+def _licensed_pools(entry: dict | None) -> set[str]:
+    """Pools whose workers need a licence or session, from the entry's unioned ``licensed_pools``."""
+    pools = (entry or {}).get("licensed_pools")
+    if not isinstance(pools, list):
+        return set()
+    return {capability_token(p) for p in pools if isinstance(p, str) and capability_token(p)}
+
+
+async def _reader_entry(ctx: RestContext, provider: str) -> dict | None:
+    if ctx.jobs.kind == "local":
+        return None
+    return (await ctx.jobs.advertised_specs("asset_concept_readers")).get(provider)
+
+
 async def _reader_pools(ctx: RestContext, provider: str) -> set[str | None]:
     if ctx.jobs.kind == "local":
         # No pools: the reader is in this process or nowhere.
         row = next((r for r in _local_concept_readers(ctx) if r["slug"] == provider), None)
         return {None} if row is not None and row["readable"] else set()
-    return _readable_pools((await ctx.jobs.advertised_specs("asset_concept_readers")).get(provider))
+    return _readable_pools(await _reader_entry(ctx, provider))
 
 
 def _pool_name(pool: str | None) -> str:
@@ -201,13 +215,15 @@ async def _route_with_reader(ctx: RestContext, pool: str | None, provider: str |
     there with "cannot be read into objects". So the reader's pools are a second constraint --
 
     * no live worker reads the provider: refused by name (409), not enqueued to fail;
-    * the rest of the job runs anywhere: the reader's pool (the default pool when one reads it there);
+    * the rest of the job runs anywhere: the reader's pool (the default pool when one reads it there,
+      else a pool that needs no licence, else a licensed one -- see ``licensed_pools``);
     * the rest needs a pool that also reads the provider: that pool;
     * the rest needs a pool that does not: refused (409) naming both, because one job runs on one pool.
     """
     if not provider:
         return pool
-    pools = await _reader_pools(ctx, provider)
+    entry = await _reader_entry(ctx, provider)
+    pools = await _reader_pools(ctx, provider) if ctx.jobs.kind == "local" else _readable_pools(entry)
     if not pools:
         where = "this viewer cannot" if ctx.jobs.kind == "local" else "no live worker can"
         raise HTTPException(
@@ -218,7 +234,13 @@ async def _route_with_reader(ctx: RestContext, pool: str | None, provider: str |
             ),
         )
     if pool is None:
-        return None if None in pools else sorted(p for p in pools if p is not None)[0]
+        if None in pools:
+            return None
+        # Reading is not licensed work: a pool that needs no licence or session is preferred over one
+        # that does, whatever it sorts like. Only when licensed pools are the sole readers do they serve.
+        named = sorted(p for p in pools if p is not None)
+        licensed = _licensed_pools(entry)
+        return next((p for p in named if p not in licensed), named[0])
     if pool in pools:
         return pool
     readers = ", ".join(_pool_name(p) for p in sorted(pools, key=lambda p: (p is not None, p or "")))

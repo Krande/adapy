@@ -110,6 +110,23 @@ def _worker_id() -> str:
     return os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
 
 
+def licensed_pools(capabilities: list[str]) -> set[str]:
+    """The pools (capability tokens) among ``capabilities`` that need a licence or an interactive
+    session to run anything.
+
+    ``ADA_WORKER_LICENSED_CAPABILITIES`` is a comma list of capabilities, or ``*`` for every one the
+    worker serves. Whoever launches a worker on a licensed seat sets it; nothing is inferred from a
+    pool's name. It does not change what the worker serves, only what the API prefers when a job
+    could run on a licence-free pool instead (:func:`routes.clash_check._route_with_reader`).
+    """
+    raw = os.environ.get("ADA_WORKER_LICENSED_CAPABILITIES", "")
+    names = [c.strip() for c in raw.split(",") if c.strip()]
+    tokens = {t for c in capabilities if (t := capability_token(c))}
+    if "*" in names:
+        return {t for t in tokens if t != "base"}
+    return {t for c in names if (t := capability_token(c)) and t in tokens}
+
+
 def _declared_capabilities() -> list[str]:
     """What this worker advertises, after subtracting any disabled by env.
 
