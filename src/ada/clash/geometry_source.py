@@ -499,6 +499,12 @@ def remap_to_provider(
     )
 
 
+class _MissingGeometry(str):
+    """A warning that is a missing-geometry one: the provider LISTS the element (its tree names it)
+    but published no subject that reads into objects there -- a tree-only export. The remedy is the
+    same as for an empty collection (ask the provider for the geometry), so the caller tags it."""
+
+
 def _node_target(provider: str, collection: str, spine: _Spine) -> dict:
     return {
         "kind": "node",
@@ -531,9 +537,9 @@ def _found_in_cover(
     the row itself when it is a subject, else a subject whose spine lists it."""
     covers = catalog.covers(node_id)
     if not covers:
-        return None, (
+        return None, _MissingGeometry(
             f"{_describe(member)}: provider {provider!r} lists {label!r} ({node_id}) but publishes no "
-            "subject covering it that can be read into objects; left out"
+            "subject covering it that can be read into objects (only its tree is published here); left out"
         )
     # The narrowest cover: the smallest read, and the fewest other objects to share the name with.
     cover = min(covers, key=lambda s: (len(s.rows), s.subject))
@@ -610,7 +616,12 @@ def remap_group(group: Mapping[str, Any], provider: str, *, storage: Any) -> Geo
             # The row its own provider published it under, so a request for it needs no tree walk.
             row = index.member_row(member) if target.get("kind") == "node" else None
             # Nothing of the provider in the collection at all (a cached catalog, no further read).
-            empty = target.get("kind") == "node" and not index.catalog(str(target["collection"]), provider).spines
+            # ... or only a TREE of it: subjects, but none that reads into objects (a tree-only export
+            # lists every element and holds the geometry of none), or a listed element none covers.
+            empty = target.get("kind") == "node" and (
+                isinstance(warning, _MissingGeometry)
+                or not any(s.readable for s in index.catalog(str(target["collection"]), provider).spines)
+            )
             unmatched_detail.append(
                 {
                     "member": dict(member),

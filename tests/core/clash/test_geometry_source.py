@@ -528,3 +528,52 @@ def test_a_single_node_is_checked_through_the_geometry_provider(storage, reader)
     assert member["target"]["subject"] == "ref-100" and member["element"] is None
     rebuilt = build_group_model(prov["group"], storage=storage).model
     assert {j["id"] for j in doc["joints"]} <= set(joints_by_id(rebuilt, ClashOptions.from_dict(doc["options"])))
+
+
+# ── a provider that published only a TREE ─────────────────────────────
+
+
+def _tree_only_storage() -> _Storage:
+    """The member-reader published the collection's tree (every element listed, nothing readable);
+    the mesh-only provider published the zone its members were picked in."""
+    s = _Storage()
+    _publish(
+        s,
+        provider=READER,
+        subject=COLLECTION,
+        revision=R1,
+        nodes=[_row("ref-100", None, "/Z100-ZONE", READER, False)],
+    )
+    _publish(
+        s,
+        provider=MESH,
+        subject="fnzone",
+        revision=R2,
+        nodes=[_row("fnzone", None, "/Z100-ZONE", leaf=False), _row("fn01", "fnzone", "/Z100-BEAMS2")],
+    )
+    return s
+
+
+def test_a_listed_element_with_no_readable_subject_is_a_missing_geometry_cause():
+    """The provider lists the zone (its tree names it) but no subject of it reads into objects: the
+    remedy is to ask it for the geometry, exactly as for an empty collection -- not a naming problem."""
+    remap = remap_group(_group(_mesh_member("/Z100-BEAMS2")), READER, storage=_tree_only_storage())
+    assert remap.group["members"] == []
+    assert [d["cause"] for d in remap.unmatched_detail] == [NO_PROVIDER_GEOMETRY]
+    assert remap.only_missing_geometry
+    assert remap.empty_collections == [COLLECTION]
+
+
+def test_a_tree_only_provider_fails_the_group_with_the_request_shape():
+    with pytest.raises(NoProviderGeometryError) as caught:
+        build_group_model(
+            _group(_mesh_member("/Z100-BEAMS2")), storage=_tree_only_storage(), geometry_provider=READER
+        )
+    assert caught.value.detail()["code"] == NO_PROVIDER_GEOMETRY
+    assert caught.value.collections == [COLLECTION]
+    assert "request it from" in str(caught.value)
+
+
+def test_an_unmatched_name_beside_readable_geometry_is_not_a_missing_geometry_cause(storage):
+    remap = remap_group(_group(_mesh_member("/LOST")), READER, storage=storage)
+    assert [d["cause"] for d in remap.unmatched_detail] == [None]

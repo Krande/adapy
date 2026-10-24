@@ -152,7 +152,7 @@ def _load_through_provider(run, storage, geometry_provider: str) -> tuple[object
 
     if run.target.get("kind") == "group":
         members = list((run.group or {}).get("members") or ())
-        models, errors = [], []
+        models, errors, causes = [], [], []
         for k, part in enumerate(run.parts):
             source = _normal_target(part["source"])
             mine = [m for m in members if _normal_target(m["target"]) == source]
@@ -164,9 +164,14 @@ def _load_through_provider(run, storage, geometry_provider: str) -> tuple[object
                     f"clash contacts: part {k} of run {run.run_id} not read from {geometry_provider!r}: {exc}"
                 )
                 models.append(None)
+                causes.append(exc)
                 errors.append(f"part {k}: {type(exc).__name__}: {exc}")
         if all(m is None for m in models):
-            raise ContactsJobError(f"no model of this group was read from {geometry_provider!r}: " + "; ".join(errors))
+            failure = ContactsJobError(
+                f"no model of this group was read from {geometry_provider!r}: " + "; ".join(errors)
+            )
+            failure.parts = tuple(causes)
+            raise failure
         model = models
     elif run.target.get("kind") == "node":
         t = run.target
@@ -220,6 +225,22 @@ def _check_geometry_unchanged(run, storage) -> None:
 _GEOMETRY_PROVENANCE = ("geometry_provider", "geometry_remap", "geometry_unmatched", "geometry_warnings")
 
 
+def _no_geometry_detail(exc: BaseException) -> dict | None:
+    """The machine-readable form of a failure that is "the provider has no geometry for these
+    members" (``NoProviderGeometryError``), found through the ``ContactsJobError`` a group run wraps
+    it in; None for any other failure."""
+    from ada.clash.group_model import NoProviderGeometryError
+
+    if isinstance(exc, NoProviderGeometryError):
+        d = exc.detail()
+        return {k: d[k] for k in ("code", "geometry_provider", "collections", "unmatched")}
+    for part in getattr(exc, "parts", ()):  # a group run: the first part's cause stands for all
+        found = _no_geometry_detail(part)
+        if found:
+            return found
+    return None
+
+
 def _annotate(run, storage, capability_of, progress, geometry_provider: str | None = None):
     """The run with its specs and roles resolved. A target that does not rebuild still gets ROLES --
     from the members' meshes in the GLB the run measured -- and says why it has no specs.
@@ -234,6 +255,7 @@ def _annotate(run, storage, capability_of, progress, geometry_provider: str | No
 
     progress("members", 0.5)
     error = None
+    error_detail: dict | None = None
     geometry: dict = {}
     if run.target.get("kind") == "file":
         geometry_provider = None
@@ -242,6 +264,7 @@ def _annotate(run, storage, capability_of, progress, geometry_provider: str | No
     except Exception as exc:  # noqa: BLE001 - a run without specs is still a run
         logger.warning(f"clash contacts: specs not resolved, the target did not rebuild: {exc}")
         model, error = None, f"{type(exc).__name__}: {exc}"
+        error_detail = _no_geometry_detail(exc)
         if geometry_provider:
             geometry = {"geometry_provider": geometry_provider}
     annotated, unbound = cc.annotate_applicable(
@@ -250,7 +273,9 @@ def _annotate(run, storage, capability_of, progress, geometry_provider: str | No
     provenance = {k: v for k, v in annotated.provenance.items() if k not in _GEOMETRY_PROVENANCE}
     provenance.update(geometry)
     if error is not None:
-        provenance["applicability"] = {"error": error}
+        # `code`/`geometry_provider`/`unmatched` (the ``no_provider_geometry`` shape) when the provider
+        # only has a tree here: what a client needs to offer "request the geometry".
+        provenance["applicability"] = {"error": error, **(error_detail or {})}
     elif unbound:
         logger.info(f"clash contacts: {unbound} clash(es) of run {run.run_id} did not bind to rebuilt members")
     return replace(annotated, provenance=provenance)

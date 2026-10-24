@@ -320,3 +320,35 @@ def test_a_file_run_has_no_provider_so_the_choice_is_dropped(client):
     answer, run = _annotated(client, key, geometry_provider=READER)
     assert answer["geometry_provider"] is None
     assert "geometry_provider" not in run.provenance
+
+
+def test_a_provider_with_only_a_tree_says_the_geometry_must_be_requested(client, reader, tmp_path, monkeypatch):
+    """The provider lists the zone (a tree-only export) but publishes no subject that reads into
+    objects: the run's applicability carries the ``no_provider_geometry`` shape, so a client can
+    offer to request the geometry instead of showing an opaque failure."""
+    monkeypatch.setitem(globals(), "COLLECTION", "yard")
+    scope_dir = tmp_path / SCOPE_DIR
+    _publish(
+        scope_dir,
+        provider=MESH,
+        subject="fnyard",
+        revision=R2,
+        nodes=[_row("fnyard", None, "/Y1-ZONE", leaf=False), _row("fn01", "fnyard", "/Y1-BEAMS2")],
+    )
+    _publish(
+        scope_dir,
+        provider=READER,
+        subject="yard",
+        revision=R1,
+        nodes=[_row("ref-1", None, "/Y1-ZONE", leaf=False)],
+    )
+    target = {"kind": "node", "collection": "yard", "subject": "fnyard", "revision": R2}
+    doc = _run(target, [{"id": "11", "name": "/Y1-BEAMS2"}, {"id": "12", "name": "/Y1-BEAMS3"}])
+    key = client.post(f"/api/scopes/{SCOPE}/clash-contacts/runs", json={"run": doc, "annotate": False}).json()[
+        "run_key"
+    ]
+    _, run = _annotated(client, key, geometry_provider=READER)
+    applicability = run.provenance["applicability"]
+    assert applicability["code"] == "no_provider_geometry"
+    assert applicability["geometry_provider"] == READER and applicability["collections"] == ["yard"]
+    assert "request it from" in applicability["error"]
