@@ -156,6 +156,8 @@ class FEAResultStreamAdapter:
         self._geom: MeshGeometry | None = None
         self._field_specs: list[FieldSpec] | None = None
         self._elem_field_specs: list[ElementFieldSpec] | None = None
+        # {(field name, element type): element labels in the spec's order}, set by element_field_specs.
+        self._elem_field_labels: dict[tuple[str, str], list[int]] = {}
         # Optional FEA input concepts (masses / BCs / load scenarios) as a manifest-shaped
         # dict. SIF/SIN leave this None; the FEM reader (_make_fem_reader) scrapes it from the
         # deck so the Scene > FEM panel can draw the glyph overlay.
@@ -412,12 +414,33 @@ class FEAResultStreamAdapter:
         results = self._result.get_results_grouped_by_field_value().get(field_name, [])
         sorted_results = sorted(results, key=lambda r: r.step)
         for i, r in enumerate(sorted_results):
-            arr = np.asarray(r.get_all_values())
+            arr = self._dense_nodal_values(r, np.asarray(r.get_all_values()), spec.n_points)
             yield StepValues(
                 step_index=i,
                 step_value=spec.step_values[i],
                 values=arr,
             )
+
+    def _dense_nodal_values(self, result, arr: np.ndarray, n_points: int) -> np.ndarray:
+        """``arr`` (one row per row of ``result``) as one row per mesh point.
+
+        A field normally has a row for every node, in mesh order, and is passed through as
+        is. Some steps have fewer: Sestra writes no displacement record for a node without
+        degrees of freedom, so one load case of a deck can list fewer nodes than another.
+        Those rows are placed by their node id (column 0 of a nodal field). A node with no
+        row gets zero displacement -- it has no degree of freedom to move -- and, for any
+        other field, NaN, which the viewer shows as "no value"."""
+        if arr.shape[0] == n_points:
+            return arr
+        from ada.fem.results.field_data import NodalFieldType
+
+        node_ids = np.asarray(result.values, dtype=float)[:, 0].astype(np.int64)
+        rows = np.array([self._nmap.get(int(n), -1) for n in node_ids], dtype=np.int64)
+        known = rows >= 0
+        fill = 0.0 if getattr(result, "field_type", None) == NodalFieldType.DISP else np.nan
+        out = np.full((n_points,) + arr.shape[1:], fill, dtype=np.result_type(arr.dtype, np.float32))
+        out[rows[known]] = arr[known]
+        return out
 
     def _grouped_element_fields(self):
         """Group ``ElementFieldData`` rows by ``(name, elem_type)``.
@@ -492,12 +515,26 @@ class FEAResultStreamAdapter:
                     f"{vals.shape[0]} is not a multiple of n_ips={n_ips}; "
                     f"likely a ragged IP layout the bake doesn't yet handle."
                 )
-            n_elements = vals.shape[0] // n_ips
             # Element labels appear once per element (we stride by n_ips
             # through col 0). Row order from the reader becomes the
             # spec's canonical order — manifest carries it so the
-            # frontend can map ``label → bucket index``.
+            # frontend can map ``label → bucket index``. A later step may
+            # list elements the first does not (or omit some: a load case
+            # that leaves part of the model unloaded writes no forces there),
+            # so the canonical list is every element any step lists, the
+            # first step's in its order and the others' after them.
             labels = vals[::n_ips, 0].astype(int).tolist()
+            seen = set(labels)
+            for later in sorted_items[1:]:
+                later_vals = np.asarray(later.values)
+                if later_vals.ndim != 2 or later_vals.shape[0] % n_ips:
+                    continue  # iter_element_field_steps reports it
+                for label in later_vals[::n_ips, 0].astype(int).tolist():
+                    if label not in seen:
+                        seen.add(label)
+                        labels.append(label)
+            self._elem_field_labels[(name, elem_type_str)] = labels
+            n_elements = len(labels)
 
             step_values = [float(r.eigen_freq if r.eigen_freq is not None else r.step) for r in sorted_items]
             ip_layout = _ip_layout_from_int_positions(getattr(first, "int_positions", None))
@@ -543,26 +580,34 @@ class FEAResultStreamAdapter:
             )
 
         n_components = len(spec.components)
+        if (spec.name, spec.elem_type) not in self._elem_field_labels:
+            self._elem_field_specs = None
+            self.element_field_specs()
+        labels = self._elem_field_labels[(spec.name, spec.elem_type)]
+        position = None
         for i, r in enumerate(sorted_items):
-            vals = np.asarray(r.values, dtype=np.float32)
-            if vals.shape != (spec.n_elements * spec.n_ips, vals.shape[1]):
+            # Not float32 yet: column 0 is the element id, and float32 holds integers exactly
+            # only up to 2**24 -- element 21000001 would come back as 21000000. The components
+            # are cast below, the ids never.
+            vals = np.asarray(r.values, dtype=np.float64)
+            if vals.ndim != 2 or vals.shape[0] % spec.n_ips:
                 raise ValueError(
                     f"element field {spec.name!r} step {r.step} has shape "
-                    f"{vals.shape}; expected ({spec.n_elements * spec.n_ips}, ...)."
+                    f"{vals.shape}; expected a multiple of n_ips={spec.n_ips} rows."
                 )
-            per_elem = vals.reshape(spec.n_elements, spec.n_ips, -1)
+            per_elem = vals.reshape(-1, spec.n_ips, vals.shape[1])
+            step_labels = per_elem[:, 0, 0].astype(np.int64)
             # First 2 columns are (elem_label, ip_index); strip them.
-            comp_vals = per_elem[:, :, 2 : 2 + n_components]
-            # Verify label alignment with the spec's canonical order —
-            # readers that emit rows in different orders between steps
-            # would silently mis-correlate.
-            step_labels = [self._shown_elem(label) for label in per_elem[:, 0, 0].astype(int).tolist()]
-            if step_labels != spec.element_labels:
-                raise ValueError(
-                    f"element field {spec.name!r} step {r.step} label order "
-                    f"differs from spec; reader yielded different element "
-                    f"order between steps."
-                )
+            if per_elem.shape[0] == spec.n_elements and np.array_equal(step_labels, labels):
+                comp_vals = per_elem[:, :, 2 : 2 + n_components]
+            else:
+                # This step lists other elements, or the same ones in another order:
+                # placed by label, and an element it does not list has no value.
+                if position is None:
+                    position = {label: k for k, label in enumerate(labels)}
+                rows = np.array([position[int(label)] for label in step_labels], dtype=np.int64)
+                comp_vals = np.full((spec.n_elements, spec.n_ips, n_components), np.nan, dtype=np.float32)
+                comp_vals[rows] = per_elem[:, :, 2 : 2 + n_components]
             yield ElementStepValues(
                 step_index=i,
                 step_value=spec.step_values[i],
@@ -649,6 +694,11 @@ class FEAResultStreamAdapter:
                 continue
             if elem.fem_sec.local_z is None:
                 extra_skip["missing-local-z"] = extra_skip.get("missing-local-z", 0) + 1
+                continue
+            if not np.any(np.asarray(n1_node.p, dtype=float) != np.asarray(n0_node.p, dtype=float)):
+                # Both ends on one point (a coupling link modelled as a beam): no axis
+                # to extrude the profile along.
+                extra_skip["zero-length"] = extra_skip.get("zero-length", 0) + 1
                 continue
 
             beam = line_elem_to_beam(elem, dummy_part, "BM")

@@ -481,7 +481,12 @@ class Mesh:
             so_bm_node = graph.add_node(
                 GraphNode(parent_name + "_liSO", graph.next_node_id(), hash=create_guid(), parent=parent_node)
             )
-            beams = [line_elem_to_beam(elem, dummy_part, "BM") for elem in line_elems]
+            # A zero-length element (both ends on one point) has no axis to draw a profile along.
+            beams = [
+                line_elem_to_beam(elem, dummy_part, "BM")
+                for elem in line_elems
+                if np.any(np.asarray(elem.nodes[-1].p, dtype=float) != np.asarray(elem.nodes[0].p, dtype=float))
+            ]
             for bm in beams:
                 graph.add_node(GraphNode(bm.name, graph.next_node_id(), hash=bm.guid, parent=so_bm_node))
 
