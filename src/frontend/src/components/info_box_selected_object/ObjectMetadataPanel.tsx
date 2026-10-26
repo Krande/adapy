@@ -9,6 +9,12 @@ import ConnectionsSection from './ConnectionsSection';
 import MeshStatsSection from './MeshStatsSection';
 import ProceduralSystemSection from './ProceduralSystemSection';
 import ProceduralEquipmentSection from './ProceduralEquipmentSection';
+import {capabilities} from '@/services/capabilities';
+import {fetchElementProps, type FeaElementProps} from '@/services/feaElementProps';
+import type {FeaManifest} from '@/services/viewerApi';
+import {useFeaAnimationStore} from '@/state/feaAnimationStore';
+import {elementLabelNumber} from '@/utils/scene/fea/elementValues';
+import {feaSourceScope} from '@/utils/scene/fea/streaming/session';
 
 // Decimal-place choices offered in the Properties kebab menu for the "Clicked at" row. A small
 // model (a few units across) needs more decimals before nearby clicks show a different position.
@@ -171,6 +177,75 @@ const MaterialRows: React.FC<{material: MaterialDict | null | undefined}> = ({ma
     );
 };
 
+/** A picked FEA element's own data: its type, its nodes, and the section, thickness and
+ *  material the analysis gave it. From the bake (AFEP sidecar + manifest tables + the
+ *  element buckets' node indices), so it reads the same over REST as over the websocket;
+ *  nothing here asks the server. Renders nothing for a name that is not an FEA element. */
+const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
+    const manifest = useFeaAnimationStore((s) => s.manifest);
+    const sourceName = useFeaAnimationStore((s) => s.sourceName);
+    const label = name ? elementLabelNumber(name) : null;
+    const isElement = !!name && /^E\d+$/.test(name) && label !== null && !!manifest;
+    const [props, setProps] = useState<FeaElementProps | null>(null);
+
+    React.useEffect(() => {
+        setProps(null);
+        const url = manifest?.mesh?.element_props_url;
+        if (!isElement || !url || !sourceName || label === null) return;
+        let live = true;
+        const {fetcher, cacheKey} = capabilities.fea.fieldFetchers(feaSourceScope(sourceName), sourceName);
+        void fetchElementProps(fetcher, url, `${cacheKey}::${url}`).then((table) => {
+            if (live) setProps(table?.get(label) ?? null);
+        });
+        return () => {
+            live = false;
+        };
+    }, [isElement, label, manifest, sourceName]);
+
+    const nodes = React.useMemo(() => (isElement && manifest && label !== null ? elementNodes(manifest, label) : null), [
+        isElement,
+        manifest,
+        label,
+    ]);
+
+    if (!isElement || !manifest) return null;
+    const tables = manifest.element_properties ?? {};
+    const typeName = props?.eltype ? tables.element_types?.[String(props.eltype)] : undefined;
+    const section = props?.section ? tables.sections?.[String(props.section)] ?? null : null;
+    const material = props?.material ? tables.materials?.[String(props.material)] ?? null : null;
+    const thickness = props && Number.isFinite(props.thickness) ? props.thickness : null;
+    return (
+        <>
+            <Row label="Element:">
+                {nodes?.elemType ?? '—'}
+                {typeName ? ` (${typeName})` : props?.eltype ? ` (type ${props.eltype})` : ''}
+            </Row>
+            {nodes && nodes.nodes.length > 0 && <Row label="Nodes:">{nodes.nodes.join(', ')}</Row>}
+            {thickness !== null && <Row label="Thickness:">{fmtMm(thickness)}</Row>}
+            {section && <SectionRows section={section} />}
+            {props && <MaterialRows material={material} />}
+        </>
+    );
+};
+
+/** The element's type bucket and its node numbers, from the first element field that lists it. */
+function elementNodes(manifest: FeaManifest, label: number): {elemType: string; nodes: number[]} | null {
+    const nodeLabels = manifest.mesh?.node_labels;
+    // Property fields first: every element of the model is in them, and they are few.
+    const fields = [...(manifest.fields ?? [])].sort(
+        (a, b) => Number(b.category === 'property') - Number(a.category === 'property'),
+    );
+    for (const field of fields) {
+        for (const bucket of field.per_type ?? []) {
+            const i = bucket.element_labels.indexOf(label);
+            if (i < 0) continue;
+            const idx = bucket.element_node_indices?.[i] ?? [];
+            return {elemType: bucket.elem_type, nodes: idx.map((n) => nodeLabels?.[n] ?? n)};
+        }
+    }
+    return null;
+}
+
 const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
     if (link.kind === 'fea') {
         const {file, name} = link.cad;
@@ -288,7 +363,9 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // Default collapsed: most clicks are just for selection / hide /
     // jump, not for inspecting properties. Folding keeps the info box
     // compact and the chevron tells the user where the data lives.
-    const [expanded, setExpanded] = useState(false);
+    // Open from the start on an FEA result, though: there the properties ARE what a click
+    // on an element is for -- its section, thickness and material.
+    const [expanded, setExpanded] = useState(() => !!useFeaAnimationStore.getState().manifest);
     // The link is derived live from the lineage store and the current
     // selection (file + name) — keeps it reactive to file load/unload
     // without going back through the server.
@@ -340,6 +417,7 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                 <div id="object-properties" className="mt-1 ml-4 table">
                     {meta && !known && <Row label="Type:">{(meta as any).type ?? 'Unknown'}</Row>}
                     {meta && !known && <Row label="Info:">No metadata available</Row>}
+                    {!known && <FeaElementRows name={clickedName} />}
                     {meta?.type === 'Beam' && (
                         <>
                             <Row label="Type:">Beam</Row>

@@ -19,6 +19,23 @@ class SetTypes:
     all = [NSET, ELSET]
 
 
+class SetRoles:
+    """What a set's members ARE, beyond being named together.
+
+    A deck's own sets are groupings someone chose; a role says the members play a
+    modelling part a viewer or a check should treat differently.
+
+    ``DUMMY_MASS``: beams that only carry a mass to where it sits -- GeniE models an
+    equipment mass as a nodal mass at its centre of gravity, hung off the deck by
+    near-massless beams from each footprint node. They are not structure, and drawn
+    as structure they bury the deck under a web of stubs.
+    """
+
+    DUMMY_MASS = "dummy_mass"
+
+    all = [DUMMY_MASS]
+
+
 class FemSet(FemBase):
     """
 
@@ -27,9 +44,11 @@ class FemSet(FemBase):
     :param set_type: Type of set (either 'nset' or 'elset')
     :param metadata: Metadata for object
     :param parent: Parent object
+    :param role: What the members are, one of :class:`SetRoles` (None for a plain set)
     """
 
     TYPES = SetTypes
+    ROLES = SetRoles
 
     def __init__(
         self,
@@ -39,9 +58,14 @@ class FemSet(FemBase):
         metadata=None,
         parent=None,
         id_backed: bool = True,
+        role: str | None = None,
     ):
         super().__init__(name, metadata, parent)
         from ada.fem import Elem
+
+        if role is not None and role not in SetRoles.all:
+            raise ValueError(f'set role "{role}" is not valid')
+        self._role = role
 
         if members is None:
             members = []
@@ -153,6 +177,10 @@ class FemSet(FemBase):
     @property
     def type(self) -> str:
         return self._set_type.lower()
+
+    @property
+    def role(self) -> str | None:
+        return self._role
 
     @property
     def members(self) -> list[Elem | Node]:

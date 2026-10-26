@@ -35,6 +35,12 @@ interface FemConceptsState {
     selectedConstraint: number; // index into `constraints`, or -1 for "none"
     /** The concepts picked in the view or the panel; the Selected Object Info panel describes them. */
     selection: FemConceptRef[];
+    /** Draw-range ids (``E{n}``) of the beams that only carry a mass to its COG (sets with
+     *  the ``dummy_mass`` role). Not structure: hidden unless `showDummyMasses`. */
+    dummyMassIds: string[];
+    showDummyMasses: boolean;
+    setDummyMassIds: (ids: string[]) => void;
+    setShowDummyMasses: (v: boolean) => void;
 
     setData: (d: {
         masses: MassGlyph[];
@@ -75,6 +81,10 @@ export const useFemConceptsStore = create<FemConceptsState>((set) => ({
     selectedScenario: -1,
     selectedConstraint: -1,
     selection: [],
+    dummyMassIds: [],
+    showDummyMasses: false,
+    setDummyMassIds: (dummyMassIds) => set({dummyMassIds}),
+    setShowDummyMasses: (showDummyMasses) => set({showDummyMasses}),
 
     setData: ({masses, bcs, constraints = [], scenarios, equipment = []}) =>
         set((s) => {

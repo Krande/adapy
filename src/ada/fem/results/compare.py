@@ -149,7 +149,16 @@ class FEAResultComparison:
     def to_fea_result(self) -> FEAResult:
         """The difference ``other - base`` as an FEAResult on the shared mesh (e.g. to ``.show()`` it).
 
-        Steps carry the base's numbering and names. Rows present in only one result are left out.
+        One difference field per compared field and step: every load case and every load
+        combination the base has (a Sesam read materialises the combinations a deck does
+        not store, so they are steps like the others). Each component is diffed as it is
+        stored, derived ones included: a von Mises difference is the change in von Mises.
+
+        Steps carry the base's numbering and names. Rows present in only one result are
+        left out. The model-property fields (``props.*``: material, section, thickness)
+        are the base's own, not differenced -- a difference of two material ids means
+        nothing, and the meshes are the same -- so the difference can still be coloured
+        by section or material. The deck's sets and case names come along too.
         """
         from ada.fem.results.common import FEAResult
 
@@ -157,11 +166,14 @@ class FEAResultComparison:
         other_fields = _group_fields(self.other.results)
         results = []
         for d in self.diffs:
+            if _is_property_field(d.name):
+                continue
             base_field = base_fields[(d.name, d.step, d.elem_type)]
             other_field = other_fields[(d.name, d.other_step, d.elem_type)]
             keys, diff = _aligned_diff(base_field, other_field)[:2]
-            results.append(dataclasses.replace(base_field, values=np.column_stack((keys, diff))))
-        return FEAResult(
+            results.append(dataclasses.replace(base_field, values=np.column_stack((keys, diff)), difference=True))
+        results += [f for f in self.base.results if _is_property_field(f.name)]
+        out = FEAResult(
             name=f"{self.other.name} - {self.base.name}",
             software=self.base.software,
             results=results,
@@ -170,6 +182,18 @@ class FEAResultComparison:
             description=f"Difference: {self.other.name} minus {self.base.name}",
             analysis_kind=self.base.analysis_kind,
         )
+        # What the Sesam readers carry beside the fields (sets, case names, superelements):
+        # the difference is on the base's mesh and steps, so the base's apply.
+        for attr in ("sesam_groups", "sesam_case_names", "sesam_result_cases", "sesam_super_elements"):
+            if hasattr(self.base, attr):
+                setattr(out, attr, getattr(self.base, attr))
+        return out
+
+    def show(self, **kwargs):
+        """Show the difference ``other - base`` in the viewer: one field per compared field, for
+        every step. Each field's colour scale is centred on zero, so an unchanged model is one
+        colour. ``kwargs`` go to :meth:`FEAResult.show`."""
+        return self.to_fea_result().show(**kwargs)
 
 
 def compare_results(
@@ -251,6 +275,12 @@ def _connectivity(mesh: Mesh) -> dict[int, tuple]:
         for label, r in zip(block.identifiers, refs):
             out[int(label)] = tuple(int(x) for x in np.asarray(r).ravel())
     return out
+
+
+def _is_property_field(name: str) -> bool:
+    """A model-property field (material, section, thickness, superelement): model data
+    painted like a result, the same in both results of a comparison."""
+    return str(name).startswith("props.")
 
 
 def _elem_type_str(f) -> str:

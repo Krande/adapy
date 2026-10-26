@@ -27,7 +27,32 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["manifest_groups"]
+__all__ = ["manifest_groups", "role_groups"]
+
+
+def role_groups(mesh: Any, shown: dict[int, int] | None = None) -> list[dict[str, Any]]:
+    """The mesh's sets that carry a :class:`~ada.fem.sets.SetRoles` role, as manifest groups.
+
+    Shaped like :func:`manifest_groups`' entries, plus ``role``. These are sets the
+    reader made (the deck has no record of them), so they come from the converted
+    mesh, not the deck's ``GSETMEMB``. ``shown``: element id -> the number people read.
+    """
+    shown = shown or {}
+    groups: list[dict[str, Any]] = []
+    for name, fs in (getattr(mesh, "sets", None) or {}).items():
+        role = getattr(fs, "role", None)
+        if role is None or fs.type != "elset":
+            continue
+        ids = [int(getattr(m, "id", m)) for m in fs.members]
+        groups.append(
+            {
+                "name": name,
+                "members": [f"EL{shown.get(i, i)}" for i in ids],
+                "fe_object_type": "element",
+                "role": role,
+            }
+        )
+    return groups
 
 
 def manifest_groups(reader: Any) -> list[dict[str, Any]] | None:

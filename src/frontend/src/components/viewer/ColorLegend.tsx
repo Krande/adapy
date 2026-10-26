@@ -138,7 +138,10 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
     if (!showLegend) return null;
     if (!inPanel && isMobile && sessionActive) return null;
 
-    const path = field?.group_path?.join(" / ") ?? field?.name_canonical;
+    // A difference of two results (FEAResultComparison) says so: its colours are a change,
+    // centred on zero, not the field itself.
+    const basePath = field?.group_path?.join(" / ") ?? field?.name_canonical;
+    const path = basePath && field?.difference ? `Δ ${basePath}` : basePath;
     const selectableSurface = field?.surface === "selectable" || !!field?.surface_variants?.length;
     const surface = selectableSurface ? layer : field?.surface;
     const hasExactMarkers = field?.support === "result_point" || field?.support === "line_result_point";

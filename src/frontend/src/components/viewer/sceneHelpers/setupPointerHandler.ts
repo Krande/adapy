@@ -293,7 +293,19 @@ export function setupPointerHandler(
                 // gives the object + a representative vertex, NOT the exact clicked point. Refine it
                 // with a raycast against just the picked mesh; that also yields the triangle index the
                 // raycast face-picking path needs. Falls back to the vertex above MAX_REFINE_TRIS.
-                const refined = raycastPointOnMesh(e, camera, renderer, meshPick.mesh);
+                //
+                // A draw range the pick already named (every FEA element, solid beams included) is
+                // ray-tested on its own triangles. Raycasting the whole mesh instead -- a JS loop over
+                // every triangle, morph applied per vertex -- is what hung the viewer on a click on a
+                // beam solid: the beam-solid mesh is an extruded outline per beam, millions of
+                // triangles on a platform deck, where its shells are two per element.
+                const range =
+                    meshPick.mesh instanceof CustomBatchedMesh && meshPick.rangeId
+                        ? meshPick.mesh.drawRanges.get(meshPick.rangeId)
+                        : undefined;
+                const refined = range
+                    ? raycastRangeOnMesh(e, camera, renderer, meshPick.mesh as THREE.Mesh, range[0], range[1])
+                    : raycastPointOnMesh(e, camera, renderer, meshPick.mesh);
                 const surface = refined?.point ?? meshPick.worldPosition.clone();
                 if (beamPick && beamInFront(beamPick, surface, camera)) {
                     await handleClickMesh(
@@ -548,6 +560,70 @@ function raycastPointOnFace(
                     bestD = d;
                     best = p.clone();
                 }
+            }
+        }
+        return best;
+    } catch {
+        return null;
+    }
+}
+
+// The exact hit point and triangle index on ONE draw range of a mesh -- ``start``/``count`` in
+// index units, as ``CustomBatchedMesh.drawRanges`` holds them. Morph-aware, unlike
+// ``raycastPointOnFace``: an FEA result is almost always deformed, and the point people read off
+// "Clicked at" is where the deformed element is drawn. Null on a miss (the caller keeps the GPU
+// pick's representative vertex).
+function raycastRangeOnMesh(
+    e: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    renderer: THREE.WebGLRenderer,
+    mesh: THREE.Mesh,
+    start: number,
+    count: number,
+): {point: THREE.Vector3; faceIndex: number | undefined} | null {
+    try {
+        const geom = mesh.geometry as THREE.BufferGeometry;
+        const idx = geom.index;
+        const pos = geom.attributes.position as THREE.BufferAttribute | undefined;
+        if (!idx || !pos || count <= 0) return null;
+        const morphs = (geom.morphAttributes?.position ?? []) as THREE.BufferAttribute[];
+        const influences = mesh.morphTargetInfluences ?? [];
+        const relative = geom.morphTargetsRelative;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(new THREE.Vector2(nx, ny), camera);
+        const tmp = new THREE.Vector3();
+        const vertex = (i: number, out: THREE.Vector3) => {
+            out.fromBufferAttribute(pos, i);
+            if (morphs.length) {
+                const base = out.clone();
+                for (let k = 0; k < morphs.length; k++) {
+                    const w = influences[k] ?? 0;
+                    if (!w) continue;
+                    tmp.fromBufferAttribute(morphs[k], i);
+                    // Relative targets are offsets; absolute ones are positions, blended from the base.
+                    if (relative) out.addScaledVector(tmp, w);
+                    else out.addScaledVector(tmp.sub(base), w);
+                }
+            }
+            return out.applyMatrix4(mesh.matrixWorld);
+        };
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), hit = new THREE.Vector3();
+        let best: {point: THREE.Vector3; faceIndex: number} | null = null;
+        let bestD = Infinity;
+        const end = Math.min(start + count, idx.count);
+        for (let i = start; i + 2 < end; i += 3) {
+            vertex(idx.getX(i), a);
+            vertex(idx.getX(i + 1), b);
+            vertex(idx.getX(i + 2), c);
+            const p = ray.ray.intersectTriangle(a, b, c, false, hit);
+            if (!p) continue;
+            const d = ray.ray.origin.distanceToSquared(p);
+            if (d < bestD) {
+                bestD = d;
+                best = {point: p.clone(), faceIndex: i / 3};
             }
         }
         return best;

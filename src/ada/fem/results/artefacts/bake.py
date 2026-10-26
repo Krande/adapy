@@ -29,6 +29,7 @@ from .fields import (
 from .manifest import _infer_analysis_kind, build_manifest, write_manifest
 from .mesh import (
     _compute_topology,
+    write_element_properties,
     write_mesh_edges,
     write_mesh_elements,
     write_mesh_glb,
@@ -455,15 +456,21 @@ def bake_artefacts(
     # so the wireframe shows actual element boundaries (not the
     # arbitrary diagonals from quad-face triangulation) and follows
     # the deformation automatically.
+    #
+    # Less the line elements whose node-to-node line is not the element: GeniE's
+    # dummy-mass beams run, node to node, from each footprint node to one COG node,
+    # and drawn that way they are a web of lines into a point that the model does
+    # not have (the element is a short stub; the rest is a rigid offset).
+    suppressed = getattr(reader, "try_suppressed_line_edges", lambda: None)()
     mesh_edges_path = out_dir / "fea.mesh.edges.bin"
-    n_edges = write_mesh_edges(geom, mesh_edges_path, edges=topology.edges)
+    n_edges = write_mesh_edges(geom, mesh_edges_path, edges=topology.edges, drop=suppressed)
     emit(mesh_edges_path)
 
     # Which of those edges are beams, so the viewer can draw them in their own
     # colour instead of losing them in the shell grid. Omitted entirely when the
     # model has no line elements.
     mesh_line_edges_path = out_dir / "fea.mesh.line_edges.bin"
-    n_line_edges = write_mesh_line_edges(geom, mesh_line_edges_path)
+    n_line_edges = write_mesh_line_edges(geom, mesh_line_edges_path, drop=suppressed)
     if n_line_edges:
         emit(mesh_line_edges_path)
     else:
@@ -477,6 +484,16 @@ def bake_artefacts(
     mesh_elements_path = out_dir / "fea.mesh.elements.bin"
     n_elements = write_mesh_elements(geom, mesh_elements_path, element_ranges=topology.element_ranges)
     emit(mesh_elements_path)
+
+    # What each element IS (type, material, section, thickness), for the viewer's
+    # Selected Object panel; the property tables go in the manifest. Only from a
+    # reader that knows (the Sesam ones).
+    element_props = getattr(reader, "try_element_properties", lambda: None)()
+    element_props_path = None
+    if element_props is not None:
+        element_props_path = out_dir / "fea.mesh.element_props.bin"
+        write_element_properties(element_props, element_props_path)
+        emit(element_props_path)
 
     # Beam-solid mesh — optional, depends on whether the reader has
     # section + axis info per beam (SIF via FEAResultStreamAdapter
@@ -700,6 +717,8 @@ def bake_artefacts(
         n_edges=n_edges,
         mesh_elements_filename=mesh_elements_path.name,
         n_elements=n_elements,
+        element_props_filename=element_props_path.name if element_props_path is not None else None,
+        element_props_tables=element_props["tables"] if element_props is not None else None,
         history=history,
         beam_solids_glb_filename=(beam_solids_glb_path.name if beam_solids_glb_path else None),
         beam_solids_elements_filename=(beam_solids_elements_path.name if beam_solids_elements_path else None),

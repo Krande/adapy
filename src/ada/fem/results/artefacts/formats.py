@@ -34,12 +34,15 @@ MANIFEST_VERSION = 2
 #      ``combination_steps`` (materialised on request, see combine.py); every
 #      field says which components superpose (``linear_components``) and how
 #      the others are derived (``derived_components``)
+#   5  GeniE dummy-mass beams as a ``dummy_mass`` role group, drawn on their
+#      eccentric axis and left out of the edge sidecars; the AFEP
+#      element-property sidecar and ``element_properties`` tables
 #
 # The REST API compares this against ``bake_version`` in a cached manifest —
 # via its own pinned copy (EXPECTED_FEA_BAKE_VERSION in comms/rest/converter),
 # because the slim API container cannot import ada.fem. A test asserts the two
 # stay equal.
-FEA_BAKE_VERSION = 4
+FEA_BAKE_VERSION = 5
 
 
 # Element-field blob format (AFEL). Same fixed-header pattern as
@@ -93,6 +96,27 @@ ELEM_HEADER_BYTES = 16  # magic + version + n_elements + 4-byte pad
 
 
 ELEM_ENTRY_BYTES = 12  # uint32 label, uint32 tri_start, uint32 tri_count
+
+
+# Element-property sidecar (AFEP): what a picked element IS, for the viewer's
+# Selected Object panel. One entry per element, sorted by label so the viewer
+# finds one by binary search: the shown label, the source element type, the
+# material and section keys into the manifest's ``element_properties`` tables
+# (0 = none) and the shell thickness (NaN = none).
+#
+# Binary rather than read off the ``props.material`` / ``props.section`` fields:
+# those are float32 colour fields, and a superelement assembly's ids (20 000 103)
+# are past float32's 2**24, so neighbouring ids read back as each other.
+ELEM_PROPS_MAGIC = b"AFEP"
+
+
+ELEM_PROPS_VERSION = 1
+
+
+ELEM_PROPS_HEADER_BYTES = 16  # magic + version + n_elements + 4-byte pad
+
+
+ELEM_PROPS_ENTRY_BYTES = 20  # uint32 label, uint32 eltype, uint32 material, uint32 section, float32 thickness
 
 
 # Beam-solid mesh — optional parallel mesh emitted by readers that

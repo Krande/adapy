@@ -23,26 +23,46 @@ if TYPE_CHECKING:
 
 FEM_SEC_NAME = Counter(prefix="FS")
 
-# Short, lossy mapping from Sesam GELMNT1 eltyp codes to their
-# canonical Sesam names. Used purely for the eltype-histogram info
-# log emitted from ``get_sif_mesh`` — gives an unfamiliar SIF an
-# at-a-glance breakdown ("oh, the model is 50% BTSS curved beams,
-# that explains the spiderweb"). Mirror of ``sesam_el_map`` in
-# ``formats/sesam/common.py`` plus the source-software names; kept
-# local so the log doesn't drag a dependency on the writer side.
-_SESAM_ELTYPE_LABELS = {
-    2: "BEAS",
-    11: "BMASS",
-    15: "BEPS",
-    18: "BSPRNGC",
+# Sesam GELMNT1 eltyp codes and their names, as the Input Interface File
+# description (section 5, "ELTYP=n") gives them. For the eltype-histogram info
+# log emitted from ``get_sif_mesh`` -- an unfamiliar SIF's at-a-glance breakdown
+# ("oh, the model is 50% BTSS curved beams, that explains the spiderweb") -- and
+# the element type the viewer's Selected Object panel names.
+SESAM_ELTYPE_LABELS = {
+    2: "BEPS",
+    3: "CSTA",
+    6: "ILST",
+    8: "IQQE",
+    9: "LQUA",
+    10: "TESS",
+    11: "GMAS",
+    12: "GLMA",
+    13: "GLDA",
+    15: "BEAS",
+    16: "AXIS",
+    17: "AXDA",
+    18: "GSPR",
+    19: "GDAM",
+    20: "IHEX",
+    21: "LHEX",
+    22: "SECB",
     23: "BTSS",
     24: "FQUS",
     25: "FTRS",
-    26: "FTRS6",
-    28: "FQUS8",
-    31: "ITET10",
-    40: "GSPRNGC",
+    26: "SCTS",
+    27: "MCTS",
+    28: "SCQS",
+    29: "MCQS",
+    30: "IPRI",
+    31: "ITET",
+    32: "TPRI",
+    33: "TETR",
+    34: "LCTS",
+    35: "LCQS",
+    61: "HCQS",
+    70: "MATR",
 }
+_SESAM_ELTYPE_LABELS = SESAM_ELTYPE_LABELS
 
 STRESS_MAP = {
     1: ("SIGXX", "Normal Stress x-direction"),
@@ -1041,6 +1061,7 @@ class Sif2Mesh:
                 node_counts[int(label)] = int(len(refs))
         eccentricities = element_eccentricities(gelref, self.sif.get_geccen(), node_counts)
         _resolve_per_node_refs(elem_refs, gelref, node_counts)
+        sets = _with_dummy_mass_set(sets, elem_blocks, nodes, eccentricities)
 
         return Mesh(
             elements=elem_blocks,
@@ -1311,6 +1332,41 @@ def _nodal_vector_to_model(
     if rotation is not None:
         result[3:] = rotation @ result[3:]
     return result
+
+
+#: The set GeniE's dummy-mass beams are gathered into (see :mod:`.dummy_mass`).
+DUMMY_MASS_SET = "Dummy masses"
+
+
+def _with_dummy_mass_set(sets, elem_blocks, nodes, eccentricities):
+    """``sets`` plus an elset with the ``dummy_mass`` role, when the deck has any.
+
+    The deck has no set for them -- GeniE does not write one -- so this is the only
+    thing that tells a viewer those beams are not structure.
+    """
+    from ada.fem import FemSet
+    from ada.fem.formats.sesam.results.dummy_mass import dummy_mass_elements
+    from ada.fem.shapes.definitions import LineShapes
+
+    if not eccentricities:
+        return sets
+    line_types = {LineShapes.LINE, LineShapes.LINE3}
+    elements = [
+        (int(elem_id), block.elem_info.type in line_types, [int(n) for n in refs])
+        for block in elem_blocks
+        for elem_id, refs in zip(block.identifiers, block.node_refs)
+    ]
+    coords = {int(i): np.asarray(c, dtype=float) for i, c in zip(nodes.identifiers, nodes.coords)}
+    members = dummy_mass_elements(elements, coords, eccentricities)
+    if not members:
+        return sets
+    sets = dict(sets or {})
+    name = DUMMY_MASS_SET
+    while name in sets:
+        # Never shadow a set the deck itself names.
+        name = f"{name} (adapy)"
+    sets[name] = FemSet(name, members, set_type=FemSet.TYPES.ELSET, role=FemSet.ROLES.DUMMY_MASS)
+    return sets
 
 
 def _resolve_per_node_refs(elem_refs: np.ndarray, gelref_rows, node_counts: dict[int, int]) -> None:

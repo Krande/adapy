@@ -1607,6 +1607,12 @@ class SinStreamReader:
     def try_solid_beams(self, **kwargs):
         return self._adapter_for(0).try_solid_beams(**kwargs)
 
+    def try_suppressed_line_edges(self):
+        return self._adapter_for(0).try_suppressed_line_edges()
+
+    def try_element_properties(self):
+        return self._adapter_for(0).try_element_properties()
+
     def try_history_records(self):
         return None
 
@@ -1625,7 +1631,12 @@ class SinStreamReader:
         if self._reader is None:
             self._reader = SinReader(sin=self.sin, complex_phase=self._complex_phase)
             self._reader._load_static()
-        return manifest_groups(self._reader)
+        groups = manifest_groups(self._reader) or []
+        # Plus the sets the reader made (dummy-mass beams), which only the converted
+        # mesh holds; the representative step's adapter has it, and the bake builds
+        # that adapter anyway.
+        groups += [g for g in (self._adapter_for(0).try_groups() or []) if g.get("role")]
+        return groups or None
 
     def try_step_names(self):
         """What the deck calls each result case, for the manifest's steps.

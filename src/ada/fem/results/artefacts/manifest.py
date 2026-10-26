@@ -38,6 +38,20 @@ def _default_view_for(spec: FieldSpec) -> dict:
     }
 
 
+def _centred_on_zero(scalar_range: dict[str, list[float]]) -> dict[str, list[float]]:
+    """A difference field's ranges as ``[-m, m]``, so zero ("unchanged") sits mid-scale and a
+    change of either sign reads as far from it as its size says. ``magnitude`` stays
+    ``[lo, hi]``: it is never negative. An all-zero difference stays ``[0, 0]`` -- one colour."""
+    out = {}
+    for key, (lo, hi) in scalar_range.items():
+        if key == "magnitude":
+            out[key] = [lo, hi]
+            continue
+        m = max(abs(float(lo)), abs(float(hi)))
+        out[key] = [-m, m]
+    return out
+
+
 def _value_label_key(value: float) -> str:
     """JSON key for a labelled value, matching JavaScript's ``String(number)``:
     an integral id prints as ``"3"``, never ``"3.0"`` — the frontend looks the
@@ -119,6 +133,8 @@ def build_manifest(
     beam_solids_skip_reasons: dict | None = None,
     mesh_elements_filename: str | None = None,
     n_elements: int = 0,
+    element_props_filename: str | None = None,
+    element_props_tables: dict | None = None,
     history: "HistoryRecords | None" = None,
     lineage: dict | None = None,
     fem_concepts: dict | None = None,
@@ -179,6 +195,8 @@ def build_manifest(
             scalar_range["magnitude"] = list(fm.scalar_range_magnitude)
         # Convert tuple → list for JSON-friendly shape.
         scalar_range = {k: list(v) for k, v in scalar_range.items()}
+        if spec.difference:
+            scalar_range = _centred_on_zero(scalar_range)
 
         steps = [_step_entry(i, v, _format_step_label(spec, i, v), step_names) for i, v in enumerate(spec.step_values)]
 
@@ -204,6 +222,7 @@ def build_manifest(
                 "default_view": _default_view_for(spec),
                 **_presentation_payload(spec.presentation),
                 **({"mode_normalization": fm.mode_normalization} if fm.mode_normalization else {}),
+                **({"difference": True} if spec.difference else {}),
             }
         )
 
@@ -269,6 +288,8 @@ def build_manifest(
         # Same contract as the nodal payload: kind "vector*" carries magnitude.
         if primary.n_components >= 2:
             scalar_range_payload["magnitude"] = list(roll_mag)
+        if primary.difference:
+            scalar_range_payload = _centred_on_zero(scalar_range_payload)
 
         steps = [
             _step_entry(i, v, _format_step_label_simple(primary.n_steps, primary.name, v), step_names)
@@ -356,6 +377,7 @@ def build_manifest(
                     if any(em.spec.presentation is not None and em.spec.presentation.value_labels for em in metas)
                     else {}
                 ),
+                **({"difference": True} if primary.difference else {}),
             }
         )
 
@@ -395,6 +417,11 @@ def build_manifest(
     if mesh_elements_filename is not None:
         mesh_meta["elements_url"] = mesh_elements_filename
         mesh_meta["n_elements"] = int(n_elements)
+    if element_props_filename is not None:
+        # AFEP: per element its type, material, section and thickness, keyed into the
+        # tables at the top level (``element_properties``). For the Selected Object
+        # panel; a viewer that does not know it simply never fetches it.
+        mesh_meta["element_props_url"] = element_props_filename
     if beam_solids_compact_filename is not None:
         # AFBS — the same beam solids as the block below, shipped as the
         # per-section outline table plus one 56-byte record per beam and
@@ -463,6 +490,11 @@ def build_manifest(
     # no ADA_EXT, so the frontend feeds these into useSceneInfoStore directly).
     if groups:
         manifest["groups"] = groups
+    # What AFEP's material / section / element-type keys mean: ``{"materials": {key:
+    # {name, E, rho, ...}}, "sections": {key: {name, type, h, ...}}, "element_types":
+    # {code: name}}``.
+    if element_props_filename is not None and element_props_tables:
+        manifest["element_properties"] = element_props_tables
     # Every result case the source OFFERS, which is more than its field steps
     # list. A "smart load combination" deck stores only its basic cases as RV*
     # records and defines the design cases as combinations of them, so a picker

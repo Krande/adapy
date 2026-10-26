@@ -21,6 +21,7 @@ import {
     slotCount,
     slotRef,
 } from "../fea/caseSteps";
+import {applyDummyMassVisibility} from "../fea/dummyMassVisibility";
 import {isPropertyField} from "../fea/propertyColors";
 import {capabilities} from "@/services/capabilities";
 import {useAnimationStore} from "@/state/animationStore";
@@ -220,6 +221,11 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         // be rebuilt without re-fetching.
         const edgeIndices = await installElementEdges(mesh, fetcher, manifest);
         if (edgeIndices) active.edgeIndices = edgeIndices;
+
+        // The dummy-mass beams start the way the Scene > FEM toggle says (hidden by
+        // default: they are not structure). The manifest's sets were registered by
+        // openFeaSession above; the beam solids they hide are only now in the scene.
+        applyDummyMassVisibility(null);
     }
 
     stage("loading field data", 0.55);

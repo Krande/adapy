@@ -227,7 +227,9 @@ def assemble_super_elements(
             eccentricities[int(elno) + base] = [None if v is None else rotation @ np.asarray(v) for v in per_node]
         for set_name, fs in (mesh.sets or {}).items():
             members = [int(getattr(m, "id", m)) + base for m in fs.members]
-            sets[f"{row.label}: {set_name}"] = FemSet(f"{row.label}: {set_name}", members, set_type=fs.type)
+            sets[f"{row.label}: {set_name}"] = FemSet(
+                f"{row.label}: {set_name}", members, set_type=fs.type, role=getattr(fs, "role", None)
+            )
 
         for group in getattr(result, "sesam_groups", None) or []:
             prefix = "EL" if group.get("fe_object_type") == "element" else "P"

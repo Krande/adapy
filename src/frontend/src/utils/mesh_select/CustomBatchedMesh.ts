@@ -560,9 +560,16 @@ export class CustomBatchedMesh extends THREE.Mesh {
     }
 
     private _rebuildSelectionOverlay(rangeIds: string[]): void {
-        // Clear overlay when nothing selected
+        // Nothing selected: PARK the overlay rather than dispose it. A plain click clears the
+        // selection and then selects, so disposing here threw the overlay geometry away on every
+        // click -- and three.js keys a mesh's morph texture by its geometry, so the next selection
+        // rebuilt a texture the size of the whole mesh. On a beam-solid mesh (millions of
+        // vertices) that is the click that hung the viewer.
         if (!rangeIds || rangeIds.length === 0) {
-            this._disposeSelectionOverlay();
+            if (this._selectionOverlay) {
+                this._selectionOverlay.visible = false;
+                ((this._selectionOverlay as THREE.Mesh).geometry as THREE.BufferGeometry).clearGroups();
+            }
             this._overlaySourceIndices = undefined; // ensures CPU updater is skipped
             return;
         }
@@ -581,6 +588,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         let overlayMat: THREE.Material;
 
         if (this._selectionOverlay) {
+            this._selectionOverlay.visible = true;
             overlayGeom = (this._selectionOverlay as THREE.Mesh).geometry as THREE.BufferGeometry;
             overlayMat = (this._selectionOverlay as THREE.Mesh).material as THREE.Material;
             // Ensure overlay is referencing base attributes; if not, rebuild references
@@ -638,7 +646,12 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
         // Build overlay materials as an array so Three.js respects geometry groups
         const visibleSelMat = overlayMat instanceof Array ? (overlayMat[0] as THREE.Material) : overlayMat;
-        const invisibleMat = new THREE.MeshBasicMaterial({ visible: false });
+        // The overlay's own from a previous selection when it has one: a new material per
+        // click was one more allocation per click and never disposed.
+        const invisibleMat =
+            overlayMat instanceof Array && overlayMat[1]
+                ? (overlayMat[1] as THREE.Material)
+                : new THREE.MeshBasicMaterial({ visible: false });
         // Ensure morphTargets on both
         (visibleSelMat as any).morphTargets = true;
         (invisibleMat as any).morphTargets = true;
@@ -671,17 +684,16 @@ export class CustomBatchedMesh extends THREE.Mesh {
         overlayGeom.clearGroups();
         const idxAttr = srcGeom.getIndex();
         const idxCount = idxAttr ? idxAttr.count : (srcGeom.attributes.position?.count ?? 0);
-        const segs = Array.from(this.drawRanges.entries())
-            .map(([id, [s, c]]) => ({ id, s, c }))
-            .sort((a, b) => a.s - b.s);
+        // The cached sort (as updateGroups uses), not a fresh sort of every range on every click.
+        const segs = this.getSortedSegments();
 
         // Selected (and not hidden) ranges show; gaps and everything else are invisible. Neighbouring
         // ranges of one material share a group, so a large selection is a few draws, not one per part.
         const selectedSet = new Set(rangeIds);
         for (const g of coalescedGroups(
-            segs.map((x) => x.s),
-            segs.map((x) => x.c),
-            (i) => (!this.hiddenRanges.has(segs[i].id) && selectedSet.has(segs[i].id) ? 0 : 1),
+            segs.starts,
+            segs.counts,
+            (i) => (!this.hiddenRanges.has(segs.ids[i]) && selectedSet.has(segs.ids[i]) ? 0 : 1),
             idxCount,
             1,
         )) {

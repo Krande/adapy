@@ -113,5 +113,22 @@ export async function registerManifestStores(args: {
                 fe_object_type: g.fe_object_type,
             })),
         );
+        // The beams that only carry a mass to its COG, from every set with that role (an
+        // assembly has one per superelement). Set on every load, so a model without them
+        // clears what the previous one had.
+        const {useFemConceptsStore} = await import("@/state/femConceptsStore");
+        const {drawRangeIdFor} = await import("../feaSets");
+        const ids = new Set<string>();
+        for (const g of mg) {
+            if (g.role !== DUMMY_MASS_ROLE) continue;
+            for (const m of g.members) {
+                const id = drawRangeIdFor(m);
+                if (id !== null) ids.add(id);
+            }
+        }
+        useFemConceptsStore.getState().setDummyMassIds([...ids]);
     }
 }
+
+/** adapy's ``SetRoles.DUMMY_MASS``. */
+const DUMMY_MASS_ROLE = "dummy_mass";
