@@ -122,9 +122,9 @@ def _resolve_adapy_version() -> str:
     version = (os.environ.get("ADAPY_VERSION") or "").strip()
     if not version:
         try:
-            import ada as _ada
+            # ada._version, not ada.__version__: the viewer's stripped ada/__init__ doesn't re-export it.
+            from ada._version import __version__ as v
 
-            v = (getattr(_ada, "__version__", "") or "").strip()
             if v and v != "0.0.0":
                 version = v
         except Exception:  # noqa: BLE001 — version is display-only
