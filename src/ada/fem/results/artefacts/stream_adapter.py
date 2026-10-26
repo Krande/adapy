@@ -219,7 +219,10 @@ class FEAResultStreamAdapter:
         ``tables``: ``materials`` / ``sections`` ``{key: properties}`` and
         ``element_types`` ``{code: name}``. ``None`` without per-element data.
         """
-        from ada.comms.msg_handling.object_metadata import material_to_dict, section_to_dict
+        from ada.comms.msg_handling.object_metadata import (
+            material_to_dict,
+            section_to_dict,
+        )
         from ada.fem.formats.sesam.results.property_fields import THICKNESS_FIELD
 
         mesh = self._result.mesh

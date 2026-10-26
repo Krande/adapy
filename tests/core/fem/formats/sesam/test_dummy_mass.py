@@ -75,9 +75,15 @@ def test_an_unknown_role_is_refused():
 def test_solid_beam_runs_between_the_element_ends_not_the_nodes():
     from ada import Material, Section
     from ada.api.beams.geom_beams import straight_beam_frame
-    from ada.fem.results.artefacts import FEAResultStreamAdapter
-    from ada.fem.results.artefacts import beam_compact
-    from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FEATypes, FemNodes, Mesh
+    from ada.fem.results.artefacts import FEAResultStreamAdapter, beam_compact
+    from ada.fem.results.common import (
+        ElementBlock,
+        ElementInfo,
+        FEAResult,
+        FEATypes,
+        FemNodes,
+        Mesh,
+    )
     from ada.fem.shapes.definitions import LineShapes
 
     elements, coords, ecc = _footprint()
@@ -123,7 +129,14 @@ def test_solid_beam_runs_between_the_element_ends_not_the_nodes():
 
 def _footprint_result():
     from ada import Material, Section
-    from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FEATypes, FemNodes, Mesh
+    from ada.fem.results.common import (
+        ElementBlock,
+        ElementInfo,
+        FEAResult,
+        FEATypes,
+        FemNodes,
+        Mesh,
+    )
     from ada.fem.shapes.definitions import LineShapes
 
     elements, coords, ecc = _footprint()

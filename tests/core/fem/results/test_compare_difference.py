@@ -4,7 +4,14 @@ centred on zero, with the model's own properties and sets kept."""
 import numpy as np
 
 from ada.fem.results.artefacts.manifest import _centred_on_zero
-from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FEATypes, FemNodes, Mesh
+from ada.fem.results.common import (
+    ElementBlock,
+    ElementInfo,
+    FEAResult,
+    FEATypes,
+    FemNodes,
+    Mesh,
+)
 from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 from ada.fem.shapes.definitions import LineShapes
 
@@ -23,9 +30,7 @@ def _result(scale: float, name: str) -> FEAResult:
     results = []
     for step in (1, 2):
         results.append(
-            NodalFieldData(
-                "U", step, ["X", "Y"], np.array([[1, scale * step, -scale], [2, 0.0, 2 * scale * step]])
-            )
+            NodalFieldData("U", step, ["X", "Y"], np.array([[1, scale * step, -scale], [2, 0.0, 2 * scale * step]]))
         )
     # A model property: the element's material id, the same in both results.
     results.append(ElementFieldData("props.material", 1, ["MATERIAL"], np.array([[7, 0, 3.0]])))
