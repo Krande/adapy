@@ -185,6 +185,7 @@ jobs:
         run: |
           echo "release=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
           echo "date=$(git show -s --format=%ad --date=short)" >> "$GITHUB_OUTPUT"
+          echo "adapy_version=$(scripts/packaging/adapy_version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -198,5 +199,6 @@ jobs:
             IMAGE_TAG=${{ steps.meta.outputs.version }}
             ADA_DOCS_RELEASE=${{ steps.docsmeta.outputs.release }}
             ADA_DOCS_DATE=${{ steps.docsmeta.outputs.date }}
+            ADAPY_VERSION=${{ steps.docsmeta.outputs.adapy_version }}
           cache-from: type=gha,scope=docs
           cache-to: type=gha,mode=max,scope=docs

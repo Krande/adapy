@@ -60,6 +60,11 @@ jobs:
           environments: docs
           cache: true
 
+      # The report stamps ``ada.__version__``; adapy runs off PYTHONPATH in these tasks, so pin it
+      # from pyproject.toml for every step below rather than leaving it to runtime resolution (#464).
+      - name: Export adapy version
+        run: echo "ADAPY_VERSION=$(scripts/packaging/adapy_version.sh)" >> "$GITHUB_ENV"
+
       # The `docs` task chains `fea-doc`, which renders the FEA
       # verification posters offscreen via wgpu/pygfx. A bare runner has
       # no graphics adapter, so wgpu can't init a device and

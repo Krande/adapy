@@ -16,8 +16,12 @@ ARG DOCS_ENV_IMAGE
 FROM ${DOCS_ENV_IMAGE} AS builder
 ARG ADA_DOCS_RELEASE=""
 ARG ADA_DOCS_DATE=""
+# adapy runs off PYTHONPATH here, so it has no distribution metadata to read its version from;
+# CI passes scripts/packaging/adapy_version.sh's answer so the report stamps it (#464).
+ARG ADAPY_VERSION=""
 ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
-    ADA_DOCS_DATE=$ADA_DOCS_DATE
+    ADA_DOCS_DATE=$ADA_DOCS_DATE \
+    ADAPY_VERSION=$ADAPY_VERSION
 # WORKDIR (/work/adapy) is inherited from docs-env.
 COPY src/ ./src/
 COPY docs/ ./docs/

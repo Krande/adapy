@@ -145,8 +145,12 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
 FROM docs-env AS builder
 ARG ADA_DOCS_RELEASE=""
 ARG ADA_DOCS_DATE=""
+# adapy runs off PYTHONPATH here, so it has no distribution metadata to read its version from;
+# CI passes scripts/packaging/adapy_version.sh's answer so the report stamps it (#464).
+ARG ADAPY_VERSION=""
 ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
-    ADA_DOCS_DATE=$ADA_DOCS_DATE
+    ADA_DOCS_DATE=$ADA_DOCS_DATE \
+    ADAPY_VERSION=$ADAPY_VERSION
 COPY src/ ./src/
 COPY docs/ ./docs/
 COPY verification/ ./verification/

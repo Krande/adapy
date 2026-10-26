@@ -672,6 +672,9 @@ jobs:
           # called with fetch-depth: 0 above so the tags are present.
           ADA_DOCS_RELEASE=$(git describe --tags --always)
           ADA_DOCS_DATE=$(git show -s --format=%ad --date=short)
+          # Pinned here, not read from the image: the fast path's env base carries the
+          # pyproject.toml of whichever commit last built it (#464).
+          ADAPY_VERSION=$(scripts/packaging/adapy_version.sh)
 
           # Fast path: only the doc sources changed AND the env base
           # exists — re-run fea-doc + zensical on it, skipping apt + solve.
@@ -683,6 +686,7 @@ jobs:
               --build-arg "DOCS_ENV_IMAGE=${ENV_IMAGE}" \
               --build-arg "ADA_DOCS_RELEASE=${ADA_DOCS_RELEASE}" \
               --build-arg "ADA_DOCS_DATE=${ADA_DOCS_DATE}" \
+              --build-arg "ADAPY_VERSION=${ADAPY_VERSION}" \
               -t "${REGISTRY_IMAGE}:${TAG}" \
               -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
               .
@@ -693,6 +697,7 @@ jobs:
               --build-arg "IMAGE_TAG=${TAG}" \
               --build-arg "ADA_DOCS_RELEASE=${ADA_DOCS_RELEASE}" \
               --build-arg "ADA_DOCS_DATE=${ADA_DOCS_DATE}" \
+              --build-arg "ADAPY_VERSION=${ADAPY_VERSION}" \
               -t "${REGISTRY_IMAGE}:${TAG}" \
               -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
               .
