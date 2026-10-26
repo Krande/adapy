@@ -870,8 +870,34 @@ class FEAResult:
         ping_timeout=1,
         force_embed_glb=False,
         apply_transform=False,
+        stream: bool | None = None,
     ):
+        """Show the result in the viewer.
+
+        ``stream`` (default: on for the react viewer outside a notebook): bake the result
+        and let the viewer read it the way the REST viewer does -- the mesh first, then
+        one step of one field at a time, every field (nodal and element) selectable in
+        the viewer. Off, the result is sent as one GLB with its nodal steps baked in as
+        animations (the notebook and pygfx paths always do this); ``step``, ``field``,
+        ``warp_field``, ``warp_step`` and ``cfunc`` only apply there.
+        """
         from ada.visit.renderer_manager import RendererManager
+
+        if stream is None:
+            from ada.visit.utils import in_notebook
+
+            stream = renderer == "react" and not force_embed_glb and params_override is None and not in_notebook()
+        if stream:
+            from ada.fem.results.show_streaming import show_streaming
+
+            return show_streaming(
+                self,
+                host=host,
+                port=port,
+                server_exe=server_exe,
+                server_args=server_args,
+                run_ws_in_thread=run_ws_in_thread,
+            )
 
         # Use RendererManager to handle renderer setup and WebSocket connection
         renderer_manager = RendererManager(

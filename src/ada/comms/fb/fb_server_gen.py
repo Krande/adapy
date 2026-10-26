@@ -54,6 +54,64 @@ class ProceduralModelLoadReplyDC:
 
 
 @dataclass
+class FeaSourceRegisterDC:
+    source_key: str = ""
+    bake_dir: str = ""
+    bake_id: str = ""
+    open_in_viewer: bool = None
+
+
+@dataclass
+class FeaSourceInfoDC:
+    source_key: str = ""
+    bake_id: str = ""
+
+
+@dataclass
+class FeaManifestRequestDC:
+    source_key: str = ""
+
+
+@dataclass
+class FeaManifestReplyDC:
+    source_key: str = ""
+    bake_id: str = ""
+    manifest_json: str = ""
+
+
+@dataclass
+class FeaBlobRequestDC:
+    source_key: str = ""
+    filename: str = ""
+    ranged: bool = None
+    start: int = None
+    end: int = None
+
+
+@dataclass
+class FeaBlobReplyDC:
+    source_key: str = ""
+    filename: str = ""
+    data: bytes = None
+    ranged: bool = None
+    total_size: int = None
+
+
+@dataclass
+class KernelCallDC:
+    function: str = ""
+    args_json: str = ""
+    data: bytes = None
+
+
+@dataclass
+class KernelReplyDC:
+    function: str = ""
+    result_json: str = ""
+    data: bytes = None
+
+
+@dataclass
 class ServerReplyDC:
     message: str = ""
     file_objects: Optional[List[FileObjectDC]] = None
@@ -63,6 +121,10 @@ class ServerReplyDC:
     save_procedural_model: Optional[ProceduralModelSaveReplyDC] = None
     list_procedural_models: Optional[ProceduralModelListReplyDC] = None
     load_procedural_model: Optional[ProceduralModelLoadReplyDC] = None
+    fea_source: Optional[FeaSourceInfoDC] = None
+    fea_manifest: Optional[FeaManifestReplyDC] = None
+    fea_blob: Optional[FeaBlobReplyDC] = None
+    kernel: Optional[KernelReplyDC] = None
 
 
 @dataclass
@@ -75,3 +137,8 @@ class ServerDC:
     start_file_in_local_app: Optional[FileObjectDC] = None
     save_procedural_model: Optional[ProceduralModelSaveDC] = None
     load_procedural_model: Optional[ProceduralModelLoadDC] = None
+    register_fea_source: Optional[FeaSourceRegisterDC] = None
+    open_fea_source: Optional[FeaSourceInfoDC] = None
+    fea_manifest_request: Optional[FeaManifestRequestDC] = None
+    fea_blob_request: Optional[FeaBlobRequestDC] = None
+    kernel_call: Optional[KernelCallDC] = None

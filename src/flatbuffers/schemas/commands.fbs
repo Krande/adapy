@@ -30,6 +30,22 @@ enum CommandType : byte {
   // over the generic SERVER_REPLY, same convention as SAVE_PROCEDURAL_MODEL.
   LIST_PROCEDURAL_MODELS = 21,
   LOAD_PROCEDURAL_MODEL = 22,
+  // FEA results streamed to the viewer the way the REST viewer reads them: a
+  // bake (manifest + mesh GLB + per-field blobs) the browser fetches piece by
+  // piece, instead of one GLB carrying every step. REGISTER_FEA_SOURCE (local
+  // -> server) names a bake directory on this machine under a source key and
+  // asks the server to tell the viewers; OPEN_FEA_SOURCE is that push (server
+  // -> web). GET_FEA_MANIFEST and GET_FEA_BLOB (web -> server) read the bake;
+  // all three requests reply over SERVER_REPLY like every other verb.
+  REGISTER_FEA_SOURCE = 23,
+  OPEN_FEA_SOURCE = 24,
+  GET_FEA_MANIFEST = 25,
+  GET_FEA_BLOB = 26,
+  // Run one of the server's whitelisted compute kernels -- the adacpp functions the
+  // browser viewer runs as WebAssembly -- in the server's Python process. Lets the
+  // websocket viewer (no /wasm to load from file://) do the same work. Replies over
+  // SERVER_REPLY like every other verb.
+  CALL_KERNEL = 27,
 }
 
 enum TargetType : byte {

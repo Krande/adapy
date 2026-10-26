@@ -1,3 +1,6 @@
+import time
+import uuid
+
 import trimesh
 from websockets.sync.client import connect
 
@@ -102,6 +105,30 @@ class WebSocketClientSync(WebSocketClientBase):
 
     def view_file_object(self, file_name: str) -> None:
         self.websocket.send(self._get_file_object_prep(file_name))
+
+    def register_fea_source(
+        self, source_key: str, bake_dir: str, bake_id: str = "", open_in_viewer: bool = True, timeout: float = 30
+    ) -> None:
+        """Let the viewers read the FEA bake in ``bake_dir`` as ``source_key`` (and open it).
+
+        Waits for the server's answer, so the bake is registered before this returns;
+        raises RuntimeError if the server refuses it."""
+        request_id = uuid.uuid4().hex
+        self.websocket.send(
+            self._register_fea_source_prep(source_key, str(bake_dir), bake_id, open_in_viewer, request_id)
+        )
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"no answer from the server registering FEA source {source_key!r}")
+            msg = self.receive(timeout=remaining)
+            if msg.request_id != request_id:
+                continue  # an unrelated push; not the answer to this request
+            if msg.command_type == CommandTypeDC.ERROR:
+                error = msg.server_reply.error if msg.server_reply is not None else None
+                raise RuntimeError(error.message if error is not None else "the server refused the FEA source")
+            return
 
     def list_connected_web_clients(self) -> list[WebClientDC]:
         self.websocket.send(self._list_connected_web_clients_prep())

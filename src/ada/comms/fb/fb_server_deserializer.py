@@ -1,6 +1,14 @@
 from ada.comms.fb.fb_base_deserializer import deserialize_error, deserialize_fileobject
 from ada.comms.fb.fb_commands_gen import CommandTypeDC
 from ada.comms.fb.fb_server_gen import (
+    FeaBlobReplyDC,
+    FeaBlobRequestDC,
+    FeaManifestReplyDC,
+    FeaManifestRequestDC,
+    FeaSourceInfoDC,
+    FeaSourceRegisterDC,
+    KernelCallDC,
+    KernelReplyDC,
     ProceduralModelListEntryDC,
     ProceduralModelListReplyDC,
     ProceduralModelLoadDC,
@@ -90,6 +98,96 @@ def deserialize_proceduralmodelloadreply(fb_obj) -> ProceduralModelLoadReplyDC |
     )
 
 
+def deserialize_feasourceregister(fb_obj) -> FeaSourceRegisterDC | None:
+    if fb_obj is None:
+        return None
+
+    return FeaSourceRegisterDC(
+        source_key=fb_obj.SourceKey().decode("utf-8") if fb_obj.SourceKey() is not None else None,
+        bake_dir=fb_obj.BakeDir().decode("utf-8") if fb_obj.BakeDir() is not None else None,
+        bake_id=fb_obj.BakeId().decode("utf-8") if fb_obj.BakeId() is not None else None,
+        open_in_viewer=fb_obj.OpenInViewer(),
+    )
+
+
+def deserialize_feasourceinfo(fb_obj) -> FeaSourceInfoDC | None:
+    if fb_obj is None:
+        return None
+
+    return FeaSourceInfoDC(
+        source_key=fb_obj.SourceKey().decode("utf-8") if fb_obj.SourceKey() is not None else None,
+        bake_id=fb_obj.BakeId().decode("utf-8") if fb_obj.BakeId() is not None else None,
+    )
+
+
+def deserialize_feamanifestrequest(fb_obj) -> FeaManifestRequestDC | None:
+    if fb_obj is None:
+        return None
+
+    return FeaManifestRequestDC(
+        source_key=fb_obj.SourceKey().decode("utf-8") if fb_obj.SourceKey() is not None else None
+    )
+
+
+def deserialize_feamanifestreply(fb_obj) -> FeaManifestReplyDC | None:
+    if fb_obj is None:
+        return None
+
+    return FeaManifestReplyDC(
+        source_key=fb_obj.SourceKey().decode("utf-8") if fb_obj.SourceKey() is not None else None,
+        bake_id=fb_obj.BakeId().decode("utf-8") if fb_obj.BakeId() is not None else None,
+        manifest_json=fb_obj.ManifestJson().decode("utf-8") if fb_obj.ManifestJson() is not None else None,
+    )
+
+
+def deserialize_feablobrequest(fb_obj) -> FeaBlobRequestDC | None:
+    if fb_obj is None:
+        return None
+
+    return FeaBlobRequestDC(
+        source_key=fb_obj.SourceKey().decode("utf-8") if fb_obj.SourceKey() is not None else None,
+        filename=fb_obj.Filename().decode("utf-8") if fb_obj.Filename() is not None else None,
+        ranged=fb_obj.Ranged(),
+        start=fb_obj.Start(),
+        end=fb_obj.End(),
+    )
+
+
+def deserialize_feablobreply(fb_obj) -> FeaBlobReplyDC | None:
+    if fb_obj is None:
+        return None
+
+    return FeaBlobReplyDC(
+        source_key=fb_obj.SourceKey().decode("utf-8") if fb_obj.SourceKey() is not None else None,
+        filename=fb_obj.Filename().decode("utf-8") if fb_obj.Filename() is not None else None,
+        data=bytes(fb_obj.DataAsNumpy()) if fb_obj.DataLength() > 0 else None,
+        ranged=fb_obj.Ranged(),
+        total_size=fb_obj.TotalSize(),
+    )
+
+
+def deserialize_kernelcall(fb_obj) -> KernelCallDC | None:
+    if fb_obj is None:
+        return None
+
+    return KernelCallDC(
+        function=fb_obj.Function().decode("utf-8") if fb_obj.Function() is not None else None,
+        args_json=fb_obj.ArgsJson().decode("utf-8") if fb_obj.ArgsJson() is not None else None,
+        data=bytes(fb_obj.DataAsNumpy()) if fb_obj.DataLength() > 0 else None,
+    )
+
+
+def deserialize_kernelreply(fb_obj) -> KernelReplyDC | None:
+    if fb_obj is None:
+        return None
+
+    return KernelReplyDC(
+        function=fb_obj.Function().decode("utf-8") if fb_obj.Function() is not None else None,
+        result_json=fb_obj.ResultJson().decode("utf-8") if fb_obj.ResultJson() is not None else None,
+        data=bytes(fb_obj.DataAsNumpy()) if fb_obj.DataLength() > 0 else None,
+    )
+
+
 def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
     if fb_obj is None:
         return None
@@ -107,6 +205,10 @@ def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
         save_procedural_model=deserialize_proceduralmodelsavereply(fb_obj.SaveProceduralModel()),
         list_procedural_models=deserialize_proceduralmodellistreply(fb_obj.ListProceduralModels()),
         load_procedural_model=deserialize_proceduralmodelloadreply(fb_obj.LoadProceduralModel()),
+        fea_source=deserialize_feasourceinfo(fb_obj.FeaSource()),
+        fea_manifest=deserialize_feamanifestreply(fb_obj.FeaManifest()),
+        fea_blob=deserialize_feablobreply(fb_obj.FeaBlob()),
+        kernel=deserialize_kernelreply(fb_obj.Kernel()),
     )
 
 
@@ -131,4 +233,9 @@ def deserialize_server(fb_obj) -> ServerDC | None:
         start_file_in_local_app=deserialize_fileobject(fb_obj.StartFileInLocalApp()),
         save_procedural_model=deserialize_proceduralmodelsave(fb_obj.SaveProceduralModel()),
         load_procedural_model=deserialize_proceduralmodelload(fb_obj.LoadProceduralModel()),
+        register_fea_source=deserialize_feasourceregister(fb_obj.RegisterFeaSource()),
+        open_fea_source=deserialize_feasourceinfo(fb_obj.OpenFeaSource()),
+        fea_manifest_request=deserialize_feamanifestrequest(fb_obj.FeaManifestRequest()),
+        fea_blob_request=deserialize_feablobrequest(fb_obj.FeaBlobRequest()),
+        kernel_call=deserialize_kernelcall(fb_obj.KernelCall()),
     )

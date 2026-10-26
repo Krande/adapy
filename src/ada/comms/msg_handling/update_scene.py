@@ -39,6 +39,9 @@ def setup_backend_scene(glb_file_data: FileObjectDC, server: WebSocketAsyncServe
 
 def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, glb_file_data: FileObjectDC) -> None:
     logger.info(f"Received message from {client.instance_id} to update scene")
+    # A new scene replaces whatever FEA result was shown; a viewer reloading after
+    # this must not reopen it.
+    server.fea_open_source = None
 
     local_glb_file = setup_backend_scene(glb_file_data, server)
 

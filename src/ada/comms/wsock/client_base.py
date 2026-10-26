@@ -11,6 +11,7 @@ from ada.comms.fb.fb_commands_gen import WebClientDC
 from ada.comms.fb_wrap_model_gen import (
     AppendMeshDC,
     CommandTypeDC,
+    FeaSourceRegisterDC,
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
@@ -165,6 +166,23 @@ class WebSocketClientBase(ABC):
             command_type=CommandTypeDC.GET_FILE_OBJECT,
             target_group=TargetTypeDC.SERVER,
             server=ServerDC(get_file_object_by_name=file_name),
+        )
+        return serialize_root_message(message)
+
+    def _register_fea_source_prep(
+        self, source_key: str, bake_dir: str, bake_id: str, open_in_viewer: bool, request_id: str
+    ) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.REGISTER_FEA_SOURCE,
+            target_group=TargetTypeDC.SERVER,
+            client_type=self.client_type,
+            request_id=request_id,
+            server=ServerDC(
+                register_fea_source=FeaSourceRegisterDC(
+                    source_key=source_key, bake_dir=bake_dir, bake_id=bake_id, open_in_viewer=open_in_viewer
+                )
+            ),
         )
         return serialize_root_message(message)
 

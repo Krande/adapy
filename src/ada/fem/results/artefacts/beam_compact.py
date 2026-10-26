@@ -321,9 +321,35 @@ def expand_beam_solid_instances(inst: BeamSolidInstances, points) -> SolidBeamMe
     sharing code.
     """
 
-    from adacpp.cad import expand_beam_solids, make_extruded_section
-
     from ada.visit.rendering.femviz import ElementRange
+
+    out = expand_beam_solid_arrays(inst, points)
+    ranges = [
+        ElementRange(label=int(lbl), tri_start=int(start), tri_count=int(count))
+        for lbl, start, count in zip(out["range_label"], out["range_tri_start"], out["range_tri_count"])
+    ]
+
+    return SolidBeamMesh(
+        points=out["positions"].reshape(-1, 3),
+        triangles=out["indices"].reshape(-1, 3),
+        element_ranges=ranges,
+        vertex_node0=out["node0"],
+        vertex_node1=out["node1"],
+        vertex_t=out["t"],
+        total_beams=inst.total_beams,
+        skip_reasons=dict(inst.skip_reasons),
+    )
+
+
+def expand_beam_solid_arrays(inst: BeamSolidInstances, points) -> dict[str, np.ndarray]:
+    """``adacpp.cad.expand_beam_solids`` over ``inst``: its output arrays, flat, by name.
+
+    The same arrays, in the same dtypes, the browser's WebAssembly build of that
+    function returns (``positions`` f32, ``indices`` u32, ``node0`` / ``node1`` u32,
+    ``t`` f32, and the ``range_label`` / ``range_tri_start`` / ``range_tri_count``
+    draw ranges u32) -- which is what lets the websocket viewer ask the Python
+    process for them instead (see ``ada.comms.msg_handling.kernel_calls``)."""
+    from adacpp.cad import expand_beam_solids, make_extruded_section
 
     pts_main = np.ascontiguousarray(np.asarray(points, dtype=np.float64).reshape(-1, 3))
 
@@ -354,22 +380,16 @@ def expand_beam_solid_instances(inst: BeamSolidInstances, points) -> SolidBeamMe
         node1=np.ascontiguousarray(inst.node1, dtype=np.uint32),
         points=pts_main,
     )
-
-    ranges = [
-        ElementRange(label=int(lbl), tri_start=int(start), tri_count=int(count))
-        for lbl, start, count in zip(out.range_label, out.range_tri_start, out.range_tri_count)
-    ]
-
-    return SolidBeamMesh(
-        points=np.asarray(out.positions, dtype=np.float32).reshape(-1, 3),
-        triangles=np.asarray(out.indices, dtype=np.uint32).reshape(-1, 3),
-        element_ranges=ranges,
-        vertex_node0=np.asarray(out.node0, dtype=np.uint32),
-        vertex_node1=np.asarray(out.node1, dtype=np.uint32),
-        vertex_t=np.asarray(out.t, dtype=np.float32),
-        total_beams=inst.total_beams,
-        skip_reasons=dict(inst.skip_reasons),
-    )
+    return {
+        "positions": np.asarray(out.positions, dtype=np.float32).reshape(-1),
+        "indices": np.asarray(out.indices, dtype=np.uint32).reshape(-1),
+        "node0": np.asarray(out.node0, dtype=np.uint32),
+        "node1": np.asarray(out.node1, dtype=np.uint32),
+        "t": np.asarray(out.t, dtype=np.float32),
+        "range_label": np.asarray(out.range_label, dtype=np.uint32),
+        "range_tri_start": np.asarray(out.range_tri_start, dtype=np.uint32),
+        "range_tri_count": np.asarray(out.range_tri_count, dtype=np.uint32),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +444,11 @@ def read_beam_solids_compact(path: os.PathLike) -> BeamSolidInstances:
     in the binary, because it is about beams that are NOT in the file.
     """
 
-    data = pathlib.Path(path).read_bytes()
+    return parse_beam_solids_compact(pathlib.Path(path).read_bytes())
+
+
+def parse_beam_solids_compact(data: bytes) -> BeamSolidInstances:
+    """:func:`read_beam_solids_compact` for an AFBS artefact already in memory."""
     if len(data) < BEAM_COMPACT_HEADER_BYTES:
         raise ValueError(f"beam-solid compact: too small ({len(data)} bytes)")
     if data[:4] != BEAM_COMPACT_MAGIC:

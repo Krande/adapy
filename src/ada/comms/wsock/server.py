@@ -98,6 +98,13 @@ async def retry_message_sending(
         logger.warning(f"Retrying message sending. Retries left: {num_retries}")
 
 
+# Largest message the server accepts. A CALL_KERNEL request carries the viewer's input
+# arrays (for beam solids: the beam table and the mesh's positions -- tens of MB on a
+# large deck), which outgrew the 10 MB the GLB pushes needed. A local, single-user
+# server; the cap only guards against a runaway client.
+MAX_MESSAGE_BYTES = 512 * 1024**2
+
+
 class WebSocketAsyncServer:
     def __init__(
         self,
@@ -124,6 +131,10 @@ class WebSocketAsyncServer:
         self.instance_id = random.randint(1, 2**31 - 1)  # Generates a random int32 value (>0)
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()
+        # FEA bakes viewers can read over the websocket (see msg_handling/fea_sources.py),
+        # and the one the last FEAResult.show() asked the viewers to open.
+        self.fea_sources: dict = {}
+        self.fea_open_source = None
         self.debug = debug
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         # Idle shutdown watchdog settings/state
@@ -226,6 +237,12 @@ class WebSocketAsyncServer:
         logger.debug(f"Client connected: {client.instance_id} [{len(self.connected_clients)} clients connected]")
         if self.on_connect:
             await self.on_connect(client)
+        if client.group_type == TargetTypeDC.WEB and self.fea_open_source is not None:
+            # A viewer opened (or reloaded) after FEAResult.show() asked for a result:
+            # it still gets told to open it, as the GLB push would have retried.
+            from ada.comms.msg_handling.fea_sources import open_source_message
+
+            await client.websocket.send(open_source_message(self, self.fea_open_source))
         try:
             async for message in websocket:
                 await self.handle_message(message, client, websocket)
@@ -324,9 +341,9 @@ class WebSocketAsyncServer:
         return True
 
     async def start_async(self):
-        """Run the server asynchronously. Blocks until the server is stopped. Max size is set to 10MB."""
+        """Run the server asynchronously. Blocks until the server is stopped. Messages up to MAX_MESSAGE_BYTES."""
         self._event_loop = asyncio.get_running_loop()
-        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
+        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=MAX_MESSAGE_BYTES)
         logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
         # Start idle watchdog task (non-blocking loop)
         if self._watchdog_task is None or self._watchdog_task.done():
@@ -334,9 +351,9 @@ class WebSocketAsyncServer:
         await self.server.wait_closed()
 
     async def start_async_non_blocking(self):
-        """Start the server asynchronously. Does not block the event loop. Max size is set to 10MB."""
+        """Start the server asynchronously. Does not block the event loop. Messages up to MAX_MESSAGE_BYTES."""
         self._event_loop = asyncio.get_running_loop()
-        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
+        self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=MAX_MESSAGE_BYTES)
         print(f"WebSocket server started on ws://{self.host}:{self.port}")
         # Start idle watchdog task (non-blocking loop)
         if self._watchdog_task is None or self._watchdog_task.done():

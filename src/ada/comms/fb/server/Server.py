@@ -127,9 +127,69 @@ class Server(object):
             return obj
         return None
 
+    # Server
+    def RegisterFeaSource(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.FeaSourceRegister import FeaSourceRegister
+
+            obj = FeaSourceRegister()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Server
+    def OpenFeaSource(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.FeaSourceInfo import FeaSourceInfo
+
+            obj = FeaSourceInfo()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Server
+    def FeaManifestRequest(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.FeaManifestRequest import FeaManifestRequest
+
+            obj = FeaManifestRequest()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Server
+    def FeaBlobRequest(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.FeaBlobRequest import FeaBlobRequest
+
+            obj = FeaBlobRequest()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Server
+    def KernelCall(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.KernelCall import KernelCall
+
+            obj = KernelCall()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerStart(builder):
-    builder.StartObject(8)
+    builder.StartObject(13)
 
 
 def Start(builder):
@@ -206,6 +266,46 @@ def ServerAddLoadProceduralModel(builder, loadProceduralModel):
 
 def AddLoadProceduralModel(builder, loadProceduralModel):
     ServerAddLoadProceduralModel(builder, loadProceduralModel)
+
+
+def ServerAddRegisterFeaSource(builder, registerFeaSource):
+    builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(registerFeaSource), 0)
+
+
+def AddRegisterFeaSource(builder, registerFeaSource):
+    ServerAddRegisterFeaSource(builder, registerFeaSource)
+
+
+def ServerAddOpenFeaSource(builder, openFeaSource):
+    builder.PrependUOffsetTRelativeSlot(9, flatbuffers.number_types.UOffsetTFlags.py_type(openFeaSource), 0)
+
+
+def AddOpenFeaSource(builder, openFeaSource):
+    ServerAddOpenFeaSource(builder, openFeaSource)
+
+
+def ServerAddFeaManifestRequest(builder, feaManifestRequest):
+    builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(feaManifestRequest), 0)
+
+
+def AddFeaManifestRequest(builder, feaManifestRequest):
+    ServerAddFeaManifestRequest(builder, feaManifestRequest)
+
+
+def ServerAddFeaBlobRequest(builder, feaBlobRequest):
+    builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(feaBlobRequest), 0)
+
+
+def AddFeaBlobRequest(builder, feaBlobRequest):
+    ServerAddFeaBlobRequest(builder, feaBlobRequest)
+
+
+def ServerAddKernelCall(builder, kernelCall):
+    builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(kernelCall), 0)
+
+
+def AddKernelCall(builder, kernelCall):
+    ServerAddKernelCall(builder, kernelCall)
 
 
 def ServerEnd(builder):
