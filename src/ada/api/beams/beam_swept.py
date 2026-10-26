@@ -62,6 +62,10 @@ class BeamSweep(Beam):
         # The straight-beam orientation is derived from the start-to-end chord; an ``up`` parallel
         # to that chord is still a valid sweep reference (it only has to differ from the START
         # tangent), so keep it for the sweep and let the chord frame take its default.
+        if float(np.linalg.norm(n2 - n1)) < 1e-12 and len(segs) > 1:
+            # A closed path (a ring) ends where it starts and has no chord to take the beam axis from:
+            # use the far side of the path as the second node.
+            n2 = np.asarray(list(segs[len(segs) // 2].start), dtype=float)
         chord = n2 - n1
         chord_up = up
         if up is not None:
