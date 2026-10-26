@@ -157,6 +157,10 @@ class FemSet(FemBase):
     @property
     def members(self) -> list[Elem | Node]:
         if self._member_ids is not None:
+            # No parent FEM to resolve against (e.g. sets on a results Mesh read from
+            # a SIF): the ids are the members.
+            if self.parent is None:
+                return list(self._member_ids)
             return [self._resolve(i) for i in self._member_ids]
         return self._members
 
@@ -165,7 +169,7 @@ class FemSet(FemBase):
         return self._refs
 
     def __repr__(self):
-        return f'FemSet({self.name}, type: "{self.type}", members: "{len(self.members)}")'
+        return f'FemSet({self.name}, type: "{self.type}", members: "{len(self)}")'
 
 
 def eval_set_type_from_members(members: list[Elem | Node]) -> str:
