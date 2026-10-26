@@ -159,10 +159,16 @@ def test_code_aster_matches_native_except_for_seg3():
 def test_line3_permutations_are_self_inverse():
     """(end, mid, end) <-> (end, end, mid) is a single swap, so read and write share
     one table — a format cannot get one direction right and the other wrong."""
-    for order in (CODE_ASTER_ORDER, SESAM_ORDER):
-        perm = order.to_format(LineShapes.LINE3)
-        assert perm == (0, 2, 1)
-        assert order.from_format(LineShapes.LINE3) == perm
+    perm = CODE_ASTER_ORDER.to_format(LineShapes.LINE3)
+    assert perm == (0, 2, 1)
+    assert CODE_ASTER_ORDER.from_format(LineShapes.LINE3) == perm
+
+
+def test_sesam_btss_is_native():
+    """Sesam's 3-node beam (BTSS) is (end, mid, end), as Sestra's own results files store
+    it -- adapy's native LINE3 order -- so it is not reordered either way."""
+    assert SESAM_ORDER.to_format(LineShapes.LINE3) is None
+    assert SESAM_ORDER.from_format(LineShapes.LINE3) is None
 
 
 # ── the geometric check that lets a table be verified against a real mesh ─────

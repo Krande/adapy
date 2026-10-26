@@ -304,6 +304,8 @@ class Mesh:
                 elem = Elem(elem_id, nodes, block.elem_info.type)
                 break
 
+        if vec is None:
+            vec = _default_local_z(elem)
         fs = FemSection(f"FS{sec_id}", GeomRepr.LINE, FemSet(f"El{el_id}", [elem]), mat, sec, local_z=vec)
         elem.fem_sec = fs
         return elem
@@ -500,6 +502,7 @@ class Mesh:
         el_props = {int(row[0]): (int(row[1]), int(row[2]), int(row[3])) for row in self.elem_data}
 
         line_elems: list[Elem] = []
+        num_defaulted = 0
         for block in self.elements:
             # Only create elements for line-type blocks
             if not isinstance(block.elem_info.type, LineShapes):
@@ -524,6 +527,9 @@ class Mesh:
                 mat = self.materials.get(mat_id) if self.materials is not None else None
                 sec = self.sections.get(sec_id) if self.sections is not None else None
                 vec = self.vectors.get(vec_id) if self.vectors is not None else None
+                if vec is None:
+                    vec = _default_local_z(el)
+                    num_defaulted += 1
 
                 # Assign FemSection similarly to get_elem_by_id
                 fs = FemSection(f"FS{sec_id}", GeomRepr.LINE, FemSet(f"El{elem_id}", [el]), mat, sec, local_z=vec)
@@ -539,7 +545,24 @@ class Mesh:
 
                 line_elems.append(el)
 
+        if num_defaulted:
+            logger.warning(
+                "%d line element(s) reference no orientation vector in the result file; "
+                "drawing them with a default local z (global Z, or global Y for vertical elements).",
+                num_defaulted,
+            )
         return line_elems
+
+
+def _default_local_z(elem: Elem) -> np.ndarray:
+    """A local z for a line element whose orientation vector the file does not carry."""
+    from ada.core.vector_utils import calc_zvec
+
+    # A 3-node line is (end, mid, end) natively, so the far end is the last node.
+    x_vec = np.asarray(elem.nodes[-1].p, dtype=float) - np.asarray(elem.nodes[0].p, dtype=float)
+    if not np.any(x_vec):
+        return np.array([0.0, 0.0, 1.0])  # zero length: no axis to be perpendicular to
+    return np.asarray(calc_zvec(x_vec), dtype=float)
 
 
 @dataclass

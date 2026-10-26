@@ -458,7 +458,9 @@ class SifReader:
         res = self._other.get("GUNIVEC")
         if res is None:
             return None
-        return {x[0]: x[1:] for x in res}
+        # TRANSNO, then the unit vector's three components. A record can carry more words
+        # after them (some superelements of an assembly do), which are not part of the vector.
+        return {x[0]: x[1:4] for x in res}
 
     def get_unit_factors(self) -> tuple[float, float, float] | None:
         """Return the file's length/force/temperature-to-SI factors.
@@ -987,11 +989,11 @@ class Sif2Mesh:
             elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
             elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=int)
 
-            # Sesam interleaves corner and mid-side nodes on BTSS (end, end, mid), SCQS
-            # (round the perimeter) and the iso-parametric solids; adapy's shapes, edge
-            # tables and viewers assume corners first. Without this a curved beam draws as
-            # half a segment and an 8-node shell triangulates into slivers. Same table the
-            # input-deck reader uses.
+            # Sesam interleaves corner and mid-side nodes on SCQS (round the perimeter) and
+            # the iso-parametric solids; adapy's shapes, edge tables and viewers assume
+            # corners first. Without this an 8-node shell triangulates into slivers. (BTSS
+            # is written end, mid, end -- adapy's own LINE3 order -- and passes through.)
+            # Same table the input-deck reader uses.
             elem_node_refs = SESAM_ORDER.conn_from_format(general_elem_type, elem_node_refs)
 
             elem_info = ElementInfo(type=general_elem_type, source_software=FEATypes.SESAM, source_type=elem_type)
@@ -1030,6 +1032,7 @@ class Sif2Mesh:
             for label, refs in zip(block.identifiers, block.node_refs):
                 node_counts[int(label)] = int(len(refs))
         eccentricities = element_eccentricities(gelref, self.sif.get_geccen(), node_counts)
+        _resolve_per_node_refs(elem_refs, gelref, node_counts)
 
         return Mesh(
             elements=elem_blocks,
@@ -1300,6 +1303,43 @@ def _nodal_vector_to_model(
     if rotation is not None:
         result[3:] = rotation @ result[3:]
     return result
+
+
+def _resolve_per_node_refs(elem_refs: np.ndarray, gelref_rows, node_counts: dict[int, int]) -> None:
+    """Replace a ``-1`` geono / transno in ``elem_refs`` (``elno, matno, geono, transno``) by the
+    element's first node's entry, in place.
+
+    ``-1`` is GELREF1's OPT convention for "one per node, in the record's tail" (the
+    tail order -- geono, fixno, eccno, transno, each NNOD long, only those that are
+    ``-1`` -- is described in :mod:`.eccentricity`). Sesam's 3-node beams carry their
+    local axes this way. Kept as ``-1``, the reference matched no GUNIVEC vector (or
+    section), and the beam lost its orientation. One value per element is all a
+    beam section takes; the nodes of a straight beam share it.
+    """
+    if elem_refs is None or len(elem_refs) == 0 or not gelref_rows:
+        return
+    elno_i, geono_i, fixno_i, eccno_i, transno_i = cards.GELREF1.get_indices_from_names(
+        ["elno", "geono", "fixno", "eccno", "transno"]
+    )
+    per_node = elem_refs[:, 2:4] == -1
+    if not per_node.any():
+        return
+    row_of = {int(e): i for i, e in enumerate(elem_refs[:, 0])}
+    for row in gelref_rows:
+        geono, transno = int(row[geono_i]), int(row[transno_i])
+        if geono != -1 and transno != -1:
+            continue
+        elno = int(row[elno_i])
+        nnod, at = node_counts.get(elno), row_of.get(elno)
+        if not nnod or at is None:
+            continue
+        cursor = transno_i + 1
+        for col, opt in ((2, geono), (None, int(row[fixno_i])), (None, int(row[eccno_i])), (3, transno)):
+            if opt != -1:
+                continue
+            if col is not None and cursor < len(row):
+                elem_refs[at, col] = float(row[cursor])
+            cursor += nnod
 
 
 def _rdpoints_per_row(elno: np.ndarray, rdpoints_map: dict, nsp_i: int, eltyp_i: int):
