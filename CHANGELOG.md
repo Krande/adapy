@@ -2,6 +2,15 @@
 
 
 
+## v0.119.1 (2026-10-26)
+
+### Fix
+
+* fix(curves, beams): bends around a straight-run point, closed-path sweeps, profile vertices, and a lost closing corner (#463)
+
+Co-authored-by: Claude Sonnet 5.5 &lt;noreply@anthropic.com&gt; ([`ac2c400`](https://github.com/Krande/adapy/commit/ac2c40057bc2565a283b595bc67466527fe96979))
+
+
 ## v0.119.0 (2026-10-24)
 
 ### Feature
