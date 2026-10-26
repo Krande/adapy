@@ -16,7 +16,7 @@ import type {
     FeaManifestFieldPerType,
 } from "@/services/viewerApi";
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
-import {makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import {capabilities} from "@/services/capabilities";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {peekCase, resolveCase} from "@/services/fea/feaCaseResolver";
 import {caseFieldView, isCaseRef} from "@/services/fea/feaStepRef";
@@ -119,7 +119,7 @@ export async function feaValuesForElement(
 
     // Where the open model's blobs are, not where the storage browser is.
     const urlScope = feaSourceScope(sourceName);
-    const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(urlScope, sourceName);
+    const {fetcher, rangeFetcher, cacheKey} = capabilities.fea.fieldFetchers(urlScope, sourceName);
 
     const out: ElementFieldValues[] = [];
     await Promise.all(

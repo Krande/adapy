@@ -23,7 +23,8 @@ import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useTableNavStore} from "@/state/tableNavStore";
-import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import {fetchFieldStep} from "@/services/feaFieldBlob";
+import {capabilities} from "@/services/capabilities";
 import {fieldAtStep} from "@/services/fea/feaCaseResolver";
 import {mergeCaseSteps, slotRef} from "@/utils/scene/fea/caseSteps";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
@@ -201,10 +202,9 @@ const FeaNodalTable: React.FC<{
         let cancelled = false;
         setError(null);
         setLoading(true);
-        // Build a fetcher for the standalone-viewer's bake-job storage
-        // convention; the helper returns the whole-blob fetcher (fallback),
-        // the range fetcher, and a stable (scope, source) cache key.
-        const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(scopeUrl, sourceName);
+        // The transport's fetchers for this source's bake: the whole-blob
+        // fetcher (fallback), the range fetcher, and a stable cache key.
+        const {fetcher, rangeFetcher, cacheKey} = capabilities.fea.fieldFetchers(scopeUrl, sourceName);
         // A load-combination slot reads the materialised case (feaCaseResolver).
         const manifest = useFeaAnimationStore.getState().manifest;
         const ref = slotRef(manifest, field, stepIndex);

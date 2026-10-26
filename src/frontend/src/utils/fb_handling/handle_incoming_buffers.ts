@@ -4,6 +4,7 @@ import {CommandType} from '@/flatbuffers/commands';
 import * as flatbuffers from 'flatbuffers';
 import {reply_ping} from './reply_ping';
 import {update_scene_from_message} from '../scene/handlers/update_scene_from_message';
+import {open_fea_source_from_message} from '../scene/handlers/open_fea_source_from_message';
 import {receive_mesh_info_reply} from '../mesh_select/handlers/receive_mesh_info_reply';
 import {update_nodes} from '../node_editor/handlers/update_nodes';
 import {handle_finished_procedure} from '../node_editor/handlers/handle_finished_procedure';
@@ -29,6 +30,10 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
 
             case CommandType.MESH_INFO_REPLY:
                 await receive_mesh_info_reply(message);
+                break;
+
+            case CommandType.OPEN_FEA_SOURCE:
+                await open_fea_source_from_message(message);
                 break;
 
             case CommandType.LIST_WEB_CLIENTS: {

@@ -26,7 +26,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import ResultScaleSettings from "./ResultScaleSettings";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
-import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
+import {buildFeaPropertyFields, buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {unbakedStepsNote} from "@/utils/scene/fea/bakedSteps";
 import {caseStatusText, hasLazyCases, mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
 import {caseStatus, caseStatusVersion, subscribeCaseStatus} from "@/services/fea/feaCaseResolver";
@@ -393,6 +393,9 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         () => buildFeaResultHierarchy(manifest?.fields ?? []),
         [manifest],
     );
+    // Colour by what the elements ARE (superelement, material, section, thickness):
+    // listed apart from the results, after them.
+    const propertyFields = useMemo(() => buildFeaPropertyFields(manifest?.fields ?? []), [manifest]);
     // The step list: stored steps, then (bake_version 4) the load combinations
     // the bake left to compute on request, each with its status.
     const lazyCases = hasLazyCases(manifest);
@@ -632,6 +635,15 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                     {fieldHierarchy.ungrouped.map((f) => (
                                         <option key={f.name_canonical} value={f.name_canonical}>
                                             {f.name_canonical}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            )}
+                            {propertyFields.length > 0 && (
+                                <optgroup label="Model">
+                                    {propertyFields.map(({label, field}) => (
+                                        <option key={field.name_canonical} value={field.name_canonical}>
+                                            {label}
                                         </option>
                                     ))}
                                 </optgroup>

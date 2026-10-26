@@ -52,6 +52,8 @@ import type {
   SystemTemplateDoc,
   SystemTemplateSummary,
 } from "@/services/viewerApi";
+import type { FeaFetcher, FeaRangeFetcher } from "@/services/fea/feaFetcher";
+import type { ExpandedBeamSolids } from "@/services/feaBeamSolidsCompact";
 import type { ModelStats } from "@/utils/stats/modelStats";
 
 /** Thrown by a transport for a verb it has no implementation of.
@@ -425,8 +427,9 @@ export interface ProceduralRelocationResponse {
 // `supports()`, exactly like `ProceduralModelCapability`: REST answers every
 // verb by delegating to `viewerApi`; the websocket transport answers the ones
 // it has a wire verb for and refuses the rest with `CapabilityUnavailableError`.
-// Today it has none of these -- LIST_FILE_OBJECTS / VIEW_FILE_OBJECT push a
-// whole file into the scene, they do not serve a blob by key -- so every
+// Today that is only FEA (GET_FEA_MANIFEST / GET_FEA_BLOB, for a bake
+// `FEAResult.show()` registered); LIST_FILE_OBJECTS / VIEW_FILE_OBJECT push a
+// whole file into the scene, they do not serve a blob by key -- so every other
 // `supports()` here is false over the websocket, and the scene handlers that
 // used to branch on `runtime.isRestMode()` now ask the verb they need instead.
 //
@@ -501,12 +504,23 @@ export interface FilesCapability {
 
 // ---- FEA results --------------------------------------------------------------------------
 //
-// The streaming FEA viewer's entry point: the baked manifest of a result file.
-// Mesh, field and sidecar blobs under `_derived/<src>.fea/` are then read
-// through `FilesCapability` (`blobUrl`) and the fetcher in
-// `services/feaFieldBlob`.
+// The streaming FEA viewer's entry point: the baked manifest of a result file,
+// and the fetchers its mesh, field and sidecar files are read through. Over
+// REST those are the blobs under `_derived/<src>.fea/` (`makeViewerApiFetcher`);
+// over the websocket, the bake `FEAResult.show()` registered with the local
+// server (GET_FEA_MANIFEST / GET_FEA_BLOB). The loader in
+// `utils/scene/handlers/load_fea_streaming` only ever sees the fetchers.
 
-export type FeaVerb = "fetchManifest";
+export type FeaVerb = "fetchManifest" | "fieldFetchers";
+
+/** What the streaming loader reads one source's bake through. `cacheKey` keys the
+ * parsed-blob caches, so two bakes of a source (a result shown again) never share
+ * entries. */
+export interface FeaFetchers {
+  fetcher: FeaFetcher;
+  rangeFetcher: FeaRangeFetcher;
+  cacheKey: string;
+}
 
 export interface FeaManifestProgress {
   jobId: string;
@@ -527,6 +541,31 @@ export interface FeaCapability {
   /** The manifest of `sourceKey`'s FEA bake, baking it first if needed --
    * `onProgress` reports the queue/bake and `signal` aborts the poll. */
   fetchManifest(scope: ScopeUrl, sourceKey: string, opts?: FeaManifestOptions): Promise<FeaManifest>;
+
+  /** The fetchers for the files of `sourceKey`'s bake (manifest-relative filenames:
+   * `fea.mesh.glb`, `fea.<field>.bin`, ...). */
+  fieldFetchers(scope: ScopeUrl, sourceKey: string): FeaFetchers;
+}
+
+// ---- Compute ------------------------------------------------------------------------------
+//
+// The adacpp kernels the viewer runs on data it already holds. In the browser they are
+// WebAssembly modules served from `/wasm/` (the REST viewer); the websocket viewer opens
+// from `file://`, where there is no `/wasm/` to load them from, so its implementation asks
+// the Python process on the other end of the socket to run the same adacpp function
+// (CALL_KERNEL, `ada.comms.msg_handling.kernel_calls`). Same inputs, same arrays back.
+// One verb per kernel, added as each one is moved behind the seam.
+
+export type ComputeVerb = "expandBeamSolids";
+
+export interface ComputeCapability {
+  readonly transport: CapabilityTransport;
+  supports(verb: ComputeVerb): boolean;
+
+  /** Sweep the compact beam-solid artefact (AFBS bytes, `beam_solids_compact_url`) into the
+   * beam mesh, its per-beam draw ranges and its warp mapping. `mainPositions` is the main FEA
+   * mesh's position buffer: the artefact's node indices point into it. */
+  expandBeamSolids(compact: ArrayBuffer, mainPositions: Float32Array): Promise<ExpandedBeamSolids>;
 }
 
 // ---- Conversion jobs ----------------------------------------------------------------------
@@ -695,6 +734,7 @@ export interface ViewerCapabilities {
   // ---- seams 3: store- and scene-layer domains (see the block above) ----
   readonly files: FilesCapability;
   readonly fea: FeaCapability;
+  readonly compute: ComputeCapability;
   readonly conversion: ConversionCapability;
   readonly catalog: CatalogCapability;
   readonly components: ComponentsCapability;

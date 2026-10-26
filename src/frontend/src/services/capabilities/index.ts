@@ -37,9 +37,12 @@ export type {
   CatalogVerb,
   ComponentsCapability,
   ComponentsVerb,
+  ComputeCapability,
+  ComputeVerb,
   ConversionCapability,
   ConversionVerb,
   FeaCapability,
+  FeaFetchers,
   FeaManifestOptions,
   FeaManifestProgress,
   FeaVerb,
@@ -64,6 +67,7 @@ export { WSCapabilities, WSModelStatsCapability, WSProceduralModelCapability } f
 export {
   RESTCatalogCapability,
   RESTComponentsCapability,
+  RESTComputeCapability,
   RESTConversionCapability,
   RESTFeaCapability,
   RESTFilesCapability,
@@ -72,6 +76,7 @@ export {
 export {
   WSCatalogCapability,
   WSComponentsCapability,
+  WSComputeCapability,
   WSConversionCapability,
   WSFeaCapability,
   WSFilesCapability,
@@ -114,6 +119,9 @@ export const capabilities: ViewerCapabilities = {
   },
   get fea() {
     return getCapabilities().fea;
+  },
+  get compute() {
+    return getCapabilities().compute;
   },
   get conversion() {
     return getCapabilities().conversion;
