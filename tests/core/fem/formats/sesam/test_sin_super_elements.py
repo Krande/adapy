@@ -61,11 +61,129 @@ def test_default_pick_on_an_assembly_is_the_first_level_superelement_with_result
         assert "RVSTRESS" in sf.type_blocks
         assert sf.selected.label == "SEL10.IND1"
 
-    original, spliced = read_sin_file(SIN_PATH), read_sin_file(assembly)
-    assert len(spliced.mesh.nodes.coords) == len(original.mesh.nodes.coords)
-    assert sum(len(b.identifiers) for b in spliced.mesh.elements) == sum(
+    original, chosen = read_sin_file(SIN_PATH), read_sin_file(assembly, super_element="SEL10.IND1")
+    assert len(chosen.mesh.nodes.coords) == len(original.mesh.nodes.coords)
+    assert sum(len(b.identifiers) for b in chosen.mesh.elements) == sum(
         len(b.identifiers) for b in original.mesh.elements
     )
+
+
+# ── the whole assembly: read_sin_file's default on an assembly ─────────────────
+
+
+@pytest.fixture(scope="module")
+def assembled(assembly):
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    return read_sin_file(assembly)
+
+
+def test_default_read_of_an_assembly_merges_every_superelement(assembled):
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    one = read_sin_file(SIN_PATH)
+    n_nodes, n_elems = len(one.mesh.nodes.coords), sum(len(b.identifiers) for b in one.mesh.elements)
+
+    assert len(assembled.mesh.nodes.coords) == 2 * n_nodes
+    assert sum(len(b.identifiers) for b in assembled.mesh.elements) == 2 * n_elems
+    assert [s["label"] for s in assembled.sesam_super_elements] == ["SEL10.IND1", "SEL11.IND1"]
+
+
+def test_ids_are_unique_and_readable_per_superelement(assembled):
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    one = read_sin_file(SIN_PATH)
+    ids = np.asarray(assembled.mesh.nodes.identifiers)
+    assert len(np.unique(ids)) == len(ids)
+    # Type x 10^6 + the superelement's own number.
+    n = len(one.mesh.nodes.identifiers)
+    assert np.array_equal(ids[:n], np.asarray(one.mesh.nodes.identifiers) + 10_000_000)
+    assert np.array_equal(ids[n:], np.asarray(one.mesh.nodes.identifiers) + 11_000_000)
+    elem_labels = np.concatenate([b.shown_ids() for b in assembled.mesh.elements])
+    assert len(np.unique(elem_labels)) == len(elem_labels)
+
+
+def test_each_superelement_is_placed_by_its_transform(assembled):
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    xyz = np.asarray(read_sin_file(SIN_PATH).mesh.nodes.coords)
+    placed = np.asarray(assembled.mesh.nodes.coords)
+    n = len(xyz)
+    matrix = np.array(PLACEMENT_ROWS)
+    np.testing.assert_allclose(placed[:n], xyz)  # SEL10: identity
+    np.testing.assert_allclose(placed[n:], xyz @ matrix[:3, :3].T + matrix[:3, 3])
+
+
+def test_displacements_turn_with_the_superelement(assembled):
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    one = read_sin_file(SIN_PATH)
+    raw = next(r for r in one.results if r.name == "RVNODDIS" and r.step == one.get_steps()[0])
+    merged = next(r for r in assembled.results if r.name == "RVNODDIS" and r.step == raw.step)
+    n = len(raw.values)
+    rotation = np.array(PLACEMENT_ROWS)[:3, :3]
+    np.testing.assert_allclose(merged.values[:n, 1:], raw.values[:, 1:])
+    np.testing.assert_allclose(merged.values[n:, 1:4], raw.values[:, 1:4] @ rotation.T)  # translations
+    np.testing.assert_allclose(merged.values[n:, 4:7], raw.values[:, 4:7] @ rotation.T)  # rotations
+
+
+def test_from_fem_res_takes_a_selection_of_superelements(assembly, assembled):
+    import ada
+    from ada.fem.formats.sesam.results.sin_reader import SuperElementError
+
+    def n_nodes(result):
+        return len(result.mesh.nodes.identifiers)
+
+    whole = n_nodes(assembled)
+    # A list (or set, or tuple of names) of superelements: just those, merged.
+    assert n_nodes(ada.from_fem_res(assembly, super_element=["SEL10.IND1", "SEL11.IND1"])) == whole
+    assert n_nodes(ada.from_fem_res(assembly, super_element=("SEL10.IND1", "SEL11.IND1"))) == whole
+    # One superelement, however it is spelled, reads alone with its own numbering.
+    alone = ada.from_fem_res(assembly, super_element="SEL11.IND1")
+    assert n_nodes(alone) == whole // 2
+    assert int(np.asarray(alone.mesh.nodes.identifiers).max()) < 10_000_000
+    assert n_nodes(ada.from_fem_res(assembly, super_element=["SEL11.IND1"])) == whole // 2
+    # A (type, instance) pair is ONE superelement, not two.
+    assert n_nodes(ada.from_fem_res(assembly, super_element=(11, 1))) == whole // 2
+    # A name that is not in the file is refused, listing what is.
+    with pytest.raises(SuperElementError, match="SEL10.IND1"):
+        ada.from_fem_res(assembly, super_element=["SEL10.IND1", "SEL99.IND1"])
+
+
+def test_a_property_field_says_which_superelement_each_element_belongs_to(assembled):
+    fields = [r for r in assembled.results if r.name == "props.super_element"]
+    assert fields, "no props.super_element field"
+    codes_by_label = {}
+    for f in fields:
+        for label, code in zip(np.asarray(f.values)[:, 0], np.asarray(f.values)[:, 2]):
+            codes_by_label[int(label)] = int(code)
+        assert dict(f.presentation.value_labels) == {1.0: "SEL10.IND1", 2.0: "SEL11.IND1"}
+    elem_ids = [int(i) for b in assembled.mesh.elements for i in b.identifiers]
+    assert sorted(codes_by_label) == sorted(elem_ids)
+    assert {codes_by_label[i] for i in elem_ids if i < 11_000_000} == {1}
+    assert {codes_by_label[i] for i in elem_ids if i >= 11_000_000} == {2}
+
+
+def test_material_ids_and_their_legend_are_prefixed_per_superelement(assembled):
+    materials = [r for r in assembled.results if r.name == "props.material"]
+    assert materials
+    for f in materials:
+        values = np.asarray(f.values)
+        legend = dict(f.presentation.value_labels)
+        # Every painted id has a legend entry, and no superelement's ids collide with another's.
+        assert set(np.unique(values[:, 2])) <= set(legend)
+        assert any(v >= 11_000_000 for v in legend) and any(10_000_000 <= v < 11_000_000 for v in legend)
+
+
+def test_one_field_per_step_with_a_superelement_lacking_it_contributing_nothing(assembled):
+    by_key = {}
+    for r in assembled.results:
+        key = (r.name, r.step, str(getattr(r, "elem_type", None)))
+        assert key not in by_key, f"{key} appears twice"
+        by_key[key] = r
+    # SEL11 has no RVSTRESS: the stress field holds SEL10's elements only.
+    stress = [r for r in assembled.results if r.name == "STRESS"]
+    assert stress and all((np.asarray(r.values)[:, 0] < 11_000_000).all() for r in stress)
 
 
 def test_hierarchy_lists_every_superelement(assembly):

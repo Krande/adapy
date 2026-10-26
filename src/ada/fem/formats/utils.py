@@ -453,7 +453,7 @@ def interpret_fem_format_from_path(fem_path: str | pathlib.Path):
     suffix = pathlib.Path(fem_path).suffix.lower()
 
     fem_type = None
-    if suffix in (".fem", ".sif"):
+    if suffix in (".fem", ".sif", ".sin"):
         fem_type = FEATypes.SESAM
     elif suffix == ".inp":
         fem_type = FEATypes.ABAQUS

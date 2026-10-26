@@ -835,7 +835,7 @@ def read_sif_file(sif_file: str | pathlib.Path, *, step: int | str | None = None
     return fea_results
 
 
-def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
+def read_sin_file(sin_file: str | pathlib.Path, overwrite=False, super_element=None) -> FEAResult:
     """Read a Sesam SIN / SIF result file → :class:`FEAResult`.
 
     Despite the name, this is the Sesam-side post-processor entry
@@ -855,18 +855,26 @@ def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
 
     ``overwrite=True`` (legacy callers) materialises a SIF file next
     to the SIN and routes through :func:`read_sif_file` for back-compat.
+
+    ``super_element``: on a superelement assembly SIN, what to read -- None for the
+    whole assembly, one superelement, or a list of them (see
+    :func:`ada.fem.formats.sesam.results.read_sin.read_sin_file`).
     """
     sin_file = pathlib.Path(sin_file)
     if sin_file.suffix.lower() == ".sif":
+        if super_element is not None:
+            raise ValueError("a SIF text file holds one superelement; super_element applies to a .SIN")
         return read_sif_file(sin_file)
     if overwrite:
         from ada.fem.formats.sesam.results.sin_to_sif import convert_sin_to_sif_file
 
-        sif_path = convert_sin_to_sif_file(sin_file)
+        if isinstance(super_element, (list, set, frozenset)):
+            raise ValueError("overwrite=True writes one superelement to SIF; pass a single super_element")
+        sif_path = convert_sin_to_sif_file(sin_file, super_element=super_element)
         return read_sif_file(sif_path)
     from ada.fem.formats.sesam.results.read_sin import read_sin_file as _native_read_sin
 
-    return _native_read_sin(sin_file)
+    return _native_read_sin(sin_file, super_element=super_element)
 
 
 @dataclass

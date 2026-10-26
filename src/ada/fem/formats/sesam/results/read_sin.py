@@ -1128,7 +1128,7 @@ def read_sin_file(
     *,
     step: int | None = None,
     complex_phase: float = 0.0,
-    super_element: SuperElementSpec | None = None,
+    super_element: "SuperElementSpec | Iterable[SuperElementSpec] | None" = None,
 ) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
@@ -1150,13 +1150,76 @@ def read_sin_file(
     component. 0 (the default) is the real part, −π/2 the imaginary part.
     Combinations are unaffected: their terms carry their own phases.
 
-    ``super_element``: on a superelement assembly SIN, which superelement to
-    read (see :func:`~.sin_reader.open_sin`). None reads the entry with a mesh
-    and results.
+    ``super_element``: on a superelement assembly SIN, what to read.
+
+    * None (the default) reads the whole assembly: every superelement with a mesh,
+      placed and merged into one result (see :mod:`.assembly`). A SIN of one
+      superelement reads as it always has.
+    * One superelement -- ``"SEL12.IND1"``, ``"12"``, ``12``, ``(12, 1)`` (see
+      :func:`~.sin_reader.open_sin`) -- reads that superelement alone, with its own
+      numbering.
+    * A list or set of them reads just those, placed and merged like the whole
+      assembly.
     """
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
     # source's display name (basename) for the FEAResult / convert path.
+    selection = _super_element_selection(super_element)
+    if selection is not None and len(selection) == 1:
+        super_element, selection = selection[0], None
+    if selection is not None:
+        sin = open_sin(sin_file)
+        rows = sin.hierarchy()
+        parts, seen = [], set()
+        for spec in selection:
+            row = sin.resolve_super_element(spec)  # refuses a name it cannot read, listing the alternatives
+            if row.iref not in seen:
+                seen.add(row.iref)
+                parts.append(row)
+        if len(parts) > 1:
+            return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
+        sin.select_super_element(parts[0])
+        return _read_selected(sin, sin_file, step, complex_phase)
+
+    sin = open_sin(sin_file, super_element=super_element)
+    if super_element is None and sin.is_assembly():
+        rows = sin.hierarchy()
+        parts = [r for r in rows if r.iref is not None and r.has_mesh]
+        if len(parts) > 1:
+            return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
+    return _read_selected(sin, sin_file, step, complex_phase)
+
+
+def _super_element_selection(super_element) -> list | None:
+    """``super_element`` as a list of superelement specs when it names several (a list, set or
+    tuple of them), else None. A ``(type, instance)`` pair of numbers is ONE superelement."""
+    if isinstance(super_element, (list, set, frozenset)):
+        return list(super_element)
+    if isinstance(super_element, tuple):
+        is_pair = len(super_element) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in super_element)
+        return None if is_pair else list(super_element)
+    return None
+
+
+def _read_assembly(sin: SinFile, sin_file, rows, parts, step, complex_phase) -> "FEAResult":
+    """Every superelement of ``parts`` read on the one open file, then merged."""
+    from ada.fem.formats.sesam.results.assembly import (
+        assemble_super_elements,
+        placements,
+    )
+
+    results = []
+    for part in parts:
+        sin.select_super_element(part)
+        results.append(_read_selected(sin, sin_file, step, complex_phase))
+    name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
+    return assemble_super_elements(
+        parts, results, placements(rows), name=pathlib.Path(str(name_path)).stem, results_file_path=sin.path
+    )
+
+
+def _read_selected(sin: SinFile, sin_file, step, complex_phase) -> "FEAResult":
+    """The superelement ``sin`` has selected, as a result."""
     from ada.fem.formats.sesam.results.case_names import (
         result_case_names,
         selectable_result_cases,
@@ -1164,7 +1227,6 @@ def read_sin_file(
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
     from ada.fem.formats.sesam.results.sets import manifest_groups
 
-    sin = open_sin(sin_file, super_element=super_element)
     if "GELMNT1" not in sin.type_blocks and sin.is_assembly():
         # Defensive: the default pick lands on an entry with elements, so this
         # takes an assembly whose chosen entry lost its mesh.

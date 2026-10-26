@@ -345,10 +345,17 @@ def _from_fem(
     return a
 
 
-def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None) -> FEAResult:
+def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None, super_element=None) -> FEAResult:
+    """Read an FEA result file.
+
+    ``super_element`` (Sesam ``.SIN``): a superelement assembly reads whole by default, every
+    superelement placed and merged. Limit it with one superelement (``"SEL12.IND1"``, ``12``,
+    ``(12, 1)``), read on its own with its own numbering, or a list of them, e.g.
+    ``["SEL10.IND1", "SEL12.IND1"]``, merged like the whole assembly.
+    """
     from ada.fem.formats.postprocess import postprocess
 
-    return postprocess(fem_file, fem_format)
+    return postprocess(fem_file, fem_format, super_element=super_element)
 
 
 def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
