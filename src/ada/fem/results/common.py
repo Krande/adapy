@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from ada import Material, Node, Section
     from ada.fem import Elem, FemSet
+    from ada.fem.results.compare import FEAResultComparison
     from ada.fem.results.concepts import EigenDataSummary
     from ada.visit.colors import Color
 
@@ -214,6 +215,53 @@ class Mesh:
     # profile is drawn centred on the element axis, floating beside the plate it is
     # welded to. None for readers that carry no eccentricity concept.
     eccentricities: dict[int, list] = None
+
+    def _elem_counts(self) -> dict[str, int]:
+        el_counts: dict[str, int] = {}
+        for block in self.elements or []:
+            key = str(getattr(block.elem_info.type, "value", block.elem_info.type))
+            el_counts[key] = el_counts.get(key, 0) + len(block.identifiers)
+        return el_counts
+
+    def __repr__(self):
+        num_nodes = len(self.nodes.identifiers) if self.nodes is not None else 0
+        el_counts = self._elem_counts()
+        el_str = ", ".join(f"{k}={v}" for k, v in el_counts.items())
+        return (
+            f"Mesh(nodes={num_nodes}, elements={sum(el_counts.values())} [{el_str}], "
+            f"sections={len(self.sections or {})}, materials={len(self.materials or {})}, "
+            f"sets={len(self.sets or {})})"
+        )
+
+    def stats(self) -> str:
+        """A multi-line overview of the mesh: node/element counts, sections, materials and sets."""
+        num_nodes = len(self.nodes.identifiers) if self.nodes is not None else 0
+        el_counts = self._elem_counts()
+        lines = ["Mesh", f"  nodes:     {num_nodes}", f"  elements:  {sum(el_counts.values())}"]
+        lines += [f"    {k}: {v}" for k, v in el_counts.items()]
+        max_listed = 10
+        sections = list((self.sections or {}).values())
+        lines.append(f"  sections:  {len(sections)}")
+        for sec in sections[:max_listed]:
+            sec_type = getattr(sec, "type", "")
+            lines.append(f"    {sec.name} ({getattr(sec_type, 'value', sec_type)})")
+        if len(sections) > max_listed:
+            lines.append(f"    ... {len(sections) - max_listed} more")
+        materials = list((self.materials or {}).values())
+        lines.append(f"  materials: {len(materials)}")
+        for mat in materials[:max_listed]:
+            lines.append(f"    {mat.name}")
+        if len(materials) > max_listed:
+            lines.append(f"    ... {len(materials) - max_listed} more")
+        sets = self.sets or {}
+        set_types: dict[str, int] = {}
+        for fs in sets.values():
+            set_types[fs.type] = set_types.get(fs.type, 0) + 1
+        type_str = ", ".join(f"{k}={v}" for k, v in set_types.items())
+        lines.append(f"  sets:      {len(sets)}" + (f" ({type_str})" if type_str else ""))
+        if self.eccentricities:
+            lines.append(f"  eccentric elements: {len(self.eccentricities)}")
+        return "\n".join(lines)
 
     def node_label_map(self) -> dict[int, int] | None:
         """``{node id: number shown to people}``, or ``None`` when every node shows its id.
@@ -520,6 +568,82 @@ class FEAResult:
 
         for res in self.results:
             res._mesh = self.mesh
+
+    def __repr__(self):
+        software = getattr(self.software, "value", self.software)
+        names = list(self.get_results_grouped_by_field_value().keys())
+        field_str = ", ".join(names[:3]) + (", ..." if len(names) > 3 else "")
+        return (
+            f"FEAResult(name={self.name!r}, software={software!r}, steps={len(self.get_steps())}, "
+            f"fields={len(names)} [{field_str}], mesh={self.mesh!r})"
+        )
+
+    def stats(self) -> str:
+        """A multi-line overview of the result: metadata, steps, mesh contents and one row per field."""
+        software = getattr(self.software, "value", self.software)
+        steps = self.get_steps()
+        lines = [f"FEAResult {self.name!r}"]
+        version = self.software_version if self.software_version not in (None, "", "N/A") else None
+        lines.append(f"  software:    {software}" + (f" {version}" if version else ""))
+        if self.results_file_path is not None:
+            lines.append(f"  file:        {self.results_file_path}")
+        if self.description:
+            lines.append(f"  description: {self.description}")
+        if self.analysis_kind:
+            lines.append(f"  analysis:    {self.analysis_kind}")
+        lines.append(f"  steps:       {len(steps)}")
+        for step in steps:
+            step_name = (self.step_name_map or {}).get(step)
+            if step_name:
+                lines.append(f"    {step}: {step_name}")
+        if self.eigen_mode_data is not None:
+            lines.append("  eigen mode data: yes")
+
+        lines.append("")
+        lines.append(self.mesh.stats() if self.mesh is not None else "Mesh: None")
+
+        grouped = self.get_results_grouped_by_field_value()
+        lines.append("")
+        lines.append(f"Fields ({len(grouped)})")
+        rows = [("name", "kind", "entries", "steps", "components", "values shape")]
+        for name, values in grouped.items():
+            first = values[0]
+            if isinstance(first, NodalFieldData):
+                kind = "nodal"
+            elif isinstance(first, ElementFieldData):
+                kind = f"element/{first.field_pos.name.lower()}"
+            else:
+                kind = type(first).__name__
+            num_steps = len({v.step for v in values})
+            comps = ",".join(first.components or [])
+            shape = "x".join(str(s) for s in np.shape(first.values))
+            rows.append((name, kind, str(len(values)), str(num_steps), comps, shape))
+        widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
+        for row in rows:
+            lines.append("  " + "  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
+        return "\n".join(lines)
+
+    def compare(
+        self,
+        other: FEAResult,
+        step_map: dict[int, int] | None = None,
+        fields: list[str] | None = None,
+        check_mesh: bool = True,
+    ) -> FEAResultComparison:
+        """Compare ``other`` against this result, both computed on the same mesh.
+
+        Meant for the same model run with different loads and/or boundary conditions.
+
+        :param other: The result to compare against this one (differences are ``other - self``).
+        :param step_map: ``{step in self: step in other}``. Default pairs steps with the same number.
+        :param fields: Only compare these field names. Default compares every field both have.
+        :param check_mesh: Raise ValueError unless node ids/coordinates and element ids/connectivity match.
+        :return: A comparison with a summary repr, ``stats()`` for a table of the differences and
+            ``to_fea_result()`` for the difference as an FEAResult (e.g. to ``.show()`` it).
+        """
+        from ada.fem.results.compare import compare_results
+
+        return compare_results(self, other, step_map=step_map, fields=fields, check_mesh=check_mesh)
 
     def get_steps(self):
         steps = []
