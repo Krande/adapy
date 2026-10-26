@@ -2,6 +2,15 @@
 
 
 
+## v0.120.0 (2026-10-26)
+
+### Feature
+
+* feat: Sesam superelement assemblies, faster SIN reading, and FEAResult.show() streaming over the websocket (#465)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`27feeb4`](https://github.com/Krande/adapy/commit/27feeb43f1d158e5e136df2ae588879578c6fa0e))
+
+
 ## v0.119.1 (2026-10-26)
 
 ### Fix
