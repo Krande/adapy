@@ -17,7 +17,7 @@ here rather than forgotten.
 
 from __future__ import annotations
 
-from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
+from ada.fem.shapes.definitions import ShellShapes, SolidShapes
 from ada.fem.shapes.node_order import NodeOrder
 
 # Read as "native index for each Sesam slot". Native ordering is corners first
@@ -25,11 +25,12 @@ from ada.fem.shapes.node_order import NodeOrder
 SESAM_ORDER = NodeOrder(
     "sesam",
     {
-        # BTSS (23), the 3-node curved beam: Sesam writes (end, end, mid) where
-        # native is (end, mid, end). The SIF results reader already normalised this
-        # on its own path; declaring it here makes the input-deck reader and writer
-        # agree with it instead of contradicting it.
-        LineShapes.LINE3: (0, 2, 1),
+        # BTSS (23), the 3-node curved beam, is deliberately absent: Sesam writes it
+        # (end, mid, end), which is native. A Sestra results file shows it -- in every
+        # BTSS record of a production deck the middle slot is the node between the two
+        # ends. This table used to swap it as if Sesam wrote (end, end, mid) (a leftover
+        # from when native was that order), which drew every curved beam from one end to
+        # its middle and would have written decks with the mid node at an end.
         # ITET (31), figure 5-31: corners at 1, 3, 5 and the apex at 10;
         # mid-sides 2, 4, 6 round the base, then 7, 8, 9 up to the apex.
         SolidShapes.TETRA10: (0, 4, 1, 5, 2, 6, 7, 8, 9, 3),

@@ -156,6 +156,8 @@ class FEAResultStreamAdapter:
         self._geom: MeshGeometry | None = None
         self._field_specs: list[FieldSpec] | None = None
         self._elem_field_specs: list[ElementFieldSpec] | None = None
+        # {(field name, element type): element labels in the spec's order}, set by element_field_specs.
+        self._elem_field_labels: dict[tuple[str, str], list[int]] = {}
         # Optional FEA input concepts (masses / BCs / load scenarios) as a manifest-shaped
         # dict. SIF/SIN leave this None; the FEM reader (_make_fem_reader) scrapes it from the
         # deck so the Scene > FEM panel can draw the glyph overlay.
@@ -187,6 +189,14 @@ class FEAResultStreamAdapter:
         # the viewer agrees with the deck's own tools. ``None``: they are the same.
         label_map = getattr(result.mesh, "element_label_map", None)
         self._elem_shown: dict[int, int] | None = label_map() if callable(label_map) else None
+        # Sets the reader made rather than the deck (GeniE's dummy-mass beams), tagged
+        # with their role so the viewer can treat them differently. From the mesh, which
+        # also holds a merged assembly's.
+        from ada.fem.formats.sesam.results.sets import role_groups
+
+        extra = role_groups(result.mesh, self._elem_shown)
+        if extra:
+            self._groups = [*(self._groups or []), *extra]
 
     def _shown_elem(self, elem_id: int) -> int:
         """The number a person reads for element ``elem_id``."""
@@ -199,6 +209,118 @@ class FEAResultStreamAdapter:
 
     def try_groups(self) -> list[dict] | None:
         return self._groups
+
+    def try_element_properties(self) -> dict | None:
+        """What each element IS, for the viewer's Selected Object panel.
+
+        ``labels`` (shown numbers), ``eltypes`` (the source's element type code, 0 when
+        it has no integer one), ``materials`` / ``sections`` (keys into the tables
+        below, 0 = none), ``thickness`` (shell thickness, NaN = none), aligned; and
+        ``tables``: ``materials`` / ``sections`` ``{key: properties}`` and
+        ``element_types`` ``{code: name}``. ``None`` without per-element data.
+        """
+        from ada.comms.msg_handling.object_metadata import (
+            material_to_dict,
+            section_to_dict,
+        )
+        from ada.fem.formats.sesam.results.property_fields import THICKNESS_FIELD
+
+        mesh = self._result.mesh
+        if mesh.elem_data is None or not len(mesh.elem_data):
+            return None
+
+        ids, eltypes = [], []
+        for block in mesh.elements:
+            source_type = getattr(block.elem_info, "source_type", None)
+            code = int(source_type) if isinstance(source_type, (int, np.integer)) else 0
+            block_ids = np.asarray(block.identifiers, dtype=np.int64)
+            ids.append(block_ids)
+            eltypes.append(np.full(block_ids.size, code, dtype=np.int64))
+        if not ids:
+            return None
+        ids = np.concatenate(ids)
+        eltypes = np.concatenate(eltypes)
+
+        data = np.asarray(mesh.elem_data, dtype=float)
+        row_of = {int(e): i for i, e in enumerate(data[:, 0])}
+        rows = np.array([row_of.get(int(e), -1) for e in ids], dtype=np.int64)
+        has = rows >= 0
+        sections_by_id = mesh.sections or {}
+        materials_by_id = mesh.materials or {}
+        mat = np.zeros(ids.size, dtype=np.int64)
+        sec = np.zeros(ids.size, dtype=np.int64)
+        mat[has] = data[rows[has], 1].astype(np.int64)
+        sec[has] = data[rows[has], 2].astype(np.int64)
+        # A shell's geono names its thickness record, not a beam section.
+        sec[~np.isin(sec, np.fromiter(sections_by_id.keys(), dtype=np.int64, count=len(sections_by_id)))] = 0
+        mat[~np.isin(mat, np.fromiter(materials_by_id.keys(), dtype=np.int64, count=len(materials_by_id)))] = 0
+
+        thickness = np.full(ids.size, np.nan, dtype=np.float64)
+        for field in self._result.results or []:
+            if getattr(field, "name", None) != THICKNESS_FIELD:
+                continue
+            values = np.asarray(field.values, dtype=float)
+            if values.ndim != 2 or values.shape[1] < 3:
+                continue
+            # One row per (element, point); a shell's thickness is the element's.
+            by_elem = dict(zip(values[:, 0].astype(np.int64).tolist(), values[:, 2].tolist()))
+            pos = {int(e): i for i, e in enumerate(ids)}
+            for e, th in by_elem.items():
+                if e in pos:
+                    thickness[pos[e]] = th
+
+        used_sec = sorted({int(s) for s in sec if s})
+        used_mat = sorted({int(m) for m in mat if m})
+        tables = {
+            "sections": {str(s): section_to_dict(sections_by_id[s]) for s in used_sec},
+            "materials": {str(m): material_to_dict(materials_by_id[m]) for m in used_mat},
+        }
+        if str(getattr(self._result, "software", "")).lower().endswith("sesam"):
+            from ada.fem.formats.sesam.results.read_sif import SESAM_ELTYPE_LABELS
+
+            tables["element_types"] = {
+                str(c): SESAM_ELTYPE_LABELS[c] for c in sorted({int(t) for t in eltypes}) if c in SESAM_ELTYPE_LABELS
+            }
+        return {
+            "labels": np.array([self._shown_elem(int(e)) for e in ids], dtype=np.int64),
+            "eltypes": eltypes,
+            "materials": mat,
+            "sections": sec,
+            "thickness": thickness,
+            "tables": tables,
+        }
+
+    def try_suppressed_line_edges(self) -> np.ndarray | None:
+        """Node-index pairs of the line elements whose node-to-node line the viewer must not draw.
+
+        GeniE's dummy-mass beams (the mesh's ``dummy_mass`` sets): node to node, each
+        runs from a footprint node to the one COG node, while the element itself is
+        a short stub off the footprint node and the rest a rigid offset. Their beam
+        solids draw the stub; a line between the nodes would draw a web that is not
+        in the model.
+        """
+        from ada.fem.sets import SetRoles
+
+        mesh = self._result.mesh
+        hidden: set[int] = set()
+        for fs in (getattr(mesh, "sets", None) or {}).values():
+            if getattr(fs, "role", None) == SetRoles.DUMMY_MASS:
+                hidden.update(int(getattr(m, "id", m)) for m in fs.members)
+        if not hidden:
+            return None
+        pairs = []
+        for block in mesh.elements:
+            refs = np.asarray(block.node_refs)
+            if refs.ndim != 2 or refs.shape[1] < 2:
+                continue
+            rows = np.flatnonzero(np.isin(np.asarray(block.identifiers, dtype=np.int64), list(hidden)))
+            for row in rows:
+                ends = (refs[row, 0], refs[row, -1])
+                if block.node_refs_are_indices:
+                    pairs.append([int(ends[0]), int(ends[1])])
+                elif int(ends[0]) in self._nmap and int(ends[1]) in self._nmap:
+                    pairs.append([self._nmap[int(ends[0])], self._nmap[int(ends[1])]])
+        return np.asarray(pairs, dtype=np.uint32).reshape(-1, 2) if pairs else None
 
     def try_step_names(self) -> dict[int, str] | None:
         return self._step_names
@@ -393,6 +515,7 @@ class FEAResultStreamAdapter:
                     category=_classify_field(name, first),
                     presentation=getattr(first, "presentation", None),
                     analysis_kind=self._named_case_analysis_kind() or self._result_analysis_kind(sorted_results),
+                    difference=bool(getattr(first, "difference", False)),
                 )
             )
 
@@ -412,12 +535,33 @@ class FEAResultStreamAdapter:
         results = self._result.get_results_grouped_by_field_value().get(field_name, [])
         sorted_results = sorted(results, key=lambda r: r.step)
         for i, r in enumerate(sorted_results):
-            arr = np.asarray(r.get_all_values())
+            arr = self._dense_nodal_values(r, np.asarray(r.get_all_values()), spec.n_points)
             yield StepValues(
                 step_index=i,
                 step_value=spec.step_values[i],
                 values=arr,
             )
+
+    def _dense_nodal_values(self, result, arr: np.ndarray, n_points: int) -> np.ndarray:
+        """``arr`` (one row per row of ``result``) as one row per mesh point.
+
+        A field normally has a row for every node, in mesh order, and is passed through as
+        is. Some steps have fewer: Sestra writes no displacement record for a node without
+        degrees of freedom, so one load case of a deck can list fewer nodes than another.
+        Those rows are placed by their node id (column 0 of a nodal field). A node with no
+        row gets zero displacement -- it has no degree of freedom to move -- and, for any
+        other field, NaN, which the viewer shows as "no value"."""
+        if arr.shape[0] == n_points:
+            return arr
+        from ada.fem.results.field_data import NodalFieldType
+
+        node_ids = np.asarray(result.values, dtype=float)[:, 0].astype(np.int64)
+        rows = np.array([self._nmap.get(int(n), -1) for n in node_ids], dtype=np.int64)
+        known = rows >= 0
+        fill = 0.0 if getattr(result, "field_type", None) == NodalFieldType.DISP else np.nan
+        out = np.full((n_points,) + arr.shape[1:], fill, dtype=np.result_type(arr.dtype, np.float32))
+        out[rows[known]] = arr[known]
+        return out
 
     def _grouped_element_fields(self):
         """Group ``ElementFieldData`` rows by ``(name, elem_type)``.
@@ -492,12 +636,26 @@ class FEAResultStreamAdapter:
                     f"{vals.shape[0]} is not a multiple of n_ips={n_ips}; "
                     f"likely a ragged IP layout the bake doesn't yet handle."
                 )
-            n_elements = vals.shape[0] // n_ips
             # Element labels appear once per element (we stride by n_ips
             # through col 0). Row order from the reader becomes the
             # spec's canonical order — manifest carries it so the
-            # frontend can map ``label → bucket index``.
+            # frontend can map ``label → bucket index``. A later step may
+            # list elements the first does not (or omit some: a load case
+            # that leaves part of the model unloaded writes no forces there),
+            # so the canonical list is every element any step lists, the
+            # first step's in its order and the others' after them.
             labels = vals[::n_ips, 0].astype(int).tolist()
+            seen = set(labels)
+            for later in sorted_items[1:]:
+                later_vals = np.asarray(later.values)
+                if later_vals.ndim != 2 or later_vals.shape[0] % n_ips:
+                    continue  # iter_element_field_steps reports it
+                for label in later_vals[::n_ips, 0].astype(int).tolist():
+                    if label not in seen:
+                        seen.add(label)
+                        labels.append(label)
+            self._elem_field_labels[(name, elem_type_str)] = labels
+            n_elements = len(labels)
 
             step_values = [float(r.eigen_freq if r.eigen_freq is not None else r.step) for r in sorted_items]
             ip_layout = _ip_layout_from_int_positions(getattr(first, "int_positions", None))
@@ -523,6 +681,7 @@ class FEAResultStreamAdapter:
                         FieldPosition.LINE_RESULT_POINT: "line_result_point",
                     }.get(first.field_pos, "gauss"),
                     presentation=getattr(first, "presentation", None),
+                    difference=bool(getattr(first, "difference", False)),
                 )
             )
 
@@ -543,26 +702,34 @@ class FEAResultStreamAdapter:
             )
 
         n_components = len(spec.components)
+        if (spec.name, spec.elem_type) not in self._elem_field_labels:
+            self._elem_field_specs = None
+            self.element_field_specs()
+        labels = self._elem_field_labels[(spec.name, spec.elem_type)]
+        position = None
         for i, r in enumerate(sorted_items):
-            vals = np.asarray(r.values, dtype=np.float32)
-            if vals.shape != (spec.n_elements * spec.n_ips, vals.shape[1]):
+            # Not float32 yet: column 0 is the element id, and float32 holds integers exactly
+            # only up to 2**24 -- element 21000001 would come back as 21000000. The components
+            # are cast below, the ids never.
+            vals = np.asarray(r.values, dtype=np.float64)
+            if vals.ndim != 2 or vals.shape[0] % spec.n_ips:
                 raise ValueError(
                     f"element field {spec.name!r} step {r.step} has shape "
-                    f"{vals.shape}; expected ({spec.n_elements * spec.n_ips}, ...)."
+                    f"{vals.shape}; expected a multiple of n_ips={spec.n_ips} rows."
                 )
-            per_elem = vals.reshape(spec.n_elements, spec.n_ips, -1)
+            per_elem = vals.reshape(-1, spec.n_ips, vals.shape[1])
+            step_labels = per_elem[:, 0, 0].astype(np.int64)
             # First 2 columns are (elem_label, ip_index); strip them.
-            comp_vals = per_elem[:, :, 2 : 2 + n_components]
-            # Verify label alignment with the spec's canonical order —
-            # readers that emit rows in different orders between steps
-            # would silently mis-correlate.
-            step_labels = [self._shown_elem(label) for label in per_elem[:, 0, 0].astype(int).tolist()]
-            if step_labels != spec.element_labels:
-                raise ValueError(
-                    f"element field {spec.name!r} step {r.step} label order "
-                    f"differs from spec; reader yielded different element "
-                    f"order between steps."
-                )
+            if per_elem.shape[0] == spec.n_elements and np.array_equal(step_labels, labels):
+                comp_vals = per_elem[:, :, 2 : 2 + n_components]
+            else:
+                # This step lists other elements, or the same ones in another order:
+                # placed by label, and an element it does not list has no value.
+                if position is None:
+                    position = {label: k for k, label in enumerate(labels)}
+                rows = np.array([position[int(label)] for label in step_labels], dtype=np.int64)
+                comp_vals = np.full((spec.n_elements, spec.n_ips, n_components), np.nan, dtype=np.float32)
+                comp_vals[rows] = per_elem[:, :, 2 : 2 + n_components]
             yield ElementStepValues(
                 step_index=i,
                 step_value=spec.step_values[i],
@@ -607,7 +774,7 @@ class FEAResultStreamAdapter:
         if mesh.elem_data is None:
             return None
 
-        from ada import Part
+        from ada import Beam, Part
         from ada.fem.formats.utils import line_elem_to_beam
         from ada.fem.results.beam_placement import SectionCentroidCache, eccentric_shift
 
@@ -651,15 +818,44 @@ class FEAResultStreamAdapter:
                 extra_skip["missing-local-z"] = extra_skip.get("missing-local-z", 0) + 1
                 continue
 
-            beam = line_elem_to_beam(elem, dummy_part, "BM")
-
+            # The element's own end points: node + GECCEN (SIF 7.3.10, the vector runs
+            # from the node to the element end). Sesam's local x-axis runs between THESE,
+            # not between the nodes, and GUNIVEC's local z is given against that axis.
+            # Built on the node axis instead, a beam whose offsets are not equal at both
+            # ends gets the wrong axis, and a GUNIVEC that is perpendicular to the true
+            # axis is not perpendicular to it -- GeniE's dummy-mass beams (a 1 m vertical
+            # stub off each plate node, offset to one COG node) drew as long, tilted tubes.
             ecc = eccentricities.get(int(elem.id))
+            p0 = np.asarray(n0_node.p, dtype=float)
+            p1 = np.asarray(n1_node.p, dtype=float)
             if ecc:
-                # Both ends get the same correction when both carry an offset; an
-                # end without one is left on its node, which is what a half-eccentric
-                # element means.
-                shift0 = eccentric_shift(beam, ecc[0], centroids) if ecc[0] is not None else None
-                shift1 = eccentric_shift(beam, ecc[-1], centroids) if ecc[-1] is not None else None
+                if ecc[0] is not None:
+                    p0 = p0 + np.asarray(ecc[0], dtype=float)
+                if ecc[-1] is not None:
+                    p1 = p1 + np.asarray(ecc[-1], dtype=float)
+            if not np.any(p1 != p0):
+                # Both ends on one point (a coupling link modelled as a beam): no axis
+                # to extrude the profile along.
+                extra_skip["zero-length"] = extra_skip.get("zero-length", 0) + 1
+                continue
+
+            if ecc:
+                beam = Beam(
+                    f"BM{elem.id}",
+                    p0,
+                    p1,
+                    sec=sec,
+                    mat=elem.fem_sec.material,
+                    up=elem.fem_sec.local_z,
+                    parent=dummy_part,
+                )
+                # The axis already carries the eccentricity, so what is left is where
+                # adapy draws the profile against its centroid (beam_placement): the
+                # shift for a zero eccentricity. Only an end with an offset gets it,
+                # which is what a half-eccentric element means.
+                correction = eccentric_shift(beam, np.zeros(3), centroids)
+                shift0 = correction if ecc[0] is not None else None
+                shift1 = correction if ecc[-1] is not None else None
                 # NEGATED on the way in. Beam.e1/e2 are not applied as written:
                 # BeamJustification.curve_offset_local does `off = -e` ("local
                 # offsets start from -e"), so handing it the geometric translation
@@ -671,6 +867,8 @@ class FEAResultStreamAdapter:
                     beam.e1 = -shift0
                 if shift1 is not None:
                     beam.e2 = -shift1
+            else:
+                beam = line_elem_to_beam(elem, dummy_part, "BM")
 
             # Labelled with the number people read, like the mesh sidecar's elements.
             beams.append((beam, self._shown_elem(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))

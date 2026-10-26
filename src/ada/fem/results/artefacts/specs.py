@@ -104,6 +104,8 @@ class FieldSpec:
     dtype: np.dtype = np.dtype(np.float32)
     presentation: FieldPresentation | None = None
     analysis_kind: Literal["static", "eigen", "transient"] | None = None
+    #: The values are a difference of two results: the manifest centres the range on zero.
+    difference: bool = False
 
     @property
     def n_components(self) -> int:
@@ -165,6 +167,8 @@ class ElementFieldSpec:
     dtype: np.dtype = np.dtype(np.float32)
     presentation: FieldPresentation | None = None
     analysis_kind: Literal["static", "eigen", "transient"] | None = None
+    #: As :attr:`FieldSpec.difference`.
+    difference: bool = False
 
     @property
     def n_components(self) -> int:

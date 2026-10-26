@@ -31,6 +31,10 @@
 import * as flatbuffers from "flatbuffers";
 import { CommandType } from "@/flatbuffers/commands/command-type";
 import { TargetType } from "@/flatbuffers/commands/target-type";
+import { FeaBlobRequest } from "@/flatbuffers/server/fea-blob-request";
+import { FeaManifestRequest } from "@/flatbuffers/server/fea-manifest-request";
+import { KernelCall } from "@/flatbuffers/server/kernel-call";
+import type { ExpandedBeamSolids } from "@/services/feaBeamSolidsCompact";
 import { ProceduralModelLoad } from "@/flatbuffers/server/procedural-model-load";
 import { ProceduralModelSave } from "@/flatbuffers/server/procedural-model-save";
 import { Server } from "@/flatbuffers/server/server";
@@ -98,7 +102,10 @@ import {
   type ComponentsVerb,
   type ConversionCapability,
   type ConversionVerb,
+  type ComputeCapability,
+  type ComputeVerb,
   type FeaCapability,
+  type FeaFetchers,
   type FeaManifestOptions,
   type FeaVerb,
   type FilesCapability,
@@ -527,11 +534,12 @@ export class WSProceduralModelCapability implements ProceduralModelCapability {
 // =============================================================================
 // Store- and scene-layer capabilities (seams 3).
 //
-// None of these verbs has a websocket implementation yet. The wire protocol
-// (`CommandType`) can list the server's files and push one whole file into the
-// scene (LIST_FILE_OBJECTS / VIEW_FILE_OBJECT); it cannot serve a blob by key,
-// bake an FEA manifest, poll a job, edit a catalog or take a telemetry record.
-// So every `supports()` below is false and every verb refuses with
+// FEA is the one domain here with websocket verbs: GET_FEA_MANIFEST and
+// GET_FEA_BLOB read a bake `FEAResult.show()` registered with the local server
+// (`WSFeaCapability`). For the rest, the wire protocol (`CommandType`) can list
+// the server's files and push one whole file into the scene (LIST_FILE_OBJECTS /
+// VIEW_FILE_OBJECT); it cannot serve a blob by key, poll a job, edit a catalog
+// or take a telemetry record. So their `supports()` is false and every verb refuses with
 // `CapabilityUnavailableError` -- the same typed refusal the procedural verbs
 // give, for the same reason. The scene handlers that used to branch on
 // `runtime.isRestMode()` now ask `supports()` and keep their websocket-side
@@ -586,16 +594,288 @@ export class WSFilesCapability implements FilesCapability {
   }
 }
 
+/** Serialize a GET_FEA_MANIFEST command for `sourceKey`. */
+function buildFeaManifestRequest(instanceId: number, requestId: string, sourceKey: string): Uint8Array {
+  const builder = new flatbuffers.Builder(256);
+  const sourceKeyOffset = builder.createString(sourceKey);
+  FeaManifestRequest.startFeaManifestRequest(builder);
+  FeaManifestRequest.addSourceKey(builder, sourceKeyOffset);
+  const requestOffset = FeaManifestRequest.endFeaManifestRequest(builder);
+
+  Server.startServer(builder);
+  Server.addFeaManifestRequest(builder, requestOffset);
+  const serverOffset = Server.endServer(builder);
+  const requestIdOffset = builder.createString(requestId);
+
+  Message.startMessage(builder);
+  Message.addInstanceId(builder, instanceId);
+  Message.addCommandType(builder, CommandType.GET_FEA_MANIFEST);
+  Message.addTargetGroup(builder, TargetType.SERVER);
+  Message.addClientType(builder, TargetType.WEB);
+  Message.addServer(builder, serverOffset);
+  Message.addRequestId(builder, requestIdOffset);
+  builder.finish(Message.endMessage(builder));
+  return builder.asUint8Array();
+}
+
+/** Serialize a GET_FEA_BLOB command: the whole file, or bytes `start`..`end` (inclusive). */
+function buildFeaBlobRequest(
+  instanceId: number,
+  requestId: string,
+  sourceKey: string,
+  filename: string,
+  range: { start: number; end: number } | null,
+): Uint8Array {
+  const builder = new flatbuffers.Builder(256);
+  const sourceKeyOffset = builder.createString(sourceKey);
+  const filenameOffset = builder.createString(filename);
+  FeaBlobRequest.startFeaBlobRequest(builder);
+  FeaBlobRequest.addSourceKey(builder, sourceKeyOffset);
+  FeaBlobRequest.addFilename(builder, filenameOffset);
+  if (range) {
+    FeaBlobRequest.addRanged(builder, true);
+    FeaBlobRequest.addStart(builder, BigInt(range.start));
+    FeaBlobRequest.addEnd(builder, BigInt(range.end));
+  }
+  const requestOffset = FeaBlobRequest.endFeaBlobRequest(builder);
+
+  Server.startServer(builder);
+  Server.addFeaBlobRequest(builder, requestOffset);
+  const serverOffset = Server.endServer(builder);
+  const requestIdOffset = builder.createString(requestId);
+
+  Message.startMessage(builder);
+  Message.addInstanceId(builder, instanceId);
+  Message.addCommandType(builder, CommandType.GET_FEA_BLOB);
+  Message.addTargetGroup(builder, TargetType.SERVER);
+  Message.addClientType(builder, TargetType.WEB);
+  Message.addServer(builder, serverOffset);
+  Message.addRequestId(builder, requestIdOffset);
+  builder.finish(Message.endMessage(builder));
+  return builder.asUint8Array();
+}
+
+// A whole mesh GLB or element-field blob can run to tens of MB; reading it off local disk and
+// over localhost is quick, but not always inside the default request timeout.
+const FEA_BLOB_TIMEOUT_MS = 120_000;
+
+/** FEA results over the websocket: the bake `FEAResult.show()` registered with the local server.
+ *
+ * Same verbs, same manifest and same files as REST -- only the transport differs, so the
+ * streaming loader (`load_fea_streaming`) runs unchanged. There is no bake to queue here (the
+ * Python side baked before it registered), so `fetchManifest` never reports progress. */
 export class WSFeaCapability implements FeaCapability {
   readonly transport: CapabilityTransport = "ws";
-  private static readonly SUPPORTED_VERBS: ReadonlySet<FeaVerb> = new Set<FeaVerb>();
+  private static readonly SUPPORTED_VERBS: ReadonlySet<FeaVerb> = new Set<FeaVerb>(["fetchManifest", "fieldFetchers"]);
+
+  // Injectable for tests, like WSProceduralModelCapability's.
+  constructor(private readonly wsOverride?: Pick<Comms, "request" | "getInstanceId">) {}
+
+  // The bake each source's manifest came from: part of the cache key, so a result shown again
+  // under the same name is never painted from the previous bake's cached blobs.
+  private readonly bakeIds = new Map<string, string>();
 
   supports(verb: FeaVerb): boolean {
     return WSFeaCapability.SUPPORTED_VERBS.has(verb);
   }
 
-  async fetchManifest(_scope: ScopeUrl, _sourceKey: string, _opts?: FeaManifestOptions): Promise<FeaManifest> {
-    return refuse("fetchManifest");
+  private async resolveWs(): Promise<Pick<Comms, "request" | "getInstanceId">> {
+    if (this.wsOverride) return this.wsOverride;
+    const { comms } = await import("@/utils/comms");
+    return comms;
+  }
+
+  async fetchManifest(_scope: ScopeUrl, sourceKey: string, opts?: FeaManifestOptions): Promise<FeaManifest> {
+    if (opts?.signal?.aborted) throw new DOMException("fetchManifest aborted", "AbortError");
+    const ws = await this.resolveWs();
+    const reply = await ws.request((requestId) => buildFeaManifestRequest(ws.getInstanceId(), requestId, sourceKey));
+    const manifest = reply.serverReply()?.feaManifest();
+    const json = manifest?.manifestJson();
+    if (!json) throw new Error(`the server sent no FEA manifest for ${sourceKey}`);
+    this.bakeIds.set(sourceKey, manifest?.bakeId() ?? "");
+    return JSON.parse(json) as FeaManifest;
+  }
+
+  fieldFetchers(_scope: ScopeUrl, sourceKey: string): FeaFetchers {
+    const read = async (filename: string, range: { start: number; end: number } | null) => {
+      const ws = await this.resolveWs();
+      const name = filename.replace(/^\/+/, "");
+      const reply = await ws.request(
+        (requestId) => buildFeaBlobRequest(ws.getInstanceId(), requestId, sourceKey, name, range),
+        { timeoutMs: FEA_BLOB_TIMEOUT_MS },
+      );
+      const blob = reply.serverReply()?.feaBlob();
+      const data = blob?.dataArray() ?? new Uint8Array(0);
+      // A view into the message's buffer: copy it out so the caller owns exactly these bytes.
+      const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      return { buf, ranged: blob?.ranged() ?? false };
+    };
+    return {
+      fetcher: async (filename) => (await read(filename, null)).buf,
+      rangeFetcher: (filename, start, end) => read(filename, { start, end }),
+      cacheKey: `ws::${sourceKey}::${this.bakeIds.get(sourceKey) ?? ""}`,
+    };
+  }
+}
+
+// ---- Compute: CALL_KERNEL ----------------------------------------------------------------
+//
+// The arrays of a kernel call ride in the message's `data` bytes, described in its JSON: per
+// array a name, a dtype, a byte offset (8-aligned, so a typed array can view it) and an element
+// count. Mirrors `pack_arrays` / `unpack_arrays` in ada.comms.msg_handling.kernel_calls.
+
+type KernelArray = Uint8Array | Uint32Array | Int32Array | Float32Array | Float64Array;
+interface KernelArrayDescriptor {
+  name: string;
+  dtype: "u8" | "u32" | "i32" | "f32" | "f64";
+  offset: number;
+  count: number;
+}
+
+const KERNEL_DTYPES = {
+  u8: Uint8Array,
+  u32: Uint32Array,
+  i32: Int32Array,
+  f32: Float32Array,
+  f64: Float64Array,
+} as const;
+
+function kernelDtype(arr: KernelArray): KernelArrayDescriptor["dtype"] {
+  if (arr instanceof Uint8Array) return "u8";
+  if (arr instanceof Uint32Array) return "u32";
+  if (arr instanceof Int32Array) return "i32";
+  if (arr instanceof Float32Array) return "f32";
+  return "f64";
+}
+
+export function packKernelArrays(arrays: Record<string, KernelArray>): {
+  descriptors: KernelArrayDescriptor[];
+  data: Uint8Array;
+} {
+  const descriptors: KernelArrayDescriptor[] = [];
+  let offset = 0;
+  for (const [name, arr] of Object.entries(arrays)) {
+    offset += (8 - (offset % 8)) % 8;
+    descriptors.push({ name, dtype: kernelDtype(arr), offset, count: arr.length });
+    offset += arr.byteLength;
+  }
+  const data = new Uint8Array(offset);
+  Object.values(arrays).forEach((arr, i) => {
+    data.set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength), descriptors[i].offset);
+  });
+  return { descriptors, data };
+}
+
+export function unpackKernelArrays(descriptors: KernelArrayDescriptor[], data: Uint8Array): Record<string, KernelArray> {
+  const out: Record<string, KernelArray> = {};
+  for (const d of descriptors) {
+    const Ctor = KERNEL_DTYPES[d.dtype];
+    if (!Ctor) throw new Error(`kernel array ${d.name}: unsupported dtype ${d.dtype}`);
+    const bytes = d.count * Ctor.BYTES_PER_ELEMENT;
+    if (d.offset + bytes > data.byteLength) throw new Error(`kernel array ${d.name} runs past the end of the data`);
+    // Copied into its own buffer: the caller keeps the arrays (as GPU buffers), not the message.
+    const own = data.buffer.slice(data.byteOffset + d.offset, data.byteOffset + d.offset + bytes) as ArrayBuffer;
+    out[d.name] = new (Ctor as new (buffer: ArrayBuffer) => KernelArray)(own);
+  }
+  return out;
+}
+
+function buildKernelCall(
+  instanceId: number,
+  requestId: string,
+  fn: string,
+  argsJson: string,
+  data: Uint8Array,
+): Uint8Array {
+  const builder = new flatbuffers.Builder(data.byteLength + 1024);
+  const fnOffset = builder.createString(fn);
+  const argsOffset = builder.createString(argsJson);
+  const dataOffset = KernelCall.createDataVector(builder, data);
+  KernelCall.startKernelCall(builder);
+  KernelCall.addFunction(builder, fnOffset);
+  KernelCall.addArgsJson(builder, argsOffset);
+  KernelCall.addData(builder, dataOffset);
+  const callOffset = KernelCall.endKernelCall(builder);
+
+  Server.startServer(builder);
+  Server.addKernelCall(builder, callOffset);
+  const serverOffset = Server.endServer(builder);
+  const requestIdOffset = builder.createString(requestId);
+
+  Message.startMessage(builder);
+  Message.addInstanceId(builder, instanceId);
+  Message.addCommandType(builder, CommandType.CALL_KERNEL);
+  Message.addTargetGroup(builder, TargetType.SERVER);
+  Message.addClientType(builder, TargetType.WEB);
+  Message.addServer(builder, serverOffset);
+  Message.addRequestId(builder, requestIdOffset);
+  builder.finish(Message.endMessage(builder));
+  return builder.asUint8Array();
+}
+
+// A large deck's beam sweep takes a few seconds in the Python process.
+const KERNEL_TIMEOUT_MS = 300_000;
+
+/** Compute over the websocket: the same adacpp functions, run by the Python process. */
+export class WSComputeCapability implements ComputeCapability {
+  readonly transport: CapabilityTransport = "ws";
+  private static readonly SUPPORTED_VERBS: ReadonlySet<ComputeVerb> = new Set<ComputeVerb>(["expandBeamSolids"]);
+
+  constructor(private readonly wsOverride?: Pick<Comms, "request" | "getInstanceId">) {}
+
+  supports(verb: ComputeVerb): boolean {
+    return WSComputeCapability.SUPPORTED_VERBS.has(verb);
+  }
+
+  private async resolveWs(): Promise<Pick<Comms, "request" | "getInstanceId">> {
+    if (this.wsOverride) return this.wsOverride;
+    const { comms } = await import("@/utils/comms");
+    return comms;
+  }
+
+  /** Run kernel `fn` in the Python process: scalars as JSON, arrays packed alongside. */
+  private async call(
+    fn: string,
+    arrays: Record<string, KernelArray>,
+  ): Promise<{ result: Record<string, unknown>; arrays: Record<string, KernelArray> }> {
+    const ws = await this.resolveWs();
+    const { descriptors, data } = packKernelArrays(arrays);
+    const argsJson = JSON.stringify({ arrays: descriptors });
+    let reply: Message;
+    try {
+      reply = await ws.request(
+        (requestId) => buildKernelCall(ws.getInstanceId(), requestId, fn, argsJson, data),
+        { timeoutMs: KERNEL_TIMEOUT_MS },
+      );
+    } catch (e) {
+      if (e instanceof ServerReplyError) {
+        throw new Error(e.reply.serverReply()?.error()?.message() || e.message);
+      }
+      throw e;
+    }
+    const kernel = reply.serverReply()?.kernel();
+    const result = JSON.parse(kernel?.resultJson() || "{}") as Record<string, unknown>;
+    const outDescriptors = (result.arrays ?? []) as KernelArrayDescriptor[];
+    return { result, arrays: unpackKernelArrays(outDescriptors, kernel?.dataArray() ?? new Uint8Array(0)) };
+  }
+
+  async expandBeamSolids(compact: ArrayBuffer, mainPositions: Float32Array): Promise<ExpandedBeamSolids> {
+    const { arrays } = await this.call("expand_beam_solids", {
+      compact: new Uint8Array(compact),
+      points: mainPositions,
+    });
+    const positions = arrays.positions as Float32Array;
+    return {
+      positions,
+      indices: arrays.indices as Uint32Array,
+      nVerts: positions.length / 3,
+      elemLabel: arrays.range_label as Uint32Array,
+      elemTriStart: arrays.range_tri_start as Uint32Array,
+      elemTriCount: arrays.range_tri_count as Uint32Array,
+      node0: arrays.node0 as Uint32Array,
+      node1: arrays.node1 as Uint32Array,
+      t: arrays.t as Float32Array,
+    };
   }
 }
 
@@ -746,6 +1026,7 @@ export class WSCapabilities implements ViewerCapabilities {
   // ---- seams 3 ----
   readonly files: FilesCapability = new WSFilesCapability();
   readonly fea: FeaCapability = new WSFeaCapability();
+  readonly compute: ComputeCapability = new WSComputeCapability();
   readonly conversion: ConversionCapability = new WSConversionCapability();
   readonly catalog: CatalogCapability = new WSCatalogCapability();
   readonly components: ComponentsCapability = new WSComponentsCapability();

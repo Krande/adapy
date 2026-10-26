@@ -131,7 +131,12 @@ def test_a_case_not_yet_materialised_queues_a_job(client: TestClient, tmp_path: 
 
 def test_a_materialised_case_is_served_with_its_prefix(client: TestClient, tmp_path: pathlib.Path):
     src = _source(client, tmp_path)
-    overlay = {"version": 1, "kind": "fea_case", "bake_version": 4, "case": {"n": 101, "recipe_hash": HASH}}
+    overlay = {
+        "version": 1,
+        "kind": "fea_case",
+        "bake_version": EXPECTED_FEA_BAKE_VERSION,
+        "case": {"n": 101, "recipe_hash": HASH},
+    }
     _stage_case(tmp_path, src, overlay)
     r = client.get("/api/scopes/shared/fea/case", params={"key": src, "case": 101, "field": "sesam.nodes.displacement"})
     assert r.status_code == 200, r.text
@@ -141,7 +146,9 @@ def test_a_materialised_case_is_served_with_its_prefix(client: TestClient, tmp_p
 
 def test_a_case_older_than_its_base_bake_is_rebuilt(client: TestClient, tmp_path: pathlib.Path):
     src = _source(client, tmp_path)
-    case = _stage_case(tmp_path, src, {"bake_version": 4, "case": {"n": 101, "recipe_hash": HASH}})
+    case = _stage_case(
+        tmp_path, src, {"bake_version": EXPECTED_FEA_BAKE_VERSION, "case": {"n": 101, "recipe_hash": HASH}}
+    )
     past = time.time() - 3600
     os.utime(case, (past, past))
     r = client.get("/api/scopes/shared/fea/case", params={"key": src, "case": 101})
@@ -180,7 +187,11 @@ def test_envelope_route(client: TestClient, tmp_path: pathlib.Path):
     assert (req.target_format, req.field_name, req.derived_key) == ("fea_envelope", field, env_key)
     target = tmp_path / "shared" / env_key
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps({"bake_version": 4, "field": field, "cases": [101], "scalar_range": {"X": [0, 1]}}))
+    target.write_text(
+        json.dumps(
+            {"bake_version": EXPECTED_FEA_BAKE_VERSION, "field": field, "cases": [101], "scalar_range": {"X": [0, 1]}}
+        )
+    )
     r = client.get("/api/scopes/shared/fea/envelope", params={"key": src, "field": field})
     assert r.status_code == 200 and r.json()["cases"] == [101]
     assert client.get("/api/scopes/shared/fea/envelope", params={"key": src, "field": "nope"}).status_code == 404

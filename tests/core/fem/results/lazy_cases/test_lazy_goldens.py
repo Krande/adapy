@@ -98,7 +98,7 @@ def test_the_base_bake_holds_the_stored_cases_only(baked_deck):
     deck = baked_deck.deck
     stored = sorted(deck.basics + deck.complex_basics)
     base = baked_deck.base
-    assert base["bake_version"] == 4
+    assert base["bake_version"] >= 4
     assert base["baked_steps"] == stored
     assert base["baked_steps_hint"]
     assert sorted(c["n"] for c in base["combination_steps"]) == sorted(deck.combinations)

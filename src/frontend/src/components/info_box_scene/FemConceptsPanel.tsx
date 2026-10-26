@@ -14,6 +14,7 @@ import {
     visibleEquipment,
     visibleLoads,
 } from "@/utils/fem/femTakeoff";
+import {setDummyMassesVisible} from "@/utils/scene/fea/dummyMassVisibility";
 import {setBeamSolidsVisible as setBeamSolidsVisibleScene} from "@/utils/scene/handlers/load_fea_streaming";
 
 // Scene-panel "FEM" mode: visualize the analysis inputs baked into the model —
@@ -56,7 +57,7 @@ const FemConceptsPanel = () => {
     const {
         masses, bcs, constraints, scenarios, equipment,
         showMasses, showBcs, showEquipment, equipmentGroupOn, showGeneratedLoads, takeoffModel,
-        selectedScenario, selectedConstraint,
+        selectedScenario, selectedConstraint, dummyMassIds, showDummyMasses,
         setShowMasses, setShowBcs, setShowEquipment, setEquipmentGroupOn, setShowGeneratedLoads, setTakeoffModel,
         setSelectedScenario, setSelectedConstraint,
     } = useFemConceptsStore();
@@ -199,6 +200,20 @@ const FemConceptsPanel = () => {
                 />
                 <span>Beams as solid</span>
             </label>
+            {dummyMassIds.length > 0 && (
+                <label
+                    className="flex items-center gap-2 mb-2"
+                    title="The beams GeniE hangs an equipment mass off the deck with, from each footprint node to the mass at its centre of gravity. Not structure; drawn as solids only."
+                >
+                    <input
+                        type="checkbox"
+                        checked={showDummyMasses}
+                        onChange={(e) => setDummyMassesVisible(e.target.checked)}
+                    />
+                    <span>Dummy masses</span>
+                    <span className="ml-auto text-xs opacity-70">{dummyMassIds.length}</span>
+                </label>
+            )}
 
             {/* Constraint selector — picking one draws its master/slave nodes in the viewer */}
             <div className="border-t border-gray-500 pt-2 mb-2">

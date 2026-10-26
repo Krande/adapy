@@ -133,9 +133,57 @@ class ServerReply(object):
             return obj
         return None
 
+    # ServerReply
+    def FeaSource(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.FeaSourceInfo import FeaSourceInfo
+
+            obj = FeaSourceInfo()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ServerReply
+    def FeaManifest(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.FeaManifestReply import FeaManifestReply
+
+            obj = FeaManifestReply()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ServerReply
+    def FeaBlob(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.FeaBlobReply import FeaBlobReply
+
+            obj = FeaBlobReply()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ServerReply
+    def Kernel(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.KernelReply import KernelReply
+
+            obj = KernelReply()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerReplyStart(builder):
-    builder.StartObject(8)
+    builder.StartObject(12)
 
 
 def Start(builder):
@@ -212,6 +260,38 @@ def ServerReplyAddLoadProceduralModel(builder, loadProceduralModel):
 
 def AddLoadProceduralModel(builder, loadProceduralModel):
     ServerReplyAddLoadProceduralModel(builder, loadProceduralModel)
+
+
+def ServerReplyAddFeaSource(builder, feaSource):
+    builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(feaSource), 0)
+
+
+def AddFeaSource(builder, feaSource):
+    ServerReplyAddFeaSource(builder, feaSource)
+
+
+def ServerReplyAddFeaManifest(builder, feaManifest):
+    builder.PrependUOffsetTRelativeSlot(9, flatbuffers.number_types.UOffsetTFlags.py_type(feaManifest), 0)
+
+
+def AddFeaManifest(builder, feaManifest):
+    ServerReplyAddFeaManifest(builder, feaManifest)
+
+
+def ServerReplyAddFeaBlob(builder, feaBlob):
+    builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(feaBlob), 0)
+
+
+def AddFeaBlob(builder, feaBlob):
+    ServerReplyAddFeaBlob(builder, feaBlob)
+
+
+def ServerReplyAddKernel(builder, kernel):
+    builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(kernel), 0)
+
+
+def AddKernel(builder, kernel):
+    ServerReplyAddKernel(builder, kernel)
 
 
 def ServerReplyEnd(builder):

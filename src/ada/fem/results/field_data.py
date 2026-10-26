@@ -42,6 +42,9 @@ class FieldData:
     eigen_freq: float = None
     eigen_value: float = None
     presentation: FieldPresentation | None = None
+    # The values are a DIFFERENCE between two results (``FEAResultComparison``), so zero
+    # means "unchanged" and the colour scale is centred on it.
+    difference: bool = False
 
 
 class NodalFieldType(str, Enum):

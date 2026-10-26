@@ -10,6 +10,21 @@ export interface FeaResultPositionGroup {
   attributes: FeaResultAttributeGroup[];
 }
 
+/** The model-property fields (category "property": superelement, material, section,
+ * thickness), each with a readable label, for the picker's own "Model" group: colouring the
+ * model by what its elements ARE, kept apart from the results. The label is the property's
+ * group name ("SUPERELEMENT") in title case, or the field name without its namespace. */
+export function buildFeaPropertyFields(fields: FeaManifestField[]): FeaResultAttributeGroup[] {
+  const out: FeaResultAttributeGroup[] = [];
+  for (const field of fields) {
+    if (field.category !== "property") continue;
+    const raw = field.group_path?.[field.group_path.length - 1] ?? field.name_canonical.replace(/^props\./, "");
+    const words = raw.replace(/[_\s]+/g, " ").trim().toLowerCase();
+    out.push({ label: words.charAt(0).toUpperCase() + words.slice(1), field });
+  }
+  return out;
+}
+
 /** Build a stable Position -> Attribute hierarchy from optional manifest
  * metadata. Fields without hierarchy metadata are returned in ``ungrouped``
  * so older/non-Sesam manifests keep their flat-picker path. */

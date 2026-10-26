@@ -2,6 +2,14 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
+export { FeaBlobReply, FeaBlobReplyT } from './server/fea-blob-reply.js';
+export { FeaBlobRequest, FeaBlobRequestT } from './server/fea-blob-request.js';
+export { FeaManifestReply, FeaManifestReplyT } from './server/fea-manifest-reply.js';
+export { FeaManifestRequest, FeaManifestRequestT } from './server/fea-manifest-request.js';
+export { FeaSourceInfo, FeaSourceInfoT } from './server/fea-source-info.js';
+export { FeaSourceRegister, FeaSourceRegisterT } from './server/fea-source-register.js';
+export { KernelCall, KernelCallT } from './server/kernel-call.js';
+export { KernelReply, KernelReplyT } from './server/kernel-reply.js';
 export { ProceduralModelListEntry, ProceduralModelListEntryT } from './server/procedural-model-list-entry.js';
 export { ProceduralModelListReply, ProceduralModelListReplyT } from './server/procedural-model-list-reply.js';
 export { ProceduralModelLoad, ProceduralModelLoadT } from './server/procedural-model-load.js';

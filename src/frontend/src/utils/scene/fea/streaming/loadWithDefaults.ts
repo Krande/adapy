@@ -12,7 +12,6 @@
 // capabilities, and the conversion store.
 
 import {capabilities} from "@/services/capabilities";
-import {makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import type {FeaManifest} from "@/services/viewerApi";
 import type {SidecarFetcher} from "@/plugins/registry";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
@@ -31,8 +30,8 @@ import {defaultResultField} from "./defaultField";
  * stays unchecked-but-toggled which the user can interpret as
  * "nothing renderable in this file". */
 export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: string): Promise<void> {
-    if (!capabilities.fea.supports("fetchManifest")) {
-        throw new Error("FEA streaming viewer is only available in REST mode");
+    if (!capabilities.fea.supports("fetchManifest") || !capabilities.fea.supports("fieldFetchers")) {
+        throw new Error("This transport cannot serve streamed FEA results");
     }
     const scope = scopeUrlPart(useScopeStore.getState().current);
 
@@ -122,7 +121,7 @@ export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: st
         // dir the mesh + field blobs come from. Best-effort — never breaks the load.
         const fireResultSidecarLoaders = () => {
             try {
-                const {fetcher, rangeFetcher} = makeViewerApiFetcher(scope, sourceName);
+                const {fetcher, rangeFetcher} = capabilities.fea.fieldFetchers(scope, sourceName);
                 const feaPrefix = `_derived/${sourceName.replace(/^\/+/, "")}.fea/`;
                 const sidecar: SidecarFetcher = {
                     url: (rel) => capabilities.files.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),

@@ -7,6 +7,10 @@ import * as flatbuffers from 'flatbuffers';
 import { Error, ErrorT } from '../base/error.js';
 import { FileObject, FileObjectT } from '../base/file-object.js';
 import { CommandType } from '../commands/command-type.js';
+import { FeaBlobReply, FeaBlobReplyT } from '../server/fea-blob-reply.js';
+import { FeaManifestReply, FeaManifestReplyT } from '../server/fea-manifest-reply.js';
+import { FeaSourceInfo, FeaSourceInfoT } from '../server/fea-source-info.js';
+import { KernelReply, KernelReplyT } from '../server/kernel-reply.js';
 import { ProceduralModelListReply, ProceduralModelListReplyT } from '../server/procedural-model-list-reply.js';
 import { ProceduralModelLoadReply, ProceduralModelLoadReplyT } from '../server/procedural-model-load-reply.js';
 import { ProceduralModelSaveReply, ProceduralModelSaveReplyT } from '../server/procedural-model-save-reply.js';
@@ -78,8 +82,28 @@ loadProceduralModel(obj?:ProceduralModelLoadReply):ProceduralModelLoadReply|null
   return offset ? (obj || new ProceduralModelLoadReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+feaSource(obj?:FeaSourceInfo):FeaSourceInfo|null {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? (obj || new FeaSourceInfo()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+feaManifest(obj?:FeaManifestReply):FeaManifestReply|null {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? (obj || new FeaManifestReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+feaBlob(obj?:FeaBlobReply):FeaBlobReply|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? (obj || new FeaBlobReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+kernel(obj?:KernelReply):KernelReply|null {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? (obj || new KernelReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startServerReply(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(12);
 }
 
 static addMessage(builder:flatbuffers.Builder, messageOffset:flatbuffers.Offset) {
@@ -126,6 +150,22 @@ static addLoadProceduralModel(builder:flatbuffers.Builder, loadProceduralModelOf
   builder.addFieldOffset(7, loadProceduralModelOffset, 0);
 }
 
+static addFeaSource(builder:flatbuffers.Builder, feaSourceOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(8, feaSourceOffset, 0);
+}
+
+static addFeaManifest(builder:flatbuffers.Builder, feaManifestOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(9, feaManifestOffset, 0);
+}
+
+static addFeaBlob(builder:flatbuffers.Builder, feaBlobOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, feaBlobOffset, 0);
+}
+
+static addKernel(builder:flatbuffers.Builder, kernelOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(11, kernelOffset, 0);
+}
+
 static endServerReply(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -141,7 +181,11 @@ unpack(): ServerReplyT {
     (this.processInfo() !== null ? this.processInfo()!.unpack() : null),
     (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null),
     (this.listProceduralModels() !== null ? this.listProceduralModels()!.unpack() : null),
-    (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null)
+    (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null),
+    (this.feaSource() !== null ? this.feaSource()!.unpack() : null),
+    (this.feaManifest() !== null ? this.feaManifest()!.unpack() : null),
+    (this.feaBlob() !== null ? this.feaBlob()!.unpack() : null),
+    (this.kernel() !== null ? this.kernel()!.unpack() : null)
   );
 }
 
@@ -155,6 +199,10 @@ unpackTo(_o: ServerReplyT): void {
   _o.saveProceduralModel = (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null);
   _o.listProceduralModels = (this.listProceduralModels() !== null ? this.listProceduralModels()!.unpack() : null);
   _o.loadProceduralModel = (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null);
+  _o.feaSource = (this.feaSource() !== null ? this.feaSource()!.unpack() : null);
+  _o.feaManifest = (this.feaManifest() !== null ? this.feaManifest()!.unpack() : null);
+  _o.feaBlob = (this.feaBlob() !== null ? this.feaBlob()!.unpack() : null);
+  _o.kernel = (this.kernel() !== null ? this.kernel()!.unpack() : null);
 }
 }
 
@@ -167,7 +215,11 @@ constructor(
   public processInfo: ServerProcessInfoT|null = null,
   public saveProceduralModel: ProceduralModelSaveReplyT|null = null,
   public listProceduralModels: ProceduralModelListReplyT|null = null,
-  public loadProceduralModel: ProceduralModelLoadReplyT|null = null
+  public loadProceduralModel: ProceduralModelLoadReplyT|null = null,
+  public feaSource: FeaSourceInfoT|null = null,
+  public feaManifest: FeaManifestReplyT|null = null,
+  public feaBlob: FeaBlobReplyT|null = null,
+  public kernel: KernelReplyT|null = null
 ){}
 
 
@@ -179,6 +231,10 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const saveProceduralModel = (this.saveProceduralModel !== null ? this.saveProceduralModel!.pack(builder) : 0);
   const listProceduralModels = (this.listProceduralModels !== null ? this.listProceduralModels!.pack(builder) : 0);
   const loadProceduralModel = (this.loadProceduralModel !== null ? this.loadProceduralModel!.pack(builder) : 0);
+  const feaSource = (this.feaSource !== null ? this.feaSource!.pack(builder) : 0);
+  const feaManifest = (this.feaManifest !== null ? this.feaManifest!.pack(builder) : 0);
+  const feaBlob = (this.feaBlob !== null ? this.feaBlob!.pack(builder) : 0);
+  const kernel = (this.kernel !== null ? this.kernel!.pack(builder) : 0);
 
   ServerReply.startServerReply(builder);
   ServerReply.addMessage(builder, message);
@@ -189,6 +245,10 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   ServerReply.addSaveProceduralModel(builder, saveProceduralModel);
   ServerReply.addListProceduralModels(builder, listProceduralModels);
   ServerReply.addLoadProceduralModel(builder, loadProceduralModel);
+  ServerReply.addFeaSource(builder, feaSource);
+  ServerReply.addFeaManifest(builder, feaManifest);
+  ServerReply.addFeaBlob(builder, feaBlob);
+  ServerReply.addKernel(builder, kernel);
 
   return ServerReply.endServerReply(builder);
 }

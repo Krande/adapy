@@ -12,6 +12,9 @@
 // implementations. The module is cached after the first call.
 
 import { runtime } from "@/runtime/config";
+// Not viewerApi: `makeViewerApiFetcher` imports it lazily on the first fetch.
+import { makeViewerApiFetcher } from "@/services/feaFieldBlob";
+import type { ExpandedBeamSolids } from "@/services/feaBeamSolidsCompact";
 import type { ModelStats } from "@/utils/stats/modelStats";
 import type {
   ComponentSpecsResponse,
@@ -71,7 +74,10 @@ import {
   type ComponentsVerb,
   type ConversionCapability,
   type ConversionVerb,
+  type ComputeCapability,
+  type ComputeVerb,
   type FeaCapability,
+  type FeaFetchers,
   type FeaManifestOptions,
   type FeaVerb,
   type FilesCapability,
@@ -439,6 +445,25 @@ export class RESTFeaCapability implements FeaCapability {
     const { viewerApi } = await api();
     return await viewerApi.feaManifest(scope, sourceKey, opts);
   }
+
+  fieldFetchers(scope: ScopeUrl, sourceKey: string): FeaFetchers {
+    return makeViewerApiFetcher(scope, sourceKey);
+  }
+}
+
+/** Compute in the browser: the adacpp WebAssembly modules the REST viewer serves at /wasm/. */
+export class RESTComputeCapability implements ComputeCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  supports(_verb: ComputeVerb): boolean {
+    return true;
+  }
+
+  async expandBeamSolids(compact: ArrayBuffer, mainPositions: Float32Array): Promise<ExpandedBeamSolids> {
+    // Lazily: the inline worker and the module loader only load when a bake has compact beams.
+    const { expandBeamSolidsInBrowser } = await import("@/services/compute/browserBeamSolids");
+    return expandBeamSolidsInBrowser(compact, mainPositions);
+  }
 }
 
 export class RESTConversionCapability implements ConversionCapability {
@@ -611,6 +636,7 @@ export class RESTCapabilities implements ViewerCapabilities {
   // ---- seams 3 ----
   readonly files: FilesCapability = new RESTFilesCapability();
   readonly fea: FeaCapability = new RESTFeaCapability();
+  readonly compute: ComputeCapability = new RESTComputeCapability();
   readonly conversion: ConversionCapability = new RESTConversionCapability();
   readonly catalog: CatalogCapability = new RESTCatalogCapability();
   readonly components: ComponentsCapability = new RESTComponentsCapability();

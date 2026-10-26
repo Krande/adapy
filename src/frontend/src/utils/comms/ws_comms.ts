@@ -167,14 +167,20 @@ export class WSComms implements Comms {
       console.log("Message from server", evt.data);
       return;
     }
-    // Chain the handler dispatch so ordering is preserved across awaits.
+    // A reply that echoes a pending request_id resolves that request as soon as
+    // its bytes are in -- NOT in turn behind the handler chain below. A handler
+    // that awaits a request of its own (OPEN_FEA_SOURCE reads the manifest)
+    // would otherwise hold the chain while its reply queued behind it, until
+    // the request timed out.
+    const pending = evt.data.arrayBuffer().then((buffer) => (this.requests.settle(parseMessage(buffer)) ? null : buffer));
+    pending.catch(() => {}); // reported by the chain below, once it gets there
+
+    // Everything else (unsolicited pushes, replies to fire-and-forget verbs) goes
+    // to the registered dispatcher, chained so ordering is preserved across awaits.
     this.dispatchChain = this.dispatchChain.then(async () => {
       try {
-        const buffer = await evt.data.arrayBuffer();
-        // A reply that echoes a pending request_id resolves that request and
-        // stops here; everything else (unsolicited pushes, replies to
-        // fire-and-forget verbs) goes to the registered dispatcher.
-        if (this.requests.settle(parseMessage(buffer))) return;
+        const buffer = await pending;
+        if (buffer === null) return;
         for (const handler of this.handlers) {
           await handler(buffer);
         }

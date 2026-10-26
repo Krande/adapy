@@ -26,6 +26,14 @@ from ada.comms.fb.fb_scene_gen import (
     ScreenshotDC,
 )
 from ada.comms.fb.fb_server_gen import (
+    FeaBlobReplyDC,
+    FeaBlobRequestDC,
+    FeaManifestReplyDC,
+    FeaManifestRequestDC,
+    FeaSourceInfoDC,
+    FeaSourceRegisterDC,
+    KernelCallDC,
+    KernelReplyDC,
     ProceduralModelListEntryDC,
     ProceduralModelListReplyDC,
     ProceduralModelLoadDC,
@@ -73,4 +81,12 @@ __all__ = [
     "ProceduralModelListReplyDC",
     "ProceduralModelLoadDC",
     "ProceduralModelLoadReplyDC",
+    "FeaSourceRegisterDC",
+    "FeaSourceInfoDC",
+    "FeaManifestRequestDC",
+    "FeaManifestReplyDC",
+    "FeaBlobRequestDC",
+    "FeaBlobReplyDC",
+    "KernelCallDC",
+    "KernelReplyDC",
 ]

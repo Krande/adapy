@@ -1,8 +1,9 @@
 """The SIF results mesh comes out in adapy's node order, not Sesam's.
 
-Sesam numbers SCQS (the 8-node shell) round the perimeter and BTSS (the 3-node beam) as
-(end, end, mid). Passed through unchanged, an 8-node shell triangulates into slivers in the
-viewer and its posters, and a curved beam draws as half a segment.
+Sesam numbers SCQS (the 8-node shell) round the perimeter. Passed through unchanged, an 8-node
+shell triangulates into slivers in the viewer and its posters. BTSS (the 3-node beam) is written
+(end, mid, end) -- adapy's own LINE3 order -- and must pass through untouched: swapped, a curved
+beam draws from one end to its middle.
 """
 
 import numpy as np
@@ -36,8 +37,9 @@ def test_scqs_corners_first(one_elem_sif):
     assert block.node_refs.tolist() == [[1, 3, 5, 7, 2, 4, 6, 8]]
 
 
-def test_btss_mid_node_second(one_elem_sif):
-    mesh = _with_element(one_elem_sif, 23, [(0, 0, 0), (1, 0, 0), (0.5, 0, 0)])
+def test_btss_passes_through_end_mid_end(one_elem_sif):
+    # As Sestra writes it: end, mid, end.
+    mesh = _with_element(one_elem_sif, 23, [(0, 0, 0), (0.5, 0, 0), (1, 0, 0)])
 
     (block,) = mesh.elements
-    assert block.node_refs.tolist() == [[1, 3, 2]]
+    assert block.node_refs.tolist() == [[1, 2, 3]]

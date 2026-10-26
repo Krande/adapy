@@ -8,9 +8,10 @@
 // Two artefacts, one mesh:
 //
 //  * AFBS (`beam_solids_compact_url`) — the per-section outline table plus a
-//    56-byte frame per beam, expanded in a worker into the vertex, index,
-//    draw-range AND warp buffers. An order of magnitude less to download, and
-//    nothing to parse on the main thread.
+//    56-byte frame per beam, expanded into the vertex, index, draw-range AND
+//    warp buffers by the compute capability (a WebAssembly worker in the
+//    browser, the Python process over the websocket). An order of magnitude
+//    less to download, and nothing to parse on the main thread.
 //  * the GLB (`beam_solids_url`) with its AFEM ranges and AFBV warp sidecar —
 //    what every bake wrote before AFBS, and what a bake still writes for
 //    `beam_solid_format="mesh"`. Kept verbatim: cached artefacts outlive a
@@ -32,11 +33,9 @@
 import * as THREE from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 
+import {capabilities} from "@/services/capabilities";
 import type {FeaFetcher} from "@/services/fea/feaFetcher";
-import {
-    expandBeamSolidsFromBytes,
-    type ExpandedBeamSolids,
-} from "@/services/feaBeamSolidsCompact";
+import type {ExpandedBeamSolids} from "@/services/feaBeamSolidsCompact";
 import {fetchBeamSolidsWarp, type ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchMeshElements, type MeshElementEntry} from "@/services/feaMeshElements";
 import type {FeaManifest} from "@/services/viewerApi";
@@ -45,10 +44,6 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {usePerfStore} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
-// Inline-bundled worker — Vite handles the import + URL plumbing. Never
-// instantiated unless a manifest actually carries a compact artefact.
-import BeamSolidsExpandWorker from "./beamSolidsExpand.worker.ts?worker&inline";
-import type {BeamSolidsExpandWorkerAPI} from "./beamSolidsExpand.worker";
 import {BEAM_SOLIDS_PERF_OPT_OUT, describeBeamSolidsFailure} from "./beamSolidsToggle";
 import {findFirstMesh, snapshotBasePositions} from "./sceneMesh";
 
@@ -209,7 +204,9 @@ async function buildFromCompact(
     mainPositions: Float32Array,
 ): Promise<BuiltBeamSolids | null> {
     const buf = await fetcher(compactUrl);
-    const expanded = await expandCompact(buf, mainPositions);
+    // Through the compute capability: the WebAssembly module in the browser, the
+    // Python process's adacpp over the websocket.
+    const expanded: ExpandedBeamSolids = await capabilities.compute.expandBeamSolids(buf, mainPositions);
     if (expanded.nVerts === 0) return null;
 
     const geom = new THREE.BufferGeometry();
@@ -239,40 +236,6 @@ async function buildFromCompact(
             t: expanded.t,
         },
     };
-}
-
-/** Run the expansion in a worker; fall back to the main thread when one
- *  cannot be spawned (a test runner, a hardened embed, an OOM). The fallback
- *  calls the very same function the worker does, so the only difference
- *  between them is which thread pays for it. */
-async function expandCompact(
-    compact: ArrayBuffer,
-    mainPositions: Float32Array,
-): Promise<ExpandedBeamSolids> {
-    let worker: Worker | null = null;
-    try {
-        worker = new BeamSolidsExpandWorker();
-    } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[fea-streaming] beam-solid expand worker unavailable:", err);
-        return expandBeamSolidsFromBytes(compact, mainPositions);
-    }
-    try {
-        const Comlink = await import("comlink");
-        const api = Comlink.wrap<BeamSolidsExpandWorkerAPI>(worker);
-        // ``mainPositions`` is a snapshot copy already, but copy again: the
-        // session keeps its snapshot for the whole load, and transferring
-        // would detach it.
-        const positionsCopy = new Float32Array(mainPositions);
-        return await api.expand(
-            Comlink.transfer(
-                {compact, mainPositions: positionsCopy},
-                [compact, positionsCopy.buffer as ArrayBuffer],
-            ),
-        );
-    } finally {
-        worker.terminate();
-    }
 }
 
 /** The GLB path, unchanged: the beam-solid GLB plus its AFEM draw ranges. */

@@ -3,6 +3,14 @@ from typing import Optional
 import flatbuffers
 from ada.comms.fb.fb_base_serializer import serialize_error, serialize_fileobject
 from ada.comms.fb.fb_server_gen import (
+    FeaBlobReplyDC,
+    FeaBlobRequestDC,
+    FeaManifestReplyDC,
+    FeaManifestRequestDC,
+    FeaSourceInfoDC,
+    FeaSourceRegisterDC,
+    KernelCallDC,
+    KernelReplyDC,
     ProceduralModelListEntryDC,
     ProceduralModelListReplyDC,
     ProceduralModelLoadDC,
@@ -14,6 +22,14 @@ from ada.comms.fb.fb_server_gen import (
     ServerReplyDC,
 )
 from ada.comms.fb.server import (
+    FeaBlobReply,
+    FeaBlobRequest,
+    FeaManifestReply,
+    FeaManifestRequest,
+    FeaSourceInfo,
+    FeaSourceRegister,
+    KernelCall,
+    KernelReply,
     ProceduralModelListEntry,
     ProceduralModelListReply,
     ProceduralModelLoad,
@@ -167,6 +183,182 @@ def serialize_proceduralmodelloadreply(
     return ProceduralModelLoadReply.End(builder)
 
 
+def serialize_feasourceregister(builder: flatbuffers.Builder, obj: Optional[FeaSourceRegisterDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    source_key_str = None
+    if obj.source_key is not None:
+        source_key_str = builder.CreateString(str(obj.source_key))
+    bake_dir_str = None
+    if obj.bake_dir is not None:
+        bake_dir_str = builder.CreateString(str(obj.bake_dir))
+    bake_id_str = None
+    if obj.bake_id is not None:
+        bake_id_str = builder.CreateString(str(obj.bake_id))
+
+    FeaSourceRegister.Start(builder)
+    if source_key_str is not None:
+        FeaSourceRegister.AddSourceKey(builder, source_key_str)
+    if bake_dir_str is not None:
+        FeaSourceRegister.AddBakeDir(builder, bake_dir_str)
+    if bake_id_str is not None:
+        FeaSourceRegister.AddBakeId(builder, bake_id_str)
+    if obj.open_in_viewer is not None:
+        FeaSourceRegister.AddOpenInViewer(builder, obj.open_in_viewer)
+    return FeaSourceRegister.End(builder)
+
+
+def serialize_feasourceinfo(builder: flatbuffers.Builder, obj: Optional[FeaSourceInfoDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    source_key_str = None
+    if obj.source_key is not None:
+        source_key_str = builder.CreateString(str(obj.source_key))
+    bake_id_str = None
+    if obj.bake_id is not None:
+        bake_id_str = builder.CreateString(str(obj.bake_id))
+
+    FeaSourceInfo.Start(builder)
+    if source_key_str is not None:
+        FeaSourceInfo.AddSourceKey(builder, source_key_str)
+    if bake_id_str is not None:
+        FeaSourceInfo.AddBakeId(builder, bake_id_str)
+    return FeaSourceInfo.End(builder)
+
+
+def serialize_feamanifestrequest(builder: flatbuffers.Builder, obj: Optional[FeaManifestRequestDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    source_key_str = None
+    if obj.source_key is not None:
+        source_key_str = builder.CreateString(str(obj.source_key))
+
+    FeaManifestRequest.Start(builder)
+    if source_key_str is not None:
+        FeaManifestRequest.AddSourceKey(builder, source_key_str)
+    return FeaManifestRequest.End(builder)
+
+
+def serialize_feamanifestreply(builder: flatbuffers.Builder, obj: Optional[FeaManifestReplyDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    source_key_str = None
+    if obj.source_key is not None:
+        source_key_str = builder.CreateString(str(obj.source_key))
+    bake_id_str = None
+    if obj.bake_id is not None:
+        bake_id_str = builder.CreateString(str(obj.bake_id))
+    manifest_json_str = None
+    if obj.manifest_json is not None:
+        manifest_json_str = builder.CreateString(str(obj.manifest_json))
+
+    FeaManifestReply.Start(builder)
+    if source_key_str is not None:
+        FeaManifestReply.AddSourceKey(builder, source_key_str)
+    if bake_id_str is not None:
+        FeaManifestReply.AddBakeId(builder, bake_id_str)
+    if manifest_json_str is not None:
+        FeaManifestReply.AddManifestJson(builder, manifest_json_str)
+    return FeaManifestReply.End(builder)
+
+
+def serialize_feablobrequest(builder: flatbuffers.Builder, obj: Optional[FeaBlobRequestDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    source_key_str = None
+    if obj.source_key is not None:
+        source_key_str = builder.CreateString(str(obj.source_key))
+    filename_str = None
+    if obj.filename is not None:
+        filename_str = builder.CreateString(str(obj.filename))
+
+    FeaBlobRequest.Start(builder)
+    if source_key_str is not None:
+        FeaBlobRequest.AddSourceKey(builder, source_key_str)
+    if filename_str is not None:
+        FeaBlobRequest.AddFilename(builder, filename_str)
+    if obj.ranged is not None:
+        FeaBlobRequest.AddRanged(builder, obj.ranged)
+    if obj.start is not None:
+        FeaBlobRequest.AddStart(builder, obj.start)
+    if obj.end is not None:
+        FeaBlobRequest.AddEnd(builder, obj.end)
+    return FeaBlobRequest.End(builder)
+
+
+def serialize_feablobreply(builder: flatbuffers.Builder, obj: Optional[FeaBlobReplyDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    source_key_str = None
+    if obj.source_key is not None:
+        source_key_str = builder.CreateString(str(obj.source_key))
+    filename_str = None
+    if obj.filename is not None:
+        filename_str = builder.CreateString(str(obj.filename))
+    data_vector = None
+    if obj.data is not None:
+        data_vector = builder.CreateByteVector(obj.data)
+
+    FeaBlobReply.Start(builder)
+    if source_key_str is not None:
+        FeaBlobReply.AddSourceKey(builder, source_key_str)
+    if filename_str is not None:
+        FeaBlobReply.AddFilename(builder, filename_str)
+    if data_vector is not None:
+        FeaBlobReply.AddData(builder, data_vector)
+    if obj.ranged is not None:
+        FeaBlobReply.AddRanged(builder, obj.ranged)
+    if obj.total_size is not None:
+        FeaBlobReply.AddTotalSize(builder, obj.total_size)
+    return FeaBlobReply.End(builder)
+
+
+def serialize_kernelcall(builder: flatbuffers.Builder, obj: Optional[KernelCallDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    function_str = None
+    if obj.function is not None:
+        function_str = builder.CreateString(str(obj.function))
+    args_json_str = None
+    if obj.args_json is not None:
+        args_json_str = builder.CreateString(str(obj.args_json))
+    data_vector = None
+    if obj.data is not None:
+        data_vector = builder.CreateByteVector(obj.data)
+
+    KernelCall.Start(builder)
+    if function_str is not None:
+        KernelCall.AddFunction(builder, function_str)
+    if args_json_str is not None:
+        KernelCall.AddArgsJson(builder, args_json_str)
+    if data_vector is not None:
+        KernelCall.AddData(builder, data_vector)
+    return KernelCall.End(builder)
+
+
+def serialize_kernelreply(builder: flatbuffers.Builder, obj: Optional[KernelReplyDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    function_str = None
+    if obj.function is not None:
+        function_str = builder.CreateString(str(obj.function))
+    result_json_str = None
+    if obj.result_json is not None:
+        result_json_str = builder.CreateString(str(obj.result_json))
+    data_vector = None
+    if obj.data is not None:
+        data_vector = builder.CreateByteVector(obj.data)
+
+    KernelReply.Start(builder)
+    if function_str is not None:
+        KernelReply.AddFunction(builder, function_str)
+    if result_json_str is not None:
+        KernelReply.AddResultJson(builder, result_json_str)
+    if data_vector is not None:
+        KernelReply.AddData(builder, data_vector)
+    return KernelReply.End(builder)
+
+
 def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerReplyDC]) -> Optional[int]:
     if obj is None:
         return None
@@ -195,6 +387,18 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     load_procedural_model_obj = None
     if obj.load_procedural_model is not None:
         load_procedural_model_obj = serialize_proceduralmodelloadreply(builder, obj.load_procedural_model)
+    fea_source_obj = None
+    if obj.fea_source is not None:
+        fea_source_obj = serialize_feasourceinfo(builder, obj.fea_source)
+    fea_manifest_obj = None
+    if obj.fea_manifest is not None:
+        fea_manifest_obj = serialize_feamanifestreply(builder, obj.fea_manifest)
+    fea_blob_obj = None
+    if obj.fea_blob is not None:
+        fea_blob_obj = serialize_feablobreply(builder, obj.fea_blob)
+    kernel_obj = None
+    if obj.kernel is not None:
+        kernel_obj = serialize_kernelreply(builder, obj.kernel)
 
     ServerReply.Start(builder)
     if message_str is not None:
@@ -213,6 +417,14 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
         ServerReply.AddListProceduralModels(builder, list_procedural_models_obj)
     if obj.load_procedural_model is not None:
         ServerReply.AddLoadProceduralModel(builder, load_procedural_model_obj)
+    if obj.fea_source is not None:
+        ServerReply.AddFeaSource(builder, fea_source_obj)
+    if obj.fea_manifest is not None:
+        ServerReply.AddFeaManifest(builder, fea_manifest_obj)
+    if obj.fea_blob is not None:
+        ServerReply.AddFeaBlob(builder, fea_blob_obj)
+    if obj.kernel is not None:
+        ServerReply.AddKernel(builder, kernel_obj)
     return ServerReply.End(builder)
 
 
@@ -247,6 +459,21 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
     load_procedural_model_obj = None
     if obj.load_procedural_model is not None:
         load_procedural_model_obj = serialize_proceduralmodelload(builder, obj.load_procedural_model)
+    register_fea_source_obj = None
+    if obj.register_fea_source is not None:
+        register_fea_source_obj = serialize_feasourceregister(builder, obj.register_fea_source)
+    open_fea_source_obj = None
+    if obj.open_fea_source is not None:
+        open_fea_source_obj = serialize_feasourceinfo(builder, obj.open_fea_source)
+    fea_manifest_request_obj = None
+    if obj.fea_manifest_request is not None:
+        fea_manifest_request_obj = serialize_feamanifestrequest(builder, obj.fea_manifest_request)
+    fea_blob_request_obj = None
+    if obj.fea_blob_request is not None:
+        fea_blob_request_obj = serialize_feablobrequest(builder, obj.fea_blob_request)
+    kernel_call_obj = None
+    if obj.kernel_call is not None:
+        kernel_call_obj = serialize_kernelcall(builder, obj.kernel_call)
 
     Server.Start(builder)
     if obj.new_file_object is not None:
@@ -265,4 +492,14 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
         Server.AddSaveProceduralModel(builder, save_procedural_model_obj)
     if obj.load_procedural_model is not None:
         Server.AddLoadProceduralModel(builder, load_procedural_model_obj)
+    if obj.register_fea_source is not None:
+        Server.AddRegisterFeaSource(builder, register_fea_source_obj)
+    if obj.open_fea_source is not None:
+        Server.AddOpenFeaSource(builder, open_fea_source_obj)
+    if obj.fea_manifest_request is not None:
+        Server.AddFeaManifestRequest(builder, fea_manifest_request_obj)
+    if obj.fea_blob_request is not None:
+        Server.AddFeaBlobRequest(builder, fea_blob_request_obj)
+    if obj.kernel_call is not None:
+        Server.AddKernelCall(builder, kernel_call_obj)
     return Server.End(builder)

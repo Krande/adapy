@@ -13,7 +13,6 @@ debugging / interop, but isn't on the read path.
 
 from __future__ import annotations
 
-import itertools
 import math
 import pathlib
 from dataclasses import dataclass
@@ -24,6 +23,7 @@ import numpy as np
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.read_sif import SifReader
 from ada.fem.formats.sesam.results.result_catalog import semantic_name
+from ada.fem.formats.sesam.results.rv_table import _RaggedRows
 from ada.fem.formats.sesam.results.sin_reader import (
     SinFile,
     SuperElementInfo,
@@ -407,12 +407,13 @@ class SinReader(SifReader):
             if not tables:
                 continue
             at = index_of.get(card.name)
+            value_start = int(_RV_VALUE_START[card.name])
             if at is None:
                 index_of[card.name] = len(self.results)
-                self.results.append((card.name, _concat_rv_tables(tables[0], tables[1:])))
+                self.results.append((card.name, _concat_rv_tables(tables[0], tables[1:], value_start)))
             else:
                 name, existing = self.results[at]
-                self.results[at] = (name, _concat_rv_tables(existing, tables))
+                self.results[at] = (name, _concat_rv_tables(existing, tables, value_start))
 
     def _read_result_card(self, card, step, *, raw: bool = False, ragged: bool = False):
         """Read one result card → ``(name, rows)`` (or None if the block
@@ -422,9 +423,9 @@ class SinReader(SifReader):
         (one word per component, like a real case) unless ``raw`` — the
         combination path needs their real and imaginary words.
 
-        ``ragged`` (with ``raw``; the superposition's read): an RV* table of
-        varying width comes back as :class:`_RaggedRows`, gathered as arrays,
-        rather than as a list of rows.
+        An RV* table of varying width comes back as :class:`_RaggedRows`, gathered
+        as arrays, rather than as a list of rows. ``ragged`` is accepted for older
+        callers and no longer changes anything.
 
         SifReader keeps the first record as the type-block "super-header"
         (`[-ndim, ndim, dim0, …]`) and consumers do ``records[1:]`` to skip
@@ -453,7 +454,11 @@ class SinReader(SifReader):
         else:
             elements = getattr(self, "_forces_elements", None) if card.name == cards.RVFORCES.name else None
             rows = None
-            if ragged and raw and card.name in _RV_TYPE_NAMES:
+            # A variable-width RV table (RVSTRESS / RVFORCES widths vary with the
+            # element's descriptor; complex and real cases side by side) is gathered
+            # as arrays rather than a Python row per record: on a large deck that row
+            # loop was most of the read. Sif2Mesh takes the table in this form too.
+            if card.name in _RV_TYPE_NAMES:
                 gathered = self.sin.gather_ragged_records(card.name, where_first_word=wfw, where_second_word=elements)
                 if gathered is not None:
                     rows = _RaggedRows.from_records(super_header, *gathered, int(_RV_VALUE_START[card.name]))
@@ -708,8 +713,11 @@ _RV_VALUE_START = {
 }
 
 
-def _concat_rv_tables(existing, extras):
+def _concat_rv_tables(existing, extras, value_start: int | None = None):
     """Append each of ``extras``' data rows to RV table ``existing``, keeping its row 0.
+
+    When any of them is held as arrays (:class:`_RaggedRows`) so is the result;
+    ``value_start`` (the card's, :data:`_RV_VALUE_START`) is then required.
 
     Row 0 is the synthesised super-header (``[-ndim, ndim, *dims]``); every
     consumer does ``rows[1:]``, and ``dims`` describes the block's declared
@@ -723,6 +731,11 @@ def _concat_rv_tables(existing, extras):
     is quadratic in the number of combinations a deck appends.
     """
     extras = list(extras)
+    if isinstance(existing, _RaggedRows) or any(isinstance(e, _RaggedRows) for e in extras):
+        if value_start is None:
+            raise ValueError("cannot append to an RV table held as arrays without its value_start")
+        tables = [_RaggedRows.from_any(t, value_start) for t in (existing, *extras)]
+        return _RaggedRows.concat(tables[0], [t for t in tables[1:] if len(t) > 1])
     n_arrays = 0
     if isinstance(existing, np.ndarray):
         while n_arrays < len(extras) and isinstance(extras[n_arrays], np.ndarray):
@@ -954,76 +967,6 @@ def _accumulate_rv_combination(
     return out if keep_ragged else out.to_rows()
 
 
-@dataclass
-class _RaggedRows:
-    """A per-record RV table (rows of differing widths) as arrays.
-
-    ``heads`` holds each data row's words before its values (``value_start`` of
-    them), ``lengths`` each row's count of value words, ``values`` every row's
-    value words back to back, in float32 -- the precision NORSAM stores and the
-    superposition works in. ``header`` is row 0, the synthesised super-header.
-    The rows a reader produces are lists of Python floats: a few hundred bytes
-    a row, and a Python loop over every row for every term superposed. This
-    form costs about a tenth of that and lets a term be one array operation.
-    """
-
-    header: list
-    heads: np.ndarray
-    lengths: np.ndarray
-    values: np.ndarray
-
-    def __len__(self) -> int:
-        """Rows including the super-header, like the row list it stands for."""
-        return 1 + int(self.heads.shape[0])
-
-    @classmethod
-    def from_rows(cls, rows, value_start: int) -> "_RaggedRows":
-        if isinstance(rows, np.ndarray):
-            data = rows[1:]
-            return cls(
-                rows[0].tolist() if rows.shape[0] else [],
-                np.array(data[:, :value_start], dtype=np.float64),
-                np.full(data.shape[0], data.shape[1] - value_start, dtype=np.int64),
-                np.asarray(data[:, value_start:], dtype=np.float32).ravel(),
-            )
-        rows = list(rows)
-        data = rows[1:]
-        n = len(data)
-        lengths = np.fromiter((len(r) - value_start for r in data), dtype=np.int64, count=n)
-        if np.any(lengths < 0):
-            raise ValueError(f"an RV row shorter than its {value_start} header words")
-        heads = np.array([r[:value_start] for r in data], dtype=np.float64).reshape(n, value_start)
-        values = np.fromiter(
-            itertools.chain.from_iterable(r[value_start:] for r in data), dtype=np.float64, count=int(lengths.sum())
-        ).astype(np.float32)
-        return cls(list(rows[0]), heads, lengths, values)
-
-    @classmethod
-    def from_records(cls, header: list, n_data: np.ndarray, words: np.ndarray, value_start: int):
-        """From :meth:`SinFile.gather_ragged_records`' arrays: the rows
-        :func:`_records_for` would build (``[NFIELD, *data]``), without building
-        them. ``None`` when a record is too short to hold the header words."""
-        n_data = np.asarray(n_data, dtype=np.int64)
-        lengths = n_data + 1 - value_start
-        if np.any(lengths < 0):
-            return None
-        n = len(n_data)
-        n_head = value_start - 1  # header words after NFIELD
-        offsets = np.cumsum(n_data) - n_data
-        within = np.arange(int(n_data.sum()), dtype=np.int64) - np.repeat(offsets, n_data)
-        heads = np.empty((n, value_start), dtype=np.float64)
-        heads[:, 0] = n_data + 1
-        heads[:, 1:] = words[within < n_head].reshape(n, n_head)
-        return cls(list(header), heads, lengths, np.asarray(words[within >= n_head], dtype=np.float32))
-
-    def to_rows(self) -> list:
-        offsets = np.concatenate(([0], np.cumsum(self.lengths))).tolist()
-        values = self.values.tolist()
-        return [list(self.header)] + [
-            head + values[offsets[k] : offsets[k + 1]] for k, head in enumerate(self.heads.tolist())
-        ]
-
-
 def _present_complex_rows(card, rows, complex_steps: frozenset[int], phase: float):
     """Reduce the complex cases' rows of an RV table to one real value per component.
 
@@ -1040,6 +983,9 @@ def _present_complex_rows(card, rows, complex_steps: frozenset[int], phase: floa
     value_start = int(_RV_VALUE_START[card.name])
     ires_i = int(card.get_indices_from_names(["ires"]))
 
+    if isinstance(rows, _RaggedRows):
+        return _present_complex_ragged(card, rows, complex_steps, phase, value_start, ires_i)
+
     if isinstance(rows, np.ndarray):
         if rows.shape[0] <= 1:
             return rows
@@ -1047,7 +993,11 @@ def _present_complex_rows(card, rows, complex_steps: frozenset[int], phase: floa
         if not is_complex.any():
             return rows
         if not is_complex.all():
-            return _present_complex_rows(card, rows.tolist(), complex_steps, phase)
+            # Real and complex cases side by side: the complex rows shrink, so the
+            # table no longer has one width.
+            return _present_complex_ragged(
+                card, _RaggedRows.from_rows(rows, value_start), complex_steps, phase, value_start, ires_i
+            )
         values = np.asarray(rows[1:, value_start:], dtype=np.float32)
         if values.shape[1] % 2:
             raise ValueError(f"{card.name}: a case flagged complex stores an odd count of values")
@@ -1076,6 +1026,49 @@ def _present_complex_rows(card, rows, complex_steps: frozenset[int], phase: floa
         head[0] = float(value_start + real.size)
         out.append(head + real.tolist())
     return out
+
+
+def _present_complex_ragged(card, rows: _RaggedRows, complex_steps, phase: float, value_start: int, ires_i: int):
+    """:func:`_present_complex_rows` for a table held as arrays: the same words, in one pass.
+
+    A complex row's words are ``R1, I1, R2, I2, …``; each pair becomes one word,
+    ``R cos Φ − I sin Φ`` in float32 exactly as :func:`_combination_values` forms it.
+    Real rows are untouched.
+    """
+    if len(rows) <= 1:
+        return rows
+    is_complex = np.isin(rows.heads[:, ires_i].astype(np.int64), np.fromiter(complex_steps, dtype=np.int64))
+    if not is_complex.any():
+        return rows
+    lengths = rows.lengths
+    bad = is_complex & (lengths % 2 == 1)
+    if bad.any():
+        ires = int(rows.heads[int(np.argmax(bad)), ires_i])
+        raise ValueError(f"{card.name}: case {ires} is flagged complex but stores an odd count of values")
+
+    # Word positions of the complex rows' (R, I) pairs only -- a table may be mostly real.
+    complex_rows = np.flatnonzero(is_complex)
+    pairs = lengths[complex_rows] // 2
+    pairs_before = np.cumsum(pairs) - pairs  # pairs (= imaginary words dropped) in earlier complex rows
+    j = np.arange(int(pairs.sum()), dtype=np.int64) - np.repeat(pairs_before, pairs)
+    real_pos = np.repeat(rows.offsets[complex_rows], pairs) + 2 * j
+    imag_pos = real_pos + 1
+
+    presented = _combination_values(
+        np.stack((rows.values[real_pos], rows.values[imag_pos]), axis=-1).ravel(),
+        1.0,
+        phase,
+        basic_complex=True,
+        combination_complex=False,
+    )
+    values = np.delete(rows.values, imag_pos)
+    # Each pair's word lands where its real word was, less the imaginary words dropped before it.
+    values[real_pos - np.repeat(pairs_before, pairs) - j] = presented
+
+    new_lengths = np.where(is_complex, lengths // 2, lengths)
+    heads = rows.heads.copy()
+    heads[is_complex, 0] = value_start + new_lengths[is_complex]
+    return _RaggedRows(list(rows.header), heads, new_lengths, values)
 
 
 def read_sin_metadata(sin_file: str | pathlib.Path, *, super_element: SuperElementSpec | None = None) -> SinMetadata:
@@ -1135,7 +1128,7 @@ def read_sin_file(
     *,
     step: int | None = None,
     complex_phase: float = 0.0,
-    super_element: SuperElementSpec | None = None,
+    super_element: "SuperElementSpec | Iterable[SuperElementSpec] | None" = None,
 ) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
@@ -1157,13 +1150,76 @@ def read_sin_file(
     component. 0 (the default) is the real part, −π/2 the imaginary part.
     Combinations are unaffected: their terms carry their own phases.
 
-    ``super_element``: on a superelement assembly SIN, which superelement to
-    read (see :func:`~.sin_reader.open_sin`). None reads the entry with a mesh
-    and results.
+    ``super_element``: on a superelement assembly SIN, what to read.
+
+    * None (the default) reads the whole assembly: every superelement with a mesh,
+      placed and merged into one result (see :mod:`.assembly`). A SIN of one
+      superelement reads as it always has.
+    * One superelement -- ``"SEL12.IND1"``, ``"12"``, ``12``, ``(12, 1)`` (see
+      :func:`~.sin_reader.open_sin`) -- reads that superelement alone, with its own
+      numbering.
+    * A list or set of them reads just those, placed and merged like the whole
+      assembly.
     """
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
     # source's display name (basename) for the FEAResult / convert path.
+    selection = _super_element_selection(super_element)
+    if selection is not None and len(selection) == 1:
+        super_element, selection = selection[0], None
+    if selection is not None:
+        sin = open_sin(sin_file)
+        rows = sin.hierarchy()
+        parts, seen = [], set()
+        for spec in selection:
+            row = sin.resolve_super_element(spec)  # refuses a name it cannot read, listing the alternatives
+            if row.iref not in seen:
+                seen.add(row.iref)
+                parts.append(row)
+        if len(parts) > 1:
+            return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
+        sin.select_super_element(parts[0])
+        return _read_selected(sin, sin_file, step, complex_phase)
+
+    sin = open_sin(sin_file, super_element=super_element)
+    if super_element is None and sin.is_assembly():
+        rows = sin.hierarchy()
+        parts = [r for r in rows if r.iref is not None and r.has_mesh]
+        if len(parts) > 1:
+            return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
+    return _read_selected(sin, sin_file, step, complex_phase)
+
+
+def _super_element_selection(super_element) -> list | None:
+    """``super_element`` as a list of superelement specs when it names several (a list, set or
+    tuple of them), else None. A ``(type, instance)`` pair of numbers is ONE superelement."""
+    if isinstance(super_element, (list, set, frozenset)):
+        return list(super_element)
+    if isinstance(super_element, tuple):
+        is_pair = len(super_element) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in super_element)
+        return None if is_pair else list(super_element)
+    return None
+
+
+def _read_assembly(sin: SinFile, sin_file, rows, parts, step, complex_phase) -> "FEAResult":
+    """Every superelement of ``parts`` read on the one open file, then merged."""
+    from ada.fem.formats.sesam.results.assembly import (
+        assemble_super_elements,
+        placements,
+    )
+
+    results = []
+    for part in parts:
+        sin.select_super_element(part)
+        results.append(_read_selected(sin, sin_file, step, complex_phase))
+    name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
+    return assemble_super_elements(
+        parts, results, placements(rows), name=pathlib.Path(str(name_path)).stem, results_file_path=sin.path
+    )
+
+
+def _read_selected(sin: SinFile, sin_file, step, complex_phase) -> "FEAResult":
+    """The superelement ``sin`` has selected, as a result."""
     from ada.fem.formats.sesam.results.case_names import (
         result_case_names,
         selectable_result_cases,
@@ -1171,7 +1227,6 @@ def read_sin_file(
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
     from ada.fem.formats.sesam.results.sets import manifest_groups
 
-    sin = open_sin(sin_file, super_element=super_element)
     if "GELMNT1" not in sin.type_blocks and sin.is_assembly():
         # Defensive: the default pick lands on an entry with elements, so this
         # takes an assembly whose chosen entry lost its mesh.
@@ -1552,6 +1607,12 @@ class SinStreamReader:
     def try_solid_beams(self, **kwargs):
         return self._adapter_for(0).try_solid_beams(**kwargs)
 
+    def try_suppressed_line_edges(self):
+        return self._adapter_for(0).try_suppressed_line_edges()
+
+    def try_element_properties(self):
+        return self._adapter_for(0).try_element_properties()
+
     def try_history_records(self):
         return None
 
@@ -1570,7 +1631,12 @@ class SinStreamReader:
         if self._reader is None:
             self._reader = SinReader(sin=self.sin, complex_phase=self._complex_phase)
             self._reader._load_static()
-        return manifest_groups(self._reader)
+        groups = manifest_groups(self._reader) or []
+        # Plus the sets the reader made (dummy-mass beams), which only the converted
+        # mesh holds; the representative step's adapter has it, and the bake builds
+        # that adapter anyway.
+        groups += [g for g in (self._adapter_for(0).try_groups() or []) if g.get("role")]
+        return groups or None
 
     def try_step_names(self):
         """What the deck calls each result case, for the manifest's steps.

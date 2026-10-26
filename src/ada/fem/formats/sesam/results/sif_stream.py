@@ -306,6 +306,12 @@ class SifStreamReader:
     def try_solid_beams(self, **kwargs):
         return self._adapter_for(0).try_solid_beams(**kwargs)
 
+    def try_suppressed_line_edges(self):
+        return self._adapter_for(0).try_suppressed_line_edges()
+
+    def try_element_properties(self):
+        return self._adapter_for(0).try_element_properties()
+
     def try_history_records(self):
         return None
 
@@ -323,4 +329,8 @@ class SifStreamReader:
 
         if self._static is None:
             return None
-        return manifest_groups(self._static)
+        groups = manifest_groups(self._static) or []
+        # Plus the sets the reader made (dummy-mass beams), which only the converted
+        # mesh holds -- see SinStreamReader.try_groups.
+        groups += [g for g in (self._adapter_for(0).try_groups() or []) if g.get("role")]
+        return groups or None

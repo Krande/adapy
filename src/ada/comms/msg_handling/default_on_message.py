@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING
 from ada.comms.fb_wrap_deserializer import deserialize_root_message
 from ada.comms.fb_wrap_model_gen import CommandTypeDC
 from ada.comms.msg_handling.delete_file_object import delete_file_object
+from ada.comms.msg_handling.fea_sources import (
+    get_fea_blob,
+    get_fea_manifest,
+    register_fea_source,
+)
 from ada.comms.msg_handling.get_server_info import get_server_info_func
+from ada.comms.msg_handling.kernel_calls import call_kernel
 from ada.comms.msg_handling.list_file_objects import list_file_objects
 from ada.comms.msg_handling.list_procedural_models import list_procedural_models
 from ada.comms.msg_handling.list_procedures import list_procedures
@@ -67,6 +73,14 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             list_procedural_models(server, client, message)
         elif message.command_type == CommandTypeDC.LOAD_PROCEDURAL_MODEL:
             load_procedural_model(server, client, message)
+        elif message.command_type == CommandTypeDC.REGISTER_FEA_SOURCE:
+            register_fea_source(server, client, message)
+        elif message.command_type == CommandTypeDC.GET_FEA_MANIFEST:
+            get_fea_manifest(server, client, message)
+        elif message.command_type == CommandTypeDC.GET_FEA_BLOB:
+            get_fea_blob(server, client, message)
+        elif message.command_type == CommandTypeDC.CALL_KERNEL:
+            call_kernel(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(

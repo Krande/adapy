@@ -68,6 +68,77 @@ table ProceduralModelLoadReply {
   content_hash: string;
 }
 
+// REGISTER_FEA_SOURCE request payload. ``bake_dir`` is a directory on the
+// server's machine holding an FEA artefact bake (fea.manifest.json and the
+// files it names); only the local process that wrote it sends this. A
+// ``source_key`` registered again points at the new bake. ``bake_id`` changes
+// whenever the bake does, so a viewer can tell a re-shown result from the one
+// it already holds. ``open_in_viewer`` pushes OPEN_FEA_SOURCE to every
+// connected viewer once the source is registered.
+table FeaSourceRegister {
+  source_key: string;
+  bake_dir: string;
+  bake_id: string;
+  open_in_viewer: bool;
+}
+
+// OPEN_FEA_SOURCE payload (server -> web), and the REGISTER_FEA_SOURCE reply.
+table FeaSourceInfo {
+  source_key: string;
+  bake_id: string;
+}
+
+// GET_FEA_MANIFEST request payload.
+table FeaManifestRequest {
+  source_key: string;
+}
+
+// GET_FEA_MANIFEST reply payload: the bake's fea.manifest.json, as text.
+table FeaManifestReply {
+  source_key: string;
+  bake_id: string;
+  manifest_json: string;
+}
+
+// GET_FEA_BLOB request payload. ``filename`` is manifest-relative, exactly as
+// the manifest names it (``fea.mesh.glb``, ``fea.U.bin``, ...); the server
+// refuses anything that resolves outside the bake directory. With ``ranged``,
+// only bytes ``start``..``end`` (inclusive) are sent -- one step of a field.
+table FeaBlobRequest {
+  source_key: string;
+  filename: string;
+  ranged: bool;
+  start: long;
+  end: long;
+}
+
+// GET_FEA_BLOB reply payload. ``ranged`` says whether ``data`` is the asked-for
+// window (true) or the whole file; ``total_size`` is the file's size either way.
+table FeaBlobReply {
+  source_key: string;
+  filename: string;
+  data: [ubyte];
+  ranged: bool;
+  total_size: long;
+}
+
+// CALL_KERNEL request payload. ``function`` names a kernel the server whitelists
+// (ada.comms.msg_handling.kernel_calls); ``args_json`` its arguments; ``data`` the
+// binary inputs, laid out as ``args_json`` describes (typed arrays back to back).
+table KernelCall {
+  function: string;
+  args_json: string;
+  data: [ubyte];
+}
+
+// CALL_KERNEL reply payload. ``result_json`` describes the outputs -- scalars, and
+// for each output array its dtype and where it sits in ``data``.
+table KernelReply {
+  function: string;
+  result_json: string;
+  data: [ubyte];
+}
+
 table ServerReply {
   message: string;
   file_objects: [base.FileObject];
@@ -77,6 +148,10 @@ table ServerReply {
   save_procedural_model: ProceduralModelSaveReply;
   list_procedural_models: ProceduralModelListReply;
   load_procedural_model: ProceduralModelLoadReply;
+  fea_source: FeaSourceInfo;
+  fea_manifest: FeaManifestReply;
+  fea_blob: FeaBlobReply;
+  kernel: KernelReply;
 }
 
 table Server {
@@ -88,4 +163,9 @@ table Server {
     start_file_in_local_app: base.FileObject;
     save_procedural_model: ProceduralModelSave;
     load_procedural_model: ProceduralModelLoad;
+    register_fea_source: FeaSourceRegister;
+    open_fea_source: FeaSourceInfo;
+    fea_manifest_request: FeaManifestRequest;
+    fea_blob_request: FeaBlobRequest;
+    kernel_call: KernelCall;
 }

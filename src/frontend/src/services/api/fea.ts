@@ -66,6 +66,37 @@ export type FeaFieldCategory =
  *  Element fields have an extra axis (integration points) and may
  *  have multiple buckets within a single field — one per element
  *  type the source shipped with. */
+/** A section's properties as the bake writes them (adapy ``section_to_dict``), metres. */
+export interface FeaSectionProps {
+  name?: string | null;
+  type?: string | null;
+  h?: number | null;
+  w_top?: number | null;
+  w_btn?: number | null;
+  t_w?: number | null;
+  t_ftop?: number | null;
+  t_fbtn?: number | null;
+  r?: number | null;
+  wt?: number | null;
+}
+
+/** A material's properties as the bake writes them (adapy ``material_to_dict``), SI. */
+export interface FeaMaterialProps {
+  name?: string | null;
+  E?: number | null;
+  rho?: number | null;
+  sig_y?: number | null;
+  sig_u?: number | null;
+  v?: number | null;
+}
+
+export interface FeaElementPropertyTables {
+  sections?: Record<string, FeaSectionProps | null>;
+  materials?: Record<string, FeaMaterialProps | null>;
+  /** Source element-type code -> its name (Sesam "SCQS", "BEAS", ...). */
+  element_types?: Record<string, string>;
+}
+
 export interface FeaManifestFieldPerType {
   /** Adapy-canonical element type ("quad", "triangle", "tetra10", …). */
   elem_type: string;
@@ -137,6 +168,9 @@ export interface FeaManifestField {
   /** Categorical fields only (a material id, a section id): what each stored
    * numeric value means, keyed by the value's string form. */
   value_labels?: Record<string, string>;
+  /** The values are a difference of two results (adapy ``FEAResultComparison``):
+   *  ``scalar_range`` is centred on zero, and the legend marks the field as a change. */
+  difference?: boolean;
   /** Drives the deformation-scale slider range in the picker:
    * 'static' = [0, 1] (one-directional displacement, signed sweep
    * isn't physical), 'eigen' = [-1, +1] (mode shape has no
@@ -304,6 +338,10 @@ export interface FeaManifest {
      * highlight pipeline. */
     elements_url?: string;
     n_elements?: number;
+    /** Optional AFEP sidecar: per element its type, material, section and shell
+     *  thickness, keyed into the top-level ``element_properties`` tables. Read by
+     *  the Selected Object panel (``feaElementProps.ts``). */
+    element_props_url?: string;
     /** Optional beam-solid mesh: a parallel GLB carrying every
      *  beam (line) element tessellated as an extruded 3D solid
      *  via OCC. Emitted only when the reader has section + axis
@@ -378,7 +416,12 @@ export interface FeaManifest {
     name: string;
     members: string[];
     fe_object_type?: "node" | "element";
+    /** What the members ARE, when the reader knows (adapy ``SetRoles``): "dummy_mass" for
+     *  the beams that hang a nodal mass off the deck. Absent on a deck's own sets. */
+    role?: string;
   }[];
+  /** What the AFEP sidecar's keys mean (see ``mesh.element_props_url``). */
+  element_properties?: FeaElementPropertyTables;
   legacy_glb?: { url_template: string };
   /** Every result case the source offers, stored or combined; not narrowed by a
    *  bake of chosen steps (see ``baked_steps``). */

@@ -14,6 +14,9 @@ from .formats import (
     EDGE_VERSION,
     ELEM_HEADER_BYTES,
     ELEM_MAGIC,
+    ELEM_PROPS_HEADER_BYTES,
+    ELEM_PROPS_MAGIC,
+    ELEM_PROPS_VERSION,
     ELEM_VERSION,
 )
 from .specs import MeshGeometry
@@ -83,7 +86,20 @@ def write_mesh_glb(geom: MeshGeometry, out_path: os.PathLike, *, faces=None) -> 
 # ---------------------------------------------------------------------------
 
 
-def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None) -> int:
+def _without_pairs(unique: np.ndarray, drop) -> np.ndarray:
+    """``unique`` (sorted, deduped ``(n, 2)`` pairs) less the pairs in ``drop``."""
+    if drop is None or len(drop) == 0 or len(unique) == 0:
+        return unique
+    drop = np.sort(np.asarray(drop, dtype=np.uint32).reshape(-1, 2), axis=1)
+
+    def key(pairs: np.ndarray) -> np.ndarray:
+        # One uint64 per pair, so membership is a single isin.
+        return (pairs[:, 0].astype(np.uint64) << np.uint64(32)) | pairs[:, 1].astype(np.uint64)
+
+    return unique[~np.isin(key(unique), key(drop))]
+
+
+def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None, drop=None) -> int:
     """Write the per-element edges as a deduped uint32 pair list.
 
     Edges come from each cell's :class:`ElemShape` directly — they
@@ -99,6 +115,9 @@ def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None) -
 
     ``edges`` may be passed by callers that have already computed the
     topology; otherwise the function recomputes.
+
+    ``drop``: node-index pairs NOT to draw -- line elements whose node-to-node line
+    is not where the element is (see ``try_suppressed_line_edges``).
     """
 
     if edges is None:
@@ -107,7 +126,7 @@ def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None) -
     if edges:
         edge_pairs = np.asarray(edges, dtype=np.uint32).reshape(-1, 2)
         sorted_pairs = np.sort(edge_pairs, axis=1)
-        unique = np.unique(sorted_pairs, axis=0)
+        unique = _without_pairs(np.unique(sorted_pairs, axis=0), drop)
         n_edges = int(unique.shape[0])
         payload = unique.astype(np.uint32).tobytes(order="C")
     else:
@@ -123,7 +142,7 @@ def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None) -
     return n_edges
 
 
-def write_mesh_line_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
+def write_mesh_line_edges(geom: MeshGeometry, out_path: os.PathLike, *, drop=None) -> int:
     """Write the edges belonging to LINE elements, in the same format as
     :func:`write_mesh_edges`.
 
@@ -140,6 +159,9 @@ def write_mesh_line_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
     newer viewer reading an older bake simply finds nothing here and does the same.
     The frontend removes these pairs from the main set before drawing it, so no
     edge is drawn twice.
+
+    ``drop``: as for :func:`write_mesh_edges`, and it has to be the same list, or a
+    pair dropped here comes back in the shell grid.
     """
     # ``cell_blocks`` are meshio-shaped: a canonical type STRING and a connectivity
     # array, not the ElemShape objects the topology walker sees.
@@ -159,7 +181,7 @@ def write_mesh_line_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
 
     if pairs:
         arr = np.asarray(pairs, dtype=np.uint32).reshape(-1, 2)
-        unique = np.unique(np.sort(arr, axis=1), axis=0)
+        unique = _without_pairs(np.unique(np.sort(arr, axis=1), axis=0), drop)
         n_edges = int(unique.shape[0])
         payload = unique.astype(np.uint32).tobytes(order="C")
     else:
@@ -224,3 +246,35 @@ def write_mesh_elements(
             f.write(arr.tobytes(order="C"))
 
     return n_elements
+
+
+# ---------------------------------------------------------------------------
+# Element-property sidecar writer
+# ---------------------------------------------------------------------------
+
+
+def write_element_properties(props: dict, out_path: os.PathLike) -> int:
+    """Write the AFEP sidecar (see ``ELEM_PROPS_MAGIC``) from ``try_element_properties``' arrays.
+
+    ``props``: ``labels``, ``eltypes``, ``materials``, ``sections`` (uint32 each) and
+    ``thickness`` (float32), aligned. Written sorted by label.
+    """
+    labels = np.asarray(props["labels"], dtype=np.int64)
+    if labels.size and (labels.min() < 0 or labels.max() >= 2**32):
+        raise ValueError("AFEP labels must fit in uint32")
+    order = np.argsort(labels, kind="stable")
+    n = int(labels.size)
+    rec = np.zeros(n, dtype=[("l", "<u4"), ("t", "<u4"), ("m", "<u4"), ("s", "<u4"), ("th", "<f4")])
+    rec["l"] = labels[order]
+    rec["t"] = np.asarray(props["eltypes"], dtype=np.uint32)[order]
+    rec["m"] = np.asarray(props["materials"], dtype=np.uint32)[order]
+    rec["s"] = np.asarray(props["sections"], dtype=np.uint32)[order]
+    rec["th"] = np.asarray(props["thickness"], dtype=np.float32)[order]
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "wb") as f:
+        prefix = ELEM_PROPS_MAGIC + struct.pack("<II", ELEM_PROPS_VERSION, n)
+        f.write(prefix + b"\x00" * (ELEM_PROPS_HEADER_BYTES - len(prefix)))
+        f.write(rec.tobytes(order="C"))
+    return n

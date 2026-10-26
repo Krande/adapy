@@ -11,7 +11,6 @@
 // move. Holds no state: the session handle is `feaSession` on the model
 // session, resolved once per load.
 
-import {makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import {prefetchCase, resolveCase, resolveEnvelope} from "@/services/fea/feaCaseResolver";
 import {caseManifestView, isCaseRef} from "@/services/fea/feaStepRef";
 import {
@@ -22,6 +21,7 @@ import {
     slotCount,
     slotRef,
 } from "../fea/caseSteps";
+import {applyDummyMassVisibility} from "../fea/dummyMassVisibility";
 import {isPropertyField} from "../fea/propertyColors";
 import {capabilities} from "@/services/capabilities";
 import {useAnimationStore} from "@/state/animationStore";
@@ -102,11 +102,11 @@ function requestStep(step: number, run: (step: number) => Promise<void>): Promis
  * (component, step) selection. Subsequent calls for the same source
  * + field skip the network and just swap the step. */
 export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<void> {
-    // The mesh, field and sidecar blobs are read by key from the bake's
-    // _derived/ namespace, which only a transport that bakes and serves FEA
-    // manifests can do -- what "REST mode" used to stand in for.
-    if (!capabilities.fea.supports("fetchManifest")) {
-        throw new Error("FEA streaming viewer is only available in REST mode");
+    // The mesh, field and sidecar blobs are read from a bake, which only a
+    // transport that serves FEA manifests and their files can do (REST, or the
+    // websocket after FEAResult.show() registered one).
+    if (!capabilities.fea.supports("fetchManifest") || !capabilities.fea.supports("fieldFetchers")) {
+        throw new Error("This transport cannot serve streamed FEA results");
     }
     const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
     // Who this load paints for, taken NOW rather than when it lands: an owning
@@ -152,12 +152,12 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // The scope the open model came from when this repaints it, the browsing
     // scope for a new source. See feaSourceScope.
     const scope = feaSourceScope(sourceName);
-    // One fetcher + cache key for every storage-layer call below. The
-    // bake-job storage convention (`_derived/<src>.fea/<filename>`)
-    // is encoded in `makeViewerApiFetcher`; downstream helpers stay
-    // storage-agnostic so paradoc-embed can plug in its own fetcher
-    // that hits paradoc-serve's REST endpoint instead.
-    const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(scope, sourceName);
+    // One fetcher + cache key for every storage-layer call below, from the
+    // transport: REST reads the bake-job storage (`_derived/<src>.fea/<filename>`,
+    // `makeViewerApiFetcher`), the websocket reads the bake `FEAResult.show()`
+    // registered with the local server. Downstream helpers stay storage-agnostic,
+    // which is also what lets paradoc-embed plug in its own fetcher.
+    const {fetcher, rangeFetcher, cacheKey} = capabilities.fea.fieldFetchers(scope, sourceName);
 
     // (Re-)load the mesh into the scene if we don't already have it
     // for this source. Switching field-within-source keeps the same
@@ -221,6 +221,11 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         // be rebuilt without re-fetching.
         const edgeIndices = await installElementEdges(mesh, fetcher, manifest);
         if (edgeIndices) active.edgeIndices = edgeIndices;
+
+        // The dummy-mass beams start the way the Scene > FEM toggle says (hidden by
+        // default: they are not structure). The manifest's sets were registered by
+        // openFeaSession above; the beam solids they hide are only now in the scene.
+        applyDummyMassVisibility(null);
     }
 
     stage("loading field data", 0.55);

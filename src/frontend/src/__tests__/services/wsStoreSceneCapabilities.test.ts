@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 // The store- and scene-layer capabilities (files, fea, conversion, catalog,
-// components, metrics) over the websocket transport. None of them has a wire
-// verb yet, so the contract under test is the honest one: `supports()` says
+// components, metrics) over the websocket transport. Apart from fea, none of
+// them has a wire verb yet, so the contract under test is the honest one: `supports()` says
 // no, every verb refuses with the typed `CapabilityUnavailableError`, and the
 // stores that used to call `viewerApi` directly now degrade to their own error
 // state instead of a REST client's network failure.
@@ -28,7 +28,7 @@ async function rejectsUnavailable(p: Promise<unknown>, verb: string): Promise<vo
 
 test("every store/scene capability is selected from the websocket transport", () => {
   assert.equal(capabilities.transport, "ws");
-  for (const domain of ["files", "fea", "conversion", "catalog", "components", "metrics"] as const) {
+  for (const domain of ["files", "fea", "compute", "conversion", "catalog", "components", "metrics"] as const) {
     assert.equal(capabilities[domain].transport, "ws", domain);
   }
 });
@@ -56,10 +56,12 @@ test("files: no verb is supported and each refuses with the typed error", async 
   assert.throws(() => files.blobUrl("user:me", "a.glb"), (e: unknown) => e instanceof CapabilityUnavailableError);
 });
 
-test("fea, conversion, components and metrics refuse the same way", async () => {
-  assert.equal(capabilities.fea.supports("fetchManifest"), false);
-  await rejectsUnavailable(capabilities.fea.fetchManifest("user:me", "a.sif"), "fetchManifest");
+test("fea is the one domain with websocket verbs (see wsFeaCapability.test.ts)", () => {
+  assert.equal(capabilities.fea.supports("fetchManifest"), true);
+  assert.equal(capabilities.fea.supports("fieldFetchers"), true);
+});
 
+test("conversion, components and metrics refuse the same way", async () => {
   assert.equal(capabilities.conversion.supports("jobStatus"), false);
   await rejectsUnavailable(capabilities.conversion.jobStatus("job-1"), "jobStatus");
 

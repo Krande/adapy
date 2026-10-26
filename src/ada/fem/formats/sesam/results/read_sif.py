@@ -13,6 +13,7 @@ from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.eccentricity import element_eccentricities
 from ada.fem.formats.sesam.results.get_version_from_mlg import extract_sestra_version
+from ada.fem.formats.sesam.results.rv_table import _RaggedRows
 
 if TYPE_CHECKING:
     from ada import Material, Section
@@ -22,32 +23,63 @@ if TYPE_CHECKING:
 
 FEM_SEC_NAME = Counter(prefix="FS")
 
-# Short, lossy mapping from Sesam GELMNT1 eltyp codes to their
-# canonical Sesam names. Used purely for the eltype-histogram info
-# log emitted from ``get_sif_mesh`` — gives an unfamiliar SIF an
-# at-a-glance breakdown ("oh, the model is 50% BTSS curved beams,
-# that explains the spiderweb"). Mirror of ``sesam_el_map`` in
-# ``formats/sesam/common.py`` plus the source-software names; kept
-# local so the log doesn't drag a dependency on the writer side.
-_SESAM_ELTYPE_LABELS = {
-    2: "BEAS",
-    11: "BMASS",
-    15: "BEPS",
-    18: "BSPRNGC",
+# Sesam GELMNT1 eltyp codes and their names, as the Input Interface File
+# description (section 5, "ELTYP=n") gives them. For the eltype-histogram info
+# log emitted from ``get_sif_mesh`` -- an unfamiliar SIF's at-a-glance breakdown
+# ("oh, the model is 50% BTSS curved beams, that explains the spiderweb") -- and
+# the element type the viewer's Selected Object panel names.
+SESAM_ELTYPE_LABELS = {
+    2: "BEPS",
+    3: "CSTA",
+    6: "ILST",
+    8: "IQQE",
+    9: "LQUA",
+    10: "TESS",
+    11: "GMAS",
+    12: "GLMA",
+    13: "GLDA",
+    15: "BEAS",
+    16: "AXIS",
+    17: "AXDA",
+    18: "GSPR",
+    19: "GDAM",
+    20: "IHEX",
+    21: "LHEX",
+    22: "SECB",
     23: "BTSS",
     24: "FQUS",
     25: "FTRS",
-    26: "FTRS6",
-    28: "FQUS8",
-    31: "ITET10",
-    40: "GSPRNGC",
+    26: "SCTS",
+    27: "MCTS",
+    28: "SCQS",
+    29: "MCQS",
+    30: "IPRI",
+    31: "ITET",
+    32: "TPRI",
+    33: "TETR",
+    34: "LCTS",
+    35: "LCQS",
+    61: "HCQS",
+    70: "MATR",
 }
+_SESAM_ELTYPE_LABELS = SESAM_ELTYPE_LABELS
 
 STRESS_MAP = {
     1: ("SIGXX", "Normal Stress x-direction"),
     2: ("SIGYY", "Normal Stress y-direction"),
+    3: ("SIGZZ", "Normal Stress z-direction"),
     4: ("TAUXY", "Shear stress in y-direction, yz-plane"),
+    # Transverse shear: the 8-node shells (FTRS6 / FQUS8) store these after the
+    # in-plane components.
+    5: ("TAUXZ", "Shear stress in z-direction, xz-plane"),
+    6: ("TAUYZ", "Shear stress in z-direction, yz-plane"),
 }
+# Shell element types whose RVSTRESS records become STRESS fields: the 4- and
+# 3-node shells (FQUS, FTRS) and their 8- and 6-node counterparts (FQUS8, FTRS6).
+_SHELL_STRESS_TYPES = (24, 25, 26, 28)
+# Gauss points of the 8- and 6-node shells, in [0, 1] element coordinates.
+_G2 = (0.5 - 0.5 / 3**0.5, 0.5 + 0.5 / 3**0.5)
+_TRI3 = ((1 / 6, 1 / 6), (2 / 3, 1 / 6), (1 / 6, 2 / 3))
 FORCE_MAP = {
     1: ("NXX", "Normal force in x-direction, yz-plane"),
     2: ("NXY", "Shear force in y-direction, yz-plane"),
@@ -86,6 +118,12 @@ INT_LOCATIONS = {
         (7, 2, 0.5),
     ],
     15: [(0, 0), (1, 0.5), (2, 1)],
+    # FQUS8: a 2x2 Gauss grid per surface (RDIELCOR ±1/√3), the first in-plane
+    # coordinate running fastest; the lower surface's four points come first, as
+    # its RDPOINTS coordinates show.
+    28: [(i + 4 * k, (_G2[i % 2], _G2[i // 2]), z) for k, z in enumerate((-0.5, 0.5)) for i in range(4)],
+    # FTRS6: the three-point triangle rule per surface, lower surface first.
+    26: [(i + 3 * k, _TRI3[i], z) for k, z in enumerate((-0.5, 0.5)) for i in range(3)],
 }
 OTHER_CARDS = [
     cards.UNITS,
@@ -440,7 +478,9 @@ class SifReader:
         res = self._other.get("GUNIVEC")
         if res is None:
             return None
-        return {x[0]: x[1:] for x in res}
+        # TRANSNO, then the unit vector's three components. A record can carry more words
+        # after them (some superelements of an assembly do), which are not part of the vector.
+        return {x[0]: x[1:4] for x in res}
 
     def get_unit_factors(self) -> tuple[float, float, float] | None:
         """Return the file's length/force/temperature-to-SI factors.
@@ -815,7 +855,7 @@ def read_sif_file(sif_file: str | pathlib.Path, *, step: int | str | None = None
     return fea_results
 
 
-def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
+def read_sin_file(sin_file: str | pathlib.Path, overwrite=False, super_element=None) -> FEAResult:
     """Read a Sesam SIN / SIF result file → :class:`FEAResult`.
 
     Despite the name, this is the Sesam-side post-processor entry
@@ -835,18 +875,26 @@ def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
 
     ``overwrite=True`` (legacy callers) materialises a SIF file next
     to the SIN and routes through :func:`read_sif_file` for back-compat.
+
+    ``super_element``: on a superelement assembly SIN, what to read -- None for the
+    whole assembly, one superelement, or a list of them (see
+    :func:`ada.fem.formats.sesam.results.read_sin.read_sin_file`).
     """
     sin_file = pathlib.Path(sin_file)
     if sin_file.suffix.lower() == ".sif":
+        if super_element is not None:
+            raise ValueError("a SIF text file holds one superelement; super_element applies to a .SIN")
         return read_sif_file(sin_file)
     if overwrite:
         from ada.fem.formats.sesam.results.sin_to_sif import convert_sin_to_sif_file
 
-        sif_path = convert_sin_to_sif_file(sin_file)
+        if isinstance(super_element, (list, set, frozenset)):
+            raise ValueError("overwrite=True writes one superelement to SIF; pass a single super_element")
+        sif_path = convert_sin_to_sif_file(sin_file, super_element=super_element)
         return read_sif_file(sif_path)
     from ada.fem.formats.sesam.results.read_sin import read_sin_file as _native_read_sin
 
-    return _native_read_sin(sin_file)
+    return _native_read_sin(sin_file, super_element=super_element)
 
 
 @dataclass
@@ -969,11 +1017,11 @@ class Sif2Mesh:
             elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
             elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=int)
 
-            # Sesam interleaves corner and mid-side nodes on BTSS (end, end, mid), SCQS
-            # (round the perimeter) and the iso-parametric solids; adapy's shapes, edge
-            # tables and viewers assume corners first. Without this a curved beam draws as
-            # half a segment and an 8-node shell triangulates into slivers. Same table the
-            # input-deck reader uses.
+            # Sesam interleaves corner and mid-side nodes on SCQS (round the perimeter) and
+            # the iso-parametric solids; adapy's shapes, edge tables and viewers assume
+            # corners first. Without this an 8-node shell triangulates into slivers. (BTSS
+            # is written end, mid, end -- adapy's own LINE3 order -- and passes through.)
+            # Same table the input-deck reader uses.
             elem_node_refs = SESAM_ORDER.conn_from_format(general_elem_type, elem_node_refs)
 
             elem_info = ElementInfo(type=general_elem_type, source_software=FEATypes.SESAM, source_type=elem_type)
@@ -1012,6 +1060,8 @@ class Sif2Mesh:
             for label, refs in zip(block.identifiers, block.node_refs):
                 node_counts[int(label)] = int(len(refs))
         eccentricities = element_eccentricities(gelref, self.sif.get_geccen(), node_counts)
+        _resolve_per_node_refs(elem_refs, gelref, node_counts)
+        sets = _with_dummy_mass_set(sets, elem_blocks, nodes, eccentricities)
 
         return Mesh(
             elements=elem_blocks,
@@ -1127,29 +1177,27 @@ class Sif2Mesh:
         # takes that fallback instead of being dropped. The mesh map is built
         # the first time such an element turns up, and only then.
         rdforces_map = self.sif.get_rdforces_map()
-        elem_type_by_id: dict[int, int] | None = None
-
-        def keyfunc(x):
-            nonlocal elem_type_by_id
-            iielno = int(x[ielno_i])
-            rdpoints_res = rdpoints_map.get(iielno)
-            if rdpoints_res is not None:
-                return x[ires_i], int(rdpoints_res[nsp_i]), int(rdpoints_res[eltyp_i]), x[irforc_i]
-            if elem_type_by_id is None:
-                elem_type_by_id = self._element_source_type_map()
-            ncomp = len(rdforces_map.get(int(x[irforc_i]), ())) or 1
-            nsp = (len(x) - (irforc_i + 1)) // ncomp
-            return x[ires_i], nsp, elem_type_by_id.get(iielno, -1), x[irforc_i]
+        table = _RaggedRows.from_any(self.sif.get_result(cards.RVFORCES.name)[0][1], irforc_i + 1, dtype=np.float64)
+        if len(table) <= 1:
+            return []
+        elno = table.heads[:, ielno_i].astype(np.int64)
+        nsp, elem_type, listed = _rdpoints_per_row(elno, rdpoints_map, nsp_i, eltyp_i)
+        unlisted = np.flatnonzero(~listed)
+        if unlisted.size:
+            elem_type_by_id = self._element_source_type_map()
+            elem_type[unlisted] = [elem_type_by_id.get(int(e), -1) for e in elno[unlisted]]
+            ncomp = np.array(
+                [len(rdforces_map.get(int(d), ())) or 1 for d in table.heads[unlisted, irforc_i]], dtype=np.int64
+            )
+            nsp[unlisted] = table.lengths[unlisted] // ncomp
 
         field_results = []
-
-        force_res_name = cards.RVFORCES.name
-        for (ires, nsp, elem_type, irforc), rv_forces in groupby(
-            sorted(self.sif.get_result(force_res_name)[0][1][1:], key=keyfunc), key=keyfunc
+        for ires, group_nsp, group_type, irforc, rows in _element_groups(
+            table.heads[:, ires_i], nsp, elem_type, table.heads[:, irforc_i]
         ):
-            if elem_type not in (15,):
+            if group_type not in (15,):
                 continue
-            field_data = self._get_line_field_data(rv_forces, int(ires), int(irforc), elem_type, nsp)
+            field_data = self._get_line_field_data(table, rows, int(ires), int(irforc), group_type, group_nsp)
             field_results.append(field_data)
 
         return field_results
@@ -1168,12 +1216,13 @@ class Sif2Mesh:
             out.update(dict.fromkeys(ids, int(block.elem_info.source_type)))
         return out
 
-    def _get_line_field_data(self, rv_forces, ires, irforc, elem_type, nsp) -> ElementFieldData:
+    def _get_line_field_data(self, table: _RaggedRows, rows, ires, irforc, elem_type, nsp) -> ElementFieldData:
         from ada.fem.results.common import ElementFieldData
 
         rdforces_map = self.sif.get_rdforces_map()
         force_types = [FORCE_MAP[c][0] for c in rdforces_map[irforc]]
-        data = np.array(list(_iter_line_forces(rv_forces, rdforces_map, nsp)))
+        ielno_i = cards.RVFORCES.get_indices_from_names(["ielno"])
+        data = _per_point_rows(table, rows, ielno_i, nsp, len(rdforces_map[irforc]), "RVFORCES")
         elem_type_ada = sesam_eltype_2_general(elem_type)
         return ElementFieldData(
             "FORCES",
@@ -1191,37 +1240,37 @@ class Sif2Mesh:
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
         rdpoints_map = sif.get_rdpoints_map()
-
-        def keyfunc(x):
-            iielno = x[iielno_i]
-            rdpoints_res = rdpoints_map[iielno]
-            _nsp = int(rdpoints_res[nsp_i])
-            _elem_type = int(rdpoints_res[eltyp_i])
-            return x[ires_i], _nsp, _elem_type, x[irstrs_i]
-
-        field_results = []
+        table = _RaggedRows.from_any(sif.get_result(cards.RVSTRESS.name)[0][1], irstrs_i + 1, dtype=np.float64)
+        if len(table) <= 1:
+            return []
+        elno = table.heads[:, iielno_i].astype(np.int64)
+        nsp, elem_type, listed = _rdpoints_per_row(elno, rdpoints_map, nsp_i, eltyp_i)
 
         # Skip stress records whose element has no RDPOINTS entry — without the
         # result-point definition there is no integration-point field to build.
         # Real models occasionally carry such RVSTRESS rows; dropping them is
         # safer than failing the whole read.
-        rv_rows = [x for x in sif.get_result(cards.RVSTRESS.name)[0][1][1:] if x[iielno_i] in rdpoints_map]
+        keep = np.flatnonzero(listed)
 
-        for (ires, nsp, elem_type, irstrs), rv_stresses in groupby(sorted(rv_rows, key=keyfunc), key=keyfunc):
-            if elem_type not in (25, 24):
+        field_results = []
+        for ires, group_nsp, group_type, irstrs, rows in _element_groups(
+            table.heads[keep, ires_i], nsp[keep], elem_type[keep], table.heads[keep, irstrs_i]
+        ):
+            if group_type not in _SHELL_STRESS_TYPES:
                 continue
 
-            field_data = self._get_shell_field_data(rv_stresses, ires, irstrs, elem_type, nsp)
+            field_data = self._get_shell_field_data(table, keep[rows], ires, irstrs, group_type, group_nsp)
             field_results.append(field_data)
 
         return field_results
 
-    def _get_shell_field_data(self, rv_stresses, ires, irstrs, elem_type: int, nsp) -> ElementFieldData:
+    def _get_shell_field_data(self, table: _RaggedRows, rows, ires, irstrs, elem_type: int, nsp) -> ElementFieldData:
         from ada.fem.results.common import ElementFieldData
 
         rdstress_map = self.sif.get_rdstress_map()
-        stress_types = [STRESS_MAP[c][0] for c in rdstress_map[irstrs]]
-        data = np.array(list(_iter_shell_stress(rv_stresses, rdstress_map, nsp)))
+        stress_types = [STRESS_MAP[c][0] for c in rdstress_map[int(irstrs)]]
+        iielno_i = cards.RVSTRESS.get_indices_from_names(["iielno"])
+        data = _per_point_rows(table, rows, iielno_i, nsp, len(rdstress_map[int(irstrs)]), "RVSTRESS")
         elem_type_ada = sesam_eltype_2_general(elem_type)
         return ElementFieldData(
             "STRESS",
@@ -1285,6 +1334,137 @@ def _nodal_vector_to_model(
     return result
 
 
+#: The set GeniE's dummy-mass beams are gathered into (see :mod:`.dummy_mass`).
+DUMMY_MASS_SET = "Dummy masses"
+
+
+def _with_dummy_mass_set(sets, elem_blocks, nodes, eccentricities):
+    """``sets`` plus an elset with the ``dummy_mass`` role, when the deck has any.
+
+    The deck has no set for them -- GeniE does not write one -- so this is the only
+    thing that tells a viewer those beams are not structure.
+    """
+    from ada.fem import FemSet
+    from ada.fem.formats.sesam.results.dummy_mass import dummy_mass_elements
+    from ada.fem.shapes.definitions import LineShapes
+
+    if not eccentricities:
+        return sets
+    line_types = {LineShapes.LINE, LineShapes.LINE3}
+    elements = [
+        (int(elem_id), block.elem_info.type in line_types, [int(n) for n in refs])
+        for block in elem_blocks
+        for elem_id, refs in zip(block.identifiers, block.node_refs)
+    ]
+    coords = {int(i): np.asarray(c, dtype=float) for i, c in zip(nodes.identifiers, nodes.coords)}
+    members = dummy_mass_elements(elements, coords, eccentricities)
+    if not members:
+        return sets
+    sets = dict(sets or {})
+    name = DUMMY_MASS_SET
+    while name in sets:
+        # Never shadow a set the deck itself names.
+        name = f"{name} (adapy)"
+    sets[name] = FemSet(name, members, set_type=FemSet.TYPES.ELSET, role=FemSet.ROLES.DUMMY_MASS)
+    return sets
+
+
+def _resolve_per_node_refs(elem_refs: np.ndarray, gelref_rows, node_counts: dict[int, int]) -> None:
+    """Replace a ``-1`` geono / transno in ``elem_refs`` (``elno, matno, geono, transno``) by the
+    element's first node's entry, in place.
+
+    ``-1`` is GELREF1's OPT convention for "one per node, in the record's tail" (the
+    tail order -- geono, fixno, eccno, transno, each NNOD long, only those that are
+    ``-1`` -- is described in :mod:`.eccentricity`). Sesam's 3-node beams carry their
+    local axes this way. Kept as ``-1``, the reference matched no GUNIVEC vector (or
+    section), and the beam lost its orientation. One value per element is all a
+    beam section takes; the nodes of a straight beam share it.
+    """
+    if elem_refs is None or len(elem_refs) == 0 or not gelref_rows:
+        return
+    elno_i, geono_i, fixno_i, eccno_i, transno_i = cards.GELREF1.get_indices_from_names(
+        ["elno", "geono", "fixno", "eccno", "transno"]
+    )
+    per_node = elem_refs[:, 2:4] == -1
+    if not per_node.any():
+        return
+    row_of = {int(e): i for i, e in enumerate(elem_refs[:, 0])}
+    for row in gelref_rows:
+        geono, transno = int(row[geono_i]), int(row[transno_i])
+        if geono != -1 and transno != -1:
+            continue
+        elno = int(row[elno_i])
+        nnod, at = node_counts.get(elno), row_of.get(elno)
+        if not nnod or at is None:
+            continue
+        cursor = transno_i + 1
+        for col, opt in ((2, geono), (None, int(row[fixno_i])), (None, int(row[eccno_i])), (3, transno)):
+            if opt != -1:
+                continue
+            if col is not None and cursor < len(row):
+                elem_refs[at, col] = float(row[cursor])
+            cursor += nnod
+
+
+def _rdpoints_per_row(elno: np.ndarray, rdpoints_map: dict, nsp_i: int, eltyp_i: int):
+    """Per row of element ids ``elno``: its RDPOINTS result-point count, element type and
+    whether RDPOINTS lists the element at all (``nsp``/type are -1 where it does not)."""
+    unique, inverse = np.unique(elno, return_inverse=True)
+    nsp = np.full(unique.size, -1, dtype=np.int64)
+    elem_type = np.full(unique.size, -1, dtype=np.int64)
+    listed = np.zeros(unique.size, dtype=bool)
+    for k, el in enumerate(unique.tolist()):
+        record = rdpoints_map.get(el)
+        if record is not None:
+            nsp[k], elem_type[k], listed[k] = int(record[nsp_i]), int(record[eltyp_i]), True
+    return nsp[inverse], elem_type[inverse], listed[inverse]
+
+
+def _element_groups(ires: np.ndarray, nsp: np.ndarray, elem_type: np.ndarray, descriptor: np.ndarray):
+    """``(ires, nsp, element type, descriptor, rows)`` per distinct key, in key order.
+
+    The rows of each group keep their table order: the same groups, in the same order, as
+    ``groupby(sorted(rows, key=key), key=key)`` over a key of those four.
+    """
+    if len(ires) == 0:
+        return
+    order = np.lexsort((descriptor, elem_type, nsp, ires))
+    keys = np.column_stack((ires, nsp, elem_type, descriptor))[order]
+    change = np.flatnonzero(np.any(keys[1:] != keys[:-1], axis=1)) + 1
+    for rows in np.split(order, change):
+        first = rows[0]
+        yield ires[first], int(nsp[first]), int(elem_type[first]), descriptor[first], rows
+
+
+def _per_point_rows(table: _RaggedRows, rows: np.ndarray, elno_i: int, nsp: int, ncomp: int, card: str) -> np.ndarray:
+    """``rows`` of an RVSTRESS / RVFORCES table as one row per result point:
+    ``(element id, point number from 1, *components)``."""
+    width = nsp * ncomp
+    lengths = table.lengths[rows]
+    if np.any(lengths != width):
+        bad = int(rows[int(np.argmax(lengths != width))])
+        raise ValueError(
+            f"{card} element {int(table.heads[bad, elno_i])}: {int(table.lengths[bad])} values, "
+            f"expected {nsp} result points x {ncomp} components"
+        )
+    values = table.take(rows, width).reshape(len(rows) * nsp, ncomp)
+    out = np.empty((len(rows) * nsp, 2 + ncomp), dtype=float)
+    out[:, 0] = np.repeat(table.heads[rows, elno_i].astype(np.int64), nsp)
+    out[:, 1] = np.tile(np.arange(1, nsp + 1), len(rows))
+    out[:, 2:] = values
+    return out
+
+
+def _runs(keys: np.ndarray):
+    """``(key, first, last)`` for each run of equal consecutive ``keys`` -- ``itertools.groupby`` over rows."""
+    keys = np.asarray(keys)
+    if keys.size == 0:
+        return []
+    starts = np.flatnonzero(np.concatenate(([True], keys[1:] != keys[:-1])))
+    ends = np.concatenate((starts[1:], [keys.size]))
+    return [(keys[s], int(s), int(e)) for s, e in zip(starts, ends)]
+
+
 def get_nodal_results(
     res,
     transforms: dict[int, tuple[np.ndarray | None, np.ndarray | None]] | None = None,
@@ -1293,26 +1473,29 @@ def get_nodal_results(
     from ada.fem.results.field_data import NodalFieldType
 
     comps = "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"
-    indices = cards.RVNODDIS.get_indices_from_names(["inod", "itrans|", *comps])
-    nid = indices[0]
-    itrans_i = indices[1]
-    start = indices[2]
-    stop = indices[-1] + 1
+    indices = cards.RVNODDIS.get_indices_from_names(["ires", "inod", "itrans|", *comps])
+    ires_i, nid, itrans_i, start = indices[0], indices[1], indices[2], indices[3]
+    table = _RaggedRows.from_any(res, start, dtype=np.float64)
+    n_rows = table.heads.shape[0]
+    if n_rows == 0:
+        return []
+
+    # Every row's components into one (rows, 6) array. A node only solids touch has 3 dofs, and Sestra writes its
+    # record with 3 components. In a model that also has 6-dof nodes (shells, beams, a coupling's reference node)
+    # the rows would not stack; the rotations it does not have are reported as zero.
+    n_comp = len(comps)
+    lengths = np.minimum(table.lengths, n_comp)
+    row_of = np.repeat(np.arange(n_rows), lengths)
+    within = np.arange(int(lengths.sum()), dtype=np.int64) - np.repeat(np.cumsum(lengths) - lengths, lengths)
+    data = np.zeros((n_rows, 1 + n_comp), dtype=float)
+    data[:, 0] = table.heads[:, nid].astype(np.int64)
+    data[row_of, 1 + within] = table.values[table.offsets[row_of] + within]
+    for row in np.flatnonzero(table.heads[:, itrans_i].astype(np.int64) != 0):
+        data[row, 1:] = _nodal_vector_to_model(data[row, 1:], int(data[row, 0]), transforms)
+
     results = []
-    for ires, data in groupby(res[1:], key=lambda x: x[1]):
-        rows = []
-        for row in data:
-            node_id = int(row[nid])
-            values = np.asarray(row[start:stop], dtype=float)
-            if values.size < len(comps):
-                # A node only solids touch has 3 dofs, and Sestra writes its record with 3 components. In a model
-                # that also has 6-dof nodes (shells, beams, a coupling's reference node) the rows would not stack;
-                # the rotations it does not have are reported as zero.
-                values = np.concatenate([values, np.zeros(len(comps) - values.size)])
-            if int(row[itrans_i]) != 0:
-                values = _nodal_vector_to_model(values, node_id, transforms)
-            rows.append((node_id, *values))
-        field_data = np.asarray(rows, dtype=float)
+    for ires, first, last in _runs(table.heads[:, ires_i]):
+        field_data = data[first:last]
 
         fd = NodalFieldData(
             name=cards.RVNODDIS.name,
@@ -1353,6 +1536,9 @@ def get_nodal_reactions(
     value_i = cards.RVNODREA.get_indices_from_names(["F1|"])
     node_index = {int(node_id): i for i, node_id in enumerate(node_ids)}
     results: list[NodalFieldData] = []
+    if isinstance(res, _RaggedRows):
+        # Reactions are stored for the constrained nodes only: few rows, so the row loop below stays.
+        res = res.to_rows()
 
     for ires, rows in groupby(res[1:], key=lambda x: int(x[ires_i])):
         dense = np.zeros((len(node_ids), 7), dtype=float)
@@ -1421,32 +1607,6 @@ def _get_rdpoints_nox_data(rdpoints_res, nlay_i, nsptra_len):
                 nox_data_clean[curr_int_id] = []
 
     return nox_data_clean
-
-
-def _iter_shell_stress(rv_stresses: Iterator, rdstress_map, nsp) -> Iterator:
-    ires_i, iielno_i, ispalt_i, irstrs_i = cards.RVSTRESS.get_indices_from_names(["ires", "iielno", "ispalt", "irstrs"])
-    for rv_stress in rv_stresses:
-        iielno = int(rv_stress[iielno_i])
-        irstrs = int(rv_stress[irstrs_i])
-        rdstress_res = rdstress_map[irstrs]
-        data = np.array(rv_stress[irstrs_i + 1 :])
-
-        reshaped_data = data.reshape((nsp, len(rdstress_res)))
-
-        for i, data_per_int in enumerate(reshaped_data, start=1):
-            yield iielno, i, *data_per_int
-
-
-def _iter_line_forces(rv_forces: Iterator, rdforces_map, nsp) -> Iterator:
-    ires_i, iielno_i, ispalt_i, irforc_i = cards.RVFORCES.get_indices_from_names(["ires", "ielno", "ispalt", "irforc|"])
-
-    for rv_force in rv_forces:
-        iielno = int(rv_force[iielno_i])
-        irforc = int(rv_force[irforc_i])
-        rdstress_res = rdforces_map[irforc]
-        data = np.array(rv_force[irforc_i + 1 :])
-        for i, data_per_int in enumerate(data.reshape((nsp, len(rdstress_res))), start=1):
-            yield iielno, i, *data_per_int
 
 
 def get_grade(sig_y, tol=1):

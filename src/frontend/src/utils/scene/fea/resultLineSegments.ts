@@ -64,6 +64,7 @@ export function forgetResultLineSegments(mesh: THREE.Mesh): void {
     clearResultLineSegments(mesh);
     delete mesh.userData.__feaLineFull;
     delete mesh.userData.__feaLineIsolation;
+    delete mesh.userData.__feaLineExcluded;
 }
 
 /**
@@ -143,11 +144,12 @@ interface LineData {
     segmentIds: readonly string[];
 }
 
-/** Take the segments belonging to `keep` out of a full set. */
-function subsetOf(data: LineData, keep: ReadonlySet<string>): LineData {
+/** Take the segments belonging to `keep` (all, when null) and not to `drop` out of a full set. */
+function subsetOf(data: LineData, keep: ReadonlySet<string> | null, drop?: ReadonlySet<string>): LineData {
     const picked: number[] = [];
     for (let i = 0; i < data.segmentIds.length; i++) {
-        if (keep.has(data.segmentIds[i])) picked.push(i);
+        const id = data.segmentIds[i];
+        if ((keep === null || keep.has(id)) && !drop?.has(id)) picked.push(i);
     }
     const positions = new Float32Array(picked.length * 6);
     const colors = new Float32Array(picked.length * 6);
@@ -184,11 +186,37 @@ export function setResultLineSegmentsIsolation(
     keep: ReadonlySet<string> | null,
 ): void {
     const full = mesh.userData.__feaLineFull as LineData | undefined;
-    if (!full) return;
     if (keep === null) delete mesh.userData.__feaLineIsolation;
     else mesh.userData.__feaLineIsolation = keep;
-    const data = keep === null ? full : subsetOf(full, keep);
-    installLines(mesh, data);
+    if (!full) return;
+    installLines(mesh, shownOf(mesh, full));
+}
+
+/**
+ * Never draw the beams in `ids` as lines.
+ *
+ * Separate from the isolation, which a group picker owns and replaces wholesale:
+ * these are elements whose node-to-node line is not where the element is (GeniE's
+ * dummy-mass beams run, node to node, from each footprint node to one COG node),
+ * and no isolation should bring that web back. Remembered like the isolation, so
+ * a repaint keeps it.
+ */
+export function setResultLineSegmentsExcluded(mesh: THREE.Mesh, ids: ReadonlySet<string> | null): void {
+    const next = ids === null || ids.size === 0 ? undefined : ids;
+    // Nothing to redo: every load and isolation re-applies this, and a rebuild
+    // disposes and re-creates the lines' GPU buffers for no change.
+    if (mesh.userData.__feaLineExcluded === next) return;
+    if (next === undefined) delete mesh.userData.__feaLineExcluded;
+    else mesh.userData.__feaLineExcluded = next;
+    const full = mesh.userData.__feaLineFull as LineData | undefined;
+    if (full) installLines(mesh, shownOf(mesh, full));
+}
+
+/** What of `full` is drawn: the isolation's members, less the excluded. */
+function shownOf(mesh: THREE.Mesh, full: LineData): LineData {
+    const keep = (mesh.userData.__feaLineIsolation as ReadonlySet<string> | undefined) ?? null;
+    const drop = mesh.userData.__feaLineExcluded as ReadonlySet<string> | undefined;
+    return keep === null && !drop ? full : subsetOf(full, keep, drop);
 }
 
 /** Install a result-coloured rendering of the line elements.
@@ -202,16 +230,11 @@ export function installResultLineSegments(
     displacement: Float32Array,
     segmentIds: readonly string[] = [],
 ): void {
-    mesh.userData.__feaLineFull = {positions, colors, displacement, segmentIds};
+    const full = {positions, colors, displacement, segmentIds};
+    mesh.userData.__feaLineFull = full;
     // A repaint rebuilds these from scratch, so an isolation set before it would
     // otherwise be lost — the beams would come back while the plates stayed hidden.
-    const keep = mesh.userData.__feaLineIsolation as ReadonlySet<string> | undefined;
-    installLines(
-        mesh,
-        keep
-            ? subsetOf({positions, colors, displacement, segmentIds}, keep)
-            : {positions, colors, displacement, segmentIds},
-    );
+    installLines(mesh, shownOf(mesh, full));
 }
 
 function installLines(mesh: THREE.Mesh, data: LineData): void {

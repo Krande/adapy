@@ -20,6 +20,7 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {syncFeaOverlayVisibility} from "@/utils/scene/handlers/load_fea_streaming";
 
+import {applyDummyMassVisibility} from "./dummyMassVisibility";
 import {visibleEdgeIndex} from "./feaEdgeFilter";
 import {complementRanges} from "./feaSets";
 import {setResultLineSegmentsIsolation} from "./resultLineSegments";
@@ -158,6 +159,9 @@ export function applyFeaGroupVisibility(memberIds: Iterable<string>, wireframeRe
         if (filtered) overlay.geometry.setIndex(new THREE.BufferAttribute(filtered, 1));
     }
 
+    // Unhiding everything above brought the dummy-mass beams back with it.
+    applyDummyMassVisibility(isolating ? keep : null);
+
     // Whether a beam's grey edge is drawn at all belongs to the rule that also decides
     // between the section solid and the coloured line. Forcing it visible here
     // re-created the double-drawn beam every time you isolated something.
@@ -172,6 +176,8 @@ export function clearFeaGroupVisibility(): void {
         setResultLineSegmentsIsolation(m, null);
     }
     for (const o of edgeOverlays()) restoreEdges(o);
+    // "Everything" still leaves out what the dummy-mass toggle hides.
+    applyDummyMassVisibility(null);
     syncFeaOverlayVisibility();
     requestRender();
 }

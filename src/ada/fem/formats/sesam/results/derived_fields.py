@@ -44,14 +44,20 @@ from ada.fem.results.field_data import (
     NodalFieldData,
     NodalFieldType,
 )
+from ada.fem.shapes.definitions import ShellShapes
 
 _SHELL_CORNER_INDICES = {
     # Surface/result-point order is node0, node1, centre, node3, node2
     # for FQUS. The reference postprocessor's Elements slots follow connectivity order.
-    10: (0, 1, 4, 3),
+    ShellShapes.QUAD: (10, (0, 1, 4, 3)),
     # FTRS: node0, node1, centre, node2.
-    8: (0, 1, 3),
+    ShellShapes.TRI: (8, (0, 1, 3)),
 }
+# Shells whose result points are Gauss points, none at a node (FQUS8: 2x2 per
+# surface, FTRS6: 3 per surface). Their derived stresses are built at those
+# points only: the Elements, element-average and Nodes positions would need an
+# extrapolation to the nodes that has not been checked against the reference.
+_GAUSS_POINT_SHELLS = (ShellShapes.QUAD8, ShellShapes.TRI6)
 
 
 def _field_position(position: str, *, line: bool = False) -> FieldPosition:
@@ -161,7 +167,10 @@ def build_nodal_kinematics(
             out.append(
                 _nodal_field(
                     field.step,
-                    node_ids,
+                    # The field's own node ids, not the mesh's: Sestra writes no RVNODDIS
+                    # record for a node without dofs (e.g. one no element references), so
+                    # the rows can be fewer than the mesh nodes.
+                    field.values[:, 0].astype(int),
                     "nodes",
                     "DISPLACEMENT",
                     ("ALL", "X", "Y", "Z", "RX", "RY", "RZ"),
@@ -188,8 +197,32 @@ def _element_maps(mesh):
     nodes_by_element: dict[int, np.ndarray] = {}
     normal_by_element: dict[int, np.ndarray] = {}
     source_type_by_element: dict[int, int] = {}
-    node_coord = {int(n): np.asarray(p, dtype=float) for n, p in zip(mesh.nodes.identifiers, mesh.nodes.coords)}
+    node_ids = np.asarray(mesh.nodes.identifiers, dtype=np.int64)
+    order = np.argsort(node_ids, kind="stable")
+    coords = np.asarray(mesh.nodes.coords, dtype=float)
+    node_coord = None
     for block in mesh.elements:
+        refs_2d = block.node_refs if isinstance(block.node_refs, np.ndarray) and block.node_refs.ndim == 2 else None
+        if refs_2d is not None and refs_2d.dtype != object:
+            # One block at a time: a Python cross product per element was most of this.
+            labels = np.asarray(block.identifiers, dtype=np.int64).tolist()
+            refs_int = refs_2d.astype(int)
+            source_type = int(block.elem_info.source_type)
+            nodes_by_element.update(zip(labels, refs_int))
+            source_type_by_element.update(dict.fromkeys(labels, source_type))
+            if refs_int.shape[1] >= 3:
+                pos = np.searchsorted(node_ids, refs_int[:, :3], sorter=order)
+                p = coords[order[np.clip(pos, 0, len(order) - 1)]]
+                if not np.array_equal(node_ids[order[np.clip(pos, 0, len(order) - 1)]], refs_int[:, :3]):
+                    raise KeyError("element refers to a node the mesh does not have")
+                normal = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+                norm = np.linalg.norm(normal, axis=1)
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    unit = np.where(norm[:, None] > 0, normal / norm[:, None], np.nan)
+                normal_by_element.update(zip(labels, unit))
+            continue
+        if node_coord is None:
+            node_coord = {int(n): np.asarray(p, dtype=float) for n, p in zip(node_ids, coords)}
         for label, refs in zip(block.identifiers, block.node_refs):
             label_i = int(label)
             refs_arr = np.asarray(refs, dtype=int)
@@ -217,8 +250,18 @@ def _shell_surfaces(raw: ElementFieldData):
     if not len(labels) or len(set(counts.tolist())) != 1:
         raise ValueError("raw shell field has ragged result-point counts")
     n_ips = int(counts[0])
-    corner_indices = _SHELL_CORNER_INDICES.get(n_ips)
-    if corner_indices is None or n_ips % 2:
+    if n_ips % 2 or list(raw.components or [])[:3] != ["SIGXX", "SIGYY", "TAUXY"]:
+        return None
+    # By element shape, not by point count: an 8-node quad has 8 result points,
+    # as many as the 3-node triangle, and they are not at its corners.
+    expected = _SHELL_CORNER_INDICES.get(raw.elem_type)
+    if expected is not None:
+        if n_ips != expected[0]:
+            return None
+        corner_indices = np.asarray(expected[1], dtype=int)
+    elif raw.elem_type in _GAUSS_POINT_SHELLS:
+        corner_indices = None
+    else:
         return None
     per_element = values.reshape(len(labels), n_ips, -1)
     # Preserve reader order and guard against np.unique sorting a different one.
@@ -243,13 +286,15 @@ def _shell_surfaces(raw: ElementFieldData):
         in_plane.append(location)
     if len(in_plane) != n_surface:
         in_plane = list(range(n_surface))
-    return labels, bottom, top, np.asarray(corner_indices, dtype=int), in_plane
+    return labels, bottom, top, corner_indices, in_plane
 
 
 def _shell_position_arrays(bottom, top, corner_indices):
     d_result = decompose_shell(bottom, top)
-    arrays = {
-        "resultpoints": (bottom, top, d_result),
+    arrays = {"resultpoints": (bottom, top, d_result)}
+    if corner_indices is None:
+        return arrays
+    arrays |= {
         "elements": (
             bottom[:, corner_indices, :],
             top[:, corner_indices, :],
@@ -431,7 +476,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted, cache: dict | N
     # Keep paired basic stresses for the Nodes calculation. Values map
     # to connectivity order because corner_indices is the reference postprocessor's element-slot
     # order, not the raw RDPOINTS order.
-    if any(
+    if corner_indices is not None and any(
         _wants(wanted, "nodes", attribute)
         for attribute in ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
     ):
@@ -484,6 +529,10 @@ class _ShellNodalContributions:
 
     def __init__(self) -> None:
         self._chunks: list[tuple] = []
+
+    @property
+    def has_contributions(self) -> bool:
+        return bool(self._chunks)
 
     def add(self, refs, bottom, top, thickness, normals) -> None:
         """``refs`` ``(n, c)`` corner node ids; ``bottom`` / ``top`` ``(n, c, 3)``;
@@ -828,7 +877,9 @@ def build_derived_fields(
         contrib = _ShellNodalContributions()
         for raw in shell_fields:
             out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib, wanted, cache))
-        if any(_wants(wanted, "nodes", attribute) for attribute in shell_attributes):
+        # Only the 4- and 3-node shells feed the nodal average (see _GAUSS_POINT_SHELLS):
+        # a deck of 8-node shells alone gets no Nodes fields rather than all-blank ones.
+        if contrib.has_contributions and any(_wants(wanted, "nodes", attribute) for attribute in shell_attributes):
             out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted, sif.get_unit_factors()))
     for force_fields in force_by_step.values():
         if wanted is not None and not any(

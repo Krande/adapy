@@ -166,7 +166,7 @@ _FEA_ARTEFACT_SUFFIX = ".fea/"
 # labels, ...) instead of serving its old artefacts forever. A pinned copy of
 # ``ada.fem.results.artefacts.FEA_BAKE_VERSION`` — the slim API container
 # cannot import ada.fem — kept equal by a test.
-EXPECTED_FEA_BAKE_VERSION = 4
+EXPECTED_FEA_BAKE_VERSION = 5
 
 
 def fea_manifest_stale_reason(

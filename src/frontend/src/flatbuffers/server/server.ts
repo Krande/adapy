@@ -5,6 +5,11 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { FileObject, FileObjectT } from '../base/file-object.js';
+import { FeaBlobRequest, FeaBlobRequestT } from '../server/fea-blob-request.js';
+import { FeaManifestRequest, FeaManifestRequestT } from '../server/fea-manifest-request.js';
+import { FeaSourceInfo, FeaSourceInfoT } from '../server/fea-source-info.js';
+import { FeaSourceRegister, FeaSourceRegisterT } from '../server/fea-source-register.js';
+import { KernelCall, KernelCallT } from '../server/kernel-call.js';
 import { ProceduralModelLoad, ProceduralModelLoadT } from '../server/procedural-model-load.js';
 import { ProceduralModelSave, ProceduralModelSaveT } from '../server/procedural-model-save.js';
 
@@ -76,8 +81,33 @@ loadProceduralModel(obj?:ProceduralModelLoad):ProceduralModelLoad|null {
   return offset ? (obj || new ProceduralModelLoad()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+registerFeaSource(obj?:FeaSourceRegister):FeaSourceRegister|null {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? (obj || new FeaSourceRegister()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+openFeaSource(obj?:FeaSourceInfo):FeaSourceInfo|null {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? (obj || new FeaSourceInfo()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+feaManifestRequest(obj?:FeaManifestRequest):FeaManifestRequest|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? (obj || new FeaManifestRequest()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+feaBlobRequest(obj?:FeaBlobRequest):FeaBlobRequest|null {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? (obj || new FeaBlobRequest()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+kernelCall(obj?:KernelCall):KernelCall|null {
+  const offset = this.bb!.__offset(this.bb_pos, 28);
+  return offset ? (obj || new KernelCall()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startServer(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(13);
 }
 
 static addNewFileObject(builder:flatbuffers.Builder, newFileObjectOffset:flatbuffers.Offset) {
@@ -124,6 +154,26 @@ static addLoadProceduralModel(builder:flatbuffers.Builder, loadProceduralModelOf
   builder.addFieldOffset(7, loadProceduralModelOffset, 0);
 }
 
+static addRegisterFeaSource(builder:flatbuffers.Builder, registerFeaSourceOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(8, registerFeaSourceOffset, 0);
+}
+
+static addOpenFeaSource(builder:flatbuffers.Builder, openFeaSourceOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(9, openFeaSourceOffset, 0);
+}
+
+static addFeaManifestRequest(builder:flatbuffers.Builder, feaManifestRequestOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, feaManifestRequestOffset, 0);
+}
+
+static addFeaBlobRequest(builder:flatbuffers.Builder, feaBlobRequestOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(11, feaBlobRequestOffset, 0);
+}
+
+static addKernelCall(builder:flatbuffers.Builder, kernelCallOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(12, kernelCallOffset, 0);
+}
+
 static endServer(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -139,7 +189,12 @@ unpack(): ServerT {
     (this.deleteFileObject() !== null ? this.deleteFileObject()!.unpack() : null),
     (this.startFileInLocalApp() !== null ? this.startFileInLocalApp()!.unpack() : null),
     (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null),
-    (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null)
+    (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null),
+    (this.registerFeaSource() !== null ? this.registerFeaSource()!.unpack() : null),
+    (this.openFeaSource() !== null ? this.openFeaSource()!.unpack() : null),
+    (this.feaManifestRequest() !== null ? this.feaManifestRequest()!.unpack() : null),
+    (this.feaBlobRequest() !== null ? this.feaBlobRequest()!.unpack() : null),
+    (this.kernelCall() !== null ? this.kernelCall()!.unpack() : null)
   );
 }
 
@@ -153,6 +208,11 @@ unpackTo(_o: ServerT): void {
   _o.startFileInLocalApp = (this.startFileInLocalApp() !== null ? this.startFileInLocalApp()!.unpack() : null);
   _o.saveProceduralModel = (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null);
   _o.loadProceduralModel = (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null);
+  _o.registerFeaSource = (this.registerFeaSource() !== null ? this.registerFeaSource()!.unpack() : null);
+  _o.openFeaSource = (this.openFeaSource() !== null ? this.openFeaSource()!.unpack() : null);
+  _o.feaManifestRequest = (this.feaManifestRequest() !== null ? this.feaManifestRequest()!.unpack() : null);
+  _o.feaBlobRequest = (this.feaBlobRequest() !== null ? this.feaBlobRequest()!.unpack() : null);
+  _o.kernelCall = (this.kernelCall() !== null ? this.kernelCall()!.unpack() : null);
 }
 }
 
@@ -165,7 +225,12 @@ constructor(
   public deleteFileObject: FileObjectT|null = null,
   public startFileInLocalApp: FileObjectT|null = null,
   public saveProceduralModel: ProceduralModelSaveT|null = null,
-  public loadProceduralModel: ProceduralModelLoadT|null = null
+  public loadProceduralModel: ProceduralModelLoadT|null = null,
+  public registerFeaSource: FeaSourceRegisterT|null = null,
+  public openFeaSource: FeaSourceInfoT|null = null,
+  public feaManifestRequest: FeaManifestRequestT|null = null,
+  public feaBlobRequest: FeaBlobRequestT|null = null,
+  public kernelCall: KernelCallT|null = null
 ){}
 
 
@@ -178,6 +243,11 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const startFileInLocalApp = (this.startFileInLocalApp !== null ? this.startFileInLocalApp!.pack(builder) : 0);
   const saveProceduralModel = (this.saveProceduralModel !== null ? this.saveProceduralModel!.pack(builder) : 0);
   const loadProceduralModel = (this.loadProceduralModel !== null ? this.loadProceduralModel!.pack(builder) : 0);
+  const registerFeaSource = (this.registerFeaSource !== null ? this.registerFeaSource!.pack(builder) : 0);
+  const openFeaSource = (this.openFeaSource !== null ? this.openFeaSource!.pack(builder) : 0);
+  const feaManifestRequest = (this.feaManifestRequest !== null ? this.feaManifestRequest!.pack(builder) : 0);
+  const feaBlobRequest = (this.feaBlobRequest !== null ? this.feaBlobRequest!.pack(builder) : 0);
+  const kernelCall = (this.kernelCall !== null ? this.kernelCall!.pack(builder) : 0);
 
   Server.startServer(builder);
   Server.addNewFileObject(builder, newFileObject);
@@ -188,6 +258,11 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Server.addStartFileInLocalApp(builder, startFileInLocalApp);
   Server.addSaveProceduralModel(builder, saveProceduralModel);
   Server.addLoadProceduralModel(builder, loadProceduralModel);
+  Server.addRegisterFeaSource(builder, registerFeaSource);
+  Server.addOpenFeaSource(builder, openFeaSource);
+  Server.addFeaManifestRequest(builder, feaManifestRequest);
+  Server.addFeaBlobRequest(builder, feaBlobRequest);
+  Server.addKernelCall(builder, kernelCall);
 
   return Server.endServer(builder);
 }

@@ -30,6 +30,8 @@ from ada.fem.results.field_data import (
 THICKNESS_FIELD = "props.thickness"
 MATERIAL_FIELD = "props.material"
 SECTION_FIELD = "props.section"
+#: Which superelement each element of an assembly belongs to (see ``.assembly``).
+SUPER_ELEMENT_FIELD = "props.super_element"
 
 PROPERTY_FIELD_NAMES = (THICKNESS_FIELD, MATERIAL_FIELD, SECTION_FIELD)
 
@@ -168,12 +170,29 @@ def build_property_fields(mesh, sif, *, wanted: set[str] | None = None, step: in
     return out
 
 
+def super_element_field(step: int, elem_type, labels: np.ndarray, codes: np.ndarray, value_labels) -> ElementFieldData:
+    """The superelement each element of ``labels`` belongs to: ``codes`` per element, and
+    ``value_labels`` naming each code (``SEL12.IND1``) for the legend."""
+    return _field(
+        step,
+        SUPER_ELEMENT_FIELD,
+        "SUPERELEMENT",
+        elem_type,
+        labels,
+        np.asarray(codes, dtype=float),
+        group_label="SUPERELEMENT",
+        value_labels=tuple(value_labels),
+    )
+
+
 __all__ = [
     "build_property_fields",
+    "super_element_field",
     "PROPERTY_FIELD_NAMES",
     "THICKNESS_FIELD",
     "MATERIAL_FIELD",
     "SECTION_FIELD",
+    "SUPER_ELEMENT_FIELD",
 ]
 
 
