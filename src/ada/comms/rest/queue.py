@@ -259,6 +259,8 @@ class JobQueue:
         # Live copies of the buckets, keyed by bucket name. Only the API starts
         # them (see ``start_mirrors``); without one, bucket-wide reads scan.
         self._mirrors: dict[str, KvMirror] = {}
+        # id(bucket handle) -> monotonic time of this process's last write.
+        self._last_write: dict[int, float] = {}
 
     # --- lifecycle ---------------------------------------------------
 
@@ -642,11 +644,35 @@ class JobQueue:
                 return mirror
         return None
 
+    #: After this process writes to a bucket, bucket-wide reads within this
+    #: window first wait for the mirror to catch up (see ``_bucket_items``).
+    READ_YOUR_WRITES_S = 10.0
+    #: Longest such a read waits before answering from the mirror as it is.
+    READ_YOUR_WRITES_WAIT_S = 2.0
+
+    def _wrote(self, bucket) -> None:
+        """Record that this process just wrote to ``bucket``."""
+        self._last_write[id(bucket)] = time.monotonic()
+
     async def _bucket_items(self, bucket, prefix: str = "") -> list[tuple[str, bytes]]:
         """``(key, value)`` for every live key in ``bucket`` starting with
-        ``prefix``: from the mirror when one is ready, otherwise by scanning."""
+        ``prefix``: from the mirror when one is ready, otherwise by scanning.
+
+        Read-your-writes: the server acknowledges a write before the mirror's
+        watcher delivers it, so a read straight after this process wrote (a
+        prune followed by the listing, say) waits for the mirror to reach the
+        stream's last sequence. One stream-info request, no consumer, and only
+        within ``READ_YOUR_WRITES_S`` of a local write.
+        """
         mirror = self._mirror_for(bucket)
         if mirror is not None:
+            wrote = self._last_write.get(id(bucket))
+            if wrote is not None and time.monotonic() - wrote < self.READ_YOUR_WRITES_S and self._js is not None:
+                try:
+                    info = await self._js.stream_info(f"KV_{mirror.name}")
+                    await mirror.catch_up(info.state.last_seq, self.READ_YOUR_WRITES_WAIT_S)
+                except Exception:
+                    logger.debug("queue: could not sync KV mirror %s before a read", mirror.name, exc_info=True)
             return list(mirror.items(prefix))
         out: list[tuple[str, bytes]] = []
         for key in await _scan_keys(bucket):
@@ -917,6 +943,7 @@ class JobQueue:
         return job
 
     async def _put(self, job: Job) -> None:
+        self._wrote(self._kv)
         await self._kv.put(job.job_id, job.to_json())
 
     # Terminal statuses whose KV entry is disposable once the client has had a
@@ -942,6 +969,7 @@ class JobQueue:
         if self._kv is None:
             return False
         try:
+            self._wrote(self._kv)
             await self._kv.purge(job_id)
             return True
         except KeyNotFoundError:
@@ -972,6 +1000,7 @@ class JobQueue:
                 continue
             if job.status in self._TERMINAL_STATUSES and (job.updated_at or 0.0) < cutoff:
                 try:
+                    self._wrote(self._kv)
                     await self._kv.purge(key)
                     purged += 1
                 except Exception:
@@ -992,6 +1021,7 @@ class JobQueue:
     async def set_meta(self, key: str, value: str) -> None:
         if self._kv is None:
             return
+        self._wrote(self._kv)
         await self._kv.put(f"{self._META_KEY_PREFIX}{key}", value.encode("utf-8"))
 
     async def get_meta(self, key: str) -> str | None:
@@ -1037,6 +1067,7 @@ class JobQueue:
         payload = dict(state)
         payload["scope"] = scope_label
         key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{self._slugify_scope(scope_label)}"
+        self._wrote(self._kv)
         await self._kv.put(key, json.dumps(payload).encode("utf-8"))
 
     async def get_compress_sweep_state(self, scope_label: str) -> dict | None:
@@ -1108,6 +1139,7 @@ class JobQueue:
         if bucket is None:
             return
         key = f"{self._WORKER_KEY_PREFIX}{worker_id}"
+        self._wrote(bucket)
         await bucket.put(key, json.dumps(info).encode("utf-8"))
 
     async def unregister_worker(self, worker_id: str) -> None:
@@ -1118,6 +1150,7 @@ class JobQueue:
         bucket = self._registry_bucket_handle
         if bucket is not None:
             try:
+                self._wrote(bucket)
                 await bucket.delete(key)
             except KeyNotFoundError:
                 pass
@@ -1129,6 +1162,7 @@ class JobQueue:
         # registry rows at all, and that is not a shutdown failure.
         if self.registry_is_separate and self._kv is not None:
             try:
+                self._wrote(self._kv)
                 await self._kv.delete(key)
             except Exception:
                 pass

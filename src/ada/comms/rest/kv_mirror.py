@@ -80,7 +80,8 @@ class KvMirror:
         self._tombstones: dict[str, Tombstone] = {}
         self._ready = asyncio.Event()
         self._task: asyncio.Task | None = None
-        self._watcher = None
+        #: Highest stream sequence the mirror has been handed, applied or not.
+        self.last_revision = 0
 
     @property
     def ready(self) -> bool:
@@ -141,8 +142,23 @@ class KvMirror:
 
     # --- the watcher -----------------------------------------------------
 
+    async def catch_up(self, sequence: int, timeout: float) -> bool:
+        """Wait until the mirror has seen stream ``sequence``. False on timeout.
+
+        A write is acknowledged by the server before the mirror's watcher
+        delivers it, so a read straight after a write could miss it. Waiting
+        for the stream's last sequence closes that window.
+        """
+        deadline = time.monotonic() + timeout
+        while self.last_revision < sequence:
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.01)
+        return True
+
     def apply(self, key: str, value: bytes | None, revision: int, operation: str | None, created) -> None:
         """Fold one KV update into the mirror. Public so tests can drive it."""
+        self.last_revision = max(self.last_revision, revision)
         current = self._entries.get(key) or self._tombstones.get(key)
         if current is not None and current.revision >= revision:
             return  # a redelivery, or an update older than what we hold

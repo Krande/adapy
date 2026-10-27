@@ -246,6 +246,55 @@ async def test_completed_jobs_are_found_from_the_mirror():
     await q.close()
 
 
+class LaggingKV(WatchableKV):
+    """Writes are acknowledged before the watcher delivers them, as on a
+    real server: the update reaches the mirror a little later."""
+
+    async def put(self, key, value):
+        self._rev += 1
+        rev = self._rev
+        asyncio.get_running_loop().call_later(0.05, lambda: [w.push(Update(key, value, rev)) for w in self.watchers])
+        return rev
+
+
+class StreamInfoJS:
+    def __init__(self, kv):
+        self.kv = kv
+
+    async def stream_info(self, name):
+        return type("Info", (), {"state": type("State", (), {"last_seq": self.kv._rev})()})()
+
+
+@pytest.mark.asyncio
+async def test_a_list_straight_after_a_local_write_sees_the_write():
+    """The server acks a write before the mirror's watcher delivers it. A read
+    right after this process wrote must wait for the mirror, not miss it."""
+    q = JobQueue(QueueConfig(url=None, stream="s", subject="subj", kv_bucket="jobs", durable="d"))
+    kv = LaggingKV({})
+    q._kv = kv
+    q._js = StreamInfoJS(kv)
+    await q.start_mirrors()
+
+    await q.register_worker("w1", {"last_heartbeat": time.time(), "capabilities": ["base"]})
+    assert [w["worker_id"] for w in await q.list_workers()] == ["w1"]
+    await q.close()
+
+
+@pytest.mark.asyncio
+async def test_reads_without_a_recent_local_write_do_not_touch_the_server():
+    key, row = _worker_row("w1")
+    q, kv = _queue({key: row})
+
+    class NoStreamInfo:
+        async def stream_info(self, name):
+            raise AssertionError("no local write, so no sync needed")
+
+    q._js = NoStreamInfo()
+    await q.start_mirrors()
+    assert len(await q.list_workers()) == 1
+    await q.close()
+
+
 @pytest.mark.asyncio
 async def test_without_a_mirror_reads_still_work_by_scanning():
     """Workers never start a mirror. Their reads must behave as before."""
