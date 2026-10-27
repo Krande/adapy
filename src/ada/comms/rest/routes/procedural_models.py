@@ -984,7 +984,8 @@ async def api_procedural_stats_export(
     ``?key=``."""
     import json as _json
 
-    from ada.topo_model.takeoff import takeoff_to_csv, takeoff_to_xlsx_bytes
+    # ada.core.takeoff_tables, not ada.topo_model.takeoff: the slim image ships the former only.
+    from ada.core.takeoff_tables import takeoff_to_csv, takeoff_to_xlsx_bytes
 
     from ..procedural import PROCEDURAL_PREFIX, procedural_stats_key
 

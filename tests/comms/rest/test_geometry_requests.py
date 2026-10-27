@@ -1,4 +1,4 @@
-﻿"""Missing geometry found before an export (the preflight) and requested from the geometry provider
+"""Missing geometry found before an export (the preflight) and requested from the geometry provider
 before the export writes its files (``routes/geometry_requests.py`` and the export driver in
 ``routes/asset_exports.py``).
 
