@@ -2,20 +2,27 @@
 // node requests for the box's collections, mesh providers included), which one is the default (the
 // last explicit pick while it qualifies, else the members' own provider, else the first in the
 // Sources order), what a geometry plan of the box's members says, and the request made from exactly
-// the plan's unmatched members.
+// the plan's unmatched members. And the published-bounds path: the scene box moved into the model
+// frame, one bounds set per collection, the hits as whole-node members.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { WireGeometryPlan } from "@/services/api/clashCheck";
+import type { BoundsHit, BoundsSet } from "@/services/api/nodeBounds";
 import type { AssetNodeRequest } from "@/services/assetScopeCollections";
 import {
+  boundsMembers,
+  boundsMode,
   boxPlanTarget,
   boxRequestChoices,
   boxRequestSentence,
   defaultBoxProvider,
   memberProviders,
   noChoiceReason,
+  pickBoundsSets,
+  presentMembers,
+  sceneBoxToSource,
   summariseBoxPlan,
 } from "@/utils/bboxSelection/boxRequest";
 import type { DeclaredProvider } from "@/utils/export/missingGeometry";
@@ -107,15 +114,89 @@ const plan: WireGeometryPlan = {
 test("a plan's summary: what is missing, what the source already has, and what is in a file", () => {
   const s = summariseBoxPlan(plan);
   assert.deepEqual(s, { provider: SOLID, missing: 2, present: 2, files: 1 });
+  const drawn = (elements: number, why: string | null = null) => ({ kind: "drawn" as const, elements, why });
   assert.equal(
-    boxRequestSentence(s, "Solid A", 12),
-    "12 elements in the box (5 members); 2 already at Solid A, 1 from a file, which cannot be requested. Request 2 members from Solid A?",
+    boxRequestSentence(s, "Solid A", drawn(12)),
+    "12 drawn elements in the box (5 members); 2 already at Solid A, 1 from a file, which cannot be requested. Request 2 members from Solid A?",
   );
   assert.equal(
-    boxRequestSentence({ provider: SOLID, missing: 0, present: 1, files: 0 }, "Solid A", 1),
-    "1 element in the box (1 member); 1 already at Solid A. Nothing to request.",
+    boxRequestSentence({ provider: SOLID, missing: 0, present: 1, files: 0 }, "Solid A", drawn(1, "no source published node bounds for aaa")),
+    "1 drawn element in the box (1 member) -- no source published node bounds for aaa, so only what is drawn was looked at; 1 already at Solid A. Nothing to request.",
+  );
+  assert.equal(
+    boxRequestSentence(
+      { provider: SOLID, missing: 3, present: 4, files: 0 },
+      "Solid A",
+      { kind: "bounds", providers: [MESH], truncated: null },
+    ),
+    `7 nodes in the box (by ${MESH}'s published bounds, loaded or not); 4 already at Solid A. Request 3 members from Solid A?`,
   );
   assert.deepEqual(boxPlanTarget("Selection box 1", [PIPE]), { kind: "group", name: "Selection box 1", members: [PIPE] });
+});
+
+test("what the source already has: matched members as re-addressed, its own nodes, never a file", () => {
+  assert.deepEqual(presentMembers(plan), [member("BEAM-2", "aaa", SOLID), OWN]);
+});
+
+// --- the published bounds ---------------------------------------------------------------------------
+
+const set = (provider: string, collection = "aaa", scope = "shared"): BoundsSet => ({
+  scope,
+  provider,
+  collection,
+  revision: "r1",
+  rows: 10,
+  frame: { up: "z" },
+  ingested_at: null,
+});
+const hit = (node: string, provider = MESH, collection = "aaa", subject: string | null = "site-1"): BoundsHit => ({
+  scope: "shared",
+  provider,
+  collection,
+  node_id: node,
+  parent_id: null,
+  subject: subject as string,
+  label: node.toUpperCase(),
+  full_name: `/${node}`,
+  kind: "zone",
+  depth: 2,
+  bbox: [0, 0, 0, 1, 1, 1],
+});
+
+test("the scene box moves into the model frame by the scene's offset", () => {
+  assert.deepEqual(sceneBoxToSource({ min: [1, 2, 3], max: [4, 5, 6] }, [-100, 10, 0.5]), {
+    min: [101, -8, 2.5],
+    max: [104, -5, 5.5],
+  });
+  assert.deepEqual(sceneBoxToSource({ min: [1, 2, 3], max: [4, 5, 6] }, null), { min: [1, 2, 3], max: [4, 5, 6] });
+  assert.equal(boundsMode("full"), "within");
+  assert.equal(boundsMode("partial"), "partial");
+});
+
+test("one bounds set per collection: the scene's provider first, else the first by id", () => {
+  const sets = [set(SOLID_B), set(MESH), set(SOLID, "bbb")];
+  const picked = pickBoundsSets(sets, [SOLID_B]);
+  assert.equal(picked.get("aaa")?.provider, SOLID_B);
+  assert.equal(picked.get("bbb")?.provider, SOLID);
+  assert.equal(pickBoundsSets(sets, []).get("aaa")?.provider, MESH);
+});
+
+test("hits become whole-node members through their subject; another set's hits and repeats are dropped", () => {
+  const picked = pickBoundsSets([set(MESH), set(SOLID)], [MESH]);
+  const members = boundsMembers([hit("zone-1"), hit("zone-1"), hit("zone-2", SOLID), hit("orphan", MESH, "aaa", null)], picked);
+  assert.deepEqual(members, [
+    {
+      target: { kind: "node", provider: MESH, collection: "aaa", subject: "site-1", revision: null, node: "zone-1" },
+      element: null,
+      path: [],
+    },
+  ]);
+});
+
+test("with members from another provider's bounds, the scene's provider is still asked first", () => {
+  const members = [member(null, "aaa", MESH)];
+  const choices = boxRequestChoices({ members, declared, isAdmin: false, rankFirst: [SOLID_B] });
+  assert.equal(defaultBoxProvider(choices, null), SOLID_B);
 });
 
 test("the request asks for exactly the plan's unmatched members, by row and label, in one batch", async () => {
