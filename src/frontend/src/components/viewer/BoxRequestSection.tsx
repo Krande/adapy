@@ -10,12 +10,14 @@ import type {SelectionBox} from "@/state/bboxSelectionStore";
 import {
     confirmBoxRequest,
     isBoxRequestBusy,
+    loadBoxMembers,
     planBoxRequest,
     prepareBoxRequest,
     useBoxRequestStore,
     type BoxRequestEntry,
 } from "@/state/boxRequestStore";
 import type {BoxSelectMode} from "@/utils/bboxSelection/boxMath";
+import type {BoxCandidates} from "@/utils/bboxSelection/boxRequest";
 
 const MODES: {mode: BoxSelectMode; label: string; title: string}[] = [
     {mode: "partial", label: "Partially within", title: "Request every element the box touches"},
@@ -78,6 +80,7 @@ export const BoxRequestSection: React.FC<{box: SelectionBox}> = ({box}) => {
                 </label>
             )}
             {choices.length === 1 && <div className="mt-1 text-[10px] text-gray-300">From {choices[0].label}</div>}
+            {entry?.candidates && entry.phase === "ready" && <CandidatesNote candidates={entry.candidates}/>}
             {entry?.blocked && <div className="mt-1 max-w-64 text-[10px] text-amber-300">{entry.blocked}</div>}
             {entry?.phase !== "confirm" && (
                 <div className="mt-1 flex justify-end">
@@ -93,24 +96,50 @@ export const BoxRequestSection: React.FC<{box: SelectionBox}> = ({box}) => {
                     </button>
                 </div>
             )}
-            <BoxRequestStatus boxId={box.id} entry={entry}/>
+            <BoxRequestStatus boxId={box.id} label={box.label} entry={entry}/>
         </div>
     );
 };
 
+/** Where the box looks for what it holds: the published bounds (loaded or not), or -- without them,
+ *  and why -- only what is drawn. */
+const CandidatesNote: React.FC<{candidates: BoxCandidates}> = ({candidates}) =>
+    candidates.kind === "bounds" ? (
+        <div className="mt-1 max-w-64 text-[10px] text-gray-400">
+            Looks in {candidates.providers.join(", ")}'s published bounds: loaded or not.
+        </div>
+    ) : (
+        <div className="mt-1 max-w-64 text-[10px] text-amber-300">
+            Only what is drawn{candidates.why ? `: ${candidates.why}` : ""}.
+        </div>
+    );
+
 /** Where a box's request has got to, with the confirm step: the menu's and the Scene panel's. */
-export const BoxRequestStatus: React.FC<{boxId: string; entry?: BoxRequestEntry}> = ({boxId, entry: given}) => {
+export const BoxRequestStatus: React.FC<{boxId: string; label?: string; entry?: BoxRequestEntry}> = ({boxId, label, entry: given}) => {
     const stored = useBoxRequestStore((s) => s.byBox[boxId]);
     const patch = useBoxRequestStore((s) => s.patch);
     const entry = given ?? stored;
     if (!entry || !entry.message || entry.phase === "loading" || entry.phase === "ready") return null;
     const tone = entry.phase === "error" ? "text-red-400" : entry.phase === "confirm" ? "text-amber-100" : "text-gray-300";
+    const loadable = entry.loadable.length;
     return (
         <div className={`mt-1 max-w-64 text-[10px] ${tone}`} role={entry.phase === "confirm" ? "alertdialog" : "status"}>
             <div className="break-words">
                 {entry.message}
                 {isBoxRequestBusy(entry) && "…"}
             </div>
+            {loadable > 0 && !isBoxRequestBusy(entry) && (
+                <div className="mt-1 flex justify-end">
+                    <button
+                        type="button"
+                        className={`${btn} bg-emerald-700 hover:bg-emerald-600`}
+                        title="Load what the source already has, and the scene does not, into the scene"
+                        onClick={() => void loadBoxMembers(boxId, label ?? "Box")}
+                    >
+                        Load {loadable} into scene
+                    </button>
+                </div>
+            )}
             {entry.phase === "confirm" && (
                 <div className="mt-1 flex justify-end gap-1">
                     <button type="button" autoFocus className={`${btn} bg-blue-700 hover:bg-blue-600`} onClick={() => void confirmBoxRequest(boxId)}>

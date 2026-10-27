@@ -45,6 +45,11 @@ from ..db.attribute_index import (
     ingest_attribute_index,
     read_attribute_index_header,
 )
+from ..db.node_bounds import (
+    NODE_BOUNDS_ROLE,
+    ingest_node_bounds,
+    read_node_bounds_header,
+)
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
 from ..worker.audit import _audit_done
@@ -52,6 +57,9 @@ from ..worker.source_nodes import _SyncStorageFacade
 from .registry import JobContext, SyntheticFormatHandler
 
 ASSET_PUBLISH_KIND = "asset_publish"
+
+#: Staged roles core ingests itself; a provider's ``derive()`` never sees them.
+_CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE})
 
 
 def consumed_staging(staged: dict, *, dry_run: bool) -> list[str]:
@@ -92,7 +100,9 @@ async def _run_asset_publish(
     # sees the staging and ingested by core after the plan is written. A staging that holds
     # nothing else is an attributes-only publish -- no provider publisher is asked for at all.
     attr_key = staged.get(ATTRIBUTE_INDEX_ROLE)
-    plan_staged = {role: key for role, key in staged.items() if role != ATTRIBUTE_INDEX_ROLE}
+    # Node bounds likewise (``db/node_bounds.py``): core's role, ingested after the plan.
+    bounds_key = staged.get(NODE_BOUNDS_ROLE)
+    plan_staged = {role: key for role, key in staged.items() if role not in _CORE_ROLES}
 
     dry_run = bool(opts.get("dry_run"))
     replace_existing = bool(opts.get("replace"))
@@ -250,21 +260,73 @@ async def _run_asset_publish(
             attributes = {"ingested": False, "error": str(exc)}
             warnings.append(f"the attribute index was not ingested: {exc}")
 
+    # Node bounds, the same way: after the plan, a failure reported beside a publish that landed,
+    # and the job's own failure when the bounds ARE the publish.
+    bounds: dict | None = None
+    bounds_consumed = False
+    if bounds_key:
+        await queue.update(job_id, stage="ingest", progress=0.88)
+        try:
+            if dry_run or db_pool is None:
+                header = await read_node_bounds_header((await storage.open_stream(scope, bounds_key)).stream)
+                bounds = {
+                    "provider": provider_id,
+                    "collection": header["collection"],
+                    "revision": header.get("revision"),
+                    "frame": header.get("frame"),
+                    "ingested": False,
+                }
+                if db_pool is None and not dry_run:
+                    warnings.append(
+                        "this worker has no database pool (DATABASE_URL unset): the node bounds were NOT "
+                        "ingested and stay staged -- publish them again from a worker with a database"
+                    )
+            else:
+                ingested_bounds = await ingest_node_bounds(
+                    db_pool,
+                    scope=scope.prefix(),
+                    provider=str(provider_id),
+                    chunks=(await storage.open_stream(scope, bounds_key)).stream,
+                )
+                phase = ingested_bounds.pop("timings")
+                timings["bounds_ms"] = phase.get("ingest_ms", 0) + phase.get("swap_ms", 0)
+                timings["bounds_rows"] = ingested_bounds["rows"]
+                warnings.extend(ingested_bounds.pop("warnings"))
+                bounds = {**ingested_bounds, "ingested": True}
+                bounds_consumed = True
+        except Exception as exc:
+            if summary is None and attributes is None:
+                logger.exception("worker: asset_publish node bounds ingest failed for job %s", job_id)
+                await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ingest", error=str(exc))
+                await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+                return
+            logger.exception("worker: asset_publish %s published, but its node bounds failed", job_id)
+            bounds = {"ingested": False, "error": str(exc)}
+            warnings.append(f"the node bounds were not ingested: {exc}")
+
     if summary is None:
-        # Attributes-only: the outcome a caller (and a sweep) reads names the collection and
-        # revision the index header gave.
-        assert attributes is not None
+        # Attributes- or bounds-only: the outcome a caller (and a sweep) reads names the collection
+        # and revision the header gave.
+        head = attributes if attributes is not None else bounds
+        assert head is not None
+        counts = {}
+        if attributes is not None:
+            counts["attribute_rows"] = attributes.get("rows", 0)
+        if bounds is not None:
+            counts["bounds_rows"] = bounds.get("rows", 0)
         summary = {
-            "collection": attributes.get("collection"),
-            "revision": attributes.get("revision"),
+            "collection": head.get("collection"),
+            "revision": head.get("revision"),
             "subjects": [],
             "written": [],
             "dry_run": dry_run,
             "replaced": [],
-            "counts": {"attribute_rows": attributes.get("rows", 0)},
+            "counts": counts,
         }
     if attributes is not None:
         summary["attributes"] = attributes
+    if bounds is not None:
+        summary["bounds"] = bounds
     if warnings:
         summary["warnings"] = warnings
 
@@ -280,7 +342,11 @@ async def _run_asset_publish(
 
     # After the summary, so a publish is never reported as failed over its own cleanup; a key that
     # cannot be removed stays listed as staged, which is the honest state for it.
-    cleared = staged if attr_consumed or not attr_key else plan_staged
+    cleared = dict(plan_staged)
+    if attr_key and attr_consumed:
+        cleared[ATTRIBUTE_INDEX_ROLE] = attr_key
+    if bounds_key and bounds_consumed:
+        cleared[NODE_BOUNDS_ROLE] = bounds_key
     for key in consumed_staging(cleared, dry_run=dry_run):
         try:
             await storage.delete(scope, key)

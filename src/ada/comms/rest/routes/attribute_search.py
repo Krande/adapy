@@ -18,6 +18,10 @@ parameter of the listings): the shared scope, every live project and the corpora
 not (``admin_search_origins``) -- the same origin-tagged rows a share gives, each partition read
 that way saying ``admin``. Refused (403) for anyone else. Another user's personal scope is never
 among them.
+
+NODE BOUNDS live beside the index and are read under the same rule (``GET .../assets/bounds``,
+``POST .../assets/bounds/search``; ``db/node_bounds.py``): the scope's own sets, the shared
+scope's, and those of the share origins the caller can reach.
 """
 
 from __future__ import annotations
@@ -35,6 +39,14 @@ from ..db.attribute_index import (
     SEARCH_STATEMENT_TIMEOUT,
     SearchQueryError,
     parse_search_query,
+)
+from ..db.node_bounds import (
+    QUERY_STATEMENT_TIMEOUT,
+    BoundsQueryError,
+    list_bounds_sets,
+    parse_bounds_query,
+    query_node_bounds,
+    readable_scopes,
 )
 from ..scope import Scope
 from .deps import require_pool, scope_from_path
@@ -146,6 +158,59 @@ async def api_asset_search(
             status_code=504,
             detail=f"the search did not finish within {SEARCH_STATEMENT_TIMEOUT}; narrow it (collections, kind, "
             "an attribute filter, or a name prefix instead of 'contains')",
+        ) from exc
+    return JSONResponse(result)
+
+
+async def _bounds_scopes(request: Request, scope_obj: Scope, user: User) -> tuple[asyncpg.Pool, list[str]]:
+    """The pool and the scopes a bounds read of ``scope_obj`` reads for ``user``: its own, the
+    shared scope, and the origins of the attribute shares into it the caller may reach -- the same
+    origins an attribute search reads (``search_origins``)."""
+    pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, False)
+    return pool, readable_scopes(scope_obj.prefix(), origins.shared_from)
+
+
+@router.get("/scopes/{scope}/assets/bounds")
+async def api_asset_bounds_sets(
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Which collections have node bounds readable here (``ada.assets/node-bounds@1``; migration
+    042): ``{sets: [{scope, provider, collection, revision, rows, frame, ingested_at}]}``."""
+    pool, scopes = await _bounds_scopes(request, scope_obj, user)
+    return JSONResponse({"sets": await list_bounds_sets(pool, scopes=scopes)})
+
+
+@router.post("/scopes/{scope}/assets/bounds/search")
+async def api_asset_bounds_search(
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """The published nodes in a box, loaded in the viewer or not.
+
+    Body: ``{box: {min: [x, y, z], max: [x, y, z]}, mode: "partial" | "within", collections?,
+    providers?, limit?}`` -- the box in the providers' MODEL frame (Z up, the units of their
+    geometry; the viewer subtracts its scene offset first). ``partial`` takes every leaf whose box
+    meets it, ``within`` every node whose box lies inside it; both answer the topmost nodes that
+    stand for whole levels (``db/node_bounds.py``).
+
+    Response: ``{sets, hits: [{scope, provider, collection, node_id, parent_id, subject, label,
+    full_name, kind, depth, bbox}], mode, truncated, candidates, took_ms}``. ``sets`` lists the
+    bounds sets read with their ``frame``; an empty ``sets`` means no provider published bounds
+    for these collections. ``truncated`` says why the answer is incomplete, else null."""
+    pool, scopes = await _bounds_scopes(request, scope_obj, user)
+    body = await request.json() if await request.body() else {}
+    try:
+        query = parse_bounds_query(body)
+        result = await query_node_bounds(pool, scopes=scopes, query=query)
+    except BoundsQueryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.QueryCanceledError as exc:
+        raise HTTPException(
+            status_code=504, detail=f"the box query did not finish within {QUERY_STATEMENT_TIMEOUT}; draw a smaller box"
         ) from exc
     return JSONResponse(result)
 

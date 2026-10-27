@@ -74,7 +74,7 @@ const BBoxSelectionSection: React.FC = () => {
                         </button>
                     </div>
                     <div className="pl-5">
-                        <BoxRequestStatus boxId={b.id}/>
+                        <BoxRequestStatus boxId={b.id} label={b.label}/>
                     </div>
                 </div>
             ))}
