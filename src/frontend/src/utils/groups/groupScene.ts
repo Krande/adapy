@@ -9,6 +9,8 @@ import { useSelectedObjectStore } from "@/state/useSelectedObjectStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
+import type * as THREE from "three";
+
 import type { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { recordViewerAction } from "@/utils/scene/viewerHistory";
 import { buildTreeIndices, type TreeIndices } from "@/utils/tree_view/treeGraph";
@@ -52,17 +54,46 @@ function replaceSelection(batch: readonly [CustomBatchedMesh, string][]): void {
 
 /** The tree rows behind every selected draw range, by the unique `(model key, range id)`. */
 function selectedRowIds(): Set<string> {
+  return rowIdsOf(useSelectedObjectStore.getState().selectedObjects);
+}
+
+/** The tree rows behind `(mesh, draw ranges)` pairs, by the unique `(model key, range id)`. */
+function rowIdsOf(ranges: Iterable<readonly [THREE.Object3D, Iterable<string>]>): Set<string> {
   const tv = useTreeViewStore.getState();
   const ids = new Set<string>();
-  for (const [mesh, ranges] of useSelectedObjectStore.getState().selectedObjects) {
+  for (const [mesh, rangeIds] of ranges) {
     const key: string | undefined = (mesh as any).unique_key ?? (mesh.userData ? mesh.userData["unique_hash"] : undefined);
     if (!key) continue;
-    for (const rid of ranges) {
+    for (const rid of rangeIds) {
       const row = tv.findNodeByRangeId(key, rid);
       if (row) ids.add(row.id);
     }
   }
   return ids;
+}
+
+/** Draw ranges NOT taken from the selection -- e.g. what a selection box takes -- as group members,
+ *  folded up to whole levels exactly as `captureSelection` folds a selection. */
+export function captureRanges(
+  batch: readonly (readonly [CustomBatchedMesh, string])[],
+): CapturedMembers & { readonly reason: string | null } {
+  const idx = indices();
+  if (!idx) return { members: [], skipped: [], reason: "The scene tree is not built yet." };
+  const byMesh = new Map<CustomBatchedMesh, string[]>();
+  for (const [mesh, id] of batch) {
+    const list = byMesh.get(mesh);
+    if (list) list.push(id);
+    else byMesh.set(mesh, [id]);
+  }
+  const ids = rowIdsOf(byMesh);
+  if (ids.size === 0) {
+    return { members: [], skipped: [], reason: "Nothing in the box resolves to a row in the scene tree." };
+  }
+  const captured = membersForRows(collapseSelectedRows(ids, idx), idx, useAssetBrowserStore.getState().loaded);
+  return {
+    ...captured,
+    reason: captured.members.length ? null : "Nothing in the box belongs to a model loaded from storage.",
+  };
 }
 
 /** How many draw ranges are selected -- what "Group selection…" is enabled by. */
