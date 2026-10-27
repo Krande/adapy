@@ -193,6 +193,41 @@ def capability_token(value: object) -> str:
     return "".join(out).strip("-")[:MAX_CAPABILITY_TOKEN_LEN].strip("-")
 
 
+#: How long NATS keeps a key scan's consumer once the scan has unsubscribed.
+#: nats-py's ``KeyValue.keys()`` hard-codes five minutes (and ignores any
+#: ``inactive_threshold`` passed to it), and ``KeyWatcher.stop()`` only
+#: unsubscribes — so every scan left an ephemeral consumer on the server for
+#: five minutes. A registry refresh every few seconds kept 100+ of them alive,
+#: each holding a replay of the whole bucket, and that OOM-killed the server.
+_KEY_SCAN_INACTIVE_S = 5.0
+
+
+async def _scan_keys(bucket) -> list[str]:
+    """Every live key in ``bucket``, without leaving a consumer behind.
+
+    Same result as ``bucket.keys()`` (deletes and purges skipped, values not
+    fetched), except an empty bucket returns ``[]`` instead of raising
+    ``NoKeysError``. The consumer it opens is removed by the server
+    ``_KEY_SCAN_INACTIVE_S`` after the scan finishes.
+    """
+    watcher = await bucket.watch(
+        ">",
+        ignore_deletes=True,
+        meta_only=True,
+        inactive_threshold=_KEY_SCAN_INACTIVE_S,
+    )
+    keys: list[str] = []
+    try:
+        async for entry in watcher:
+            # None marks the end of the initial replay.
+            if entry is None:
+                break
+            keys.append(entry.key)
+    finally:
+        await watcher.stop()
+    return keys
+
+
 def _worker_advertises_engine(w: dict, ext: str, engine: str) -> bool:
     """True if worker registry entry ``w`` lists ``engine`` in its step_glb_pipeline enum for the
     ``ext`` → glb conversion — i.e. that pool can actually run the requested STEP→GLB engine."""
@@ -816,7 +851,7 @@ class JobQueue:
         if self._kv is None:
             return 0
         try:
-            keys = await self._kv.keys()
+            keys = await _scan_keys(self._kv)
         except (BucketNotFoundError, Exception):
             return 0
         cutoff = time.time() - grace_s
@@ -929,7 +964,7 @@ class JobQueue:
         if self._kv is None:
             return {}
         try:
-            keys = await self._kv.keys()
+            keys = await _scan_keys(self._kv)
         except (BucketNotFoundError, Exception):
             return {}
         out: dict[str, dict] = {}
@@ -1036,7 +1071,7 @@ class JobQueue:
     async def _read_worker_rows(self, bucket) -> list[tuple[str, dict]]:
         """``(worker_id, entry)`` for every registry row in one KV bucket."""
         try:
-            keys = await bucket.keys()
+            keys = await _scan_keys(bucket)
         except (BucketNotFoundError, Exception):
             return []
         out: list[tuple[str, dict]] = []
