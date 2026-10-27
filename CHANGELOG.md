@@ -2,6 +2,15 @@
 
 
 
+## v0.120.1 (2026-10-27)
+
+### Fix
+
+* fix: ada.__version__ honours ADAPY_VERSION and reads pyproject off a source copy (#466)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`99d06e2`](https://github.com/Krande/adapy/commit/99d06e282cd97981d26891973bfeab2d4f8ebe62))
+
+
 ## v0.120.0 (2026-10-26)
 
 ### Feature
