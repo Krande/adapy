@@ -7,6 +7,9 @@ Four tiers, each mapped to a stable prefix in the bucket:
 * ``users/<user_sub>``      — visible only to the owning user.
 * ``corpus/<slug>``         — admin-curated regression corpus. Admin-only
                               on every axis (list, read, write, audit).
+* ``providers``             — the provider store: provider data kept once,
+                              whatever scope a job ran from. Admin-only
+                              directly; other scopes read it through grants.
 
 Derived blobs inherit their source's scope: a user-scoped IFC produces
 a user-scoped GLB at ``users/<sub>/_derived/foo.ifc.glb``. The Storage
@@ -23,7 +26,10 @@ from typing import Literal, Optional
 
 from .auth import User
 
-ScopeKind = Literal["shared", "project", "user", "corpus"]
+ScopeKind = Literal["shared", "project", "user", "corpus", "providers"]
+
+#: Kinds that name exactly one scope and carry no id.
+_SINGLETON_KINDS = ("shared", "providers")
 
 
 @dataclass(frozen=True)
@@ -36,9 +42,9 @@ class Scope:
     id: Optional[str] = None
 
     def __post_init__(self) -> None:
-        if self.kind == "shared":
+        if self.kind in _SINGLETON_KINDS:
             if self.id is not None:
-                raise ValueError("shared scope has no id")
+                raise ValueError(f"{self.kind} scope has no id")
         else:
             if not self.id:
                 raise ValueError(f"{self.kind} scope requires an id")
@@ -53,6 +59,8 @@ class Scope:
             return f"users/{self.id}"
         if self.kind == "corpus":
             return f"corpus/{self.id}"
+        if self.kind == "providers":
+            return "providers"
         raise AssertionError(f"unknown scope kind {self.kind!r}")
 
     def wire(self) -> str:
@@ -77,8 +85,8 @@ class Scope:
         correct-looking data in the wrong place is worse than an error, so this
         refuses.
         """
-        if self.kind == "shared":
-            return "shared"
+        if self.kind in _SINGLETON_KINDS:
+            return self.kind
         if self.kind in ("project", "corpus"):
             return f"{self.kind}:{self.id}"
         if self.kind == "user":
@@ -96,6 +104,8 @@ class Scope:
         (a project row) is not checked here."""
         if prefix == "shared":
             return cls.shared()
+        if prefix == "providers":
+            return cls.providers()
         kind, sep, ident = prefix.partition("/")
         kinds = {"projects": "project", "users": "user", "corpus": "corpus"}
         if not sep or kind not in kinds or not ident or ident != ident.strip() or "/" in ident:
@@ -105,6 +115,13 @@ class Scope:
     @classmethod
     def shared(cls) -> "Scope":
         return cls(kind="shared")
+
+    @classmethod
+    def providers(cls) -> "Scope":
+        """The provider store: the ONE place provider data (published assets, attribute index,
+        change feed) lives, whichever scope a job was started from. Nobody reads it directly
+        except an admin; a scope reads it through a grant (``db/provider_grants.py``)."""
+        return cls(kind="providers")
 
     @classmethod
     def project(cls, project_id: str) -> "Scope":
@@ -150,6 +167,8 @@ async def can_access(user: User, scope: Scope, db_pool=None) -> bool:
         from . import db as db_module
 
         return await db_module.is_project_member(db_pool, scope.id or "", user.sub)
-    if scope.kind == "corpus":
+    if scope.kind in ("corpus", "providers"):
+        # The provider store is read DIRECTLY by admins only. Everyone else reads the datasets
+        # granted to a scope they can open, through that scope (see db/provider_grants.py).
         return bool(getattr(user, "is_admin", False))
     return False

@@ -47,6 +47,7 @@ from .routes.admin_audit_schedules import router as admin_audit_schedules_router
 from .routes.admin_corpora import router as admin_corpora_router
 from .routes.admin_db import retention_loop as db_retention_loop
 from .routes.admin_db import router as admin_db_router
+from .routes.admin_provider_grants import router as admin_provider_grants_router
 from .routes.admin_plugin_jobs import plugin_schedule_fire
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_projects import router as admin_projects_router
@@ -2124,6 +2125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_settings_router)
     admin.include_router(admin_storage_compression_router)
     admin.include_router(admin_db_router)
+    admin.include_router(admin_provider_grants_router)
 
     admin.include_router(admin_workers_router)
 

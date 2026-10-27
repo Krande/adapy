@@ -288,6 +288,9 @@ def pending_upload_detail(key: str, pending: pending_uploads.PendingUpload) -> s
 def parse_scope(s: str, user: User) -> Scope:
     if s == "shared":
         return Scope.shared()
+    if s == "providers":
+        # Admin-only; the gate is scope_can_access, as for a corpus.
+        return Scope.providers()
     if s == "user:me":
         return Scope.user(user.sub)
     if s.startswith("user:"):

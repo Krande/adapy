@@ -81,6 +81,13 @@ from .attribute_index import (
 from .audit_log import (  # noqa: F401
     _AUDIT_RUN_COUNTER_FOR_STATUS as _AUDIT_RUN_COUNTER_FOR_STATUS,
 )
+from .provider_grants import (
+    grant_access,
+    granted_datasets,
+    list_provider_grants,
+    revoke_provider_grant,
+    upsert_provider_grant,
+)
 from .audit_log import _bump_audit_run_counter as _bump_audit_run_counter  # noqa: F401
 from .audit_log import (
     active_audit_summary,

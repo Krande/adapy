@@ -28,6 +28,8 @@ def _scope_of(job: Job) -> Scope:
         return Scope.user(job.scope_id)
     if job.scope_kind == "corpus" and job.scope_id:
         return Scope.corpus(job.scope_id)
+    if job.scope_kind == "providers":
+        return Scope.providers()
     return Scope.shared()
 
 
