@@ -179,6 +179,12 @@ test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "
 print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + os.environ.get('PYTHONPATH', '').split(os.pathsep)))\"" }
 
 [feature.prod.tasks]
+# The `ada` CLI from this checkout (src/ on PYTHONPATH, not an installed ada-py). On `prod` because
+# nearly every environment carries it -- tests, fem, docs, viewer-api -- so `pixi run -e fem ada ...`
+# works wherever the dependencies are; `default-environment` lets `pixi run ada ...` pick one rather
+# than refuse to guess between them. fem, as for `test`: it has every result reader (fem-deps), and
+# it is the environment a developer already has installed.
+ada = { cmd = "python -m ada_cli.main", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, default-environment = "fem" }
 topo-model-demo = { cmd = "python topo_model_demo.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
 
 [feature.frontend.tasks]
@@ -700,7 +706,6 @@ test-rest = { cmd = "pytest tests/comms/rest --durations=0", env = { "PYTHONPATH
 # that test-rest hits in the (adacpp-less) viewer-api-tests env. Run in the viewer-api-tests-adacpp env.
 # No Postgres needed — these tests use an in-memory fake store.
 test-rest-adacpp = { cmd = "pytest tests/comms/rest -m adacpp_stream --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_CAD_BACKEND" = "adacpp" } }
-ada = { cmd = "python -m ada_cli.main", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 audit-fetch = { cmd = "python scripts/viewer/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 audit-repro = { cmd = "python scripts/viewer/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-upload = { cmd = "python scripts/viewer/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

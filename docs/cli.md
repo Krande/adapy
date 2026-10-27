@@ -12,6 +12,12 @@ ada --help
 In a pixi project (`pixi add ada-py`), run it through the project environment instead:
 `pixi run ada --help`.
 
+In a checkout of the adapy repository, `pixi run ada ...` runs the CLI from the
+checked-out source (`src/` on `PYTHONPATH`) rather than an installed release. It
+defaults to the `fem` environment, the one `pixi run test` uses; pass `-e`
+to run it in another environment that carries the `prod` feature, e.g.
+`pixi run -e tests ada view model.ifc`.
+
 The entry point lives in its own top-level package (`ada_cli`) so that
 `ada --help` does not import the full CAD/FEM surface. Every subcommand
 imports its implementation lazily, so an invocation only pays for what it uses.
