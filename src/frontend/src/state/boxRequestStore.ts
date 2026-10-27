@@ -7,6 +7,7 @@ import {
     boxPlanTarget,
     boxRequestChoices,
     boxRequestSentence,
+    defaultBoxProvider,
     noChoiceReason,
     summariseBoxPlan,
     type RequestProviderChoice,
@@ -34,9 +35,12 @@ export interface BoxRequestEntry {
 
 interface BoxRequestState {
     byBox: Readonly<Record<string, BoxRequestEntry>>;
-    /** The provider last asked, offered first next time. */
+    /** The provider the user last picked in a box's "From" list: the default next time, while it
+     *  still qualifies. */
     lastProvider: string | null;
     patch: (boxId: string, patch: Partial<BoxRequestEntry>) => void;
+    /** An explicit pick in the "From" list. */
+    chooseProvider: (boxId: string, providerId: string) => void;
     clear: (boxId: string) => void;
 }
 
@@ -46,6 +50,10 @@ export const useBoxRequestStore = create<BoxRequestState>()((set, get) => ({
     patch: (boxId, patch) => {
         const prev = get().byBox[boxId] ?? EMPTY_ENTRY;
         set({byBox: {...get().byBox, [boxId]: {...prev, ...patch}}});
+    },
+    chooseProvider: (boxId, providerId) => {
+        set({lastProvider: providerId});
+        get().patch(boxId, {providerId, phase: "ready", plan: null, message: null});
     },
     clear: (boxId) => {
         const {[boxId]: _gone, ...rest} = get().byBox;
@@ -97,38 +105,31 @@ export async function prepareBoxRequest(boxId: string, mode: BoxSelectMode): Pro
     if (isBoxRequestBusy(store.byBox[boxId])) return;
     store.patch(boxId, {phase: "loading", mode, message: null, plan: null, blocked: null});
     try {
-        const [{members, reason}, scope] = await Promise.all([captureBox(boxId, mode), scopeNow()]);
+        const {members, reason} = await captureBox(boxId, mode);
         if (members.length === 0) {
             store.patch(boxId, {phase: "ready", choices: [], providerId: null, blocked: reason ?? "Nothing in the box."});
             return;
         }
-        const [{pluginsApi}, {clashCheckApi}, {assetProviderCollections}, {useMeStore}, {providerName}] = await Promise.all([
+        const [{pluginsApi}, {assetProviderCollections}, {useMeStore}, {providerName}] = await Promise.all([
             import("@/services/api/plugins"),
-            import("@/services/api/clashCheck"),
             import("@/services/assetScopeCollections"),
             import("@/state/meStore"),
             import("@/state/providerNamesStore"),
         ]);
-        const [plugins, readable] = await Promise.all([
-            pluginsApi.listBackendPlugins().catch(() => ({plugins: [] as unknown[]})),
-            clashCheckApi.listGeometryProviders(scope as ScopeUrl).catch(() => null),
-        ]);
+        const plugins = await pluginsApi.listBackendPlugins().catch(() => ({plugins: [] as unknown[]}));
         const choices = boxRequestChoices({
             members,
             declared: assetProviderCollections(plugins.plugins ?? []),
-            readable,
             isAdmin: useMeStore.getState().isAdmin,
             providerName,
-            preferred: useBoxRequestStore.getState().lastProvider,
         });
         const current = useBoxRequestStore.getState().byBox[boxId];
         if (current && current.mode !== mode) return; // the mode changed while this was read
-        const keep = choices.find((c) => c.providerId === current?.providerId);
         store.patch(boxId, {
             phase: "ready",
             choices,
-            providerId: (keep ?? choices[0])?.providerId ?? null,
-            blocked: choices.length ? null : noChoiceReason(members, readable),
+            providerId: defaultBoxProvider(choices, useBoxRequestStore.getState().lastProvider),
+            blocked: choices.length ? null : noChoiceReason(members),
         });
     } catch (e) {
         store.patch(boxId, {phase: "error", message: e instanceof Error ? e.message : String(e)});
@@ -156,11 +157,11 @@ export async function planBoxRequest(boxId: string, label: string): Promise<void
             geometryProvider: choice.providerId,
         });
         const summary = summariseBoxPlan(plan);
-        useBoxRequestStore.setState({lastProvider: choice.providerId});
+        const others = entry.choices.length > 1 && !summary.missing ? " Pick another source under From to ask it instead." : "";
         store.patch(boxId, {
             phase: summary.missing ? "confirm" : "done",
             plan,
-            message: boxRequestSentence(summary, choice.label, elements),
+            message: boxRequestSentence(summary, choice.label, elements) + others,
         });
     } catch (e) {
         store.patch(boxId, {phase: "error", message: e instanceof Error ? e.message : String(e)});

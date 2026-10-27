@@ -1,16 +1,20 @@
-// "Request from source" on a selection box: which sources may be asked (design-geometry providers
-// that take node requests -- never a mesh-only one), what a geometry plan of the box's members says,
-// and the request made from exactly the plan's unmatched members.
+// "Request from source" on a selection box: which sources may be asked (every provider that takes
+// node requests for the box's collections, mesh providers included), which one is the default (the
+// last explicit pick while it qualifies, else the members' own provider, else the first in the
+// Sources order), what a geometry plan of the box's members says, and the request made from exactly
+// the plan's unmatched members.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { WireGeometryPlan, WireGeometryProvider } from "@/services/api/clashCheck";
+import type { WireGeometryPlan } from "@/services/api/clashCheck";
 import type { AssetNodeRequest } from "@/services/assetScopeCollections";
 import {
   boxPlanTarget,
   boxRequestChoices,
   boxRequestSentence,
+  defaultBoxProvider,
+  memberProviders,
   noChoiceReason,
   summariseBoxPlan,
 } from "@/utils/bboxSelection/boxRequest";
@@ -41,42 +45,50 @@ const req = (pluginId: string, over: Partial<AssetNodeRequest> = {}): AssetNodeR
   ...over,
 });
 
+// In the Sources order: by provider id.
 const declared: DeclaredProvider[] = [
   { providerId: MESH, collections: ["aaa"], nodeRequest: req("mesh-fetch", { onDemand: true }) },
-  { providerId: SOLID_B, collections: ["aaa", "bbb"], nodeRequest: req("solid-b-fetch") },
-  { providerId: SOLID, collections: [], nodeRequest: req("solid-fetch") },
   { providerId: "no-requests", collections: [], nodeRequest: null },
-];
-const readable: WireGeometryProvider[] = [
-  { id: SOLID, readable: true },
-  { id: SOLID_B, readable: true },
-  { id: "no-requests", readable: true },
+  { providerId: SOLID, collections: [], nodeRequest: req("solid-fetch") },
+  { providerId: SOLID_B, collections: ["aaa", "bbb"], nodeRequest: req("solid-b-fetch") },
 ];
 
-test("only design-geometry providers that take node requests are offered, the last one asked first", () => {
-  const ids = (preferred: string | null = null) =>
-    boxRequestChoices({ members: [member("PIPE-1")], declared, readable, isAdmin: false, preferred }).map((c) => c.providerId);
-  // The mesh-only provider takes requests but reads into nothing: never offered.
-  assert.deepEqual(ids(), [SOLID, SOLID_B]);
-  assert.deepEqual(ids(SOLID_B), [SOLID_B, SOLID]);
+const ids = (members: readonly GroupMember[], isAdmin = false, from = declared) =>
+  boxRequestChoices({ members, declared: from, isAdmin }).map((c) => c.providerId);
+
+test("every provider that takes node requests for the collection is offered, mesh providers included", () => {
+  assert.deepEqual(ids([member("PIPE-1", "aaa", "other")]), [MESH, SOLID, SOLID_B]);
 });
 
-test("a provider that does not offer every collection in the box, or is admin-only, is left out", () => {
+test("the members' own provider comes first, then the Sources order", () => {
+  assert.deepEqual(ids([member("PIPE-1", "aaa", SOLID_B)]), [SOLID_B, MESH, SOLID]);
+  // Members from two providers: the one most of them came from first.
+  const mixed = [member("A", "aaa", SOLID), member("B", "aaa", SOLID_B), member("C", "aaa", SOLID_B)];
+  assert.deepEqual(memberProviders(mixed), [SOLID_B, SOLID]);
+  assert.deepEqual(ids(mixed), [SOLID_B, SOLID, MESH]);
+});
+
+test("a provider that does not cover every collection in the box, or is admin-only, is left out", () => {
   const members = [member("PIPE-1"), member("BEAM-2", "ccc")];
-  assert.deepEqual(
-    boxRequestChoices({ members, declared, readable, isAdmin: false }).map((c) => c.providerId),
-    [SOLID],
-  );
+  assert.deepEqual(ids(members), [SOLID]);
   const adminOnly: DeclaredProvider[] = [{ providerId: SOLID, collections: [], nodeRequest: req("x", { requiresAdmin: true }) }];
-  assert.equal(boxRequestChoices({ members, declared: adminOnly, readable, isAdmin: false }).length, 0);
-  assert.equal(boxRequestChoices({ members, declared: adminOnly, readable, isAdmin: true }).length, 1);
+  assert.deepEqual(ids(members, false, adminOnly), []);
+  assert.deepEqual(ids(members, true, adminOnly), [SOLID]);
+  // Files name no collection: nothing to ask anyone for.
+  assert.deepEqual(ids([FILE]), []);
 });
 
-test("without the readable list nothing is offered, and the reason says why", () => {
-  assert.equal(boxRequestChoices({ members: [member("PIPE-1")], declared, readable: null, isAdmin: true }).length, 0);
-  assert.match(noChoiceReason([member("PIPE-1")], null), /Could not list/);
-  assert.match(noChoiceReason([FILE], readable), /from a file/);
-  assert.match(noChoiceReason([member("PIPE-1")], readable), /No design-geometry source/);
+test("the default is the last explicit pick while it qualifies, else the first available provider", () => {
+  const choices = boxRequestChoices({ members: [member("PIPE-1")], declared, isAdmin: false });
+  assert.equal(defaultBoxProvider(choices, null), MESH); // the members' own source
+  assert.equal(defaultBoxProvider(choices, SOLID_B), SOLID_B);
+  assert.equal(defaultBoxProvider(choices, "gone-offline"), MESH);
+  assert.equal(defaultBoxProvider([], SOLID), null);
+});
+
+test("the reason when nothing can be asked", () => {
+  assert.match(noChoiceReason([FILE]), /from a file/);
+  assert.match(noChoiceReason([member("PIPE-1")]), /No source that takes requests/);
 });
 
 const PIPE = member("PIPE-1");
