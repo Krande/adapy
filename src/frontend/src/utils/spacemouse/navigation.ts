@@ -11,8 +11,12 @@
 // the camera level about the world up axis (their update re-aims the camera
 // with `lookAt`), so a free rotation would be undone on the next frame and the
 // two would fight. Twist turns about world up through the target, tilt pitches
-// about the camera's right axis, and pitch stops just short of the poles; roll
-// (tilting the cap sideways) has no level-camera equivalent and is ignored.
+// about the camera's right axis, and pitch stops just short of the poles. Roll
+// (tilting the cap sideways) has no level-camera equivalent, so it is off unless
+// the user asks for it; then it is an angle the camera is turned by about its own
+// view direction (`rolledUp`), applied on top of the level pose rather than mixed
+// into it. Twist and tilt stay about world up, and switching roll off returns the
+// view to level.
 //
 // Rates are per second at full deflection, multiplied by the real frame time,
 // so the speed is the same at 30 and 144 fps. Pan scales with the distance to
@@ -46,12 +50,32 @@ const _right = new Vector3();
 const _camUp = new Vector3();
 const _offset = new Vector3();
 const _delta = new Vector3();
+const _panRight = new Vector3();
+const _panUp = new Vector3();
 const _q = new Quaternion();
+
+/**
+ * The camera up vector for a view rolled by `roll` radians about its direction
+ * (target - position): `worldUp` turned about that direction, written to `out`.
+ * Positive roll turns the picture counter-clockwise on screen, so the model follows
+ * a cap rolled counter-clockwise. `lookAt` keeps only the part of `out` across the
+ * view direction, which is what makes this a pure roll.
+ */
+export function rolledUp(position: Vector3, target: Vector3, worldUp: Vector3, roll: number, out: Vector3): Vector3 {
+    out.copy(worldUp);
+    if (roll === 0) return out;
+    _forward.subVectors(target, position);
+    if (!(_forward.lengthSq() > 0)) return out;
+    _q.setFromAxisAngle(_forward.normalize(), roll);
+    return out.applyQuaternion(_q);
+}
 
 /**
  * Apply one frame of `axes` (view-frame motion in [-1, 1], tx ty tz rx ry rz)
  * to the pose `position` / `target`, both mutated. `worldUp` must be unit
- * length. Returns true when the pose changed.
+ * length; `roll` is the view's current roll (`rolledUp`), so a pan follows the
+ * screen's axes rather than the level ones. Roll motion itself (`axes[5]`) is
+ * not applied here. Returns true when the pose changed.
  */
 export function applyObjectModeMotion(
     position: Vector3,
@@ -62,6 +86,7 @@ export function applyObjectModeMotion(
     fovDeg: number,
     gain: number,
     rates: Readonly<NavigationRates> = DEFAULT_RATES,
+    roll = 0,
 ): boolean {
     if (!(dt > 0) || !(gain > 0)) return false;
     const tx = axes[0], ty = axes[1], tz = axes[2], rx = axes[3], ry = axes[4];
@@ -84,7 +109,15 @@ export function applyObjectModeMotion(
     if (tx !== 0 || ty !== 0) {
         const halfHeight = dist * Math.tan((fovDeg * Math.PI) / 360);
         const s = halfHeight * rates.pan * gain * dt;
-        _delta.copy(_right).multiplyScalar(-tx * s).addScaledVector(_camUp, -ty * s);
+        // The screen's axes: the level ones turned by the roll.
+        _panRight.copy(_right);
+        _panUp.copy(_camUp);
+        if (roll !== 0) {
+            _q.setFromAxisAngle(_forward, roll);
+            _panRight.applyQuaternion(_q);
+            _panUp.applyQuaternion(_q);
+        }
+        _delta.copy(_panRight).multiplyScalar(-tx * s).addScaledVector(_panUp, -ty * s);
         position.add(_delta);
         target.add(_delta);
     }

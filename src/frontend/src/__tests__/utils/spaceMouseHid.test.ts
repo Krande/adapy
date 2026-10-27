@@ -107,8 +107,15 @@ test("device frame -> view frame: x right, push down = -y (down), pull toward us
     // rotations map the same way: device rz (about down) is view -ry (about up)
     processAxes([0, 0, 0, 0, 0, FULL_SCALE], NEUTRAL, out);
     assert.deepEqual([...out].map((v) => v + 0), [0, 0, 0, 0, -1, 0]);
-    processAxes([0, 0, 0, 0, FULL_SCALE, 0], NEUTRAL, out);
+    processAxes([0, 0, 0, 0, FULL_SCALE, 0], {...NEUTRAL, enableRoll: true}, out);
     assert.deepEqual([...out].map((v) => v + 0), [0, 0, 0, 0, 0, 1]);
+});
+
+test("roll is dropped unless enabled, and then cannot win the dominant axis", () => {
+    const out = new Float32Array(6);
+    assert.equal(processAxes([0, 0, 0, 0, FULL_SCALE, 0], NEUTRAL, out), false);
+    processAxes([100, 0, 0, 0, 300, 0], {...NEUTRAL, dominantAxis: true}, out);
+    assert.deepEqual([...out].map((v) => v + 0), [100 / FULL_SCALE, 0, 0, 0, 0, 0].map((v) => Math.fround(v)));
 });
 
 test("values are clamped to full scale", () => {

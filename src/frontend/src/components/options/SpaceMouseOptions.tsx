@@ -6,9 +6,9 @@ import {isWebHidSupported, requestSpaceMouse} from "@/utils/spacemouse/spaceMous
 // button, and the tuning that only matters once it is on. Off by default, and
 // off means the browser is never asked for the device.
 
-// In the store's axis order. Roll is left out: the view stays level, so roll
-// moves nothing and inverting it would be a control that does nothing.
-const AXIS_LABELS = ["Pan X", "Pan Y", "Zoom", "Tilt", "Spin"];
+// In the store's axis order. Roll is offered only while it is enabled: with the
+// view kept level it moves nothing, and inverting it would do nothing either.
+const AXIS_LABELS = ["Pan X", "Pan Y", "Zoom", "Tilt", "Spin", "Roll"];
 
 const BUTTON_ACTIONS: {value: SpaceMouseButtonAction; label: string}[] = [
     {value: "fitAll", label: "Fit all (Shift+A)"},
@@ -106,7 +106,7 @@ const SpaceMouseOptions: React.FC = () => {
                     <div className="text-xs">
                         <div className="text-gray-400 mb-1">Invert</div>
                         <div className="grid grid-cols-3 gap-x-2 gap-y-1">
-                            {AXIS_LABELS.map((label, i) => (
+                            {AXIS_LABELS.slice(0, s.enableRoll ? 6 : 5).map((label, i) => (
                                 <label key={label} className="flex items-center gap-1">
                                     <input
                                         type="checkbox"
@@ -131,6 +131,20 @@ const SpaceMouseOptions: React.FC = () => {
                         <label className="flex items-center gap-2">
                             <input type="checkbox" checked={s.lockPan} onChange={() => s.setLockPan(!s.lockPan)}/>
                             <span>Lock pan and zoom (rotate only)</span>
+                        </label>
+                        <label className="flex items-start gap-2">
+                            <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={s.enableRoll}
+                                onChange={() => s.setEnableRoll(!s.enableRoll)}
+                            />
+                            <span className="leading-tight">
+                                Enable roll (all six axes)
+                                <span className="block text-gray-400">
+                                    Tilting the cap sideways rolls the view. Turning this off levels it again.
+                                </span>
+                            </span>
                         </label>
                     </div>
 

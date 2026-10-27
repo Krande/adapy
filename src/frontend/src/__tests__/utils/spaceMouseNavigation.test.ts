@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Vector3 } from "three";
 
-import { applyObjectModeMotion } from "../../utils/spacemouse/navigation";
+import { applyObjectModeMotion, rolledUp } from "../../utils/spacemouse/navigation";
 
 const UP = new Vector3(0, 1, 0);
 const RATES = { rotate: 1, pan: 1, zoom: 1 };
@@ -133,4 +133,25 @@ test("per-frame step is cheap", () => {
     const us = ((performance.now() - t0) * 1000) / N;
     assert.ok(us < 20, `${us.toFixed(3)} us per frame`);
     console.log(`spacemouse camera step: ${us.toFixed(4)} us/frame over ${N} frames`);
+});
+
+test("roll turns the camera up about the view direction; zero roll is level", () => {
+    const p = pose();
+    const up = new Vector3();
+    assert.deepEqual(rolledUp(p.position, p.target, UP, 0, up).toArray(), [0, 1, 0]);
+    // Looking down -z, a positive quarter roll tips the camera's up to +x: the picture turns
+    // counter-clockwise, following a cap rolled counter-clockwise.
+    rolledUp(p.position, p.target, UP, Math.PI / 2, up);
+    near(up.x, 1);
+    near(up.y, 0);
+    near(up.z, 0);
+});
+
+test("a rolled view pans along the screen's axes, not the level ones", () => {
+    const p = pose();
+    // Rolled a quarter turn, the screen's right is world -y.
+    applyObjectModeMotion(p.position, p.target, UP, [1, 0, 0, 0, 0, 0], 0.1, 90, 1, RATES, Math.PI / 2);
+    near(p.position.x, 0);
+    near(p.position.y, 1);
+    near(p.target.y, 1);
 });
