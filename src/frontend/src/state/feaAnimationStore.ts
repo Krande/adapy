@@ -188,12 +188,17 @@ export interface FeaAnimationState {
     timeHistory: boolean;
 
     /** What the colour scale is currently measured over (see
-     * utils/scene/fea/caseSteps.ts ``legendScopeFor``): every step ("all", a
-     * bake without load combinations), the stored cases, the shown combination
-     * alone, or every combination (the envelope). Set by the loader with each
-     * paint; the legend prints ``legendScopeLabel``. */
-    legendScope: "all" | "stored" | "case" | "envelope";
+     * utils/scene/fea/caseSteps.ts ``legendScopeFor``): the shown step's drawn
+     * elements ("shown", the default), every combination (the envelope), or,
+     * where nothing coloured is drawn, the field's own range -- every step
+     * ("all"), the stored cases, or the shown combination. Set by the loader
+     * with each paint; the legend prints ``legendScopeLabel``. */
+    legendScope: "shown" | "all" | "stored" | "case" | "envelope";
     legendScopeLabel: string | null;
+    /** The automatic range the last paint measured over what is shown, or null when
+     *  it followed the field's own ``scalar_range``. What an unpinned end of the
+     *  scale is, so the settings dialog can say so. */
+    autoRange: [number, number] | null;
 
     /** User preference: measure the scale over all combinations (the
      * envelope) where the server offers one. Kept across ``reset()``. */
@@ -233,6 +238,7 @@ export interface FeaAnimationState {
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
     setLegendScope: (scope: FeaAnimationState["legendScope"], label: string | null) => void;
+    setAutoRange: (range: [number, number] | null) => void;
     setEnvelopeMode: (on: boolean) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -293,6 +299,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     timeHistory: false,
     legendScope: "all",
     legendScopeLabel: null,
+    autoRange: null,
     envelopeMode: false,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -328,6 +335,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setApplyStep: (cb) => set({applyStep: cb}),
     setTimeHistory: (timeHistory) => set({timeHistory}),
     setLegendScope: (legendScope, legendScopeLabel) => set({legendScope, legendScopeLabel}),
+    setAutoRange: (autoRange) => set({autoRange}),
     setEnvelopeMode: (envelopeMode) => set({envelopeMode}),
     reset: (): void =>
         set((state) => ({
@@ -356,5 +364,6 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             timeHistory: false,
             legendScope: "all",
             legendScopeLabel: null,
+            autoRange: null,
         })),
 }));

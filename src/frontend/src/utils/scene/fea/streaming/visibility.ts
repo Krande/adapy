@@ -19,9 +19,11 @@ import {hasResultLineSegments, setResultLineSegmentsVisible} from "../resultLine
 import {setResultPointMarkersVisible} from "../resultPointMarkers";
 import {clearUndeformedGhost, installUndeformedGhost} from "../undeformedGhost";
 import {feaSession as session} from "./session";
+import {scheduleShownRangeRepaint} from "./shownRangeRepaint";
 
 /** Flip beam-solid mesh visibility on the active session, if any.
- *  Cheap — just toggles ``mesh.visible``; no re-fetch, no re-paint.
+ *  Cheap — toggles ``mesh.visible``, no re-fetch; repaints from cache only
+ *  when the scale follows what is drawn.
  *  No-op when no session is active or the manifest didn't ship a
  *  beam-solid mesh. */
 export function setBeamSolidsVisible(visible: boolean): void {
@@ -29,6 +31,9 @@ export function setBeamSolidsVisible(visible: boolean): void {
         session.active.beamSolidMesh.visible = visible;
     }
     syncFeaOverlayVisibility();
+    // Solids and coloured lines do not draw the same beams (the dummy masses have no
+    // line), so the scale measured over what is drawn has to follow.
+    scheduleShownRangeRepaint();
 }
 
 /** Every element-edge wireframe in the active session, main mesh and beam solids. */

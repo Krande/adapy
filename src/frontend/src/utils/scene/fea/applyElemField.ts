@@ -47,6 +47,7 @@ import {
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
 import {segmentRangeIds} from "./lineSegmentIds";
+import {RangeAccumulator} from "./shownRange";
 import {setSourceMorph} from "./sourceMorph";
 import {translationOffsets, warpValue} from "./warpComponents";
 
@@ -104,6 +105,10 @@ export interface ApplyElemFieldArgs {
      * function of its arguments — the same reason ``colormap`` is a parameter.
      */
     contour?: ContourSettings | null;
+    /** The range the scale follows where ``contour`` pins no end -- what is shown
+     *  (``shownElemFieldRange``). Omitted: the field's ``scalar_range``. Ignored for a
+     *  model property, which keeps its own categorical range. */
+    autoRange?: readonly [number, number] | null;
     /**
      * Draw the coloured two-vertex fallback for line elements.
      *
@@ -233,6 +238,90 @@ export function reduceIps(
     return acc;
 }
 
+/** One scalar from an element's ``(n_ips × n_components)`` block, for the given IPs:
+ *  the IP reduction per component, then the component reduction. NaN where the
+ *  attribute does not apply to the element. */
+export type ElementScalarReader = (stepView: Float32Array, elemBase: number, ipIndices: number[]) => number;
+
+export function elementScalarReader(
+    field: FeaManifestField,
+    reduction: string,
+    ipReduction: string,
+): ElementScalarReader {
+    const n_components = field.components.length;
+    const isMagnitude = reduction === "magnitude";
+    const compIdx = isMagnitude ? -1 : componentIndex(field, reduction);
+    return (stepView, elemBase, ipIndices) => {
+        if (isMagnitude) {
+            // Magnitude across the first 3 components, computed
+            // *after* per-component IP reduction. Sequence matches
+            // the bake's scalar_range_magnitude (||u||-of-reduced-IPs,
+            // not reduced-IP-of-||u||) — important so the colour LUT
+            // range matches the rendered values.
+            const dx = n_components >= 1
+                ? reduceIps(stepView, elemBase, ipIndices, n_components, 0, ipReduction)
+                : 0;
+            const dy = n_components >= 2
+                ? reduceIps(stepView, elemBase, ipIndices, n_components, 1, ipReduction)
+                : 0;
+            const dz = n_components >= 3
+                ? reduceIps(stepView, elemBase, ipIndices, n_components, 2, ipReduction)
+                : 0;
+            return isFinite(dx) && isFinite(dy) && isFinite(dz)
+                ? Math.sqrt(dx * dx + dy * dy + dz * dz)
+                : NaN;
+        }
+        if (compIdx >= 0) {
+            return reduceIps(stepView, elemBase, ipIndices, n_components, compIdx, ipReduction);
+        }
+        // Fallback when reduction is neither magnitude nor a known
+        // component — keep the element grey instead of crashing.
+        // Same shape as the nodal path's silent fallback.
+        return 0;
+    };
+}
+
+/**
+ * The range of what an element field paints on the elements ``isShown`` names, or
+ * null when none of them carries a value (see shownRange.ts).
+ *
+ * The values are the ones the painter colours: each element's reduced scalar, and,
+ * for a field painted per corner or per result point, each of those values too.
+ * Nodal averaging only ever narrows these, so the range still covers it.
+ */
+export function shownElemFieldRange(args: {
+    field: FeaManifestField;
+    perTypeStepValues: Float32Array[];
+    layer: string;
+    ipReduction: string;
+    reduction: string;
+    isShown: (label: number) => boolean;
+}): [number, number] | null {
+    const {field, perTypeStepValues, layer, ipReduction, reduction, isShown} = args;
+    const read = elementScalarReader(field, reduction, ipReduction);
+    const perIp =
+        field.support === "element_nodal"
+        || field.support === "result_point"
+        || field.support === "line_result_point";
+    const n_components = field.components.length;
+    const acc = new RangeAccumulator();
+    const buckets = field.per_type ?? [];
+    for (let b = 0; b < buckets.length; b++) {
+        const bucket = buckets[b];
+        const stepView = perTypeStepValues[b];
+        if (!stepView) continue;
+        const ipIndices = layerIpIndices(bucket, layer);
+        const elemStride = bucket.n_ips * n_components;
+        for (let e = 0; e < bucket.n_elements; e++) {
+            if (!isShown(bucket.element_labels[e])) continue;
+            const elemBase = e * elemStride;
+            acc.add(read(stepView, elemBase, ipIndices));
+            if (perIp) for (const ip of ipIndices) acc.add(read(stepView, elemBase, [ip]));
+        }
+    }
+    return acc.result();
+}
+
 /** Same shape as ``applyFieldToMesh`` but takes the AFEL render path
  *  instead. Caller resolves the warp source separately (always nodal
  *  in current solvers) and passes it in. */
@@ -250,6 +339,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         displacementScale = 1,
         colormap: colormapName,
         contour,
+        autoRange,
         nodalAverage: nodalAverageArg = false,
         lineFallback = true,
     } = args;
@@ -276,7 +366,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
 
     const [rangeMin, rangeMax] = property
         ? pickRange(colorField, reduction)
-        : resolveContourRange(pickRange(colorField, reduction), contour);
+        : resolveContourRange(autoRange ?? pickRange(colorField, reduction), contour);
     // A numeric property is coloured by rank among the values it carries, so the
     // painter needs them before it paints: one pass over the step views, which for
     // a property are one value per element.
@@ -297,9 +387,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const renderBasePositions = expandSourceTriples(basePositions, renderToSource);
     const n_render_points = renderToSource.length;
     const n_components = colorField.components.length;
-
-    const isMagnitude = reduction === "magnitude";
-    const compIdx = isMagnitude ? -1 : componentIndex(colorField, reduction);
 
     // Vertex colour seed: medium grey for any vertex not covered by an
     // element draw range. Without this seed, the colour attribute
@@ -337,38 +424,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     // Compute one scalar per element from the (n_ips × n_components)
     // block. Same logic for both flat and smooth render paths — only
     // the downstream "where does the scalar land" step differs.
-    const computeElementScalar = (
-        stepView: Float32Array,
-        elemBase: number,
-        ipIndices: number[],
-    ): number => {
-        if (isMagnitude) {
-            // Magnitude across the first 3 components, computed
-            // *after* per-component IP reduction. Sequence matches
-            // the bake's scalar_range_magnitude (||u||-of-reduced-IPs,
-            // not reduced-IP-of-||u||) — important so the colour LUT
-            // range matches the rendered values.
-            const dx = n_components >= 1
-                ? reduceIps(stepView, elemBase, ipIndices, n_components, 0, ipReduction)
-                : 0;
-            const dy = n_components >= 2
-                ? reduceIps(stepView, elemBase, ipIndices, n_components, 1, ipReduction)
-                : 0;
-            const dz = n_components >= 3
-                ? reduceIps(stepView, elemBase, ipIndices, n_components, 2, ipReduction)
-                : 0;
-            return isFinite(dx) && isFinite(dy) && isFinite(dz)
-                ? Math.sqrt(dx * dx + dy * dy + dz * dz)
-                : NaN;
-        }
-        if (compIdx >= 0) {
-            return reduceIps(stepView, elemBase, ipIndices, n_components, compIdx, ipReduction);
-        }
-        // Fallback when reduction is neither magnitude nor a known
-        // component — keep the element grey instead of crashing.
-        // Same shape as the nodal path's silent fallback.
-        return 0;
-    };
+    const computeElementScalar = elementScalarReader(colorField, reduction, ipReduction);
 
     // Smooth path: accumulate per-vertex sum + count, then colormap
     // once per vertex at the end. Reused Set dedupes each element's

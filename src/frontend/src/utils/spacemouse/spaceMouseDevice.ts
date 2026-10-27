@@ -54,7 +54,7 @@ import {
     resetAxes,
     takePressedButtons,
 } from "./hidReport";
-import {applyObjectModeMotion} from "./navigation";
+import {applyObjectModeMotion, DEFAULT_RATES, rolledUp} from "./navigation";
 import {createOneEuro, resetOneEuro, stepOneEuro} from "./smoothing";
 import type {InputWindow} from "@/utils/scene/renderInputSummary";
 
@@ -127,7 +127,63 @@ let dtAvg = 1 / 60;
 let lastMovingAt = -Infinity;
 const _position = new Vector3();
 const _target = new Vector3();
+const _up = new Vector3();
 let active = false;
+
+// ---- roll (opt-in, `enableRoll`) ---------------------------------------------
+//
+// The orbit controls keep the camera level: their update re-aims it with
+// `lookAt` against `camera.up`. Roll is therefore kept as an angle about the view
+// direction, and `camera.up` is re-derived from it every frame (`rolledUp`) --
+// after a mouse orbit too, so the roll stays a roll of the VIEW rather than a
+// tilted up vector the next orbit would smear across the model. Zero roll is the
+// camera's own up, recorded the first time a camera is seen, which is also what
+// switching roll off goes back to.
+
+/** The view's roll about its direction, radians. */
+let rollAngle = 0;
+/** Each camera's level up vector, before any roll. */
+const levelUps = new WeakMap<THREE.Camera, Vector3>();
+
+function levelUpOf(camera: THREE.Camera): Vector3 {
+    let up = levelUps.get(camera);
+    if (!up) {
+        up = camera.up.clone();
+        levelUps.set(camera, up);
+    }
+    return up;
+}
+
+function poseOf(camera: THREE.Camera, controls: Controls): void {
+    if (controls instanceof OrbitControls) {
+        _position.copy(camera.position);
+        _target.copy(controls.target);
+    } else {
+        controls.getPosition(_position);
+        controls.getTarget(_target);
+    }
+}
+
+/** Put `camera.up` where the roll says and re-aim; true when it moved. */
+function applyRoll(camera: THREE.Camera, controls: Controls, levelUp: Vector3): boolean {
+    poseOf(camera, controls);
+    rolledUp(_position, _target, levelUp, rollAngle, _up);
+    if (_up.distanceToSquared(camera.up) < 1e-14) return false;
+    camera.up.copy(_up);
+    camera.lookAt(_target);
+    return true;
+}
+
+/** Level the view again: what switching roll off does. */
+function resetRoll(): void {
+    rollAngle = 0;
+    const rt = getViewerRuntime();
+    const camera = rt.camera.current;
+    const controls = rt.controls.current;
+    const level = camera ? levelUps.get(camera) : undefined;
+    if (!camera || !controls || !level) return;
+    if (applyRoll(camera, controls, level)) requestRender();
+}
 /** The controls a gesture's start event went to, so its end goes there too. */
 let gestureControls: Controls | null = null;
 /** Dev hook: synthetic input holds until this time. */
@@ -152,6 +208,10 @@ function endGesture(): void {
  * frame's delta, BEFORE it updates the orbit controls.
  */
 export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCamera, controls: Controls): void {
+    const levelUp = levelUpOf(camera);
+    // A rolled view stays rolled whatever moved it (a mouse orbit, a fit), before the
+    // controls' update re-aims the camera against `camera.up`.
+    if (rollAngle !== 0 && getViewerRuntime().controls.current === controls) applyRoll(camera, controls, levelUp);
     if (!active) return;
     const now = performance.now();
     const settings = useSpaceMouseStore.getState();
@@ -190,17 +250,31 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
         if (devStats) devStats.gestures++;
         if (probe) probe.gestures++;
     }
+    // Turns and tilts about the level up, not the rolled one: the turntable stays
+    // the turntable the mouse orbits with.
     if (controls instanceof OrbitControls) {
         // Moved in place; the loop's `controls.update()` re-aims the camera
         // and emits the change event the on-demand renderer listens for.
-        applyObjectModeMotion(camera.position, controls.target, camera.up, motion, dt, camera.fov, settings.sensitivity);
+        applyObjectModeMotion(
+            camera.position, controls.target, levelUp, motion, dt, camera.fov, settings.sensitivity, DEFAULT_RATES, rollAngle,
+        );
     } else {
         controls.getPosition(_position);
         controls.getTarget(_target);
-        if (applyObjectModeMotion(_position, _target, camera.up, motion, dt, camera.fov, settings.sensitivity)) {
+        if (applyObjectModeMotion(
+            _position, _target, levelUp, motion, dt, camera.fov, settings.sensitivity, DEFAULT_RATES, rollAngle,
+        )) {
             void controls.setLookAt(_position.x, _position.y, _position.z, _target.x, _target.y, _target.z, false);
         }
     }
+    if (motion[5] !== 0) {
+        // processAxes drops roll unless it is enabled, so this only runs when it is.
+        rollAngle += motion[5] * DEFAULT_RATES.rotate * settings.sensitivity * dt;
+        if (rollAngle > Math.PI) rollAngle -= 2 * Math.PI;
+        else if (rollAngle < -Math.PI) rollAngle += 2 * Math.PI;
+    }
+    // Every moving frame: a turn or tilt changes the view direction the roll is about.
+    if (rollAngle !== 0 || motion[5] !== 0) applyRoll(camera, controls, levelUp);
     requestRender();
     if (devStats) {
         devStats.frames++;
@@ -461,6 +535,8 @@ export function bindSpaceMouseToOptions(): () => void {
         sync(useSpaceMouseStore.getState().enabled);
         unsubscribe = useSpaceMouseStore.subscribe((s, prev) => {
             if (s.enabled !== prev.enabled) sync(s.enabled);
+            // Off levels the view: a camera left at an angle with nothing to undo it.
+            if ((!s.enableRoll && prev.enableRoll) || (!s.enabled && prev.enabled)) resetRoll();
         });
     }
     let bound = true;

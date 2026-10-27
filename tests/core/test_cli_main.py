@@ -33,7 +33,7 @@ from ada_cli.formats import (
     infer_write_format,
 )
 
-_GROUPS = ["view", "build", "files", "audit", "serve"]
+_GROUPS = ["view", "results", "build", "files", "audit", "serve"]
 
 
 # ── bare invocations: full help, on stderr, exit 2 ────────────────────────

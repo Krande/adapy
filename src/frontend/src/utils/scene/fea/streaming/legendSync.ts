@@ -18,6 +18,7 @@ import * as THREE from "three";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import type {LegendScope} from "../caseSteps";
 import {resolveContourRange} from "../contourScale";
 import {isPropertyField} from "../propertyColors";
 import {isTimeHistory} from "../timeHistory";
@@ -45,7 +46,11 @@ export function syncResultSession(args: {
      *  to the field's own step count. */
     nSlots?: number;
     /** What the range is measured over, for the legend to say. */
-    legendScope?: {scope: "all" | "stored" | "case" | "envelope"; label: string | null};
+    legendScope?: {scope: LegendScope; label: string | null};
+    /** The range the painters measured over what is shown, when they did. Takes the
+     *  place of ``rangeField``'s ``scalar_range`` so the legend describes the same
+     *  scale the elements were coloured on. */
+    autoRange?: readonly [number, number] | null;
 }): void {
     const {mesh, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor} = args;
     const rangeField = args.rangeField ?? field;
@@ -106,9 +111,11 @@ export function syncResultSession(args: {
         // does not know about is a legend that disagrees with the picture beside
         // it, which is worse than no legend at all.
         // A property ignores the result scale's pinned ends, as its painter does.
+        const property = isPropertyField(field);
+        animStore.setAutoRange(!property && args.autoRange ? [args.autoRange[0], args.autoRange[1]] : null);
         const [legendMin, legendMax] = resolveContourRange(
-            selectedResultRange(rangeField, reduction ?? "magnitude"),
-            isPropertyField(field) ? null : useFeaAnimationStore.getState().contour,
+            (!property && args.autoRange) || selectedResultRange(rangeField, reduction ?? "magnitude"),
+            property ? null : useFeaAnimationStore.getState().contour,
         );
         const legendStore = useColorStore.getState();
         legendStore.setMin(legendMin);

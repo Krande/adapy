@@ -32,6 +32,9 @@ export interface SpaceMouseState {
     dominantAxis: boolean;
     lockRotation: boolean;
     lockPan: boolean;
+    /** Use the cap's roll axis: the view turns about its own direction, off level.
+     *  Off (the default) keeps the camera level; switching it off levels the view again. */
+    enableRoll: boolean;
     button1: SpaceMouseButtonAction;
     button2: SpaceMouseButtonAction;
 
@@ -46,6 +49,7 @@ export interface SpaceMouseState {
     setDominantAxis: (v: boolean) => void;
     setLockRotation: (v: boolean) => void;
     setLockPan: (v: boolean) => void;
+    setEnableRoll: (v: boolean) => void;
     setButton1: (v: SpaceMouseButtonAction) => void;
     setButton2: (v: SpaceMouseButtonAction) => void;
     setConnection: (connection: SpaceMouseConnection, deviceName?: string | null, error?: string | null) => void;
@@ -61,6 +65,7 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
             dominantAxis: false,
             lockRotation: false,
             lockPan: false,
+            enableRoll: false,
             button1: "fitAll",
             button2: "fitSelection",
 
@@ -82,6 +87,7 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
             // on turns the other off.
             setLockRotation: (v) => set(v ? {lockRotation: true, lockPan: false} : {lockRotation: false}),
             setLockPan: (v) => set(v ? {lockPan: true, lockRotation: false} : {lockPan: false}),
+            setEnableRoll: (v) => set({enableRoll: v}),
             setButton1: (v) => set({button1: v}),
             setButton2: (v) => set({button2: v}),
             setConnection: (connection, deviceName = null, error = null) => set({connection, deviceName, error}),
@@ -96,6 +102,7 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
                 dominantAxis: s.dominantAxis,
                 lockRotation: s.lockRotation,
                 lockPan: s.lockPan,
+                enableRoll: s.enableRoll,
                 button1: s.button1,
                 button2: s.button2,
             }),

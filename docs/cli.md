@@ -12,6 +12,12 @@ ada --help
 In a pixi project (`pixi add ada-py`), run it through the project environment instead:
 `pixi run ada --help`.
 
+In a checkout of the adapy repository, `pixi run ada ...` runs the CLI from the
+checked-out source (`src/` on `PYTHONPATH`) rather than an installed release. It
+defaults to the `fem` environment, the one `pixi run test` uses; pass `-e`
+to run it in another environment that carries the `prod` feature, e.g.
+`pixi run -e tests ada view model.ifc`.
+
 The entry point lives in its own top-level package (`ada_cli`) so that
 `ada --help` does not import the full CAD/FEM surface. Every subcommand
 imports its implementation lazily, so an invocation only pays for what it uses.
@@ -20,9 +26,9 @@ One global option applies to all of them:
 
 `--log-level`
 :   Logging level for the commands that initialise the `ada` package
-    (`convert`, `view`, `audit repro`, `audit parity`). Default `INFO`.
+    (`convert`, `view`, `results`, `audit repro`, `audit parity`). Default `INFO`.
 
-`convert` and `view` take `--log-file PATH` as well -- a per-command option
+`convert`, `view` and `results` take `--log-file PATH` as well -- a per-command option
 rather than a global one, because argparse only accepts the global ones *before*
 the subcommand and `ada convert in out --log-file run.log` is how it gets
 typed.
@@ -33,16 +39,16 @@ a bare command with nothing to act on — a bare invocation prints that parser's
 because a wrong invocation must not look like success to a script. An explicit
 `--help` goes to stdout and exits `0`.
 
-`convert` and `view` also exit `2` for a usage error they raise
+`convert`, `view` and `results` also exit `2` for a usage error they raise
 themselves — an extension nothing can be inferred from, an output that names a
-directory, an input that is not there — printed as
-`ada <command>: error: <what was wrong>`. For those two, `1` means the
+directory, an input that is not there, two results on different meshes — printed as
+`ada <command>: error: <what was wrong>`. For those three, `1` means the
 invocation was fine and the work itself failed. The commands that talk to a
 hosted viewer (`files`, `audit`, `build`) predate this convention and
 return `1` for a request that failed or was declined.
 
-The command groups are `convert`, `view`, `build`, `files`, `audit`
-and `serve`. The first two run entirely locally; the rest of this page notes
+The command groups are `convert`, `view`, `results`, `build`, `files`, `audit`
+and `serve`. The first three run entirely locally; the rest of this page notes
 where a group talks to a hosted viewer instead.
 
 ## `ada convert`
@@ -230,20 +236,37 @@ hides an omission just as well as no log at all.
 
 ## `ada view`
 
-Open the built-in web viewer on a file.
+Open the built-in web viewer on a model or a result file.
+
+A result file is recognised by its extension and shown with its results, every
+field and step selectable in the viewer, as `ada.from_fem_res(path).show()`
+would:
+
+| Results | Extensions |
+|----|----|
+| `sesam` | `.sin`, `.sif` |
+| `abaqus` | `.odb` (needs a local Abaqus to export it) |
+| `calculix` | `.frd` |
+| `code_aster` | `.rmed` |
+| `opencourant` | `.radanim` |
 
 ```bash
 ada view model.ifc
 ada view model.ifc --renderer pygfx
 ada view deck.dat --from abaqus
+ada view run.SIN                                 # the results
+ada view run.SIN --super-element SEL12.IND1      # one superelement of the assembly
+ada view run.rmed --from code_aster              # the mesh alone
 ```
 
 `-f`, `--from`
-:   Read the input as this format instead of inferring it from the extension.
-    Same names as `ada convert`'s `--from`.
+:   Read the input as this model format instead of inferring it from the
+    extension. Same names as `ada convert`'s `--from`. On a result file it
+    reads the mesh alone, without the results.
 
 `--renderer`
-:   One of `react` (default), `pygfx` or `trimesh`.
+:   One of `react` (default), `pygfx` or `trimesh`. Results are shown with
+    `react` or `pygfx`.
 
 `--host`
 :   Host to bind the viewer websocket to. Default `localhost`.
@@ -253,6 +276,47 @@ ada view deck.dat --from abaqus
 
 `--split`, `--limit`, `--log-file`
 :   As for `ada convert`.
+
+`--super-element`
+:   Sesam `.SIN` only. A superelement assembly is read whole by default, every
+    superelement placed and merged; this reads one superelement instead, given as
+    a type number (`12`), type and instance (`12.1`) or Xtract's label
+    (`SEL12.IND1`). Repeat the flag to read several, merged like the whole
+    assembly.
+
+`--stats`
+:   Result files only: print the overview `ada results stats` prints before
+    showing the result.
+
+## `ada results`
+
+Read FEA result files -- the extensions `ada view` shows as results -- without
+opening a model. Both subcommands take `--super-element` and `--log-file`
+as `ada view` does.
+
+`ada results stats`
+:   Print an overview of one result file: the software, the steps with their
+    names, the mesh contents and one row per field (kind, steps, components,
+    shape).
+
+`ada results compare`
+:   Compare `OTHER` against `BASE`, two runs of the same model with different
+    loads or boundary conditions, and print the fields that differ, worst first.
+    Then show the difference `OTHER - BASE` in the viewer: one field per compared
+    field, for every load case and combination, each coloured on a scale centred
+    on zero, so a model compared with itself is one colour. The two must share a
+    mesh -- node and element ids, coordinates and connectivity -- or the command
+    exits `2`; `--no-check-mesh` compares anyway. `--fields` limits it to the
+    named fields, `--rtol` sets the relative difference above which a field
+    counts as differing (default `1e-5`), `--max-rows` caps the table (default
+    50, `0` for all), and `--no-show` stops after printing. `--renderer`
+    (`react` or `pygfx`), `--host` and `--ws-port` are as for `ada view`.
+
+```bash
+ada results stats run.SIN
+ada results compare base.SIN other.SIN
+ada results compare base.SIN other.SIN --fields sesam.nodes.displacement --no-show
+```
 
 ## `ada build`
 

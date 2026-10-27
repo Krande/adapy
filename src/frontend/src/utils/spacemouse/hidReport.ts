@@ -151,6 +151,9 @@ export interface AxisSettings {
     lockRotation: boolean;
     /** Drop the translation axes (rotate only). */
     lockPan: boolean;
+    /** Keep the roll axis. Off, it is dropped like a locked one, so it can neither
+     *  move the view nor win the dominant-axis pick. */
+    enableRoll?: boolean;
 }
 
 /**
@@ -184,6 +187,7 @@ export function processAxes(raw: ArrayLike<number>, settings: AxisSettings, out:
         else v = (v < 0 ? -1 : 1) * (mag - dz) / (1 - dz);
         if (invert[i]) v = -v;
         if ((i < 3 && settings.lockPan) || (i >= 3 && settings.lockRotation)) v = 0;
+        if (i === 5 && !settings.enableRoll) v = 0;
         out[i] = v;
         const m = v < 0 ? -v : v;
         if (m > strongestMag) {

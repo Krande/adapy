@@ -212,6 +212,15 @@ export function setResultLineSegmentsExcluded(mesh: THREE.Mesh, ids: ReadonlySet
     if (full) installLines(mesh, shownOf(mesh, full));
 }
 
+/** Is the beam `id` among the coloured lines drawn on `mesh`: inside the isolation (when
+ *  there is one) and not excluded. Whether the lines are on screen at all is the caller's
+ *  question -- they stand aside for the beam solids. */
+export function resultLineShown(mesh: THREE.Object3D, id: string): boolean {
+    const keep = mesh.userData.__feaLineIsolation as ReadonlySet<string> | undefined;
+    const drop = mesh.userData.__feaLineExcluded as ReadonlySet<string> | undefined;
+    return (!keep || keep.has(id)) && !drop?.has(id);
+}
+
 /** What of `full` is drawn: the isolation's members, less the excluded. */
 function shownOf(mesh: THREE.Mesh, full: LineData): LineData {
     const keep = (mesh.userData.__feaLineIsolation as ReadonlySet<string> | undefined) ?? null;

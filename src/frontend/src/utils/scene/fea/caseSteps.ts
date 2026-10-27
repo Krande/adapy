@@ -152,7 +152,7 @@ export function nextCaseToPrefetch(slots: readonly CaseStepSlot[], slot: number)
 }
 
 /** What the colour scale is measured over, and how the legend says so. */
-export type LegendScope = "all" | "stored" | "case" | "envelope";
+export type LegendScope = "shown" | "all" | "stored" | "case" | "envelope";
 
 export function legendScopeFor(args: {
     /** The manifest offers combinations (bake_version 4 with combination_steps). */
@@ -163,10 +163,14 @@ export function legendScopeFor(args: {
     envelopeMode: boolean;
     /** ... and the server answered with one for this field. */
     envelopeAvailable: boolean;
+    /** The range was measured over the shown step's drawn elements (shownRange.ts).
+     *  False where nothing coloured is drawn and the field's own range stood in. */
+    fromShown?: boolean;
 }): {scope: LegendScope; label: string | null} {
     if (args.hasCombinations && args.envelopeMode && args.envelopeAvailable) {
         return {scope: "envelope", label: "over all combinations"};
     }
+    if (args.fromShown) return {scope: "shown", label: "shown elements"};
     if (args.isCase) return {scope: "case", label: "this case"};
     if (args.hasCombinations) return {scope: "stored", label: "over stored cases"};
     return {scope: "all", label: null};

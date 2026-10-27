@@ -53,6 +53,17 @@ WRITE_FORMATS: dict[str, tuple[str, ...]] = {
     "opencourant": ("rad",),
 }
 
+#: Result files -> the solver whose results they hold, as ``ada.from_fem_res`` names it. ``ada view``
+#: shows these as results and ``ada results`` reads them. ``.sif`` and ``.rmed`` are read formats
+#: above too: they carry the mesh beside the results, and ``--from`` reads only that.
+RESULT_FORMATS: dict[str, tuple[str, ...]] = {
+    "sesam": ("sin", "sif"),
+    "abaqus": ("odb",),
+    "calculix": ("frd",),
+    "code_aster": ("rmed",),
+    "opencourant": ("radanim",),
+}
+
 #: The FEM formats, i.e. the ones that go through ``Assembly.to_fem`` / ``ada.from_fem``
 #: rather than a direct writer. Pinned against the library's own maps by the contract test.
 FEM_READ_FORMATS: tuple[str, ...] = ("abaqus", "sesam", "code_aster")
@@ -134,6 +145,12 @@ def infer_write_format(path) -> str | None:
     return DEFAULT_WRITE_BY_EXT.get(suffix(path))
 
 
+def infer_result_format(path) -> str | None:
+    """The solver whose results ``path``'s extension implies, or ``None`` if it is no result file."""
+    ext = suffix(path)
+    return next((name for name, exts in RESULT_FORMATS.items() if ext in exts), None)
+
+
 def format_table_text() -> str:
     """What ``ada convert --list-formats`` prints.
 
@@ -146,8 +163,14 @@ def format_table_text() -> str:
     lines += [
         "",
         "There is no --from calculix: a Calculix deck is an Abaqus deck to the reader, so",
-        "read one with --from abaqus. Calculix .frd results are not read at all -- they are",
-        "results, not a model. A .rmed IS read, as a mesh; its result fields are ignored.",
+        "read one with --from abaqus. Calculix .frd results are not converted -- they are",
+        "results, not a model. A .rmed or .sif IS read, as a mesh; its result fields are",
+        "ignored. ada view and ada results read result files with their results:",
+        "",
+    ]
+    for name, exts in RESULT_FORMATS.items():
+        lines.append(f"  {name:<12} {', '.join('.' + e for e in exts)}")
+    lines += [
         "",
         "xml and gnx are one model in two containers: a .gnx is the GeniE workspace, the",
         "concept XML zipped with its ACIS body, which is what GeniE opens directly. The",
