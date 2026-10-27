@@ -153,8 +153,26 @@ class FakeKV:
             raise KeyNotFoundError()
         return type("Entry", (), {"value": self.store[key]})()
 
-    async def keys(self):
-        return list(self.store)
+    async def watch(self, keys, **kwargs):
+        return _FakeWatcher(list(self.store))
+
+
+class _FakeWatcher:
+    """Replays the keys, then the ``None`` end-of-replay marker."""
+
+    def __init__(self, keys) -> None:
+        self._items = [type("Entry", (), {"key": k})() for k in keys] + [None]
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._items:
+            raise StopAsyncIteration
+        return self._items.pop(0)
+
+    async def stop(self):
+        self._items = []
 
 
 class FakeJS:

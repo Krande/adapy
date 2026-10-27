@@ -31,12 +31,32 @@ class FakeEntry:
         self.value = value
 
 
+class FakeWatcher:
+    """A key watcher that replays ``keys`` then the end-of-replay ``None``."""
+
+    def __init__(self, keys: list[str]):
+        self._items = [type("Entry", (), {"key": k})() for k in keys] + [None]
+        self.stopped = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.stopped or not self._items:
+            raise StopAsyncIteration
+        return self._items.pop(0)
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
 class FakeKV:
     """Enough of ``nats.js.kv.KeyValue`` for the registry methods."""
 
     def __init__(self, name: str):
         self.name = name
         self.store: dict[str, bytes] = {}
+        self.watches: list[tuple[str, dict, FakeWatcher]] = []
 
     async def put(self, key: str, value: bytes) -> None:
         self.store[key] = value
@@ -51,8 +71,10 @@ class FakeKV:
             raise KeyNotFoundError()
         del self.store[key]
 
-    async def keys(self) -> list[str]:
-        return list(self.store)
+    async def watch(self, keys: str, **kwargs) -> FakeWatcher:
+        watcher = FakeWatcher(list(self.store))
+        self.watches.append((keys, kwargs, watcher))
+        return watcher
 
 
 def _queue(registry_bucket: str = "") -> tuple[JobQueue, FakeKV, FakeKV]:
@@ -220,4 +242,32 @@ async def test_a_missing_registry_bucket_is_empty_not_an_error():
     q, _, _ = _queue("workers")
     q._registry_kv = None
     await q.register_worker("w1", {})  # quietly does nothing
+    assert await q.list_workers() == []
+
+
+# --- key scans must not leave consumers on the server ----------------------
+
+
+@pytest.mark.asyncio
+async def test_registry_scan_closes_its_consumer_quickly():
+    """nats-py's ``keys()`` leaves its ephemeral consumer on the server for five
+    minutes (the threshold is hard-coded; ``stop()`` only unsubscribes). Polled
+    every few seconds that kept 100+ consumers replaying the bucket and
+    OOM-killed NATS. The scan must ask for a short threshold and stop the
+    watcher."""
+    q, jobs, _ = _queue()
+    await q.register_worker("w1", {"image_tag": "t"})
+
+    assert [w["worker_id"] for w in await q.list_workers()] == ["w1"]
+
+    [(subject, kwargs, watcher)] = jobs.watches
+    assert subject == ">"
+    assert kwargs["inactive_threshold"] <= 10
+    assert kwargs["meta_only"] and kwargs["ignore_deletes"]
+    assert watcher.stopped
+
+
+@pytest.mark.asyncio
+async def test_an_empty_bucket_scans_as_no_workers():
+    q, _, _ = _queue()
     assert await q.list_workers() == []
