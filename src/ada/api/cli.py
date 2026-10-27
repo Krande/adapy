@@ -1,4 +1,5 @@
-"""The conversion engine behind ``ada convert`` (and the loader behind ``ada view``).
+"""The conversion engine behind ``ada convert``, the loaders behind ``ada view`` and the
+result commands behind ``ada results``.
 
 The parser lives in :mod:`ada_cli.main`; this module is only the implementation it imports
 lazily, so nothing here runs during ``ada --help``. The format tables come from
@@ -37,8 +38,10 @@ from ada_cli.formats import (
     FEM_READ_FORMATS,
     FEM_WRITE_FORMATS,
     READ_FORMATS,
+    RESULT_FORMATS,
     SHARED_WRITE_EXT,
     WRITE_FORMATS,
+    infer_result_format,
     primary_name,
     suffix,
 )
@@ -438,11 +441,83 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     return 0
 
 
+def _super_element_arg(specs: list[str] | None):
+    """``--super-element`` as ``ada.from_fem_res`` takes it: one spec, a list of them, or ``None``."""
+    if not specs:
+        return None
+    return specs[0] if len(specs) == 1 else list(specs)
+
+
+def _load_results(input_file, super_element: list[str] | None = None):
+    """Read the result file ``input_file`` into an :class:`~ada.fem.results.common.FEAResult`."""
+    import ada
+
+    path = pathlib.Path(input_file)
+    if not path.is_file():
+        raise CliUsageError(f"input file not found: {input_file}")
+
+    fmt = infer_result_format(path)
+    if fmt is None:
+        known = ", ".join("." + e for exts in RESULT_FORMATS.values() for e in exts)
+        raise CliUsageError(f"{_ext_label(path)} is not a result file; result files are {known}")
+    if super_element and suffix(path) != "sin":
+        raise CliUsageError("--super-element applies to a Sesam .SIN only")
+
+    return ada.from_fem_res(path, fem_format=fmt, super_element=_super_element_arg(super_element))
+
+
 def _cmd_view(args: argparse.Namespace) -> None:
+    from_format = getattr(args, "from_format", None)
+    super_element = getattr(args, "super_element", None)
+
+    # A result file shows its results, unless --from asks for it to be read as a model.
+    if from_format is None and infer_result_format(args.input) is not None:
+        if args.renderer == "trimesh":
+            raise CliUsageError("results are shown with --renderer react or pygfx, not trimesh")
+        result = _load_results(args.input, super_element)
+        if getattr(args, "stats", False):
+            print(result.stats(), flush=True)
+        result.show(renderer=args.renderer, host=args.host, port=args.ws_port)
+        return
+
+    if super_element:
+        raise CliUsageError("--super-element applies to a Sesam .SIN result file only")
+    if getattr(args, "stats", False):
+        raise CliUsageError("--stats applies to result files only")
+
     model = _load(
         args.input,
-        fmt=getattr(args, "from_format", None),
+        fmt=from_format,
         split=args.split,
         limit=args.limit,
     )
     model.show(renderer=args.renderer, host=args.host, ws_port=args.ws_port)
+
+
+def _cmd_results_stats(args: argparse.Namespace) -> int:
+    result = _load_results(args.input, args.super_element)
+    print(repr(result))
+    print(result.stats())
+    return 0
+
+
+def _cmd_results_compare(args: argparse.Namespace) -> int:
+    from ada.fem.results.compare import DEFAULT_RTOL
+
+    base = _load_results(args.base, args.super_element)
+    other = _load_results(args.other, args.super_element)
+    try:
+        comparison = base.compare(other, fields=args.fields, check_mesh=args.check_mesh)
+    except ValueError as exc:
+        # The meshes differ: a usage mistake (the wrong pair of files), not a failure of the work.
+        if "the meshes differ" not in str(exc):
+            raise
+        message = str(exc).replace("pass check_mesh=False", "pass --no-check-mesh")
+        raise CliUsageError(message) from None
+
+    rtol = DEFAULT_RTOL if args.rtol is None else args.rtol
+    print(repr(comparison))
+    print(comparison.stats(rtol=rtol, max_rows=args.max_rows or None), flush=True)
+    if args.show:
+        comparison.show(renderer=args.renderer, host=args.host, port=args.ws_port)
+    return 0

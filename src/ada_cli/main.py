@@ -9,7 +9,8 @@ pays for what it uses.
 Subcommand layout:
 
     ada convert IN OUT [--to F] [--from F]   local format conversion
-    ada view IN [--renderer ...]      local web viewer
+    ada view IN [--renderer ...]      local web viewer (a result file shows its results)
+    ada results stats|compare         summarise FEA results / compare two runs (local)
     ada build run|upload|run-and-upload
                                       build artefacts and push to viewer
     ada files list|download|upload|delete   list / transfer / remove blobs in a scope
@@ -37,6 +38,7 @@ import sys
 from ada_cli.formats import (
     DEFAULT_WRITE_BY_EXT,
     READ_FORMATS,
+    RESULT_FORMATS,
     SHARED_WRITE_EXT,
     WRITE_FORMATS,
     format_table_text,
@@ -55,6 +57,18 @@ def _cmd_view(args: argparse.Namespace) -> int:
 
     impl(args)
     return 0
+
+
+def _cmd_results_stats(args: argparse.Namespace) -> int:
+    from ada.api.cli import _cmd_results_stats as impl
+
+    return impl(args)
+
+
+def _cmd_results_compare(args: argparse.Namespace) -> int:
+    from ada.api.cli import _cmd_results_compare as impl
+
+    return impl(args)
 
 
 def _cmd_build_run(args: argparse.Namespace) -> int:
@@ -290,10 +304,39 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
     p.set_defaults(func=_cmd_convert, needs_ada_logging=True)
 
 
+def _result_ext_spec() -> str:
+    return ", ".join("." + e for exts in RESULT_FORMATS.values() for e in exts)
+
+
+def _add_super_element(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--super-element",
+        dest="super_element",
+        action="append",
+        default=None,
+        metavar="SEL",
+        help=(
+            "Sesam .SIN only: read this superelement instead of the whole assembly, as a type "
+            "number (12), type.instance (12.1) or Xtract's label (SEL12.IND1). Repeat it to read "
+            "several, merged like the whole assembly."
+        ),
+    )
+
+
+def _add_viewer_opts(p: argparse.ArgumentParser, renderers: tuple[str, ...]) -> None:
+    p.add_argument("--renderer", default="react", choices=renderers)
+    p.add_argument("--host", default="localhost")
+    p.add_argument("--ws-port", type=int, default=8765)
+
+
 def _add_view(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "view",
         help="Open the built-in web viewer on the given file (local).",
+        description=(
+            "Open the built-in web viewer on a model or a result file. A result file "
+            f"({_result_ext_spec()}) is shown with its results; --from reads only its mesh."
+        ),
     )
     p.add_argument("input", help="Input file path.")
     p.add_argument(
@@ -302,15 +345,84 @@ def _add_view(sub: argparse._SubParsersAction) -> None:
         dest="from_format",
         choices=tuple(READ_FORMATS),
         metavar="FORMAT",
-        help="Read the input as this format instead of inferring it from the extension.",
+        help=(
+            "Read the input as this model format instead of inferring it from the extension. "
+            "On a result file this reads the mesh alone."
+        ),
     )
-    p.add_argument("--renderer", default="react", choices=["react", "pygfx", "trimesh"])
-    p.add_argument("--host", default="localhost")
-    p.add_argument("--ws-port", type=int, default=8765)
+    _add_viewer_opts(p, ("react", "pygfx", "trimesh"))
     p.add_argument("--split", action="store_true")
     p.add_argument("--limit", type=int, default=None)
+    _add_super_element(p)
+    p.add_argument(
+        "--stats",
+        action="store_true",
+        help="Result files: print the overview of steps, mesh and fields before showing it.",
+    )
     _add_log_file(p)
     p.set_defaults(func=_cmd_view, needs_ada_logging=True)
+
+
+def _add_results(sub: argparse._SubParsersAction) -> None:
+    results = sub.add_parser(
+        "results",
+        help="Summarise FEA result files or compare two runs of one model (local).",
+        description=f"Read FEA result files ({_result_ext_spec()}).",
+    )
+    results_sub = results.add_subparsers(dest="results_command", required=True)
+
+    stats = results_sub.add_parser(
+        "stats",
+        help="Print an overview of a result file: steps, mesh and one row per field.",
+    )
+    stats.add_argument("input", help="Result file path.")
+    _add_super_element(stats)
+    _add_log_file(stats)
+    stats.set_defaults(func=_cmd_results_stats, needs_ada_logging=True)
+
+    compare = results_sub.add_parser(
+        "compare",
+        help="Compare two results on the same mesh, print the differences and show OTHER - BASE.",
+        description=(
+            "Compare OTHER against BASE, both computed on the same mesh (the same model with "
+            "different loads or boundary conditions). Prints the fields that differ, worst first, "
+            "then shows the difference OTHER - BASE in the viewer: one field per compared field, "
+            "for every load case and combination, each coloured on a scale centred on zero."
+        ),
+    )
+    compare.add_argument("base", help="The result the differences are measured from.")
+    compare.add_argument("other", help="The result compared against it.")
+    compare.add_argument(
+        "--fields",
+        nargs="+",
+        default=None,
+        metavar="NAME",
+        help="Compare only these fields. Default: every field both results have.",
+    )
+    compare.add_argument(
+        "--rtol",
+        type=float,
+        default=None,
+        help="Relative difference above which a field counts as differing (default 1e-5).",
+    )
+    compare.add_argument(
+        "--max-rows",
+        type=int,
+        default=50,
+        metavar="N",
+        help="Rows in the table of differing fields; 0 lists them all. Default 50.",
+    )
+    compare.add_argument(
+        "--no-check-mesh",
+        dest="check_mesh",
+        action="store_false",
+        help="Compare even if the node or element ids, coordinates or connectivity differ.",
+    )
+    compare.add_argument("--no-show", dest="show", action="store_false", help="Print the comparison only.")
+    _add_super_element(compare)
+    _add_viewer_opts(compare, ("react", "pygfx"))
+    _add_log_file(compare)
+    compare.set_defaults(func=_cmd_results_compare, needs_ada_logging=True)
 
 
 def _add_build(sub: argparse._SubParsersAction) -> None:
@@ -419,7 +531,7 @@ def _add_serve(sub: argparse._SubParsersAction) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ada",
-        description="adapy CLI — convert, view, build, and serve.",
+        description="adapy CLI — convert, view, compare results, build, and serve.",
     )
     parser.add_argument(
         "--log-level",
@@ -430,6 +542,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     _add_convert(sub)
     _add_view(sub)
+    _add_results(sub)
     _add_build(sub)
     _add_files(sub)
     _add_audit(sub)
