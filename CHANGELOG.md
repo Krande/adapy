@@ -2,6 +2,13 @@
 
 
 
+## v0.121.1 (2026-10-27)
+
+### Fix
+
+* fix(viewer): key scans no longer leave NATS consumers behind (#468) ([`57bd345`](https://github.com/Krande/adapy/commit/57bd3452dc56bd0821fdd1fabb1f904a54b0ff2b))
+
+
 ## v0.121.0 (2026-10-27)
 
 ### Feature
