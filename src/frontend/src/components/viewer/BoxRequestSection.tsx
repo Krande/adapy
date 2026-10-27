@@ -1,5 +1,6 @@
 // "Request from source" in a selection box's right-click menu: which elements (partially or fully
-// within the box), which source to ask, then the question -- "N members have no geometry there,
+// within the box), which source to ask (the first available one by default, any other by choice),
+// then the question -- "N members have no geometry there,
 // request them?" -- and the answer. The flow lives in `state/boxRequestStore`, so it goes on (and
 // the Scene panel's box list shows it) after the menu closes.
 
@@ -25,7 +26,7 @@ const btn = "rounded-sm px-1.5 py-0.5 text-[11px] text-gray-100 disabled:opacity
 
 export const BoxRequestSection: React.FC<{box: SelectionBox}> = ({box}) => {
     const entry = useBoxRequestStore((s) => s.byBox[box.id]);
-    const patch = useBoxRequestStore((s) => s.patch);
+    const chooseProvider = useBoxRequestStore((s) => s.chooseProvider);
     const busy = isBoxRequestBusy(entry);
 
     // On open: read the choices for the box as it is now, in the request's mode -- the box's own
@@ -66,7 +67,7 @@ export const BoxRequestSection: React.FC<{box: SelectionBox}> = ({box}) => {
                         className="mt-0.5 block w-full rounded-sm bg-gray-700 text-[11px] text-white"
                         value={entry?.providerId ?? ""}
                         disabled={busy}
-                        onChange={(e) => patch(box.id, {providerId: e.target.value, phase: "ready", plan: null, message: null})}
+                        onChange={(e) => chooseProvider(box.id, e.target.value)}
                     >
                         {choices.map((c) => (
                             <option key={c.providerId} value={c.providerId}>
