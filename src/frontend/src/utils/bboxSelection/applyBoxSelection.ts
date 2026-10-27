@@ -14,7 +14,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {sectionClippingPlanes} from "@/utils/scene/section_clipping";
 
-import {padded, type Aabb} from "./boxMath";
+import {padded, type Aabb, type BoxSelectMode} from "./boxMath";
 import {boundsOfRanges, rangesInBox} from "./rangeBounds";
 import {rangesInScreenRect, type NdcRect, type ScreenBoxMode} from "./screenBox";
 
@@ -112,12 +112,21 @@ export function selectInScreenRect(rect: NdcRect, mode: ScreenBoxMode, camera: T
     return batch.length;
 }
 
-function boxBatch(box: SelectionBox, scene: THREE.Object3D): [CustomBatchedMesh, string][] {
+/** What box `id` takes in `mode` (its own mode when omitted), without touching the selection:
+ *  the same elements "Reselect" would select. Empty when the box or the scene is gone. */
+export function boxRanges(id: string, mode?: BoxSelectMode): [CustomBatchedMesh, string][] {
+    const box = useBBoxSelectionStore.getState().boxes.find((b) => b.id === id);
+    const scene = getViewerRuntime().scene.current;
+    if (!box || !scene) return [];
+    return boxBatch(box, scene, mode ?? box.mode);
+}
+
+function boxBatch(box: SelectionBox, scene: THREE.Object3D, mode: BoxSelectMode = box.mode): [CustomBatchedMesh, string][] {
     const bounds: Aabb = {min: box.min, max: box.max};
     const batch: [CustomBatchedMesh, string][] = [];
     const planes = sectionClippingPlanes();
     for (const mesh of visibleMeshes(scene)) {
-        for (const id of rangesInBox(mesh, bounds, box.mode, mesh.getHiddenRanges(), planes)) batch.push([mesh, id]);
+        for (const id of rangesInBox(mesh, bounds, mode, mesh.getHiddenRanges(), planes)) batch.push([mesh, id]);
     }
     return batch;
 }
