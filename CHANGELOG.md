@@ -2,6 +2,15 @@
 
 
 
+## v0.121.0 (2026-10-27)
+
+### Feature
+
+* feat: FEA results in the CLI, colour scale over what is shown, optional 3D-mouse roll (#467)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`5563d7e`](https://github.com/Krande/adapy/commit/5563d7e51a5c64ad8bb4243e8b81f16ef8b3cf16))
+
+
 ## v0.120.1 (2026-10-27)
 
 ### Fix
