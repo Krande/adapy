@@ -39,6 +39,7 @@ import {loadFeaWithDefaults} from "../fea/streaming/loadWithDefaults";
 import type {LoadFeaStreamingArgs} from "../fea/streaming/types";
 import {paintElemField} from "../fea/streaming/paintElemField";
 import {paintNodeField} from "../fea/streaming/paintNodeField";
+import {followShownRange, notePaintedShown} from "../fea/streaming/shownRangeRepaint";
 import {fetchBeamSolidWarpSidecar, tryLoadBeamSolids} from "../fea/streaming/beamSolids";
 import {installElementEdges} from "../fea/streaming/elementEdges";
 import {refreshUndeformedGhost, setFeaResultColorsVisible, syncFeaOverlayVisibility} from "../fea/streaming/visibility";
@@ -273,12 +274,16 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
             envelopeAvailable = true;
         }
     }
-    const legendScope = legendScopeFor({
-        hasCombinations: lazy,
-        isCase,
-        envelopeMode: useFeaAnimationStore.getState().envelopeMode,
-        envelopeAvailable,
-    });
+    // Otherwise the scale describes the picture: this step's values on the elements
+    // drawn (shownRange.ts). A scale pinned at both ends describes nothing measured,
+    // and a property keeps its own categorical range.
+    const contourNow = useFeaAnimationStore.getState().contour;
+    const rangeFromShown =
+        !!paintField
+        && !envelopeAvailable
+        && !isPropertyField(paintField)
+        && !(contourNow.min !== null && contourNow.max !== null);
+    let shownRange: [number, number] | null = null;
 
     // Resolve the warp source. The picked field drives colour
     // regardless; warp depends on category:
@@ -311,17 +316,27 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     );
 
     if (paintField.per_type && paintField.per_type.length > 0) {
-        await paintElemField({
+        shownRange = await paintElemField({
             active, field: paintField, stepIndex: paintStep, reduction: reductionStr, displacementScale, colormap,
-            contour, warpInfo, rangeFetcher, fetcher, cacheKey,
+            contour, warpInfo, rangeFetcher, fetcher, cacheKey, rangeFromShown,
         });
     } else {
-        await paintNodeField({
+        shownRange = await paintNodeField({
             active, field: paintField, stepIndex: paintStep, reduction: reductionStr, displacementScale, colormap,
-            contour, warpInfo, rangeFetcher, fetcher, cacheKey,
+            contour, warpInfo, rangeFetcher, fetcher, cacheKey, rangeFromShown,
         });
     }
     } // end if (field)
+    // Hiding or showing elements from here on re-measures the scale.
+    followShownRange();
+    notePaintedShown(rangeFromShown);
+    const legendScope = legendScopeFor({
+        hasCombinations: lazy,
+        isCase,
+        envelopeMode: useFeaAnimationStore.getState().envelopeMode,
+        envelopeAvailable,
+        fromShown: shownRange !== null,
+    });
 
     stage("rendering", 0.9);
     throwIfAborted();
@@ -355,7 +370,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // session it drives, the field's range, the derived warp scale.
     syncResultSession({
         mesh: active.mesh, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor,
-        rangeField: paintField, nSlots: field ? nSlots : undefined, legendScope,
+        rangeField: paintField, nSlots: field ? nSlots : undefined, legendScope, autoRange: shownRange,
     });
 
     // The colours and legend above assume nobody else owns the scene colouring.

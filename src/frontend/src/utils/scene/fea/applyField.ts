@@ -74,6 +74,9 @@ export interface ApplyFieldArgs {
      * function of its arguments — the same reason ``colormap`` is a parameter.
      */
     contour?: ContourSettings | null;
+    /** The range the scale follows where ``contour`` pins no end -- what is shown
+     *  (``shownNodalRange``). Omitted: the field's ``scalar_range``. */
+    autoRange?: readonly [number, number] | null;
 }
 
 function pickRange(field: FeaManifestField, reduction: string): [number, number] {
@@ -115,6 +118,7 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         displacementScale = 1,
         colormap: colormapName,
         contour,
+        autoRange,
     } = args;
     const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
     clearResultPointMarkers(mesh);
@@ -164,7 +168,7 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     const sourceDisplacement = new Float32Array(basePositions.length);
     const sourceColors = new Float32Array(n_points * 3);
 
-    const [rangeMin, rangeMax] = resolveContourRange(pickRange(colorField, reduction), contour);
+    const [rangeMin, rangeMax] = resolveContourRange(autoRange ?? pickRange(colorField, reduction), contour);
     const range = rangeMax - rangeMin;
     const scaleColor = range > 0 ? 1 / range : 0;
 

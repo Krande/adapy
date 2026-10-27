@@ -51,7 +51,10 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
     useEffect(() => setMaxText(boundText(contour.max)), [contour.max]);
 
     const field = manifest?.fields.find((f) => f.name_canonical === fieldName) ?? null;
-    const auto = field ? selectedResultRange(field, reduction) : ([0, 1] as [number, number]);
+    // An unpinned end follows what is shown (the last paint's measured range), or
+    // the field's own range where the scale was not measured over the drawing.
+    const shownRange = useFeaAnimationStore((s) => s.autoRange);
+    const auto = shownRange ?? (field ? selectedResultRange(field, reduction) : ([0, 1] as [number, number]));
     const banded = contour.levels !== null;
 
     const commitBounds = () => {
@@ -127,7 +130,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                 type="button"
                 className="self-start rounded-sm border border-[var(--ada-panel-border)] px-2 py-0.5 hover:bg-[var(--ada-panel-surface)]"
                 onClick={() => void resetContourBounds()}
-                title="Back to this field's own minimum and maximum"
+                title="Back to the minimum and maximum of what is shown"
             >
                 Reset range
             </button>

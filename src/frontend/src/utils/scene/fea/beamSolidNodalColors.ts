@@ -80,6 +80,9 @@ export function beamSolidNodalColors(
     colormapName: string | undefined,
     nPoints: number,
     contour?: ContourSettings | null,
+    /** The range the scale follows where ``contour`` pins no end; the field's own
+     *  when omitted. The same one the shells were painted with. */
+    autoRange?: readonly [number, number] | null,
 ): Float32Array | null {
     const nc = field.components.length;
     if (nc === 0 || stepValues.length < nPoints * nc) return null;
@@ -89,7 +92,7 @@ export function beamSolidNodalColors(
 
     const scalars = nodalScalars(field, stepValues, reduction, nPoints);
     const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
-    const [lo, hi] = resolveContourRange(pickRange(field, reduction), contour);
+    const [lo, hi] = resolveContourRange(autoRange ?? pickRange(field, reduction), contour);
     const span = hi - lo;
     const scale = span > 0 ? 1 / span : 0;
 

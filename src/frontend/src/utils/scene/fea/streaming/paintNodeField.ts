@@ -8,7 +8,8 @@
 // contour range and morph influence.
 //
 // Inputs: the session handle, the field + step, the user's view settings, the
-// resolved warp source, and the blob fetchers.
+// resolved warp source, and the blob fetchers. Returns the range the scale was
+// measured over when it was taken from what is shown, for the legend.
 
 import * as THREE from "three";
 
@@ -18,7 +19,8 @@ import {fetchFieldStep} from "@/services/feaFieldBlob";
 import type {FeaManifestField} from "@/services/viewerApi";
 import type {FeaSessionHandle} from "@/state/modelSession";
 import {applyFieldToMesh} from "../applyField";
-import {beamSolidNodalColors} from "../beamSolidNodalColors";
+import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
+import {shownNodalRange} from "../shownRange";
 import {expandSourceTriples, sourceVertexIndices} from "../elementLocalGeometry";
 import {installBeamSolidWarp} from "./warp";
 
@@ -40,12 +42,26 @@ export async function paintNodeField(args: {
     rangeFetcher: FeaRangeFetcher;
     fetcher: FeaFetcher;
     cacheKey: string;
-}): Promise<void> {
+    /** Measure the scale over this step's values on the drawn elements
+     *  (shownRange.ts) rather than the field's ``scalar_range``. */
+    rangeFromShown: boolean;
+}): Promise<[number, number] | null> {
     const {
         active, field, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
-        warpInfo, rangeFetcher, fetcher, cacheKey,
+        warpInfo, rangeFetcher, fetcher, cacheKey, rangeFromShown,
     } = args;
     const colorStepValues = await fetchFieldStep(rangeFetcher, fetcher, field, stepIndex, cacheKey);
+
+    // One range for every surface below: the shells, the beam solids and the legend.
+    const nPoints = active.basePositions.length / 3;
+    const autoRange = rangeFromShown
+        ? shownNodalRange(nodalScalars(field, colorStepValues, reductionStr, nPoints), {
+            mesh: active.mesh,
+            nPoints,
+            beamSolidMesh: active.beamSolidMesh,
+            beamSolidWarp: active.beamSolidWarp,
+        })
+        : null;
 
     applyFieldToMesh({
         mesh: active.mesh,
@@ -58,6 +74,7 @@ export async function paintNodeField(args: {
         displacementScale,
         colormap,
         contour,
+        autoRange,
     });
 
     // Beam-solid mesh: paint it from the same nodal field.
@@ -91,8 +108,9 @@ export async function paintNodeField(args: {
                 reductionStr,
                 active.beamSolidWarp,
                 colormap,
-                active.basePositions.length / 3,
+                nPoints,
                 contour,
+                autoRange,
             );
             if (sourceColors) {
                 const geom = active.beamSolidMesh.geometry;
@@ -129,4 +147,5 @@ export async function paintNodeField(args: {
             );
         }
     }
+    return autoRange;
 }

@@ -9,7 +9,8 @@
 //
 // Inputs: the session handle, the field + step, the user's view settings, the
 // resolved warp source, and the blob fetchers. Reads the layer / IP-reduction /
-// nodal-average toggles from `useFeaAnimationStore`.
+// nodal-average toggles from `useFeaAnimationStore`. Returns the range the scale
+// was measured over when it was taken from what is shown, for the legend.
 
 import type {ContourSettings} from "../contourScale";
 import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
@@ -17,7 +18,8 @@ import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import type {FeaManifestField} from "@/services/viewerApi";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import type {FeaSessionHandle} from "@/state/modelSession";
-import {applyElemFieldToMesh} from "../applyElemField";
+import {applyElemFieldToMesh, shownElemFieldRange} from "../applyElemField";
+import {elementShownPredicate} from "../shownRange";
 import {installBeamSolidWarp} from "./warp";
 
 export async function paintElemField(args: {
@@ -38,10 +40,13 @@ export async function paintElemField(args: {
     rangeFetcher: FeaRangeFetcher;
     fetcher: FeaFetcher;
     cacheKey: string;
-}): Promise<void> {
+    /** Measure the scale over this step's values on the drawn elements
+     *  (shownRange.ts) rather than the field's ``scalar_range``. */
+    rangeFromShown: boolean;
+}): Promise<[number, number] | null> {
     const {
         active, field, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
-        warpInfo, rangeFetcher, fetcher, cacheKey,
+        warpInfo, rangeFetcher, fetcher, cacheKey, rangeFromShown,
     } = args;
     // Element-field render path (AFEL). Range-fetch one step per
     // element-type bucket in parallel; the bake guarantees parallel
@@ -63,6 +68,23 @@ export async function paintElemField(args: {
         ),
     );
     const {layer, ipReduction, nodalAverage} = useFeaAnimationStore.getState();
+    // One range for every surface below: the shells, the beam solids, the beam lines
+    // and the legend.
+    const autoRange = rangeFromShown
+        ? shownElemFieldRange({
+            field,
+            perTypeStepValues,
+            layer,
+            ipReduction,
+            reduction: reductionStr,
+            isShown: elementShownPredicate({
+                mesh: active.mesh,
+                nPoints: active.basePositions.length / 3,
+                beamSolidMesh: active.beamSolidMesh,
+                beamSolidWarp: active.beamSolidWarp,
+            }),
+        })
+        : null;
     applyElemFieldToMesh({
         mesh: active.mesh,
         basePositions: active.basePositions,
@@ -76,6 +98,7 @@ export async function paintElemField(args: {
         displacementScale,
         colormap,
         contour,
+        autoRange,
         nodalAverage,
         // Only where the deck cannot show beam solids. Where it can, the beam
         // carries its result on its own surface, and a coloured line as well
@@ -123,6 +146,7 @@ export async function paintElemField(args: {
             displacementScale,
             colormap,
             contour,
+            autoRange,
             nodalAverage: false,
         });
         if (active.beamSolidWarp) {
@@ -137,4 +161,5 @@ export async function paintElemField(args: {
             );
         }
     }
+    return autoRange;
 }
