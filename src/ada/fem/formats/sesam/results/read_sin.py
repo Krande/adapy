@@ -30,6 +30,7 @@ from ada.fem.formats.sesam.results.sin_reader import (
     SuperElementSpec,
     open_sin,
 )
+from ada.fem.results import sin_native
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
@@ -1053,6 +1054,23 @@ def _present_complex_ragged(card, rows: _RaggedRows, complex_steps, phase: float
     if bad.any():
         ires = int(rows.heads[int(np.argmax(bad)), ires_i])
         raise ValueError(f"{card.name}: case {ires} is flagged complex but stores an odd count of values")
+
+    native = sin_native.kernels()
+    if (
+        native is not None
+        and rows.values.dtype == np.float32
+        and rows.heads.dtype == np.float64
+        and rows.heads.ndim == 2
+        and rows.heads.shape[1] == value_start
+    ):
+        heads, new_lengths, values = native.present_complex(
+            np.ascontiguousarray(rows.heads),
+            np.ascontiguousarray(lengths, dtype=np.int64),
+            np.ascontiguousarray(rows.values),
+            np.ascontiguousarray(is_complex),
+            float(phase),
+        )
+        return _RaggedRows(list(rows.header), heads, new_lengths, values)
 
     # Word positions of the complex rows' (R, I) pairs only -- a table may be mostly real.
     complex_rows = np.flatnonzero(is_complex)

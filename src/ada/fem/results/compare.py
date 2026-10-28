@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Iterator, Protocol
 
 import numpy as np
 
+from ada.fem.results import sin_native
 from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 
 if TYPE_CHECKING:
@@ -333,7 +334,7 @@ class _StreamComparison:
             self._pair(self.pending_base.pop(key), self.pending_other.pop(key))
 
     def _pair(self, base_field, other_field) -> None:
-        aligned = _aligned_diff(base_field, other_field)
+        aligned = _aligned_diff(base_field, other_field, with_diff=self.keep_difference)
         self.diffs.append(_field_diff(base_field, other_field, aligned))
         if self.keep_difference and not _is_property_field(base_field.name):
             self.difference_fields.append(_difference_field(base_field, aligned[0], aligned[1]))
@@ -381,28 +382,75 @@ def mesh_difference(a: Mesh, b: Mesh) -> str | None:
     if len(moved):
         return f"{len(moved)} node(s) at different coordinates, e.g. node {int(a_ids[a_order][moved[0]])}"
 
-    a_conn, b_conn = _connectivity(a), _connectivity(b)
-    if len(a_conn) != len(b_conn):
-        return f"{len(a_conn)} vs {len(b_conn)} elements"
-    if a_conn.keys() != b_conn.keys():
+    a_conn, b_conn = _Connectivity.of(a), _Connectivity.of(b)
+    if len(a_conn.labels) != len(b_conn.labels):
+        return f"{len(a_conn.labels)} vs {len(b_conn.labels)} elements"
+    if not np.array_equal(a_conn.labels, b_conn.labels):
         return "different element ids"
-    for el_id, refs in a_conn.items():
-        if refs != b_conn[el_id]:
-            return f"element {el_id} has different nodes"
+    differing = a_conn.differs_from(b_conn)
+    if differing.any():
+        # The first in a's element order, as a walk over its elements would report it.
+        order = np.where(differing, a_conn.first_seen, np.iinfo(np.int64).max)
+        return f"element {int(a_conn.labels[np.argmin(order)])} has different nodes"
     return None
 
 
-def _connectivity(mesh: Mesh) -> dict[int, tuple]:
-    out = {}
-    for block in mesh.elements or []:
-        refs = block.node_refs
-        if block.node_refs_are_indices:
-            # Back to node ids, so two meshes with different node order still compare equal.
-            ids = np.asarray(mesh.nodes.identifiers)
-            refs = [ids[np.asarray(r, dtype=int)] for r in refs]
-        for label, r in zip(block.identifiers, refs):
-            out[int(label)] = tuple(int(x) for x in np.asarray(r).ravel())
-    return out
+@dataclass
+class _Connectivity:
+    """A mesh's element -> node ids, one entry per element id (a repeated id keeps its last
+    definition), sorted by id: ``refs[offsets[k]:offsets[k] + lengths[k]]`` are element ``labels[k]``'s
+    node ids, ``first_seen[k]`` where the id first appears in the mesh's element order."""
+
+    labels: np.ndarray
+    lengths: np.ndarray
+    offsets: np.ndarray
+    refs: np.ndarray
+    first_seen: np.ndarray
+
+    @classmethod
+    def of(cls, mesh: Mesh) -> "_Connectivity":
+        labels, lengths, refs = [], [], []
+        for block in mesh.elements or []:
+            ids = np.asarray(mesh.nodes.identifiers) if block.node_refs_are_indices else None
+            block_labels = np.asarray(block.identifiers).astype(np.int64)
+            block_refs = block.node_refs
+            n = min(len(block_labels), len(block_refs))
+            if isinstance(block_refs, np.ndarray) and block_refs.ndim >= 2:
+                rows = block_refs[:n].reshape(n, -1)
+                # Back to node ids, so two meshes with different node order still compare equal.
+                rows = ids[rows.astype(int)] if ids is not None else rows
+                lengths.append(np.full(n, rows.shape[1], dtype=np.int64))
+                refs.append(np.asarray(rows).astype(np.int64).ravel())
+            else:
+                per = [np.asarray(r).ravel() for r in list(block_refs)[:n]]
+                if ids is not None:
+                    per = [ids[np.asarray(r, dtype=int)] for r in per]
+                lengths.append(np.fromiter((r.size for r in per), dtype=np.int64, count=n))
+                refs.append(np.concatenate(per).astype(np.int64) if per else np.empty(0, np.int64))
+            labels.append(block_labels[:n])
+        labels = np.concatenate(labels) if labels else np.empty(0, np.int64)
+        lengths = np.concatenate(lengths) if lengths else np.empty(0, np.int64)
+        refs = np.concatenate(refs) if refs else np.empty(0, np.int64)
+        starts = np.cumsum(lengths) - lengths
+        uniq, first_seen = np.unique(labels, return_index=True)
+        _, last_rev = np.unique(labels[::-1], return_index=True)
+        last = len(labels) - 1 - last_rev
+        return cls(uniq, lengths[last], starts[last], refs, first_seen)
+
+    def differs_from(self, other: "_Connectivity") -> np.ndarray:
+        """Per element (both sorted by the same ids): whether its node ids differ."""
+        differ = self.lengths != other.lengths
+        same = ~differ
+        n = self.lengths[same]
+        total = int(n.sum())
+        if total:
+            within = np.arange(total, dtype=np.int64) - np.repeat(np.cumsum(n) - n, n)
+            mine = self.refs[np.repeat(self.offsets[same], n) + within]
+            theirs = other.refs[np.repeat(other.offsets[same], n) + within]
+            bad = np.concatenate(([0], np.cumsum(mine != theirs)))
+            ends = np.cumsum(n)
+            differ[same] = (bad[ends] - bad[ends - n]) > 0
+        return differ
 
 
 def _is_property_field(name: str) -> bool:
@@ -444,8 +492,9 @@ def _row_keys(values: np.ndarray, num_key_cols: int) -> np.ndarray:
     return keys
 
 
-def _aligned_diff(base_field, other_field):
-    """``(key columns, other - base, base values, other values, num unmatched)`` over the shared rows."""
+def _aligned_diff(base_field, other_field, with_diff: bool = True):
+    """``(key columns, other - base, base values, other values, num unmatched)`` over the shared rows.
+    Without ``with_diff`` the difference is None (:func:`_field_diff` forms only what it needs)."""
     n_keys = _num_key_cols(base_field)
     a, b = np.asarray(base_field.values, dtype=float), np.asarray(other_field.values, dtype=float)
     if a.shape == b.shape and np.array_equal(a[:, :n_keys], b[:, :n_keys]):
@@ -458,7 +507,7 @@ def _aligned_diff(base_field, other_field):
         unmatched = len(a) + len(b) - 2 * len(ia)
     n_comp = min(a_vals.shape[1], b_vals.shape[1])
     a_vals, b_vals = a_vals[:, :n_comp], b_vals[:, :n_comp]
-    return keys, b_vals - a_vals, a_vals, b_vals, unmatched
+    return keys, (b_vals - a_vals) if with_diff else None, a_vals, b_vals, unmatched
 
 
 def _nanmax_abs(x: np.ndarray) -> np.ndarray:
@@ -480,7 +529,20 @@ def _difference_field(base_field, keys: np.ndarray, diff: np.ndarray):
 
 
 def _field_diff(base_field, other_field, aligned=None) -> FieldDiff:
-    keys, diff, a_vals, b_vals, unmatched = aligned if aligned is not None else _aligned_diff(base_field, other_field)
+    keys, diff, a_vals, b_vals, unmatched = (
+        aligned if aligned is not None else _aligned_diff(base_field, other_field, with_diff=False)
+    )
+    native = sin_native.kernels()
+    if native is not None and a_vals.ndim == 2 and a_vals.shape[0] and a_vals.dtype == b_vals.dtype == np.float64:
+        # One pass over both tables instead of numpy's several per statistic; the same values.
+        max_abs_base, max_abs_other, max_abs_diff, first_max = native.field_stats(a_vals, b_vals)
+        at = [
+            () if np.isnan(max_abs_diff[c]) else tuple(int(x) for x in keys[first_max[c]])
+            for c in range(len(first_max))
+        ]
+        return _make_field_diff(base_field, other_field, keys, unmatched, max_abs_base, max_abs_other, max_abs_diff, at)
+    if diff is None:
+        diff = b_vals - a_vals
     max_abs_diff = _nanmax_abs(diff)
     at = []
     if diff.ndim == 2 and diff.shape[0]:
@@ -495,8 +557,15 @@ def _field_diff(base_field, other_field, aligned=None) -> FieldDiff:
                 at.append(())
                 continue
             at.append(tuple(int(x) for x in keys[int(np.nanargmax(col))]))
-    components = list(base_field.components or [])[: diff.shape[1]]
-    components += [str(i) for i in range(len(components), diff.shape[1])]
+    return _make_field_diff(
+        base_field, other_field, keys, unmatched, _nanmax_abs(a_vals), _nanmax_abs(b_vals), max_abs_diff, at
+    )
+
+
+def _make_field_diff(base_field, other_field, keys, unmatched, max_abs_base, max_abs_other, max_abs_diff, at):
+    n_comp = len(max_abs_diff)
+    components = list(base_field.components or [])[:n_comp]
+    components += [str(i) for i in range(len(components), n_comp)]
     return FieldDiff(
         name=base_field.name,
         step=int(base_field.step),
@@ -505,8 +574,8 @@ def _field_diff(base_field, other_field, aligned=None) -> FieldDiff:
         components=components,
         num_points=len(keys),
         num_unmatched=unmatched,
-        max_abs_base=_nanmax_abs(a_vals),
-        max_abs_other=_nanmax_abs(b_vals),
+        max_abs_base=max_abs_base,
+        max_abs_other=max_abs_other,
         max_abs_diff=max_abs_diff,
         max_diff_at=at,
     )
