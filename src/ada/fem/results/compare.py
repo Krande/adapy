@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator, Protocol
 
 import numpy as np
 
@@ -67,6 +67,9 @@ class FEAResultComparison:
     diffs: list[FieldDiff] = field(default_factory=list)
     only_in_base: list[FieldKey] = field(default_factory=list)
     only_in_other: list[FieldKey] = field(default_factory=list)
+    #: The fields of :meth:`to_fea_result`, when the comparison built them as it went
+    #: (:func:`compare_result_streams`): its ``base`` and ``other`` then hold no fields.
+    difference_fields: list | None = field(default=None, repr=False)
 
     def differing(self, rtol: float = DEFAULT_RTOL) -> list[FieldDiff]:
         """The compared fields whose largest relative difference exceeds ``rtol``, worst first."""
@@ -160,8 +163,8 @@ class FEAResultComparison:
         nothing, and the meshes are the same -- so the difference can still be coloured
         by section or material. The deck's sets and case names come along too.
         """
-        from ada.fem.results.common import FEAResult
-
+        if self.difference_fields is not None:
+            return self._difference_result(list(self.difference_fields))
         base_fields = _group_fields(self.base.results)
         other_fields = _group_fields(self.other.results)
         results = []
@@ -171,8 +174,13 @@ class FEAResultComparison:
             base_field = base_fields[(d.name, d.step, d.elem_type)]
             other_field = other_fields[(d.name, d.other_step, d.elem_type)]
             keys, diff = _aligned_diff(base_field, other_field)[:2]
-            results.append(dataclasses.replace(base_field, values=np.column_stack((keys, diff)), difference=True))
+            results.append(_difference_field(base_field, keys, diff))
         results += [f for f in self.base.results if _is_property_field(f.name)]
+        return self._difference_result(results)
+
+    def _difference_result(self, results: list) -> FEAResult:
+        from ada.fem.results.common import FEAResult
+
         out = FEAResult(
             name=f"{self.other.name} - {self.base.name}",
             software=self.base.software,
@@ -204,13 +212,7 @@ def compare_results(
     check_mesh: bool = True,
 ) -> FEAResultComparison:
     """Compare ``other`` against ``base``. See :meth:`FEAResult.compare`."""
-    if check_mesh:
-        problem = mesh_difference(base.mesh, other.mesh)
-        if problem:
-            raise ValueError(
-                f"Cannot compare {base.name!r} and {other.name!r}: the meshes differ ({problem}). "
-                "compare() is for results on the same mesh; pass check_mesh=False to compare anyway."
-            )
+    _check_meshes(base, other, check_mesh)
 
     base_steps, other_steps = base.get_steps(), other.get_steps()
     if step_map is None:
@@ -237,6 +239,132 @@ def compare_results(
     mapped_other_steps = set(step_map.values())
     comparison.only_in_other = [k for k in other_fields if k[1] in mapped_other_steps and k not in paired_other]
     return comparison
+
+
+class ResultChunks(Protocol):
+    """A result read a part at a time: ``header`` is the result without its fields, and
+    :meth:`iter_chunks` yields ``(key, fields)`` in ascending key order, a key's first item
+    being the step of every field in that chunk."""
+
+    header: FEAResult
+
+    def iter_chunks(self) -> Iterator[tuple[tuple, list]]: ...
+
+
+def compare_result_streams(
+    base: ResultChunks,
+    other: ResultChunks | None = None,
+    fields: list[str] | None = None,
+    check_mesh: bool = True,
+    keep_difference: bool = False,
+) -> FEAResultComparison:
+    """:func:`compare_results` over results read a chunk at a time, steps paired by number.
+
+    Only the chunk at hand and the per-field statistics are held, so the memory is that of
+    the largest chunk of each result rather than of both results. ``other=None`` compares
+    ``base`` with itself, reading it once. ``keep_difference`` keeps the difference fields
+    for :meth:`FEAResultComparison.to_fea_result`, which is as large as one result.
+    """
+    base_head = base.header
+    other_head = base_head if other is None else other.header
+    _check_meshes(base_head, other_head, check_mesh)
+    acc = _StreamComparison(fields, keep_difference)
+    if other is None:
+        for key, chunk in base.iter_chunks():
+            acc.add(key[0], chunk, chunk)
+    else:
+        b_iter, o_iter = iter(base.iter_chunks()), iter(other.iter_chunks())
+        b, o = next(b_iter, None), next(o_iter, None)
+        while b is not None or o is not None:
+            if o is None or (b is not None and b[0] < o[0]):
+                acc.add(b[0][0], b[1], [])
+                b = next(b_iter, None)
+            elif b is None or o[0] < b[0]:
+                acc.add(o[0][0], [], o[1])
+                o = next(o_iter, None)
+            else:
+                acc.add(b[0][0], b[1], o[1])
+                b, o = next(b_iter, None), next(o_iter, None)
+    return acc.finish(base_head, other_head)
+
+
+class _StreamComparison:
+    """:func:`compare_results`' bookkeeping, fed one chunk of each result at a time.
+
+    A field whose counterpart is not in the other result's chunk waits until its step is
+    past: chunks of one step may split the fields differently in the two results."""
+
+    def __init__(self, names: list[str] | None, keep_difference: bool):
+        self.names = names
+        self.keep_difference = keep_difference
+        self.base_steps: list[int] = []
+        self.other_steps: set[int] = set()
+        self.diffs: list[FieldDiff] = []
+        self.only_in_base: list[FieldKey] = []
+        self.only_in_other: list[FieldKey] = []
+        self.pending_base: dict[FieldKey, object] = {}
+        self.pending_other: dict[FieldKey, object] = {}
+        self.difference_fields: list = []
+        self.property_fields: list = []
+        self.step = None
+
+    def add(self, step: int, base_chunk: list, other_chunk: list) -> None:
+        if self.step is not None and step != self.step:
+            self._settle()
+        self.step = step
+        for f in base_chunk:
+            if f.step not in self.base_steps:
+                self.base_steps.append(f.step)
+        self.other_steps.update(f.step for f in other_chunk)
+        if self.keep_difference:
+            self.property_fields += [f for f in base_chunk if _is_property_field(f.name)]
+
+        base_fields = _group_fields(base_chunk, self.names)
+        other_fields = _group_fields(other_chunk, self.names) if other_chunk is not base_chunk else base_fields
+        for key, other_field in other_fields.items():
+            self.pending_other[key] = other_field
+        for key, base_field in base_fields.items():
+            other_field = self.pending_other.pop(key, None)
+            if other_field is None:
+                self.pending_base[key] = base_field
+            else:
+                self._pair(base_field, other_field)
+        for key in [k for k in self.pending_base if k in self.pending_other]:
+            self._pair(self.pending_base.pop(key), self.pending_other.pop(key))
+
+    def _pair(self, base_field, other_field) -> None:
+        aligned = _aligned_diff(base_field, other_field)
+        self.diffs.append(_field_diff(base_field, other_field, aligned))
+        if self.keep_difference and not _is_property_field(base_field.name):
+            self.difference_fields.append(_difference_field(base_field, aligned[0], aligned[1]))
+
+    def _settle(self) -> None:
+        """Fields left unpaired once their step is past are in one result only."""
+        self.only_in_base += list(self.pending_base)
+        self.only_in_other += list(self.pending_other)
+        self.pending_base.clear()
+        self.pending_other.clear()
+
+    def finish(self, base: FEAResult, other: FEAResult) -> FEAResultComparison:
+        self._settle()
+        step_map = {s: s for s in self.base_steps if s in self.other_steps}
+        comparison = FEAResultComparison(base=base, other=other, step_map=step_map, diffs=self.diffs)
+        comparison.only_in_base = [k for k in self.only_in_base if k[1] in step_map]
+        comparison.only_in_other = [k for k in self.only_in_other if k[1] in step_map]
+        if self.keep_difference:
+            comparison.difference_fields = self.difference_fields + self.property_fields
+        return comparison
+
+
+def _check_meshes(base: FEAResult, other: FEAResult, check_mesh: bool) -> None:
+    if not check_mesh:
+        return
+    problem = mesh_difference(base.mesh, other.mesh)
+    if problem:
+        raise ValueError(
+            f"Cannot compare {base.name!r} and {other.name!r}: the meshes differ ({problem}). "
+            "compare() is for results on the same mesh; pass check_mesh=False to compare anyway."
+        )
 
 
 def mesh_difference(a: Mesh, b: Mesh) -> str | None:
@@ -334,25 +462,39 @@ def _aligned_diff(base_field, other_field):
 
 
 def _nanmax_abs(x: np.ndarray) -> np.ndarray:
+    """Per column, the largest magnitude ignoring NaN; NaN where a column is all NaN."""
     if x.shape[0] == 0:
         return np.full(x.shape[1], np.nan)
     with np.errstate(invalid="ignore"):
-        out = np.abs(x)
-    all_nan = np.all(np.isnan(out), axis=0)
-    return np.where(all_nan, np.nan, np.nanmax(np.where(np.isnan(out), -np.inf, out), axis=0))
+        # max |x| = max(max x, -min x), without an |x| copy; abs() turns a -0.0 into 0.0.
+        out = np.abs(np.maximum(x.max(axis=0), -x.min(axis=0)))
+        nan = np.isnan(out)
+        if nan.any():
+            # fmax skips NaN unless both operands are NaN.
+            out[nan] = np.fmax.reduce(np.abs(x[:, nan]), axis=0)
+    return out
 
 
-def _field_diff(base_field, other_field) -> FieldDiff:
-    keys, diff, a_vals, b_vals, unmatched = _aligned_diff(base_field, other_field)
+def _difference_field(base_field, keys: np.ndarray, diff: np.ndarray):
+    return dataclasses.replace(base_field, values=np.column_stack((keys, diff)), difference=True)
+
+
+def _field_diff(base_field, other_field, aligned=None) -> FieldDiff:
+    keys, diff, a_vals, b_vals, unmatched = aligned if aligned is not None else _aligned_diff(base_field, other_field)
     max_abs_diff = _nanmax_abs(diff)
     at = []
-    for c in range(diff.shape[1]):
-        col = np.abs(diff[:, c])
-        if col.size == 0 or np.all(np.isnan(col)):
-            at.append(())
-            continue
-        row = int(np.nanargmax(col))
-        at.append(tuple(int(x) for x in keys[row]))
+    if diff.ndim == 2 and diff.shape[0]:
+        # The first row holding each column's largest magnitude, as nanargmax finds it.
+        first_max = np.argmax((diff == max_abs_diff) | (diff == -max_abs_diff), axis=0)
+        for c in range(diff.shape[1]):
+            at.append(() if np.isnan(max_abs_diff[c]) else tuple(int(x) for x in keys[first_max[c]]))
+    else:
+        for c in range(diff.shape[1]):
+            col = np.abs(diff[:, c])
+            if col.size == 0 or np.all(np.isnan(col)):
+                at.append(())
+                continue
+            at.append(tuple(int(x) for x in keys[int(np.nanargmax(col))]))
     components = list(base_field.components or [])[: diff.shape[1]]
     components += [str(i) for i in range(len(components), diff.shape[1])]
     return FieldDiff(

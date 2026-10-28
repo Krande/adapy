@@ -458,10 +458,13 @@ class SinReader(SifReader):
             # element's descriptor; complex and real cases side by side) is gathered
             # as arrays rather than a Python row per record: on a large deck that row
             # loop was most of the read. Sif2Mesh takes the table in this form too.
-            if card.name in _RV_TYPE_NAMES:
+            # RDPOINTS too: one record per element, held for the whole read; as rows of
+            # Python floats it outweighs the mesh.
+            value_start = _RAGGED_VALUE_START.get(card.name)
+            if value_start is not None:
                 gathered = self.sin.gather_ragged_records(card.name, where_first_word=wfw, where_second_word=elements)
                 if gathered is not None:
-                    rows = _RaggedRows.from_records(super_header, *gathered, int(_RV_VALUE_START[card.name]))
+                    rows = _RaggedRows.from_records(super_header, *gathered, value_start)
             if rows is None:
                 rows = _records_for(self.sin, card, step=step, elements=elements)
                 rows = [super_header, *rows]
@@ -710,6 +713,11 @@ _RV_VALUE_START = {
     "RVNODREA": cards.RVNODREA.get_indices_from_names(["F1|"]),
     "RVSTRESS": cards.RVSTRESS.get_indices_from_names(["irstrs"]) + 1,
     "RVFORCES": cards.RVFORCES.get_indices_from_names(["irforc|"]) + 1,
+}
+# Cards read as arrays (:class:`_RaggedRows`) rather than as rows of Python floats.
+_RAGGED_VALUE_START = {
+    **{name: int(start) for name, start in _RV_VALUE_START.items()},
+    "RDPOINTS": int(cards.RDPOINTS.get_indices_from_names(["bulk"])),
 }
 
 
@@ -1164,6 +1172,16 @@ def read_sin_file(
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
     # source's display name (basename) for the FEAResult / convert path.
+    sin, rows, parts = plan_sin_read(sin_file, super_element)
+    if parts is not None:
+        return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
+    return _read_selected(sin, sin_file, step, complex_phase)
+
+
+def plan_sin_read(sin_file, super_element=None) -> "tuple[SinFile, list | None, list | None]":
+    """``(open SinFile, hierarchy rows, superelements to merge)`` for ``super_element`` (see
+    :func:`read_sin_file`). With one superelement to read, it is selected on the SinFile and
+    the rows and superelements are None."""
     selection = _super_element_selection(super_element)
     if selection is not None and len(selection) == 1:
         super_element, selection = selection[0], None
@@ -1177,17 +1195,17 @@ def read_sin_file(
                 seen.add(row.iref)
                 parts.append(row)
         if len(parts) > 1:
-            return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
+            return sin, rows, parts
         sin.select_super_element(parts[0])
-        return _read_selected(sin, sin_file, step, complex_phase)
+        return sin, None, None
 
     sin = open_sin(sin_file, super_element=super_element)
     if super_element is None and sin.is_assembly():
         rows = sin.hierarchy()
         parts = [r for r in rows if r.iref is not None and r.has_mesh]
         if len(parts) > 1:
-            return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
-    return _read_selected(sin, sin_file, step, complex_phase)
+            return sin, rows, parts
+    return sin, None, None
 
 
 def _super_element_selection(super_element) -> list | None:
@@ -1220,13 +1238,39 @@ def _read_assembly(sin: SinFile, sin_file, rows, parts, step, complex_phase) -> 
 
 def _read_selected(sin: SinFile, sin_file, step, complex_phase) -> "FEAResult":
     """The superelement ``sin`` has selected, as a result."""
+    from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+
+    _refuse_selected_without_mesh(sin)
+    name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
+    reader = SinReader(sin=sin, step=step, complex_phase=complex_phase)
+    reader.load()
+    s2m = Sif2Mesh(reader)
+    result = s2m.convert(name_path)
+    attach_sesam_metadata(result, reader, sin)
+    return result
+
+
+def attach_sesam_metadata(result: "FEAResult", reader: SinReader, sin: SinFile) -> None:
+    """The deck's named sets and result case names, read from records ``reader`` has parsed."""
     from ada.fem.formats.sesam.results.case_names import (
         result_case_names,
         selectable_result_cases,
     )
-    from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
     from ada.fem.formats.sesam.results.sets import manifest_groups
 
+    # The deck's named sets travel with the result. They are decoded from records
+    # this reader has already parsed, and the reader is discarded on return — so
+    # not carrying them here means the only way to get them back is a second full
+    # parse of the file, which on a 400 MB SIN is not a thing to do for a picker.
+    result.sesam_groups = manifest_groups(reader)
+    # And what the deck calls its result cases. Same reasoning as the sets: read
+    # from records this parse already walked, and unreachable afterwards without
+    # opening the file again.
+    result.sesam_case_names = result_case_names(sin)
+    result.sesam_result_cases = selectable_result_cases(sin)
+
+
+def _refuse_selected_without_mesh(sin: SinFile) -> None:
     if "GELMNT1" not in sin.type_blocks and sin.is_assembly():
         # Defensive: the default pick lands on an entry with elements, so this
         # takes an assembly whose chosen entry lost its mesh.
@@ -1238,22 +1282,6 @@ def _read_selected(sin: SinFile, sin_file, step, complex_phase) -> "FEAResult":
             f"this SIN holds {len(rows)} superelements and the one opened has no mesh; "
             f"pass super_element=<label>, one of {readable}:\n{listing}"
         )
-    name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
-    reader = SinReader(sin=sin, step=step, complex_phase=complex_phase)
-    reader.load()
-    s2m = Sif2Mesh(reader)
-    result = s2m.convert(name_path)
-    # The deck's named sets travel with the result. They are decoded from records
-    # this reader has already parsed, and the reader is discarded on return — so
-    # not carrying them here means the only way to get them back is a second full
-    # parse of the file, which on a 400 MB SIN is not a thing to do for a picker.
-    result.sesam_groups = manifest_groups(reader)
-    # And what the deck calls its result cases. Same reasoning as the sets: read
-    # from records this parse already walked, and unreachable afterwards without
-    # opening the file again.
-    result.sesam_case_names = result_case_names(sin)
-    result.sesam_result_cases = selectable_result_cases(sin)
-    return result
 
 
 def iter_sin_step_results(

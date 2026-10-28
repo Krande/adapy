@@ -452,6 +452,22 @@ def _load_results(input_file, super_element: list[str] | None = None):
     """Read the result file ``input_file`` into an :class:`~ada.fem.results.common.FEAResult`."""
     import ada
 
+    path, fmt = _result_file(input_file, super_element)
+    return ada.from_fem_res(path, fem_format=fmt, super_element=_super_element_arg(super_element))
+
+
+def _open_result_chunks(input_file, super_element: list[str] | None = None):
+    """``input_file`` as a stream of field chunks when its reader has one (a Sesam .SIN), else None."""
+    path, _ = _result_file(input_file, super_element)
+    if suffix(path) != "sin":
+        return None
+    from ada.fem.formats.sesam.results.sin_field_stream import SinFieldStream
+
+    return SinFieldStream.open(path, super_element=_super_element_arg(super_element))
+
+
+def _result_file(input_file, super_element: list[str] | None) -> tuple[pathlib.Path, str]:
+    """``input_file`` and its result format, or :class:`CliUsageError`."""
     path = pathlib.Path(input_file)
     if not path.is_file():
         raise CliUsageError(f"input file not found: {input_file}")
@@ -462,8 +478,7 @@ def _load_results(input_file, super_element: list[str] | None = None):
         raise CliUsageError(f"{_ext_label(path)} is not a result file; result files are {known}")
     if super_element and suffix(path) != "sin":
         raise CliUsageError("--super-element applies to a Sesam .SIN only")
-
-    return ada.from_fem_res(path, fem_format=fmt, super_element=_super_element_arg(super_element))
+    return path, fmt
 
 
 def _cmd_view(args: argparse.Namespace) -> None:
@@ -501,13 +516,43 @@ def _cmd_results_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _same_file(a, b) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _compare(args: argparse.Namespace):
+    """The comparison ``ada results compare`` prints. Files that can be read a chunk at a time
+    are, so neither result is ever held whole; a file given twice is read once."""
+    from ada.fem.results.compare import compare_result_streams
+
+    same = _same_file(args.base, args.other)
+    base = _open_result_chunks(args.base, args.super_element)
+    other = None if same or base is None else _open_result_chunks(args.other, args.super_element)
+    if base is not None and (same or other is not None):
+        try:
+            return compare_result_streams(
+                base, other, fields=args.fields, check_mesh=args.check_mesh, keep_difference=args.show
+            )
+        finally:
+            base.close()
+            if other is not None:
+                other.close()
+    if base is not None:
+        base.close()
+
+    full_base = _load_results(args.base, args.super_element)
+    full_other = full_base if same else _load_results(args.other, args.super_element)
+    return full_base.compare(full_other, fields=args.fields, check_mesh=args.check_mesh)
+
+
 def _cmd_results_compare(args: argparse.Namespace) -> int:
     from ada.fem.results.compare import DEFAULT_RTOL
 
-    base = _load_results(args.base, args.super_element)
-    other = _load_results(args.other, args.super_element)
     try:
-        comparison = base.compare(other, fields=args.fields, check_mesh=args.check_mesh)
+        comparison = _compare(args)
     except ValueError as exc:
         # The meshes differ: a usage mistake (the wrong pair of files), not a failure of the work.
         if "the meshes differ" not in str(exc):

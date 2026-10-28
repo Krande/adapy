@@ -92,19 +92,6 @@ def id_bases(rows: list[SuperElementInfo], results: list[FEAResult]) -> list[int
     return [(i + 1) * scale for i in range(len(rows))]
 
 
-def _rotate_rows(values: np.ndarray, components: list[str], rotation: np.ndarray, first_col: int) -> np.ndarray:
-    """``values`` with each vector triplet of ``components`` turned by ``rotation``."""
-    names = list(components)
-    out = values
-    for triplet in _VECTOR_TRIPLETS:
-        if all(c in names for c in triplet):
-            cols = [first_col + names.index(c) for c in triplet]
-            if out is values:
-                out = values.copy()
-            out[:, cols] = out[:, cols] @ rotation.T
-    return out
-
-
 def _offset_keys(d: dict | None, base: int) -> dict:
     return {int(k) + base: v for k, v in (d or {}).items()}
 
@@ -115,20 +102,71 @@ def _offset_ref(col: np.ndarray, base: int) -> np.ndarray:
     return np.where(col > 0, col + base, col)
 
 
-def _merge_parts(parts: list):
+@dataclasses.dataclass
+class _FieldPart:
+    """One superelement's rows of a field, with what places them in the assembly."""
+
+    field: object
+    base: int
+    rotation: np.ndarray | None  # None when the superelement is not turned
+
+
+def _offset_presentation(field, base: int):
+    """``field``'s presentation with its material / section legend values prefixed by ``base``."""
+    if field.name not in (MATERIAL_FIELD, SECTION_FIELD) or field.presentation is None:
+        return field.presentation
+    labels = tuple((v + base if v > 0 else v, text) for v, text in field.presentation.value_labels)
+    return dataclasses.replace(field.presentation, value_labels=labels)
+
+
+def _place_rows(out: np.ndarray, part: _FieldPart) -> None:
+    """Prefix ids and turn vectors of ``out`` (the part's rows, already copied in) in place."""
+    field = part.field
+    out[:, 0] += part.base
+    if part.rotation is not None and isinstance(field, NodalFieldData):
+        names = list(field.components or [])
+        for triplet in _VECTOR_TRIPLETS:
+            if all(c in names for c in triplet):
+                cols = [1 + names.index(c) for c in triplet]
+                out[:, cols] = out[:, cols] @ part.rotation.T
+    if field.name in (MATERIAL_FIELD, SECTION_FIELD):
+        # The value IS a material / section id: prefixed like every other id.
+        out[:, 2] = _offset_ref(out[:, 2], part.base)
+
+
+def _merge_parts(parts: list[_FieldPart]):
     """One field from the superelements' parts of it: their rows together, and (for a
-    categorical property) every part's legend labels."""
-    first = parts[0]
-    if len(parts) == 1:
-        return first
-    changes = {"values": np.vstack([p.values for p in parts])}
-    if first.presentation is not None and any(p.presentation and p.presentation.value_labels for p in parts):
+    categorical property) every part's legend labels.
+
+    The merged array is allocated once and filled part by part. Each part is dropped from
+    ``parts`` once copied, so its array can be freed before the next is copied.
+    """
+    first = parts[0].field
+    presentations = [_offset_presentation(p.field, p.base) for p in parts]
+    widths = {np.shape(p.field.values)[1] for p in parts}
+    if len(widths) != 1:
+        raise ValueError(f"{first.name}: superelements store {sorted(widths)} columns")
+    rows = sum(len(p.field.values) for p in parts)
+    values = np.empty((rows, widths.pop()), dtype=float)
+
+    start = 0
+    for i in range(len(parts)):
+        part = parts[i]
+        n = len(part.field.values)
+        block = values[start : start + n]
+        block[...] = part.field.values
+        _place_rows(block, part)
+        start += n
+        parts[i] = part = None
+
+    presentation = presentations[0]
+    if len(presentations) > 1 and presentation is not None and any(p and p.value_labels for p in presentations):
         labels = {}
-        for p in parts:
-            for value, text in p.presentation.value_labels if p.presentation else ():
+        for p in presentations:
+            for value, text in p.value_labels if p else ():
                 labels.setdefault(value, text)
-        changes["presentation"] = dataclasses.replace(first.presentation, value_labels=tuple(sorted(labels.items())))
-    return dataclasses.replace(first, **changes)
+        presentation = dataclasses.replace(presentation, value_labels=tuple(sorted(labels.items())))
+    return dataclasses.replace(first, values=values, presentation=presentation)
 
 
 def _super_element_fields(rows, blocks_by_part, fields) -> list:
@@ -166,14 +204,46 @@ def _super_element_fields(rows, blocks_by_part, fields) -> list:
     ]
 
 
-def assemble_super_elements(
+@dataclasses.dataclass
+class AssembledMesh:
+    """The superelements' meshes placed and merged, and what places each one's fields."""
+
+    #: The merged mesh and the result's metadata, without fields.
+    result: FEAResult
+    rows: list
+    bases: list[int]
+    #: Per superelement, its rotation, or None when it is not turned.
+    rotations: list
+    blocks_by_part: list[list]
+
+    def merge_fields(self, fields_per_part: list[list]) -> list:
+        """One field per name, step and type from each superelement's ``fields_per_part``.
+
+        The lists are emptied as they are taken, so each part is freed once merged.
+        """
+        merged: dict[tuple, list] = {}
+        for fields, base, rotation in zip(fields_per_part, self.bases, self.rotations):
+            for field in fields:
+                et = getattr(field, "elem_type", None)
+                pos = getattr(field, "field_pos", None)
+                key = (type(field).__name__, field.name, int(field.step), str(et), str(pos))
+                merged.setdefault(key, []).append(_FieldPart(field, base, rotation))
+            fields.clear()
+        return [_merge_parts(merged.pop(key)) for key in list(merged)]
+
+    def super_element_fields(self, fields) -> list:
+        """``props.super_element`` on the step ``fields`` puts the property fields on."""
+        return _super_element_fields(self.rows, self.blocks_by_part, fields)
+
+
+def assemble_meshes(
     rows: list[SuperElementInfo],
     results: list[FEAResult],
     placement: dict[int, np.ndarray],
     name: str,
     results_file_path: pathlib.Path | None = None,
-) -> FEAResult:
-    """Merge ``results`` (one per superelement of ``rows``, read on their own) into one."""
+) -> AssembledMesh:
+    """The meshes of ``results`` (one per superelement of ``rows``) placed and merged."""
     from ada.fem import FemSet
     from ada.fem.results.common import ElementBlock, FEAResult, FemNodes, Mesh
 
@@ -181,7 +251,7 @@ def assemble_super_elements(
     coords, node_ids, node_labels = [], [], []
     blocks, sections, materials, vectors, sets, eccentricities, elem_data = [], {}, {}, {}, {}, {}, []
     blocks_by_part: list[list] = []
-    merged: dict[tuple, list] = {}
+    rotations = []
     groups: list[dict] = []
     node_count = 0
     index_record = []
@@ -189,7 +259,7 @@ def assemble_super_elements(
     for row, result, base in zip(rows, results, bases):
         transform = placement.get(row.ihref, np.eye(4))
         rotation, translation = transform[:3, :3], transform[:3, 3]
-        turned = not np.allclose(rotation, np.eye(3))
+        rotations.append(None if np.allclose(rotation, np.eye(3)) else rotation)
         mesh = result.mesh
 
         xyz = np.asarray(mesh.nodes.coords, dtype=float)
@@ -237,32 +307,11 @@ def assemble_super_elements(
                 {
                     **group,
                     "name": f"{row.label}: {group['name']}",
-                    "members": [f"{prefix}{int(str(m)[len(prefix):]) + base}" for m in group["members"]],
+                    "members": [f"{prefix}{int(str(m)[len(prefix) :]) + base}" for m in group["members"]],
                 }
             )
 
-        for field in result.results:
-            values = np.asarray(field.values, dtype=float).copy()
-            values[:, 0] += base
-            if turned and isinstance(field, NodalFieldData):
-                values = _rotate_rows(values, list(field.components or []), rotation, first_col=1)
-            changes = {"values": values}
-            if field.name in (MATERIAL_FIELD, SECTION_FIELD):
-                # The value IS a material / section id: prefixed like every other id, and so
-                # are the legend's labels for it.
-                values[:, 2] = _offset_ref(values[:, 2], base)
-                if field.presentation is not None:
-                    labels = tuple((v + base if v > 0 else v, text) for v, text in field.presentation.value_labels)
-                    changes["presentation"] = dataclasses.replace(field.presentation, value_labels=labels)
-            et = getattr(field, "elem_type", None)
-            pos = getattr(field, "field_pos", None)
-            key = (type(field).__name__, field.name, int(field.step), str(et), str(pos))
-            merged.setdefault(key, []).append(dataclasses.replace(field, **changes))
-
         index_record.append({"label": row.label, "id_base": base, "placement": transform.ravel().tolist()})
-
-    fields = [_merge_parts(parts) for parts in merged.values()]
-    fields += _super_element_fields(rows, blocks_by_part, fields)
 
     mesh = Mesh(
         elements=blocks,
@@ -280,7 +329,7 @@ def assemble_super_elements(
     out = FEAResult(
         name=name,
         software=first.software,
-        results=fields,
+        results=[],
         mesh=mesh,
         results_file_path=results_file_path or first.results_file_path,
         step_name_map=first.step_name_map,
@@ -293,4 +342,30 @@ def assemble_super_elements(
     out.sesam_case_names = getattr(first, "sesam_case_names", None)
     out.sesam_result_cases = getattr(first, "sesam_result_cases", None)
     out.sesam_super_elements = index_record
+    return AssembledMesh(out, list(rows), bases, rotations, blocks_by_part)
+
+
+def assemble_super_elements(
+    rows: list[SuperElementInfo],
+    results: list[FEAResult],
+    placement: dict[int, np.ndarray],
+    name: str,
+    results_file_path: pathlib.Path | None = None,
+) -> FEAResult:
+    """Merge ``results`` (one per superelement of ``rows``, read on their own) into one.
+
+    Takes the fields out of ``results``: each is left with an empty ``results`` list, so no
+    superelement's field outlives its merge.
+    """
+    assembled = assemble_meshes(rows, results, placement, name, results_file_path)
+    fields_per_part = []
+    for result in results:
+        fields_per_part.append(result.results)
+        result.results = []
+    fields = assembled.merge_fields(fields_per_part)
+    fields += assembled.super_element_fields(fields)
+    out = assembled.result
+    out.results = fields
+    for field in fields:
+        field._mesh = out.mesh
     return out
