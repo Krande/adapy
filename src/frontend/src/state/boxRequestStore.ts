@@ -19,10 +19,22 @@ import {
     type RequestProviderChoice,
 } from "@/utils/bboxSelection/boxRequest";
 import type {GroupMember} from "@/utils/groups/savedGroups";
+import type {Operation} from "@/services/operationTracking";
+import type {BoxSiteLoadOutcome} from "@/utils/bboxSelection/boxSiteLoad";
 
 // "Request from source" on a selection box (see `utils/bboxSelection/boxRequest.ts`): one request
 // per box at a time, kept here so it outlives the box's menu -- the Scene panel's box list shows
 // where it has got to. The provider jobs themselves are in the global job toast.
+//
+// INTO THE SCENE AS WHOLE SITES. What the box holds -- loaded from the provider ("Load"), or once a
+// request has published it -- goes into the scene as the sites it belongs to, one model each with
+// its whole tree, everything outside the box hidden (`utils/bboxSelection/boxSiteLoad`): what the
+// box missed is shown from the scene tree.
+//
+// NO BOUNDS YET. Without published node bounds for the scene's collections the box only sees what
+// is drawn. When a scene provider can measure them (its sweep offers `sweep_target: bounds`), the
+// entry carries that as `boundsOffer`, and `requestBoxBounds` runs it for those collections; when
+// the run ends, every box waiting on it reads its choices again.
 
 export type BoxRequestPhase = "loading" | "ready" | "planning" | "confirm" | "requesting" | "placing" | "done" | "error";
 
@@ -42,6 +54,20 @@ export interface BoxRequestEntry {
     /** The plan's members the provider already has that are not in the scene: what "Load" puts
      *  there. */
     readonly loadable: readonly GroupMember[];
+    /** Node bounds a scene provider could measure for collections that have none; null when there is
+     *  nothing to offer. */
+    readonly boundsOffer: BoundsOffer | null;
+}
+
+export interface BoundsOffer {
+    readonly provider: string;
+    readonly collections: readonly string[];
+    /** Whether this user may ask; `reason` says why not. */
+    readonly allowed: boolean;
+    readonly reason: string | null;
+    /** The run measuring them, once asked. */
+    readonly runId: string | null;
+    readonly error: string | null;
 }
 
 interface BoxRequestState {
@@ -82,7 +108,19 @@ const EMPTY_ENTRY: BoxRequestEntry = {
     plan: null,
     candidates: null,
     loadable: [],
+    boundsOffer: null,
 };
+
+/** `collection \0 node id` -> the node's full name, from every bounds answer read: how a box member
+ *  is found in its site's scene tree (`boxSiteLoad`), which names rows, not node ids. */
+const boundsNames = new Map<string, string>();
+
+/** Bounds runs in flight, by `boundsKey`: one per (provider, collections), whichever box asked. */
+const boundsRuns = new Map<string, string>();
+
+function boundsKey(provider: string, collections: readonly string[]): string {
+    return `${provider}|${[...collections].sort().join(",")}`;
+}
 
 const BUSY: readonly BoxRequestPhase[] = ["planning", "requesting", "placing"];
 
@@ -142,7 +180,13 @@ async function loadedModels(): Promise<{provider: string; collection: string; of
 async function findCandidates(
     boxId: string,
     mode: BoxSelectMode,
-): Promise<{members: GroupMember[]; candidates: BoxCandidates; reason: string | null; rankFirst: string[]}> {
+): Promise<{
+    members: GroupMember[];
+    candidates: BoxCandidates;
+    reason: string | null;
+    rankFirst: string[];
+    boundsOffer: BoundsOffer | null;
+}> {
     const [drawn, {useBBoxSelectionStore}] = await Promise.all([captureBox(boxId, mode), import("@/state/bboxSelectionStore")]);
     const box = useBBoxSelectionStore.getState().boxes.find((b) => b.id === boxId);
     const models = await loadedModels().catch(() => []);
@@ -158,6 +202,7 @@ async function findCandidates(
         ]),
     ];
     let why: string | null = null;
+    let boundsOffer: BoundsOffer | null = null;
     if (box && collections.length) {
         try {
             const [{nodeBoundsApi}, scope] = await Promise.all([import("@/services/api/nodeBounds"), scopeNow()]);
@@ -167,18 +212,30 @@ async function findCandidates(
                 mode: boundsMode(mode),
                 collections,
             });
+            for (const h of res.hits) {
+                const name = h.full_name ?? h.label;
+                if (name) boundsNames.set(`${h.collection.toLowerCase()}\u0000${h.node_id}`, name);
+            }
             if (res.sets.length) {
                 const picked = pickBoundsSets(res.sets, ranked);
                 const members = boundsMembers(res.hits, picked);
                 const providers = [...new Set([...picked.values()].map((s) => s.provider))];
-                return {
-                    members,
-                    candidates: {kind: "bounds", providers, truncated: res.truncated},
-                    reason: members.length ? null : res.truncated ?? "Nothing published is in the box.",
-                    rankFirst: ranked,
-                };
+                // Bounds that hold nothing where something IS drawn miss part of the project (a
+                // site the extraction could not read): what is drawn, and the offer to extract again.
+                if (members.length || res.truncated || !drawn.members.length) {
+                    return {
+                        members,
+                        candidates: {kind: "bounds", providers, truncated: res.truncated},
+                        reason: members.length ? null : res.truncated ?? "Nothing published is in the box.",
+                        rankFirst: ranked,
+                        boundsOffer: null,
+                    };
+                }
+                why = `${providers.join(", ")}'s published bounds hold nothing here, though something is drawn`;
+            } else {
+                why = `no source published node bounds for ${collections.join(", ")}`;
             }
-            why = `no source published node bounds for ${collections.join(", ")}`;
+            boundsOffer = await offerBounds(scope as ScopeUrl, ranked, models);
         } catch (e) {
             why = `the published bounds could not be read (${e instanceof Error ? e.message : String(e)})`;
         }
@@ -190,7 +247,72 @@ async function findCandidates(
         candidates: {kind: "drawn", elements: drawn.elements, why},
         reason: drawn.reason,
         rankFirst: [],
+        boundsOffer,
     };
+}
+
+/** The first scene provider, most models first, that can measure node bounds for its collections in
+ *  the scene -- one the user may ask before one they may not. Null when none can. */
+async function offerBounds(
+    scope: ScopeUrl,
+    ranked: readonly string[],
+    models: readonly {provider: string; collection: string}[],
+): Promise<BoundsOffer | null> {
+    const {nodeBoundsApi} = await import("@/services/api/nodeBounds");
+    let refused: BoundsOffer | null = null;
+    for (const provider of ranked) {
+        const permission = await nodeBoundsApi.requestPermission(scope, provider).catch(() => null);
+        if (!permission?.available) continue;
+        const collections = [...new Set(models.filter((m) => m.provider === provider).map((m) => m.collection))];
+        const offer: BoundsOffer = {
+            provider,
+            collections,
+            allowed: permission.allowed,
+            reason: permission.reason,
+            runId: boundsRuns.get(boundsKey(provider, collections)) ?? null,
+            error: null,
+        };
+        if (offer.allowed) return offer;
+        refused ??= offer;
+    }
+    return refused;
+}
+
+/** Ask the box's offered provider to measure and publish node bounds for the offered collections.
+ *  The run is in the global toast; when it ends, every box offered the same run reads its choices
+ *  again -- now from the bounds, if the run published them. */
+export async function requestBoxBounds(boxId: string): Promise<void> {
+    const store = useBoxRequestStore.getState();
+    const offer = store.byBox[boxId]?.boundsOffer;
+    if (!offer || !offer.allowed || offer.runId) return;
+    const key = boundsKey(offer.provider, offer.collections);
+    const setOffer = (id: string, patch: Partial<BoundsOffer>) => {
+        const entry = useBoxRequestStore.getState().byBox[id];
+        if (entry?.boundsOffer && boundsKey(entry.boundsOffer.provider, entry.boundsOffer.collections) === key) {
+            useBoxRequestStore.getState().patch(id, {boundsOffer: {...entry.boundsOffer, ...patch}});
+        }
+    };
+    try {
+        const [{nodeBoundsApi}, {trackBoundsRequest}, scope] = await Promise.all([
+            import("@/services/api/nodeBounds"),
+            import("@/services/sweepTracking"),
+            scopeNow(),
+        ]);
+        const run = await nodeBoundsApi.request(scope as ScopeUrl, offer.provider, offer.collections);
+        boundsRuns.set(key, run.id);
+        for (const id of Object.keys(useBoxRequestStore.getState().byBox)) setOffer(id, {runId: run.id, error: null});
+        trackBoundsRequest(scope, run.id, `Node bounds · ${offer.provider} · ${offer.collections.join(", ")}`, () => {
+            boundsRuns.delete(key);
+            for (const [id, entry] of Object.entries(useBoxRequestStore.getState().byBox)) {
+                if (entry.boundsOffer?.runId === run.id) {
+                    setOffer(id, {runId: null});
+                    void prepareBoxRequest(id, entry.mode);
+                }
+            }
+        });
+    } catch (e) {
+        setOffer(boxId, {error: e instanceof Error ? e.message : String(e)});
+    }
 }
 
 /** Open (or refresh) the box's request: which providers can be asked for what it holds in `mode`.
@@ -200,9 +322,16 @@ export async function prepareBoxRequest(boxId: string, mode: BoxSelectMode): Pro
     if (isBoxRequestBusy(store.byBox[boxId])) return;
     store.patch(boxId, {phase: "loading", mode, message: null, plan: null, blocked: null, loadable: []});
     try {
-        const {members, candidates, reason, rankFirst} = await findCandidates(boxId, mode);
+        const {members, candidates, reason, rankFirst, boundsOffer} = await findCandidates(boxId, mode);
         if (members.length === 0) {
-            store.patch(boxId, {phase: "ready", choices: [], providerId: null, candidates, blocked: reason ?? "Nothing in the box."});
+            store.patch(boxId, {
+                phase: "ready",
+                choices: [],
+                providerId: null,
+                candidates,
+                boundsOffer,
+                blocked: reason ?? "Nothing in the box.",
+            });
             return;
         }
         const [{pluginsApi}, {assetProviderCollections}, {useMeStore}, {providerName}] = await Promise.all([
@@ -225,6 +354,7 @@ export async function prepareBoxRequest(boxId: string, mode: BoxSelectMode): Pro
             phase: "ready",
             choices,
             candidates,
+            boundsOffer,
             providerId: defaultBoxProvider(choices, useBoxRequestStore.getState().lastProvider),
             blocked: choices.length ? null : noChoiceReason(members),
         });
@@ -243,12 +373,15 @@ export async function planBoxRequest(boxId: string, label: string): Promise<void
     if (!choice) return;
     store.patch(boxId, {phase: "planning", message: `finding what is in the box`, plan: null, loadable: []});
     try {
-        const [{members, candidates, reason}, scope] = await Promise.all([findCandidates(boxId, entry.mode), scopeNow()]);
+        const [{members, candidates, reason, boundsOffer}, scope] = await Promise.all([
+            findCandidates(boxId, entry.mode),
+            scopeNow(),
+        ]);
         if (members.length === 0) {
-            store.patch(boxId, {phase: "ready", candidates, blocked: reason ?? "Nothing in the box.", message: null});
+            store.patch(boxId, {phase: "ready", candidates, boundsOffer, blocked: reason ?? "Nothing in the box.", message: null});
             return;
         }
-        store.patch(boxId, {candidates, message: `asking ${choice.label} what it has of ${members.length} member(s)`});
+        store.patch(boxId, {candidates, boundsOffer, message: `asking ${choice.label} what it has of ${members.length} member(s)`});
         const {clashCheckApi} = await import("@/services/api/clashCheck");
         const plan = await clashCheckApi.geometryPlan(scope as ScopeUrl, {
             target: boxPlanTarget(label, members),
@@ -269,10 +402,6 @@ export async function planBoxRequest(boxId: string, label: string): Promise<void
     }
 }
 
-/** A one-off group of `members` -- the shape a saved group's load and selection read. */
-function boxGroup(label: string, members: readonly GroupMember[]) {
-    return {id: `box:${label}`, name: label, created_at: new Date().toISOString(), members};
-}
 
 /** Those of `members` whose model is not in the scene, by the same matching a saved group's
  *  "Select" and "Load into scene" use (`groupSceneParts`, read only). */
@@ -289,33 +418,67 @@ async function notInScene(members: readonly GroupMember[]): Promise<GroupMember[
 /** Put the box's members the chosen provider already has, and that are not in the scene, in the
  *  scene -- a saved group's "Load into scene" (`loadSavedGroup`), which loads each source once and
  *  then selects them. */
+/** `members` into the scene as their whole sites, everything outside the box hidden
+ *  (`utils/bboxSelection/boxSiteLoad`), as steps of `op`. */
+async function placeBoxSites(
+    members: readonly GroupMember[],
+    op: Operation,
+    stage: (s: string) => void,
+): Promise<BoxSiteLoadOutcome> {
+    const [scope, {loadBoxSites}, {realDeliveryDeps}, {getSingletonViewerStores}] = await Promise.all([
+        scopeNow(),
+        import("@/utils/bboxSelection/boxSiteLoad"),
+        import("@/components/asset_browser/AssetsTab"),
+        import("@/state/AdaViewerContext"),
+    ]);
+    const deps = realDeliveryDeps(
+        (name) => getSingletonViewerStores().useModelState.getState().loadedSourceNames.has(name),
+        op.trackJob,
+    );
+    const out = await loadBoxSites(members, scope, deps, boundsNames, stage);
+    for (const f of out.failed) op.fail(`${f.site}: ${f.reason}`);
+    return out;
+}
+
+function boxSitesSentence(out: BoxSiteLoadOutcome): string {
+    const sites = (n: number) => `${n} site${n === 1 ? "" : "s"}`;
+    const parts = [
+        out.loaded ? `Loaded ${sites(out.loaded)} into the scene, everything outside the box hidden` : "",
+        out.already ? `${sites(out.already)} already there, the box's part shown` : "",
+    ].filter(Boolean);
+    const failed = out.failed.length
+        ? ` ${out.failed.length} could not be loaded: ${out.failed[0].site}: ${out.failed[0].reason}${out.failed.length > 1 ? " (and others)" : ""}.`
+        : "";
+    return (parts.length ? `${parts.join("; ")}. Show the rest from the scene tree.` : "Nothing was loaded.") + failed;
+}
+
 export async function loadBoxMembers(boxId: string, label: string): Promise<void> {
     const store = useBoxRequestStore.getState();
     const entry = store.byBox[boxId];
     if (!entry || isBoxRequestBusy(entry) || entry.loadable.length === 0) return;
     const back = entry.phase;
-    const stage = (s: string) => useBoxRequestStore.getState().patch(boxId, {message: s});
     store.patch(boxId, {phase: "placing", message: `loading ${entry.loadable.length} into the scene`});
+    // One operation in the toast for every model loaded: their builds and downloads rows under it.
+    const {beginOperation} = await import("@/services/operationTracking");
+    const op = beginOperation(`Loading ${entry.loadable.length} from ${label}`);
+    const release = op.hold();
+    const stage = (s: string) => {
+        useBoxRequestStore.getState().patch(boxId, {message: s});
+        op.stage(s);
+    };
     try {
-        const [scope, {loadSavedGroup}, {realDeliveryDeps}, {getSingletonViewerStores}] = await Promise.all([
-            scopeNow(),
-            import("@/utils/groups/groupLoad"),
-            import("@/components/asset_browser/AssetsTab"),
-            import("@/state/AdaViewerContext"),
-        ]);
-        const deps = realDeliveryDeps((name) => getSingletonViewerStores().useModelState.getState().loadedSourceNames.has(name));
-        const out = await loadSavedGroup(boxGroup(label, entry.loadable), scope, deps, stage);
-        const failed = out.failed.length
-            ? ` ${out.failed.length} could not be loaded: ${out.failed[0].reason}${out.failed.length > 1 ? " (and others)" : ""}.`
-            : "";
+        const out = await placeBoxSites(entry.loadable, op, stage);
         store.patch(boxId, {
-            phase: back === "confirm" ? "confirm" : out.loaded || !out.failed.length ? "done" : "error",
-            loadable: out.failed.flatMap((f) => f.members),
-            message: `Loaded ${out.loaded} model${out.loaded === 1 ? "" : "s"} into the scene` +
-                (out.already ? `, ${out.already} already there` : "") + "." + failed,
+            phase: back === "confirm" ? "confirm" : out.loaded + out.already || !out.failed.length ? "done" : "error",
+            loadable: [],
+            message: boxSitesSentence(out),
         });
     } catch (e) {
-        store.patch(boxId, {phase: "error", message: e instanceof Error ? e.message : String(e)});
+        const message = e instanceof Error ? e.message : String(e);
+        op.fail(message);
+        store.patch(boxId, {phase: "error", message});
+    } finally {
+        release();
     }
 }
 
@@ -327,25 +490,53 @@ export async function confirmBoxRequest(boxId: string): Promise<void> {
     if (!entry || entry.phase !== "confirm" || !entry.plan) return;
     const choice = entry.choices.find((c) => c.providerId === entry.providerId);
     if (!choice) return;
+    store.patch(boxId, {phase: "requesting", message: `requesting from ${choice.label}`});
+    // One operation in the toast for the whole request: every provider job and publish a row under it.
+    const {beginOperation} = await import("@/services/operationTracking");
+    const op = beginOperation(`Request from ${choice.label} · ${entry.plan.unmatched.length} member(s)`);
+    const release = op.hold();
     const stage = (s: string | null) => {
         if (s) useBoxRequestStore.getState().patch(boxId, {message: s});
     };
-    store.patch(boxId, {phase: "requesting", message: `requesting from ${choice.label}`});
     try {
         const scope = await scopeNow();
         const [{geometryRequestDeps}, {requestUnmatchedMembers}] = await Promise.all([
             import("@/state/clashGeometryDeps"),
             import("@/utils/groups/groupRequest"),
         ]);
-        const deps = await geometryRequestDeps(scope, stage);
+        const deps = await geometryRequestDeps(scope, stage, op.trackJob);
         const {notes, outcome} = await requestUnmatchedMembers(deps, scope, choice.providerId, choice.req, entry.plan.unmatched, stage);
+        for (const f of outcome?.failed ?? []) op.fail(f);
         const failed = !outcome || outcome.failed.length > 0;
-        const tail = outcome && outcome.published > 0 ? " Load the new geometry from the Sources tab." : "";
+        const landed = !!outcome && outcome.published + outcome.unchanged > 0;
+        let tail = "";
+        if (landed) {
+            // What the box holds is now at the provider: into the scene as whole sites, the rest of
+            // each hidden -- asked again, so the members are the provider's own, as published.
+            const placing = (s: string) => {
+                stage(s);
+                op.stage(s);
+            };
+            placing("placing what was requested in the scene");
+            const {members} = await findCandidates(boxId, entry.mode);
+            const {clashCheckApi} = await import("@/services/api/clashCheck");
+            const plan = await clashCheckApi.geometryPlan(scope as ScopeUrl, {
+                target: boxPlanTarget("Box", members),
+                geometryProvider: choice.providerId,
+            });
+            const placed = await placeBoxSites(presentMembers(plan), op, placing);
+            tail = ` ${boxSitesSentence(placed)}`;
+        }
         store.patch(boxId, {
-            phase: failed && !(outcome && outcome.published + outcome.unchanged > 0) ? "error" : "done",
+            phase: failed && !landed ? "error" : "done",
+            loadable: [],
             message: (notes.join(" ") || "Nothing was requested.") + tail,
         });
     } catch (e) {
-        store.patch(boxId, {phase: "error", message: e instanceof Error ? e.message : String(e)});
+        const message = e instanceof Error ? e.message : String(e);
+        op.fail(message);
+        store.patch(boxId, {phase: "error", message});
+    } finally {
+        release();
     }
 }

@@ -6,10 +6,14 @@ import {sceneTreeRow} from './SceneTreeRow';
 import {useSceneMenuStore} from '@/state/sceneMenuStore';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
+import {clearScene} from "@/utils/scene/handlers/clear_scene";
 
 const TreeViewComponent: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
     const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope, rootLabelMode, setRootLabelMode} = useTreeViewStore();
+    const {useModelState} = useViewerStores();
+    const loadedCount = useModelState((s) => s.loadedSourceNames.size);
+    const [clearing, setClearing] = useState(false);
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -132,6 +136,24 @@ const TreeViewComponent: React.FC = () => {
                     >
                         {rootLabelMode === "name" ? "Names" : "IDs"}
                     </button>
+                    {/* The storage browser's Clear, from here: every model out of the scene. */}
+                    {(treeNodes.length > 0 || loadedCount > 0) && (
+                        <button
+                            type="button"
+                            className="h-7 shrink-0 rounded-md border border-gray-700 bg-gray-800 px-2 text-xs text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-60"
+                            title="Unload every model in the scene, and close any open procedural model"
+                            aria-busy={clearing}
+                            disabled={clearing}
+                            onClick={() => {
+                                setClearing(true);
+                                void clearScene()
+                                    .catch((err) => console.error("remove all failed", err))
+                                    .finally(() => setClearing(false));
+                            }}
+                        >
+                            {clearing ? "Removing…" : "Remove all"}
+                        </button>
+                    )}
                 </div>
                 {scopeNodeId && (
                     <div className="mt-1.5 flex items-center">

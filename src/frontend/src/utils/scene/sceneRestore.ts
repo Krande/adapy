@@ -26,6 +26,7 @@ import {useVisibilityStore} from "@/state/visibilityStore";
 import {beginBulkLoad, captureLoadingView, endBulkLoad} from "@/utils/scene/loadingView";
 import {applyRecordedView, captureView} from "@/utils/scene/sceneViewRestore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
+import {beginOperation, type Operation} from "@/services/operationTracking";
 
 /** The bulk-load session's project name: it saves no loading view, so the name is only a label. */
 const RESTORE_SESSION = "scene-restore";
@@ -209,14 +210,15 @@ async function loadFile(m: Extract<RecordedModel, {kind: "file"}>): Promise<bool
     return useModelState.getState().loadedSourceNames.has(m.name);
 }
 
-/** Load one published node the way the Scene tree's "Load from" does; true when it is in the scene. */
-async function loadAsset(scope: string, m: Extract<RecordedModel, {kind: "asset"}>): Promise<boolean> {
+/** Load one published node the way the Scene tree's "Load from" does; true when it is in the scene.
+ *  ``op``: the restore's operation, which its build job is folded into. */
+async function loadAsset(scope: string, m: Extract<RecordedModel, {kind: "asset"}>, op?: Operation): Promise<boolean> {
     const [{loadAssetNode}, {realDeliveryDeps}] = await Promise.all([
         import("@/utils/groups/groupLoad"),
         import("@/components/asset_browser/AssetsTab"),
     ]);
     const ref = assetRef(m);
-    const deps = realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name));
+    const deps = realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name), op?.trackJob);
     await loadAssetNode(scope, deps, {
         kind: "node",
         provider: ref.provider,
@@ -234,6 +236,8 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
     if (restoreStarted) return;
     restoreStarted = true;
     const setProgress = useSceneRestoreStore.getState().setProgress;
+    // The restore's toast operation: released once the view is restored, or when it stops early.
+    let releaseOp: () => void = () => undefined;
     try {
         const scope = currentScope();
         const rec = readSceneRecord(scope);
@@ -258,6 +262,11 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         const generation = restoreGeneration;
         const progress = {total: plan.length, done: 0, failed: 0, running: true};
         setProgress({...progress});
+        // ONE toast for the whole restore, one bar over every model: each model's build and download
+        // folded into it, rather than a row per model coming and going.
+        const op = beginOperation(`Restoring scene · ${plan.length} model${plan.length === 1 ? "" : "s"}`, {collapsed: true});
+        releaseOp = op.hold();
+        op.progress(0);
         // One bulk load: the camera goes to where it was before the reload, and no model's own
         // fit moves it afterwards. Without a saved camera the first model is framed.
         const session = beginBulkLoad(scope, RESTORE_SESSION, {view: rec.camera ?? null, save: false});
@@ -265,10 +274,11 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
             for (const m of plan) {
                 if (generation !== restoreGeneration || currentScope() !== scope || !useSceneRestoreStore.getState().enabled) break;
                 const name = recordedSourceName(m);
+                op.stage(`${progress.done + 1} of ${progress.total}: ${(m.kind === "asset" && m.label) || name}`);
                 let ok = useModelState.getState().loadedSourceNames.has(name);
                 if (!ok) {
                     try {
-                        ok = m.kind === "file" ? await loadFile(m) : await loadAsset(scope, m);
+                        ok = m.kind === "file" ? await loadFile(m) : await loadAsset(scope, m, op);
                     } catch (e) {
                         console.warn("scene restore: load failed for", name, e);
                     }
@@ -284,12 +294,16 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
                 }
                 progress.done += 1;
                 setProgress({...progress});
+                op.progress(progress.done / progress.total);
             }
         } finally {
             endBulkLoad(session);
+            if (progress.failed) op.fail(`${progress.failed} of ${progress.total} models could not be loaded; kept for the next reload`);
+            if (!progress.failed) op.stage("restoring hidden objects and selection");
         }
         // The models are in: hide and select again what was hidden and selected before.
         const note = await restoreView(rec.view, scope);
+        releaseOp();
         setProgress({...progress, running: false, note});
         // The restored scene is where the undo history starts: its loads are not steps to undo.
         useViewerHistoryStore.getState().reset();
@@ -298,6 +312,7 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         const p = useSceneRestoreStore.getState().progress;
         if (p) setProgress({...p, running: false});
     } finally {
+        releaseOp();
         restoring = false;
         // From now on the record follows what is hidden and selected on this page.
         viewSaving = true;

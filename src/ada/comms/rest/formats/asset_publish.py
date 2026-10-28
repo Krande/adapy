@@ -50,6 +50,11 @@ from ..db.node_bounds import (
     ingest_node_bounds,
     read_node_bounds_header,
 )
+from ..db.node_relations import (
+    NODE_RELATIONS_ROLE,
+    ingest_node_relations,
+    read_node_relations_header,
+)
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
 from ..worker.audit import _audit_done
@@ -59,7 +64,7 @@ from .registry import JobContext, SyntheticFormatHandler
 ASSET_PUBLISH_KIND = "asset_publish"
 
 #: Staged roles core ingests itself; a provider's ``derive()`` never sees them.
-_CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE})
+_CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE})
 
 
 def consumed_staging(staged: dict, *, dry_run: bool) -> list[str]:
@@ -102,6 +107,8 @@ async def _run_asset_publish(
     attr_key = staged.get(ATTRIBUTE_INDEX_ROLE)
     # Node bounds likewise (``db/node_bounds.py``): core's role, ingested after the plan.
     bounds_key = staged.get(NODE_BOUNDS_ROLE)
+    # Node relations likewise (``db/node_relations.py``).
+    relations_key = staged.get(NODE_RELATIONS_ROLE)
     plan_staged = {role: key for role, key in staged.items() if role not in _CORE_ROLES}
 
     dry_run = bool(opts.get("dry_run"))
@@ -304,16 +311,60 @@ async def _run_asset_publish(
             bounds = {"ingested": False, "error": str(exc)}
             warnings.append(f"the node bounds were not ingested: {exc}")
 
+    # Node relations, the same way (``db/node_relations.py``).
+    relations: dict | None = None
+    relations_consumed = False
+    if relations_key:
+        await queue.update(job_id, stage="ingest", progress=0.9)
+        try:
+            if dry_run or db_pool is None:
+                header = await read_node_relations_header((await storage.open_stream(scope, relations_key)).stream)
+                relations = {
+                    "provider": provider_id,
+                    "collection": header["collection"],
+                    "revision": header.get("revision"),
+                    "ingested": False,
+                }
+                if db_pool is None and not dry_run:
+                    warnings.append(
+                        "this worker has no database pool (DATABASE_URL unset): the node relations were NOT "
+                        "ingested and stay staged -- publish them again from a worker with a database"
+                    )
+            else:
+                ingested_relations = await ingest_node_relations(
+                    db_pool,
+                    scope=scope.prefix(),
+                    provider=str(provider_id),
+                    chunks=(await storage.open_stream(scope, relations_key)).stream,
+                )
+                phase = ingested_relations.pop("timings")
+                timings["relations_ms"] = phase.get("ingest_ms", 0) + phase.get("swap_ms", 0)
+                timings["relations_rows"] = ingested_relations["rows"]
+                warnings.extend(ingested_relations.pop("warnings"))
+                relations = {**ingested_relations, "ingested": True}
+                relations_consumed = True
+        except Exception as exc:
+            if summary is None and attributes is None and bounds is None:
+                logger.exception("worker: asset_publish node relations ingest failed for job %s", job_id)
+                await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ingest", error=str(exc))
+                await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+                return
+            logger.exception("worker: asset_publish %s published, but its node relations failed", job_id)
+            relations = {"ingested": False, "error": str(exc)}
+            warnings.append(f"the node relations were not ingested: {exc}")
+
     if summary is None:
-        # Attributes- or bounds-only: the outcome a caller (and a sweep) reads names the collection
-        # and revision the header gave.
-        head = attributes if attributes is not None else bounds
+        # Attributes-, bounds- or relations-only: the outcome a caller (and a sweep) reads names the
+        # collection and revision the header gave.
+        head = attributes if attributes is not None else bounds if bounds is not None else relations
         assert head is not None
         counts = {}
         if attributes is not None:
             counts["attribute_rows"] = attributes.get("rows", 0)
         if bounds is not None:
             counts["bounds_rows"] = bounds.get("rows", 0)
+        if relations is not None:
+            counts["relation_rows"] = relations.get("rows", 0)
         summary = {
             "collection": head.get("collection"),
             "revision": head.get("revision"),
@@ -327,6 +378,8 @@ async def _run_asset_publish(
         summary["attributes"] = attributes
     if bounds is not None:
         summary["bounds"] = bounds
+    if relations is not None:
+        summary["relations"] = relations
     if warnings:
         summary["warnings"] = warnings
 
@@ -347,6 +400,8 @@ async def _run_asset_publish(
         cleared[ATTRIBUTE_INDEX_ROLE] = attr_key
     if bounds_key and bounds_consumed:
         cleared[NODE_BOUNDS_ROLE] = bounds_key
+    if relations_key and relations_consumed:
+        cleared[NODE_RELATIONS_ROLE] = relations_key
     for key in consumed_staging(cleared, dry_run=dry_run):
         try:
             await storage.delete(scope, key)

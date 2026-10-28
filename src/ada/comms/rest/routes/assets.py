@@ -212,11 +212,12 @@ async def api_asset_providers(
 
 @router.get("/scopes/{scope}/assets/index")
 async def api_asset_index(
+    request: Request,
     collection: str | None = None,
     manifests: bool = False,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
-) -> JSONResponse:
+) -> Response:
     """The folded index: subjects -> revisions -> files, plus ``malformed``.
 
     One bounded ``list_prefix`` -- scoped to a collection when one is named, so browsing a
@@ -235,7 +236,22 @@ async def api_asset_index(
     body = index.to_dict()
     if manifests:
         await _fold_manifest_summaries(ctx, scope_obj, collection, body)
-    return JSONResponse(body)
+    return _json_response(request, body)
+
+
+@router.get("/scopes/{scope}/assets/collections")
+async def api_asset_collections(
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """The collection names under ``assets/``, from one delimited listing.
+
+    What picking a collection needs, without the unscoped index's walk of every published key.
+    A name is listed when its prefix holds any key, so a collection of only malformed keys is
+    listed here and folds to no subjects in its own index.
+    """
+    names = await ctx.storage.list_child_names(scope_obj, f"{ASSET_PREFIX}/")
+    return JSONResponse({"collections": [n for n in names if is_valid_segment(n)]})
 
 
 @router.get("/scopes/{scope}/assets/geometry/{collection}")

@@ -7,6 +7,9 @@
 //   collections  GET   what has been ingested in this scope, one entry per (provider, collection)
 //   keys         GET   the attribute keys present, sorted -- what a filter row's key offers
 //   values       GET   a key's values with counts, optionally by prefix -- what a value offers
+//   node         GET   one node's row, by node id or exact full name
+//   request            whether a provider can be asked to index attributes (GET), the ask -- its
+//                      sweep with `sweep_target: attributes` (POST) -- and the run (GET .../{run})
 //
 // Provider-neutral on purpose: keys, kinds and values are whatever the provider wrote, case kept.
 // Nothing here knows one provider's vocabulary from another's.
@@ -21,6 +24,7 @@
 
 import { runtime } from "@/runtime/config";
 
+import type { SweepRun } from "./assetSchedules";
 import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
 
 /** One filter on an attribute: exactly one operator beside `key`. `ne` / `not_in` are the exact
@@ -153,6 +157,28 @@ export interface SearchPartitionFilter {
   allScopes?: boolean;
 }
 
+/** One node's indexed row (`GET /assets/search/node`): a hit without its `path`, with the
+ *  partition's revision. */
+export interface IndexedNode extends Omit<SearchHit, "path"> {
+  revision: string | null;
+}
+
+/** `indexed`: a partition of the (provider, collection) is readable here. `node` is null when none
+ *  matches, or when the name names several (`ambiguous`). */
+export interface NodeAttributesResponse {
+  indexed: boolean;
+  node: IndexedNode | null;
+  ambiguous: boolean;
+}
+
+/** Whether a provider can be asked to index attributes here, and by this user. */
+export interface AttributesRequestPermission {
+  provider: string;
+  available: boolean;
+  allowed: boolean;
+  reason: string | null;
+}
+
 function searchBase(scope: ScopeUrl): string {
   return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/assets/search`;
 }
@@ -203,4 +229,43 @@ export const attributeSearchApi = {
     const r = await authedFetch(`${searchBase(scope)}/values?${q}`, { signal });
     return (await jsonOrThrow<{ values: SearchValueCount[] }>(r, "searchValues")).values;
   },
+
+  /** One node of one (provider, collection), by its node id or its exact full name. */
+  async nodeAttributes(
+    scope: ScopeUrl,
+    provider: string,
+    collection: string,
+    by: { nodeId: string } | { name: string },
+    signal?: AbortSignal,
+  ): Promise<NodeAttributesResponse> {
+    const q = new URLSearchParams({ provider, collection });
+    if ("nodeId" in by) q.set("node_id", by.nodeId);
+    else q.set("name", by.name);
+    const r = await authedFetch(`${searchBase(scope)}/node?${q}`, { signal });
+    return jsonOrThrow(r, "nodeAttributes");
+  },
+
+  async attributesRequestPermission(scope: ScopeUrl, provider: string): Promise<AttributesRequestPermission> {
+    const r = await authedFetch(`${attributesRequestBase(scope)}?provider=${encodeURIComponent(provider)}`);
+    return jsonOrThrow(r, "attributesRequestPermission");
+  },
+
+  /** The provider's sweep with `sweep_target: attributes` over `collections`. */
+  async requestAttributes(scope: ScopeUrl, provider: string, collections: readonly string[]): Promise<SweepRun> {
+    const r = await authedFetch(attributesRequestBase(scope), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, collections }),
+    });
+    return jsonOrThrow(r, "requestAttributes");
+  },
+
+  async attributesRequestRun(scope: string, runId: string): Promise<SweepRun> {
+    const r = await authedFetch(`${attributesRequestBase(scope as ScopeUrl)}/${encodeURIComponent(runId)}`);
+    return jsonOrThrow(r, "attributesRequestRun");
+  },
 };
+
+function attributesRequestBase(scope: ScopeUrl): string {
+  return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/assets/attributes/request`;
+}

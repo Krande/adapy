@@ -1785,10 +1785,13 @@ class Part(BackendGeom):
         geom_repr_override: dict[str, GeomRepr] = None,
         evict_solid_cache: bool = True,
         writer: str = "occ",
-        schema: str = "AP242",
+        schema: str | None = None,
         fuse_fem: bool = True,
         merge_strategy=None,
     ):
+        # ``schema`` ("AP214" / "AP242") is the application protocol the file declares; None is each
+        # writer's own default -- AP214 for the B-rep ("occ") writer, AP242 for "stream". The
+        # "native" writer emits AP242 only.
         # The "native" writer serializes each object's solid_geom() to an NGEOM
         # blob and emits AP242 through adacpp's C++ record-stream writer
         # (stream_ngeom_to_step) — no OCC and no per-entity Python text writer
@@ -1814,7 +1817,7 @@ class Part(BackendGeom):
             return write_step_stream(
                 self,
                 destination_file,
-                schema=schema,
+                schema=schema or "AP242",
                 progress_callback=progress_callback,
                 fuse_fem=fuse_fem,
                 merge_strategy=merge_strategy,
@@ -1826,7 +1829,7 @@ class Part(BackendGeom):
         from ada.cad.shape_cache import invalidate
         from ada.occ.store import OCCStore
 
-        step_writer = active_doc_backend().step_writer()
+        step_writer = active_doc_backend().step_writer(schema)
 
         num_shapes = len(list(self.get_all_physical_objects()))
         shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=geom_repr_override)

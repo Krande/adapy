@@ -13,7 +13,9 @@ import {
     loadBoxMembers,
     planBoxRequest,
     prepareBoxRequest,
+    requestBoxBounds,
     useBoxRequestStore,
+    type BoundsOffer,
     type BoxRequestEntry,
 } from "@/state/boxRequestStore";
 import type {BoxSelectMode} from "@/utils/bboxSelection/boxMath";
@@ -81,6 +83,9 @@ export const BoxRequestSection: React.FC<{box: SelectionBox}> = ({box}) => {
             )}
             {choices.length === 1 && <div className="mt-1 text-[10px] text-gray-300">From {choices[0].label}</div>}
             {entry?.candidates && entry.phase === "ready" && <CandidatesNote candidates={entry.candidates}/>}
+            {entry?.boundsOffer && entry.candidates?.kind === "drawn" && !busy && (
+                <BoundsOfferNote boxId={box.id} offer={entry.boundsOffer}/>
+            )}
             {entry?.blocked && <div className="mt-1 max-w-64 text-[10px] text-amber-300">{entry.blocked}</div>}
             {entry?.phase !== "confirm" && (
                 <div className="mt-1 flex justify-end">
@@ -113,6 +118,46 @@ const CandidatesNote: React.FC<{candidates: BoxCandidates}> = ({candidates}) =>
             Only what is drawn{candidates.why ? `: ${candidates.why}` : ""}.
         </div>
     );
+
+/** No bounds published for the scene's collections, and a provider that can measure them: the
+ *  offer to, the run once asked, or why this user cannot ask. */
+const BoundsOfferNote: React.FC<{boxId: string; offer: BoundsOffer}> = ({boxId, offer}) => {
+    const what = offer.collections.join(", ");
+    if (offer.runId) {
+        return (
+            <div className="mt-1 max-w-64 text-[10px] text-gray-300" role="status">
+                {offer.provider} is measuring the node bounds of {what}; this box reads them when it finishes (progress in the job toast).
+            </div>
+        );
+    }
+    if (!offer.allowed) {
+        return (
+            <div className="mt-1 max-w-64 text-[10px] text-gray-400">
+                {offer.provider} can measure the node bounds of {what}, but {offer.reason ?? "you may not ask it"}. Ask an administrator to run it.
+            </div>
+        );
+    }
+    return (
+        <div className="mt-1 max-w-64 text-[10px] text-gray-300">
+            <div>
+                Extract the node bounds of {what} from {offer.provider} (every level of the project) so the box finds what is in
+                it, loaded or not. One job per project.
+            </div>
+            {offer.error && <div className="mt-0.5 text-red-400">{offer.error}</div>}
+            <div className="mt-1 flex justify-end">
+                <button
+                    type="button"
+                    role="menuitem"
+                    className={`${btn} bg-emerald-700 hover:bg-emerald-600`}
+                    title={`Run ${offer.provider}'s node bounds extraction for ${what}, then read the box again`}
+                    onClick={() => void requestBoxBounds(boxId)}
+                >
+                    Extract node bounds
+                </button>
+            </div>
+        </div>
+    );
+};
 
 /** Where a box's request has got to, with the confirm step: the menu's and the Scene panel's. */
 export const BoxRequestStatus: React.FC<{boxId: string; label?: string; entry?: BoxRequestEntry}> = ({boxId, label, entry: given}) => {

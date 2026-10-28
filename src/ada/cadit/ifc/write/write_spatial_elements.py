@@ -86,6 +86,17 @@ class SpatialWriter:
             relative_to=parent.ObjectPlacement,
         )
 
+        from ada.cadit.ifc.write.entity_choice import resolve_ifc_entity
+
+        choice = resolve_ifc_entity(part.metadata, f)
+        if choice is not None:
+            return self._create_ifc_element_part(part, choice, placement)
+
+        ifc_class = part.ifc_class
+        if parent.is_a("IfcElement") and ifc_class not in (ITyp.IfcElementAssembly, ITyp.IfcGrid):
+            # A spatial element cannot decompose an element: a part inside one is an assembly.
+            ifc_class = ITyp.IfcElementAssembly
+
         props = dict(
             GlobalId=part.guid,
             OwnerHistory=owner_history,
@@ -96,16 +107,16 @@ class SpatialWriter:
             Representation=None,
         )
 
-        if part.ifc_class not in (ITyp.IfcElementAssembly, ITyp.IfcGrid):
+        if ifc_class not in (ITyp.IfcElementAssembly, ITyp.IfcGrid):
             props["LongName"] = part.metadata.get("LongName", None)
 
-        if part.ifc_class not in (ITyp.IfcSpatialZone, ITyp.IfcElementAssembly, ITyp.IfcGrid):
+        if ifc_class not in (ITyp.IfcSpatialZone, ITyp.IfcElementAssembly, ITyp.IfcGrid):
             props["CompositionType"] = part.metadata.get("CompositionType", "ELEMENT")
 
-        if part.ifc_class == ITyp.IfcBuildingStorey:
+        if ifc_class == ITyp.IfcBuildingStorey:
             props["Elevation"] = float(part.placement.origin[2])
 
-        if part.ifc_class == ITyp.IfcGrid:
+        if ifc_class == ITyp.IfcGrid:
             from ada.cadit.ifc.utils import create_ifcpolyline
 
             # Todo: Create an IfcGrid object
@@ -126,7 +137,7 @@ class SpatialWriter:
                 )
             ]
 
-        ifc_elem = f.create_entity(part.ifc_class.value, **props)
+        ifc_elem = f.create_entity(ifc_class.value, **props)
 
         existing_rel_agg = self.ifc_store.get_rel_aggregates(parent)
         if existing_rel_agg is not None:
@@ -145,4 +156,23 @@ class SpatialWriter:
 
         write_elem_property_sets(part.metadata, ifc_elem, f, owner_history)
 
+        return ifc_elem
+
+    def _create_ifc_element_part(self, part: Part, choice, placement):
+        """``part`` as the element ``choice`` names: no body of its own, its contents aggregated
+        into it, and itself contained in (or aggregated into) its parent."""
+        f = self.ifc_store.f
+        owner_history = self.ifc_store.owner_history
+        ifc_elem = f.create_entity(
+            choice.entity,
+            GlobalId=part.guid,
+            OwnerHistory=owner_history,
+            Name=part.name,
+            Description=part.metadata.get("Description", None),
+            ObjectPlacement=placement,
+            Representation=None,
+            **choice.attributes(),
+        )
+        self.ifc_store.writer.add_related_elements_to_spatial_container([ifc_elem], part.parent.guid)
+        write_elem_property_sets(part.metadata, ifc_elem, f, owner_history)
         return ifc_elem

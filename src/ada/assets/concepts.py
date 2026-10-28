@@ -134,12 +134,15 @@ def clear_asset_concepts() -> None:
         _READERS.clear()
 
 
-def part_for_manifest(manifest: Any, *, storage: Any, scope: Any = None, node: str | None = None):
+def part_for_manifest(
+    manifest: Any, *, storage: Any, scope: Any = None, node: str | None = None, attributes: Any = None
+):
     """The node's concept objects, from the manifest that speaks for it.
 
     ``manifest`` is a parsed :class:`ada.assets.manifest.AssetManifest`. Its ``provider`` says who
     can read the source and its ``build.options`` say where the source is, so nothing else has to
-    be passed and nothing extra has to have been published.
+    be passed and nothing extra has to have been published. ``attributes`` (an
+    :class:`ada.assets.attribute_lookup.NodeAttributeLookup`) is handed to a reader that takes it.
 
     A subject that claims no build has no options to read with, and that is refused rather than
     guessed at: a provider asked to produce objects with no source named would have to invent the
@@ -152,12 +155,20 @@ def part_for_manifest(manifest: Any, *, storage: Any, scope: Any = None, node: s
             f"{getattr(manifest, 'delivery', '?')!r} and carries no build options -- there is "
             f"nothing here naming the source to read, so there is no scope to read it at"
         )
+    from ada.assets.attribute_lookup import CollectionAttributes, accepts_attributes
+
     reader = asset_concepts(manifest.provider)
+    extra = (
+        {"attributes": CollectionAttributes(attributes, manifest.collection)}
+        if attributes is not None and accepts_attributes(reader.concepts)
+        else {}
+    )
     part = reader.concepts(
         dict(spec.options),
         storage=storage,
         scope=scope,
         node=node or getattr(manifest, "node", None) or manifest.subject,
+        **extra,
     )
     if part is None:
         raise AssetConceptsError(f"provider {manifest.provider!r} returned no objects for subject {manifest.subject!r}")

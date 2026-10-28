@@ -149,6 +149,8 @@ def test_the_download_is_named_after_the_selection_and_never_a_path():
     assert export_filename("deck_a", "step") == "deck_a.step"
     assert export_filename("../../etc/passwd", "ifc") == "etc_passwd.ifc"
     assert export_filename(None, "ifc") == "selection.ifc"
+    # No spaces, and a name's punctuation collapses to one separator.
+    assert export_filename("PLATE 2 of FRAME /A1(3)-B", "ifc") == "PLATE_2_of_FRAME_A1_3_-B.ifc"
 
 
 def test_two_same_named_selections_in_two_places_are_two_keys():
@@ -163,3 +165,94 @@ def test_the_same_selection_is_the_same_key():
     target = {"collection": "c", "subject": "s", "revision": "r", "node": "n"}
     args = dict(fmt="step", element=None, path=[], filename="s.step")
     assert selection_derived_key("tok", target, **args) == selection_derived_key("tok", dict(target), **args)
+
+
+# --- export options: the STEP schema -------------------------------------------------------------
+
+
+def _file_schema(path) -> str:
+    import re
+
+    text = path.read_text(errors="replace")
+    m = re.search(r"FILE_SCHEMA\(\(\s*'([^']+)'", text)
+    return m.group(1) if m else ""
+
+
+@pytest.mark.parametrize("schema, declared", [(None, "AUTOMOTIVE_DESIGN"), ("AP214", "AUTOMOTIVE_DESIGN"), ("AP242", "AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF")])
+def test_a_step_export_declares_the_schema_asked_for(tmp_path, schema, declared):
+    out = scope_to_selection(_model(), "deck_b")
+    options = None if schema is None else {"step_schema": schema}
+    dest = write_selection(out, "step", tmp_path / "deck_b.step", options)
+    assert _file_schema(dest).startswith(declared)
+
+
+def test_export_options_are_checked_not_dropped():
+    from ada.comms.rest.selection_export import parse_export_options
+
+    defaults = {"step_schema": "AP214", "ifc_schema": "IFC4", "ifc_swept_primitives": False, "ifc_header": None}
+    assert parse_export_options(None) == defaults
+    assert parse_export_options({"step_schema": "ap242"}) == {**defaults, "step_schema": "AP242"}
+    assert parse_export_options({"ifc_swept_primitives": True})["ifc_swept_primitives"] is True
+    with pytest.raises(SelectionExportError, match="ifc_swept_primitives"):
+        parse_export_options({"ifc_swept_primitives": "yes"})
+    assert parse_export_options({"ifc_schema": "ifc4x3"})["ifc_schema"] == "IFC4X3"
+    with pytest.raises(SelectionExportError, match="step_schema"):
+        parse_export_options({"step_schema": "AP203"})
+    with pytest.raises(SelectionExportError, match="ifc_schema"):
+        parse_export_options({"ifc_schema": "IFC2X3"})
+    with pytest.raises(SelectionExportError, match="unknown export option"):
+        parse_export_options({"tolerance": 1})
+
+
+def test_only_options_that_change_the_file_change_its_key():
+    target = {"source_key": "m.ifc"}
+    args = dict(element="PL1", path=["deck_b", "PL1"])
+    plain = selection_derived_key("tok", target, fmt="step", filename="PL1.step", **args)
+    # The default asked for explicitly is the file it always was -- the cache stays warm.
+    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"step_schema": "AP214"}, **args) == plain
+    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"step_schema": "AP242"}, **args) != plain
+    # A STEP schema does not make another IFC.
+    ifc = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", **args)
+    assert selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"step_schema": "AP242"}, **args) == ifc
+    # The IFC schema does, and an IFC export's key names it even at the default: earlier IFC
+    # exports were written in another schema under the default key.
+    ifc43 = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_schema": "IFC4X3"}, **args)
+    assert ifc43 != ifc
+    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"ifc_schema": "IFC4X3"}, **args) == plain
+
+
+def test_an_ifc_header_names_the_file_its_author_and_project(tmp_path):
+    import ifcopenshell
+
+    out = scope_to_selection(_model(), "deck_b")
+    header = {"file_name": "ABC_deck_b.ifc", "author": "Jane Doe", "project": "ABC"}
+    # Written to a temporary path, as the worker does: the header still says what the file is.
+    dest = write_selection(out, "ifc", tmp_path / "tmp1234.ifc", {"ifc_header": header})
+    f = ifcopenshell.open(str(dest))
+    assert f.header.file_name.name == "ABC_deck_b.ifc"
+    assert tuple(f.header.file_name.author) == ("Jane Doe",)
+    assert f.header.file_name.originating_system.startswith("adapy")
+    assert f.by_type("IfcProject")[0].Name == "ABC"
+    assert f.by_type("IfcPerson")[0].GivenName == "Jane Doe"
+
+
+def test_an_ifc_header_makes_another_file_and_a_step_ignores_it():
+    target = {"source_key": "m.ifc"}
+    args = dict(element="PL1", path=["deck_b", "PL1"])
+    one = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_header": {"author": "A"}}, **args)
+    two = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_header": {"author": "B"}}, **args)
+    assert one != two, "one person's export must not be served under another's name"
+    step = selection_derived_key("tok", target, fmt="step", filename="PL1.step", **args)
+    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"ifc_header": {"author": "A"}}, **args) == step
+
+
+@pytest.mark.parametrize("schema, declared", [(None, "IFC4"), ("IFC4", "IFC4"), ("IFC4X3", "IFC4X3_ADD2")])
+def test_an_ifc_export_is_written_in_the_schema_asked_for(tmp_path, schema, declared):
+    import ifcopenshell
+
+    out = scope_to_selection(_model(), "deck_b")
+    options = None if schema is None else {"ifc_schema": schema}
+    dest = write_selection(out, "ifc", tmp_path / "deck_b.ifc", options)
+    f = ifcopenshell.open(str(dest))
+    assert f.schema_identifier.upper() == declared
+    assert f.by_type("IfcProduct"), "the selection's objects were not written"

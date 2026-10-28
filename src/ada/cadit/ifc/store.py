@@ -233,6 +233,10 @@ class IfcStore:
 
         self.writer.sync_systems()
 
+        from ada.cadit.ifc.write.write_relations import write_relations
+
+        write_relations(self)
+
         num_mod = self.writer.sync_modified_physical_objects()
 
         self.writer.sync_groups()
@@ -255,8 +259,36 @@ class IfcStore:
         self.callback = None
 
     def save_to_file(self, filepath: str | os.PathLike):
+        self._fill_header(filepath)
         with open(filepath, "w") as f:
             f.write(self.f.to_string())
+
+    #: The assembly metadata key naming the file in the header, when it is written under another
+    #: name than the one it is delivered as (a temporary path).
+    HEADER_FILE_NAME_KEY = "ifc_file_name"
+
+    def _fill_header(self, filepath: str | os.PathLike) -> None:
+        """FILE_NAME as the file is: its name, the assembly user as author, their organization, and
+        this writer -- not the placeholders ifcopenshell starts from."""
+        import pathlib
+        from datetime import datetime, timezone
+
+        from ada._version import __version__ as ada_version
+
+        a = self.assembly
+        try:
+            header = self.f.header.file_name
+        except AttributeError:  # an ifcopenshell without header access writes its defaults
+            return
+        name = (a.metadata.get(self.HEADER_FILE_NAME_KEY) if a is not None else None) or pathlib.Path(filepath).name
+        header.name = str(name)
+        header.time_stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        user = getattr(a, "user", None) if a is not None else None
+        if user is not None:
+            person = " ".join(p for p in (user.given_name, user.family_name) if p) or user.user_id
+            header.author = (str(person),)
+            header.organization = (str(user.org_name or user.org_id or ""),)
+        header.originating_system = f"adapy {ada_version}"
 
     def load_ifc_content_from_file(
         self, ifc_file: str | os.PathLike | ifcopenshell.file = None, data_only=False, elements2part=None

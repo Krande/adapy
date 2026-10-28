@@ -14,6 +14,7 @@ import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigati
 import ObjectMetadataPanel from './ObjectMetadataPanel';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
+import IndexedAttributesSection from './IndexedAttributesSection';
 import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 import FemConceptSelectionInfo from './FemConceptSelectionInfo';
 import DownloadSelectionButton from './DownloadSelectionButton';
@@ -383,6 +384,8 @@ const ObjectInfoBox = () => {
             <FemConceptSelectionInfo/>
             {!cellCtx && <SourceJumpSection/>}
             {name && <ObjectMetadataPanel data={jsonData}/>}
+            {/* The selected row's attributes from the attribute index; nothing when it has none. */}
+            {!cellCtx && <IndexedAttributesSection/>}
             {/* Structural facts about the selected hierarchy node. Renders for
                 any tree selection, and is the ONLY section a spatial container
                 can populate — everything above is keyed on geometry the

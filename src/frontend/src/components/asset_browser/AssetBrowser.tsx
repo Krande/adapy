@@ -21,8 +21,14 @@ import { runtime } from "@/runtime/config";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import type { AssetBrowserTab } from "@/state/assetBrowserStore";
 
-import AssetsTab from "./AssetsTab";
-import FilesTab from "./FilesTab";
+import AssetsTabView from "./AssetsTab";
+import FilesTabView from "./FilesTab";
+
+// Memoized: neither takes props, and both re-render from their own stores. Without it every tab
+// switch -- and every drawer resize, which a switch also makes (a width per tab) -- re-rendered both
+// whole trees from here.
+const AssetsTab = React.memo(AssetsTabView);
+const FilesTab = React.memo(FilesTabView);
 
 export function assetsTabAvailable(): boolean {
     return runtime.isRestMode();

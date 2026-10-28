@@ -22,6 +22,8 @@ import { resolveElementRows } from "@/utils/groups/groupAssetRows";
 export async function geometryRequestDeps(
   scope: string,
   onStage: (stage: string | null) => void,
+  /** An operation's `trackJob` (`services/operationTracking`): the jobs become rows under it. */
+  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void,
 ): Promise<
   Pick<GeometryCheckFlowDeps, "geometryPlan" | "nodeRequestFor" | "isAdmin" | "resolveRows" | "request" | "afterRequest">
 > {
@@ -35,7 +37,7 @@ export async function geometryRequestDeps(
     isAdmin: useMeStore.getState().isAdmin,
     resolveRows: (s, members) => resolveElementRows(s, members),
     // Jobs go to the global toast, exactly as the saved group's "Request geometry…" sends them.
-    request: requestDeps((stage) => onStage(stage)),
+    request: requestDeps((stage) => onStage(stage), trackJob),
     async afterRequest() {
       // The new publishes reach the Sources tree, so its Load buttons enable.
       try {

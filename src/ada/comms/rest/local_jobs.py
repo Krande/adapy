@@ -974,9 +974,10 @@ def start_export_selection(
             job.stage, job.progress = "export", 0.3
             element = options.get("element") or None
             path = options.get("path") or ()
+            export_options = options.get("export_options")
             if source_key is not None:
                 sync_storage.fetch_to_path(source_key, src)
-                export_source_selection(src, fmt, out_path, element=element, path=path)
+                export_source_selection(src, fmt, out_path, element=element, path=path, export_options=export_options)
             else:
                 export_asset_selection(
                     collection=str(options.get("collection") or ""),
@@ -988,6 +989,7 @@ def start_export_selection(
                     node=options.get("node") or None,
                     element=element,
                     path=path,
+                    export_options=export_options,
                 )
             if job.status != STATUS_RUNNING:
                 return
@@ -1063,7 +1065,12 @@ def start_export_selection_group(
         try:
             job.stage, job.progress = "export", 0.3
             warnings = export_group_selection(
-                group, storage=sync_storage, fmt=fmt, out_path=out_path, geometry_provider=geometry_provider
+                group,
+                storage=sync_storage,
+                fmt=fmt,
+                out_path=out_path,
+                geometry_provider=geometry_provider,
+                export_options=options.get("export_options"),
             )
             if job.status != STATUS_RUNNING:
                 return

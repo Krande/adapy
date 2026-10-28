@@ -187,3 +187,43 @@ test("a done job runs its finisher as the entry's last stage, then is forgotten"
     clearAll();
   }
 });
+
+test("a job the server no longer knows is closed through the route that owns its row", async () => {
+  // The in-browser audit route refuses anything but a `wasm-` id, so a worker job's row
+  // closed there stayed `queued`, came back from my-jobs on every reload, and was
+  // polled into the same 404 again.
+  const { ApiError } = await import("@/services/viewerApi");
+  const api = viewerApi as unknown as {
+    convertStatus: (id: string) => Promise<unknown>;
+    cancelMyJob: (scope: string, id: string) => Promise<boolean>;
+    auditLocalUpdate: (scope: string, id: string, body: unknown) => Promise<void>;
+  };
+  const saved = { ...api };
+  const cancelled: string[] = [];
+  const localUpdates: string[] = [];
+  api.convertStatus = async () => {
+    throw new ApiError("convertStatus", 404, "gone");
+  };
+  api.cancelMyJob = async (_s, id) => {
+    cancelled.push(id);
+    return true;
+  };
+  api.auditLocalUpdate = async (_s, id) => {
+    localUpdates.push(id);
+  };
+  try {
+    clearAll();
+    const worker = trackJob({ jobId: "abc123", scopeUrl: "shared", label: "w" });
+    const local = trackJob({ jobId: "wasm-1", scopeUrl: "shared", label: "l" });
+    for (let i = 0; i < 40 && (cancelled.length < 1 || localUpdates.length < 1); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.deepEqual(cancelled, ["abc123"]);
+    assert.deepEqual(localUpdates, ["wasm-1"]);
+    assert.equal(useConversionStore.getState().jobs[worker]?.status, "cancelled");
+    assert.equal(useConversionStore.getState().jobs[local]?.status, "cancelled");
+  } finally {
+    Object.assign(api, saved);
+    clearAll();
+  }
+});

@@ -52,6 +52,28 @@ __all__ = [
 ]
 
 
+def _attribute_lookup(ctx: JobContext):
+    """The attribute lookup handed to a provider's concepts read, or None without a pool or API."""
+    from ..worker.attribute_lookup import attribute_lookup_for
+
+    try:
+        return attribute_lookup_for(getattr(ctx, "db_pool", None), ctx.scope, asyncio.get_running_loop())
+    except Exception:  # noqa: BLE001 - an export without attributes is still an export
+        logger.warning("worker: no attribute lookup for this export", exc_info=True)
+        return None
+
+
+def _relation_lookup(ctx: JobContext):
+    """The relation lookup an IFC is written with, or None without a pool or API."""
+    from ..worker.relation_lookup import relation_lookup_for
+
+    try:
+        return relation_lookup_for(getattr(ctx, "db_pool", None), ctx.scope, asyncio.get_running_loop())
+    except Exception:  # noqa: BLE001 - an export without relations is still an export
+        logger.warning("worker: no relation lookup for this export", exc_info=True)
+        return None
+
+
 async def _fail(job: Job, ctx: JobContext, stage: str, msg: str, trace: str | None = None) -> None:
     await ctx.queue.update(job.job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
     await _audit_done(ctx.db_pool, job.job_id, "error", msg, ctx.started_at, traceback=trace)
@@ -140,6 +162,7 @@ class ExportSelectionHandler(SourceFormatHandler):
                 out_path,
                 element=opts.get("element") or None,
                 path=opts.get("path") or (),
+                export_options=opts.get("export_options"),
             )
 
         await _export_and_upload(job, ctx, _produce)
@@ -164,11 +187,15 @@ class ExportSelectionAssetHandler(SyntheticFormatHandler):
             return
 
         storage = _SyncStorageFacade(ctx.storage, ctx.scope, asyncio.get_running_loop())
+        attributes = _attribute_lookup(ctx)
+        relations = _relation_lookup(ctx)
 
         def _produce(out_path):
             # The provider reads its own source through this facade -- what it needs, and how much,
             # is its business; core hands over the facade and never the bytes.
             return export_asset_selection(
+                attributes=attributes,
+                relations=relations,
                 collection=collection,
                 subject=subject,
                 storage=storage,
@@ -178,6 +205,7 @@ class ExportSelectionAssetHandler(SyntheticFormatHandler):
                 node=opts.get("node") or None,
                 element=opts.get("element") or None,
                 path=opts.get("path") or (),
+                export_options=opts.get("export_options"),
             )
 
         await _export_and_upload(job, ctx, _produce)
@@ -199,6 +227,8 @@ class ExportSelectionGroupHandler(SyntheticFormatHandler):
             return
 
         storage = _SyncStorageFacade(ctx.storage, ctx.scope, asyncio.get_running_loop())
+        attributes = _attribute_lookup(ctx)
+        relations = _relation_lookup(ctx)
         geometry_provider = opts.get("geometry_provider") or None
         warnings: list[str] = []
 
@@ -206,10 +236,13 @@ class ExportSelectionGroupHandler(SyntheticFormatHandler):
             warnings.extend(
                 export_group_selection(
                     group,
+                    attributes=attributes,
+                    relations=relations,
                     storage=storage,
                     fmt=str(opts.get("format")),
                     out_path=out_path,
                     geometry_provider=geometry_provider,
+                    export_options=opts.get("export_options"),
                 )
             )
 

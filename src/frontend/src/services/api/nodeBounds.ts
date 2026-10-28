@@ -5,12 +5,16 @@
 //                 their boxes are in
 //   search  POST  the published nodes in a box -- loaded in the viewer or not -- folded to the
 //                 topmost nodes that stand for whole levels
+//   request       whether a provider can be asked to measure and publish bounds (GET), the ask --
+//                 its sweep with `sweep_target: bounds` over named collections (POST) -- and the
+//                 run it starts (GET .../{run})
 //
 // The box is in the providers' MODEL frame (Z up, their geometry's units): the viewer subtracts its
 // scene offset first (`utils/bboxSelection/boxRequest.ts`).
 
 import { runtime } from "@/runtime/config";
 
+import type { SweepRun } from "./assetSchedules";
 import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
 
 /** `[min_x, min_y, min_z, max_x, max_y, max_z]`. */
@@ -66,6 +70,15 @@ export interface BoundsSearchResponse {
   readonly took_ms: number;
 }
 
+/** Whether a provider can be asked for node bounds here, and by this user. */
+export interface BoundsRequestPermission {
+  readonly provider: string;
+  readonly available: boolean;
+  readonly allowed: boolean;
+  /** Why not, when it cannot be asked (no worker stages bounds, or the job is an admin's). */
+  readonly reason: string | null;
+}
+
 function boundsBase(scope: ScopeUrl): string {
   return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/assets/bounds`;
 }
@@ -84,5 +97,24 @@ export const nodeBoundsApi = {
       signal,
     });
     return jsonOrThrow(r, "boundsSearch");
+  },
+
+  async requestPermission(scope: ScopeUrl, provider: string): Promise<BoundsRequestPermission> {
+    const r = await authedFetch(`${boundsBase(scope)}/request?provider=${encodeURIComponent(provider)}`);
+    return jsonOrThrow(r, "boundsRequestPermission");
+  },
+
+  async request(scope: ScopeUrl, provider: string, collections: readonly string[]): Promise<SweepRun> {
+    const r = await authedFetch(`${boundsBase(scope)}/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, collections }),
+    });
+    return jsonOrThrow(r, "boundsRequest");
+  },
+
+  async requestRun(scope: string, runId: string): Promise<SweepRun> {
+    const r = await authedFetch(`${boundsBase(scope as ScopeUrl)}/request/${encodeURIComponent(runId)}`);
+    return jsonOrThrow(r, "boundsRequestRun");
   },
 };

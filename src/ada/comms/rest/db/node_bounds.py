@@ -16,12 +16,14 @@ and ingested by core's publish job after the plan is written -- the attribute in
 and every further line one node::
 
     {"node_id", "parent_id", "subject", "label", "full_name", "kind", "depth",
-     "bbox": [min_x, min_y, min_z, max_x, max_y, max_z]}
+     "bbox": [min_x, min_y, min_z, max_x, max_y, max_z], "own_bbox"?: [...]}
 
 ``bbox`` is in the provider's MODEL frame: Z up, the units of the geometry it delivers, before the
 viewer's scene offset -- so the viewer's box, less that offset, is in the same frame. ``subject`` is
 the published subject a request or a load of the node goes through (a site, for a provider that
 publishes per site); null above every subject. A line with no usable box is skipped and counted.
+``own_bbox``, optional, is the box of the geometry the node draws ITSELF, for a node that also has
+children (migration 043); an unusable one is dropped, the line kept.
 
 THE INGEST REPLACES the (scope, provider, collection) set in one transaction: the rows are COPYed
 into a temp table, then moved in (a node listed twice keeps its first line). A query that started
@@ -33,6 +35,11 @@ box lies inside it; then a node all of whose bounded children are taken stands f
 the topmost such nodes are answered. A node with no ``subject`` (above every published subject) is
 never answered itself; its taken children are. So a box around one site answers the site, a box
 through a corner of it the deepest nodes the corner meets.
+
+A node with geometry of its own is more than its children: in "partially within" it is also taken
+when its ``own_bbox`` meets the query box, whatever its children's boxes do -- a plate with a fitting
+on it, the box through the plate and not the fitting. Taken that way it stands for what is below it,
+as any answered node does.
 """
 
 from __future__ import annotations
@@ -79,7 +86,15 @@ _COLUMNS = (
     "max_x",
     "max_y",
     "max_z",
+    "own_min_x",
+    "own_min_y",
+    "own_min_z",
+    "own_max_x",
+    "own_max_y",
+    "own_max_z",
 )
+
+_NO_OWN = (None,) * 6
 
 
 class NodeBoundsError(ValueError):
@@ -168,6 +183,7 @@ def parse_bounds_batch(
         depth = obj.get("depth")
         if isinstance(depth, bool) or not isinstance(depth, (int, float)):
             depth = None
+        own = parse_bbox(obj.get("own_bbox")) if obj.get("own_bbox") is not None else None
         records.append(
             (
                 scope,
@@ -181,6 +197,7 @@ def parse_bounds_batch(
                 _text(obj.get("kind")),
                 int(depth) if depth is not None else None,
                 *bbox,
+                *(own or _NO_OWN),
             )
         )
     return records, skipped
@@ -400,13 +417,15 @@ def fold_hits(
     *,
     mode: str,
     child_totals: dict[str, int],
+    box: Optional[Sequence[float]] = None,
 ) -> list[dict]:
     """The topmost answerable nodes of one set's candidates (module docstring).
 
     ``rows`` are the candidates: for ``partial`` every node whose box MEETS the query box (closed
     upward: a parent's box holds its children's), for ``within`` every node whose box lies INSIDE it
     (closed downward). ``child_totals`` counts each candidate's children in the whole set -- bounded
-    children, the only ones a box can take."""
+    children, the only ones a box can take. ``box``, the query box, takes a ``partial`` candidate
+    whose own geometry's box (``own_*``) meets it."""
     by_id = {str(r["node_id"]): r for r in rows}
     children: dict[str, list[str]] = {}
     for nid, r in by_id.items():
@@ -440,6 +459,10 @@ def fold_hits(
             kids = children.get(nid, [])
             total = child_totals.get(nid, 0)
             whole[nid] = total == 0 or (len(kids) == total and all(whole.get(c, False) for c in kids))
+        if box is not None:
+            for nid, r in by_id.items():
+                if not whole[nid] and _own_meets(r, box):
+                    whole[nid] = True
 
     def answerable(nid: str) -> bool:
         return whole.get(nid, False) and by_id[nid].get("subject") is not None
@@ -462,6 +485,15 @@ def fold_hits(
             out.append(r)
     out.sort(key=lambda r: (r.get("depth") if r.get("depth") is not None else 1 << 30, str(r["node_id"])))
     return out
+
+
+def _own_meets(r: dict, box: Sequence[float]) -> bool:
+    """Whether the node's own geometry's box, when it has one, meets ``box``."""
+    own = [r.get(c) for c in _COLUMNS[-6:]]
+    if any(v is None for v in own):
+        return False
+    x0, y0, z0, x1, y1, z1 = box
+    return own[0] <= x1 and own[3] >= x0 and own[1] <= y1 and own[4] >= y0 and own[2] <= z1 and own[5] >= z0
 
 
 def _hit_wire(r: dict) -> dict:
@@ -515,8 +547,7 @@ async def query_node_bounds(pool: asyncpg.Pool, *, scopes: Sequence[str], query:
                     )
                 rows = await conn.fetch(
                     f"""
-                    SELECT scope, provider, collection, node_id, parent_id, subject, label, full_name, kind,
-                           depth, min_x, min_y, min_z, max_x, max_y, max_z
+                    SELECT {", ".join(_COLUMNS)}
                     FROM node_bounds
                     WHERE scope = $1 AND provider = $2 AND collection = $3 AND {where}
                     LIMIT {QUERY_MAX_CANDIDATES + 1}
@@ -551,7 +582,9 @@ async def query_node_bounds(pool: asyncpg.Pool, *, scopes: Sequence[str], query:
                     totals = {str(c["parent_id"]): int(c["n"]) for c in counted}
                 elif found:
                     totals = {}
-                hits.extend(_hit_wire(r) for r in fold_hits(found, mode=query.mode, child_totals=totals))
+                hits.extend(
+                    _hit_wire(r) for r in fold_hits(found, mode=query.mode, child_totals=totals, box=query.box)
+                )
         finally:
             await conn.execute("RESET statement_timeout")
     if len(hits) > query.limit:

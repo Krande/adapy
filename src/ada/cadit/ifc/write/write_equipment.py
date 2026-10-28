@@ -286,6 +286,10 @@ def _resolve_distribution_system(ifc_store: IfcStore, system: System) -> ifcopen
     return None
 
 
+#: Where a system with no routed run keeps the GlobalId of the IfcDistributionSystem written for it.
+_MEMBER_SYSTEM_GUID_KEY = "ifc_member_system_guid"
+
+
 def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
     """Fold each System onto its route's IfcDistributionSystem: system name +
     PredefinedType, equipment membership, and IfcRelConnectsPorts between the
@@ -295,7 +299,20 @@ def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
     f = ifc_store.f
     num = 0
     for system in systems:
+        member_elems = [
+            e for e in (_get_by_guid_or_none(ifc_store, m.guid) for m in getattr(system, "members", ())) if e is not None
+        ]
         ifc_system = _resolve_distribution_system(ifc_store, system)
+        if ifc_system is None and member_elems:
+            # No routed run: the system is its plain members (``System.members``), and is written
+            # for them even when there is one -- once, reused by a later sync.
+            ifc_system = _get_by_guid_or_none(ifc_store, system.metadata.get(_MEMBER_SYSTEM_GUID_KEY) or "")
+            if ifc_system is None:
+                guid = create_guid()
+                system.metadata[_MEMBER_SYSTEM_GUID_KEY] = guid
+                ifc_system = f.create_entity(
+                    "IfcDistributionSystem", guid, ifc_store.owner_history, system.name, None, None, None, "NOTDEFINED"
+                )
         if ifc_system is None or not ifc_system.is_a("IfcDistributionSystem"):
             logger.warning(f"System {system.name!r} has no written route geometry; skipping IFC system grouping")
             continue
@@ -308,12 +325,22 @@ def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
             elem = _get_by_guid_or_none(ifc_store, eq.guid)
             if elem is not None:
                 eq_elems.append(elem)
+        eq_elems += [e for e in member_elems if e not in eq_elems]
         if eq_elems:
-            for rel in f.by_type("IfcRelAssignsToGroup"):
-                if rel.RelatingGroup == ifc_system:
-                    existing = set(rel.RelatedObjects)
-                    rel.RelatedObjects = [*rel.RelatedObjects, *[e for e in eq_elems if e not in existing]]
-                    break
+            rel = next((r for r in f.by_type("IfcRelAssignsToGroup") if r.RelatingGroup == ifc_system), None)
+            if rel is None:
+                f.create_entity(
+                    "IfcRelAssignsToGroup",
+                    create_guid(),
+                    ifc_store.owner_history,
+                    system.name,
+                    None,
+                    RelatedObjects=eq_elems,
+                    RelatingGroup=ifc_system,
+                )
+            else:
+                existing = set(rel.RelatedObjects)
+                rel.RelatedObjects = [*rel.RelatedObjects, *[e for e in eq_elems if e not in existing]]
 
         if len(system.ports) >= 2:
             p_start, p_end = system.ports[0], system.ports[-1]

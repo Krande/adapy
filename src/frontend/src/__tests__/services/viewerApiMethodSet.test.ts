@@ -89,6 +89,8 @@ const EXPECTED_METHODS = [
   "adminStartAssetSweep", "blobObjectUrl", "cancelSearchExport", "exportDoc", "fileMeta",
   "searchAssetAttributes", "searchCollections", "searchExportRun", "searchExportRuns", "searchKeys",
   "searchValues", "skipSearchExportItem", "startSearchExport", "rerunSearchExport", "deleteSearchExport",
+  // One node's indexed attributes and the attributes request.
+  "nodeAttributes", "attributesRequestPermission", "requestAttributes", "attributesRequestRun",
   // Sweep run checkboxes and default lists, and the export's missing-geometry pre-flight.
   "adminAssetSweepDefaults", "adminSetAssetSweepDefaults", "adminSetAssetSweepItemRun", "exportPreflight",
   // The mesh export's preflight and the tree request it offers.

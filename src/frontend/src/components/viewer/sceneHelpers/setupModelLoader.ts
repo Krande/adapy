@@ -6,6 +6,7 @@ import {useAnimationStore} from "@/state/animationStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {zoomToAll} from "./setupCameraControlsHandlers";
 import {bulkLoadActive, noteBulkModel} from "@/utils/scene/loadingView";
+import {takeIfHeld} from "@/utils/scene/heldHidden";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {requestRender} from "@/state/perfStore";
 import {FilePurpose} from "@/flatbuffers/base/file-purpose";
@@ -261,6 +262,9 @@ export async function setupModelLoaderAsync(
 
     modelGroup.add(gltf_scene);
 
+    // A model its loader shows only part of joins invisible, until the rest is hidden by row
+    // (`@/utils/scene/heldHidden`).
+    if (sourceName) takeIfHeld(sourceName, modelGroup);
     main_scene.add(modelGroup);
     // Mesh/material/tree build is done; the model is now in the scene.
     // finalize() captures GPU/first-render via a post-add rAF, gathers

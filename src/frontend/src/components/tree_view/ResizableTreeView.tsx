@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from '@/components/asset_browser/AssetBrowser';
 import { useViewerStores } from "@/state/AdaViewerContext";
 
@@ -35,7 +35,8 @@ const ResizableTreeView: React.FC = () => {
     const activeTab = assetsTabAvailable() ? tab : "files";
     const tabWidths = useRef<Record<string, number>>({ assets: SOURCES_DEFAULT_WIDTH });
     const shownTab = useRef<string | null>(null);
-    useEffect(() => {
+    // Before paint: after it, the new tab is drawn once at the old width and then jumps.
+    useLayoutEffect(() => {
         const prev = shownTab.current;
         shownTab.current = activeTab;
         if (prev === activeTab) return;

@@ -1562,6 +1562,168 @@ async def search_attributes(
     }
 
 
+async def node_attributes(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: str,
+    collection: str,
+    node_id: Optional[str] = None,
+    full_name: Optional[str] = None,
+    shared_from: Optional[Iterable[str]] = None,
+    viewer: Optional[str] = None,
+) -> dict:
+    """One node's row, by ``node_id`` or by ``full_name`` (exactly one), from the partitions of
+    (provider, collection) readable in ``scope`` (:func:`_partitions`), the scope's own first.
+
+    ``{indexed, node, ambiguous}``: ``indexed`` says whether any such partition exists, ``node`` is
+    the row (the search hit's fields, without ``path``) or None. A name that names several nodes of
+    one partition answers no node and ``ambiguous``. Both lookups are unique / btree probes."""
+    if (node_id is None) == (full_name is None):
+        raise ValueError("exactly one of node_id and full_name")
+    column, value = ("node_id", node_id) if node_id is not None else ("full_name", full_name)
+    async with pool.acquire() as conn, conn.transaction(readonly=True):
+        await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
+        parts = await _partitions(conn, scope, [provider], [collection], shared_from=shared_from)
+        for part in parts:
+            rows = await conn.fetch(
+                f"SELECT {_SELECT_COLUMNS} FROM {_ident(part['partition_name'])} "
+                f'WHERE {column} = $1::text COLLATE "C" LIMIT 2',
+                value,
+            )
+            if len(rows) > 1:
+                return {"indexed": True, "node": None, "ambiguous": True}
+            if rows:
+                r = rows[0]
+                return {
+                    "indexed": True,
+                    "ambiguous": False,
+                    "node": {
+                        "provider": part["provider"],
+                        "collection": part["collection"],
+                        **_origin(part, viewer),
+                        "revision": part["revision"],
+                        "node_id": r["node_id"],
+                        "parent_id": r["parent_id"],
+                        "full_name": r["full_name"],
+                        "source_ref": r["source_ref"],
+                        "kind": r["kind"],
+                        "depth": r["depth"],
+                        "attrs": _loads_jsonb(r["attrs"]) or {},
+                    },
+                }
+    return {"indexed": bool(parts), "node": None, "ambiguous": False}
+
+
+#: Node ids plus full names one API lookup (``.../assets/search/nodes``) may name.
+NODES_LOOKUP_MAX = 5000
+
+
+async def nodes_attributes(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    collection: str,
+    node_ids: Iterable[str] = (),
+    full_names: Iterable[str] = (),
+    keys: Optional[Iterable[str]] = None,
+    ancestors: int = 0,
+    providers: Optional[Iterable[str]] = None,
+    shared_from: Optional[Iterable[str]] = None,
+) -> dict:
+    """Many nodes of ``collection`` at once, by ``node_ids`` and/or ``full_names``, from every
+    partition of it readable in ``scope`` (``providers`` narrows them). One query per partition.
+
+    ``{indexed, nodes, ancestors}``: ``nodes`` are the matched rows (``node_id, parent_id,
+    full_name, kind, attrs, provider, providers``); ``ancestors`` the distinct rows up to
+    ``ancestors`` levels above them, keyed by node id, so a caller rebuilds each chain through
+    ``parent_id``. ``keys`` restricts ``attrs`` to those keys.
+
+    ONE ROW PER NODE. Of one provider's partitions the scope's own answers before a shared one,
+    whole. Rows of the same node from different providers are merged
+    (:func:`ada.assets.attribute_lookup.merge_provider_rows`): the row with the most attributes
+    (counted before ``keys`` applies, so the leader does not depend on the keys asked for) leads
+    and wins every key both have; the others add the keys it lacks. ``provider`` names the leader,
+    ``providers`` every provider that answered."""
+    from ada.assets.attribute_lookup import merge_provider_rows
+
+    ids = sorted({str(n) for n in node_ids if n})
+    names = sorted({str(n) for n in full_names if n})
+    want = sorted({str(k) for k in keys}) if keys is not None else None
+    depth = max(0, min(int(ancestors), PATH_MAX_DEPTH))
+    attrs_sql = (
+        "attrs"
+        if want is None
+        else "COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(t.attrs) e "
+        "WHERE e.key = ANY($4::text[])), '{}'::jsonb)"
+    )
+    # node id -> provider -> (row, attribute count); dicts keep first-seen order.
+    hit_rows: dict[str, dict[str, tuple[dict, int]]] = {}
+    above_rows: dict[str, dict[str, tuple[dict, int]]] = {}
+
+    def _one(by_provider: dict[str, tuple[dict, int]]) -> dict:
+        if len(by_provider) == 1:
+            row, _ = next(iter(by_provider.values()))
+            return {**row, "providers": [row["provider"]]}
+        rows, sizes = zip(*by_provider.values())
+        return merge_provider_rows(list(rows), list(sizes))
+
+    async with pool.acquire() as conn, conn.transaction(readonly=True):
+        await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
+        parts = await _partitions(
+            conn, scope, list(providers) if providers else None, [collection], shared_from=shared_from
+        )
+        if not (ids or names):
+            return {"indexed": bool(parts), "nodes": [], "ancestors": {}}
+        for part in parts:
+            table = _ident(part["partition_name"])
+            rows = await conn.fetch(
+                f"""
+                WITH RECURSIVE hit AS MATERIALIZED (
+                    SELECT node_id, parent_id FROM {table} WHERE node_id = ANY($1::text[] COLLATE "C")
+                    UNION
+                    SELECT node_id, parent_id FROM {table} WHERE full_name = ANY($2::text[] COLLATE "C")
+                ), anc(node_id, parent_id, lvl) AS (
+                    SELECT p.node_id, p.parent_id, 1
+                    FROM {table} p WHERE p.node_id = ANY(ARRAY(SELECT DISTINCT parent_id FROM hit))
+                        AND $3::int > 0
+                    UNION
+                    SELECT p.node_id, p.parent_id, a.lvl + 1
+                    FROM anc a JOIN {table} p ON p.node_id = a.parent_id WHERE a.lvl < $3::int
+                ), wanted AS (
+                    SELECT node_id, 0 AS lvl FROM hit
+                    UNION ALL
+                    SELECT node_id, min(lvl) FROM anc WHERE node_id NOT IN (SELECT node_id FROM hit) GROUP BY node_id
+                )
+                SELECT w.lvl, t.node_id, t.parent_id, t.full_name, t.kind, {attrs_sql} AS attrs,
+                       (SELECT count(*) FROM jsonb_object_keys(t.attrs))::int AS n_attrs
+                FROM {table} t JOIN wanted w ON t.node_id = w.node_id
+                WHERE t.node_id = ANY(ARRAY(SELECT node_id FROM wanted))
+                """,
+                ids,
+                names,
+                depth,
+                *([want] if want is not None else []),
+            )
+            for r in rows:
+                row = {
+                    "node_id": r["node_id"],
+                    "parent_id": r["parent_id"],
+                    "full_name": r["full_name"],
+                    "kind": r["kind"],
+                    "attrs": _loads_jsonb(r["attrs"]) or {},
+                    "provider": part["provider"],
+                }
+                into = hit_rows if r["lvl"] == 0 else above_rows
+                # Partitions come own before shared per provider: the first answer of a provider stands.
+                into.setdefault(r["node_id"], {}).setdefault(part["provider"], (row, r["n_attrs"] or 0))
+    return {
+        "indexed": bool(parts),
+        "nodes": [_one(by_provider) for by_provider in hit_rows.values()],
+        "ancestors": {node_id: _one(by_provider) for node_id, by_provider in above_rows.items()},
+    }
+
+
 def _iso(v) -> Optional[str]:
     return v.isoformat() if v is not None else None
 

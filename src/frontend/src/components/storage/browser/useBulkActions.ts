@@ -4,7 +4,7 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {previewKeyList} from "@/utils/storage/fileTree";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
-import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
+import {clearScene} from "@/utils/scene/handlers/clear_scene";
 import {canOpenInScene} from "@/utils/scene/fileKinds";
 import type {useStorageMutations} from "../useStorageMutations";
 import type {FolderPicker} from "./useUploads";
@@ -209,21 +209,14 @@ export function useBulkActions(p: {
         });
     };
 
-    // Drop every loaded source via the canonical teardown.
-    // clear_loaded_model resets animation state, tree-view,
-    // model-key map, scene groups, and selection in one shot;
-    // iterating unload_source_from_scene per file would leave that
-    // bookkeeping stale.
+    // Drop every loaded source via the canonical teardown (`clearScene`, shared with the Scene
+    // tab's Remove all); iterating unload_source_from_scene per file would leave the bookkeeping
+    // stale.
     const onHideAll = async () => {
         if (bulkBusy !== null) return;
         setBulkBusy("clear");
         try {
-            await clear_loaded_model();
-            // Also close any open procedural model — its cellbuilder proxies /
-            // compiled result are part of "what's in the scene", so Clear should
-            // tear that down too (and hide the cellbuilder panel).
-            const cb = useCellBuilderStore.getState();
-            if (cb.active) cb.close();
+            await clearScene();
         } catch (err) {
             console.error("clear scene failed", err);
         } finally {

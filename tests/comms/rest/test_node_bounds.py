@@ -111,9 +111,13 @@ def _totals(nodes: list[dict]) -> dict[str, int]:
     return out
 
 
-def _fold(box, mode):
-    nodes = _nodes()
-    return [r["node_id"] for r in nb.fold_hits(_candidates(nodes, box, mode), mode=mode, child_totals=_totals(nodes))]
+def _fold(box, mode, nodes=None):
+    nodes = nodes or _nodes()
+    rows = []
+    for r in _candidates(nodes, box, mode):
+        own = r.pop("own_bbox", None) or [None] * 6
+        rows.append({**r, **dict(zip(nb._COLUMNS[-6:], own))})
+    return [r["node_id"] for r in nb.fold_hits(rows, mode=mode, child_totals=_totals(nodes), box=box)]
 
 
 # --- always on ------------------------------------------------------------------------------------
@@ -133,6 +137,16 @@ def test_partial_box_through_a_corner_answers_the_deepest_nodes_it_meets():
 def test_partial_box_in_a_gap_between_items_answers_nothing():
     # Inside zone-a1's box (x 1..3) but meeting none of its items.
     assert _fold([1.5, 0.2, 0.2, 2.5, 0.8, 0.8], "partial") == []
+
+
+def test_partial_box_meeting_a_parents_own_geometry_answers_the_parent():
+    # zone-a1 draws a plate of its own across the gap between its items.
+    nodes = [{**n, "own_bbox": _box(1, 3)} if n["node_id"] == "zone-a1" else n for n in _nodes()]
+    assert _fold([1.5, 0.2, 0.2, 2.5, 0.8, 0.8], "partial", nodes) == ["zone-a1"]
+    # Through the plate and one of its items: the parent stands for both.
+    assert _fold([2.5, 0.2, 0.2, 3.5, 0.8, 0.8], "partial", nodes) == ["zone-a1"]
+    # Its own box out of the query box: the items it meets, as before.
+    assert _fold([3.5, 0.5, 0.5, 6.5, 0.6, 0.6], "partial", nodes) == ["a1-1", "a2-0"]
 
 
 def test_a_box_around_everything_answers_the_sites_not_the_subjectless_world():
@@ -155,10 +169,15 @@ def test_parse_bounds_batch_skips_bad_lines_and_boxes():
         json.dumps({"node_id": "c", "bbox": [0, 0, 0, 1, 1]}).encode(),  # short
         json.dumps({"node_id": "d", "bbox": [0, 0, 0, 1, 1, float("inf")]}).encode(),
         json.dumps({"bbox": [0, 0, 0, 1, 1, 1]}).encode(),
+        json.dumps({"node_id": "e", "bbox": [0, 0, 0, 2, 2, 2], "own_bbox": [0, 0, 0, 1, 1, 1]}).encode(),
+        json.dumps({"node_id": "f", "bbox": [0, 0, 0, 2, 2, 2], "own_bbox": [1, 0, 0, 0, 1, 1]}).encode(),
     ]
     records, skipped = nb.parse_bounds_batch(lines, scope="s", provider="p", collection="c")
-    assert skipped == 5 and len(records) == 1
-    assert records[0][:4] == ("s", "p", "c", "a") and records[0][9] == 2 and records[0][10:] == (0, 0, 0, 1, 1, 1)
+    assert skipped == 5 and len(records) == 3
+    assert records[0][:4] == ("s", "p", "c", "a") and records[0][9] == 2 and records[0][10:16] == (0, 0, 0, 1, 1, 1)
+    assert records[0][16:] == (None,) * 6
+    # An own box is kept when usable, dropped (the line kept) when not.
+    assert records[1][16:] == (0, 0, 0, 1, 1, 1) and records[2][16:] == (None,) * 6
 
 
 def test_parse_bounds_query():
@@ -313,3 +332,43 @@ async def test_publish_ingests_bounds_and_the_box_query_answers_them(no_audit):
             job=job, scope=scope, storage=storage, queue=queue, db_pool=pg.pool, started_at=time.time()
         )
         assert await pg.pool.fetchval("SELECT COUNT(*) FROM node_bounds WHERE scope = $1", pg.scope) == 2
+
+
+# --- the bounds request: which sweep answers it ---------------------------------------------------
+
+
+def _spec(enum, *, kind="sweep"):
+    return {
+        "slug": "prov",
+        "job_options": [{"name": "sweep_target", "type": "enum", "enum": enum}],
+        "asset_schedules": [
+            {"id": "changes", "kind": "change-check", "options": {"action": "check"}, "collection_option": "project"},
+            {
+                "id": "project-sweep",
+                "kind": kind,
+                "options": {"action": "export-project"},
+                "collection_option": "project",
+                "settings": [{"name": "sweep_target"}],
+            },
+        ],
+    }
+
+
+def test_bounds_sweep_is_the_sweep_offering_the_bounds_target():
+    from ada.comms.rest.routes.attribute_search import bounds_sweep_of
+
+    found = bounds_sweep_of([_spec(["tree", "attributes", "bounds"])])
+    assert found is not None and found[1]["id"] == "project-sweep"
+    # A provider whose sweep cannot stage bounds, or that declares no sweep, is not offered.
+    assert bounds_sweep_of([_spec(["tree", "attributes"])]) is None
+    assert bounds_sweep_of([_spec(["bounds"], kind="job")]) is None
+    assert bounds_sweep_of([]) is None
+
+
+def test_attributes_sweep_is_the_sweep_offering_the_attributes_target():
+    from ada.comms.rest.routes.attribute_search import ATTRIBUTES_TARGET, sweep_of
+
+    found = sweep_of([_spec(["tree", "attributes"])], ATTRIBUTES_TARGET)
+    assert found is not None and found[1]["id"] == "project-sweep"
+    assert sweep_of([_spec(["tree", "bounds"])], ATTRIBUTES_TARGET) is None
+    assert sweep_of([_spec(["attributes"], kind="job")], ATTRIBUTES_TARGET) is None

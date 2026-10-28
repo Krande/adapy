@@ -22,6 +22,14 @@ among them.
 NODE BOUNDS live beside the index and are read under the same rule (``GET .../assets/bounds``,
 ``POST .../assets/bounds/search``; ``db/node_bounds.py``): the scope's own sets, the shared
 scope's, and those of the share origins the caller can reach.
+
+A BOUNDS REQUEST (``.../assets/bounds/request``) runs a provider's declared sweep with
+``sweep_target: bounds`` over the named collections only -- the viewer's answer to "no source
+published node bounds" -- gated as the provider's plugin job is. An ATTRIBUTES REQUEST
+(``.../assets/attributes/request``) is the same with ``sweep_target: attributes``.
+
+ONE NODE'S ATTRIBUTES (``GET .../assets/search/node``) are read by node id or full name from the
+partitions a search of the scope reads -- what the viewer shows for a selected object.
 """
 
 from __future__ import annotations
@@ -49,9 +57,16 @@ from ..db.node_bounds import (
     readable_scopes,
 )
 from ..scope import Scope
-from .deps import require_pool, scope_from_path
+from .deps import RestContext, require_pool, rest_context, scope_from_path
 
 router = APIRouter()
+
+#: The sweep setting, and its values, that stage a provider's node bounds / attribute index.
+BOUNDS_SETTING = "sweep_target"
+BOUNDS_TARGET = "bounds"
+ATTRIBUTES_TARGET = "attributes"
+#: What a request of each target stages, as its permission's ``reason`` words it.
+_TARGET_WORDS = {BOUNDS_TARGET: "node bounds", ATTRIBUTES_TARGET: "attribute indexes"}
 
 
 @dataclass(frozen=True)
@@ -212,6 +227,321 @@ async def api_asset_bounds_search(
         raise HTTPException(
             status_code=504, detail=f"the box query did not finish within {QUERY_STATEMENT_TIMEOUT}; draw a smaller box"
         ) from exc
+    return JSONResponse(result)
+
+
+def sweep_of(specs: list[dict], target: str) -> tuple[dict, dict] | None:
+    """``(spec, entry)`` of the first sweep a provider declares that offers ``sweep_target: <target>``."""
+    from .asset_schedules import SWEEP, entry_settings, same_choice, schedule_entries
+
+    for spec in specs:
+        for entry in schedule_entries(spec):
+            if entry.get("kind") != SWEEP:
+                continue
+            for setting in entry_settings(spec, entry):
+                if setting["name"] == BOUNDS_SETTING and any(
+                    same_choice(target, c.get("value")) for c in setting.get("choices") or ()
+                ):
+                    return spec, entry
+    return None
+
+
+def bounds_sweep_of(specs: list[dict]) -> tuple[dict, dict] | None:
+    """``(spec, entry)`` of the first sweep a provider declares that offers ``sweep_target: bounds``."""
+    return sweep_of(specs, BOUNDS_TARGET)
+
+
+async def bounds_request_permission(ctx: RestContext, pool, user: User, provider: str) -> dict:
+    """``{provider, available, allowed, reason, job, plugin_id}``: whether ``provider`` can be asked
+    for node bounds, and by this user -- the plugin job's own admin gate, asked up front."""
+    return await sweep_request_permission(ctx, pool, user, provider, BOUNDS_TARGET)
+
+
+async def sweep_request_permission(ctx: RestContext, pool, user: User, provider: str, target: str) -> dict:
+    """:func:`bounds_request_permission` for any ``sweep_target``."""
+    from .asset_schedules import provider_specs
+    from .plugin_jobs import plugin_job_requires_admin
+
+    found = sweep_of((await provider_specs(ctx)).get(provider) or [], target)
+    if found is None:
+        return {
+            "provider": provider,
+            "available": False,
+            "allowed": False,
+            "reason": f"no online worker of {provider!r} stages {_TARGET_WORDS.get(target, target)}",
+            "job": None,
+            "plugin_id": None,
+        }
+    spec, entry = found
+    plugin_id = str(spec.get("slug") or spec.get("id") or "")
+    allowed, reason = True, None
+    if await plugin_job_requires_admin(plugin_id, pool, dict(spec)) and not getattr(user, "is_admin", False):
+        allowed, reason = False, f"the {plugin_id!r} job is restricted to administrators"
+    return {
+        "provider": provider,
+        "available": True,
+        "allowed": allowed,
+        "reason": reason,
+        "job": entry["id"],
+        "plugin_id": plugin_id,
+    }
+
+
+@router.get("/scopes/{scope}/assets/bounds/request")
+async def api_asset_bounds_request_permission(
+    request: Request,
+    provider: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Whether ``provider`` can be asked for node bounds here, and by this user."""
+    del scope_obj  # the path's access check is the point
+    return JSONResponse(await bounds_request_permission(ctx, require_pool(request), user, provider.strip()))
+
+
+@router.post("/scopes/{scope}/assets/bounds/request")
+async def api_asset_bounds_request(
+    scope: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Body ``{provider, collections}``: have ``provider`` measure and publish those collections' node
+    bounds -- its declared sweep with ``sweep_target: bounds``, over these collections only, driven
+    and recorded like any sweep (``asset_sweeps``). Answers the run (202).
+
+    Refused (403) when the provider's job is restricted to administrators and the user is not one,
+    (409) when no online worker of it stages bounds, or while a sweep of the same provider runs."""
+    return await _start_target_sweep(request, scope, scope_obj, user, ctx, BOUNDS_TARGET)
+
+
+async def _start_target_sweep(
+    request: Request, scope: str, scope_obj: Scope, user: User, ctx: RestContext, target: str
+) -> JSONResponse:
+    """Body ``{provider, collections}``: the provider's declared sweep with ``sweep_target: <target>``
+    over those collections only (202), refused as :func:`api_asset_bounds_request` says."""
+    from .asset_sweeps import SweepRefused, start_sweep
+
+    pool = require_pool(request)
+    body = await request.json() if await request.body() else {}
+    provider = str((body or {}).get("provider") or "").strip()
+    wanted = (body or {}).get("collections")
+    if not provider or not isinstance(wanted, list) or not wanted or not all(isinstance(c, str) for c in wanted):
+        raise HTTPException(status_code=400, detail="'provider' and a non-empty list of 'collections' are required")
+    permission = await sweep_request_permission(ctx, pool, user, provider, target)
+    if not permission["available"]:
+        raise HTTPException(status_code=409, detail=permission["reason"])
+    if not permission["allowed"]:
+        raise HTTPException(status_code=403, detail=permission["reason"])
+    try:
+        run = await start_sweep(
+            ctx,
+            pool,
+            scope=scope,
+            scope_obj=scope_obj,
+            provider=provider,
+            job=permission["job"],
+            settings={BOUNDS_SETTING: target},
+            user=user,
+            via="user",
+            collections=wanted,
+        )
+    except SweepRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(run, status_code=202)
+
+
+async def _target_sweep_run(ctx: RestContext, pool, scope: str, run_id: str, target: str) -> JSONResponse:
+    """A ``sweep_target: <target>`` sweep started from ``scope``, with live progress; 404 otherwise."""
+    from .asset_sweeps import sweep_with_progress
+
+    run = await sweep_with_progress(ctx, pool, run_id)
+    settings = (run or {}).get("settings") or {}
+    if run is None or run.get("scope") != scope or settings.get(BOUNDS_SETTING) != target:
+        raise HTTPException(status_code=404, detail=f"no such {target} request in this scope")
+    return JSONResponse(run)
+
+
+@router.get("/scopes/{scope}/assets/bounds/request/{run_id}")
+async def api_asset_bounds_request_run(
+    scope: str,
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """A bounds request started from this scope, with its items' live progress -- what the viewer
+    polls. Only a bounds sweep of THIS scope: other sweep reads are an admin's."""
+    del scope_obj
+    return await _target_sweep_run(ctx, require_pool(request), scope, run_id, BOUNDS_TARGET)
+
+
+@router.get("/scopes/{scope}/assets/attributes/request")
+async def api_asset_attributes_request_permission(
+    request: Request,
+    provider: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Whether ``provider`` can be asked to index attributes here, and by this user."""
+    del scope_obj
+    return JSONResponse(
+        await sweep_request_permission(ctx, require_pool(request), user, provider.strip(), ATTRIBUTES_TARGET)
+    )
+
+
+@router.post("/scopes/{scope}/assets/attributes/request")
+async def api_asset_attributes_request(
+    scope: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Body ``{provider, collections}``: have ``provider`` stage those collections' attribute index --
+    its declared sweep with ``sweep_target: attributes``. Answers and refuses as the bounds request."""
+    return await _start_target_sweep(request, scope, scope_obj, user, ctx, ATTRIBUTES_TARGET)
+
+
+@router.get("/scopes/{scope}/assets/attributes/request/{run_id}")
+async def api_asset_attributes_request_run(
+    scope: str,
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """An attributes request started from this scope, with its items' live progress."""
+    del scope_obj
+    return await _target_sweep_run(ctx, require_pool(request), scope, run_id, ATTRIBUTES_TARGET)
+
+
+@router.get("/scopes/{scope}/assets/search/node")
+async def api_asset_search_node(
+    request: Request,
+    provider: str,
+    collection: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    node_id: str | None = None,
+    name: str | None = None,
+) -> JSONResponse:
+    """One node's indexed attributes, by ``node_id`` or by ``name`` (its full name), exactly one.
+
+    Response ``{indexed, node, ambiguous}``: ``indexed`` false when no partition of (provider,
+    collection) is readable here; ``node`` null when none matches, or (``ambiguous``) when the name
+    names several. Never a 404: absence is an answer."""
+    if bool(node_id) == bool(name):
+        raise HTTPException(status_code=400, detail="exactly one of 'node_id' and 'name' is required")
+    pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, False)
+    try:
+        result = await db_module.node_attributes(
+            pool,
+            scope=scope_obj.prefix(),
+            provider=provider,
+            collection=collection,
+            node_id=node_id or None,
+            full_name=name or None,
+            shared_from=origins.shared_from,
+            viewer=user.sub,
+        )
+    except asyncpg.QueryCanceledError as exc:
+        raise HTTPException(status_code=504, detail=f"the lookup did not finish within {SEARCH_STATEMENT_TIMEOUT}") from exc
+    return JSONResponse(result)
+
+
+@router.post("/scopes/{scope}/assets/search/nodes")
+async def api_asset_search_nodes(
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Many nodes of one collection at once. Body ``{collection, node_ids, full_names, keys,
+    ancestors, providers}``: ``keys`` restricts ``attrs``, ``ancestors`` adds the rows up to that
+    many levels above the matches. At most ``NODES_LOOKUP_MAX`` ids and names per request.
+
+    Response ``{indexed, nodes, ancestors}`` (``db.attribute_index.nodes_attributes``)."""
+    from ..db.attribute_index import NODES_LOOKUP_MAX, nodes_attributes
+
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("collection"), str) or not body["collection"].strip():
+        raise HTTPException(status_code=400, detail="'collection' is required")
+
+    def strings(name: str) -> list[str] | None:
+        value = body.get(name)
+        if value is None:
+            return None
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise HTTPException(status_code=400, detail=f"'{name}' must be a list of strings")
+        return value
+
+    ids, names = strings("node_ids") or [], strings("full_names") or []
+    if len(ids) + len(names) > NODES_LOOKUP_MAX:
+        raise HTTPException(
+            status_code=400, detail=f"at most {NODES_LOOKUP_MAX} node ids and names per request; send it in chunks"
+        )
+    ancestors = body.get("ancestors", 0)
+    if not isinstance(ancestors, int) or ancestors < 0:
+        raise HTTPException(status_code=400, detail="'ancestors' must be a non-negative integer")
+    pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, False)
+    try:
+        result = await nodes_attributes(
+            pool,
+            scope=scope_obj.prefix(),
+            collection=body["collection"].strip(),
+            node_ids=ids,
+            full_names=names,
+            keys=strings("keys"),
+            ancestors=ancestors,
+            providers=strings("providers"),
+            shared_from=origins.shared_from,
+        )
+    except asyncpg.QueryCanceledError as exc:
+        raise HTTPException(
+            status_code=504, detail=f"the lookup did not finish within {SEARCH_STATEMENT_TIMEOUT}"
+        ) from exc
+    return JSONResponse(result)
+
+
+@router.post("/scopes/{scope}/assets/relations")
+async def api_asset_relations(
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """The relations FROM many nodes of one collection. Body ``{collection, node_ids, full_names}``,
+    at most ``LOOKUP_MAX`` ids and names. Response ``{indexed, relations, token}``
+    (``db.node_relations.relations_for``)."""
+    from ..db.node_relations import LOOKUP_MAX, readable_scopes, relations_for
+
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("collection"), str) or not body["collection"].strip():
+        raise HTTPException(status_code=400, detail="'collection' is required")
+    lists = []
+    for name in ("node_ids", "full_names"):
+        value = body.get(name) or []
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise HTTPException(status_code=400, detail=f"'{name}' must be a list of strings")
+        lists.append(value)
+    if sum(len(v) for v in lists) > LOOKUP_MAX:
+        raise HTTPException(status_code=400, detail=f"at most {LOOKUP_MAX} node ids and names per request")
+    pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, False)
+    try:
+        result = await relations_for(
+            pool,
+            scopes=readable_scopes(scope_obj.prefix(), origins.shared_from or ()),
+            collection=body["collection"].strip(),
+            node_ids=lists[0],
+            full_names=lists[1],
+        )
+    except asyncpg.QueryCanceledError as exc:
+        raise HTTPException(status_code=504, detail="the relations lookup did not finish in time") from exc
     return JSONResponse(result)
 
 

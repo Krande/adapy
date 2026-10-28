@@ -221,6 +221,27 @@ export function selectSourceElements(refs: readonly { readonly sourceName: strin
   return batch.length;
 }
 
+/** The loaded model of `target` and its rows NAMED one of `names`, anywhere below its root -- a
+ *  selection box's members, by full name, in the model of their whole site. Null while no such
+ *  model's tree is built. */
+export function namedRowsInModel(
+  target: GroupMemberTarget,
+  names: ReadonlySet<string>,
+): { readonly root: TreeNodeData; readonly rows: TreeNodeData[] } | null {
+  const idx = indices();
+  if (!idx) return null;
+  const root = (idx.root.children ?? []).find((r) => rootMatchesTarget(r, target, useAssetBrowserStore.getState().loaded));
+  if (!root) return null;
+  const rows: TreeNodeData[] = [];
+  const stack: TreeNodeData[] = [root];
+  while (stack.length) {
+    const row = stack.pop()!;
+    if (names.has(row.name)) rows.push(row);
+    else for (const child of row.children ?? []) stack.push(child);
+  }
+  return { root, rows };
+}
+
 /** Select every member of `group` that is in the scene now, all models together. */
 export function selectSavedGroup(group: SavedGroup): GroupSelectionOutcome {
   const idx = indices();

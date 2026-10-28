@@ -16,13 +16,16 @@ import type { SourceNodesAnswer } from "@/assets/changes";
 import { parseHierarchySlice } from "@/assets/projection";
 import { levelKey, type LevelRequest } from "@/assets/spines";
 import type { TreeViewHints } from "@/assets/treeView";
-import type { AssetNode, WireAssetIndex, WireGeometryRollup, WireHierarchySlice } from "@/assets/types";
+import type { AssetIndex, AssetNode, WireAssetIndex, WireGeometryRollup, WireHierarchySlice } from "@/assets/types";
 import { sortProjects } from "@/utils/sortProjects";
 
+import { localAssetTreeCache, type AssetTreeCache } from "./assetBrowserCache";
 import type { AssetBrowserState } from "./assetBrowserStore";
 
 export interface AssetsApiLike {
   getAssetIndex(scope: string, collection?: string): Promise<WireAssetIndex>;
+  /** The collection names alone. Optional: without it they come from the unscoped index. */
+  listCollections?(scope: string): Promise<string[]>;
   getAssetTree(
     scope: string,
     provider: string,
@@ -61,9 +64,16 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, sourceNodesApi?: SourceNodesApiLike) {
+export function createAssetBrowserLoader(
+  store: StoreLike,
+  api: AssetsApiLike,
+  sourceNodesApi?: SourceNodesApiLike,
+  cache?: AssetTreeCache,
+) {
   const indexSlices = new Map<string, readonly AssetNode[]>(); // `${collection}@${revision}`
   const indexHints = new Map<string, TreeViewHints | null>(); // same key: that index's `view`
+  const drawnIndex = new Map<string, string>(); // `${scope}\n${collection}` -> the index JSON the store holds
+  const unconfirmed = new Set<string>(); // same key: drawn from the cache, not yet re-read
   let generation = 0; // bumped on scope/collection change; stale responses are dropped
   let collectionsLoad = 0; // the latest loadCollections: only it clears `indexLoading`
 
@@ -123,22 +133,54 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     for (const [provider, refs] of byProvider) await loadEvidence(scope, provider, refs);
   }
 
+  /** A failed read. A tree drawn from the cache and not yet confirmed is taken down with it, and
+   *  the cache entry dropped: the reader may no longer see this scope. */
+  function failRead(scope: string, e: unknown): void {
+    if (unconfirmed.delete(`${scope}\n${store.getState().collection}`)) {
+      cache?.forget(scope);
+      store.getState().resetForScope(scope);
+    }
+    store.getState().setIndexError(message(e));
+  }
+
+  /** The collection names, sorted; `all` is the unscoped index when it had to be read for them. */
+  async function collectionNames(scope: string): Promise<{ names: string[]; all: AssetIndex | null }> {
+    if (api.listCollections) return { names: sortProjects(await api.listCollections(scope)), all: null };
+    const all = indexFromWire(await api.getAssetIndex(scope));
+    return { names: sortProjects([...all.collections.keys()]), all };
+  }
+
   async function loadCollections(scope: string): Promise<void> {
     const gen = ++generation;
     const load = ++collectionsLoad;
     const s = store.getState();
     s.setIndexLoading(true);
+    // The last tree seen in this scope is drawn at once; what follows revalidates it.
+    const cached = s.collections === null ? cache?.read(scope) ?? null : null;
+    if (cached) {
+      s.setCollections(cached.collections);
+      s.setCollection(cached.collection);
+      store.getState().setIndex(indexFromWire(cached.index));
+      const key = `${scope}\n${cached.collection}`;
+      drawnIndex.set(key, JSON.stringify(cached.index));
+      unconfirmed.add(key);
+    }
     try {
-      const all = indexFromWire(await api.getAssetIndex(scope));
+      const { names, all } = await collectionNames(scope);
       if (!alive(gen, scope, null)) return;
-      const names = sortProjects([...all.collections.keys()]);
+      store.getState().setCollections(names);
+      const current = store.getState().collection;
+      let keep = current && names.includes(current) ? current : null;
+      // Only a first open with nothing remembered pays for the unscoped index, to pick by newest publish.
+      if (!keep && names.length) {
+        keep = defaultCollection(all ?? indexFromWire(await api.getAssetIndex(scope)));
+        if (!alive(gen, scope, null)) return;
+      }
       const cur = store.getState();
-      cur.setCollections(names);
-      const keep = cur.collection && names.includes(cur.collection) ? cur.collection : defaultCollection(all);
       cur.setCollection(keep);
       if (keep) await openCollection(scope, keep);
     } catch (e) {
-      if (alive(gen, scope, null)) store.getState().setIndexError(message(e));
+      if (alive(gen, scope, null)) failRead(scope, e);
     } finally {
       // Not keyed on `generation`: a collection chosen meanwhile bumps it, and the flag then stuck on.
       if (load === collectionsLoad) store.getState().setIndexLoading(false);
@@ -150,7 +192,6 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
    *  overlay says only what the loaded rows can. */
   async function loadGeometryRollup(scope: string, collection: string): Promise<void> {
     if (!api.getGeometryRollup) return;
-    const gen = generation;
     let rollup: WireGeometryRollup | null = null;
     try {
       const wire = await api.getGeometryRollup(scope, collection);
@@ -158,21 +199,38 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     } catch {
       rollup = null;
     }
-    if (alive(gen, scope, collection)) store.getState().setGeometryRollup(rollup);
+    // Keyed on scope and collection only: an index replaced meanwhile bumps the generation, and
+    // the roll-up is read per collection, not per index.
+    const s = store.getState();
+    if (s.scope === scope && s.collection === collection) s.setGeometryRollup(rollup);
   }
 
   async function openCollection(scope: string, collection: string): Promise<void> {
-    const gen = generation;
+    let gen = generation;
     // In parallel with the index, never ahead of it: the overlay reads both, and a roll-up that
     // fails must not hold the tree up.
     const rollup = loadGeometryRollup(scope, collection);
     try {
-      const index = indexFromWire(await api.getAssetIndex(scope, collection));
+      const wire = await api.getAssetIndex(scope, collection);
       if (!alive(gen, scope, collection)) return;
-      store.getState().setIndex(index);
+      const text = JSON.stringify(wire);
+      const key = `${scope}\n${collection}`;
+      const cur = store.getState();
+      if (!cur.index || drawnIndex.get(key) !== text) {
+        // A changed index replacing a drawn one: in-flight merges of the old one are dropped and
+        // the tops rebuilt from the new one alone.
+        if (cur.index) {
+          gen = ++generation;
+          cur.resetForest();
+        }
+        cur.setIndex(indexFromWire(wire));
+      }
+      drawnIndex.set(key, text);
+      unconfirmed.delete(key);
+      cache?.write(scope, store.getState().collections ?? [collection], collection, text);
       await syncCollectionIndexes(scope);
     } catch (e) {
-      if (alive(gen, scope, collection)) store.getState().setIndexError(message(e));
+      if (alive(gen, scope, collection)) failRead(scope, e);
     } finally {
       await rollup;
     }
@@ -304,7 +362,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     const gen = ++generation;
     let names: string[];
     try {
-      names = sortProjects([...indexFromWire(await api.getAssetIndex(scope)).collections.keys()]);
+      names = (await collectionNames(scope)).names;
     } catch (e) {
       if (alive(gen, scope, s.collection)) store.getState().setIndexError(message(e));
       return;
@@ -348,7 +406,7 @@ const LOADERS = new WeakMap<object, AssetBrowserLoader>();
 export function loaderFor(store: StoreLike, api: AssetsApiLike, sourceNodesApi?: SourceNodesApiLike): AssetBrowserLoader {
   let loader = LOADERS.get(store);
   if (!loader) {
-    loader = createAssetBrowserLoader(store, api, sourceNodesApi);
+    loader = createAssetBrowserLoader(store, api, sourceNodesApi, localAssetTreeCache);
     LOADERS.set(store, loader);
   }
   return loader;
