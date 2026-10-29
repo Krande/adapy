@@ -69,6 +69,12 @@ md:w-80 md:shrink-0 md:flex-none md:border-r md:border-b-0 flex-1 min-h-0 border
 # src/frontend/src/components/info_box_scene/LoadedModelsSection.tsx:92-93
 shrink-0 px-1.5 py-0.5 rounded-sm cursor-pointer text-gray-400 hover:text-red-300 hover:bg-gray-700 disabled:opacity-50
 
+# --- Prose concatenated with `+`, cut by the string regex at two apostrophes.
+# The bundler folds the fragments into one literal, and STRING_RE takes the run
+# between the apostrophes of "bake's" and "case's".
+# src/frontend/src/components/admin/ConversionSettingsTab.tsx:81-82
+s output (eigen-frequency labels, every superelement of an assembly) at about one load case
+
 # --- Not string literals at all: minified code between two quoted keys.
 # The bundle contains the type guards
 #     ore=n=>"id"in n&&"position"in n&&!("source"in n)&&!("target"in n)
