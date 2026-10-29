@@ -17,6 +17,7 @@
 // (`toastSkipAction`). Which runs are watched is remembered in this browser, so the toast comes
 // back after a reload.
 
+import type {SweepItem} from "@/services/api/assetSchedules";
 import {ApiError, viewerApi, type ExportRun, type SweepRun} from "@/services/viewerApi";
 import {useConversionStore, type ConvertStatus} from "@/state/conversionStore";
 import {toastRunTarget, useRunFocusStore} from "@/state/runFocusStore";
@@ -340,6 +341,91 @@ export function trackTreeRequest(scope: string, runId: string, label: string): v
         key,
         async () => ({state: sweepToastState(await viewerApi.treeRequestRun(scope, runId))}),
         () => {},
+    );
+}
+
+/** One item of a run as its own toast entry: its job's live stage and progress while in flight --
+ *  for the bounds extraction, which site of how many it is measuring -- then how it ended. */
+export function sweepItemToastState(item: SweepItem): ToastState {
+    const progress = clamp01(item.progress) ?? 0;
+    switch (item.status) {
+        case "pending":
+            return {status: "queued", progress: 0, stage: "waiting", error: null};
+        case "fetching":
+            return {status: "running", progress, stage: item.stage ?? "fetching", error: null};
+        case "publishing":
+            return {status: "running", progress, stage: `publishing${item.stage ? `: ${item.stage}` : ""}`, error: null};
+        case "done":
+        case "unchanged":
+        case "nothing":
+            return {status: "done", progress: 1, stage: item.message ?? item.status, error: null};
+        case "error":
+            return {status: "error", progress, stage: "failed", error: item.error ?? item.message ?? "failed"};
+        default:
+            return {status: "cancelled", progress, stage: item.message ?? item.status, error: null};
+    }
+}
+
+/** Show a bounds request -- a provider's sweep with `sweep_target: bounds` over the collections a
+ *  selection box found no bounds for -- in the toast, read through its scope-checked route: the run
+ *  as the parent entry, and each collection as a WORKER entry under it with its job's own progress.
+ *  `onEnd` runs once when it stops being watched: finished, or dismissed. */
+export function trackBoundsRequest(scope: string, runId: string, label: string, onEnd?: () => void): void {
+    trackTargetRequest(
+        `bounds:${runId}`,
+        async () => (await import("@/services/api/nodeBounds")).nodeBoundsApi.requestRun(scope, runId),
+        label,
+        onEnd,
+    );
+}
+
+/** `trackBoundsRequest` for an attributes request: its sweep with `sweep_target: attributes`. */
+export function trackAttributesRequest(scope: string, runId: string, label: string, onEnd?: () => void): void {
+    trackTargetRequest(
+        `attrs:${runId}`,
+        async () => (await import("@/services/api/attributeSearch")).attributeSearchApi.attributesRequestRun(scope, runId),
+        label,
+        onEnd,
+    );
+}
+
+function trackTargetRequest(key: string, readRun: () => Promise<SweepRun>, label: string, onEnd?: () => void): void {
+    const childKey = (position: number) => `${key}#${position}`;
+    const children = new Set<string>();
+    seed(key, label);
+    // The worker entries go with the run's: dismissed together.
+    const unsubscribe = useConversionStore.subscribe((s) => {
+        if (s.jobs[key]) return;
+        unsubscribe();
+        for (const k of children) useConversionStore.getState().clearJob(k);
+        latest.delete(key);
+    });
+    void pollRun(
+        key,
+        async () => {
+            const run = await readRun();
+            latest.set(key, {kind: "sweep", run});
+            for (const item of run.items ?? []) {
+                // Named and linked to the run by its job (`workerLabel`, `parentRunOf`): none yet, no row.
+                const jobId = (item.status === "publishing" && item.publish_job_id) || item.fetch_job_id;
+                if (!jobId) continue;
+                const k = childKey(item.position);
+                const prev = useConversionStore.getState().jobs[k];
+                if (!prev) {
+                    if (!useConversionStore.getState().jobs[key]) continue;
+                    children.add(k);
+                }
+                useConversionStore.getState().setJob(k, {
+                    sourceKey: item.collection,
+                    jobId,
+                    derivedKey: "",
+                    startedAt: prev?.startedAt ?? Date.now(),
+                    ...sweepItemToastState(item),
+                });
+            }
+            return {state: sweepToastState(run)};
+        },
+        () => onEnd?.(),
     );
 }
 

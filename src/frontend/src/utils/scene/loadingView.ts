@@ -191,16 +191,17 @@ export function bulkLoadActive(): boolean {
  *  it alone.
  *
  *  `opts.view` places the camera there instead of the project's loading view (null: frame the
- *  first model); `opts.save: false` leaves the project's loading view as it is at the end. */
+ *  first model); `opts.save: false` leaves the project's loading view as it is at the end;
+ *  `opts.hold` leaves the camera exactly where it is -- nothing applied, nothing framed. */
 export function beginBulkLoad(
   scope: string,
   project: string,
-  opts: { view?: LoadingView | null; save?: boolean } = {},
+  opts: { view?: LoadingView | null; save?: boolean; hold?: boolean } = {},
 ): object {
   const view = opts.view !== undefined ? opts.view : readLoadingView(scope, project);
   const s: Session = { scope, project, box: new THREE.Box3(), placed: false, loaded: 0, save: opts.save ?? true };
   // Taking over from a session still running: the camera was already placed for this scene.
-  if (session) s.placed = true;
+  if (session || opts.hold) s.placed = true;
   session = s;
   if (view && !s.placed) s.placed = applyLoadingView(view);
   return s;

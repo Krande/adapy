@@ -73,7 +73,10 @@ export async function pollJobUntilTerminal(
             // written) leaves an audit row stuck at `queued` for ever. Treating that
             // as a blip polls it for the full ceiling and the toast never resolves;
             // worse, the row survives reload, so it returns on every refresh. Mark
-            // it terminal here and cancel the row.
+            // it terminal here and cancel the row -- through the route that owns it: the
+            // in-browser audit route only takes `wasm-` ids, so a worker job's row left
+            // there was refused and came back, and was polled into a 404 again, on every
+            // reload.
             if (err instanceof ApiError && err.status === 404) {
                 const prev = useConversionStore.getState().jobs[storeKey];
                 if (prev) {
@@ -83,12 +86,13 @@ export async function pollJobUntilTerminal(
                         error: "job is no longer known to the server",
                     });
                 }
-                void viewerApi
-                    .auditLocalUpdate(scopeUrl, jobId, {
-                        status: "cancelled",
-                        error: "job no longer known to the server",
-                    })
-                    .catch(() => {});
+                const closed = jobId.startsWith("wasm-")
+                    ? viewerApi.auditLocalUpdate(scopeUrl, jobId, {
+                          status: "cancelled",
+                          error: "job no longer known to the server",
+                      })
+                    : viewerApi.cancelMyJob(scopeUrl, jobId);
+                void closed.catch(() => {});
                 return;
             }
             // Anything else is a genuine blip — log and keep polling; the next tick
@@ -121,6 +125,8 @@ export interface TrackJobOptions {
      * (`resumeTrackedJobs`). For jobs `my-jobs` cannot restore as themselves: one
      * with a label of its own, or a finisher. */
     persist?: boolean;
+    /** The operation this job is a step of (`services/operationTracking`): shown under it. */
+    parent?: string;
 }
 
 // --- remembered across reloads ----------------------------------------------------------
@@ -280,6 +286,7 @@ export function trackJob(opts: TrackJobOptions): string {
         stage: "queued",
         error: null,
         startedAt,
+        ...(opts.parent ? {parent: opts.parent} : {}),
     });
     const entry: Remembered = {
         jobId: opts.jobId,

@@ -38,6 +38,7 @@ from ada.config import logger
 
 from .config import QueueConfig
 from .converter import derived_key_for
+from .kv_mirror import KvMirror
 from .nats_ws import install_websocket_close_fix
 
 JOB_STATUS_QUEUED = "queued"
@@ -255,6 +256,11 @@ class JobQueue:
         # ``registry_kv_bucket`` names a different one, so every registry method
         # below has exactly one code path whichever mode the deployment is in.
         self._registry_kv = None
+        # Live copies of the buckets, keyed by bucket name. Only the API starts
+        # them (see ``start_mirrors``); without one, bucket-wide reads scan.
+        self._mirrors: dict[str, KvMirror] = {}
+        # id(bucket handle) -> monotonic time of this process's last write.
+        self._last_write: dict[int, float] = {}
 
     # --- lifecycle ---------------------------------------------------
 
@@ -593,7 +599,134 @@ class JobQueue:
                 )
                 await asyncio.sleep(self._BIND_POLL_SECONDS)
 
+    # --- bucket mirrors ----------------------------------------------
+    #
+    # Every bucket-wide question — routing a job to a pool, the worker list,
+    # the cleanup of finished jobs — reads ``_bucket_items``. With a mirror
+    # running that is a dictionary lookup; without one it is a scan plus one
+    # ``get`` per key, which is fine for a worker that asks rarely and ruinous
+    # for an API that asks per enqueued job. See ada.comms.rest.kv_mirror.
+
+    #: How long ``start_mirrors`` waits for the initial replay before letting
+    #: startup carry on. Readers scan until the mirror is ready, so a slow
+    #: replay costs speed, not correctness.
+    MIRROR_READY_TIMEOUT_S = 30.0
+
+    #: Delete markers younger than this are kept. A marker is what tells a
+    #: watcher that a key went away, so dropping one too early could hide a
+    #: deletion from a watcher that is catching up after a disconnect.
+    TOMBSTONE_RETENTION_S = 3600.0
+
+    async def start_mirrors(self) -> None:
+        """Start one mirror per bucket this queue is bound to. Idempotent."""
+        buckets = [(self._cfg.kv_bucket, self._kv)]
+        if self.registry_is_separate:
+            buckets.append((self._cfg.registry_kv_bucket, self._registry_kv))
+        started = []
+        for name, kv in buckets:
+            if kv is None or name in self._mirrors:
+                continue
+            mirror = KvMirror(kv, name)
+            mirror.start()
+            self._mirrors[name] = mirror
+            started.append(mirror)
+        for mirror in started:
+            if not await mirror.wait_ready(self.MIRROR_READY_TIMEOUT_S):
+                logger.warning(
+                    "queue: KV mirror %s not ready after %.0fs; scanning until it is",
+                    mirror.name,
+                    self.MIRROR_READY_TIMEOUT_S,
+                )
+
+    def _mirror_for(self, bucket) -> KvMirror | None:
+        for mirror in self._mirrors.values():
+            if mirror.kv is bucket and mirror.ready:
+                return mirror
+        return None
+
+    #: After this process writes to a bucket, bucket-wide reads within this
+    #: window first wait for the mirror to catch up (see ``_bucket_items``).
+    READ_YOUR_WRITES_S = 10.0
+    #: Longest such a read waits before answering from the mirror as it is.
+    READ_YOUR_WRITES_WAIT_S = 2.0
+
+    def _wrote(self, bucket) -> None:
+        """Record that this process just wrote to ``bucket``."""
+        self._last_write[id(bucket)] = time.monotonic()
+
+    async def _bucket_items(self, bucket, prefix: str = "") -> list[tuple[str, bytes]]:
+        """``(key, value)`` for every live key in ``bucket`` starting with
+        ``prefix``: from the mirror when one is ready, otherwise by scanning.
+
+        Read-your-writes: the server acknowledges a write before the mirror's
+        watcher delivers it, so a read straight after this process wrote (a
+        prune followed by the listing, say) waits for the mirror to reach the
+        stream's last sequence. One stream-info request, no consumer, and only
+        within ``READ_YOUR_WRITES_S`` of a local write.
+        """
+        mirror = self._mirror_for(bucket)
+        if mirror is not None:
+            wrote = self._last_write.get(id(bucket))
+            if wrote is not None and time.monotonic() - wrote < self.READ_YOUR_WRITES_S and self._js is not None:
+                try:
+                    info = await self._js.stream_info(f"KV_{mirror.name}")
+                    await mirror.catch_up(info.state.last_seq, self.READ_YOUR_WRITES_WAIT_S)
+                except Exception:
+                    logger.debug("queue: could not sync KV mirror %s before a read", mirror.name, exc_info=True)
+            return list(mirror.items(prefix))
+        out: list[tuple[str, bytes]] = []
+        for key in await _scan_keys(bucket):
+            if not key.startswith(prefix):
+                continue
+            try:
+                entry = await bucket.get(key)
+            except KeyNotFoundError:
+                continue
+            except Exception:
+                continue
+            if entry.value is not None:
+                out.append((key, entry.value))
+        return out
+
+    async def purge_old_tombstones(self, older_than_s: float | None = None) -> int:
+        """Remove delete markers older than ``older_than_s`` from every
+        mirrored bucket. Returns how many were removed.
+
+        A KV delete or purge leaves a marker that NATS keeps until it is
+        removed explicitly, so without this every job ever run leaves one
+        behind and every replay of the bucket sends them all.
+
+        Each purge is bounded by the marker's own sequence (``seq`` is
+        exclusive), so a value written to the same key after the marker can
+        never be removed with it.
+        """
+        if self._js is None:
+            return 0
+        age = self.TOMBSTONE_RETENTION_S if older_than_s is None else older_than_s
+        removed = 0
+        for mirror in list(self._mirrors.values()):
+            if not mirror.ready:
+                continue
+            for key, revision in mirror.tombstones_older_than(age):
+                try:
+                    await self._js.purge_stream(
+                        f"KV_{mirror.name}",
+                        seq=revision + 1,
+                        subject=f"$KV.{mirror.name}.{key}",
+                    )
+                except Exception:
+                    logger.exception("queue: could not remove delete marker for %s in %s", key, mirror.name)
+                    continue
+                mirror.forget_tombstone(key, revision)
+                removed += 1
+        if removed:
+            logger.info("queue: removed %d old delete marker(s) from the KV", removed)
+        return removed
+
     async def close(self) -> None:
+        for mirror in self._mirrors.values():
+            await mirror.stop()
+        self._mirrors = {}
         if self._nc is not None:
             await self._nc.drain()
             self._nc = None
@@ -810,6 +943,7 @@ class JobQueue:
         return job
 
     async def _put(self, job: Job) -> None:
+        self._wrote(self._kv)
         await self._kv.put(job.job_id, job.to_json())
 
     # Terminal statuses whose KV entry is disposable once the client has had a
@@ -835,6 +969,7 @@ class JobQueue:
         if self._kv is None:
             return False
         try:
+            self._wrote(self._kv)
             await self._kv.purge(job_id)
             return True
         except KeyNotFoundError:
@@ -851,26 +986,21 @@ class JobQueue:
         if self._kv is None:
             return 0
         try:
-            keys = await _scan_keys(self._kv)
+            items = await self._bucket_items(self._kv)
         except (BucketNotFoundError, Exception):
             return 0
         cutoff = time.time() - grace_s
         purged = 0
-        for key in keys:
+        for key, value in items:
             if key.startswith(self._META_KEY_PREFIX):
                 continue
             try:
-                entry = await self._kv.get(key)
-            except KeyNotFoundError:
-                continue
-            except Exception:
-                continue
-            try:
-                job = Job.from_json(entry.value)
+                job = Job.from_json(value)
             except Exception:
                 continue
             if job.status in self._TERMINAL_STATUSES and (job.updated_at or 0.0) < cutoff:
                 try:
+                    self._wrote(self._kv)
                     await self._kv.purge(key)
                     purged += 1
                 except Exception:
@@ -891,6 +1021,7 @@ class JobQueue:
     async def set_meta(self, key: str, value: str) -> None:
         if self._kv is None:
             return
+        self._wrote(self._kv)
         await self._kv.put(f"{self._META_KEY_PREFIX}{key}", value.encode("utf-8"))
 
     async def get_meta(self, key: str) -> str | None:
@@ -936,6 +1067,7 @@ class JobQueue:
         payload = dict(state)
         payload["scope"] = scope_label
         key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{self._slugify_scope(scope_label)}"
+        self._wrote(self._kv)
         await self._kv.put(key, json.dumps(payload).encode("utf-8"))
 
     async def get_compress_sweep_state(self, scope_label: str) -> dict | None:
@@ -964,21 +1096,13 @@ class JobQueue:
         if self._kv is None:
             return {}
         try:
-            keys = await _scan_keys(self._kv)
+            items = await self._bucket_items(self._kv, self._COMPRESS_SWEEP_KEY_PREFIX)
         except (BucketNotFoundError, Exception):
             return {}
         out: dict[str, dict] = {}
-        for key in keys:
-            if not key.startswith(self._COMPRESS_SWEEP_KEY_PREFIX):
-                continue
+        for key, value in items:
             try:
-                entry = await self._kv.get(key)
-            except KeyNotFoundError:
-                continue
-            if entry.value is None:
-                continue
-            try:
-                payload = json.loads(entry.value.decode("utf-8", errors="replace"))
+                payload = json.loads(value.decode("utf-8", errors="replace"))
             except ValueError:
                 continue
             if not isinstance(payload, dict):
@@ -1015,6 +1139,7 @@ class JobQueue:
         if bucket is None:
             return
         key = f"{self._WORKER_KEY_PREFIX}{worker_id}"
+        self._wrote(bucket)
         await bucket.put(key, json.dumps(info).encode("utf-8"))
 
     async def unregister_worker(self, worker_id: str) -> None:
@@ -1025,6 +1150,7 @@ class JobQueue:
         bucket = self._registry_bucket_handle
         if bucket is not None:
             try:
+                self._wrote(bucket)
                 await bucket.delete(key)
             except KeyNotFoundError:
                 pass
@@ -1036,6 +1162,7 @@ class JobQueue:
         # registry rows at all, and that is not a shutdown failure.
         if self.registry_is_separate and self._kv is not None:
             try:
+                self._wrote(self._kv)
                 await self._kv.delete(key)
             except Exception:
                 pass
@@ -1071,21 +1198,13 @@ class JobQueue:
     async def _read_worker_rows(self, bucket) -> list[tuple[str, dict]]:
         """``(worker_id, entry)`` for every registry row in one KV bucket."""
         try:
-            keys = await _scan_keys(bucket)
+            items = await self._bucket_items(bucket, self._WORKER_KEY_PREFIX)
         except (BucketNotFoundError, Exception):
             return []
         out: list[tuple[str, dict]] = []
-        for key in keys:
-            if not key.startswith(self._WORKER_KEY_PREFIX):
-                continue
+        for key, value in items:
             try:
-                entry = await bucket.get(key)
-            except KeyNotFoundError:
-                continue
-            if entry.value is None:
-                continue
-            try:
-                info = json.loads(entry.value.decode("utf-8", errors="replace"))
+                info = json.loads(value.decode("utf-8", errors="replace"))
             except (ValueError, AttributeError):
                 continue
             if not isinstance(info, dict):

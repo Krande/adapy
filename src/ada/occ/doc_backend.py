@@ -31,10 +31,10 @@ class OccDocBackend:
         from OCC.Core.RWGltf import RWGltf_CafWriter  # noqa: F401
         from OCC.Core.STEPCAFControl import STEPCAFControl_Writer  # noqa: F401
 
-    def step_writer(self) -> "StepWriter":
+    def step_writer(self, schema: str | None = None) -> "StepWriter":
         from ada.occ.store import OCCStore
 
-        return OCCStore.get_step_writer()
+        return OCCStore.get_step_writer(schema)
 
     def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore":
         from ada.occ.store import OCCStore

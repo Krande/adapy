@@ -76,7 +76,7 @@ extensions, and `--from` / `--to` override that inference.
 | `gnx` | `.gnx` | GeniE workspace. Same model as `xml`, in the container GeniE saves and opens; `Assembly.to_gnx` is the Python entry point. The ACIS body is text unless `--binary-acis` asks for binary. |
 | `abaqus` | `.inp` | Default owner of `.inp`. One self-contained deck — the include files the writer uses internally are inlined and removed. |
 | `calculix` | `.inp` | Shares `.inp` with Abaqus, so it is reachable only as `--to calculix`. |
-| `sesam` | `.fem` | Default owner of `.fem`. Writes `sestra.inp` beside the deck when the model carries an analysis step. |
+| `sesam` | `.fem` | Default owner of `.fem`. The `.FEM` deck alone; `--sestra-inp` adds a `sestra.inp` made from the model's analysis step. |
 | `usfos` | `.fem` | Shares `.fem` with Sesam, so it is reachable only as `--to usfos`. |
 | `code_aster` | `.med` | The output is the `.med` mesh; the `.comm` command file and two `.json` maps land beside it. |
 | `opencourant` | `.rad` | OpenCourant (OpenRadioss) starter deck `<name>_0000.rad`. The engine deck `<name>_0001.rad` is written beside it when the model carries an explicit step. Shell models only for now. |
@@ -171,16 +171,36 @@ ada convert --list-formats
 `--limit`
 :   Stop after this many geometries. Debugging aid; unset by default.
 
-`--log-file`
+`--log-file [PATH]`
 :   Write adapy's log records to this file, truncating it first, and leave only
-    warnings and errors on the console. Useful on large FEM decks, where the
+    warnings and errors on the console. Given without a path, `convert` writes
+    `<OUT stem>.log` beside OUT (put the flag after the positionals, or it takes
+    the input file for its path). Useful on large FEM decks, where the
     `INFO` stream is worth keeping but not worth reading as it scrolls past.
     Without the flag nothing changes: every record at `--log-level` goes to
     stderr.
 
 `--superelement`
 :   The Sesam super element number, written as the deck's `IDENT` `SELTYP` and
-    used to name the file `<prefix>T<N>.FEM`.
+    used to name the file `<prefix>T<N>.FEM`. Without it the `T<N>` in OUT
+    decides, then what the input says (a `.SIN`'s superelement, a `.FEM`'s
+    `IDENT SELTYP`), then an `R<N>`/`T<N>` in the input's name, then 1.
+
+`--super-element`
+:   Sesam `.SIN` only. Converts just this superelement (type number `12`, type
+    and instance `12.1`, or Xtract's label `SEL12.IND1`), written to OUT as
+    given. Repeat it to convert several, each to `<OUT stem>T<N><OUT suffix>`.
+    Without it, a `.SIN` holding an assembly is written as one such file per
+    first-level superelement with a mesh, each with its own `SELTYP`, and every
+    file written is printed.
+
+`--merge`
+:   Sesam `.SIN` assembly only. Writes all first-level superelements as one file
+    at OUT, with the top level's `SELTYP`. Each superelement is placed by its
+    translation and its node and element numbers are prefixed by its type number
+    (type x 10^6 + its own number), so they stay unique. A superelement placed
+    with a rotation is refused, since the beam orientations and local systems
+    would have to be turned with it. Cannot be combined with `--super-element`.
 
 Without it the `T`-number in the output name decides, so `myPrefixT10.FEM`
 is super element 10. With neither, it is 1 -- and the run says so, rather than
@@ -188,6 +208,13 @@ leaving you to discover it from Presel. Sesam expects the number in the deck and
 the number in the file name to agree, because Presel matches them when it
 assembles, so a flag contradicting the name is a usage error rather than a
 silent override.
+
+`--sestra-inp`
+:   For `sesam` output: also write a Sestra control file, `sestra.inp`, beside
+    the deck. adapy makes it from the model's first step (a linear static or
+    eigenvalue analysis) and points it at the super element written (`ITOP`). It
+    is not read from the input -- not even from a `.SIN`. By default only the
+    `.FEM` is written. Any other output format refuses the flag.
 
 `--binary-acis`
 :   For `gnx` output: store the ACIS body as binary SAB (`acisGeometry.sab`),

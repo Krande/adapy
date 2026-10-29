@@ -129,7 +129,8 @@ def test_a_uniform_load_over_whole_elements_is_a_dload_and_the_rest_consistent_n
     body = _cases(inp)["LC_part"]
     whole = re.findall(r"^beam-FEM\.(\d+), PZ, -1000.0$", body, re.M)
     spans = sorted(tuple(sorted(n.x for n in p.fem.elements.from_id(int(e)).nodes)) for e in whole)
-    assert spans == pytest.approx([(1.3, 1.65), (1.65, 2.0), (2.0, 2.5)])
+    # Flattened: pytest.approx refuses nested sequences (pytest >= 9).
+    assert [x for s in spans for x in s] == pytest.approx([1.3, 1.65, 1.65, 2.0, 2.0, 2.5])
     nodal = {
         round(p.fem.nodes.from_id(int(n)).x, 6): float(v)
         for n, _, v in re.findall(r"^ beam-FEM\.(\d+), (3), (\S+)$", body, re.M)

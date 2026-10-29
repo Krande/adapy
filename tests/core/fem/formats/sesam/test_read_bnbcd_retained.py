@@ -155,13 +155,11 @@ def test_a_constraint_attached_node_still_keeps_its_retained_flag():
     assert fem_set is not None and [n.id for n in fem_set.members] == [2]
 
 
-def test_a_partial_retained_pattern_still_joins_the_set_and_warns():
-    """``4 4 4 0 0 0``: the SESAM_SUPERNODES convention retains all six dofs of every
-    member, so the set cannot express this. The node still goes in — losing the interface
-    is the defect being fixed, and a widened pattern is still a connectable deck — but the
-    widening is logged, never silent."""
+def test_a_partial_retained_pattern_joins_the_set_and_is_logged_and_kept():
+    """``4 4 4 0 0 0``: the SESAM_SUPERNODES set alone would mean all six dofs, so the node's
+    own dofs are kept on the model's metadata for the writer, and the case is logged."""
     fem = _fem_with_nodes(7, 8)
-    with _captured_logs() as warnings:
+    with _captured_logs(logging.INFO) as warnings:
         bcs = get_bcs(_bnbcd(7, [4, 4, 4, 0, 0, 0]) + _bnbcd(8, [4] * 6), fem)
 
     assert bcs == []
@@ -193,15 +191,25 @@ def test_a_bc_and_a_retained_dof_on_one_node_are_both_read():
     assert fem_set is not None and [n.id for n in fem_set.members] == [7]
 
 
-def test_a_bc_and_a_retained_dof_on_one_node_cannot_be_written_back():
-    """Documented limit, not a reader defect: the convention retains *all six* dofs of a
-    member, so dof 1 of node 7 would be both fixed and retained, and the writer refuses
-    that rather than picking a winner. A caller with such a deck has to name the dofs
-    explicitly via ``metadata["sesam_retained_dofs"]``."""
+def test_a_bc_and_a_retained_dof_on_one_node_are_written_back_as_read():
+    """The reader keeps the dofs it found retained on a node that has only some of them, so the
+    convention retains exactly those: dofs 1-3 stay fixed and 4-6 retained, instead of the
+    set widening the node to all six and contradicting its own support."""
     fem = _fem_with_nodes(7)
     bcs = get_bcs(_bnbcd(7, [1, 1, 1, 4, 4, 4]), fem)
     fem.add_bc(bcs[0])
 
+    retained = retained_dofs([fem])
+    assert retained == {7: (4, 5, 6)}
+    assert bnbcd_str([fem], retained=retained).split()[1:5] == [
+        "7.00000000E+00",
+        "6.00000000E+00",
+        "1.00000000E+00",
+        "1.00000000E+00",
+    ]
+
+    # Without the reader's note the convention still refuses the contradiction.
+    fem.metadata.clear()
     with pytest.raises(ValueError, match="fixed and cannot be retained"):
         bnbcd_str([fem], retained=retained_dofs([fem]))
 

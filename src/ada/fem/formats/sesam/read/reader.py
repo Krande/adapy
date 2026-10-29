@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import pathlib
+import re
 
 from ada.api.spatial import Assembly, Part
 from ada.config import logger
@@ -20,8 +22,18 @@ from .read_sections import get_elrefs, get_sections
 from .read_sets import get_sets
 
 
-def read_fem(fem_file: os.PathLike, fem_name: str = None):
-    """Import contents from a Sesam fem file into an assembly object"""
+def read_fem(fem_file: os.PathLike, fem_name: str = None, unread: dict[str, int] | None = None):
+    """Import contents from a Sesam fem file into an assembly object.
+
+    A Results Interface File (``.SIN``, any case) is accepted too: SESTRA echoes the whole input
+    deck into it, so the deck is extracted (see ``results.export_fem``) and read like a ``.FEM``.
+
+    ``unread``: ``{card: records}`` left out of ``fem_file`` by whoever wrote it because no reader
+    has a card for them (``stream.UNREAD_CARDS``), so the conversion report still names them.
+    """
+    if pathlib.Path(fem_file).suffix.lower() == ".sin":
+        return _read_sin_as_fem(fem_file, fem_name)
+
     from ada.config import Config
 
     logger.info("Starting import of Sesam input file")
@@ -32,17 +44,28 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None):
         # bulk goes straight to arrays; the small remainder is bucketed for the
         # object section/set/constraint readers).
         part = Part(part_name)
-        _read_sesam_fem_array_stream(fem_file, part)
+        _read_sesam_fem_array_stream(fem_file, part, unread)
         logger.info(8 * "-" + f'Imported "{part.fem.instance_name}"')
         return Assembly("TempAssembly") / part
 
     with open(fem_file, "r") as d:
-        part = read_sesam_fem(d.read(), part_name)
+        part = read_sesam_fem(d.read(), part_name, unread)
 
     return Assembly("TempAssembly") / part
 
 
-def read_sesam_fem(bulk_str, part_name) -> Part:
+def _read_sin_as_fem(sin_file: os.PathLike, fem_name: str = None):
+    """Read the input deck embedded in a Results Interface File through the ``.FEM`` reader."""
+    import tempfile
+
+    from ..results.export_fem import read_deck_from_sin
+
+    logger.info("Sesam results interface file given: extracting its input deck")
+    with tempfile.TemporaryDirectory(prefix="ada-sin-") as tmp:
+        return read_deck_from_sin(sin_file, tmp, fem_name)
+
+
+def read_sesam_fem(bulk_str, part_name, unread: dict[str, int] | None = None) -> Part:
     """Reads the content string of a Sesam input file and converts it to FEM objects"""
 
     from ada.config import Config
@@ -51,10 +74,11 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem = part.fem
 
     if Config().meshing_array_backed:
-        _read_sesam_fem_array(bulk_str, part)
+        _read_sesam_fem_array(bulk_str, part, unread)
         logger.info(8 * "-" + f'Imported "{fem.instance_name}"')
         return part
 
+    read_ident(fem, bulk_str)
     fem.nodes = get_nodes(bulk_str, fem)
     elements, mass_elem, spring_elem, el_id_map = get_elements(bulk_str, fem)
     fem.elements = elements
@@ -78,7 +102,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem.bcs += get_bcs(bulk_str, fem)
     # Before the renumber, like get_bcs: a BEUSLO record names the *internal* element number,
     # which is what fem.elements.from_id resolves until the internal -> external pass below.
-    get_loads(bulk_str, fem)
+    get_loads(bulk_str, fem, unread)
     renumber_nodes(bulk_str, fem)
     fem.elements.renumber(renumber_map=el_id_map)
 
@@ -86,12 +110,43 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     return part
 
 
-def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ext_map, reader_text) -> None:
+_IDENT = re.compile(r"^IDENT\s+(\S+)\s+(\S+)", re.MULTILINE)
+
+
+def read_ident(fem, text: str) -> None:
+    """Keep the deck's IDENT record on ``fem.metadata``: ``sesam_slevel`` and ``sesam_seltyp``
+    (the super element number a writer should give the deck back), when the record is there."""
+    m = _IDENT.search(text)
+    if m is None:
+        return
+    try:
+        fem.metadata["sesam_slevel"] = int(float(m.group(1)))
+        fem.metadata["sesam_seltyp"] = int(float(m.group(2)))
+    except ValueError:
+        logger.debug("unreadable IDENT record in a Sesam input file")
+
+
+def _build_array_fem(
+    part, coords, node_ids, by_type, mass_elem, spring_elem, ext_map, reader_text, unread=None, buckets=None
+) -> None:
     """Assemble the array-backed FEM from parsed mesh arrays + a (small) text blob the
     object section/set/constraint readers run over. Shared by the streaming and
-    bulk-string array paths."""
+    bulk-string array paths.
+
+    ``buckets``: ``{card: text}`` of the cards kept out of ``reader_text``
+    (``stream.BUCKETED_CARDS``), each handed to the one reader that reads it."""
     import numpy as np
 
+    def text(*cards: str) -> str:
+        """``reader_text`` with the bucketed ``cards`` the reader reads."""
+        if buckets is None:
+            return reader_text
+        return "\n".join([reader_text, *(buckets[c] for c in cards if buckets.get(c))])
+
+    def only(card: str) -> str:
+        return reader_text if buckets is None else buckets.get(card, "")
+
+    read_ident(part.fem, reader_text)
     from ada.api.mesh.containers import ArrayElements, ArrayNodes
     from ada.api.mesh.store import MeshArrays
 
@@ -110,7 +165,7 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
     fem.elements = ArrayElements(store, fem_obj=fem)
 
     part._materials = get_materials(reader_text, part)
-    elrefs = get_elrefs(reader_text, mass_elem, spring_elem)
+    elrefs = get_elrefs(only("GELREF1"), mass_elem, spring_elem)
     # Springs go in before the masses. A BNMASS mass takes a new id past the container's
     # current max, so a spring that is not in the container yet is a spring whose id a
     # mass is free to take -- and then a GSETMEMB naming that id resolves to the wrong
@@ -119,17 +174,17 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
     for spring in get_springs(reader_text, fem, spring_elem):
         fem.add_spring(spring)
     get_mass(reader_text, part.fem, mass_elem, ext_map)
-    fem.sets = part.fem.sets + get_sets(reader_text, fem)
+    fem.sets = part.fem.sets + get_sets(text("GSETMEMB"), fem)
     link_spring_sets(fem)
     attach_named_sets(fem)
-    fem.sections = get_sections(reader_text, fem, elrefs)
+    fem.sections = get_sections(text("GECCEN"), fem, elrefs)
     fem.constraints.update(get_constraints(reader_text, fem))
     fem.bcs += get_bcs(reader_text, fem)
     # Before the renumber, for the same reason as on the object path: BEUSLO's ELNO is the
     # internal element number. A set this creates is id-backed and _remap_id_backed_sets below
     # carries it over to the external ids.
-    get_loads(reader_text, fem)
-    node_map = renumber_nodes(reader_text, fem)
+    get_loads(text("BEUSLO"), fem, unread)
+    node_map = renumber_nodes(only("GNODE"), fem)
     fem.elements.renumber(renumber_map=ext_map)
 
     # The substrate just renumbered nodes/elements from internal -> external ids,
@@ -154,16 +209,18 @@ def _remap_id_backed_sets(fem, node_map: dict[int, int], elem_map: dict[int, int
         fs._member_ids = [m.get(mid, mid) for mid in fs._member_ids]
 
 
-def _read_sesam_fem_array_stream(fem_file, part: Part) -> None:
+def _read_sesam_fem_array_stream(fem_file, part: Part, unread: dict[str, int] | None = None) -> None:
     """Streaming substrate-direct read: one pass over the file handle, mesh -> arrays,
     everything else -> a small text blob. Never holds the whole deck as a string."""
     from .stream import stream_fem_mesh
 
-    coords, node_ids, by_type, mass_elem, spring_elem, ext_map, other_text = stream_fem_mesh(fem_file)
-    _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ext_map, other_text)
+    counted = dict(unread or {})
+    buckets: dict[str, str] = {}
+    coords, node_ids, by_type, mass_elem, spring_elem, ext_map, other_text = stream_fem_mesh(fem_file, counted, buckets)
+    _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ext_map, other_text, counted, buckets)
 
 
-def _read_sesam_fem_array(bulk_str, part: Part) -> None:
+def _read_sesam_fem_array(bulk_str, part: Part, unread: dict[str, int] | None = None) -> None:
     """Substrate-direct read from a full bulk string (for direct callers that already
     have the deck in memory). Prefer the streaming path via read_fem."""
     from .read_elements import get_elements_arrays
@@ -171,4 +228,4 @@ def _read_sesam_fem_array(bulk_str, part: Part) -> None:
 
     coords, node_ids = get_nodes_arrays(bulk_str)
     by_type, mass_elem, spring_elem, ext_map = get_elements_arrays(bulk_str)
-    _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ext_map, bulk_str)
+    _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ext_map, bulk_str, unread)

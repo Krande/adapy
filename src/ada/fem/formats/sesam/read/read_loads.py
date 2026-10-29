@@ -111,13 +111,24 @@ def report():
 
 
 def load_case_names(bulk_str: str) -> dict[int, str]:
-    """``{LLC: name}`` from the deck's TDLOAD records."""
-    names = {}
+    """``{LLC: name}`` from the deck's TDLOAD records, one name per LLC.
+
+    A deck may give one name to several LLCs (a SESTRA results file repeats each of its names
+    every few dozen cases), and Sestra keeps them apart by number. An ada step keeps its load
+    cases by name, so the second case of a name would replace the first, whose loads then sat in
+    no case and were not written. The first LLC keeps the name; each later one is ``<name>_<LLC>``.
+    """
+    names: dict[int, str] = {}
     for m in cards.re_tdload.finditer(bulk_str):
         d = m.groupdict()
         name, _ = text_record(d, "name")
         if name:
             names[str_to_int(d["llc"])] = name
+    taken: set[str] = set()
+    for llc in sorted(names):
+        if names[llc] in taken:
+            names[llc] = f"{names[llc]}_{llc}"
+        taken.add(names[llc])
     return names
 
 
@@ -405,6 +416,8 @@ def _beuslo_record(d: dict, llc: int, elno: int, subject: str, fem: FEM, rep) ->
 _UNREAD_LOAD_RECORDS = {
     "BNLOAD": "a nodal force or moment",
     "BGRAV": "a gravity or acceleration field",
+    # Never kept in the reader's text at all (``stream.UNREAD_CARDS``): counted where it is skipped.
+    "BELOAD1": "a distributed or concentrated load on a beam element",
 }
 
 #: One pass for all of them: the deck this is run over is the whole non-mesh remainder of a
@@ -412,12 +425,13 @@ _UNREAD_LOAD_RECORDS = {
 _re_unread_loads = re.compile(rf"^({'|'.join(sorted(_UNREAD_LOAD_RECORDS))})\s", re.MULTILINE)
 
 
-def report_unread_load_records(bulk_str: str) -> dict[str, int]:
+def report_unread_load_records(bulk_str: str, counted: dict[str, int] | None = None) -> dict[str, int]:
     """Name every load record the reader has no card for, with how many the deck holds.
 
+    ``counted`` holds the records skipped before ``bulk_str`` was made (``stream.UNREAD_CARDS``).
     Returns the counts, so a caller can assert on them; the report is the point.
     """
-    counts: dict[str, int] = {}
+    counts: dict[str, int] = {k: v for k, v in (counted or {}).items() if k in _UNREAD_LOAD_RECORDS and v}
     for m in _re_unread_loads.finditer(bulk_str):
         flag = m.group(1).upper()
         counts[flag] = counts.get(flag, 0) + 1
@@ -436,7 +450,7 @@ def report_unread_load_records(bulk_str: str) -> dict[str, int]:
     return counts
 
 
-def get_loads(bulk_str: str, fem: FEM) -> Step | None:
+def get_loads(bulk_str: str, fem: FEM, unread: dict[str, int] | None = None) -> Step | None:
     """The deck's BEUSLO records as one static step of pressure loads, or ``None``.
 
     Nothing is added to ``fem`` when the deck carries no BEUSLO record it can hold, so a deck
@@ -452,9 +466,9 @@ def get_loads(bulk_str: str, fem: FEM) -> Step | None:
 
     The load records this reader still has no card for are named first
     (:func:`report_unread_load_records`), because a step holding only the pressures is a model
-    that *looks* loaded.
+    that *looks* loaded. ``unread``: the records counted and skipped before ``bulk_str`` was made.
     """
-    report_unread_load_records(bulk_str)
+    report_unread_load_records(bulk_str, unread)
     records = list(beuslo_records(bulk_str, fem))
     if not records:
         return None
@@ -506,7 +520,7 @@ def _elsets_by_membership(fem: FEM) -> dict[frozenset, FemSet]:
     index: dict[frozenset, FemSet] = {}
     for fs in fem.sets.sets:
         if fs.type == FemSet.TYPES.ELSET:
-            index.setdefault(frozenset(m.id for m in fs.members), fs)
+            index.setdefault(frozenset(fs.member_ids), fs)
     return index
 
 

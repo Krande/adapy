@@ -197,6 +197,25 @@ def test_index_manifests_needs_a_collection(client_and_revision):
     assert r.status_code == 400
 
 
+def test_collections_names_what_the_unscoped_index_folds(client_and_revision, tmp_path):
+    """The names alone, without a walk of every key: reserved prefixes are not collections."""
+    client, _ = client_and_revision
+    assets = tmp_path / "users" / "local-dev" / "assets"
+    (assets / "_staging" / "s1").mkdir(parents=True)
+    (assets / "_staging" / "s1" / "asset.json").write_bytes(b"{}")
+    r = client.get(_scope_url("collections"))
+    assert r.status_code == 200, r.text
+    folded = client.get(_scope_url("index")).json()["collections"]
+    assert r.json()["collections"] == sorted(folded) == [COLLECTION]
+
+
+def test_collections_of_an_empty_scope(tmp_path):
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        r = client.get(_scope_url("collections"))
+    assert r.status_code == 200, r.text
+    assert r.json() == {"collections": []}
+
+
 def test_tree_returns_the_slice_in_cores_vocabulary(client_and_revision):
     client, _ = client_and_revision
     r = client.get(_scope_url(f"tree/published/{COLLECTION}"))

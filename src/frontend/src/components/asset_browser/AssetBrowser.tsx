@@ -1,5 +1,5 @@
-// The tab shell inside the tree drawer: `Scene | Sources` (ids `files` / `assets`,
-// the Files and Assets tabs below), a fixed pair.
+// The tab shell inside the tree drawer: `Scene | Systems | Sources` (ids `files` / `systems` /
+// `assets`), a fixed set. Systems is core's listing of the relations index (`SystemsTab`).
 //
 // NOT A REGISTRY. Out-of-tree code extends the browser through asset providers
 // (collections inside `Assets`) and the existing `panels` slot, never by adding
@@ -21,8 +21,15 @@ import { runtime } from "@/runtime/config";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import type { AssetBrowserTab } from "@/state/assetBrowserStore";
 
-import AssetsTab from "./AssetsTab";
-import FilesTab from "./FilesTab";
+import AssetsTabView from "./AssetsTab";
+import FilesTabView from "./FilesTab";
+import SystemsTab from "./SystemsTab";
+
+// Memoized: neither takes props, and both re-render from their own stores. Without it every tab
+// switch -- and every drawer resize, which a switch also makes (a width per tab) -- re-rendered both
+// whole trees from here.
+const AssetsTab = React.memo(AssetsTabView);
+const FilesTab = React.memo(FilesTabView);
 
 export function assetsTabAvailable(): boolean {
     return runtime.isRestMode();
@@ -33,6 +40,7 @@ const TABS: readonly { id: AssetBrowserTab; label: string; title: string }[] = [
     // reads them. The labels say what a user sees -- what is in the scene, and the provider-backed
     // trees it can be loaded from -- not where either was stored.
     { id: "files", label: "Scene", title: "What is loaded in the scene" },
+    { id: "systems", label: "Systems", title: "The systems of the loaded collections -- HVAC, piping -- from the relations providers publish" },
     { id: "assets", label: "Sources", title: "Project trees from the providers, published in this scope" },
 ];
 
@@ -81,6 +89,11 @@ const AssetBrowser: React.FC = () => {
             <div className="flex-1 overflow-auto" hidden={tab !== "files"}>
                 <FilesTab />
             </div>
+            {withAssets && tab === "systems" && (
+                <div className="flex-1 min-h-0 flex flex-col">
+                    <SystemsTab />
+                </div>
+            )}
             {withAssets && (assetsVisited || tab === "assets") && (
                 <div className={`flex-1 min-h-0 flex-col ${tab === "assets" ? "flex" : "hidden"}`} hidden={tab !== "assets"}>
                     <AssetsTab />

@@ -32,6 +32,23 @@ import type {TreeNodeData} from "./CustomNode";
 import {AddToGroupPromptHost, addToGroupBlocker, useAddToGroupPromptStore} from "./AddToGroupPrompt";
 import {BBoxSelectionMenuHost} from "@/components/viewer/BBoxSelectionMenu";
 import {addBoxAroundSelection} from "@/utils/bboxSelection/applyBoxSelection";
+import {useRelatedActions} from "@/hooks/useRelatedActions";
+import type {RelatedAction} from "@/utils/systems/relatedActions";
+
+/** The related actions as menu items: one block, after a separator; a disabled line while reading. */
+function relatedItems(actions: readonly RelatedAction[], loading: boolean): KebabMenuItem[] {
+    if (loading) {
+        return [{key: "related-wait", label: "Related…", onClick: () => undefined, disabled: true, title: "Reading what this element is related to", separatorBefore: true}];
+    }
+    return actions.map((a, i) => ({
+        key: a.key,
+        label: a.label,
+        title: a.title,
+        disabled: a.disabled,
+        onClick: () => void a.run().then((s) => s && console.info(s)).catch((e) => console.error(e)),
+        separatorBefore: i === 0,
+    }));
+}
 
 /** "Load from <provider>" for a row of a model loaded from a provider: null for a row of anything
  *  else (a file), else the options -- or why there are none. */
@@ -155,6 +172,9 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
             title: groupBlocker ?? "Put the selection in a saved group -- an existing one, or a new one",
         },
     ];
+    // What the element is related to: its system and run, and the elements it names.
+    const related = useRelatedActions(rows.length === 1 ? row : null);
+    items.push(...relatedItems(related.actions, related.loading));
     // The same node from the other providers that publish it -- for the row right-clicked.
     const alt = useMemo(() => otherProviderLoads(row), [row]);
     if (alt) {

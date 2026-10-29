@@ -41,6 +41,38 @@ function sceneIndices(root: TreeNodeData): TreeIndices {
 /** Bumped per pick: a Sources walk still fetching levels for an older pick gives up. */
 let generation = 0;
 
+/** Give the Scene tree the 3D view's selection as it is now -- when the drawer opens, after picks it
+ *  did not follow while it was shut. Programmatic, so the tree does not select in 3D again. Returns
+ *  how many rows it selected. */
+export function syncSceneTreeToSelection(): number {
+    const {useTreeViewStore, useSelectedObjectStore} = getSingletonViewerStores();
+    const tv = useTreeViewStore.getState();
+    if (!tv.treeData || !tv.tree) return 0;
+    const tree: any = tv.tree;
+    tree.isProgrammaticChange = true;
+    try {
+        const ids: string[] = [];
+        let last: TreeNodeData | null = null;
+        for (const [m, ranges] of useSelectedObjectStore.getState().selectedObjects) {
+            const key: string | undefined = (m as any).unique_key ?? (m.userData ? m.userData["unique_hash"] : undefined);
+            if (!key) continue;
+            for (const rid of ranges) {
+                const node = tv.findNodeByRangeId(key, rid);
+                if (node) {
+                    ids.push(node.id);
+                    last = node;
+                }
+            }
+        }
+        if (!ids.length) return 0;
+        tree.setSelection({ids, mostRecent: last, anchor: last});
+        if (last) tree.scrollTo({id: last.id});
+        return ids.length;
+    } finally {
+        tree.isProgrammaticChange = false;
+    }
+}
+
 /** Select the picked ranges' rows in the Scene tree and scroll to the picked one. */
 function syncSceneTree(modelKey: string, rangeId: string): TreeNodeData | null {
     const {useTreeViewStore, useSelectedObjectStore} = getSingletonViewerStores();

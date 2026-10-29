@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from ada.fem.results import sin_native
+
 G_STRESS_COMPONENTS = ("SIGXX", "SIGYY", "TAUXY", "VONMISES")
 P_STRESS_COMPONENTS = ("P1", "P2")
 D_STRESS_COMPONENTS = ("SIGMX", "SIGMY", "SIGBX", "SIGBY", "TAUMXY", "TAUBXY", "MVONMISES")
@@ -26,6 +28,28 @@ def plane_von_mises(sig_x, sig_y, tau_xy):
     return np.sqrt(sig_x * sig_x + sig_y * sig_y - sig_x * sig_y + 3.0 * tau_xy * tau_xy)
 
 
+def _native_input(*arrays):
+    """adacpp's ``fea.sin`` when every array is a float32 or float64 ndarray of one dtype, else None.
+    Its kernels compute in float64 in numpy's operation order, so they give these functions' bits."""
+    native = sin_native.kernels()
+    if native is None:
+        return None
+    dtype = arrays[0].dtype if isinstance(arrays[0], np.ndarray) else None
+    if dtype not in (np.float32, np.float64):
+        return None
+    if not all(isinstance(a, np.ndarray) and a.dtype == dtype for a in arrays):
+        return None
+    return native
+
+
+def principal_of(table, cx: int, cy: int, ct: int) -> np.ndarray:
+    """:func:`plane_principal` of columns ``cx``, ``cy``, ``ct`` of ``table`` (components last)."""
+    native = _native_input(table)
+    if native is not None and table.ndim >= 1:
+        return native.shell_plane_principal(np.ascontiguousarray(table), cx, cy, ct)
+    return plane_principal(table[..., cx], table[..., cy], table[..., ct])
+
+
 def plane_principal(sig_x, sig_y, tau_xy) -> np.ndarray:
     """Return descending in-plane principal stresses ``[..., (P1, P2)]``."""
 
@@ -40,6 +64,9 @@ def plane_principal(sig_x, sig_y, tau_xy) -> np.ndarray:
 def general_stress(basic: np.ndarray) -> np.ndarray:
     """Append VONMISES to ``[..., (SIGXX, SIGYY, TAUXY)]``."""
 
+    native = _native_input(basic)
+    if native is not None and basic.ndim >= 1 and basic.shape[-1] == 3:
+        return native.shell_general_stress(np.ascontiguousarray(basic))
     basic = np.asarray(basic, dtype=float)
     if basic.shape[-1] != 3:
         raise ValueError(f"general_stress expects 3 basic components, got {basic.shape}")
@@ -55,6 +82,9 @@ def decompose_shell(bottom: np.ndarray, top: np.ndarray) -> np.ndarray:
     sign convention.
     """
 
+    native = _native_input(bottom, top)
+    if native is not None and bottom.ndim >= 1 and bottom.shape == top.shape and bottom.shape[-1] == 3:
+        return native.shell_decompose(np.ascontiguousarray(bottom), np.ascontiguousarray(top))
     bottom = np.asarray(bottom, dtype=float)
     top = np.asarray(top, dtype=float)
     if bottom.shape != top.shape or bottom.shape[-1] != 3:
@@ -78,7 +108,7 @@ def decompose_shell(bottom: np.ndarray, top: np.ndarray) -> np.ndarray:
 
 def membrane_principal(decomposed: np.ndarray) -> np.ndarray:
     decomposed = np.asarray(decomposed, dtype=float)
-    return plane_principal(decomposed[..., 0], decomposed[..., 1], decomposed[..., 4])
+    return principal_of(decomposed, 0, 1, 4)
 
 
 def stress_resultants(decomposed: np.ndarray, thickness) -> np.ndarray:
@@ -92,6 +122,14 @@ def stress_resultants(decomposed: np.ndarray, thickness) -> np.ndarray:
     t = np.asarray(thickness, dtype=float)
     while t.ndim < d.ndim - 1:
         t = t[..., None]
+    native = _native_input(d)
+    if native is not None and d.ndim >= 2 and d.shape[-1] == 7 and t.ndim == d.ndim - 1:
+        try:
+            per_row = np.broadcast_to(t, d.shape[:-1])
+        except ValueError:
+            per_row = None
+        if per_row is not None and per_row.size:
+            return native.shell_resultants(np.ascontiguousarray(d), np.ascontiguousarray(per_row, dtype=float).ravel())
     t2_over_6 = t * t / 6.0
     return np.stack(
         (

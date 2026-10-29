@@ -201,3 +201,15 @@ test("a toast entry's View run target: sweeps in Admin -> Providers, exports in 
     assert.equal(toastRunTarget("models/a.ifc::glb", () => "shared"), null);
     assert.equal(toastRunTarget("sweep:", () => null), null);
 });
+
+test("a run item's own toast entry follows its job: the bounds extraction's site count, then the end", async () => {
+    const {sweepItemToastState} = await import("@/services/sweepTracking");
+    const measuring = sweepItemToastState(item(0, "fetching", {fetch_job_id: "f0", stage: "measuring site 12 of 82", progress: 0.17}));
+    assert.deepEqual(measuring, {status: "running", progress: 0.17, stage: "measuring site 12 of 82", error: null});
+    assert.equal(sweepItemToastState(item(0, "publishing", {stage: "ingesting"})).stage, "publishing: ingesting");
+    assert.equal(sweepItemToastState(item(0, "pending")).status, "queued");
+    assert.deepEqual(sweepItemToastState(item(0, "unchanged")), {status: "done", progress: 1, stage: "unchanged", error: null});
+    const failed = sweepItemToastState(item(0, "error", {error: "boom", progress: 0.4}));
+    assert.equal(failed.status, "error");
+    assert.equal(failed.error, "boom");
+});

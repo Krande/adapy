@@ -243,7 +243,7 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
     return merged_part
 
 
-def single_part_assembly(assembly: "Assembly") -> "Assembly":
+def single_part_assembly(assembly: "Assembly", id_offsets: "dict[str, tuple[int, int]] | None" = None) -> "Assembly":
     """A temporary assembly holding one part: the non-destructive merge of every FEM-bearing part
     of ``assembly``, for the writers that write one part (Sesam, Code_Aster, CalculiX, ...).
 
@@ -255,6 +255,11 @@ def single_part_assembly(assembly: "Assembly") -> "Assembly":
     (:class:`DoesNotSupportMultiPart`): a deck that names a source id writes a load or a support on
     another part's node, silently.
 
+    ``id_offsets`` (``{part name: (node id offset, element id offset)}``) fixes the shift of the
+    named parts instead of leaving it to the collision rule, so a caller that numbers the parts
+    itself (Sesam's superelement prefixes) gets those ids, with every set, mass, eccentricity
+    and hinge re-keyed to them.
+
     Returns ``assembly`` itself when at most one part has nodes."""
     from ada import Assembly
 
@@ -262,7 +267,7 @@ def single_part_assembly(assembly: "Assembly") -> "Assembly":
     if len(parts) <= 1:
         return assembly
     write_assembly = Assembly(assembly.name, units=assembly.units)
-    merged_part, top_steps = _merge(assembly, parts, top_fem=write_assembly.fem)
+    merged_part, top_steps = _merge(assembly, parts, top_fem=write_assembly.fem, id_offsets=id_offsets)
     write_assembly.add_part(merged_part)
     write_assembly.fem.steps = top_steps
     return write_assembly
@@ -309,7 +314,7 @@ def _names_a_set(obj) -> bool:
     return False
 
 
-def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]":
+def _merge(assembly: "Part", parts: "list[Part]", top_fem, id_offsets=None) -> "tuple[Part, list]":
     """The merge behind :func:`concatenate_fem_to_single_part` (``top_fem=None``: the assembly's own
     FEM is left where it is) and :func:`single_part_assembly` (``top_fem``: the FEM that receives
     the assembly's re-keyed steps; its other data goes onto the merged part)."""
@@ -379,13 +384,17 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem) -> "tuple[Part, list]
         p_nids = {int(i) for i in st.node_ids}
         p_eids = {int(i) for blk in st.blocks.values() for i in blk.el_ids}
         p_eids |= {int(e.id) for e, _ in _retained_elems(p.fem) if e.id is not None}
-        p_node_off = node_off if p_nids & used_nids else 0
-        p_el_off = el_off if p_eids & used_eids else 0
+        chosen = id_offsets is not None and p.name in id_offsets
+        if chosen:
+            p_node_off, p_el_off = (int(x) for x in id_offsets[p.name])
+        else:
+            p_node_off = node_off if p_nids & used_nids else 0
+            p_el_off = el_off if p_eids & used_eids else 0
         used_nids |= {i + p_node_off for i in p_nids}
         used_eids |= {i + p_el_off for i in p_eids}
         node_off_of[id(p)] = p_node_off
         el_off_of[id(p)] = p_el_off
-        if p_node_off or p_el_off:
+        if (p_node_off or p_el_off) and not chosen:
             # The ids are what a single-part writer writes and what results are keyed by, so a
             # changed one is said, not left to be found in the output.
             conversion_report.current().approximated(

@@ -66,10 +66,24 @@ const ROWS: SettingRow[] = [
             "instead of materialising the whole multi-step result. ~1.7x slower, but peak RSS " +
             "stays flat in step count — for many-mode / large decks that OOM the worker. " +
             "On this path step labels fall back to the mode index (no SESTRA.LIS eigen-frequency " +
-            "enrichment). Unset → adapy streams a deck whose result tables (load combinations " +
-            "included) are too large to materialise, and materialises the rest. On → always " +
-            "stream. Off → always materialise.",
+            "enrichment). Unset → adapy materialises through the field cache (“Cache SIN FEA " +
+            "bake fields”), or, with that off, streams a deck whose result tables (load " +
+            "combinations included) are too large to materialise and materialises the rest. " +
+            "On → always stream. Off → always materialise.",
         codeDefault: false,
+    },
+    {
+        key: "fea_sin_field_cache",
+        label: "Cache SIN FEA bake fields",
+        description:
+            "Bake Sesam .sin FEA results from a full read whose field values live in a " +
+            "memory-mapped temporary file, read one load case at a time: the materialised " +
+            "bake's output (eigen-frequency labels, every superelement of an assembly) at " +
+            "about one load case's peak memory. Needs " +
+            "disk space for the values (ADA_FIELD_CACHE_DIR, else the temp directory). On → " +
+            "used instead of the size check; “Stream SIN FEA bake” on still streams. Off → the " +
+            "size check picks between materialising in memory and streaming.",
+        codeDefault: true,
     },
     {
         key: "ifc_streaming",

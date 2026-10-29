@@ -55,25 +55,38 @@ class IfcBeamWriter:
 
         prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (axis, body))
 
+        # A member the provider typed as something else (a pipe sleeve drawn as a section) is that
+        # entity, profile and material kept -- but not an IfcBeamType occurrence, which IFC's
+        # correct-type rules only allow on a beam.
+        typing = {"ObjectType": "Beam"}
+        stamped = False
+        if entity_class == "IfcBeam":
+            from ada.cadit.ifc.write.entity_choice import resolve_ifc_entity
+
+            choice = resolve_ifc_entity(beam.metadata, f)
+            if choice is not None and choice.entity != "IfcBeam":
+                entity_class, typing, stamped = choice.entity, choice.attributes(), True
+
         ifc_beam = f.create_entity(
             entity_class,
             GlobalId=beam.guid,
             OwnerHistory=owner_history,
             Name=beam.name,
             Description=beam.section.sec_str,
-            ObjectType="Beam",
             ObjectPlacement=loc_plac,
             Representation=prod_def_shp,
+            **typing,
         )
 
-        beam_type = self.ifc_store.get_beam_type(beam.section)
-        if beam_type is None:
-            raise ValueError()
+        if not stamped:
+            beam_type = self.ifc_store.get_beam_type(beam.section)
+            if beam_type is None:
+                raise ValueError()
 
-        # Defer attaching to the shared IfcRelDefinesByType; growing the
-        # aggregate per beam re-walks all prior members (O(N²)). Flushed once
-        # after all physical objects are written.
-        self.ifc_store.queue_rel_defines_by_type(beam_type, ifc_beam, beam.section.type.value)
+            # Defer attaching to the shared IfcRelDefinesByType; growing the
+            # aggregate per beam re-walks all prior members (O(N²)). Flushed once
+            # after all physical objects are written.
+            self.ifc_store.queue_rel_defines_by_type(beam_type, ifc_beam, beam.section.type.value)
 
         self.add_material_assignment(beam, ifc_beam, ifc_profile=profile)
 

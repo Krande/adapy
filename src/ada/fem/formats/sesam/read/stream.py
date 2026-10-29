@@ -33,13 +33,32 @@ def _gelmnt_dict(vals: list[str]) -> dict:
     }
 
 
-def stream_fem_mesh(path):
+#: Cards no reader has a card for, counted rather than kept: kept, they would be scanned by every
+#: object reader's regex. BELOAD1 is the bulk of a loaded SESTRA deck (1.9M records, 92% of one
+#: superelement's 900 MB), so keeping it made the "small" remainder the whole file, ~25 times over.
+#: The counts go to ``read_loads.report_unread_load_records``, which names what is lost.
+UNREAD_CARDS = frozenset({"BELOAD1"})
+
+
+#: Bulky cards that one object reader each consumes (GELREF1: the sections' element references,
+#: GECCEN: their eccentricities, GSETMEMB: the sets, GNODE: the renumber, BEUSLO: the pressures).
+#: Kept apart from the shared text, so the other ~20 readers' regexes do not scan them too.
+BUCKETED_CARDS = frozenset({"GELREF1", "GECCEN", "GSETMEMB", "GNODE", "BEUSLO"})
+
+
+def stream_fem_mesh(path, unread: dict[str, int] | None = None, buckets: dict[str, str] | None = None):
     """Stream a .FEM file once.
 
     Returns ``(coords (n,3), node_ids (n,), by_type, mass_elem, spring_elem, ext_map,
     other_text)`` where ``by_type`` maps a canonical element type to
     ``(el_ids, node-id conn)`` and ``other_text`` is every non-mesh line joined (small).
+
+    ``unread``, when given, collects ``{card: records}`` for the :data:`UNREAD_CARDS` skipped.
+    ``buckets``, when given, receives ``{card: text}`` for the :data:`BUCKETED_CARDS`, which are
+    then left out of ``other_text`` (in file order within each card).
     """
+    skipped: dict[str, int] = {} if unread is None else unread
+    bucketed: dict[str, list[str]] = {}
     coord_ids: list[int] = []
     coord_xyz: list[tuple[float, float, float]] = []
     by_type: dict = defaultdict(lambda: ([], []))
@@ -49,6 +68,7 @@ def stream_fem_mesh(path):
     other: list[str] = []
 
     cur_card = None
+    cur_bucket: list[str] | None = None
     # current GELMNT1 being accumulated across continuation lines. A single .FEM
     # element record (structural, mass OR spring) can wrap onto continuation lines, so
     # we accumulate every field and dispatch on flush — never leak continuation node
@@ -82,6 +102,10 @@ def stream_fem_mesh(path):
                 # continuation line — belongs to the current card
                 if cur_card == "GELMNT1" and cur_gelmnt is not None:
                     cur_gelmnt[3].extend(s.split())
+                elif cur_card in UNREAD_CARDS:
+                    continue
+                elif cur_bucket is not None:
+                    cur_bucket.append(line.rstrip("\n"))
                 else:
                     other.append(line.rstrip("\n"))  # continuation of a non-mesh card
                 continue
@@ -90,6 +114,7 @@ def stream_fem_mesh(path):
             if cur_card == "GELMNT1" and tok != "GELMNT1":
                 flush_gelmnt()
             cur_card = tok
+            cur_bucket = bucketed.setdefault(tok, []) if buckets is not None and tok in BUCKETED_CARDS else None
 
             if tok == "GCOORD":
                 p = s.split()
@@ -107,10 +132,16 @@ def stream_fem_mesh(path):
                     cur_gelmnt = ("mass", el_type, el_no, vals)
                 else:
                     cur_gelmnt = ("struct", el_type, el_no, vals)
+            elif tok in UNREAD_CARDS:
+                skipped[tok] = skipped.get(tok, 0) + 1
+            elif cur_bucket is not None:
+                cur_bucket.append(line.rstrip("\n"))
             else:
                 other.append(line.rstrip("\n"))
 
     flush_gelmnt()
+    if buckets is not None:
+        buckets.update({card: "\n".join(lines) for card, lines in bucketed.items()})
 
     coords = np.array(coord_xyz, dtype=np.float64) if coord_xyz else np.zeros((0, 3))
     node_ids = np.array(coord_ids, dtype=np.int64) if coord_ids else np.zeros((0,), dtype=np.int64)

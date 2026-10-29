@@ -94,10 +94,43 @@ def _write_text_records(sin: SinFile, name: str, out: TextIO) -> None:
         out.write(f"        {text}\n")
 
 
-def write_fem(sin: SinFile, out: TextIO) -> None:
-    """Stream the input deck of ``sin`` as Input Interface File text."""
+def _consistent_records(name: str, records):
+    """``records`` of the type block ``name``, without the stale ones.
 
-    names = [n for n in sin.type_blocks if not is_result_record(n)]
+    A BNBCD record is ``NODENO NDOF code...``, so its width is 2 + NDOF. A pointer table can end
+    in a stale slot that points into another type's records (an element load, in a SESTRA file
+    that was rewritten after its analysis); read as a BNBCD it is a bogus support on a real node,
+    which then contradicts that node's own record. Such a record is dropped and reported.
+    """
+    if name != "BNBCD":
+        yield from records
+        return
+    dropped = 0
+    for record in records:
+        if len(record) >= 2 and len(record) == 2 + int(record[1]):
+            yield record
+        else:
+            dropped += 1
+    if dropped:
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().omitted(
+            "sin reader",
+            "BNBCD",
+            f"{dropped} record(s)",
+            "records of the wrong width for a boundary condition, from a stale pointer in the SIN; not written",
+        )
+
+
+def write_fem(sin: SinFile, out: TextIO, omit: frozenset[str] = frozenset()) -> dict[str, int]:
+    """Stream the input deck of ``sin`` as Input Interface File text.
+
+    ``omit``: record types left out (a deck written only to be read back, of records the reader
+    has no card for). Returns ``{type: records}`` for those the SIN holds.
+    """
+
+    omitted = {n: sin.get_count(n) for n in sin.type_blocks if n in omit}
+    names = [n for n in sin.type_blocks if not is_result_record(n) and n not in omit]
     ordered = [n for n in _HEADER_TYPES if n in names]
     ordered += [n for n in names if n not in _HEADER_TYPES]
 
@@ -113,7 +146,7 @@ def write_fem(sin: SinFile, out: TextIO) -> None:
             _write_text_records(sin, name, out)
             continue
         nfield_first = _has_logical_nfield(name)
-        for record in sin.iter_records(name):
+        for record in _consistent_records(name, sin.iter_records(name)):
             if nfield_first:
                 record = (float(len(record) + 1), *record)
             for line in _format_record_line(name, record):
@@ -122,6 +155,7 @@ def write_fem(sin: SinFile, out: TextIO) -> None:
     # The input file's terminator. Not a type block in the SIN (NORSAM has its
     # own control records), so it is emitted rather than copied.
     out.write("IEND        0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00\n")
+    return omitted
 
 
 def export_fem_from_sin(
@@ -140,10 +174,25 @@ def export_fem_from_sin(
 
     sin_path = pathlib.Path(sin_path)
     out = pathlib.Path(fem_path) if fem_path is not None else sin_path.with_suffix(".FEM")
-    sin = open_sin(sin_path, super_element=super_element)
-    with open(out, "w", encoding="ascii", newline="\n") as f:
+    with open_sin(sin_path, super_element=super_element) as sin, open(out, "w", encoding="ascii", newline="\n") as f:
         write_fem(sin, f)
     return out
+
+
+def read_deck_from_sin(sin_path: str | pathlib.Path, workdir: str | pathlib.Path, fem_name: str, *, super_element=None):
+    """The input deck of ``sin_path`` read as an adapy Assembly, through a deck in ``workdir``.
+
+    The deck leaves out the records the reader has no card for (``read.stream.UNREAD_CARDS``):
+    on a loaded SESTRA file that is nine tenths of it, which would be formatted, written and
+    re-parsed only to be dropped. Their counts go to the reader, so the report still names them.
+    """
+    from ada.fem.formats.sesam.read.reader import read_fem
+    from ada.fem.formats.sesam.read.stream import UNREAD_CARDS
+
+    deck = pathlib.Path(workdir) / "deck.FEM"
+    with open_sin(sin_path, super_element=super_element) as sin, open(deck, "w", encoding="ascii", newline="\n") as f:
+        unread = write_fem(sin, f, omit=UNREAD_CARDS)
+    return read_fem(deck, fem_name, unread=unread)
 
 
 def export_fem_text(sin_path: str | pathlib.Path, *, super_element: SuperElementSpec | None = None) -> str:
@@ -152,10 +201,10 @@ def export_fem_text(sin_path: str | pathlib.Path, *, super_element: SuperElement
 
     from io import StringIO
 
-    sin = open_sin(sin_path, super_element=super_element)
     buf = StringIO()
-    write_fem(sin, buf)
+    with open_sin(sin_path, super_element=super_element) as sin:
+        write_fem(sin, buf)
     return buf.getvalue()
 
 
-__all__ = ["export_fem_from_sin", "export_fem_text", "write_fem", "is_result_record"]
+__all__ = ["export_fem_from_sin", "export_fem_text", "read_deck_from_sin", "write_fem", "is_result_record"]

@@ -17,6 +17,22 @@ from typing import Any
 from ada.base.units import Units
 from ada.visit.colors import Color
 
+#: adapy's schema names -> the values OCCT's ``write.step.schema`` accepts. OCCT ignores a value it
+#: does not know -- silently, keeping AP214 -- and "AP242" is not one of its names: AP242 is
+#: "AP242DIS". Shared with the pythonocc writer (``ada.occ.step.writer``), which sets the same static.
+OCCT_STEP_SCHEMAS = {"AP203": "AP203", "AP214": "AP214IS", "AP242": "AP242DIS"}
+
+
+def occt_step_schema(schema: str) -> str:
+    """The ``write.step.schema`` value for ``schema`` ("AP203" / "AP214" / "AP242", any case; an
+    OCCT name passes through). Raises ``ValueError`` for anything else rather than writing AP214."""
+    name = str(schema).strip().upper()
+    if name in OCCT_STEP_SCHEMAS:
+        return OCCT_STEP_SCHEMAS[name]
+    if name in OCCT_STEP_SCHEMAS.values() or name in ("AP214CD", "AP214DIS"):
+        return name
+    raise ValueError(f"unknown STEP schema {schema!r}; expected one of {sorted(OCCT_STEP_SCHEMAS)}")
+
 
 class AdacppStepWriter:
     # `schema` is a plain string ("AP203"/"AP214"/"AP242") rather than the
@@ -50,5 +66,5 @@ class AdacppStepWriter:
         step_file = pathlib.Path(step_file)
         step_file.parent.mkdir(parents=True, exist_ok=True)
         active_backend().write_step(
-            self._shapes, self._names, self._colors, str(step_file), self.units.value, self.schema
+            self._shapes, self._names, self._colors, str(step_file), self.units.value, occt_step_schema(self.schema)
         )

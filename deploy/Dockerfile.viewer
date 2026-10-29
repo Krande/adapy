@@ -51,7 +51,7 @@
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.34.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.35.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -261,6 +261,9 @@ COPY src/ada/core/xlsx_meta.py /app/src/ada/core/xlsx_meta.py
 # only, like the others above: it lives below both ada.comms and
 # ada.topo_model so neither has to import the other for it.
 COPY src/ada/core/engine_specs.py /app/src/ada/core/engine_specs.py
+# ada.core.takeoff_tables -- the take-off xlsx/csv writers the procedural take-off download route runs in the API
+# (stdlib + a lazy openpyxl; ada.topo_model, which builds the stats, is not shipped).
+COPY src/ada/core/takeoff_tables.py /app/src/ada/core/takeoff_tables.py
 # ada.plugins — the backend-plugin registry. Unlike the two above its absence does not crashloop
 # anything: the API imports it defensively and logs "ada.plugins discovery failed (non-fatal)". But
 # it logged that with a traceback on EVERY boot, for a module that was never shipped rather than one

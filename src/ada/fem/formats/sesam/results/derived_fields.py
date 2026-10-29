@@ -30,7 +30,7 @@ from ada.fem.formats.sesam.results.derived_values import (
     general_stress,
     membrane_principal,
     opposite_section_modulus,
-    plane_principal,
+    principal_of,
     stress_resultants,
 )
 from ada.fem.formats.sesam.results.result_catalog import presentation, semantic_name
@@ -372,16 +372,34 @@ def _lookup_cache(mesh, sif) -> dict:
     return cache
 
 
+def _shell_thickness(labels: np.ndarray, mesh, sif, cache: dict | None) -> np.ndarray:
+    """Each element's shell thickness through its geometry (NaN where either is unknown), as one lookup
+    over arrays kept in ``cache`` rather than two dict lookups per element per result case."""
+
+    def make():
+        geometry = _once(cache, "geometry", lambda: _geometry_by_element(mesh))
+        thickness_map = _once(cache, "thickness", sif.get_shell_thickness_map)
+        keys = np.fromiter(geometry.keys(), dtype=np.int64, count=len(geometry))
+        values = np.asarray([thickness_map.get(g, np.nan) for g in geometry.values()], dtype=float)
+        order = np.argsort(keys, kind="stable")
+        return keys[order], values[order], float(thickness_map.get(-1, np.nan))
+
+    keys, values, unknown = _once(cache, "thickness_by_label", make)
+    labels = np.asarray(labels, dtype=np.int64)
+    if not keys.size:
+        return np.full(labels.shape, unknown)
+    pos = np.minimum(np.searchsorted(keys, labels), keys.size - 1)
+    return np.where(keys[pos] == labels, values[pos], unknown)
+
+
 def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted, cache: dict | None = None):
     surfaces = _shell_surfaces(raw)
     if surfaces is None:
         return []
     labels, bottom, top, corner_indices, result_locations = surfaces
     nodes_by_element, normals, _ = _once(cache, "element_maps", lambda: _element_maps(mesh))
-    geometry = _once(cache, "geometry", lambda: _geometry_by_element(mesh))
-    thickness_map = _once(cache, "thickness", sif.get_shell_thickness_map)
     unit_factors = sif.get_unit_factors()
-    thickness = np.asarray([thickness_map.get(geometry.get(int(label), -1), np.nan) for label in labels])
+    thickness = _shell_thickness(labels, mesh, sif, cache)
     arrays = _shell_position_arrays(bottom, top, corner_indices)
     out: list[ElementFieldData] = []
 
@@ -423,7 +441,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted, cache: dict | N
                     "P-STRESS",
                     P_STRESS_COMPONENTS,
                     labels,
-                    plane_principal(surface_basic[..., 0], surface_basic[..., 1], surface_basic[..., 2]),
+                    principal_of(surface_basic, 0, 1, 2),
                     derived=True,
                     int_positions=surface_positions,
                     surface="selectable",
@@ -643,7 +661,7 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted, unit_factors):
                     "nodes",
                     "P-STRESS",
                     P_STRESS_COMPONENTS,
-                    plane_principal(basic[..., 0], basic[..., 1], basic[..., 2]),
+                    principal_of(basic, 0, 1, 2),
                     derived=True,
                     coordinate_system="element_local",
                     surface=surface,

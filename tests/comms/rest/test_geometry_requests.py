@@ -438,3 +438,25 @@ def test_an_export_asking_for_geometry_it_may_not_request_is_refused(monkeypatch
                 user=SimpleNamespace(is_admin=False),
             )
         )
+
+
+def test_classifying_in_a_scope_does_not_import_the_worker_formats_package():
+    """The API runs the slim image, which has no CAD stack: the preflight must not reach for the
+    worker's ``formats`` package (that was a ModuleNotFoundError, answered as a bare 500)."""
+    import subprocess
+    import sys
+
+    code = (
+        "import asyncio, sys\n"
+        "from ada.comms.rest.routes import geometry_requests as greq\n"
+        "from ada.comms.rest.scope import Scope\n"
+        "class S:\n"
+        "    async def list_prefix(self, scope, prefix):\n"
+        "        return []\n"
+        "async def main():\n"
+        "    return await greq.classify_in_scope(S(), Scope.from_prefix('projects/x'), [('c', [])])\n"
+        "print(asyncio.run(main()))\n"
+        "assert 'ada.comms.rest.formats' not in sys.modules, 'formats imported'\n"
+    )
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ})
+    assert done.returncode == 0, done.stderr[-1500:]

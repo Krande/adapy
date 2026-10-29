@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ada.fem.results import sin_native
+
 
 @dataclass
 class _RaggedRows:
@@ -78,6 +80,10 @@ class _RaggedRows:
         :func:`_records_for` would build (``[NFIELD, *data]``), without building
         them. ``None`` when a record is too short to hold the header words."""
         n_data = np.asarray(n_data, dtype=np.int64)
+        native = sin_native.kernels()
+        if native is not None and isinstance(words, np.ndarray) and words.dtype == np.float32 and value_start >= 1:
+            split = native.split_records(np.ascontiguousarray(n_data), np.ascontiguousarray(words), int(value_start))
+            return None if split is None else cls(list(header), *split)
         lengths = n_data + 1 - value_start
         if np.any(lengths < 0):
             return None

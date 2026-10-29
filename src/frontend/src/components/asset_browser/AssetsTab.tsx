@@ -62,6 +62,7 @@ import { filesApi } from "@/services/api/files";
 import { sourceNodesApi } from "@/services/api/sourceNodes";
 import { readViewDoc, writeViewDoc } from "@/services/assetView";
 import { assetProviderCollections, type AssetNodeRequest, type AssetRequestOptions } from "@/services/assetScopeCollections";
+import { beginOperation, type Operation } from "@/services/operationTracking";
 import { viewerApi } from "@/services/viewerApi";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useMeStore } from "@/state/meStore";
@@ -107,8 +108,12 @@ const ROOTS_CONTAINER_ID = "__roots__";
  *  through a standalone plugin context, and `useModelState.loadedSourceNames`
  *  for "is this already loaded". Built fresh per call rather than memoised --
  *  every field it closes over is either a stable module export or a snapshot
- *  read at call time, so there is nothing to keep in sync. */
-export function realDeliveryDeps(isLoaded: (sourceName: string) => boolean): LoadNodeDeps {
+ *  read at call time, so there is nothing to keep in sync. A load that is one step of an operation
+ *  passes its `trackJob`, so the build jobs are rows under it. */
+export function realDeliveryDeps(
+    isLoaded: (sourceName: string) => boolean,
+    trackJob?: LoadNodeDeps["trackJob"],
+): LoadNodeDeps {
     return {
         api: {
             buildAssetNode: (scope, body) => assetsApi.buildAssetNode(scope, body),
@@ -122,9 +127,11 @@ export function realDeliveryDeps(isLoaded: (sourceName: string) => boolean): Loa
         isLoaded,
         blobUrl: (scope, key) => filesApi.blobUrl(scope, key),
         blobHeaders: () => authHeader(),
-        trackJob: (opts) => {
-            makePluginContextStandalone(OWNER).trackJob(opts);
-        },
+        trackJob:
+            trackJob ??
+            ((opts) => {
+                makePluginContextStandalone(OWNER).trackJob(opts);
+            }),
     };
 }
 
@@ -385,11 +392,13 @@ interface AssetLoadControl {
      *  not in the model, and why -- the build summary's `warnings`. Empty when it drew them all. */
     notes: readonly string[];
     /** The network half of a load -- the delivery claim, and the build when it needs one -- without
-     *  touching the scene. A bulk load starts this for the next nodes while the current one loads. */
-    prepare: () => Promise<PreparedNode>;
+     *  touching the scene. A bulk load starts this for the next nodes while the current one loads.
+     *  ``op``: the operation its build job is a step of. */
+    prepare: (op?: Operation) => Promise<PreparedNode>;
     /** Resolves when the model is in the scene, or the attempt failed (its error is then in the
-     *  store). ``prepared``: a `prepare()` already under way, so it is not started twice. */
-    load: (prepared?: Promise<PreparedNode>) => Promise<void>;
+     *  store). ``prepared``: a `prepare()` already under way, so it is not started twice. ``op``:
+     *  the operation this load is a step of -- held until the model is in, failed with the load. */
+    load: (prepared?: Promise<PreparedNode>, op?: Operation) => Promise<void>;
     unload: () => void;
     reveal: () => void;
 }
@@ -436,14 +445,15 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
         const asset = loaded.find((a) => a.sourceName === sourceName);
         const loadedHere = !!asset;
         const root = loadedHere ? loadedTreeRoot(treeData, sourceName) : null;
-        const deps = () => realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name));
-        const prepare = async (): Promise<PreparedNode> => {
+        const deps = (op?: Operation) =>
+            realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name), op?.trackJob);
+        const prepare = async (op?: Operation): Promise<PreparedNode> => {
             // The claim's own provider in the path: the server then reads THAT provider's
             // manifest for the subject, not whichever provider published it last.
             const wireClaim = await assetsApi.getAssetDelivery(scope, ref.provider, ref.collection, ref.subject, {
                 revision: ref.revision,
             });
-            return prepareNode(deps(), scope, ref, parseDeliveryClaim(wireClaim));
+            return prepareNode(deps(op), scope, ref, parseDeliveryClaim(wireClaim));
         };
         out.push({
             rowId: id,
@@ -458,21 +468,34 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
             // The work lives in the store, not in the caller: a context menu closes
             // the moment its item is clicked, and the load must outlive it.
             prepare,
-            load: (prepared) => {
+            load: (prepared, given) => {
                 useAssetBrowserStore.getState().beginLoad(key);
+                // The row's label names the model in the scene; with two providers' geometry for
+                // one node side by side, the provider tells the two rows apart.
+                const facts = rowFacts(view, id);
+                const label = facts?.node.label ?? id;
+                const several = (facts?.claims ?? []).filter((b) => b.weight !== "below").length > 1;
+                const name = several ? `${label} · ${providerName(badge.provider)}` : label;
+                // A load on its own is an operation of its own: its build and its download are two
+                // jobs, and the toast follows both as one.
+                const op = given ?? beginOperation(`Loading ${name}`);
+                const release = op.hold();
                 return (async () => {
                     try {
-                        // The row's label names the model in the scene; with two providers' geometry
-                        // for one node side by side, the provider tells the two rows apart.
-                        const facts = rowFacts(view, id);
-                        const label = facts?.node.label ?? id;
-                        const several = (facts?.claims ?? []).filter((b) => b.weight !== "below").length > 1;
-                        const asset = await loadPrepared(deps(), ref, prepared ?? prepare(), several ? `${label} · ${providerName(badge.provider)}` : label);
+                        op?.stage(`loading ${name}`);
+                        const asset = await loadPrepared(deps(op), ref, prepared ?? prepare(op), name);
                         useAssetBrowserStore.getState().endLoad(key, asset);
                         requestRender();
                     } catch (e) {
                         if (e instanceof NothingToDraw) useAssetBrowserStore.getState().emptyLoad(key, e.message);
-                        else useAssetBrowserStore.getState().failLoad(key, e instanceof Error ? e.message : String(e));
+                        else {
+                            const message = e instanceof Error ? e.message : String(e);
+                            useAssetBrowserStore.getState().failLoad(key, message);
+                            op?.fail(`${name}: ${message}`);
+                        }
+                    } finally {
+                        op.stage(null);
+                        release();
                     }
                 })();
             },
@@ -495,8 +518,18 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
     useEffect(() => {
         if (!pending.size) return;
         for (const control of out) {
+            const k = loadKey(control.rowId, control.provider);
+            if (control.loaded && usePendingLoads.getState().take(k)) {
+                // Already in the scene: nothing to load, and nothing for its operation to wait for.
+                pendingOps.get(k)?.release();
+                pendingOps.delete(k);
+            }
             if (control.loaded || control.busy) continue;
-            if (usePendingLoads.getState().take(loadKey(control.rowId, control.provider))) void control.load();
+            const op = pendingOps.get(k);
+            if (usePendingLoads.getState().take(k)) {
+                pendingOps.delete(k);
+                void control.load(undefined, op?.op).finally(() => op?.release());
+            }
         }
         // `out` is rebuilt every render; what matters is the claims it carries and the pending set.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -568,6 +601,52 @@ const usePendingLoads = create<{
     },
 }));
 
+/** The operation each pending load is a step of, held while the load waits for its claim; the load
+ *  holds it itself once it starts. */
+const pendingOps = new Map<string, { op: Operation; release: () => void }>();
+
+/** How long, after its request finished, a pending load holds its operation up waiting for the
+ *  claim -- a row whose claim never comes (its model already loaded, or the publish did not cover
+ *  it) must not keep the toast up for ever. The load still starts if the claim comes later. */
+const PENDING_HOLD_MS = 30_000;
+
+/** Request-and-load as ONE operation in the toast: the request's jobs, then each load's build and
+ *  download, as rows under it. `keys` load once `run` publishes; dropped when it fails. */
+function requestThenLoad(label: string, keys: readonly string[], run: (op: Operation) => Promise<boolean>): void {
+    requestThenLoadInto(beginOperation(label), keys, run);
+}
+
+/** `requestThenLoad` as one part of a larger operation (a set's several providers). */
+function requestThenLoadInto(op: Operation, keys: readonly string[], run: (op: Operation) => Promise<boolean>): void {
+    const release = op.hold();
+    for (const k of keys) {
+        pendingOps.get(k)?.release();
+        pendingOps.set(k, { op, release: op.hold() });
+    }
+    usePendingLoads.getState().add(keys);
+    const releaseWaiting = () => {
+        for (const k of keys) {
+            const held = pendingOps.get(k);
+            if (held?.op === op) {
+                pendingOps.delete(k);
+                held.release();
+            }
+        }
+    };
+    // A failed request is reported where every request reports (its error under the detail's request
+    // controls, and the operation's); the loads it would have started are dropped with it.
+    void run(op)
+        .then((done) => {
+            if (!done) {
+                usePendingLoads.getState().drop(keys);
+                releaseWaiting();
+            } else {
+                setTimeout(releaseWaiting, PENDING_HOLD_MS);
+            }
+        })
+        .finally(release);
+}
+
 /** "Load into scene" for a provider that has published nothing at or above these rows yet, but
  *  can be asked for them quickly (`on_demand`). One per such provider. */
 interface RequestLoadControl {
@@ -602,13 +681,11 @@ function requestLoadsFor(
                         "published here so it is cached for everyone in the scope, and then loaded into the scene.",
                 );
                 if (!ok) return;
-                const keys = ids.map((id) => loadKey(id, r.provider));
-                usePendingLoads.getState().add(keys);
-                // A failed request is reported where every request reports (its error under the
-                // detail's request controls); the loads it would have started are dropped with it.
-                void r.run().then((done) => {
-                    if (!done) usePendingLoads.getState().drop(keys);
-                });
+                requestThenLoad(
+                    `Request and load ${what} · ${providerName(r.provider)}`,
+                    ids.map((id) => loadKey(id, r.provider)),
+                    (op) => r.run(op),
+                );
             },
         }));
 }
@@ -628,8 +705,9 @@ interface NodeRequestControl {
     blocked: string | null;
     /** The provider declared the request quick enough to run as part of a load (`on_demand`). */
     onDemand: boolean;
-    /** Resolves true when every batch published (or was already up to date) and the tab re-read. */
-    run: () => Promise<boolean>;
+    /** Resolves true when every batch published (or was already up to date) and the tab re-read.
+     *  ``op``: the operation the request is a step of -- its jobs are rows under it. */
+    run: (op?: Operation) => Promise<boolean>;
 }
 
 const NOTHING_TO_LOAD = "No geometry is published at or above this node yet";
@@ -664,9 +742,30 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  *  view (or frames the first model) and stays there, and the models load one at a time -- several
  *  parsed at once was the main thread held for all of them together. A single model is an
  *  ordinary load, fitted as before. */
-async function loadSelection(scope: string, collection: string, controls: readonly AssetLoadControl[]): Promise<void> {
+async function loadSelection(
+    scope: string,
+    collection: string,
+    controls: readonly AssetLoadControl[],
+    given?: Operation,
+): Promise<void> {
+    if (!controls.length) return;
+    // ONE operation in the toast (or part of the caller's): each model's build and download a row
+    // under it, the toast up from the first to the last -- one model's too, its build and its
+    // download being two jobs with a gap between.
+    const op =
+        given ??
+        beginOperation(controls.length === 1 ? `Loading ${collection}` : `Loading ${plural(controls.length, "model")} · ${collection}`);
+    const release = op.hold();
+    try {
+        await loadEach(scope, collection, controls, op);
+    } finally {
+        release();
+    }
+}
+
+async function loadEach(scope: string, collection: string, controls: readonly AssetLoadControl[], op: Operation): Promise<void> {
     if (controls.length < 2) {
-        await controls[0]?.load();
+        await controls[0]?.load(undefined, op);
         return;
     }
     const session = beginBulkLoad(scope, `assets:${collection}`);
@@ -678,7 +777,7 @@ async function loadSelection(scope: string, collection: string, controls: readon
     const prepareAhead = (from: number) => {
         for (let j = from; j < Math.min(controls.length, from + 1 + PREPARE_AHEAD); j++) {
             if (prepared.has(controls[j])) continue;
-            const p = controls[j].prepare();
+            const p = controls[j].prepare(op);
             // Settled even if nobody awaits it: its error, if any, surfaces in that node's own load.
             p.catch(() => undefined);
             prepared.set(controls[j], p);
@@ -687,7 +786,7 @@ async function loadSelection(scope: string, collection: string, controls: readon
     try {
         for (let i = 0; i < controls.length; i++) {
             prepareAhead(i);
-            await controls[i].load(prepared.get(controls[i]));
+            await controls[i].load(prepared.get(controls[i]), op);
             prepared.delete(controls[i]);
         }
     } finally {
@@ -697,7 +796,10 @@ async function loadSelection(scope: string, collection: string, controls: readon
 
 /** How to ask one provider for geometry for some rows -- `nodeRequestsFor`, narrowed to what the set
  *  load needs. `null` where the provider declares no node request. */
-type RequestMissing = (provider: string, ids: readonly string[]) => { blocked: string | null; run: () => Promise<boolean> } | null;
+type RequestMissing = (
+    provider: string,
+    ids: readonly string[],
+) => { blocked: string | null; run: (op?: Operation) => Promise<boolean> } | null;
 
 /** "Load set": every member's geometry, from the providers the member chose, as ONE bulk load.
  *
@@ -782,18 +884,18 @@ const SetLoad: React.FC<{ view: AssetView; set: TreeSet; scope: string; requestM
     const requestable = requests.filter((r) => r.request && !r.request.blocked);
     const requestableCount = requestable.reduce((n, r) => n + r.rows.length, 0);
 
-    const loadAvailable = () => void loadSelection(scope, view.collection, toLoad);
+    const loadAvailable = (op?: Operation) => void loadSelection(scope, view.collection, toLoad, op);
     const requestAndLoad = () => {
         setAsking(false);
+        // ONE operation for the whole set: every provider's request, and every load, rows under it.
+        const op = beginOperation(`Load set ${set.name}`);
+        const release = op.hold();
         for (const r of requestable) {
-            const keys = r.rows.map((row) => loadKey(row.id, r.provider));
             // Loaded by whichever `useAssetLoads` sees the claim first, once the publish lands.
-            usePendingLoads.getState().add(keys);
-            void r.request!.run().then((done) => {
-                if (!done) usePendingLoads.getState().drop(keys);
-            });
+            requestThenLoadInto(op, r.rows.map((row) => loadKey(row.id, r.provider)), (o) => r.request!.run(o));
         }
-        if (toLoad.length) loadAvailable();
+        if (toLoad.length) loadAvailable(op);
+        release();
     };
 
     return (
@@ -2051,13 +2153,13 @@ const AssetsTab: React.FC = () => {
                     note: notes.length ? (many ? `${notes.length} of ${targets.length} answered without a new publish` : notes[0]) : null,
                     blocked: req.requiresAdmin && !isAdmin ? `Only an administrator can run ${req.pluginId}` : null,
                     onDemand: !!req.onDemand,
-                    run: async () => {
+                    run: async (op) => {
                         const results = await Promise.all(
                             nodeBatches(req, targets).map((batch) => {
                                 const keys = batch.map((t) => loadKey(t.id, providerId));
                                 const patch = (p: Parameters<typeof patchNodeRequest>[1]) => keys.forEach((k) => patchNodeRequest(k, p));
                                 patch({ busy: true, stage: null, error: null, note: null });
-                                return requestNodes(requestDeps((stage) => patch({ stage })), scope, providerId, req, collection, batch)
+                                return requestNodes(requestDeps((stage) => patch({ stage }), op?.trackJob), scope, providerId, req, collection, batch)
                                     .then((out) => {
                                         // Nothing: the provider's source does not carry these nodes. Said as a
                                         // note, not an error, and false so no load waits on a publish that
@@ -2072,7 +2174,9 @@ const AssetsTab: React.FC = () => {
                                         return true;
                                     })
                                     .catch((e) => {
-                                        patch({ busy: false, stage: null, error: e instanceof Error ? e.message : String(e) });
+                                        const message = e instanceof Error ? e.message : String(e);
+                                        patch({ busy: false, stage: null, error: message });
+                                        op?.fail(message);
                                         return false;
                                     });
                             }),

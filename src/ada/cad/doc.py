@@ -41,7 +41,7 @@ class DocBackend(Protocol):
     name: str
     capabilities: frozenset[str]
 
-    def step_writer(self) -> "StepWriter": ...
+    def step_writer(self, schema: str | None = None) -> "StepWriter": ...
     def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore": ...
     def write_gltf(self, *args: Any, **kwargs: Any) -> Any: ...
 
@@ -66,10 +66,10 @@ class AdacppDocBackend:
         if not hasattr(_cad, "write_step") or not hasattr(_cad, "read_step_shapes"):
             raise ImportError("adacpp build lacks cad.write_step / read_step_shapes (upgrade ada-cpp)")
 
-    def step_writer(self) -> "StepWriter":
+    def step_writer(self, schema: str | None = None) -> "StepWriter":
         from ada.cadit.step.write.adacpp_writer import AdacppStepWriter
 
-        return AdacppStepWriter("AdaStep")
+        return AdacppStepWriter("AdaStep", schema=schema) if schema else AdacppStepWriter("AdaStep")
 
     def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore":
         from ada.cadit.step.read.adacpp_store import AdacppStepStore

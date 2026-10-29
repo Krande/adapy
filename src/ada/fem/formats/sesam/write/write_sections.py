@@ -77,7 +77,8 @@ def create_line_section(fem_sec: FemSection, sec_names: list[str], sec_ids: list
 
     sec = fem_sec.section
     if sec in sec_ids:
-        logger.info(f'Skipping already included section "{sec}"')
+        # Expected, not news: every FemSection on a profile after the first lands here.
+        logger.debug(f'Skipping already included section "{sec}"')
         return ConceptSection()
 
     sec_ids.append(sec)

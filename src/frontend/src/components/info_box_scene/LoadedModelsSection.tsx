@@ -2,6 +2,7 @@ import React, {useState} from "react";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
 import {useSceneModelNames} from "@/hooks/useSceneModelNames";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
+import {clearScene} from "@/utils/scene/handlers/clear_scene";
 import {requestRender} from "@/state/perfStore";
 import ViewIcon from "../icons/ViewIcon";
 import ViewOffIcon from "../icons/ViewOffIcon";
@@ -15,6 +16,9 @@ import ViewOffIcon from "../icons/ViewOffIcon";
 // Streaming-FEA models register their replace_model group too, so they
 // get the same toggle; the group-less fallback below only applies to a
 // source that somehow landed in loadedSourceNames without a group.
+
+/** `busyName` while Remove all runs: no source is named this. */
+const REMOVING_ALL = "\u0000all";
 
 const LoadedModelsSection: React.FC = () => {
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
@@ -50,7 +54,36 @@ const LoadedModelsSection: React.FC = () => {
         }
     };
 
+    const onRemoveAll = async () => {
+        if (busyName) return;
+        setBusyName(REMOVING_ALL);
+        try {
+            await clearScene();
+        } catch (err) {
+            console.error("remove all failed", err);
+        } finally {
+            setBusyName(null);
+        }
+    };
+
     return (
+        <>
+        {/* The storage browser's Clear, from here: every model out of the scene. */}
+        <div className="flex justify-end pb-1">
+            <button
+                type="button"
+                onClick={() => void onRemoveAll()}
+                disabled={busyName !== null}
+                aria-busy={busyName === REMOVING_ALL}
+                className={
+                    "px-2 py-0.5 rounded-sm border border-gray-700 text-xs text-gray-300 cursor-pointer " +
+                    "hover:text-red-300 hover:bg-gray-700 disabled:opacity-50"
+                }
+                title="Unload every model in the scene, and close any open procedural model"
+            >
+                {busyName === REMOVING_ALL ? "Removing…" : "Remove all"}
+            </button>
+        </div>
         <ul className="flex flex-col divide-y divide-gray-700/40 text-xs">
             {Array.from(loadedSourceNames).map((name) => {
                 const group = loadedSourceGroups.get(name);
@@ -105,6 +138,7 @@ const LoadedModelsSection: React.FC = () => {
                 );
             })}
         </ul>
+        </>
     );
 };
 

@@ -9,6 +9,8 @@ import { useSelectedObjectStore } from "@/state/useSelectedObjectStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
+import type * as THREE from "three";
+
 import type { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { recordViewerAction } from "@/utils/scene/viewerHistory";
 import { buildTreeIndices, type TreeIndices } from "@/utils/tree_view/treeGraph";
@@ -52,17 +54,46 @@ function replaceSelection(batch: readonly [CustomBatchedMesh, string][]): void {
 
 /** The tree rows behind every selected draw range, by the unique `(model key, range id)`. */
 function selectedRowIds(): Set<string> {
+  return rowIdsOf(useSelectedObjectStore.getState().selectedObjects);
+}
+
+/** The tree rows behind `(mesh, draw ranges)` pairs, by the unique `(model key, range id)`. */
+function rowIdsOf(ranges: Iterable<readonly [THREE.Object3D, Iterable<string>]>): Set<string> {
   const tv = useTreeViewStore.getState();
   const ids = new Set<string>();
-  for (const [mesh, ranges] of useSelectedObjectStore.getState().selectedObjects) {
+  for (const [mesh, rangeIds] of ranges) {
     const key: string | undefined = (mesh as any).unique_key ?? (mesh.userData ? mesh.userData["unique_hash"] : undefined);
     if (!key) continue;
-    for (const rid of ranges) {
+    for (const rid of rangeIds) {
       const row = tv.findNodeByRangeId(key, rid);
       if (row) ids.add(row.id);
     }
   }
   return ids;
+}
+
+/** Draw ranges NOT taken from the selection -- e.g. what a selection box takes -- as group members,
+ *  folded up to whole levels exactly as `captureSelection` folds a selection. */
+export function captureRanges(
+  batch: readonly (readonly [CustomBatchedMesh, string])[],
+): CapturedMembers & { readonly reason: string | null } {
+  const idx = indices();
+  if (!idx) return { members: [], skipped: [], reason: "The scene tree is not built yet." };
+  const byMesh = new Map<CustomBatchedMesh, string[]>();
+  for (const [mesh, id] of batch) {
+    const list = byMesh.get(mesh);
+    if (list) list.push(id);
+    else byMesh.set(mesh, [id]);
+  }
+  const ids = rowIdsOf(byMesh);
+  if (ids.size === 0) {
+    return { members: [], skipped: [], reason: "Nothing in the box resolves to a row in the scene tree." };
+  }
+  const captured = membersForRows(collapseSelectedRows(ids, idx), idx, useAssetBrowserStore.getState().loaded);
+  return {
+    ...captured,
+    reason: captured.members.length ? null : "Nothing in the box belongs to a model loaded from storage.",
+  };
 }
 
 /** How many draw ranges are selected -- what "Group selection…" is enabled by. */
@@ -188,6 +219,63 @@ export function selectSourceElements(refs: readonly { readonly sourceName: strin
   useObjectInfoStore.getState().setName(batch.length ? label : "");
   requestRender();
   return batch.length;
+}
+
+/** Select the elements NAMED one of `names` in every loaded model -- a system's members, related
+ *  elements -- by full name, whatever model they were loaded in; with `add`, on top of the current
+ *  selection rather than instead of it. An element with geometry of its own is selected alone; a
+ *  level without is its subtree. Returns how many draw ranges were selected. */
+export function selectNamedElements(names: ReadonlySet<string>, label: string, add = false): number {
+  const idx = indices();
+  if (!idx || names.size === 0) return 0;
+  const hits: TreeNodeData[] = [];
+  const stack: TreeNodeData[] = [...(idx.root.children ?? [])];
+  while (stack.length) {
+    const row = stack.pop()!;
+    if (names.has(row.name)) hits.push(row);
+    else for (const child of row.children ?? []) stack.push(child);
+  }
+  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
+  const batch: [CustomBatchedMesh, string][] = [];
+  // A named element that draws geometry of its own is that geometry: a deck plate is the plate,
+  // not every opening and fitting nested under it. A level that draws nothing itself (an
+  // opening, a run) is what is under it.
+  const own = hits.filter((r) => r.rangeId != null && r.node_name && r.model_key);
+  const levels = hits.filter((r) => !(r.rangeId != null && r.node_name && r.model_key));
+  for (const row of [...own, ...geometryRowsUnder(levels)]) {
+    if (row.rangeId == null || !row.node_name || !row.model_key) continue;
+    const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
+    if (mesh) batch.push([mesh, row.rangeId]);
+  }
+  if (add) {
+    if (batch.length) recordViewerAction("select", () => useSelectedObjectStore.getState().addBatchofMeshes([...batch]));
+  } else {
+    replaceSelection(batch);
+    useObjectInfoStore.getState().setName(batch.length ? label : "");
+  }
+  requestRender();
+  return batch.length;
+}
+
+/** The loaded model of `target` and its rows NAMED one of `names`, anywhere below its root -- a
+ *  selection box's members, by full name, in the model of their whole site. Null while no such
+ *  model's tree is built. */
+export function namedRowsInModel(
+  target: GroupMemberTarget,
+  names: ReadonlySet<string>,
+): { readonly root: TreeNodeData; readonly rows: TreeNodeData[] } | null {
+  const idx = indices();
+  if (!idx) return null;
+  const root = (idx.root.children ?? []).find((r) => rootMatchesTarget(r, target, useAssetBrowserStore.getState().loaded));
+  if (!root) return null;
+  const rows: TreeNodeData[] = [];
+  const stack: TreeNodeData[] = [root];
+  while (stack.length) {
+    const row = stack.pop()!;
+    if (names.has(row.name)) rows.push(row);
+    else for (const child of row.children ?? []) stack.push(child);
+  }
+  return { root, rows };
 }
 
 /** Select every member of `group` that is in the scene now, all models together. */

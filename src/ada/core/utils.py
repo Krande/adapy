@@ -122,7 +122,7 @@ def _for_log(value: str, max_len: int = 60) -> str:
 
     Names come from reader regexes, and a reader bug can hand this module a value the size of the
     input deck -- an Abaqus ``** Section:`` comment once captured 1.18M lines as a section name, and
-    the >25-characters notice below then wrote every one of them to stderr. A log record must never
+    a name-length notice then wrote every one of them to stderr. A log record must never
     be able to carry an unbounded value, whatever the caller got wrong, so bound it here too.
     """
     if len(value) <= max_len:
@@ -156,12 +156,8 @@ def make_name_fem_ready(value, no_dot=False):
 
     if no_dot:
         value = value.replace(".", "_")
-    final_name = value.strip()
-    if len(final_name) > 25:
-        logger.info(
-            f'Note FEM name "{_for_log(final_name)}" is >25 characters. This might cause issues in some FEM software'
-        )
-    return final_name
+    # The length limit is a writer's concern, reported once per write (see ada.fem.formats.general).
+    return value.strip()
 
 
 def get_version():

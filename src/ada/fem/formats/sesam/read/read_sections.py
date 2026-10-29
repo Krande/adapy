@@ -60,7 +60,7 @@ def get_sections(bulk_str, fem: FEM, elrefs: dict[int, dict]) -> FemSections:
     # Section Names
     sect_names = {sec_id: name for sec_id, name in map(get_section_names, cards.re_sectnames.finditer(bulk_str))}
     # Local Coordinate Systems
-    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.GUNIVEC.to_ff_re().finditer(bulk_str))}
+    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.re_guniv_padded.finditer(bulk_str))}
     # Hinges
     hinges = {fixno: values for fixno, values in map(get_hinges, cards.re_belfix.finditer(bulk_str))}
     # Thickness'
@@ -119,6 +119,55 @@ def section_sets(bulk_str, fem: FEM) -> list[tuple[FemSet, str]]:
     return out
 
 
+def element_transno(d: dict, n_nodes: int) -> int:
+    """A beam's TRANSNO from its GELREF1 record.
+
+    TRANSNO = -1 does not mean "none": like FIXNO and ECCNO it means "given per node", in the
+    record's trailing list, which holds the per-node FIXNOs (when FIXNO is -1), then the per-node
+    ECCNOs (when ECCNO is -1), then the per-node TRANSNOs. A beam is oriented by one vector, so
+    its first node's is taken (they agree for a straight beam).
+    """
+    transno = str_to_int(d["transno"])
+    if transno != -1:
+        return transno
+    members = [str_to_int(x) for x in (d.get("members") or "").replace("\n", " ").split()]
+    start = (n_nodes if str_to_int(d["fixno"]) == -1 else 0) + (n_nodes if str_to_int(d["eccno"]) == -1 else 0)
+    per_node = members[start : start + n_nodes]
+    return next((t for t in per_node if t > 0), -1)
+
+
+_UNRESOLVED_TRANSNO: set[int] = set()
+
+
+def _cross(a, b) -> np.ndarray:
+    """``np.cross`` for two 3-vectors, without its axis handling: called a few times per beam,
+    np.cross was a third of building a 40k-beam deck's sections."""
+    a0, a1, a2 = (float(x) for x in a)
+    b0, b1, b2 = (float(x) for x in b)
+    return np.array([a1 * b2 - a2 * b1, a2 * b0 - a0 * b2, a0 * b1 - a1 * b0])
+
+
+def _reference_z(lcsysd: dict, transno: int, xvec: np.ndarray) -> np.ndarray:
+    """The GUNIVEC vector a beam's TRANSNO names.
+
+    A TRANSNO that no GUNIVEC answers to falls back to global Z as the reference, or global Y for
+    a vertical beam, rather than refusing the whole file. (TRANSNO -1 is per-node, resolved by
+    :func:`element_transno` before this; it only reaches here when the per-node list is empty.)
+    """
+    zvec = lcsysd.get(transno)
+    if zvec is not None and np.linalg.norm(_cross(zvec, xvec)) > 1e-9:
+        return zvec
+    # A GUNIVEC parallel to the beam axis defines no orientation either (the cross product is
+    # zero); it is handled the same way instead of failing the whole read.
+    if transno not in _UNRESOLVED_TRANSNO:
+        _UNRESOLVED_TRANSNO.add(transno)
+        logger.warning(
+            f"TRANSNO {transno} gives no usable GUNIVEC for some beam (missing or parallel to its axis); "
+            "such beams get a default orientation"
+        )
+    return np.array([0.0, 1.0, 0.0]) if abs(xvec[2]) > 0.999 else np.array([0.0, 0.0, 1.0])
+
+
 class _SectionBuilder:
     """Builds the FemSections of :func:`get_sections` from the per-element GELREF1 records."""
 
@@ -131,6 +180,9 @@ class _SectionBuilder:
         self.thick = thick
         self._names: set[str] = set()
         self._set_names: set[str] = {fs.name for fs in fem.sets.sets}
+        # The last suffix handed out per base name: thousands of groups share one profile's name,
+        # and counting up from 1 for each was quadratic.
+        self._next: dict[tuple[int, str], int] = {}
 
     def key(self, elno: int, orientation: bool) -> tuple:
         """What an element's section is made of. ``orientation`` adds a beam's own y axis,
@@ -139,7 +191,7 @@ class _SectionBuilder:
         elem = self.fem.elements.from_id(elno)
         matno, geono = str_to_int(d["matno"]), str_to_int(d["geono"])
         if isinstance(elem.type, shape_def.LineShapes):
-            transno = str_to_int(d["transno"])
+            transno = element_transno(d, len(elem.nodes))
             if not orientation:
                 return ElemType.LINE, matno, geono, transno
             return ElemType.LINE, matno, geono, transno, tuple(self._local_y(elem, transno))
@@ -149,6 +201,11 @@ class _SectionBuilder:
             return ElemType.SOLID, matno
         raise ValueError(f"Section not added to conversion: element {elno} of type {elem.type}")
 
+    @staticmethod
+    def _local_x(elem: Elem) -> np.ndarray:
+        v = elem.nodes[-1].p - elem.nodes[0].p
+        return np.array([1.0, 0.0, 0.0]) if vector_length(v) == 0.0 else unit_vector(v)
+
     def _local_y(self, elem: Elem, transno: int) -> np.ndarray:
         # The beam's y axis is GUNIVEC's z crossed with the beam axis. It used to be scaled by
         # its largest component and rounded to 3 decimals, which is only a unit vector for an
@@ -156,14 +213,14 @@ class _SectionBuilder:
         n1, n2 = elem.nodes[0], elem.nodes[-1]
         v = n2.p - n1.p
         xvec = np.array([1.0, 0.0, 0.0]) if vector_length(v) == 0.0 else unit_vector(v)
-        return unit_vector(np.cross(self.lcsysd[transno], xvec))
+        return unit_vector(_cross(_reference_z(self.lcsysd, transno, xvec), xvec))
 
     def build(self, tagged: list[tuple[FemSet, str]]) -> list[FemSection]:
         sections = []
         assigned: set[int] = set()
         used_sets: set[int] = set()
         for fs, name in tagged:
-            ids = [m.id for m in fs.members]
+            ids = fs.member_ids
             if not ids or any(i not in self.elrefs or i in assigned for i in ids):
                 continue
             if len({self.key(i, orientation=False) for i in ids}) != 1:
@@ -180,7 +237,7 @@ class _SectionBuilder:
 
         exact: dict[frozenset, FemSet] = {}
         for fs in self.fem.sets.elements.values():
-            exact.setdefault(frozenset(m.id for m in fs.members), fs)
+            exact.setdefault(frozenset(fs.member_ids), fs)
 
         for ids in groups.values():
             fs = exact.get(frozenset(ids))
@@ -202,19 +259,19 @@ class _SectionBuilder:
         return f"so{ids[0]}"
 
     def _unique(self, name: str) -> str:
-        out, n = name, 0
-        while out in self._names:
-            n += 1
-            out = f"{name}_{n}"
-        self._names.add(out)
-        return out
+        return self._take(self._names, name)
 
     def _unique_set(self, name: str) -> str:
-        out, n = name, 0
-        while out in self._set_names:
+        return self._take(self._set_names, name)
+
+    def _take(self, taken: set[str], name: str) -> str:
+        """``name``, or ``name_<n>`` with the smallest free ``n`` past those already handed out."""
+        out, n = name, self._next.get((id(taken), name), 0)
+        while out in taken:
             n += 1
             out = f"{name}_{n}"
-        self._set_names.add(out)
+        self._next[(id(taken), name)] = n
+        taken.add(out)
         return out
 
     def section(self, fs: FemSet, name: str, ids: list[int]) -> FemSection:
@@ -225,13 +282,13 @@ class _SectionBuilder:
         if isinstance(elem.type, shape_def.LineShapes):
             for i in ids:
                 read_line_element(self.fem.elements.from_id(i), self.elrefs[i], self.hinges, self.ecc, self.lcsysd)
-            transno = str_to_int(d["transno"])
+            transno = element_transno(d, len(elem.nodes))
             return FemSection(
                 name=name,
                 sec_type=ElemType.LINE,
                 elset=fs,
                 section=self.fem.parent.sections.get_by_id(geono),
-                local_z=self.lcsysd[transno],
+                local_z=_reference_z(self.lcsysd, transno, np.array(self._local_x(elem))),
                 local_y=self._local_y(elem, transno),
                 material=mat,
                 parent=self.fem,
@@ -477,8 +534,8 @@ def read_line_element(elem: Elem, d: dict, hinges_global, eccentricities, lcsysd
     n1, n2 = elem.nodes[0], elem.nodes[-1]
     v = n2.p - n1.p
     xvec = [1, 0, 0] if vector_length(v) == 0.0 else unit_vector(v)
-    transno = str_to_int(d["transno"])
-    yvec = unit_vector(np.cross(lcsysd[transno], xvec))
+    transno = element_transno(d, len(elem.nodes))
+    yvec = unit_vector(_cross(_reference_z(lcsysd, transno, np.array(xvec, dtype=float)), xvec))
 
     fix_data = str_to_int(d["fixno"])
     ecc_data = str_to_int(d["eccno"])
@@ -497,7 +554,7 @@ def read_line_element(elem: Elem, d: dict, hinges_global, eccentricities, lcsysd
 
         ecc = eccentricities[ecc_data]
         end1 = EccPoint(elem.nodes[0], ecc)
-        end2 = EccPoint(elem.nodes[1], ecc)
+        end2 = EccPoint(elem.nodes[-1], ecc)
         elem.eccentricity = Eccentricity(end1, end2)
 
 
@@ -547,13 +604,23 @@ def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> No
     """Add hinge property to element from sesam FEM file"""
     from ada.fem.elements import Hinge, HingeProp
 
-    if len(elem.nodes) > 2:
-        raise ValueError("This algorithm was not designed for more than 2 noded elements")
-
+    last = len(elem.nodes) - 1
+    end1 = end2 = None
     for i, x in enumerate(members):
         if i >= len(elem.nodes):
             break
         if x == 0:
+            continue
+        if 0 < i < last:
+            # A mid node of a higher-order beam: HingeProp has an end 1 and an end 2 only.
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                "sesam reader",
+                "Hinge",
+                f"element {elem.id}",
+                "a release on the mid node of a beam with more than 2 nodes; hinges are kept at the two ends only",
+            )
             continue
         if x not in hinges_global.keys():
             raise ValueError("fixno not found!")
@@ -571,9 +638,10 @@ def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> No
         dofs = [int(x) for x, i in zip(dofs_origin, (a1, a2, a3, a4, a5, a6)) if int(i) != 0]
         end = Hinge(retained_dofs=dofs, csys=csys, fem_node=n)
         if i == 0:
-            elem.hinge_prop = HingeProp(end1=end)
+            end1 = end
         else:
-            elem.hinge_prop = HingeProp(end2=end)
+            end2 = end
+        elem.hinge_prop = HingeProp(end1=end1, end2=end2)
 
 
 def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
@@ -581,13 +649,14 @@ def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
     from ada.fem.elements import Eccentricity, EccPoint
 
     # To the interpretation here
-    start = 0 if fix_data != -1 else len(elem.nodes)
-    end = len(elem.nodes) - 1 if fix_data != -1 else 2 * len(elem.nodes)
+    # MEMBERS holds one entry per node: the releases first when the element has them
+    # (FIXNO = -1), then the eccentricities. Anything beyond is record padding.
+    n_nodes = len(elem.nodes)
+    start = 0 if fix_data != -1 else n_nodes
+    end = n_nodes - 1
     end1: Union[None, EccPoint] = None
     end2: Union[None, EccPoint] = None
-    for i, x in enumerate(members[start:]):
-        if i > end:
-            break
+    for i, x in enumerate(members[start : start + n_nodes]):
         if x == 0:
             continue
         n_offset = elem.nodes[i]

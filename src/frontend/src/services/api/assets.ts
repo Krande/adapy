@@ -58,6 +58,12 @@ export const assetsApi = {
     return jsonOrThrow<WireAssetIndex>(r, `getAssetIndex(${scope}, ${collection ?? "*"})`);
   },
 
+  /** The collection names under `assets/`, from one delimited listing on the server. */
+  async listCollections(scope: ScopeUrl): Promise<string[]> {
+    const r = await authedFetch(`${base(scope)}/collections`);
+    return (await jsonOrThrow<{ collections: string[] }>(r, `listCollections(${scope})`)).collections;
+  },
+
   /** One hierarchy slice. `root` absent = the collection index at `revision`;
    *  present = that root's subtree spine. `revision` is always passed by the tab
    *  -- it resolves revisions itself, from the index, so the server never picks.

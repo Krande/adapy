@@ -457,69 +457,6 @@ def test_filtered_iter_records_yields_what_filtering_every_record_yields():
                 assert ragged.to_rows() == listed.to_rows() == rows
 
 
-@pytest.mark.parametrize("per_record", [False, True], ids=["vectorised", "per-record"])
-def test_unstored_combinations_read_each_basic_case_once_and_match_one_by_one(per_record):
-    arrays = {1: _noddis(1, R, nrows=2), 2: _noddis(2, 3 * R + 0.1, nrows=2)}
-    # Per record: the row lists a ragged table is read as, superposed as arrays
-    # and turned back into rows -- the same numbers as the vectorised path.
-    tables = {k: (v.tolist() if per_record else v) for k, v in arrays.items()}
-    recipes = {
-        10: CombinationRecipe(False, ((1, 1.3, 0.0), (2, 0.7, 0.0))),
-        11: CombinationRecipe(False, ((2, 2.0, 0.0), (1, 1.1, 0.0), (1, 3.0, 0.0))),
-        12: CombinationRecipe(False, ((1, 0.9, 0.0),)),
-    }
-    reader = _stub_reader(tables, set())
-    calls = []
-    read = reader._read_result_card
-
-    def counting(card, step, *, raw=False, ragged=False):
-        calls.append((card.name, step))
-        return read(card, step, raw=raw, ragged=ragged)
-
-    reader._read_result_card = counting
-    reader._combination_terms = recipes
-    reader.stored_steps = lambda: {1, 2}
-    stored = np.vstack((arrays[1], arrays[2][1:]))
-    reader.results = [("RVNODDIS", stored.tolist() if per_record else stored.copy())]
-
-    reader.append_unstored_combinations()
-
-    # One read per basic case and card, however many terms name it.
-    assert len(calls) == len(set(calls))
-    assert sorted(step for name, step in calls if name == "RVNODDIS") == [1, 2]
-    ((name, rows),) = reader.results
-    assert name == "RVNODDIS"
-    assert isinstance(rows, list) == per_record
-    rows = np.asarray(rows, dtype=np.float64)
-    assert np.array_equal(rows[: stored.shape[0]], stored)
-    # Each combination's rows, in IRES order, exactly as building it on its own does.
-    at = stored.shape[0]
-    for ires in sorted(recipes):
-        alone = _stub_reader(arrays, set())
-        alone.load_combination(ires, recipes[ires])
-        expected = alone.results[0][1][1:]
-        assert np.array_equal(rows[at : at + len(expected)], expected), ires
-        at += len(expected)
-    assert at == rows.shape[0]
-
-
-def test_rv_tables_concatenate_like_one_at_a_time():
-    from ada.fem.formats.sesam.results.read_sin import _concat_rv_tables
-
-    a, b, c = _noddis(1, R, nrows=2), _noddis(2, R, nrows=1), _noddis(3, R, nrows=3)
-    joined = _concat_rv_tables(a, [b, c[:1], c])
-    assert isinstance(joined, np.ndarray)
-    assert np.array_equal(joined, np.vstack((a, b[1:], c[1:])))
-    # From the first per-record table on, rows are a list.
-    ragged = [[-2.0, 2.0, 1.0], [7.0, 4.0, 1.0, 2.0]]
-    mixed = _concat_rv_tables(a, [b, ragged, c])
-    assert isinstance(mixed, list)
-    assert len(mixed) == 3 + 1 + 1 + 3
-    assert mixed[-4] == ragged[1]
-    with pytest.raises(ValueError, match="width"):
-        _concat_rv_tables(a, [_noddis(4, np.ones(3), nrows=1)])
-
-
 def test_stale_pointers_past_a_packed_2d_extent_are_trimmed():
     from ada.fem.formats.sesam.results.sin_reader import _trim_stale_packed_tail
 

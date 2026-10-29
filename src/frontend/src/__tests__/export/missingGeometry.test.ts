@@ -9,6 +9,7 @@ import { test } from "node:test";
 import type { WireGeometryProvider } from "@/services/api/clashCheck";
 import type { AssetNodeRequest } from "@/services/assetScopeCollections";
 import {
+  missingFromPlan,
   NO_PROVIDER_GEOMETRY,
   noGeometryQuestion,
   noProviderGeometryOf,
@@ -196,4 +197,26 @@ test("Request asks the provider for exactly those nodes, with their labels, then
   assert.deepEqual(jobs[0].options.labels, ["/PIPE-1", "/AREA-2"]);
   assert.ok(out && out.published === 1 && out.failed.length === 0);
   assert.ok(notes.some((t) => t.startsWith(`Requested from ${SOLID}`)), notes.join(" | "));
+});
+
+test("a plan the provider has part of is asked about before exporting, and one it has all of is not", () => {
+  const plan = (unmatched: GroupMember[], matched: number) => ({
+    geometry_provider: SOLID,
+    matched: Array.from({ length: matched }, () => ({ from: PIPE, to: PIPE })),
+    unchanged: [],
+    unmatched: unmatched.map((m) => ({ member: m, reason: "no node of that name", label: m.element, row: null })),
+  });
+  const outcome = missingFromPlan(plan([PIPE, WHOLE], 7));
+  assert.ok(outcome);
+  assert.equal(outcome.provider, SOLID);
+  assert.deepEqual(outcome.collections, ["aaa"]);
+  assert.equal(outcome.members, 9);
+  assert.equal(outcome.present, 7);
+  assert.equal(outcome.unmatched.length, 2);
+  assert.equal(
+    noGeometryQuestion(outcome, "Solid A"),
+    "2 of 9 members have no stored geometry from Solid A. Request them before exporting?",
+  );
+  // Everything is there: nothing to ask.
+  assert.equal(missingFromPlan(plan([], 9)), null);
 });

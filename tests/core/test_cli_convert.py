@@ -19,6 +19,7 @@ import argparse
 import contextlib
 import logging
 import pathlib
+import re
 import zipfile
 
 import pytest
@@ -160,26 +161,48 @@ def test_sesam_t1_suffix_is_not_doubled(src_inp, tmp_path):
     assert _leftovers(tmp_path) == ["modelT1.FEM"]
 
 
-def test_sesam_sidecar_sestra_inp_lands_beside_the_deck(tmp_path):
-    """A model with an analysis step gets a ``sestra.inp``; it belongs next to OUT, not inside
-    a scratch folder, and its ``INAM`` prefix must match the deck's ``T1`` stem."""
+def _model_with_step():
     from ada.fem import StepImplicitStatic
 
     bm = ada.Beam("Bm", (0, 0, 0), (1, 0, 0), "IPE300")
     a = ada.Assembly("WithStep") / (ada.Part("P", fem=bm.to_fem_obj(0.1, "shell")) / bm)
     a.fem.add_step(StepImplicitStatic("static", total_time=1, max_incr=1, init_incr=1))
+    return a
 
+
+def test_a_sesam_conversion_writes_the_deck_alone_by_default(tmp_path):
+    """``sestra.inp`` is adapy's, made from the model's step -- not part of the model -- so a
+    conversion writes it only when asked (``--sestra-inp``)."""
     out = tmp_path / "runT1.FEM"
-    written = _write_fem(a, out, "sesam")
+    written = _write_fem(_model_with_step(), out, "sesam")
+    assert written == [out.resolve()]
+    assert not (tmp_path / "sestra.inp").exists()
+
+
+def test_sesam_sidecar_sestra_inp_lands_beside_the_deck(tmp_path):
+    """Asked for, a ``sestra.inp`` belongs next to OUT, not inside a scratch folder; its ``INAM``
+    prefix matches the deck's stem and its ``ITOP`` the super element written."""
+    out = tmp_path / "runT7.FEM"
+    written = _write_fem(_model_with_step(), out, "sesam", superelement=7, analysis_files=True)
 
     assert written[0] == out.resolve()
     assert out.is_file()
     sestra = tmp_path / "sestra.inp"
     assert sestra in [pathlib.Path(p) for p in written]
     assert sestra.is_file()
-    # T1 stripped, so the Sesam prefix in sestra.inp agrees with runT1.FEM on disk.
-    assert "INAM  run\n" in sestra.read_text(errors="replace")
+    text = sestra.read_text(errors="replace")
+    # T7 stripped, so the Sesam prefix in sestra.inp agrees with runT7.FEM on disk.
+    assert "INAM  run\n" in text
+    # The super element analysed: ITOP in the eigenvalue template, IDTY in the static one.
+    assert re.search(r"^(ITOP|IDTY)\s+7\.", text, re.M), text
     assert not list(tmp_path.glob(".ada-convert-*"))
+
+
+def test_sestra_inp_is_refused_for_other_output(src_inp, tmp_path):
+    args = _ns(src_inp, tmp_path / "out.inp")
+    args.sestra_inp = True
+    with pytest.raises(CliUsageError, match="--sestra-inp applies to sesam output only"):
+        _cmd_convert(args)
 
 
 def test_usfos_is_reachable_only_through_an_explicit_to_flag(src_inp, tmp_path):

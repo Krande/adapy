@@ -15,6 +15,7 @@ import { beforeEach, test } from "node:test";
 import type { SourceNodesAnswer } from "../../assets/changes";
 import { levelKey } from "../../assets/spines";
 import type { WireAssetIndex, WireHierarchySlice } from "../../assets/types";
+import type { AssetTreeCache, CachedAssetTree } from "../../state/assetBrowserCache";
 import { useAssetBrowserStore } from "../../state/assetBrowserStore";
 import { createAssetBrowserLoader, type AssetsApiLike, type SourceNodesApiLike } from "../../state/assetBrowserLoader";
 
@@ -440,4 +441,91 @@ test("the geometry roll-up is read with the index, re-read on refresh, and optio
   assert.equal(s.geometryRollup, null);
   assert.equal(s.indexError, null);
   assert.ok(s.forest.nodes.has("area-1"));
+});
+
+/** An in-memory cache, as the tab's browser-storage one behaves. */
+function memoryCache(seed?: CachedAssetTree) {
+  const entries = new Map<string, string>();
+  if (seed) entries.set(SCOPE, JSON.stringify(seed));
+  const cache: AssetTreeCache = {
+    read: (scope) => (entries.has(scope) ? (JSON.parse(entries.get(scope)!) as CachedAssetTree) : null),
+    write: (scope, collections, collection, indexJson) =>
+      entries.set(scope, `{"collections":${JSON.stringify(collections)},"collection":${JSON.stringify(collection)},"index":${indexJson}}`),
+    forget: (scope) => entries.delete(scope),
+  };
+  return { cache, entries };
+}
+
+test("collection names come from the names route, and a known collection needs no unscoped index", async () => {
+  const { api, calls } = makeApi();
+  const named: AssetsApiLike = { ...api, listCollections: async () => (calls.push("names"), ["plant-a", "old-b"]) };
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, named);
+  await loader.loadCollections(SCOPE);
+  assert.equal(useAssetBrowserStore.getState().collection, "plant-a", "first open still picks by newest publish");
+  assert.ok(calls.includes("index:*"));
+  calls.length = 0;
+  await loader.refresh(SCOPE);
+  assert.ok(calls.includes("names"));
+  assert.ok(!calls.includes("index:*"), "a refresh reads names only");
+});
+
+test("the cached tree is drawn before any read, then revalidated and rewritten", async () => {
+  const { api, calls } = makeApi();
+  const seeded = await api.getAssetIndex(SCOPE, "plant-a");
+  calls.length = 0;
+  const { cache, entries } = memoryCache({ collections: ["old-b", "plant-a"], collection: "plant-a", index: seeded });
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  const slow: AssetsApiLike = {
+    ...api,
+    listCollections: async () => {
+      await held;
+      return ["old-b", "plant-a"];
+    },
+  };
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, slow, undefined, cache);
+  const pending = loader.loadCollections(SCOPE);
+  const drawn = useAssetBrowserStore.getState();
+  assert.deepEqual(drawn.collections, ["old-b", "plant-a"]);
+  assert.equal(drawn.collection, "plant-a");
+  assert.ok(drawn.index, "the index is there before the server answered");
+  release();
+  await pending;
+  assert.ok(!calls.includes("index:*"), "the remembered collection needs no unscoped index");
+  assert.ok(calls.includes("index:plant-a"), "revalidated");
+  assert.ok(useAssetBrowserStore.getState().forest.nodes.has("area-2"));
+  assert.ok(entries.has(SCOPE));
+});
+
+test("a cached index that changed is replaced, and the tops rebuilt from the new one", async () => {
+  const { api } = makeApi();
+  const stale: WireAssetIndex = {
+    collections: { "plant-a": [{ subject: "plant-a", revisions: [rev(R1, ["asset.json", "hierarchy.json"])] }] },
+    malformed: [],
+  };
+  const { cache, entries } = memoryCache({ collections: ["plant-a"], collection: "plant-a", index: stale });
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, { ...api, listCollections: async () => ["old-b", "plant-a"] }, undefined, cache);
+  await loader.loadCollections(SCOPE);
+  const s = useAssetBrowserStore.getState();
+  assert.deepEqual(s.collections, ["old-b", "plant-a"]);
+  assert.deepEqual(s.mergedIndexRevisions, [R1, R2]);
+  assert.equal(s.forest.nodes.get("area-1")?.label, "Area One");
+  assert.ok(JSON.parse(entries.get(SCOPE)!).index.collections["plant-a"].length === 2, "the cache holds the new index");
+});
+
+test("a failed revalidation takes the cached tree down and forgets it", async () => {
+  const { api } = makeApi();
+  const seeded = await api.getAssetIndex(SCOPE, "plant-a");
+  const { cache, entries } = memoryCache({ collections: ["plant-a"], collection: "plant-a", index: seeded });
+  const denied: AssetsApiLike = {
+    ...api,
+    listCollections: async () => {
+      throw new Error("403 Forbidden");
+    },
+  };
+  await createAssetBrowserLoader(useAssetBrowserStore, denied, undefined, cache).loadCollections(SCOPE);
+  const s = useAssetBrowserStore.getState();
+  assert.equal(s.index, null);
+  assert.equal(s.indexError, "403 Forbidden");
+  assert.ok(!entries.has(SCOPE));
 });

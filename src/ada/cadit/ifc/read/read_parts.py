@@ -10,7 +10,12 @@ from ada.base.ifc_types import SpatialTypes
 from ada.cadit.ifc.store import IfcStore
 from ada.config import logger
 
-from .reader_utils import get_ifc_property_sets, get_parent, resolve_name
+from .reader_utils import (
+    get_ifc_property_sets,
+    get_parent,
+    is_implicit_building,
+    resolve_name,
+)
 
 
 def valid_spatial_classes(product: ifcopenshell.entity_instance):
@@ -42,6 +47,8 @@ class PartImporter:
 
     def load_hierarchies(self) -> None:
         for product in filter(valid_spatial_classes, self.ifc_store.f.by_type("IfcProduct")):
+            if is_implicit_building(product):
+                continue
             class_type = SpatialTypes.from_str(product.is_a())
             if class_type == SpatialTypes.IfcSite:
                 self.update_assembly(product)

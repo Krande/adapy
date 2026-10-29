@@ -689,6 +689,160 @@ async def test_a_name_search_finds_nodes_by_full_name_and_ref(pg):
 @needs_postgres
 @pytest.mark.asyncio
 @with_pg
+async def test_one_nodes_attributes_by_id_or_name(pg):
+    """``node_attributes``: by node id or exact full name, in one (provider, collection); a missing
+    node or partition is an answer, a name naming two nodes is ``ambiguous``."""
+    nodes = _nodes("alpha", 6, seed=8)
+    nodes.append({"node_id": "dup", "parent_id": None, "full_name": "/alpha", "depth": 1, "attrs": {"X": 1}})
+    await _ingest(pg, "Alpha", nodes)
+
+    async def look(**kw):
+        return await ai.node_attributes(pg.pool, scope=pg.scope, provider=pg.provider, **kw)
+
+    by_id = await look(collection="ALPHA", node_id="alpha-n00002")
+    assert by_id["indexed"] and not by_id["ambiguous"]
+    node = by_id["node"]
+    assert node["full_name"] == "/alpha/alpha-z2/N2" and node["collection"] == "alpha" and node["revision"] == "r1"
+    assert node["attrs"]["WEIGHT"] == 2 and "SECRET" not in node["attrs"] and "path" not in node
+    by_name = await look(collection="alpha", full_name="/alpha/alpha-z2/N2")
+    assert by_name["node"]["node_id"] == "alpha-n00002"
+    assert await look(collection="alpha", full_name="/ALPHA/alpha-z2/N2") == {
+        "indexed": True, "node": None, "ambiguous": False
+    }  # fmt: skip
+    assert await look(collection="alpha", full_name="/alpha") == {"indexed": True, "node": None, "ambiguous": True}
+    assert await look(collection="beta", node_id="alpha-n00002") == {"indexed": False, "node": None, "ambiguous": False}
+    with pytest.raises(ValueError):
+        await look(collection="alpha")
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_many_nodes_attributes_in_one_lookup(pg):
+    """``nodes_attributes``: ids and full names at once, ``attrs`` cut to ``keys``, the distinct
+    ancestors returned once beside the hits, and a missing node or collection is an empty answer."""
+    await _ingest(pg, "Alpha", _nodes("alpha", 8, seed=3))
+
+    async def look(**kw):
+        return await ai.nodes_attributes(pg.pool, scope=pg.scope, collection="alpha", **kw)
+
+    res = await look(
+        node_ids=["alpha-n00001", "nope"],
+        full_names=["/alpha/alpha-z2/N2", "/alpha/alpha-z1/N5"],
+        keys=["TYPE"],
+        ancestors=2,
+    )
+    assert res["indexed"]
+    got = {n["node_id"]: n for n in res["nodes"]}
+    assert set(got) == {"alpha-n00001", "alpha-n00002", "alpha-n00005"}
+    assert all(set(n["attrs"]) <= {"TYPE"} and n["attrs"] for n in got.values())
+    assert got["alpha-n00002"]["provider"] == pg.provider
+    # The zones above the hits and the site above them, once each.
+    assert set(res["ancestors"]) == {"alpha-z1", "alpha-z2", "alpha-site"}
+    assert res["ancestors"]["alpha-z1"]["attrs"] == {}, "keys apply to ancestors too"
+    assert set((await look(node_ids=["alpha-n00001"], ancestors=1))["ancestors"]) == {"alpha-z1"}
+    assert (await look(node_ids=["alpha-n00001"]))["nodes"][0]["attrs"]["WEIGHT"] == 1, "no keys: every attribute"
+    assert await look() == {"indexed": True, "nodes": [], "ancestors": {}}
+    assert (await ai.nodes_attributes(pg.pool, scope=pg.scope, collection="beta", node_ids=["x"]))["indexed"] is False
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_nodes_attributes_merges_one_collection_across_providers(pg):
+    """Two providers index one collection under the same node ids: a node only the second has is
+    answered from it, with its chain; a node both have is one row, the more complete leading."""
+    await _ingest(pg, "alpha", _nodes("alpha", 4, seed=5))
+    second = f"{pg.provider}b"
+    extra = [
+        {"node_id": "alpha-n00001", "parent_id": "alpha-z1", "full_name": "/alpha/alpha-z1/N1", "depth": 3,
+         "attrs": {"TYPE": "OTHER", "SPEC": "/CAT/X"}},
+        {"node_id": "alpha-only", "parent_id": "alpha-z2", "full_name": "/alpha/alpha-z2/ONLY", "kind": "ELEM",
+         "depth": 3, "attrs": {"TYPE": "ELEM", "SPEC": "/CAT/Y"}},
+        {"node_id": "alpha-z2", "parent_id": "alpha-site", "full_name": "/alpha/alpha-z2", "kind": "ZONE",
+         "depth": 2, "attrs": {"PURP": "AREA"}},
+    ]  # fmt: skip
+    await ai.ingest_attribute_index(
+        pg.pool, scope=pg.scope, provider=second, chunks=_chunks(_index_bytes(second, "alpha", extra)), batch_rows=500
+    )
+
+    res = await ai.nodes_attributes(
+        pg.pool, scope=pg.scope, collection="alpha", node_ids=["alpha-n00001", "alpha-n00002"],
+        full_names=["/alpha/alpha-z2/ONLY"], ancestors=1,
+    )  # fmt: skip
+    got = {n["node_id"]: n for n in res["nodes"]}
+    assert len(res["nodes"]) == 3 and got["alpha-n00002"]["providers"] == [pg.provider]
+    both = got["alpha-n00001"]
+    assert both["provider"] == pg.provider and both["providers"] == [pg.provider, second]
+    assert both["attrs"]["TYPE"] != "OTHER", "the more complete row wins a key both have"
+    assert both["attrs"]["SPEC"] == "/CAT/X", "the other adds the keys it lacks"
+    only = got["alpha-only"]
+    assert only["provider"] == second and only["attrs"]["SPEC"] == "/CAT/Y"
+    assert res["ancestors"]["alpha-z2"]["attrs"] == {"OWNER": "TEAM", "PURP": "AREA"}
+    assert set(res["ancestors"]["alpha-z2"]["providers"]) == {pg.provider, second}
+
+    narrowed = await ai.nodes_attributes(
+        pg.pool, scope=pg.scope, collection="alpha", node_ids=["alpha-n00001"], keys=["TYPE"]
+    )
+    assert narrowed["nodes"][0]["provider"] == pg.provider, "the leader does not depend on the keys asked for"
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_the_workers_pool_lookup_answers_a_thread_in_one_call(pg):
+    import asyncio
+
+    from ada.comms.rest.worker.attribute_lookup import attribute_lookup_for
+
+    await _ingest(pg, "alpha", _nodes("alpha", 4, seed=1))
+    loop = asyncio.get_running_loop()
+    lookup = attribute_lookup_for(pg.pool, Scope.from_prefix(pg.scope), loop)
+    answer = await loop.run_in_executor(
+        None, lambda: lookup.lookup("alpha", full_names=["/alpha/alpha-z2/N2"], keys=["TYPE"], ancestors=2)
+    )
+    (node,) = answer.nodes.values()
+    assert [a.node_id for a in answer.chain(node)] == ["alpha-z2", "alpha-site"]
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
+async def test_the_nodes_route_answers_one_batch_and_refuses_an_oversized_one(pg):
+    from fastapi import HTTPException
+
+    from ada.comms.rest.routes import attribute_search as route
+
+    await _ingest(pg, "alpha", _nodes("alpha", 4, seed=1))
+
+    def request(body):
+        async def json():
+            return body
+
+        return SimpleNamespace(json=json, app=SimpleNamespace(state=SimpleNamespace(db_pool=pg.pool)))
+
+    async def call(body):
+        return await route.api_asset_search_nodes(
+            request(body), scope_obj=Scope.from_prefix(pg.scope), user=SimpleNamespace(sub="u", is_admin=False)
+        )
+
+    body = {"collection": "alpha", "node_ids": ["alpha-n00001"], "keys": ["TYPE"], "ancestors": 1}
+    res = json.loads((await call(body)).body)
+    assert [n["node_id"] for n in res["nodes"]] == ["alpha-n00001"] and set(res["ancestors"]) == {"alpha-z1"}
+    for bad in (
+        {"node_ids": ["x"]},
+        {"collection": "alpha", "node_ids": "x"},
+        {"collection": "alpha", "ancestors": -1},
+        {"collection": "alpha", "node_ids": [str(i) for i in range(ai.NODES_LOOKUP_MAX + 1)]},
+    ):
+        with pytest.raises(HTTPException) as err:
+            await call(bad)
+        assert err.value.status_code == 400, bad
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
 async def test_attributes_only_publish_ingests_and_clears_its_staging(pg, no_audit):
     key = f"assets/_staging/s2/{ai.ATTRIBUTE_INDEX_ROLE}"
     nodes = _nodes("gamma", 50)

@@ -49,7 +49,15 @@ const EXPIRY_SKEW_MS = 30_000;
 let discovery: DiscoveryDoc | null = null;
 let accessToken: string | null = null;
 let accessTokenExpiry = 0;
-let refreshToken: string | null = sessionStorage.getItem(STORAGE_REFRESH);
+// Read at import, so guarded: anything importing the API client imports this, including code that
+// runs with no DOM storage (unit tests, a worker).
+let refreshToken: string | null = (() => {
+    try {
+        return typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(STORAGE_REFRESH);
+    } catch {
+        return null;
+    }
+})();
 let userClaims: Record<string, unknown> | null = null;
 
 // One inflight refresh. If many fetches hit a 401 simultaneously we

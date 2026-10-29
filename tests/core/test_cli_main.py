@@ -184,6 +184,9 @@ def test_convert_namespace_attribute_names():
         ("model.FEM", "sesam", "sesam"),
         ("MODEL.INP", "abaqus", "abaqus"),
         ("model.sif", "sesam", None),
+        # A results interface file carries the input deck, so it reads as a Sesam model.
+        ("model.sin", "sesam", None),
+        ("MODEL.SIN", "sesam", None),
         ("model.med", "code_aster", "code_aster"),
         ("model.rmed", "code_aster", None),
         ("model.ifc", "ifc", "ifc"),
@@ -203,6 +206,19 @@ def test_infer_defaults(path, read_fmt, write_fmt):
     ``None`` is what makes the "pass --to" error possible rather than a wrong guess."""
     assert infer_read_format(path) == read_fmt
     assert infer_write_format(path) == write_fmt
+
+
+def test_sin_input_is_accepted_without_and_with_from():
+    """A Sesam results interface file converts like a .FEM: its extension infers ``sesam`` and
+    ``--from sesam`` accepts it, in any case."""
+    parser = ada_cli.main._build_parser()
+    args = parser.parse_args(["convert", "model.SIN", "out.FEM", "--from", "sesam"])
+    assert args.from_format == "sesam"
+
+    from ada.api.cli import _resolve_read_format
+
+    assert _resolve_read_format("model.SIN", None) == "sesam"
+    assert _resolve_read_format("model.sin", "sesam") == "sesam"
 
 
 def test_minority_dialects_are_flag_only():
@@ -415,6 +431,20 @@ def test_without_log_file_the_console_still_gets_everything(tmp_path, example_fi
     assert proc.returncode == 0, proc.stderr
     assert "INFO/ada" in proc.stderr, f"INFO records stopped reaching the console:\n{proc.stderr[:500]}"
     assert not list(tmp_path.glob("*.log"))
+
+
+def test_a_bare_log_file_logs_beside_the_output(tmp_path, example_files):
+    """``--log-file`` without a path: ``<OUT stem>.log`` next to OUT, the console keeping only
+    warnings."""
+    src = example_files / "fem_files" / "abaqus" / "box.inp"
+    out = tmp_path / "sub" / "box.FEM"
+
+    proc = _run_convert(src, out, tmp_path, "--log-file")
+
+    assert proc.returncode == 0, proc.stderr
+    log = tmp_path / "sub" / "box.log"
+    assert log.is_file() and "INFO/ada" in log.read_text(encoding="utf-8")
+    assert "INFO/ada" not in proc.stderr, f"INFO records still reach the console:\n{proc.stderr[:500]}"
 
 
 # --------------------------------------------------------------------------------------

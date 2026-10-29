@@ -743,8 +743,8 @@ def test_sin_registered_in_stream_readers():
 
 def test_sin_too_large_to_materialise_is_streamed_unless_told_otherwise(monkeypatch):
     """A deck whose result tables would not fit in memory whole takes the
-    per-step streaming reader by default; ADA_FEA_SIN_STREAMER still forces
-    either reader."""
+    per-step streaming reader when the field cache is off; ADA_FEA_SIN_STREAMER
+    still forces either reader."""
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
     from ada.fem.formats.sesam.results.sin_reader import open_sin
     from ada.fem.results.artefacts import (
@@ -753,6 +753,7 @@ def test_sin_too_large_to_materialise_is_streamed_unless_told_otherwise(monkeypa
         readers,
     )
 
+    monkeypatch.setenv("ADA_FEA_SIN_FIELD_CACHE", "off")
     with open_sin(str(SIN_PATH)) as sin:
         rows = sum(int(np.count_nonzero(b.pointer_table)) for n, b in sin.type_blocks.items() if n.startswith("RV"))
     assert rows > 0

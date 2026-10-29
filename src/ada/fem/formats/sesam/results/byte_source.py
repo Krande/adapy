@@ -84,6 +84,7 @@ class MmapSource:
         # mmap this is zero-copy and faults pages on access; the gather
         # then touches only the pages the indices land in.
         self._as_f32: np.ndarray | None = None
+        self._as_u8: np.ndarray | None = None
 
     def size(self) -> int:
         return self._size
@@ -111,6 +112,12 @@ class MmapSource:
         if self._as_f32 is None:
             self._as_f32 = np.frombuffer(self._buf, dtype=np.float32)
         return self._as_f32[word_idx]
+
+    def u8_view(self) -> np.ndarray:
+        """The whole buffer as a zero-copy uint8 array (what adacpp's SIN loops read)."""
+        if self._as_u8 is None:
+            self._as_u8 = np.frombuffer(self._buf, dtype=np.uint8)
+        return self._as_u8
 
     def release(self, lo: int, hi: int) -> None:
         """``MADV_DONTNEED`` the page-aligned span [lo, hi) so its mmap
@@ -142,13 +149,15 @@ class MmapSource:
 
     def close(self) -> None:
         buf = self._buf
+        # The cached views export the mapping; an mmap with a live export refuses to close.
+        self._as_f32 = None
+        self._as_u8 = None
         if isinstance(buf, mmap.mmap):
             try:
                 buf.close()
             except (ValueError, BufferError):
                 pass
         self._buf = b""
-        self._as_f32 = None
 
 
 class FileRangeSource:

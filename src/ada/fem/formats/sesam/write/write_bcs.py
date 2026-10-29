@@ -63,6 +63,10 @@ DTYPE_DISPLACEMENT = 1
 #: ``to_fem(..., metadata={RETAINED_KEY: {"<nset name>": [1, 2, 3, 4, 5, 6]}})``
 RETAINED_KEY = "sesam_retained_dofs"
 
+#: ``FEM.metadata`` key the reader fills with ``{node id: (dof, ...)}`` for the nodes it found with
+#: FIX code 4 on some dofs only, so the convention below retains exactly those dofs on the way back out.
+RETAINED_BY_NODE_KEY = "sesam_retained_dofs_by_node"
+
 #: Reserved node set name. A node set of this name (matched case-insensitively, like
 #: every other set name here) is retained on all six DOFs when no :data:`RETAINED_KEY`
 #: metadata is given, so a bare INP -> FEM conversion needs no extra argument.
@@ -142,7 +146,13 @@ def retained_dofs_from_convention(fems: Sequence[FEM], ndofs=None) -> dict[int, 
             len(fem_set.members),
             RETAINED_KEY,
         )
-        return {mem.id: _dofs_the_node_has(mem.id, ndofs) for mem in fem_set.members}
+        # A node the reader found retained on some dofs only keeps exactly those: the other dofs
+        # of such a node may be fixed, and retaining them too would be a contradiction.
+        exact = fem.metadata.get(RETAINED_BY_NODE_KEY) or {}
+        return {
+            mem.id: tuple(exact[mem.id]) if mem.id in exact else _dofs_the_node_has(mem.id, ndofs)
+            for mem in fem_set.members
+        }
 
     for fem in fems:
         if fem is None:
