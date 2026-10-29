@@ -1,6 +1,7 @@
 // "Request the geometry first?" for a selection export that failed because the geometry provider has
 // published NOTHING in the members' collection(s) -- the ordinary state of a collection a tree-only
-// provider published and a provider that publishes objects has not been asked about yet.
+// provider published and a provider that publishes objects has not been asked about yet -- and,
+// asked BEFORE exporting from the provider's plan (`missingFromPlan`), for one it has only part of.
 //
 // THE SERVER SAYS SO AS DATA. Such a failed group export leaves its `.log.json` beside the file it
 // did not write, with `error: {code: "no_provider_geometry", message, geometry_provider, collections,
@@ -25,9 +26,39 @@ export interface NoProviderGeometry {
   /** The geometry provider the export read from. */
   readonly provider: string;
   readonly collections: readonly string[];
-  /** How many members were left out (all of them). */
+  /** How many members the export has (for a failed export: all of them were left out). */
   readonly members: number;
   readonly unmatched: readonly UnmatchedMember[];
+  /** Members the provider DOES have, when the outcome was read from a plan before exporting
+   *  (`missingFromPlan`); absent for a failed export, which had none. */
+  readonly present?: number;
+}
+
+/** What a geometry plan says the provider lacks, asked BEFORE exporting: an outcome when any member
+ *  would be left out, null when none would. */
+export function missingFromPlan(plan: {
+  readonly geometry_provider: string;
+  readonly matched: readonly unknown[];
+  readonly unchanged: readonly unknown[];
+  readonly unmatched: readonly { readonly member: unknown; readonly reason?: string; readonly label?: string | null; readonly row?: string | null }[];
+}): NoProviderGeometry | null {
+  if (plan.unmatched.length === 0) return null;
+  const collections = new Set<string>();
+  for (const u of plan.unmatched) {
+    const t = isRecord(u.member) && isRecord(u.member.target) ? u.member.target : null;
+    if (t && typeof t.collection === "string" && t.collection) collections.add(t.collection);
+  }
+  if (collections.size === 0) return null;
+  const present = plan.matched.length + plan.unchanged.length;
+  const members = present + plan.unmatched.length;
+  return {
+    message: `${plan.unmatched.length} of ${members} member${members === 1 ? "" : "s"} have no stored geometry from ${plan.geometry_provider}`,
+    provider: plan.geometry_provider,
+    collections: [...collections],
+    members,
+    present,
+    unmatched: plan.unmatched.map((u) => ({ member: u.member, reason: u.reason, label: u.label ?? null, row: u.row ?? null })),
+  };
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -123,8 +154,14 @@ export function requestProviderChoices(args: {
   );
 }
 
-/** "No stored geometry for <collection> from <provider>. Request it now?" */
+/** "No stored geometry for <collection> from <provider>. Request it now?" -- or, when the provider has
+ *  some of the members, "<n> of <m> members have no stored geometry from <provider>. Request them
+ *  before exporting?" */
 export function noGeometryQuestion(outcome: NoProviderGeometry, providerLabel: string): string {
+  if (outcome.present) {
+    const n = outcome.unmatched.length;
+    return `${n} of ${outcome.members} member${outcome.members === 1 ? "" : "s"} have no stored geometry from ${providerLabel}. Request ${n === 1 ? "it" : "them"} before exporting?`;
+  }
   const c = outcome.collections;
   const where = c.length === 1 ? c[0] : `${c.slice(0, -1).join(", ")} and ${c[c.length - 1]}`;
   return `No stored geometry for ${where} from ${providerLabel}. Request it now?`;

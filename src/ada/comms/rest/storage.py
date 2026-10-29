@@ -316,6 +316,14 @@ class Storage:
         rather than a walk of the whole scope."""
         return await self._list_under(scope, self._full_key(scope, prefix))
 
+    async def list_child_names(self, scope: Scope, prefix: str) -> list[str]:
+        """The names one level below a scope-relative ``prefix``, from one delimited listing:
+        the cost is a response, not an enumeration of everything under it."""
+        full = self._full_key(scope, prefix.rstrip("/"))
+        root = await obs.list_with_delimiter_async(self._store, prefix=full or None)
+        names = (str(cp).rstrip("/").rsplit("/", 1)[-1] for cp in root["common_prefixes"])
+        return sorted(n for n in names if n)
+
     async def _list_under(self, scope: Scope, prefix: str) -> list[FileEntry]:
         # obs.list returns a ListStream of pages; each page is a Sequence
         # of ObjectMeta dicts with keys "path", "size", "last_modified",

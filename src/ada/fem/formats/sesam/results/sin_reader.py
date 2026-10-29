@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import IO, Any, Iterator, Union
 
 from ada.fem.formats.sesam.results.byte_source import ByteSource, MmapSource
+from ada.fem.results import sin_native
 
 PREAMBLE = 0x803
 NAME_LEN = 8
@@ -53,6 +54,7 @@ _MAX_RECORD_BYTES = 4096
 
 
 _SCAN_WINDOW = 64 * 1024 * 1024  # 64 MiB per find() chunk
+_RECORD_CHUNK = 1 << 16  # records decoded per native call in iter_records
 
 
 def _validate_first_record(data: Any, block: "TypeBlock") -> bool:
@@ -133,6 +135,9 @@ def _first_invalid(source: ByteSource, ptrs: Any, file_end: int) -> int:
     """
     import numpy as np
 
+    buf = sin_native.buffer(source)
+    if buf is not None:
+        return int(sin_native.kernels().first_invalid(buf, sin_native.int64s(ptrs)))
     total = int(ptrs.size)
     if total == 0:
         return 0
@@ -184,6 +189,9 @@ def _read_pointer_table(source: ByteSource, offset: int, max_slots: int) -> Any:
     """
     import numpy as np
 
+    buf = sin_native.buffer(source)
+    if buf is not None:
+        return sin_native.kernels().read_pointer_table(buf, int(offset), int(max_slots))
     file_end = source.size()
     avail = max(0, (file_end - offset) // SLOT_STRIDE)
     max_slots = min(max_slots, avail)
@@ -775,6 +783,120 @@ def _prefilter_pointers(source: ByteSource, pointers: Any, file_end: int, where_
 
 
 @dataclass
+class _CaseIndex:
+    """A block's records grouped by first data word, built in one pass over the block.
+
+    ``pointers[starts[w]:ends[w]]`` are the pointers, in table order, of the records whose
+    first data word lies in the file and equals ``w``. ``nfield`` is the NFIELD every record
+    shares, or None when the table is ragged.
+    """
+
+    pointers: Any
+    spans: dict[int, tuple[int, int]]
+    nfield: float | None
+    #: The smallest in-file pointer of the block, None when it has none.
+    min_pointer: int | None
+
+    @classmethod
+    def build(cls, source: ByteSource, pointer_table: Any) -> "_CaseIndex":
+        import numpy as np
+
+        file_end = source.size()
+        ptrs = np.asarray(pointer_table, dtype=np.int64)
+        nz = ptrs[(ptrs >= 1) & (ptrs <= file_end // 4)]
+        if nz.size == 0:
+            return cls(nz, {}, None, None)
+        nfields = source.gather_f32(nz - 1)
+        nfield = float(nfields[0]) if np.all(nfields == nfields[0]) else None
+        del nfields
+        testable = nz[nz * 4 + 4 <= file_end]
+        first = source.gather_f32(testable).astype(np.int64)
+        order = np.argsort(first, kind="stable")
+        keys, starts, counts = np.unique(first[order], return_index=True, return_counts=True)
+        spans = {int(k): (int(s), int(s + c)) for k, s, c in zip(keys, starts, counts)}
+        pointers = testable[order]
+        if pointers.size and int(pointers.max()) <= np.iinfo(np.int32).max:
+            pointers = pointers.astype(np.int32)  # half the memory; widened again per case
+        return cls(pointers, spans, nfield, int(nz.min()))
+
+    def case(self, word: int) -> Any:
+        import numpy as np
+
+        start, end = self.spans.get(int(word), (0, 0))
+        return self.pointers[start:end].astype(np.int64)
+
+
+class _NativeCaseIndex:
+    """:class:`_CaseIndex` held by adacpp (``CaseIndex``), which also does the per-case gather."""
+
+    def __init__(self, index: Any) -> None:
+        self._index = index
+        self.nfield: float | None = index.nfield
+        self.min_pointer: int | None = index.min_pointer
+
+    def case(self, word: int) -> Any:
+        return self._index.pointers(int(word))
+
+    def gather(self, buf: Any, word: int) -> Any:
+        return self._index.gather(buf, int(word))
+
+
+def _gather_case(source: ByteSource, index: "_CaseIndex | _NativeCaseIndex", word: int):
+    """:meth:`SinFile.gather_records` with ``where_first_word=word``, from ``index``."""
+    import numpy as np
+
+    if isinstance(index, _NativeCaseIndex):
+        buf = sin_native.buffer(source)
+        if buf is not None:
+            return index.gather(buf, word)
+    file_end = source.size()
+    empty = np.empty((0, 0), dtype=np.float64)
+    if index.min_pointer is None:
+        return empty
+    sel = index.case(word)
+    if index.nfield is None:
+        if sel.size == 0:
+            return None
+        nfields = source.gather_f32(sel - 1)
+        if not np.all(nfields == nfields[0]):
+            return None
+        nfield = int(nfields[0])
+    else:
+        nfield = int(index.nfield)
+    n_data = nfield - 1
+    if n_data <= 0:
+        return empty
+    in_file = sel * 4 + n_data * 4 <= file_end
+    # The full table's test: no record of the block holds its data words in the file.
+    any_in_file = index.min_pointer * 4 + n_data * 4 <= file_end if index.nfield is not None else in_file.any()
+    if not any_in_file:
+        return empty
+    sel = sel[in_file]
+    if sel.size == 0:
+        return np.empty((0, nfield), dtype=np.float64)
+    word_idx = (sel[:, None] + np.arange(n_data, dtype=np.int64)[None, :]).ravel()
+    out = np.empty((sel.size, nfield), dtype=np.float64)
+    out[:, 0] = float(nfield)
+    out[:, 1:] = source.gather_f32(word_idx).reshape(sel.size, n_data)
+    return out
+
+
+def _case_index(sin: Any, block: "TypeBlock") -> "_CaseIndex | _NativeCaseIndex | None":
+    """``block``'s :class:`_CaseIndex` when ``sin`` keeps one (``index_cases``), else None."""
+    if not getattr(sin, "index_cases", False):
+        return None
+    index = getattr(block, "_case_index", None)
+    if index is None:
+        buf = sin_native.buffer(sin.source)
+        if buf is not None:
+            index = _NativeCaseIndex(sin_native.kernels().CaseIndex(buf, sin_native.int64s(block.pointer_table)))
+        else:
+            index = _CaseIndex.build(sin.source, block.pointer_table)
+        block._case_index = index
+    return index
+
+
+@dataclass
 class SinFile:
     """Top-level handle for an opened ``.sin`` file.
 
@@ -831,6 +953,10 @@ class SinFile:
     # False: leave the default entry undecoded (a caller about to select
     # another one, see open_sin(super_element=...), would pay for it twice).
     _decode_default: bool = field(default=True, repr=False)
+    #: Group each RV block's records by result case on its first case-filtered read, so a
+    #: reader that visits every case reads the case words once instead of once per case.
+    #: Costs one pointer per record per block read that way.
+    index_cases: bool = field(default=False, repr=False)
 
     def close(self) -> None:
         """Release the byte source + file handle.
@@ -1439,16 +1565,18 @@ class SinFile:
         range backend's LRU already bounds residency, so its ``release``
         is a no-op.
         """
-        if block.pointer_table.size == 0:
+        # The span is fixed per block, and the block's pages are released after every read of it.
+        span = getattr(block, "_record_span", None)
+        if span is None:
+            span = ()
+            if block.pointer_table.size:
+                nz = block.pointer_table[block.pointer_table > 0]
+                if nz.size:
+                    span = (max(0, (int(nz.min()) - 1) * 4), int(nz.max()) * 4 + _MAX_RECORD_BYTES)
+            block._record_span = span
+        if not span or span[1] <= span[0]:
             return
-        nz = block.pointer_table[block.pointer_table > 0]
-        if nz.size == 0:
-            return
-        lo = max(0, (int(nz.min()) - 1) * 4)
-        hi = int(nz.max()) * 4 + _MAX_RECORD_BYTES
-        if hi <= lo:
-            return
-        self.source.release(lo, hi)
+        self.source.release(*span)
 
     def release_record_pages(self, name: str) -> None:
         """Reclaim a type-block's record pages by name (see
@@ -1492,6 +1620,9 @@ class SinFile:
         empty = np.empty((0, 0), dtype=np.float64)
         if ptrs.size == 0:
             return empty
+        index = _case_index(self, block) if where_first_word is not None else None
+        if index is not None:
+            return _gather_case(src, index, int(where_first_word))
         nz = ptrs[ptrs > 0]
         # Drop pointers whose NFIELD prefix word ((wp-1)*4) is out of
         # bounds before we touch the buffer.
@@ -1599,6 +1730,16 @@ class SinFile:
         pointers = block.pointer_table
         if where_first_word is not None or where_second_word is not None:
             pointers = _prefilter_pointers(src, pointers, file_end, where_first_word, where_second_word)
+        buf = sin_native.buffer(src)
+        if buf is not None:
+            native = sin_native.kernels()
+            ptrs = sin_native.int64s(pointers)
+            first = int(where_first_word) if where_first_word is not None else None
+            second = sorted(int(x) for x in where_second_word) if where_second_word is not None else None
+            # In chunks, so a big table is not held as tuples all at once.
+            for start in range(0, int(ptrs.size), _RECORD_CHUNK):
+                yield from native.records(buf, ptrs, start, start + _RECORD_CHUNK, first, second)
+            return
         for word_ptr in pointers:
             wp = int(word_ptr)
             if wp == 0:
@@ -1650,8 +1791,14 @@ class SinFile:
         src = self.source
         file_end = src.size()
         ptrs = np.asarray(block.pointer_table, dtype=np.int64)
-        if where_first_word is not None or where_second_word is not None:
+        index = _case_index(self, block) if where_first_word is not None and where_second_word is None else None
+        if index is not None:
+            ptrs = index.case(int(where_first_word))
+        elif where_first_word is not None or where_second_word is not None:
             ptrs = _prefilter_pointers(src, ptrs, file_end, where_first_word, where_second_word)
+        buf = sin_native.buffer(src)
+        if buf is not None:
+            return sin_native.kernels().gather_ragged(buf, sin_native.int64s(ptrs))
         # iter_records' per-record checks, in its order.
         ptrs = ptrs[(ptrs != 0) & (ptrs >= 1) & ((ptrs - 1) * 4 + 4 <= file_end)]
         n_data = src.gather_f32(ptrs - 1).astype(np.int64) - 1 if ptrs.size else np.empty(0, dtype=np.int64)

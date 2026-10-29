@@ -41,9 +41,13 @@ const OWNER = "assets";
 
 type Staged = Awaited<ReturnType<typeof assetsApi.listStaging>>["staged"][number];
 
-/** The live api for `@/assets/collectionRequest`, jobs tracked in the toast. Shared with the
- *  tree's per-node request. */
-export function requestDeps(onStage: (s: string) => void): CollectionRequestDeps {
+/** The live api for `@/assets/collectionRequest`, jobs tracked in the toast -- as their own entries,
+ *  or as steps of an operation (`trackJob`, an `Operation`'s). Shared with the tree's per-node
+ *  request. */
+export function requestDeps(
+    onStage: (s: string) => void,
+    trackJob?: CollectionRequestDeps["trackJob"],
+): CollectionRequestDeps {
     return {
         api: {
             pluginJob: (pluginId, body, opts) => viewerApi.pluginJob(pluginId, body, { scope: opts.scope as ScopeUrl }),
@@ -54,9 +58,11 @@ export function requestDeps(onStage: (s: string) => void): CollectionRequestDeps
             },
             readJson: (scope, key) => assetsApi.getBuildSummary(scope as ScopeUrl, key),
         },
-        trackJob: (opts) => {
-            makePluginContextStandalone(OWNER).trackJob(opts);
-        },
+        trackJob:
+            trackJob ??
+            ((opts) => {
+                makePluginContextStandalone(OWNER).trackJob(opts);
+            }),
         onStage,
         // Read fresh per request, so a value someone just changed is the one sent. Only what the
         // panel stored, which only ever stores the options the provider declares.

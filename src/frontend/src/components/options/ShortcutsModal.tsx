@@ -34,6 +34,10 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
         description:
           "Box select, added to the selection: dragged rightwards a window (wholly inside), leftwards a crossing (touching)",
       },
+      {
+        keys: ["Ctrl / ⌘ / Shift", "Left-click"],
+        description: "Add the clicked element to the selection, or take it out if it is selected -- as Ctrl+click does in the tree",
+      },
       { keys: ["Ctrl", "Left-drag"], description: "Pan the view" },
       { keys: ["Shift", "H"], description: "Hide the current selection" },
       { keys: ["Shift", "I"], description: "Hide everything except the current selection" },

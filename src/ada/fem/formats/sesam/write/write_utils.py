@@ -68,7 +68,8 @@ def format_data(d):
     # ``numbers``-shaped ``Real`` ABCs that ``isinstance`` honours,
     # but we test them explicitly for clarity since they're the
     # common case.
-    if isinstance(d, (float, int, np.integer, np.floating)) and not isinstance(d, bool):
+    # Plain float/int first: the numpy ABC check is the slow part of a call made millions of times.
+    if type(d) in (float, int) or (isinstance(d, (float, int, np.integer, np.floating)) and not isinstance(d, bool)):
         d = make_zero(d)
         text = f"  {d:<14.8E}" if d >= 0 else f" {d:<15.8E}"
         tracker = _rounding.get()

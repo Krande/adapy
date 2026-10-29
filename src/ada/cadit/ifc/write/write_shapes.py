@@ -187,14 +187,22 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     # persist its mass (geometry alone can't carry it).
     is_mass_point = isinstance(shape, MassPoint)
 
+    from ada.cadit.ifc.write.entity_choice import resolve_ifc_entity
+
+    choice = None if is_mass_point else resolve_ifc_entity(shape.metadata, f)
+    if choice is not None:
+        entity, typing = choice.entity, choice.attributes()
+    else:
+        entity = str(shape.ifc_class.value) if isinstance(shape.ifc_class, ShapeTypes) else shape.ifc_class
+        typing = {"ObjectType": "MassPoint" if is_mass_point else None}
     ifc_elem = f.create_entity(
-        str(shape.ifc_class.value) if isinstance(shape.ifc_class, ShapeTypes) else shape.ifc_class,
+        entity,
         GlobalId=shape.guid,
         OwnerHistory=owner_history,
         Name=shape.name,
-        ObjectType="MassPoint" if is_mass_point else None,
         ObjectPlacement=shape_placement,
         Representation=ifc_shape,
+        **typing,
     )
 
     if is_mass_point:
@@ -292,6 +300,9 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         geo_cu.PolyLine: "Curve3D",
     }
     repr_type_str = repr_type_map.get(type(param_geo), None)
+    # A primitive written as a swept solid (shapes/swept_primitives.py) is one.
+    if repr_type_str == "CSG" and solid_geom.is_a("IfcSweptAreaSolid"):
+        repr_type_str = "SweptSolid"
     shape_representation = f.create_entity(
         "IfcShapeRepresentation",
         ContextOfItems=body_context,

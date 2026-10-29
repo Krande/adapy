@@ -194,11 +194,16 @@ GBEAMG = DataCard(
     ),
 )
 re_gbox = GBOX.to_ff_re()
-re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
-re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz")
+# Both records are stored padded to two full lines (8 fields) by SESTRA, so the trailing fields
+# after SFZ are optional ones: without them SFZ would swallow the padding ("1.0  0.0  0.0").
+re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz", "pad1|", "pad2|")
+re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz", "pad1|", "pad2|")
 
 # Coordinate System
 GUNIVEC = DataCard("GUNIVEC", ("transno", "unix", "uniy", "uniz"))
+# Some decks echoed into a results file store the record padded to two lines; the vector is the
+# first three values either way, and the padding must not end up inside UNIZ.
+re_guniv_padded = get_ff_regex("GUNIVEC", "transno", "unix", "uniy", "uniz", "pad1|", "pad2|")
 
 # Shell section
 GELTH = DataCard("GELTH", ("geono", "th", "nint|"))
@@ -245,6 +250,8 @@ re_tdnode = TDNODE.to_ff_re()
 
 TDMATER = DataCard("TDMATER", ("nfield", "geo_no", "codnam", "codtxt", "name"))
 MISOSEL = DataCard("MISOSEL", ("matno", "young", "poiss", "rho", "damp", "alpha", "iyield", "yield"))
+# Orthotropic shell material: only its number and density are read (the stiffness matrix is not).
+MORSSEL = DataCard("MORSSEL", ("matno", "f2", "f3", "f4", "rho", "rest"))
 MORSMEL = DataCard(
     "MORSMEL",
     (

@@ -186,12 +186,35 @@ def _add_log_file(p: argparse.ArgumentParser) -> None:
         "--log-file",
         dest="log_file",
         default=None,
+        nargs="?",
+        const=_LOG_BESIDE_OUTPUT,
         metavar="PATH",
         help=(
             "Write adapy's log records to this file (truncating it) and leave only warnings and "
-            "errors on the console. Without it, everything at --log-level goes to stderr."
+            "errors on the console. Without PATH, convert writes <OUT stem>.log beside OUT. "
+            "Without the flag, everything at --log-level goes to stderr."
         ),
     )
+
+
+#: ``--log-file`` given without a path: the log goes beside the command's output.
+_LOG_BESIDE_OUTPUT = "<beside output>"
+
+
+def _log_file_for(args: argparse.Namespace) -> str | None:
+    """Where the log goes: ``--log-file PATH``; bare ``--log-file`` beside OUT as
+    ``<OUT stem>.log`` (``convert``; a command without OUT logs to ``ada.log``); no flag, the
+    console."""
+    import pathlib
+
+    given = getattr(args, "log_file", None)
+    if given != _LOG_BESIDE_OUTPUT:
+        return given
+    output = getattr(args, "output", None)
+    if not output:
+        return "ada.log"
+    out = pathlib.Path(output)
+    return str(out.with_name(f"{out.stem}.log"))
 
 
 def _configure_ada_logging(level: str, log_file: str | None) -> None:
@@ -279,7 +302,40 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
         help=(
             "Sesam super element number: written as the deck's IDENT SELTYP and used to name the "
             "file <prefix>T<N>.FEM. Without it the T-number in OUT decides "
-            "(myPrefixT10.FEM -> 10), and with neither it is 1."
+            "(myPrefixT10.FEM -> 10), then what the input says (a .SIN's superelement, a .FEM's "
+            "IDENT SELTYP), then an R<n>/T<n> in the input's name, and with none of those it is 1."
+        ),
+    )
+    p.add_argument(
+        "--super-element",
+        dest="super_element",
+        action="append",
+        default=None,
+        metavar="SEL",
+        help=(
+            "Sesam .SIN only: convert just this superelement (type number 12, type.instance 12.1 "
+            "or Xtract's label SEL12.IND1), written to OUT as given. Repeat it to convert several, "
+            "each to <OUT stem>T<n><OUT suffix>. Without it an assembly SIN is written as one "
+            "such file per first-level superelement with a mesh."
+        ),
+    )
+    p.add_argument(
+        "--merge",
+        action="store_true",
+        help=(
+            "Sesam .SIN assembly only: write all first-level superelements, placed by their "
+            "transforms and numbered by type number, as ONE file at OUT, with the top level's "
+            "SELTYP."
+        ),
+    )
+    p.add_argument(
+        "--sestra-inp",
+        dest="sestra_inp",
+        action="store_true",
+        help=(
+            "sesam output only: also write a Sestra control file (sestra.inp) beside OUT, made by adapy from "
+            "the model's first step and pointing at the super element written. By default only the FEM "
+            "file is written."
         ),
     )
     p.add_argument(
@@ -608,7 +664,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if getattr(args, "needs_ada_logging", False):
-        _configure_ada_logging(args.log_level, getattr(args, "log_file", None))
+        _configure_ada_logging(args.log_level, _log_file_for(args))
 
     try:
         rc = args.func(args)

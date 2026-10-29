@@ -843,6 +843,16 @@ async def api_search_export_preflight(
         doc = await export_preflight(ctx, pool, scope_obj=scope_obj, body=body, user=user)
     except ExportRefused as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    except (ConnectionError, TimeoutError, asyncio.TimeoutError) as exc:
+        # The worker registry / storage behind the check is down or slow (e.g. the job queue is
+        # restarting): say so, retryable, instead of a bare 500.
+        logger.warning("export preflight: backing service unavailable", exc_info=True)
+        raise HTTPException(
+            status_code=503, detail=f"could not check the hits: a backing service is unavailable ({exc!r})"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - name the failure rather than answer a bare 500
+        logger.exception("export preflight failed")
+        raise HTTPException(status_code=500, detail=f"export preflight failed: {type(exc).__name__}: {exc}") from exc
     return JSONResponse(doc)
 
 

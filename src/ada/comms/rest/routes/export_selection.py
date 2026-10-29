@@ -39,8 +39,10 @@ from ..scope import Scope
 from ..selection_export import (
     SELECTION_EXPORT_FORMATS,
     SELECTION_SOURCE_EXTS,
+    SelectionExportError,
     export_filename,
     group_export_derived_key,
+    parse_export_options,
     selection_derived_key,
 )
 from .clash_check import (
@@ -71,6 +73,40 @@ def _selection_from_body(body: dict) -> tuple[str | None, list[str]]:
     return element, list(raw_path)
 
 
+async def _relations_token(request: Request, scope_obj: Scope, fmt: str, collections: list[str]) -> str | None:
+    """The token over the relation sets a file of ``collections`` is written with -- read as the
+    export job reads them (``worker.relation_lookup``) -- or None for a format written without
+    them, without a database, or when none exist."""
+    from ..selection_export import RELATION_FORMATS
+
+    pool = getattr(request.app.state, "db_pool", None)
+    if fmt not in RELATION_FORMATS or pool is None or not collections:
+        return None
+    from ..db.attribute_index import readable_share_origins
+    from ..db.node_relations import readable_scopes, relations_token_for
+
+    scope = scope_obj.prefix()
+    try:
+        scopes = readable_scopes(scope, await readable_share_origins(pool, scope=scope, user_sub=""))
+        return await relations_token_for(pool, scopes=scopes, collections=collections)
+    except Exception:  # noqa: BLE001 - no relations table yet: the key is the one it always was
+        return None
+
+
+def _export_options_from_body(body: dict, user: User) -> dict:
+    """``export_options`` (``parse_export_options``), the defaults filled in; 400 when it names
+    something the writers do not know. An IFC header's author is the signed-in user, whatever the
+    body says."""
+    try:
+        options = parse_export_options(body.get("export_options"))
+    except SelectionExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    author = (user.display_name or user.email or user.sub or "").strip()
+    if author:
+        options["ifc_header"] = {**(options["ifc_header"] or {}), "author": author[:200]}
+    return options
+
+
 @router.post("/scopes/{scope}/export-selection")
 async def api_export_selection(
     body: dict,
@@ -81,16 +117,19 @@ async def api_export_selection(
 ) -> JSONResponse:
     """Start (or answer from the store) an export. Returns ``{job_id, derived_key, cached, filename}``.
 
-    Body: ``{format: "step"|"ifc", element?, path?, label?, force?}`` plus ONE of ``{source_key}``
-    or ``{collection, subject, revision?, node?, provider?}``. ``node`` is the published node the
-    viewer loaded (a covered row's own id); ``element`` narrows within it by name. ``label`` only
-    names the download when no element is selected -- the model as the viewer calls it.
+    Body: ``{format: "step"|"ifc", element?, path?, label?, force?, export_options?}`` plus ONE of
+    ``{source_key}`` or ``{collection, subject, revision?, node?, provider?}``. ``node`` is the
+    published node the viewer loaded (a covered row's own id); ``element`` narrows within it by
+    name. ``label`` only names the download when no element is selected -- the model as the viewer
+    calls it. ``export_options``: how the file is written (``step_schema``: AP214, the default, or
+    AP242).
     """
     fmt = str(body.get("format") or "").lower()
     if fmt not in SELECTION_EXPORT_FORMATS:
         raise HTTPException(status_code=400, detail=f"'format' must be one of {sorted(SELECTION_EXPORT_FORMATS)}")
+    export_options = _export_options_from_body(body, user)
     if body.get("group") is not None:
-        return await _submit_group_export(body, request, ctx, scope_obj, user, fmt)
+        return await _submit_group_export(body, request, ctx, scope_obj, user, fmt, export_options)
     source_key = str(body.get("source_key") or "")
     collection = str(body.get("collection") or "")
     subject = str(body.get("subject") or "")
@@ -153,7 +192,16 @@ async def api_export_selection(
 
     filename = export_filename(element or str(body.get("label") or "") or None, fmt)
     content_token = await _source_content_token(ctx, scope_obj, token_key)
-    derived_key = selection_derived_key(content_token, target, fmt=fmt, element=element, path=path, filename=filename)
+    derived_key = selection_derived_key(
+        content_token,
+        target,
+        fmt=fmt,
+        element=element,
+        path=path,
+        filename=filename,
+        export_options=export_options,
+        relations_token=await _relations_token(request, scope_obj, fmt, [collection] if collection else []),
+    )
 
     if not bool(body.get("force")) and await ctx.storage.exists(scope_obj, derived_key):
         return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True, "filename": filename})
@@ -166,7 +214,13 @@ async def api_export_selection(
             feature="export_selection",
             derived_prefix=derived_key.rsplit("/", 1)[0],
             derived_key=derived_key,
-            conversion_options={**options, "format": fmt, "element": element, "path": path},
+            conversion_options={
+                **options,
+                "format": fmt,
+                "element": element,
+                "path": path,
+                "export_options": export_options,
+            },
         ),
         before_dispatch=lambda submitted: ctx.audit(
             request,
@@ -189,9 +243,11 @@ async def _submit_group_export(
     scope_obj: Scope,
     user: User,
     fmt: str,
+    export_options: dict,
 ) -> JSONResponse:
     """Several elements as one file: ``{group: {name, members}, format, geometry_provider?, label?,
-    force?}``, members in the group clash check's form (``ada.clash.group.normalise_group``).
+    force?, export_options?}``, members in the group clash check's form
+    (``ada.clash.group.normalise_group``).
 
     ``geometry_provider`` reads every node member from that provider's publish of the same element
     (``ada.clash.geometry_source``) -- how a selection made in a mesh-only provider's model is
@@ -225,7 +281,13 @@ async def _submit_group_export(
         ctx, scope_obj, ClashOptions(geometry_provider=provider), collections
     )
     filename = export_filename(str(body.get("label") or "") or resolved["name"], fmt)
-    derived_key = group_export_derived_key(token, geometry_token, filename)
+    derived_key = group_export_derived_key(
+        token,
+        geometry_token,
+        filename,
+        export_options,
+        relations_token=await _relations_token(request, scope_obj, fmt, collections),
+    )
 
     if not bool(body.get("force")) and await ctx.storage.exists(scope_obj, derived_key):
         return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True, "filename": filename})
@@ -239,7 +301,12 @@ async def _submit_group_export(
             feature="export_selection",
             derived_prefix=derived_key.rsplit("/", 1)[0],
             derived_key=derived_key,
-            conversion_options={"group": resolved, "format": fmt, "geometry_provider": provider},
+            conversion_options={
+                "group": resolved,
+                "format": fmt,
+                "geometry_provider": provider,
+                "export_options": export_options,
+            },
             target_capability=capability,
         ),
         before_dispatch=lambda submitted: ctx.audit(

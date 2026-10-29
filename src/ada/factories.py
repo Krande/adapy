@@ -345,17 +345,26 @@ def _from_fem(
     return a
 
 
-def from_fem_res(fem_file: str | pathlib.Path, fem_format: str = None, super_element=None) -> FEAResult:
+def from_fem_res(
+    fem_file: str | pathlib.Path,
+    fem_format: str = None,
+    super_element=None,
+    field_cache: bool | str | pathlib.Path | None = None,
+) -> FEAResult:
     """Read an FEA result file.
 
     ``super_element`` (Sesam ``.SIN``): a superelement assembly reads whole by default, every
     superelement placed and merged. Limit it with one superelement (``"SEL12.IND1"``, ``12``,
     ``(12, 1)``), read on its own with its own numbering, or a list of them, e.g.
     ``["SEL10.IND1", "SEL12.IND1"]``, merged like the whole assembly.
+
+    ``field_cache``: keep the field values in a memory-mapped temporary file rather than in
+    memory, for results larger than you want resident; a directory puts the file there.
+    None reads ``ADA_FEM_RES_CACHE`` (``1`` turns it on). The values are the same bytes.
     """
     from ada.fem.formats.postprocess import postprocess
 
-    return postprocess(fem_file, fem_format, super_element=super_element)
+    return postprocess(fem_file, fem_format, super_element=super_element, field_cache=field_cache)
 
 
 def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:

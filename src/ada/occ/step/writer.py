@@ -174,7 +174,10 @@ class StepWriter:
         # ``self.units`` and the file declares the same, so no conversion happens.
         SetCVal("xstep.cascade.unit", self.units.value.upper())
         SetCVal("write.step.unit", self.units.value.upper())
-        SetCVal("write.step.schema", self.schema.value.upper())
+        # OCCT's name for the schema ("AP242" is "AP242DIS"): an unknown value is ignored, silently.
+        from ada.cadit.step.write.adacpp_writer import occt_step_schema
+
+        SetCVal("write.step.schema", occt_step_schema(self.schema.value))
 
         # Drop pcurves unless explicitly requested — they are redundant (CAD
         # consumers recompute them) and roughly halve STEP size + write time on

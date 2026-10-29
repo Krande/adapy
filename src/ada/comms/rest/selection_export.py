@@ -34,9 +34,14 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, Sequence
 
 __all__ = [
+    "DEFAULT_EXPORT_OPTIONS",
+    "IFC_SCHEMAS",
     "SELECTION_EXPORT_FORMATS",
     "SELECTION_SOURCE_EXTS",
+    "STEP_SCHEMAS",
     "SelectionExportError",
+    "export_options_identity",
+    "parse_export_options",
     "export_asset_selection",
     "export_filename",
     "export_source_selection",
@@ -65,8 +70,103 @@ EXPORT_LOG_SUFFIX = ".log.json"
 #: A ``.glb`` is absent because there is nothing behind it to re-read.
 SELECTION_SOURCE_EXTS: frozenset[str] = frozenset({".ifc", ".step", ".stp", ".xml", ".gnx", ".sat", ".acis"})
 
-# What a download may be called: the selection's own name where it is printable, never a path.
-_UNSAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._ -]+")
+# What a download may be called: the selection's own name where it is printable, never a path, and
+# no spaces.
+_UNSAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+#: The STEP application protocols an export can declare. AP214 is what it has always written.
+STEP_SCHEMAS: tuple[str, ...] = ("AP214", "AP242")
+
+#: The IFC schemas an export can be written in, as the option names them -> the writer's name.
+IFC_SCHEMAS: dict[str, str] = {"IFC4": "IFC4", "IFC4X3": "IFC4X3_add2"}
+
+#: What an export is written with when the request names nothing (``export_options``).
+DEFAULT_EXPORT_OPTIONS: dict[str, Any] = {
+    "step_schema": "AP214",
+    "ifc_schema": "IFC4",
+    "ifc_swept_primitives": False,
+    # The IFC header's file name, author and project: ``{file_name?, author?, project?}``.
+    "ifc_header": None,
+}
+
+_HEADER_FIELDS = ("file_name", "author", "project")
+
+#: Bumped when the IFC writer's output changes for the same model, so an IFC written before is not
+#: served again from its old key. 2: 2D profiles, 'Clipping' bodies, revolve angles in radians.
+#: 3: node relations (systems of plain members, connections, filled openings, AdaRelations).
+IFC_WRITER_REVISION = 3
+
+#: Options always part of an export's identity for their format, default or not: the default
+#: changed from what earlier exports were written in, so a key without it could name either.
+_ALWAYS_IN_IDENTITY: dict[str, str] = {"ifc_schema": "ifc"}
+
+
+def parse_export_options(raw: Any) -> dict[str, Any]:
+    """``export_options`` as the writers take them: the defaults, overridden by what ``raw`` names.
+    Raises :class:`SelectionExportError` for an unknown key or value -- an option silently dropped
+    would hand the user a file written some other way than they asked."""
+    out = dict(DEFAULT_EXPORT_OPTIONS)
+    if raw is None:
+        return out
+    if not isinstance(raw, dict):
+        raise SelectionExportError("'export_options' must be an object")
+    unknown = sorted(set(raw) - set(DEFAULT_EXPORT_OPTIONS))
+    if unknown:
+        raise SelectionExportError(
+            f"unknown export option(s) {', '.join(unknown)} (known: {', '.join(sorted(DEFAULT_EXPORT_OPTIONS))})"
+        )
+    if "step_schema" in raw:
+        schema = str(raw["step_schema"] or "").strip().upper()
+        if schema not in STEP_SCHEMAS:
+            raise SelectionExportError(
+                f"'step_schema' must be one of {', '.join(STEP_SCHEMAS)} (got {raw['step_schema']!r})"
+            )
+        out["step_schema"] = schema
+    if "ifc_schema" in raw:
+        schema = str(raw["ifc_schema"] or "").strip().upper()
+        if schema not in IFC_SCHEMAS:
+            raise SelectionExportError(
+                f"'ifc_schema' must be one of {', '.join(IFC_SCHEMAS)} (got {raw['ifc_schema']!r})"
+            )
+        out["ifc_schema"] = schema
+    if "ifc_swept_primitives" in raw:
+        if not isinstance(raw["ifc_swept_primitives"], bool):
+            raise SelectionExportError(
+                f"'ifc_swept_primitives' must be true or false (got {raw['ifc_swept_primitives']!r})"
+            )
+        out["ifc_swept_primitives"] = raw["ifc_swept_primitives"]
+    if raw.get("ifc_header") is not None:
+        header = raw["ifc_header"]
+        if not isinstance(header, dict) or set(header) - set(_HEADER_FIELDS):
+            raise SelectionExportError(f"'ifc_header' must be an object of {', '.join(_HEADER_FIELDS)}")
+        if not all(v is None or isinstance(v, str) for v in header.values()):
+            raise SelectionExportError("'ifc_header' values must be text")
+        cleaned = {
+            k: header[k].strip()[:200] for k in _HEADER_FIELDS if isinstance(header.get(k), str) and header[k].strip()
+        }
+        out["ifc_header"] = cleaned or None
+    return out
+
+
+def export_options_identity(options: dict[str, Any], fmt: str) -> dict[str, Any]:
+    """The options that make this export a different FILE: those that differ from the defaults and
+    apply to ``fmt`` -- so an export asked for with the defaults keeps the key it always had, and an
+    IFC is not written twice for two STEP schemas."""
+    applies = {
+        "step_schema": fmt == "step",
+        "ifc_schema": fmt == "ifc",
+        "ifc_swept_primitives": fmt == "ifc",
+        "ifc_header": fmt == "ifc",
+    }
+    out = {
+        k: v
+        for k, v in options.items()
+        if applies.get(k, True) and (DEFAULT_EXPORT_OPTIONS.get(k) != v or _ALWAYS_IN_IDENTITY.get(k) == fmt)
+    }
+    if fmt == "ifc":
+        out["writer"] = IFC_WRITER_REVISION
+    return out
 
 
 class SelectionExportError(ValueError):
@@ -212,6 +312,7 @@ def place_rooted(target: Any, into: Any, shells: dict[int, Any], *, keep_root: b
     part, one physical object, or a whole model (an ``Assembly``, whose top level moves).
     """
     import ada
+    from ada.base.ifc_types import IFC_ENTITY_KEY
 
     if isinstance(target, ada.Assembly):
         holder = into
@@ -241,6 +342,9 @@ def place_rooted(target: Any, into: Any, shells: dict[int, Any], *, keep_root: b
                 else anc.placement.copy_to()
             )
             shell = ada.Part(_unique_part_name(parent, str(anc.name)), placement=placement)
+            # The shell stands for the same element, so it is written as the same IFC entity.
+            if IFC_ENTITY_KEY in anc.metadata:
+                shell.metadata[IFC_ENTITY_KEY] = anc.metadata[IFC_ENTITY_KEY]
             parent.add_part(shell)
             shells[id(anc)] = shell
         parent = shell
@@ -274,8 +378,12 @@ def reparent_selection(target: Any, into: Any) -> Any:
         return target
     # A lone object keeps the part it sat in as its holder, so the exported file still names
     # the level it came from and the object stays where that level placed it.
+    from ada.base.ifc_types import IFC_ENTITY_KEY
+
     owner = target.parent
     holder = Part(str(owner.name), placement=owner.placement.get_absolute_placement(include_rotations=True))
+    if IFC_ENTITY_KEY in owner.metadata:
+        holder.metadata[IFC_ENTITY_KEY] = owner.metadata[IFC_ENTITY_KEY]
     holder.add_object(target)
     into.add_part(holder)
     return holder
@@ -287,19 +395,47 @@ def _step_has_solids(path: pathlib.Path) -> bool:
     return has_solids(path)
 
 
-def write_selection(asm: Any, fmt: str, out_path: pathlib.Path) -> pathlib.Path:
-    """Serialise ``asm`` as ``fmt``. The same writer choices the converter makes for the format."""
+def write_selection(
+    asm: Any, fmt: str, out_path: pathlib.Path, export_options: dict[str, Any] | None = None
+) -> pathlib.Path:
+    """Serialise ``asm`` as ``fmt``. The same writer choices the converter makes for the format.
+    ``export_options`` (:func:`parse_export_options`): ``step_schema``, the protocol a STEP declares;
+    ``ifc_schema``, the schema an IFC is written in; ``ifc_swept_primitives``, cylinders and cones
+    written as swept solids (``ada.cadit.ifc.write.shapes.swept_primitives``)."""
+    options = parse_export_options(export_options)
     if fmt == "step":
-        asm.to_stp(str(out_path))
+        schema = options["step_schema"]
+        asm.to_stp(str(out_path), schema=schema)
         if not _step_has_solids(out_path):
             # Same retry as the converter's ifc->step leg: a body with no analytic AP242 form is
             # skipped by the B-rep writer, and the faceted streaming writer leaves nothing behind.
-            asm.to_stp(str(out_path), writer="stream", fuse_fem=False)
+            asm.to_stp(str(out_path), writer="stream", fuse_fem=False, schema=schema)
         return out_path
     if fmt == "ifc":
         # The in-memory writer, never the streaming one: the streamer rebuilds the file from
         # concept objects and is only correct for a freshly built model, while a selection is
         # made of objects read from somewhere -- and is small enough not to need it.
+        # The schema is read when the IFC file is first created, so a store made before (in another
+        # schema) is dropped.
+        from ada.api.user import User
+        from ada.cadit.ifc.store import IfcStore
+        from ada.cadit.ifc.write.shapes.swept_primitives import SWEPT_PRIMITIVES_KEY
+
+        # The schema, the project and the owner history's person are read when the IFC file is first
+        # created, so a store made before is dropped when any of them is set here.
+        header = options["ifc_header"] or {}
+        schema = IFC_SCHEMAS[options["ifc_schema"]]
+        if asm.metadata.get("schema") != schema or header.get("project") or header.get("author"):
+            asm.metadata["schema"] = schema
+            if header.get("project"):
+                asm.metadata["project"] = header["project"]
+            if header.get("author"):
+                asm._user = User(user_id=header["author"], given_name=header["author"])
+                asm._user.parent = asm
+            asm.ifc_store = None
+        if header.get("file_name"):
+            asm.metadata[IfcStore.HEADER_FILE_NAME_KEY] = header["file_name"]
+        asm.metadata[SWEPT_PRIMITIVES_KEY] = bool(options["ifc_swept_primitives"])
         asm.to_ifc(str(out_path), streaming=False)
         return out_path
     raise SelectionExportError(
@@ -309,7 +445,8 @@ def write_selection(asm: Any, fmt: str, out_path: pathlib.Path) -> pathlib.Path:
 
 def export_filename(label: str | None, fmt: str) -> str:
     """What the download is called: the selection's name with the format's extension."""
-    base = _UNSAFE_FILENAME_RE.sub("_", str(label or "").strip()).strip(" ._") or "selection"
+    base = _UNSAFE_FILENAME_RE.sub("_", str(label or "").strip())
+    base = re.sub(r"_{2,}", "_", base).strip("._-") or "selection"
     return f"{base[:100]}{SELECTION_EXPORT_FORMATS[fmt]}"
 
 
@@ -321,16 +458,28 @@ def selection_derived_key(
     element: str | None,
     path: Sequence[str],
     filename: str,
+    export_options: dict[str, Any] | None = None,
+    relations_token: str | None = None,
 ) -> str:
     """Where an export lands: one key per (source bytes, what was addressed, selection, format).
+
+    ``relations_token`` (``db.node_relations.relations_token_for``) moves when the relations a file
+    is written with change (:data:`RELATION_FORMATS`); None, and any other format, leave the key as
+    it was.
 
     ``content_token`` moves when the source's bytes do, so a re-upload is a miss rather than a
     stale file. ``target`` is what the request addressed -- a source key, or a published node's
     collection/subject/revision/node -- because one blob is commonly shared by many subjects and a
     token over the bytes alone would hand one node's export to another. The selection's PATH is
-    in the token as well as its name: two same-named plates in two decks are two files.
+    in the token as well as its name: two same-named plates in two decks are two files. So are the
+    export options that change the file (``export_options_identity``), and only those.
     """
-    identity = {"target": target, "format": fmt, "element": element, "path": list(path)}
+    identity: dict[str, Any] = {"target": target, "format": fmt, "element": element, "path": list(path)}
+    differs = export_options_identity(parse_export_options(export_options), fmt)
+    if differs:
+        identity["options"] = differs
+    if relations_token and fmt in RELATION_FORMATS:
+        identity["relations"] = relations_token
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     return f"_derived/export/{content_token}/{token}/{filename}"
 
@@ -346,6 +495,7 @@ def export_source_selection(
     *,
     element: str | None = None,
     path: Iterable[Any] | None = None,
+    export_options: dict[str, Any] | None = None,
 ) -> pathlib.Path:
     """Read a source file core reads, scope it to the selection, write it to ``out_path``."""
     from .converters.ada_load import _load_with_ada
@@ -357,7 +507,7 @@ def export_source_selection(
             f"named after objects a re-read produces (supported: {sorted(SELECTION_SOURCE_EXTS)})"
         )
     model = _load_with_ada(src_path, ext)
-    return write_selection(scope_to_selection(model, element, _parse_path(path)), fmt, out_path)
+    return write_selection(scope_to_selection(model, element, _parse_path(path)), fmt, out_path, export_options)
 
 
 def export_asset_selection(
@@ -371,21 +521,57 @@ def export_asset_selection(
     node: str | None = None,
     element: str | None = None,
     path: Iterable[Any] | None = None,
+    export_options: dict[str, Any] | None = None,
+    attributes: Any = None,
+    relations: Any = None,
 ) -> pathlib.Path:
     """Read a published node through its provider's concepts, scope it, write it to ``out_path``.
 
     The provider decides what "the node" contains (``node`` is the loaded node, the same scope
     its build drew); ``element`` narrows within that by name, exactly as for a file.
+    ``attributes``: the attribute lookup handed to the provider (``ada.assets.attribute_lookup``).
+    ``relations``: the relation lookup an IFC is written with (``ada.assets.relation_lookup``).
     """
     from ada.clash.from_asset import part_for_asset_node
 
-    part = part_for_asset_node(collection=collection, subject=subject, storage=storage, revision=revision, node=node)
-    return write_selection(scope_to_selection(part, element, _parse_path(path)), fmt, out_path)
+    part = part_for_asset_node(
+        collection=collection, subject=subject, storage=storage, revision=revision, node=node, attributes=attributes
+    )
+    asm = scope_to_selection(part, element, _parse_path(path))
+    _apply_relations(asm, fmt, relations, [collection])
+    return write_selection(asm, fmt, out_path, export_options)
 
 
-def group_export_derived_key(group_token: str, geometry_token: str, filename: str) -> str:
+#: The formats written with the relations: IFC writes them, and both write runs in their order.
+RELATION_FORMATS = frozenset({"ifc", "step"})
+
+
+def _apply_relations(asm: Any, fmt: str, relations: Any, collections: Iterable[str]) -> None:
+    """The relations of the elements a file is written with (``relation_lookup.apply_relations``)."""
+    if fmt not in RELATION_FORMATS or relations is None:
+        return
+    from ada.assets.relation_lookup import apply_relations
+
+    apply_relations(asm, relations, collections)
+
+
+def group_export_derived_key(
+    group_token: str,
+    geometry_token: str,
+    filename: str,
+    export_options: dict[str, Any] | None = None,
+    relations_token: str | None = None,
+) -> str:
     """Where a several-element export lands: one key per (members and their sources' contents,
-    the geometry they were read from, file name -- which carries the format)."""
+    the geometry they were read from, the export options that change the file, file name -- which
+    carries the format -- and the relations it is written with)."""
+    fmt = "step" if filename.lower().endswith((".step", ".stp")) else "ifc"
+    differs = export_options_identity(parse_export_options(export_options), fmt)
+    if relations_token and fmt in RELATION_FORMATS:
+        differs = {**differs, "relations": relations_token}
+    if differs:
+        token = hashlib.sha256(json.dumps(differs, sort_keys=True).encode("utf-8")).hexdigest()[:8]
+        geometry_token = f"{geometry_token}-{token}"
     return f"_derived/export/group/{group_token}/{geometry_token}/{filename}"
 
 
@@ -406,6 +592,9 @@ def export_group_selection(
     fmt: str,
     out_path: pathlib.Path,
     geometry_provider: str | None = None,
+    export_options: dict[str, Any] | None = None,
+    attributes: Any = None,
+    relations: Any = None,
 ) -> list[str]:
     """Write a NORMALISED group's members (``ada.clash.group.normalise_group``) as ONE file.
 
@@ -420,8 +609,15 @@ def export_group_selection(
         build_group_model,
     )
 
+    extra = {}
+    if attributes is not None:
+        import functools
+
+        from ada.clash.from_asset import part_for_asset_node
+
+        extra["read_node"] = functools.partial(part_for_asset_node, attributes=attributes)
     try:
-        built = build_group_model(group, storage=storage, geometry_provider=geometry_provider, rooted=True)
+        built = build_group_model(group, storage=storage, geometry_provider=geometry_provider, rooted=True, **extra)
     except NoProviderGeometryError as exc:
         # The geometry was never published here: say so once, with what a request for it needs.
         action = "export again"
@@ -430,5 +626,9 @@ def export_group_selection(
         raise SelectionExportError(str(exc)) from exc
     for part in list(built.model.parts.values()):
         _mark_added(part)
-    write_selection(built.model, fmt, out_path)
+    collections = [
+        str(m["target"]["collection"]) for m in group.get("members") or () if m.get("target", {}).get("kind") == "node"
+    ]
+    _apply_relations(built.model, fmt, relations, collections)
+    write_selection(built.model, fmt, out_path, export_options)
     return list(built.warnings)

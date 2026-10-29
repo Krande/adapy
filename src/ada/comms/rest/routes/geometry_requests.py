@@ -214,6 +214,27 @@ def _unknown_reason(catalog: Any, hit: Mapping[str, Any]) -> str | None:
     )
 
 
+class _SyncScopeReader:
+    """The synchronous read view :class:`GeometrySourceIndex` takes (``list_keys`` by prefix,
+    ``get_bytes``), over the async storage, for use from an executor thread.
+
+    Deliberately self-contained: the API process runs the slim image, which does not ship the
+    worker-side ``formats`` package (its handlers import the CAD stack), so importing the worker's
+    equivalent from a request handler failed with a ModuleNotFoundError -- a bare 500."""
+
+    def __init__(self, storage, scope, loop) -> None:
+        self._s, self._scope, self._loop = storage, scope, loop
+
+    def _run(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        return [e.key for e in self._run(self._s.list_prefix(self._scope, prefix)) if e.key.startswith(prefix)]
+
+    def get_bytes(self, key: str) -> bytes:
+        return self._run(self._s.get_bytes(self._scope, key))
+
+
 async def classify_in_scope(
     storage, scope_obj, groups: Sequence[tuple[str, list[dict]]], provider: str = GEOMETRY_PROVIDER
 ) -> list[list[HitState]]:
@@ -221,10 +242,8 @@ async def classify_in_scope(
     content, read once (one index), off the event loop -- it reads manifests and spines blob by blob."""
     from ada.clash.geometry_source import GeometrySourceIndex
 
-    from ..formats.export_search import _PrefixFacade
-
     loop = asyncio.get_running_loop()
-    index = GeometrySourceIndex(_PrefixFacade(storage, scope_obj, loop))
+    index = GeometrySourceIndex(_SyncScopeReader(storage, scope_obj, loop))
     return await loop.run_in_executor(None, lambda: [classify_hits(index, c, h, provider) for c, h in groups])
 
 

@@ -24,7 +24,10 @@ import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useSelectedObjectStore } from "@/state/useSelectedObjectStore";
 import { resolveElementRows } from "@/utils/groups/groupAssetRows";
-import { captureSelection, selectedRangeCount, selectSavedGroup } from "@/utils/groups/groupScene";
+import { captureSelection, groupSceneParts, selectedRangeCount, selectSavedGroup } from "@/utils/groups/groupScene";
+import { memberKinds, memberSources, type KindSummary } from "@/utils/groups/groupSummary";
+import { attributeSearchApi } from "@/services/api/attributeSearch";
+import { useTreeViewStore } from "@/state/treeViewStore";
 import { loadSavedGroup } from "@/utils/groups/groupLoad";
 import { describeRequestOutcome, planNodeCount, requestGroupGeometry } from "@/utils/groups/groupRequest";
 import { realDeliveryDeps } from "@/components/asset_browser/AssetsTab";
@@ -246,7 +249,89 @@ const RequestGeometryForm: React.FC<{ scope: string; group: SavedGroup; onClose:
   );
 };
 
-const GroupRow: React.FC<{ scope: string; group: SavedGroup; shared: boolean }> = ({ scope, group, shared }) => {
+const MEMBERS_SHOWN = 100;
+
+/** What the group holds: its members by source and by kind, and how many are in the scene now. */
+const GroupSummary: React.FC<{ scope: string; group: SavedGroup; shared: boolean }> = ({ scope, group, shared }) => {
+  const treeData = useTreeViewStore((s) => s.treeData);
+  const sources = useMemo(() => memberSources(group.members), [group]);
+  const inScene = useMemo(() => {
+    const out = groupSceneParts(group.members);
+    return group.members.length - out.notLoaded.length - out.notFound.length;
+  }, [group, treeData]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [kinds, setKinds] = useState<KindSummary | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setKinds(null);
+    if (!shared) return;
+    void memberKinds(group.members, async (collection, lookup) => {
+      const answer = await attributeSearchApi.collectionNodes(scope, collection, lookup);
+      return answer.indexed ? answer.nodes : null;
+    }).then((k) => live && setKinds(k));
+    return () => {
+      live = false;
+    };
+  }, [scope, group, shared]);
+
+  const row = (label: string, value: React.ReactNode) => (
+    <div className="table-row">
+      <div className="table-cell w-24 align-top text-gray-400 pr-2">{label}</div>
+      <div className="table-cell break-words">{value}</div>
+    </div>
+  );
+  const list = (items: { label: string; count: number }[]) =>
+    items.map((i) => (
+      <span key={i.label} className="mr-2 whitespace-nowrap">
+        {i.label} <span className="text-gray-400">{i.count}</span>
+      </span>
+    ));
+
+  return (
+    <div className="mt-1 flex flex-col gap-1 text-[11px]">
+      <div className="table">
+        {row("Members", `${group.members.length}`)}
+        {row("In the scene", `${inScene} of ${group.members.length}`)}
+        {row(
+          "Types",
+          kinds === null ? (
+            <span className="text-gray-500">{shared ? "reading…" : "needs the server"}</span>
+          ) : (
+            <>
+              {list(kinds.kinds)}
+              {kinds.unknown > 0 && <span className="text-gray-500">{kinds.unknown} not in an attribute index</span>}
+            </>
+          ),
+        )}
+        {row("Sources", list(sources))}
+        {(group.created_by || group.created_at) &&
+          row(
+            "Created",
+            `${group.created_by ?? ""}${group.created_by && group.created_at ? ", " : ""}${
+              group.created_at ? new Date(group.created_at).toLocaleString() : ""
+            }`,
+          )}
+      </div>
+      <details>
+        <summary className="cursor-pointer text-gray-400 hover:text-gray-200">
+          Member list ({group.members.length})
+        </summary>
+        <ul className="mt-0.5 ml-3 max-h-48 overflow-auto">
+          {group.members.slice(0, MEMBERS_SHOWN).map((m, i) => (
+            <li key={i} className="truncate" title={describeMember(m)}>
+              {describeMember(m)}
+            </li>
+          ))}
+          {group.members.length > MEMBERS_SHOWN && (
+            <li className="text-gray-500">and {group.members.length - MEMBERS_SHOWN} more</li>
+          )}
+        </ul>
+      </details>
+    </div>
+  );
+};
+
+const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean }> = ({ scope, group, shared }) => {
   const busy = useSavedGroupsStore((s) => s.busy);
   const rename = useSavedGroupsStore((s) => s.rename);
   const remove = useSavedGroupsStore((s) => s.remove);
@@ -298,7 +383,7 @@ const GroupRow: React.FC<{ scope: string; group: SavedGroup; shared: boolean }> 
   };
 
   return (
-    <li className="py-1 border-b border-gray-700/60 last:border-b-0">
+    <div className="py-1">
       <div className="flex items-center gap-1 min-w-0">
         {editing ? (
           <form
@@ -326,19 +411,10 @@ const GroupRow: React.FC<{ scope: string; group: SavedGroup; shared: boolean }> 
               Save
             </button>
           </form>
-        ) : (
-          <span
-            className="flex-1 min-w-0 truncate text-xs"
-            title={`${group.name}\n${group.members.map(describeMember).join("\n")}${group.created_by ? `\n\ncreated by ${group.created_by}` : ""}`}
-          >
-            {group.name}{" "}
-            <span className="text-gray-400">
-              ({group.members.length} member{group.members.length === 1 ? "" : "s"})
-            </span>
-          </span>
-        )}
+        ) : null}
       </div>
-      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+      {!editing && <GroupSummary scope={scope} group={group} shared={shared} />}
+      <div className="mt-1 flex flex-wrap items-center gap-1">
         <button type="button" className={BTN} onClick={select} title="Select this group's members in the loaded models">
           Select
         </button>
@@ -412,7 +488,7 @@ const GroupRow: React.FC<{ scope: string; group: SavedGroup; shared: boolean }> 
         <div className={`mt-0.5 text-[11px] ${note.tone === "warn" ? "text-amber-200" : "text-gray-400"}`}>{note.text}</div>
       )}
       {requesting && <RequestGeometryForm scope={scope} group={group} onClose={() => setRequesting(false)} />}
-    </li>
+    </div>
   );
 };
 
@@ -432,6 +508,10 @@ const SavedGroupsSection: React.FC = () => {
 
   const count = selectedRangeCount(selected);
   const sorted = useMemo(() => [...groups].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })), [groups]);
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  // The chosen group, else the first: a deleted or renamed-away choice falls back rather than
+  // leaving the details empty.
+  const chosen = sorted.find((g) => g.id === chosenId) ?? sorted[0] ?? null;
 
   return (
     <div className="flex flex-col gap-1 text-xs">
@@ -462,11 +542,21 @@ const SavedGroupsSection: React.FC = () => {
       {sorted.length === 0 ? (
         !loading && <div className="text-[11px] text-gray-500">No saved groups yet.</div>
       ) : (
-        <ul className="flex flex-col">
-          {sorted.map((g) => (
-            <GroupRow key={g.id} scope={scope} group={g} shared={shared} />
-          ))}
-        </ul>
+        <>
+          <select
+            aria-label="Saved group"
+            className="h-7 rounded-md border border-gray-700 bg-gray-800 px-1 text-xs text-gray-100"
+            value={chosen?.id ?? ""}
+            onChange={(e) => setChosenId(e.target.value)}
+          >
+            {sorted.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name} ({g.members.length})
+              </option>
+            ))}
+          </select>
+          {chosen && <GroupDetails key={chosen.id} scope={scope} group={chosen} shared={shared} />}
+        </>
       )}
     </div>
   );

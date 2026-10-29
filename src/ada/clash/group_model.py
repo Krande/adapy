@@ -126,6 +126,44 @@ def _ancestor_ids(obj: Any) -> set[int]:
     return {id(a) for a in obj.get_ancestors(include_self=True) if a is not obj}
 
 
+def _subtree_names(obj: Any) -> set[str]:
+    """The names of ``obj`` and of every part and object below it."""
+    import ada
+
+    names = {str(obj.name)}
+    if isinstance(obj, ada.Part):
+        names |= {str(p.name) for p in obj.get_all_parts_in_assembly(include_self=False)}
+        names |= {str(o.name) for o in obj.get_all_physical_objects()}
+    return names
+
+
+def _drop_contained_across_sources(placed: dict[int, tuple[Mapping[str, Any], Any]], warnings: list[str]) -> None:
+    """Members read from DIFFERENT sources can still be one element: a provider publishes a plate
+    and the opening cut in it as two nodes, each read on its own. Names are what the two reads
+    share, so a member whose element is named inside another member's is dropped, as one inside
+    another of the same source is; a partial overlap is named in a warning rather than written twice
+    unannounced."""
+    if len(placed) < 2:
+        return
+    names = {n: _subtree_names(obj) for n, (_m, obj) in placed.items()}
+    for n in sorted(placed, key=lambda k: (len(names[k]), k)):
+        name = str(placed[n][1].name)
+        outer = next((k for k in placed if k != n and name in names[k] and len(names[k]) > len(names[n])), None)
+        if outer is not None:
+            warnings.append(f"member {n} is inside member {outer}; checked once")
+            del placed[n]
+    kept = sorted(placed)
+    for i, a in enumerate(kept):
+        for b in kept[i + 1 :]:
+            shared = sorted(names[a] & names[b])
+            if shared:
+                more = f" and {len(shared) - 3} more" if len(shared) > 3 else ""
+                warnings.append(
+                    f"members {a} and {b} both contain {', '.join(shared[:3])}{more}; written in each "
+                    "(their sources were published with different hierarchies -- request them again)"
+                )
+
+
 def _place(obj: Any, holder: Any) -> None:
     """Move a resolved member under ``holder``, keeping it where its source placed it."""
     import ada
@@ -258,6 +296,8 @@ def build_group_model(
                 warnings.append(f"member {n} is inside member {outer}; checked once")
                 continue
             placed[n] = (m, obj)
+
+    _drop_contained_across_sources(placed, warnings)
 
     if not placed:
         detail = "; ".join(warnings[:5]) or "no members"

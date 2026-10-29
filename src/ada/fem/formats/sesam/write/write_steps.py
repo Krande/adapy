@@ -14,7 +14,9 @@ def _sestra_writers() -> dict:
     return {Step.TYPES.EIGEN: write_sestra_eig_str, Step.TYPES.STATIC: write_sestra_static_str}
 
 
-def write_sestra_inp(name, step: StepEigen | StepImplicitStatic):
+def write_sestra_inp(name, step: StepEigen | StepImplicitStatic, supnr: int = 1):
+    """The Sestra control file for ``step``, analysing super element ``supnr`` (ITOP) -- the
+    number the deck is written as, or Sestra would look for another super element."""
     step_str_writer = _sestra_writers().get(step.type, None)
     if step_str_writer is None:
         raise ValueError(f'Step type "{step.type}" is not supported yet for Ada-Sestra ')
@@ -24,15 +26,15 @@ def write_sestra_inp(name, step: StepEigen | StepImplicitStatic):
     clock_str = now.strftime("%H:%M:%S")
     user = get_current_user()
     head_str = sestra_header_inp_str.format(date_str=date_str, clock_str=clock_str, user=user)
-    return head_str + step_str_writer(name, step)
+    return head_str + step_str_writer(name, step, supnr)
 
 
-def write_sestra_eig_str(name: str, step: StepEigen):
-    return sestra_eig_inp_str.format(name=name, modes=step.num_eigen_modes, supnr=1)
+def write_sestra_eig_str(name: str, step: StepEigen, supnr: int = 1):
+    return sestra_eig_inp_str.format(name=name, modes=step.num_eigen_modes, supnr=supnr)
 
 
-def write_sestra_static_str(name: str, step: StepImplicitStatic):
-    return sestra_static_inp_str.format(name=name, supnr=1)
+def write_sestra_static_str(name: str, step: StepImplicitStatic, supnr: int = 1):
+    return sestra_static_inp_str.format(name=name, supnr=supnr)
 
 
 def written_step(steps: Sequence[Step]) -> Step | None:
@@ -45,7 +47,7 @@ def written_step(steps: Sequence[Step]) -> Step | None:
     return steps[0] if steps else None
 
 
-def report_steps(steps: Sequence[Step], sestra_inp_written: bool) -> None:
+def report_steps(steps: Sequence[Step], sestra_inp_written: bool, model_data_only: bool = False) -> None:
     """Name every step in the report: a Sesam FEM file holds no analysis steps at all.
 
     The first step is written in part -- its loads as the load case, and for a linear
@@ -74,6 +76,14 @@ def report_steps(steps: Sequence[Step], sestra_inp_written: bool) -> None:
                 "Step",
                 step.name,
                 "the FEM file holds no steps; its loads are the load case, its analysis control is sestra.inp",
+                type=step.type,
+            )
+        elif model_data_only:
+            rep.note(
+                STAGE,
+                "Step",
+                step.name,
+                "model data only: its loads are the load case; no sestra.inp was asked for",
                 type=step.type,
             )
         else:

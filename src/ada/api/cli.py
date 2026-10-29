@@ -250,13 +250,39 @@ def _listing(directory: pathlib.Path) -> str:
     return "\n".join(f"  {f}" for f in found) if found else "  <empty>"
 
 
-def _resolve_superelement(out: pathlib.Path, explicit: int | None) -> int:
+_SESAM_FILE_NUMBER = re.compile(r"^(?P<prefix>.*?)[RrTt](?P<number>\d+)$")
+
+
+def _input_name_number(input_file) -> int | None:
+    """The number in an input named the Sesam way: ``R<n>.SIN`` (results) or ``<prefix>T<n>.FEM``."""
+    match = _SESAM_FILE_NUMBER.match(pathlib.Path(input_file).stem)
+    return int(match.group("number")) if match else None
+
+
+def _input_seltyp(model) -> int | None:
+    """The super element number the input model says it is (a Sesam deck's IDENT SELTYP), if any."""
+    for part in model.get_all_parts_in_assembly(include_self=True):
+        fem = getattr(part, "fem", None)
+        number = fem.metadata.get("sesam_seltyp") if fem is not None else None
+        if number is not None:
+            return int(number)
+    return None
+
+
+def _resolve_superelement(
+    out: pathlib.Path, explicit: int | None, from_input: int | None = None, input_file=None
+) -> int:
     """The Sesam super element number to write, and say where it came from.
 
-    An explicit ``--superelement`` wins; otherwise ``OUT``'s own ``T<n>`` says it. With neither,
-    it is 1 — and that is *said*, not assumed, because a silently defaulted 1 in a file the user
-    named ``…T10.FEM`` is exactly the mismatch this resolution exists to prevent: Presel would
-    read super element 1 from a deck the assembly expects to be 10.
+    In order: an explicit ``--superelement``; ``OUT``'s own ``T<n>``; what the input says
+    (``from_input``: the superelement a SIN is read from, a deck's IDENT SELTYP); the number in the
+    input's file name (``R<n>.SIN``, ``<prefix>T<n>.FEM``); and 1. The fallback to 1 is *said*, not
+    assumed, because a silently defaulted 1 in a file the user named ``…T10.FEM`` is exactly the
+    mismatch this resolution exists to prevent: Presel would read super element 1 from a deck the
+    assembly expects to be 10.
+
+    Called before the input is read with only ``explicit`` to refuse a contradiction early, and
+    again after reading with what the input says.
     """
     if explicit is not None:
         if explicit < 1:
@@ -279,6 +305,16 @@ def _resolve_superelement(out: pathlib.Path, explicit: int | None) -> int:
         logger.info("super element %s, from the T-number in '%s'", from_name, out.name)
         return from_name
 
+    if from_input is not None:
+        logger.info("super element %s, from the input's own super element number", from_input)
+        return from_input
+
+    from_file = _input_name_number(input_file) if input_file is not None else None
+    if from_file is not None:
+        name = pathlib.Path(input_file).name
+        logger.info("super element %s, from the number in the input's name '%s'", from_file, name)
+        return from_file
+
     logger.info(
         "'%s' names no super element number, so writing super element 1 "
         "(IDENT SELTYP 1); name the output '<prefix>T<n>.FEM' or pass --superelement to choose",
@@ -287,11 +323,14 @@ def _resolve_superelement(out: pathlib.Path, explicit: int | None) -> int:
     return 1
 
 
-def _write_fem(model, output_file, fmt: str, superelement: int | None = None) -> list[pathlib.Path]:
+def _write_fem(
+    model, output_file, fmt: str, superelement: int | None = None, analysis_files: bool = False
+) -> list[pathlib.Path]:
     """Write a FEM deck so that its primary file *is* ``output_file``.
 
     Returns every path written, primary first. See the module docstring for why this goes
-    through a temporary directory next to the destination.
+    through a temporary directory next to the destination. A Sesam deck is written alone unless
+    ``analysis_files`` asks for the ``sestra.inp`` the writer makes from the model's first step.
     """
     out = _prepare_out(output_file)
     name = _deck_name(out, fmt)
@@ -301,7 +340,13 @@ def _write_fem(model, output_file, fmt: str, superelement: int | None = None) ->
     try:
         # ``metadata`` is passed only for sesam: it is the one writer with something to say here,
         # and a writer that takes no metadata should not be handed the keyword at all.
-        extra = {"metadata": {"sesam_superelement": seltyp}} if fmt == "sesam" else {}
+        # A Sesam deck is the model alone unless a Sestra control file was asked for. Other
+        # writers keep their files: a Code_Aster .comm carries the materials and sections.
+        extra = (
+            {"metadata": {"sesam_superelement": seltyp}, "model_data_only": not analysis_files}
+            if fmt == "sesam"
+            else {}
+        )
         model.to_fem(
             name,
             fem_format=fmt,
@@ -350,11 +395,16 @@ def _write_fem(model, output_file, fmt: str, superelement: int | None = None) ->
 
 
 def _write(
-    model, output_file, fmt: str, superelement: int | None = None, binary_acis: bool = False
+    model,
+    output_file,
+    fmt: str,
+    superelement: int | None = None,
+    binary_acis: bool = False,
+    analysis_files: bool = False,
 ) -> list[pathlib.Path]:
     """Write ``model`` as ``fmt`` to ``output_file``. Returns every path written."""
     if fmt in FEM_WRITE_FORMATS:
-        return _write_fem(model, output_file, fmt, superelement=superelement)
+        return _write_fem(model, output_file, fmt, superelement=superelement, analysis_files=analysis_files)
 
     out = _prepare_out(output_file)
     if fmt == "ifc":
@@ -376,6 +426,102 @@ def _write(
 def _report_path(out: pathlib.Path) -> pathlib.Path:
     """Where the conversion report goes: ``<OUT stem>_conversion_report.json``, beside ``OUT``."""
     return out.with_name(f"{out.stem}_conversion_report.json")
+
+
+def _numbered_output(out: pathlib.Path, number: int) -> pathlib.Path:
+    """``<dir>/<stem>T<number><suffix>`` for ``out`` = ``<dir>/<stem><suffix>``; a trailing ``T<n>`` of the
+    stem is dropped first, so ``outT1.FEM`` gives ``outT10.FEM`` rather than ``outT1T10.FEM``."""
+    stem = re.sub(r"[Tt]\d+$", "", out.stem)
+    return out.with_name(f"{stem}T{number}{out.suffix}")
+
+
+def _convert_sin(args, out: pathlib.Path, out_fmt: str, explicit, specs, merge: bool, binary_acis: bool):
+    """Convert a Sesam .SIN, which may hold an assembly of superelements, without dropping any silently.
+
+    * ``merge``: every first-level superelement with a mesh, placed and merged, as ONE file at OUT
+      carrying the top level's number.
+    * ``specs`` (``--super-element``): just those, the one as OUT itself, several as numbered files.
+    * neither: an assembly gives one numbered file per first-level superelement with a mesh
+      (``<stem>T<n><suffix>``, each with its own number); a SIN holding one superelement is
+      written as OUT, as always.
+    """
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.sesam.read import sin_assembly as sa
+
+    path = pathlib.Path(args.input)
+    if not path.is_file():
+        raise CliUsageError(f"input file not found: {args.input}")
+    sesam = out_fmt == "sesam"
+    analysis_files = getattr(args, "sestra_inp", False)
+
+    def write_one(model, input_number: int | None) -> list[pathlib.Path]:
+        seltyp = _resolve_superelement(out, explicit, input_number, args.input) if sesam else None
+        return _write(
+            model, args.output, out_fmt, superelement=seltyp, binary_acis=binary_acis, analysis_files=analysis_files
+        )
+
+    try:
+        layout = sa.sin_layout(path)
+        for row in layout.deeper:
+            conversion_report.current().omitted(
+                "sin reader",
+                "Superelement",
+                row.label,
+                "a superelement below the first level; only first-level superelements are read",
+            )
+
+        if merge:
+            if not layout.is_assembly:
+                raise CliUsageError(
+                    f"--merge applies to a SIN holding more than one first-level superelement with a mesh; "
+                    f"this one holds {len(layout.meshes)}"
+                )
+            model = sa.read_merged(path, layout)
+            return write_one(model, layout.top.seltyp)
+
+        if specs:
+            chosen = sa.resolve_specs(path, layout, specs)
+        else:
+            chosen = list(layout.meshes) if layout.is_assembly else layout.meshes[:1]
+
+        if len(chosen) <= 1:
+            row = chosen[0] if chosen else None
+            model = sa.read_superelement(path, row if (layout.is_assembly or specs) else None)
+            return write_one(model, row.seltyp if row is not None else _input_seltyp(model))
+
+        if out_fmt not in FEM_WRITE_FORMATS:
+            raise CliUsageError(
+                f"{path.name} holds {len(chosen)} superelements ({', '.join(r.label for r in chosen)}), which "
+                f"cannot be written one per file as {out_fmt}. Use --merge for one model, or --super-element "
+                "to choose one."
+            )
+        if explicit is not None:
+            raise CliUsageError(
+                f"--superelement {explicit} numbers one file, but {len(chosen)} superelements are being written, "
+                "each with its own number. Use --super-element to choose one, or --merge for one file."
+            )
+        targets = {row.label: _numbered_output(out, row.seltyp) for row in chosen}
+        if len(set(targets.values())) != len(targets):
+            raise CliUsageError(
+                "two superelements are instances of one type and would be written to the same file name; "
+                "choose with --super-element or combine them with --merge"
+            )
+        written: list[pathlib.Path] = []
+        for row in chosen:
+            model = sa.read_superelement(path, row)
+            written += _write(
+                model,
+                targets[row.label],
+                out_fmt,
+                superelement=row.seltyp if sesam else None,
+                binary_acis=binary_acis,
+                analysis_files=analysis_files,
+            )
+            del model
+        logger.info("wrote %d superelements: %s", len(chosen), ", ".join(r.label for r in chosen))
+        return written
+    except sa.SinAssemblyError as exc:
+        raise CliUsageError(str(exc)) from None
 
 
 def _cmd_convert(args: argparse.Namespace) -> int:
@@ -405,9 +551,25 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     in_fmt = _resolve_read_format(args.input, getattr(args, "from_format", None))
     out_fmt = _resolve_write_format(args.output, getattr(args, "to_format", None))
     out = _validate_out(args.output)
-    # Resolved here, not in _write_fem, so a contradictory --superelement is refused before the
-    # input is read rather than after a multi-minute parse.
-    seltyp = _resolve_superelement(out, getattr(args, "superelement", None)) if out_fmt == "sesam" else None
+    explicit = getattr(args, "superelement", None)
+    # Checked here, not in _write_fem, so a contradictory --superelement is refused before the
+    # input is read rather than after a multi-minute parse. What the input itself says about the
+    # number can only be resolved after reading it.
+    if out_fmt == "sesam" and explicit is not None:
+        _resolve_superelement(out, explicit)
+    sin_input = in_fmt == "sesam" and suffix(args.input) == "sin"
+    merge = getattr(args, "merge", False)
+    specs = getattr(args, "super_element", None)
+    if merge and not sin_input:
+        raise CliUsageError("--merge applies to a Sesam .SIN assembly only")
+    if specs and not sin_input:
+        raise CliUsageError("--super-element applies to a Sesam .SIN only")
+    if merge and specs:
+        raise CliUsageError(
+            "--merge writes every first-level superelement as one file; it cannot be combined with --super-element"
+        )
+    if getattr(args, "sestra_inp", False) and out_fmt != "sesam":
+        raise CliUsageError(f"--sestra-inp applies to sesam output only, not {out_fmt}")
     binary_acis = getattr(args, "binary_acis", False)
     if binary_acis and out_fmt != "gnx":
         # Only a GeniE workspace stores its ACIS body as a separate member; anywhere else the flag
@@ -415,8 +577,21 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         raise CliUsageError(f"--binary-acis applies to gnx output only, not {out_fmt}")
 
     with conversion_report.collect() as report:
-        model = _load(args.input, fmt=in_fmt, split=args.split, limit=args.limit)
-        written = _write(model, args.output, out_fmt, superelement=seltyp, binary_acis=binary_acis)
+        if sin_input:
+            written = _convert_sin(args, out, out_fmt, explicit, specs, merge, binary_acis)
+        else:
+            model = _load(args.input, fmt=in_fmt, split=args.split, limit=args.limit)
+            seltyp = (
+                _resolve_superelement(out, explicit, _input_seltyp(model), args.input) if out_fmt == "sesam" else None
+            )
+            written = _write(
+                model,
+                args.output,
+                out_fmt,
+                superelement=seltyp,
+                binary_acis=binary_acis,
+                analysis_files=getattr(args, "sestra_inp", False),
+            )
 
     for path in written:
         print(path)
@@ -452,6 +627,22 @@ def _load_results(input_file, super_element: list[str] | None = None):
     """Read the result file ``input_file`` into an :class:`~ada.fem.results.common.FEAResult`."""
     import ada
 
+    path, fmt = _result_file(input_file, super_element)
+    return ada.from_fem_res(path, fem_format=fmt, super_element=_super_element_arg(super_element))
+
+
+def _open_result_chunks(input_file, super_element: list[str] | None = None):
+    """``input_file`` as a stream of field chunks when its reader has one (a Sesam .SIN), else None."""
+    path, _ = _result_file(input_file, super_element)
+    if suffix(path) != "sin":
+        return None
+    from ada.fem.formats.sesam.results.sin_field_stream import SinFieldStream
+
+    return SinFieldStream.open(path, super_element=_super_element_arg(super_element))
+
+
+def _result_file(input_file, super_element: list[str] | None) -> tuple[pathlib.Path, str]:
+    """``input_file`` and its result format, or :class:`CliUsageError`."""
     path = pathlib.Path(input_file)
     if not path.is_file():
         raise CliUsageError(f"input file not found: {input_file}")
@@ -462,8 +653,7 @@ def _load_results(input_file, super_element: list[str] | None = None):
         raise CliUsageError(f"{_ext_label(path)} is not a result file; result files are {known}")
     if super_element and suffix(path) != "sin":
         raise CliUsageError("--super-element applies to a Sesam .SIN only")
-
-    return ada.from_fem_res(path, fem_format=fmt, super_element=_super_element_arg(super_element))
+    return path, fmt
 
 
 def _cmd_view(args: argparse.Namespace) -> None:
@@ -501,13 +691,43 @@ def _cmd_results_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _same_file(a, b) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _compare(args: argparse.Namespace):
+    """The comparison ``ada results compare`` prints. Files that can be read a chunk at a time
+    are, so neither result is ever held whole; a file given twice is read once."""
+    from ada.fem.results.compare import compare_result_streams
+
+    same = _same_file(args.base, args.other)
+    base = _open_result_chunks(args.base, args.super_element)
+    other = None if same or base is None else _open_result_chunks(args.other, args.super_element)
+    if base is not None and (same or other is not None):
+        try:
+            return compare_result_streams(
+                base, other, fields=args.fields, check_mesh=args.check_mesh, keep_difference=args.show
+            )
+        finally:
+            base.close()
+            if other is not None:
+                other.close()
+    if base is not None:
+        base.close()
+
+    full_base = _load_results(args.base, args.super_element)
+    full_other = full_base if same else _load_results(args.other, args.super_element)
+    return full_base.compare(full_other, fields=args.fields, check_mesh=args.check_mesh)
+
+
 def _cmd_results_compare(args: argparse.Namespace) -> int:
     from ada.fem.results.compare import DEFAULT_RTOL
 
-    base = _load_results(args.base, args.super_element)
-    other = _load_results(args.other, args.super_element)
     try:
-        comparison = base.compare(other, fields=args.fields, check_mesh=args.check_mesh)
+        comparison = _compare(args)
     except ValueError as exc:
         # The meshes differ: a usage mistake (the wrong pair of files), not a failure of the work.
         if "the meshes differ" not in str(exc):

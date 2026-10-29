@@ -86,15 +86,24 @@ def _ipc_to_composite_curve(ipc: geo_cu.IndexedPolyCurve) -> geo_cu.CompositeCur
     return geo_cu.CompositeCurve(segments=segments, self_intersect=ipc.self_intersect)
 
 
-def indexed_poly_curve_or_composite(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
-    """``IfcCompositeCurve`` when the outline carries an analytic B-spline, else ``IfcIndexedPolyCurve``."""
+def indexed_poly_curve_or_composite(
+    ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file, planar: bool = False
+) -> ifcopenshell.entity_instance:
+    """``IfcCompositeCurve`` when the outline carries an analytic B-spline, else ``IfcIndexedPolyCurve``.
+    ``planar``: the curve of a profile, in its own plane -- see :func:`indexed_poly_curve`."""
     if _ipc_has_spline(ipc):
         return composite_curve(_ipc_to_composite_curve(ipc), f)
-    return indexed_poly_curve(ipc, f)
+    return indexed_poly_curve(ipc, f, planar=planar)
 
 
-def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
-    """Converts an IndexedPolyCurve to an IFC representation"""
+def indexed_poly_curve(
+    ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file, planar: bool = False
+) -> ifcopenshell.entity_instance:
+    """Converts an IndexedPolyCurve to an IFC representation.
+
+    ``planar`` writes the points as an ``IfcCartesianPointList2D``: a profile's curve must be 2D
+    (``IfcProfileDef``), and strict readers drop a profile -- and the solid swept from it -- whose
+    curve is 3D. Its points lie in the profile's plane, so the dropped coordinate is zero."""
     has_arclines = any([isinstance(seg, geo_cu.ArcLine) for seg in ipc.segments])
     use_segments = Config().ifc_use_index_poly_curve_segments
     if use_segments or has_arclines:
@@ -102,9 +111,13 @@ def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> if
         if use_segments is False and has_arclines:
             logger.info("Forcing the use indexed poly curve segments because it contains Arc segments")
         points = unique_pts.tolist()
+        if planar:
+            points = [list(p[:2]) for p in points]
         return indexed_poly_curve_from_points_and_segments(points, f, segment_indices)
     else:
         points = ipc.get_points()
+        if planar:
+            points = [list(p[:2]) for p in points]
 
         return indexed_poly_curve_from_points_and_segments(points, f)
 

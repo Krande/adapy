@@ -11,6 +11,11 @@ export interface ConversionJob {
     stage: string;
     error: string | null;
     startedAt: number;
+    /** The store key of the operation this job is one step of (`services/operationTracking`): the
+     *  toast shows it as a row under that entry rather than as a toast of its own. */
+    parent?: string;
+    /** On an operation: its steps are not listed under it, only folded into its bar and stage. */
+    collapsed?: boolean;
 }
 
 type ConversionState = {

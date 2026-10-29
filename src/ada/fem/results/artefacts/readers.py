@@ -132,14 +132,27 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None, s
     #
     # ``super_element``: on a superelement assembly SIN, which superelement to
     # read (a type number, (type, instance) or a label such as "SEL10.IND1").
+    #
+    # ADA_FEA_SIN_FIELD_CACHE (the admin "Cache SIN FEA bake fields" toggle), on
+    # unless told off: materialise with the field values in a memory-mapped file
+    # (see ada.fem.results.field_cache), read one case at a time -- the full read's
+    # output, LIS labels and every superelement of an assembly merged, at about one
+    # case's peak, and faster than the streamer (a 2.7 GB 12-superelement deck:
+    # 55 s at 1.3 GB, against 94 s at 2.8 GB). It replaces the size check, which
+    # exists to bound memory; the values need disk space instead
+    # (ADA_FIELD_CACHE_DIR, else the temp directory). Off, the size check picks as
+    # before. The streamer still wins when forced on or for chosen ``steps``.
     import os
 
     choice = os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower()
+    field_cache = os.environ.get("ADA_FEA_SIN_FIELD_CACHE", "").strip().lower() not in {"0", "false", "no", "off"}
     if (
         steps is not None
         or choice in {"1", "true", "yes", "on"}
         or (
-            choice not in {"0", "false", "no", "off"} and _sin_too_big_to_materialise(path, super_element=super_element)
+            choice not in {"0", "false", "no", "off"}
+            and not field_cache
+            and _sin_too_big_to_materialise(path, super_element=super_element)
         )
     ):
         from ada.fem.formats.sesam.results.read_sin import SinStreamReader
@@ -149,7 +162,7 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None, s
 
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
-    return FEAResultStreamAdapter(read_sin_file(path, super_element=super_element))
+    return FEAResultStreamAdapter(read_sin_file(path, super_element=super_element, field_cache=field_cache))
 
 
 def _sin_lazy_base_steps(path: pathlib.Path) -> "list[int] | None":

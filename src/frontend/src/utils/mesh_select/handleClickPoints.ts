@@ -10,6 +10,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {queryNameFromRangeId, queryPointDrawRange, queryPointRangeByRangeId} from "./queryMeshDrawRange";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {perform_selection} from "./perform_selection";
+import {isAdditiveClick} from "./additiveClick";
 
 export async function handleClickPoints(
     intersect: THREE.Intersection,
@@ -17,7 +18,7 @@ export async function handleClickPoints(
 ): Promise<void> {
     if (event.button === 2) return;
 
-    const shiftKey = event.shiftKey;
+    const shiftKey = isAdditiveClick(event);
 
     const useGpu = useOptionsStore.getState().useGpuPointPicking;
 

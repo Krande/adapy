@@ -74,7 +74,13 @@ class FemSet(FemBase):
         # lazily via the parent FEM). Keeps a FemSet from pinning object Node/Elem on
         # the array-backed mesh path.
         self._member_ids: list[int] | None = None
-        if members and all(isinstance(m, (int, np.integer)) for m in members):
+        ids = _as_int_ids(members)
+        if ids is not None:
+            if set_type is None:
+                raise ValueError("set_type is required when members are given as ids")
+            self._member_ids = ids
+            self._members = None
+        elif members and all(isinstance(m, (int, np.integer)) for m in members):
             if set_type is None:
                 raise ValueError("set_type is required when members are given as ids")
             self._member_ids = [int(m) for m in members]
@@ -193,11 +199,31 @@ class FemSet(FemBase):
         return self._members
 
     @property
+    def member_ids(self) -> list[int]:
+        """The members' ids, without resolving an id-backed set's members to proxies first."""
+        if self._member_ids is not None:
+            return list(self._member_ids)
+        return [m.id for m in self._members]
+
+    @property
     def refs(self):
         return self._refs
 
     def __repr__(self):
         return f'FemSet({self.name}, type: "{self.type}", members: "{len(self)}")'
+
+
+def _as_int_ids(members) -> list[int] | None:
+    """``[int(m) for m in members]`` when ``members`` is a non-empty list of integers, else None.
+
+    The same test as ``all(isinstance(m, (int, np.integer)) ...)``, made over the few distinct member
+    types instead of member by member: Sesam sets run to hundreds of thousands of ids."""
+    if not isinstance(members, list) or not members:
+        return None
+    types = set(map(type, members))
+    if not all(issubclass(t, (int, np.integer)) for t in types):
+        return None
+    return list(members) if types == {int} else [int(m) for m in members]
 
 
 def eval_set_type_from_members(members: list[Elem | Node]) -> str:

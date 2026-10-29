@@ -305,3 +305,43 @@ def write_stub_tie_sin(out: pathlib.Path, *, ident: bool = True) -> pathlib.Path
     norsam._preamble(0, "NORSAM")
     image.write_header(bytes(norsam.buf), [(1, ptab1), (2, ptab2)])
     return image.write_bytes(pathlib.Path(out))
+
+
+def write_two_case_sin(
+    out: pathlib.Path,
+    source: pathlib.Path = SIN_PATH,
+    *,
+    card: str = "RVSTRESS",
+    leave_out: int = 3,
+    from_case: int = 2,
+) -> pathlib.Path:
+    """``source`` (one superelement, one result case) with a second case, a copy of the
+    first: the same records under IRES 2. ``card`` of case ``from_case`` leaves out the
+    records of its last ``leave_out`` elements, so that case lists fewer elements."""
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    rewritten = ("RDRESREF", "RVNODDIS", "RVSTRESS", "RVFORCES")
+    data = pathlib.Path(source).read_bytes()
+    with open_sin(source) as sf:
+        assert len(sf.super_element_refs) == 1, "the source must hold one superelement"
+        iref, source_ptab = sf.super_element_refs[0]
+        blocks = list(sf.type_blocks.values())
+        records = {name: list(sf.iter_records(name)) for name in rewritten if name in sf.type_blocks}
+        prefix_end = next(off for off, name in sf.header_blocks if name == "RESULTS")
+    assert {int(r[0]) for rs in records.values() for r in rs} == {1}, "the source must hold case 1 only"
+    first = min(b.preamble_offset for b in blocks)
+
+    image = SinBuffer(PAGE)
+    image.pad_to(PAGE)
+    shift = _copy_rebased(image, data, blocks, first, source_ptab)
+    listed = [b.preamble_offset + shift for b in blocks if b.name not in records]
+    for name, rows in records.items():
+        cases = {1: rows, 2: [(2.0, *r[1:]) for r in rows]}
+        if name == card:
+            last = sorted({int(r[1]) for r in rows})[-leave_out:]
+            cases[from_case] = [r for r in cases[from_case] if int(r[1]) not in last]
+        listed.append(image.write_block(name, [*cases[1], *cases[2]]))
+    ptab = image.write_ptab(listed)
+    image.pad_to(SLOT)
+    image.write_header(data[:prefix_end], [(iref, ptab)])
+    return image.write_bytes(pathlib.Path(out))

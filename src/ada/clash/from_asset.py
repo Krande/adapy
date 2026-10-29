@@ -63,12 +63,14 @@ def part_for_asset_node(
     revision: str | None = None,
     node: str | None = None,
     scope: Any = None,
+    attributes: Any = None,
 ):
-    """The published node as an ``ada.Part``, read by whichever provider owns its format."""
+    """The published node as an ``ada.Part``, read by whichever provider owns its format.
+    ``attributes``: see :func:`ada.assets.concepts.part_for_manifest`."""
     from ada.assets.concepts import part_for_manifest
 
     manifest = _manifest_for(storage, collection, subject, revision)
-    return part_for_manifest(manifest, storage=storage, scope=scope, node=node)
+    return part_for_manifest(manifest, storage=storage, scope=scope, node=node, attributes=attributes)
 
 
 def clash_check_from_asset_node(

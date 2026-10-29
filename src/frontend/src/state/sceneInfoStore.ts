@@ -45,7 +45,7 @@ export interface UtilityResult {
   summary?: Record<string, unknown>;
 }
 
-export type SceneInfoMode = 'info' | 'source' | 'utilities' | 'section' | 'fem' | 'mesh' | 'joints' | 'clashes';
+export type SceneInfoMode = 'info' | 'source' | 'utilities' | 'section' | 'fem' | 'mesh' | 'joints' | 'clashes' | 'overlays';
 
 interface SceneInfoState {
   show_scene_info_box: boolean;

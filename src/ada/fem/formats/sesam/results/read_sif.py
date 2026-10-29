@@ -739,7 +739,23 @@ class SifReader:
             # an empty map, not an error (line forces do not need them).
             return {}
         rdpoints = blocks[0][1]
+        if isinstance(rdpoints, _RaggedRows):
+            rdpoints = rdpoints.to_rows()
         return {x[2]: x for x in rdpoints[1:]}
+
+    def get_rdpoints_lookup(self, nsp_i: int, eltyp_i: int) -> _RdpointsLookup:
+        """:meth:`get_rdpoints_map` as arrays, built once per RDPOINTS table."""
+        blocks = self.get_result(cards.RDPOINTS.name)
+        table = blocks[0][1] if blocks else None
+        cached = getattr(self, "_rdpoints_lookup", None)
+        if cached is not None and cached[0] is table and cached[1] == (nsp_i, eltyp_i):
+            return cached[2]
+        if isinstance(table, _RaggedRows) and max(nsp_i, eltyp_i, 2) < table.heads.shape[1]:
+            lookup = _RdpointsLookup.from_columns(table.heads[:, 2], table.heads[:, nsp_i], table.heads[:, eltyp_i])
+        else:
+            lookup = _RdpointsLookup.from_map(self.get_rdpoints_map(), nsp_i, eltyp_i)
+        self._rdpoints_lookup = (table, (nsp_i, eltyp_i), lookup)
+        return lookup
 
     def get_rdstress_map(self) -> dict:
         rdstress = self.get_result(cards.RDSTRESS.name)
@@ -897,6 +913,38 @@ def read_sin_file(sin_file: str | pathlib.Path, overwrite=False, super_element=N
     return _native_read_sin(sin_file, super_element=super_element)
 
 
+def read_lis_eigen_data(result_file: pathlib.Path):
+    """The eigen data of the ``SESTRA.LIS`` beside ``result_file``, or None."""
+    from ada.fem.formats.sesam.results._results import get_eigen_data
+
+    lis_file = result_file.parent / "SESTRA.LIS"
+    if not lis_file.exists():
+        return None
+    try:
+        return get_eigen_data(lis_file)
+    except Exception as e:
+        logger.info("Unable to extract eigen data from LIS file. Error: %s", e)
+        return None
+
+
+def stamp_eigen_data(results, eig_data) -> None:
+    """Set each nodal field's eigen frequency and value from ``eig_data``."""
+    from ada.fem.results.common import NodalFieldData
+
+    if eig_data is None:
+        return
+    try:
+        for result in results:
+            if not isinstance(result, NodalFieldData):
+                continue
+            eig_freq = eig_data.get_eigenmode(result.step)
+            if eig_freq is not None:
+                result.eigen_freq = eig_freq.f_hz
+                result.eigen_value = eig_freq.eigenvalue
+    except Exception as e:
+        logger.info("Unable to extract eigen data from LIS file. Error: %s", e)
+
+
 @dataclass
 class Sif2Mesh:
     sif: SifReader
@@ -904,27 +952,13 @@ class Sif2Mesh:
     mesh: Mesh = None
 
     def convert(self, sif_file) -> FEAResult:
-        from ada.fem.formats.sesam.results._results import get_eigen_data
-        from ada.fem.results.common import FEAResult, FEATypes, NodalFieldData
+        from ada.fem.results.common import FEAResult, FEATypes
 
         self.mesh = self.get_sif_mesh()
         results = self.get_sif_results()
         rnames = self.get_result_name_map()
         mlg_file = sif_file.parent / "SESTRA.MLG"
-        lis_file = sif_file.parent / "SESTRA.LIS"
-
-        if lis_file.exists():
-            try:
-                eig_data = get_eigen_data(lis_file)
-                for result in results:
-                    if not isinstance(result, NodalFieldData):
-                        continue
-                    eig_freq = eig_data.get_eigenmode(result.step)
-                    if eig_freq is not None:
-                        result.eigen_freq = eig_freq.f_hz
-                        result.eigen_value = eig_freq.eigenvalue
-            except Exception as e:
-                logger.info("Unable to extract eigen data from LIS file. Error: %s", e)
+        stamp_eigen_data(results, read_lis_eigen_data(sif_file))
 
         software_version = "N/A"
         if mlg_file.exists():
@@ -1036,14 +1070,11 @@ class Sif2Mesh:
             eltype_counts[elem_type] = elem_identifiers.size
 
         if eltype_counts:
-            # INFO so it shows up in the worker logs without needing a
-            # debug-level switch — diagnosing a "spiderweb" vis bug is
-            # part of normal triage for unfamiliar SIF files. Format
-            # tries to be greppable: "sesam-eltype histogram: {...}".
+            # DEBUG: it is emitted once per superelement read.
             summary = ", ".join(
                 f"{etyp}({_SESAM_ELTYPE_LABELS.get(etyp, '?')})={n}" for etyp, n in sorted(eltype_counts.items())
             )
-            logger.info("sesam-eltype histogram: %s", summary)
+            logger.debug("sesam-eltype histogram: %s", summary)
 
         sets = self.sif.get_sets()
         sections = self.sif.get_sections()
@@ -1077,7 +1108,10 @@ class Sif2Mesh:
     def get_sif_results(
         self,
         requested_fields: set[str] | None = None,
+        property_fields: bool = True,
     ) -> list[ElementFieldData | NodalFieldData]:
+        """The result fields of the loaded cases; ``property_fields=False`` leaves out the
+        step-invariant property fields (thickness, material, section)."""
         from ada.fem.formats.sesam.results.derived_fields import (
             build_derived_fields,
             build_nodal_kinematics,
@@ -1104,7 +1138,7 @@ class Sif2Mesh:
         # step-filtered read stays a single-step result and an empty read
         # (step=999) stays empty rather than growing a phantom step 1.
         present = sorted({int(field.step) for field in result_blocks})
-        if present:
+        if present and property_fields:
             result_blocks += build_property_fields(self.mesh, self.sif, wanted=requested_fields, step=present[0])
 
         if requested_fields is not None:
@@ -1166,7 +1200,7 @@ class Sif2Mesh:
         ires_i, ielno_i, irforc_i = cards.RVFORCES.get_indices_from_names(["ires", "ielno", "irforc|"])
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
-        rdpoints_map = self.sif.get_rdpoints_map()
+        rdpoints = self.sif.get_rdpoints_lookup(nsp_i, eltyp_i)
         # RDPOINTS supplies the element type and result-point count, but it is
         # only needed by the *shell* (stress) path. Some SINs (e.g. SESTRA
         # "smart load combination" / force-only runs) ship no RDPOINTS at all,
@@ -1181,7 +1215,7 @@ class Sif2Mesh:
         if len(table) <= 1:
             return []
         elno = table.heads[:, ielno_i].astype(np.int64)
-        nsp, elem_type, listed = _rdpoints_per_row(elno, rdpoints_map, nsp_i, eltyp_i)
+        nsp, elem_type, listed = _rdpoints_per_row(elno, rdpoints)
         unlisted = np.flatnonzero(~listed)
         if unlisted.size:
             elem_type_by_id = self._element_source_type_map()
@@ -1239,12 +1273,12 @@ class Sif2Mesh:
         ires_i, irstrs_i, iielno_i = cards.RVSTRESS.get_indices_from_names(["ires", "irstrs", "iielno"])
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
-        rdpoints_map = sif.get_rdpoints_map()
+        rdpoints = sif.get_rdpoints_lookup(nsp_i, eltyp_i)
         table = _RaggedRows.from_any(sif.get_result(cards.RVSTRESS.name)[0][1], irstrs_i + 1, dtype=np.float64)
         if len(table) <= 1:
             return []
         elno = table.heads[:, iielno_i].astype(np.int64)
-        nsp, elem_type, listed = _rdpoints_per_row(elno, rdpoints_map, nsp_i, eltyp_i)
+        nsp, elem_type, listed = _rdpoints_per_row(elno, rdpoints)
 
         # Skip stress records whose element has no RDPOINTS entry — without the
         # result-point definition there is no integration-point field to build.
@@ -1406,18 +1440,45 @@ def _resolve_per_node_refs(elem_refs: np.ndarray, gelref_rows, node_counts: dict
             cursor += nnod
 
 
-def _rdpoints_per_row(elno: np.ndarray, rdpoints_map: dict, nsp_i: int, eltyp_i: int):
+@dataclass
+class _RdpointsLookup:
+    """RDPOINTS by element id as sorted arrays: ids, result-point counts, element types."""
+
+    ids: np.ndarray
+    nsp: np.ndarray
+    elem_type: np.ndarray
+
+    @classmethod
+    def from_map(cls, rdpoints_map: dict, nsp_i: int, eltyp_i: int) -> _RdpointsLookup:
+        ids = np.fromiter((float(k) for k in rdpoints_map), dtype=np.float64, count=len(rdpoints_map))
+        nsp = np.fromiter((int(r[nsp_i]) for r in rdpoints_map.values()), dtype=np.int64, count=len(rdpoints_map))
+        elem_type = np.fromiter(
+            (int(r[eltyp_i]) for r in rdpoints_map.values()), dtype=np.int64, count=len(rdpoints_map)
+        )
+        order = np.argsort(ids, kind="stable")
+        return cls(ids[order], nsp[order], elem_type[order])
+
+    @classmethod
+    def from_columns(cls, ids: np.ndarray, nsp: np.ndarray, elem_type: np.ndarray) -> _RdpointsLookup:
+        """From one value per record; a later record of an id replaces an earlier one, as in
+        :meth:`SifReader.get_rdpoints_map`."""
+        ids = np.asarray(ids, dtype=np.float64)
+        last = ids.size - 1 - np.unique(ids[::-1], return_index=True)[1]
+        return cls(ids[last], np.asarray(nsp)[last].astype(np.int64), np.asarray(elem_type)[last].astype(np.int64))
+
+
+def _rdpoints_per_row(elno: np.ndarray, lookup: _RdpointsLookup):
     """Per row of element ids ``elno``: its RDPOINTS result-point count, element type and
     whether RDPOINTS lists the element at all (``nsp``/type are -1 where it does not)."""
     unique, inverse = np.unique(elno, return_inverse=True)
+    at = np.searchsorted(lookup.ids, unique)
+    found = at < lookup.ids.size
+    found[found] = lookup.ids[at[found]] == unique[found]
     nsp = np.full(unique.size, -1, dtype=np.int64)
     elem_type = np.full(unique.size, -1, dtype=np.int64)
-    listed = np.zeros(unique.size, dtype=bool)
-    for k, el in enumerate(unique.tolist()):
-        record = rdpoints_map.get(el)
-        if record is not None:
-            nsp[k], elem_type[k], listed[k] = int(record[nsp_i]), int(record[eltyp_i]), True
-    return nsp[inverse], elem_type[inverse], listed[inverse]
+    nsp[found] = lookup.nsp[at[found]]
+    elem_type[found] = lookup.elem_type[at[found]]
+    return nsp[inverse], elem_type[inverse], found[inverse]
 
 
 def _element_groups(ires: np.ndarray, nsp: np.ndarray, elem_type: np.ndarray, descriptor: np.ndarray):

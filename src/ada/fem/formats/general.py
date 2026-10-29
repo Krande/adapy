@@ -218,6 +218,7 @@ def write_to_fem(
             parts = write_assembly.get_all_parts_in_assembly(include_self=False)
             _report_part_steps_not_written([p for p in parts if p.fem.steps], fem_format)
 
+        report_long_fem_names(write_assembly)
         fem_exporter(write_assembly, name, analysis_dir, metadata, model_data_only)
 
         if make_zip_file is True:
@@ -230,6 +231,48 @@ def write_to_fem(
     if out is None and res_path is None:
         logger.info("No Result file is created")
         return None
+
+
+#: Name length above which some FEM software truncates or rejects a name.
+LONG_FEM_NAME = 25
+
+
+def report_long_fem_names(assembly: Assembly, max_examples: int = 3) -> list[str]:
+    """Log one notice for every FEM name longer than :data:`LONG_FEM_NAME`; returns those names."""
+    from ada.core.utils import _for_log
+
+    seen: dict[str, None] = {}
+    for part in assembly.get_all_parts_in_assembly(include_self=True):
+        fem = part.fem
+        named = [
+            fem.sets,
+            fem.sections,
+            fem.steps,
+            fem.bcs,
+            fem.constraints.values(),
+            fem.lcsys.values(),
+            fem.amplitudes.values(),
+            fem.surfaces.values(),
+            fem.connector_sections.values(),
+            fem.intprops.values(),
+            fem.interactions.values(),
+            fem.predefined_fields.values(),
+        ]
+        for objects in named:
+            for obj in objects:
+                name = getattr(obj, "name", None)
+                if isinstance(name, str) and len(name) > LONG_FEM_NAME:
+                    seen.setdefault(name)
+
+    long_names = list(seen)
+    if long_names:
+        examples = ", ".join(f'"{_for_log(n)}"' for n in long_names[:max_examples])
+        more = ", ..." if len(long_names) > max_examples else ""
+        logger.info(
+            f"{len(long_names)} FEM name(s) are longer than {LONG_FEM_NAME} characters, which some FEM "
+            f"software truncates or rejects: {examples}{more}"
+        )
+    return long_names
 
 
 def _report_part_steps_not_merged(fem_parts, fem_format) -> None:

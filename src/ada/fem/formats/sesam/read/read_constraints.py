@@ -242,7 +242,14 @@ def get_bcs(bulk_str, fem: FEM) -> List[Bc]:
     value lands in ``Bc.magnitudes`` -- without which a settlement read back as a rigid support.
     """
     retained: dict[int, tuple[int, ...]] = {}
-    records = [nd for nd in (grab_bc(m, fem, retained) for m in cards.re_bnbcd.finditer(bulk_str)) if nd is not None]
+    # Once, not per record: a node-by-node scan of every constraint's sets per BNBCD record was
+    # 2.4M Node comparisons on a 3200-support superelement.
+    constrained = _constrained_node_ids(fem)
+    records = [
+        nd
+        for nd in (grab_bc(m, fem, retained, constrained) for m in cards.re_bnbcd.finditer(bulk_str))
+        if nd is not None
+    ]
     bcs = group_bcs(fem, prescribed_magnitudes(records, bulk_str))
     add_supernode_set(fem, retained)
     return bcs
@@ -272,20 +279,20 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
         for node in nodes:
             patterns_of.setdefault(node.id, set()).add(key)
 
-    nsets = [fs for fs in fem.sets.sets if fs.type == "nset" and len(fs.members) > 0]
+    nsets = [fs for fs in fem.sets.sets if fs.type == "nset" and len(fs) > 0]
     bcs = []
     # Sesam has no name for a boundary condition, so it takes its set's name.
     taken = {b.name for b in fem.bcs}
     for pattern, nodes in by_pattern.items():
         dofs, magnitudes, load_case = pattern
         ids = {n.id for n in nodes}
-        candidates = [fs for fs in nsets if all(pattern in patterns_of.get(m.id, ()) for m in fs.members)]
-        exact = [fs for fs in candidates if {m.id for m in fs.members} == ids]
+        candidates = [fs for fs in nsets if all(pattern in patterns_of.get(mid, ()) for mid in fs.member_ids)]
+        exact = [fs for fs in candidates if set(fs.member_ids) == ids]
         chosen = exact[:1]
         if not chosen:
             covered: set[int] = set()
             for fs in sorted(candidates, key=lambda x: -len(x.members)):
-                members = {m.id for m in fs.members}
+                members = set(fs.member_ids)
                 if members & covered:
                     continue
                 chosen.append(fs)
@@ -323,8 +330,19 @@ def _bc(name: str, fem_set: FemSet, dofs: tuple, magnitudes: tuple, load_case: s
     return bc
 
 
+def _constrained_node_ids(fem: FEM) -> set[int]:
+    """The ids of the nodes in any constraint's master or slave set (a FEM's node ids are unique)."""
+    return {
+        m.id
+        for c in fem.constraints.values()
+        for fs in (c.m_set, c.s_set)
+        if isinstance(fs, FemSet) and fs.type == "nset"
+        for m in fs.members
+    }
+
+
 def grab_bc(
-    match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None
+    match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None, constrained: set[int] | None = None
 ) -> tuple[Node, tuple[int, ...], tuple[int, ...]] | None:
     """One BNBCD record -> ``(node, constrained dofs, prescribed dofs)``, or ``None`` when the
     record declares no constraint.
@@ -366,11 +384,10 @@ def grab_bc(
     if retained is not None and retained_dofs:
         retained[node.id] = tuple(retained_dofs)
 
-    for constraint in fem.constraints.values():
-        if node in constraint.m_set.members:
-            return None
-        if node in constraint.s_set.members:
-            return None
+    if constrained is None:
+        constrained = _constrained_node_ids(fem)
+    if node.id in constrained:
+        return None
 
     if not dofs:
         return None
@@ -410,15 +427,19 @@ def add_supernode_set(fem: FEM, retained: dict[int, tuple[int, ...]]) -> FemSet 
 
     partial = {nid: dofs for nid, dofs in sorted(retained.items()) if dofs != ALL_DOFS}
     if partial:
+        from ..write.write_bcs import RETAINED_BY_NODE_KEY
+
         shown = list(partial.items())[:10]
-        logger.warning(
+        fem.metadata[RETAINED_BY_NODE_KEY] = {nid: tuple(dofs) for nid, dofs in partial.items()}
+        logger.info(
             "sesam reader: %s of %s nodes with BNBCD FIX code 4 are retained on fewer than all six dofs, "
-            "e.g. %s. They are all put in the node set %s, which the writer retains on all six dofs, so "
-            "writing this model back out widens those patterns; the per-dof detail is not preserved.",
+            "e.g. %s. They are put in the node set %s, and their dofs are kept on the model "
+            "(metadata %r) so the writer retains exactly those.",
             len(partial),
             len(retained),
             ", ".join(f"node {nid}: dofs {list(dofs)}" for nid, dofs in shown),
             SUPERNODE_SET_NAME,
+            RETAINED_BY_NODE_KEY,
         )
     else:
         logger.info(

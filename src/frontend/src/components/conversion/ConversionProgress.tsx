@@ -511,18 +511,28 @@ const ConversionRows: React.FC<{
     // RUN always comes first, whatever its age: it is the one row with actions
     // (View run, Skip), and its own parallel jobs -- newer by construction --
     // would otherwise push it into the collapsed "+N more".
-    const isRunKey = (k: string) => k.startsWith("sweep:") || k.startsWith("export:");
+    // A bounds or attributes request and an operation are runs too (their steps are worker rows), without the
+    // runs-list actions.
+    const isRunKey = (k: string) =>
+        k.startsWith("sweep:") ||
+        k.startsWith("export:") ||
+        ((k.startsWith("bounds:") || k.startsWith("attrs:") || k.startsWith("op:")) && !k.includes("#"));
     const sorted = [...jobs].sort(
         (a, b) => Number(isRunKey(b.storeKey)) - Number(isRunKey(a.storeKey)) || b.startedAt - a.startedAt,
     );
     const top = sorted[0];
+    const shown = new Set(jobs.map((j) => j.storeKey));
     // The top run's own jobs are its WORKERS, not more conversions beside it: shown under it, one
     // at a time or all, and left out of the "+N more" count (which would count the run twice).
     const workers = isRunKey(top.storeKey)
-        ? sorted.slice(1).filter((j) => parentRunOf(j.jobId) === top.storeKey).sort((a, b) => a.startedAt - b.startedAt)
+        ? sorted
+              .slice(1)
+              .filter((j) => j.parent === top.storeKey || parentRunOf(j.jobId) === top.storeKey)
+              .sort((a, b) => a.startedAt - b.startedAt)
         : [];
-    const extras = sorted.slice(1).filter((j) => !workers.includes(j));
-    const total = jobs.length - workers.length;
+    // Another operation's steps belong to it, not to this list.
+    const extras = sorted.slice(1).filter((j) => !workers.includes(j) && !(j.parent && shown.has(j.parent)));
+    const total = 1 + extras.length;
     const at = Math.min(workerAt, Math.max(0, workers.length - 1));
     const pager = "px-1 rounded-sm text-gray-400 hover:text-gray-100 hover:bg-gray-700 disabled:opacity-30";
     const workerRow = (j: ToastJob) => (
@@ -905,12 +915,20 @@ const ConversionProgress = () => {
     // `job.sourceKey` is the bare key — so dismissing by sourceKey deletes
     // nothing and the toast stays on screen forever, which is exactly what it
     // did. The key that addresses the entry has to reach the button.
+    const active = (j: {status: string} | undefined) => !!j && (j.status === "queued" || j.status === "running");
+    // An operation's steps (`services/operationTracking`) stay listed under it while it runs,
+    // finished ones too: a step ending must not take a row out from under the user mid-operation.
+    // A COLLAPSED operation's steps are folded into its bar, never listed.
     const inProgress = Object.entries(jobs)
         .filter(([k, j]) =>
-            (j.status === "queued" || j.status === "running") &&
+            (active(j) || (!!j.parent && active(jobs[j.parent]) && j.status !== "error")) &&
+            !(j.parent && jobs[j.parent]?.collapsed && active(jobs[j.parent])) &&
             k !== MODEL_LOAD_KEY &&
             !(loadCurrentName && k.startsWith(loadCurrentName + "::")))
         .map(([k, j]) => ({...j, storeKey: k}));
+    // While an operation runs, the model download is one of its steps: its stage line says so
+    // (`operationTracking`), and the load row does not come and go beside it per model.
+    const operationRunning = Object.entries(jobs).some(([k, j]) => k.startsWith("op:") && !k.includes("#") && active(j));
     // Load-row progress: the conversion/bake job still feeding the load if one is
     // running, else the GLB download job — so the bar runs queue→convert→upload→load.
     const loadJob =
@@ -960,9 +978,9 @@ const ConversionProgress = () => {
             <UnifiedToast
                 conversionJobs={inProgress}
                 onClearJob={clearJob}
-                loadName={loadName}
-                loadJob={loadJob}
-                loadQueued={loadQueued}
+                loadName={operationRunning ? null : loadName}
+                loadJob={operationRunning ? undefined : loadJob}
+                loadQueued={operationRunning ? [] : loadQueued}
                 loadErrors={loadErrors}
                 onRemoveQueued={removeQueued}
                 onClearLoadError={clearError}

@@ -69,7 +69,7 @@ def sets_str(fem: FEM, *others: FEM, unwritten_elements: set | frozenset = froze
                     for m in members
                     if m.id not in unwritten_elements and not isinstance(getattr(m, "type", None), ConnectorTypes)
                 ]
-                if fs.members and not members:
+                if len(fs) and not members:
                     continue
             i += 1
             out_str += _set_str(fs, members, i, comments.get((fs.type, fs.name), []))

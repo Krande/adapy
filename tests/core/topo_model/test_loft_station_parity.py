@@ -91,6 +91,11 @@ def _xy(loop, x0: float = 0.0, y0: float = 0.0) -> list[tuple[float, float]]:
     return [(p.x - x0, p.y - y0) for p in loop.polygon]
 
 
+def _flat(points: list[tuple[float, float]]) -> list[float]:
+    """Point lists flattened for ``pytest.approx``, which refuses nested sequences (pytest >= 9)."""
+    return [c for p in points for c in p]
+
+
 # --- (a) rectangle point layouts ------------------------------------------- #
 def test_rounded_rectangle_12pt_matches_loft_tool():
     st = LoftStation(TYPE="rectangle", X=3.0, Y=-4.0, Z=2.0, WIDTH=10.0, HEIGHT=8.0, CORNER_RADIUS=2.5)
@@ -98,7 +103,7 @@ def test_rounded_rectangle_12pt_matches_loft_tool():
     got = _xy(loop, 3.0, -4.0)
     ref = _ref_rounded(10.0, 8.0, 2.5)
     assert len(got) == 12
-    assert got == pytest.approx(ref, abs=_ABS)
+    assert _flat(got) == pytest.approx(_flat(ref), abs=_ABS)
     assert all(p.z == 2.0 for p in loop.polygon)
 
 
@@ -107,7 +112,7 @@ def test_sharp_force_12pt_rectangle_matches_loft_tool():
     loop = st.to_poly_loop(force_12pt=True)
     got = _xy(loop)
     assert len(got) == 12
-    assert got == pytest.approx(_ref_sharp_12(10.0, 8.0), abs=_ABS)
+    assert _flat(got) == pytest.approx(_flat(_ref_sharp_12(10.0, 8.0)), abs=_ABS)
 
 
 def test_sharp_rectangle_stays_4pt_by_default():
@@ -115,7 +120,7 @@ def test_sharp_rectangle_stays_4pt_by_default():
     loop = st.to_poly_loop()
     got = _xy(loop, 1.0, 2.0)
     assert len(got) == 4
-    assert got == pytest.approx(_ref_sharp_4(6.0, 4.0), abs=_ABS)
+    assert _flat(got) == pytest.approx(_flat(_ref_sharp_4(6.0, 4.0)), abs=_ABS)
 
 
 def test_corner_radius_too_large_rejected():
@@ -132,7 +137,7 @@ def test_circle_matches_loft_tool_start_and_winding():
     assert len(loop.polygon) == n
     ref = [(5.0 + 2.0 * math.cos(2 * math.pi * i / n), 1.0 + 2.0 * math.sin(2 * math.pi * i / n)) for i in range(n)]
     got = [(p.x, p.y) for p in loop.polygon]
-    assert got == pytest.approx(ref, abs=_ABS)
+    assert _flat(got) == pytest.approx(_flat(ref), abs=_ABS)
     # first point at +X (r, 0) relative to centre, second point CCW (positive y).
     assert (loop.polygon[0].x, loop.polygon[0].y) == pytest.approx((7.0, 1.0), abs=_ABS)
     assert loop.polygon[1].y > loop.polygon[0].y
@@ -161,8 +166,8 @@ def test_member_mixing_forces_12pt_on_both():
     loops = m._station_poly_loops()
     assert [len(loop.polygon) for loop in loops] == [12, 12]
     # the sharp one uses the sharp-12 layout; the rounded one the rounded-12 layout.
-    assert _xy(loops[0]) == pytest.approx(_ref_sharp_12(10.0, 10.0), abs=_ABS)
-    assert _xy(loops[1]) == pytest.approx(_ref_rounded(10.0, 10.0, 2.5), abs=_ABS)
+    assert _flat(_xy(loops[0])) == pytest.approx(_flat(_ref_sharp_12(10.0, 10.0)), abs=_ABS)
+    assert _flat(_xy(loops[1])) == pytest.approx(_flat(_ref_rounded(10.0, 10.0, 2.5)), abs=_ABS)
 
 
 def test_member_all_sharp_stays_4pt():

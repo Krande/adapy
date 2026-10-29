@@ -153,6 +153,57 @@ def test_results_compare_no_show(example_files, shown):
     assert shown == []
 
 
+def _count_reads(monkeypatch) -> dict[str, list]:
+    """The files each reader opened: ``chunks`` read a chunk at a time, ``full`` whole."""
+    from ada.api import cli as cli_module
+
+    reads = {"chunks": [], "full": []}
+    for attr, kind in (("_open_result_chunks", "chunks"), ("_load_results", "full")):
+        real = getattr(cli_module, attr)
+
+        def _read(path, super_element=None, real=real, kind=kind):
+            out = real(path, super_element)
+            if out is not None:
+                reads[kind].append(path)
+            return out
+
+        monkeypatch.setattr(cli_module, attr, _read)
+    return reads
+
+
+def test_results_compare_reads_one_file_given_twice_once(example_files, shown, monkeypatch, capsys):
+    reads = _count_reads(monkeypatch)
+    sin = str(example_files / _SIN)
+
+    assert ada_cli.main.main(["results", "compare", sin, sin, "--no-show"]) == 0
+    assert reads == {"chunks": [sin], "full": []}
+    assert "differing=0" in capsys.readouterr().out
+
+
+def test_results_compare_streams_two_sin_files(example_files, shown, monkeypatch, capsys, tmp_path):
+    import shutil
+
+    reads = _count_reads(monkeypatch)
+    sin = example_files / _SIN
+    copy = tmp_path / sin.name
+    shutil.copyfile(sin, copy)
+
+    assert ada_cli.main.main(["results", "compare", str(sin), str(copy), "--no-show"]) == 0
+    assert reads == {"chunks": [str(sin), str(copy)], "full": []}
+    out = capsys.readouterr().out
+    assert "differing=0" in out
+    assert "identical:" in out
+
+
+def test_results_compare_of_other_formats_reads_them_whole(example_files, shown, monkeypatch, capsys):
+    reads = _count_reads(monkeypatch)
+    sif = str(example_files / _SIN.replace(".SIN", ".SIF"))
+
+    assert ada_cli.main.main(["results", "compare", sif, sif, "--no-show"]) == 0
+    assert reads == {"chunks": [], "full": [sif]}
+    assert "differing=0" in capsys.readouterr().out
+
+
 def test_results_compare_on_different_meshes_is_a_usage_error(example_files, shown, capsys):
     """The wrong pair of files is the caller's mistake, and the message names the CLI's flag
     rather than the Python keyword."""

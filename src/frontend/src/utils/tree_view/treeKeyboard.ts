@@ -6,7 +6,7 @@
 import {runtime} from "@/runtime/config";
 import {getSingletonViewerStores} from "@/state/AdaViewerContext";
 
-import {revealPickInTrees} from "./revealPick";
+import {revealPickInTrees, syncSceneTreeToSelection} from "./revealPick";
 
 /** The names of the rows selected in the Scene tree, TOPMOST only -- or null when that is not what
  *  a copy should mean.
@@ -105,9 +105,21 @@ export function toggleTreeFocus(): void {
         treeElement()?.focus();
         if (!sources && tree) {
             // Arborist's keyboard cursor is its FOCUSED row, separate from the selection: move it to
-            // the selection so the arrows start there, not wherever the cursor last was.
+            // the selection so the arrows start there, not wherever the cursor last was. With
+            // selection following focus, `focus` also SELECTS that one row -- which the 3D view
+            // would follow, dropping the rest of a multi-selection. So the move is programmatic,
+            // and the whole 3D selection is put back on the tree after it.
             const row = tree.mostRecentNode ?? tree.selectedNodes[0] ?? tree.focusedNode ?? tree.firstNode;
-            if (row) tree.focus(row);
+            if (row) {
+                const api = tree as unknown as {isProgrammaticChange?: boolean};
+                api.isProgrammaticChange = true;
+                try {
+                    tree.focus(row);
+                } finally {
+                    api.isProgrammaticChange = false;
+                }
+                syncSceneTreeToSelection();
+            }
         }
     };
 

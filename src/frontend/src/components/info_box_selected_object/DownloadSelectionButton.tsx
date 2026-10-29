@@ -17,6 +17,14 @@ import {trackJob} from '@/services/jobTracking';
 import {useConversionStore} from '@/state/conversionStore';
 import {useMeStore} from '@/state/meStore';
 import {
+    IFC_SCHEMAS,
+    STEP_SCHEMAS,
+    exportOptionsChanged,
+    exportOptionsWire,
+    useExportOptionsStore,
+} from '@/state/exportOptionsStore';
+import {exportFileName, groupExportLabel} from '@/utils/exportFileName';
+import {
     SELECTION_EXPORT_FORMATS,
     SelectionExportError,
     describeExportError,
@@ -32,6 +40,7 @@ import {
     type SelectionExportFormat,
 } from '@/utils/export/selectionExport';
 import {
+    missingFromPlan,
     noGeometryQuestion,
     noProviderGeometryOf,
     requestProviderChoices,
@@ -45,12 +54,16 @@ import type {GroupMember} from '@/utils/groups/savedGroups';
  *  members' geometry (then export again), or not. */
 interface MissingGeometryPrompt {
     readonly outcome: NoProviderGeometry;
-    readonly format: SelectionExportFormat;
+    /** The export to run once the geometry is published; null for a request on its own. */
+    readonly format: SelectionExportFormat | null;
     /** The export as it was asked, so the re-run is the same export whatever is selected by then. */
     readonly members: readonly GroupMember[];
     readonly label: string;
     readonly choices: readonly RequestProviderChoice[];
     readonly chosen: string;
+    /** Asked before exporting, the provider having part of the members: the export can also go
+     *  ahead without the rest. */
+    readonly partial?: boolean;
 }
 
 /**
@@ -80,7 +93,16 @@ const DownloadSelectionButton: React.FC = () => {
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const closeMenu = useCallback(() => setOpen(false), []);
-    const [busy, setBusy] = useState<SelectionExportFormat | null>(null);
+    const [configOpen, setConfigOpen] = useState(false);
+    const configRef = useRef<HTMLButtonElement>(null);
+    const closeConfig = useCallback(() => setConfigOpen(false), []);
+    const exportOptions = useExportOptionsStore();
+    const [busy, setBusy] = useState<SelectionExportFormat | 'request' | null>(null);
+    /** What the geometry provider lacks of the current selection, asked as it changes; null when
+     *  it has all of it, or nothing is read from another provider. */
+    const [coverage, setCoverage] = useState<NoProviderGeometry | null>(null);
+    /** Bumped after a request, so the coverage is asked again. */
+    const [coverageTick, setCoverageTick] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const [note, setNote] = useState<{text: string; title: string} | null>(null);
     const [providers, setProviders] = useState<readonly WireGeometryProvider[] | null>(null);
@@ -123,29 +145,87 @@ const DownloadSelectionButton: React.FC = () => {
         };
     }, [scope]);
 
+    // What the geometry provider lacks of the selection, asked as the selection (or "Geometry from")
+    // changes -- after a pause, so clicking through the tree asks once -- so the panel can say so
+    // and offer the request before any export is started.
+    const coverageProvider = chosen === undefined ? group.defaultProvider : chosen;
+    useEffect(() => {
+        setCoverage(null);
+        if (!runtime.isRestMode() || coverageProvider === null || captured.members.length === 0) return;
+        let live = true;
+        const timer = setTimeout(() => {
+            clashCheckApi
+                .geometryPlan(scope, {
+                    target: {kind: 'group', name: 'selection', members: captured.members},
+                    geometryProvider: coverageProvider,
+                })
+                .then((plan) => live && setCoverage(missingFromPlan(plan)))
+                .catch(() => live && setCoverage(null));
+        }, 400);
+        return () => {
+            live = false;
+            clearTimeout(timer);
+        };
+    }, [captured, coverageProvider, scope, coverageTick]);
+
     if (!runtime.isRestMode()) return null;
 
-    const provider = chosen === undefined ? group.defaultProvider : chosen;
+    const provider = coverageProvider;
     const count = captured.members.length;
     const useGroup = count > 0 && (count > 1 || provider !== null || !plan.ok);
     const blocker = useGroup ? groupExportBlocker(group, provider) : plan.ok ? null : plan.reason;
     const reason = blocker ?? (count === 0 && !plan.ok ? captured.reason ?? plan.reason : null);
     const enabled = reason === null;
 
-    const groupLabel =
-        count === 1
-            ? captured.members[0].element ?? (plan.ok ? plan.request.label : 'selection')
-            : `selection of ${count}`;
+    const groupLabel = groupExportLabel(
+        captured.members.map((m, i) => m.element ?? (i === 0 && plan.ok ? plan.request.label : '') ?? ''),
+    );
+    // The project the selection is from: the one collection its published members share.
+    const projects = new Set(captured.members.flatMap((m) => (m.target.kind === 'node' ? [m.target.collection] : [])));
+    const project = projects.size === 1 ? [...projects][0].toUpperCase() : null;
 
     const deps: SelectionExportDeps = {
         api: {
-            exportSelection: (s, body) => selectionExportApi.exportSelection(s, body),
+            // Every export from here -- one selection, a group, the re-run after a request -- is
+            // written with the configuration panel's options as they are when it is sent.
+            exportSelection: (s, body) => {
+                const o = useExportOptionsStore.getState();
+                const labelled = body as {format?: string; element?: string | null; label?: string | null};
+                // The IFC header names the file as it will be saved, and the project it is from; the
+                // server adds the signed-in user as its author.
+                const fileName = exportFileName({
+                    serverName: `${labelled.element || labelled.label || 'selection'}.${labelled.format ?? 'ifc'}`,
+                    project: o.prefixProject ? project : null,
+                    customPrefix: o.customPrefix,
+                    includeName: o.includeName,
+                });
+                return selectionExportApi.exportSelection(s, {
+                    ...body,
+                    export_options: {
+                        ...exportOptionsWire(o),
+                        ifc_header: {file_name: fileName, ...(project ? {project} : {})},
+                    },
+                });
+            },
             async jobStatus(jobId) {
                 const status = await conversionApi.convertStatus(jobId);
                 return {status: status.status, error: status.error};
             },
         },
-        download: (s, key, filename) => filesApi.downloadBlob(s, key, filename),
+        // Saved under the configured prefixes, read when the file arrives.
+        download: (s, key, filename) => {
+            const o = useExportOptionsStore.getState();
+            return filesApi.downloadBlob(
+                s,
+                key,
+                exportFileName({
+                    serverName: filename,
+                    project: o.prefixProject ? project : null,
+                    customPrefix: o.customPrefix,
+                    includeName: o.includeName,
+                }),
+            );
+        },
         trackJob: (opts) => void trackJob({...opts, scopeUrl: scope}),
     };
 
@@ -177,10 +257,19 @@ const DownloadSelectionButton: React.FC = () => {
         if (!(e instanceof SelectionExportError) || !e.derivedKey) return false;
         const outcome = noProviderGeometryOf(await readLog(scope, e.derivedKey), e.message);
         if (!outcome) return false;
-        let choices: RequestProviderChoice[];
+        const choices = await choicesFor(outcome);
+        if (choices.length === 0) return false;
+        // The prompt says it instead: the job's toast would only repeat the error beside it.
+        if (e.jobId) useConversionStore.getState().clearJob(`job:${e.jobId}`);
+        setMissing({outcome, format, members, label, choices, chosen: choices[0].providerId});
+        return true;
+    };
+
+    /** The providers `outcome`'s members can be requested from; none when that cannot be told. */
+    const choicesFor = async (outcome: NoProviderGeometry): Promise<RequestProviderChoice[]> => {
         try {
             const plugins = await pluginsApi.listBackendPlugins();
-            choices = requestProviderChoices({
+            return requestProviderChoices({
                 outcome,
                 declared: assetProviderCollections(plugins.plugins ?? []),
                 readable: providers,
@@ -188,12 +277,33 @@ const DownloadSelectionButton: React.FC = () => {
                 providerName,
             });
         } catch {
-            return false;
+            return [];
         }
+    };
+
+    /** Before a group export read from `from`: when that provider lacks some of the members, ask
+     *  whether to request them first (or export without them) rather than leave them out silently.
+     *  True when the question is now on screen. */
+    const askAboutPartial = async (
+        format: SelectionExportFormat,
+        members: readonly GroupMember[],
+        label: string,
+        from: string,
+    ): Promise<boolean> => {
+        let outcome: NoProviderGeometry | null;
+        try {
+            const plan = await clashCheckApi.geometryPlan(scope, {
+                target: {kind: 'group', name: label, members},
+                geometryProvider: from,
+            });
+            outcome = missingFromPlan(plan);
+        } catch {
+            return false; // the export says what it can when it runs
+        }
+        if (!outcome) return false;
+        const choices = await choicesFor(outcome);
         if (choices.length === 0) return false;
-        // The prompt says it instead: the job's toast would only repeat the error beside it.
-        if (e.jobId) useConversionStore.getState().clearJob(`job:${e.jobId}`);
-        setMissing({outcome, format, members, label, choices, chosen: choices[0].providerId});
+        setMissing({outcome, format, members, label, choices, chosen: choices[0].providerId, partial: true});
         return true;
     };
 
@@ -210,6 +320,12 @@ const DownloadSelectionButton: React.FC = () => {
             if (!useGroup && plan.ok) {
                 await runExportBody(deps, scope, selectionExportBody(plan.request, format));
                 return;
+            }
+            if (provider !== null) {
+                setStage(`checking what ${providerName(provider)} has of the selection`);
+                const asked = await askAboutPartial(format, members, label, provider);
+                setStage(null);
+                if (asked) return;
             }
             await runGroup(format, members, label, provider);
         } catch (e) {
@@ -229,7 +345,7 @@ const DownloadSelectionButton: React.FC = () => {
         setMissing(null);
         setError(null);
         setNote(null);
-        setBusy(p.format);
+        setBusy(p.format ?? 'request');
         setStage(`requesting the geometry from ${choice.label}`);
         try {
             const {geometryRequestDeps} = await import('@/state/clashGeometryDeps');
@@ -246,6 +362,11 @@ const DownloadSelectionButton: React.FC = () => {
                 setError(notes.join(' ') || p.outcome.message);
                 return;
             }
+            setCoverageTick((t) => t + 1); // what the provider has now
+            if (p.format === null) {
+                setNote({text: notes.join(' ') || 'Requested.', title: notes.join('\n')});
+                return;
+            }
             setStage('exporting again');
             // No second prompt: a re-run that still finds nothing shows its error.
             await runGroup(p.format, p.members, p.label, choice.providerId);
@@ -254,6 +375,45 @@ const DownloadSelectionButton: React.FC = () => {
         } finally {
             setBusy(null);
             setStage(null);
+        }
+    };
+
+    /** "Request" beside the options: the members the provider lacks, asked of a provider the user
+     *  picks in the same prompt; no export follows. */
+    const onRequestCoverage = async () => {
+        const c = coverage;
+        if (!c || busy) return;
+        const choices = await choicesFor(c);
+        if (choices.length === 0) {
+            setError(`Nobody here can request the missing geometry: ${c.message}`);
+            return;
+        }
+        setMissing({
+            outcome: c,
+            format: null,
+            members: captured.members,
+            label: groupLabel,
+            choices,
+            chosen: choices[0].providerId,
+            partial: true,
+        });
+    };
+
+    /** "Export without them": the export as asked, the members the provider lacks left out (and
+     *  named in the note, as before). */
+    const onExportWithout = async () => {
+        const p = missing;
+        if (!p || busy || p.format === null) return;
+        setMissing(null);
+        setError(null);
+        setNote(null);
+        setBusy(p.format);
+        try {
+            await runGroup(p.format, p.members, p.label, p.outcome.provider);
+        } catch (e) {
+            setError(describeExportError(e));
+        } finally {
+            setBusy(null);
         }
     };
 
@@ -268,20 +428,63 @@ const DownloadSelectionButton: React.FC = () => {
 
     return (
         <div className="relative inline-flex flex-col">
-            <button
-                ref={buttonRef}
-                type="button"
-                onClick={() => setOpen((o) => !o)}
-                disabled={busy !== null || (!enabled && !showSource)}
-                className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-50 disabled:hover:bg-gray-700 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
-                title={title}
-                aria-label="Download selection as"
-                aria-haspopup="menu"
-                aria-expanded={open}
-            >
-                <DownloadIcon/>
-                {busy ? `Exporting ${busy.toUpperCase()}…` : count > 1 ? `Download as… (${count})` : 'Download as…'}
-            </button>
+            <div className="inline-flex items-center gap-1">
+                <button
+                    ref={buttonRef}
+                    type="button"
+                    onClick={() => setOpen((o) => !o)}
+                    disabled={busy !== null || (!enabled && !showSource)}
+                    className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-50 disabled:hover:bg-gray-700 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                    title={title}
+                    aria-label="Download selection as"
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                >
+                    <DownloadIcon/>
+                    {busy ? `Exporting ${busy.toUpperCase()}…` : count > 1 ? `Download as… (${count})` : 'Download as…'}
+                </button>
+                {/* How the files are written: open while an export runs too -- a choice made then
+                    applies to the next one. Marked when it differs from the defaults. */}
+                <button
+                    ref={configRef}
+                    type="button"
+                    onClick={() => setConfigOpen((o) => !o)}
+                    className="relative bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm px-1.5 py-1 inline-flex items-center"
+                    title={`Export options (IFC ${exportOptions.ifcSchema}, STEP ${exportOptions.stepSchema})`}
+                    aria-label="Export options"
+                    aria-haspopup="dialog"
+                    aria-expanded={configOpen}
+                >
+                    <OptionsIcon/>
+                    {exportOptionsChanged(exportOptions) && (
+                        <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-blue-400" aria-hidden/>
+                    )}
+                </button>
+                {/* The selection is not all covered by the geometry provider: request the rest now,
+                    before any export -- the same request (and provider choice) the export offers. */}
+                {coverage && !missing && (
+                    <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void onRequestCoverage()}
+                        className="bg-amber-700 hover:bg-amber-600 disabled:opacity-60 text-white rounded-sm px-1.5 py-1 text-xs"
+                        title={coverage.unmatched.map((u) => u.label ?? u.reason).filter(Boolean).join('\n') || coverage.message}
+                    >
+                        Request
+                    </button>
+                )}
+            </div>
+            {coverage && !missing && (
+                <div className="text-[10px] text-amber-300 mt-0.5 max-w-64">
+                    {coverage.unmatched.length} of {coverage.members} selected have no stored geometry from{' '}
+                    {providerName(coverage.provider)}
+                </div>
+            )}
+            {configOpen && (
+                <FloatingMenu anchorRef={configRef} onClose={closeConfig} role="dialog" label="Export options">
+                    <ExportOptionsPanel/>
+                </FloatingMenu>
+            )}
             {open && (
                 <FloatingMenu anchorRef={buttonRef} onClose={closeMenu}>
                     {showSource && (
@@ -323,9 +526,10 @@ const DownloadSelectionButton: React.FC = () => {
                     prompt={missing}
                     onChoose={(id) => setMissing({...missing, chosen: id})}
                     onRequest={() => void onRequest()}
+                    onExportWithout={missing.partial && missing.format !== null ? () => void onExportWithout() : undefined}
                     onCancel={() => {
                         setMissing(null);
-                        setError(missing.outcome.message);
+                        if (!missing.partial) setError(missing.outcome.message);
                     }}
                 />
             )}
@@ -343,8 +547,10 @@ const MissingGeometryStep: React.FC<{
     prompt: MissingGeometryPrompt;
     onChoose: (providerId: string) => void;
     onRequest: () => void;
+    /** Offered when the provider has part of the members. */
+    onExportWithout?: () => void;
     onCancel: () => void;
-}> = ({prompt, onChoose, onRequest, onCancel}) => {
+}> = ({prompt, onChoose, onRequest, onExportWithout, onCancel}) => {
     const choice = prompt.choices.find((c) => c.providerId === prompt.chosen) ?? prompt.choices[0];
     const reasons = prompt.outcome.unmatched.map((u) => u.reason).filter(Boolean).join('\n');
     const btn = 'rounded-sm px-1.5 py-0.5 text-[11px] text-gray-100';
@@ -354,10 +560,17 @@ const MissingGeometryStep: React.FC<{
             aria-label="No stored geometry"
             className="mt-1 max-w-64 rounded-sm bg-amber-900/50 px-2 py-1 text-[11px] text-amber-100"
         >
-            <div title={reasons || prompt.outcome.message}>{noGeometryQuestion(prompt.outcome, choice.label)}</div>
+            <div title={reasons || prompt.outcome.message}>
+                {prompt.format === null
+                    ? noGeometryQuestion(prompt.outcome, choice.label).replace(' before exporting?', ' now?')
+                    : noGeometryQuestion(prompt.outcome, choice.label)}
+            </div>
             <div className="text-[10px] opacity-80 mt-0.5">
-                {prompt.outcome.members} member{prompt.outcome.members === 1 ? '' : 's'}; the export runs again once
-                the geometry is published.
+                {prompt.format === null
+                    ? 'Nothing is exported; the selection is checked again once it is published.'
+                    : prompt.partial
+                    ? 'The export runs once the missing geometry is published.'
+                    : `${prompt.outcome.members} member${prompt.outcome.members === 1 ? '' : 's'}; the export runs again once the geometry is published.`}
             </div>
             {prompt.choices.length > 1 && (
                 <label className="mt-1 block text-[10px]">
@@ -379,9 +592,122 @@ const MissingGeometryStep: React.FC<{
                 <button type="button" autoFocus className={`${btn} bg-blue-700 hover:bg-blue-600`} onClick={onRequest}>
                     Request
                 </button>
+                {onExportWithout && (
+                    <button
+                        type="button"
+                        className={`${btn} bg-gray-700 hover:bg-gray-600`}
+                        title="Export what the provider has; the members it lacks are left out and named"
+                        onClick={onExportWithout}
+                    >
+                        Export without them
+                    </button>
+                )}
                 <button type="button" className={`${btn} bg-gray-700 hover:bg-gray-600`} onClick={onCancel}>
                     Cancel
                 </button>
+            </div>
+        </div>
+    );
+};
+
+/** The export configuration: how "Download as…" writes its files (`state/exportOptionsStore`). */
+const ExportOptionsPanel: React.FC = () => {
+    const options = useExportOptionsStore();
+    const {stepSchema, ifcSchema, ifcSweptPrimitives, prefixProject, customPrefix, includeName} = options;
+    const {setStepSchema, setIfcSchema, setIfcSweptPrimitives, setPrefixProject, setCustomPrefix, setIncludeName, reset} =
+        options;
+    const changed = exportOptionsChanged({stepSchema, ifcSchema, ifcSweptPrimitives, prefixProject, customPrefix, includeName});
+    return (
+        <div className="w-60 px-2 py-1.5 text-[11px] text-white">
+            <div className="mb-1 font-medium">Export options</div>
+            <fieldset>
+                <legend className="text-[10px] text-gray-300">File name</legend>
+                <label className="mt-0.5 flex items-center gap-1.5" title="Start the file name with the project the selection is from">
+                    <input type="checkbox" checked={prefixProject} onChange={(e) => setPrefixProject(e.target.checked)} />
+                    <span>Prefix with project name</span>
+                </label>
+                <label className="mt-1 block">
+                    <span className="block text-[10px] text-gray-400">Custom prefix</span>
+                    <input
+                        type="text"
+                        value={customPrefix}
+                        onChange={(e) => setCustomPrefix(e.target.value)}
+                        placeholder="none"
+                        spellCheck={false}
+                        className="mt-0.5 w-full rounded-sm border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-[11px] text-white placeholder:text-gray-500"
+                    />
+                </label>
+                <label className="mt-1 flex items-center gap-1.5" title="End the file name with the selection's own name">
+                    <input type="checkbox" checked={includeName} onChange={(e) => setIncludeName(e.target.checked)} />
+                    <span>Include selection name</span>
+                </label>
+                <span className="mt-0.5 block text-[10px] text-gray-400" title="How the next download is named">
+                    {exportFileName({
+                        serverName: 'NAME.ifc',
+                        project: prefixProject ? 'PROJECT' : null,
+                        customPrefix,
+                        includeName,
+                    })}
+                </span>
+            </fieldset>
+            <fieldset className="mt-1.5">
+                <legend className="text-[10px] text-gray-300">IFC schema</legend>
+                {IFC_SCHEMAS.map((s) => (
+                    <label key={s.value} className="mt-0.5 flex items-start gap-1.5" title={s.title}>
+                        <input
+                            type="radio"
+                            name="export-ifc-schema"
+                            className="mt-0.5"
+                            checked={ifcSchema === s.value}
+                            onChange={() => setIfcSchema(s.value)}
+                        />
+                        <span>
+                            {s.label}
+                            <span className="block text-[10px] text-gray-400">{s.title}</span>
+                        </span>
+                    </label>
+                ))}
+                <label
+                    className="mt-1 flex items-start gap-1.5"
+                    title="Cylinders and cones written as swept solids: the same shapes, for IFC readers that cannot build primitive solids (bolt holes included)"
+                >
+                    <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={ifcSweptPrimitives}
+                        onChange={(e) => setIfcSweptPrimitives(e.target.checked)}
+                    />
+                    <span>
+                        Swept cylinders and cones
+                        <span className="block text-[10px] text-gray-400">For readers that drop primitive solids</span>
+                    </span>
+                </label>
+            </fieldset>
+            <fieldset className="mt-1.5">
+                <legend className="text-[10px] text-gray-300">STEP schema</legend>
+                {STEP_SCHEMAS.map((s) => (
+                    <label key={s.value} className="mt-0.5 flex items-start gap-1.5" title={s.title}>
+                        <input
+                            type="radio"
+                            name="export-step-schema"
+                            className="mt-0.5"
+                            checked={stepSchema === s.value}
+                            onChange={() => setStepSchema(s.value)}
+                        />
+                        <span>
+                            {s.label}
+                            <span className="block text-[10px] text-gray-400">{s.title}</span>
+                        </span>
+                    </label>
+                ))}
+            </fieldset>
+            <div className="mt-1.5 flex items-center justify-between text-[10px] text-gray-400">
+                <span>Applies to the next export.</span>
+                {changed && (
+                    <button type="button" className="text-gray-300 hover:text-white" onClick={reset}>
+                        Reset
+                    </button>
+                )}
             </div>
         </div>
     );
@@ -393,7 +719,10 @@ const FloatingMenu: React.FC<{
     anchorRef: React.RefObject<HTMLButtonElement | null>;
     onClose: () => void;
     children: React.ReactNode;
-}> = ({anchorRef, onClose, children}) => {
+    /** `menu` (the default) for a list of actions; `dialog` for a panel of controls. */
+    role?: "menu" | "dialog";
+    label?: string;
+}> = ({anchorRef, onClose, children, role = "menu", label}) => {
     const menuRef = useRef<HTMLDivElement>(null);
     const [style, setStyle] = useState<React.CSSProperties>({visibility: 'hidden'});
 
@@ -435,7 +764,8 @@ const FloatingMenu: React.FC<{
     return createPortal(
         <div
             ref={menuRef}
-            role="menu"
+            role={role}
+            aria-label={label}
             style={style}
             className="fixed z-[70] bg-gray-800 border border-gray-600 rounded-sm shadow-lg min-w-44"
         >
@@ -453,6 +783,16 @@ async function readLog(scope: string, derivedKey: string): Promise<GroupExportLo
         return null;
     }
 }
+
+/** Settings sliders: three tracks with their knobs at different stops. */
+const OptionsIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
+        <path d="M2 4h7.5M12.5 4H14M2 8h1.5M6.5 8H14M2 12h5.5M10.5 12H14"/>
+        <circle cx="11" cy="4" r="1.5"/>
+        <circle cx="5" cy="8" r="1.5"/>
+        <circle cx="9" cy="12" r="1.5"/>
+    </svg>
+);
 
 const DownloadIcon: React.FC = () => (
     <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>

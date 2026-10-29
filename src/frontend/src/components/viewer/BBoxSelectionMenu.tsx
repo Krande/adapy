@@ -1,5 +1,5 @@
-// The right-click menu of a selection box: which elements it takes, how it is drawn, and
-// hiding or deleting it.
+// The right-click menu of a selection box: which elements it takes, requesting their geometry from
+// the source, how it is drawn, and hiding or deleting it.
 
 import React, {useLayoutEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
@@ -7,6 +7,8 @@ import {createPortal} from "react-dom";
 import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
 import type {BoxSelectMode} from "@/utils/bboxSelection/boxMath";
 import {applyBoxSelection} from "@/utils/bboxSelection/applyBoxSelection";
+
+import {BoxRequestSection} from "./BoxRequestSection";
 
 const MODES: {mode: BoxSelectMode; label: string; title: string}[] = [
     {mode: "partial", label: "Partially within", title: "Select every element the box touches"},
@@ -77,6 +79,8 @@ const BBoxSelectionMenu: React.FC<{box: SelectionBox; x: number; y: number; onCl
                 <span className="inline-block w-3.5"/>
                 <span>Reselect</span>
             </button>
+            <div className="my-1 border-t border-gray-700"/>
+            <BoxRequestSection box={box}/>
             <div className="my-1 border-t border-gray-700"/>
             <label className="flex items-center gap-2 px-3 py-1.5 text-xs">
                 <span className="w-16">Colour</span>

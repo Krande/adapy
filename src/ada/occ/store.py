@@ -45,9 +45,11 @@ def _apply_world_placement(occ_geom, obj_, name_ref):
 
 class OCCStore:
     @staticmethod
-    def get_step_writer() -> StepWriter:
-        from ada.occ.step.writer import StepWriter
+    def get_step_writer(schema: str | None = None) -> StepWriter:
+        from ada.occ.step.writer import StepSchema, StepWriter
 
+        if schema:
+            return StepWriter("AdaStep", schema=StepSchema(schema.upper()))
         return StepWriter("AdaStep")
 
     @staticmethod

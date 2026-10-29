@@ -64,6 +64,16 @@ class System:
         #: ``system_route_to_geometry``): corners the route left sharp because they
         #: were too cramped to round. Each names the spot and a respacing fix.
         self.route_warnings: list = []
+        #: Elements that belong to the system without being part of its routed run or connected
+        #: through a port (a fitting, a sleeve, a support): grouped under the system when written,
+        #: and nothing else -- routing and port wiring do not read them.
+        self.members: list = []
+
+    def add_member(self, obj) -> System:
+        """Group ``obj`` (a physical object or part) under this system. Returns ``self``."""
+        if obj not in self.members:
+            self.members.append(obj)
+        return self
 
     def connect(self, equipment_or_port: Equipment | Port, port_name: str | None = None) -> System:
         """Connect this system to a port, in either of two shapes: ``connect(equipment, port_name)``

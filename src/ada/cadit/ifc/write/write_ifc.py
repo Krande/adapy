@@ -496,6 +496,9 @@ class IfcWriter:
                             SecondOperand=half_space,
                         )
                         shape_rep.Items = [updated_item]
+                        # The type names what the items are: a clipping result is 'Clipping', which
+                        # strict readers enforce (IfcShapeRepresentationTypes) by dropping the body.
+                        shape_rep.RepresentationType = "Clipping"
                     else:
                         ifc_opening = generate_ifc_opening(pen)
                         f.create_entity(

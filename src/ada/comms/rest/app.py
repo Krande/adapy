@@ -193,6 +193,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # need no stream-admin rights.
                 await queue.connect(manage=True, name="adapy-viewer-api")
                 logger.info("queue connected to %s", settings.queue.url)
+                # One long-lived watcher per bucket instead of a scan per
+                # question — routing alone used to scan once per enqueued job.
+                await queue.start_mirrors()
             except Exception as exc:
                 logger.warning("queue connect failed (%s); convert endpoints will return 503", exc)
         # Postgres pool — ``None`` when DATABASE_URL is empty. We don't
@@ -2182,6 +2185,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     await q.purge_completed_jobs(grace_s=GRACE_S)
                 except Exception:
                     logger.exception("job KV cleanup: tick failed")
+                # Purging a job leaves a delete marker NATS keeps forever;
+                # without this the bucket grows by one per job ever run.
+                try:
+                    await q.purge_old_tombstones()
+                except Exception:
+                    logger.exception("job KV cleanup: delete-marker purge failed")
         except asyncio.CancelledError:
             logger.info("job KV cleanup: stopped")
             raise

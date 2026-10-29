@@ -115,7 +115,8 @@ def test_no_fem_section_name_in_a_real_deck_spans_a_line(example_files):
 
 def test_make_name_fem_ready_bounds_what_it_logs():
     """Defence in depth: even with the reader fixed, a pathological name must not be able to
-    flood a terminal. The returned name is untouched; only the log record is bounded.
+    flood a terminal. The returned name is untouched, and the name-length notice is a writer's,
+    bounded per name (see ``tests/core/fem/test_long_fem_names.py``).
 
     A handler rather than ``caplog``: ``ada.config.configure_logger`` sets ``propagate = False``
     on the ``ada`` logger, so its records never reach the root handler ``caplog`` installs.
@@ -128,10 +129,10 @@ def test_make_name_fem_ready_bounds_what_it_logs():
             records.append(record)
 
     logger = logging.getLogger("ada")
-    handler = _Collect(level=logging.INFO)
+    handler = _Collect(level=logging.DEBUG)
     previous = logger.level
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     try:
         out = make_name_fem_ready(name)
     finally:
@@ -139,8 +140,4 @@ def test_make_name_fem_ready_bounds_what_it_logs():
         logger.setLevel(previous)
 
     assert out == name, "truncation belongs in the message, not in the name"
-    notices = [r for r in records if ">25 characters" in r.getMessage()]
-    assert len(notices) == 1
-    message = notices[0].getMessage()
-    assert len(message) < 200, f"log record is {len(message)} characters long"
-    assert "5000 characters" in message, "the message should still say how long the name was"
+    assert all(len(r.getMessage()) < 200 for r in records)
