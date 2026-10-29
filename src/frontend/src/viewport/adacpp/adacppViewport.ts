@@ -94,12 +94,13 @@ export class AdacppViewport {
 
             const canvas = document.createElement("canvas");
             canvas.id = `adacpp-webgpu-canvas-${++canvasSerial}`;
+            canvas.dataset.adacppViewport = "true"; // setupControls must never bind to this one
             Object.assign(canvas.style, {
                 position: "absolute",
                 inset: "0",
                 width: "100%",
                 height: "100%",
-                pointerEvents: "none", // the WebGL canvas' container keeps all input
+                pointerEvents: "none", // input goes to the transparent WebGL canvas above it
                 display: "block",
             });
             // First child so overlays appended later (gizmo, stats) stay on top.

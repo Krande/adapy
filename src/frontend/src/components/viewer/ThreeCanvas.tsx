@@ -25,6 +25,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
 import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 import {AdacppViewport} from "@/viewport/adacpp/adacppViewport";
+import {ensureViewportInput} from "@/viewport/input";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -119,9 +120,14 @@ const ThreeCanvas: React.FC = () => {
             );
             renderer.shadowMap.enabled = !initialPerf.disableShadowMap;
             containerRef.current.appendChild(renderer.domElement);
+            // Input goes to the renderer-independent input surface (viewport/input.ts), never to a
+            // renderer's canvas: the same controls then work over three.js and the adacpp WebGPU renderer.
+            renderer.domElement.style.pointerEvents = "none";
             rendererRef.current = renderer;
         }
         const renderer = rendererRef.current;
+
+        ensureViewportInput(containerRef.current);
 
         // === Camera ===
         const camera = setupCamera(containerRef.current, zIsUp);
@@ -258,7 +264,7 @@ const ThreeCanvas: React.FC = () => {
             if (adacpp && !adacpp.alive) {
                 // Device lost / render failure: hand the viewport back to three.js.
                 adacppRef.current = adacpp = null;
-                renderer.domElement.style.visibility = "";
+                renderer.domElement.style.opacity = "";
             }
             if (shouldRender && adacpp) {
                 adacpp.render(scene, camera, renderer.getPixelRatio(), {
@@ -341,8 +347,9 @@ const ThreeCanvas: React.FC = () => {
 
     // ——— Renderer backend: start / stop the adacpp WebGPU viewport ———
     // Declared after the setup effect so the WebGLRenderer exists. Switching is live: the WebGL
-    // canvas is hidden (not removed — GPU picking and screenshots still render through it) and the
-    // WebGPU canvas is layered underneath the gizmo and stats.
+    // canvas is made transparent (not removed — it keeps receiving the controls' pointer and touch
+    // input, and GPU picking and screenshots still render through it) and the WebGPU canvas, which
+    // ignores input, shows through it underneath the gizmo and stats.
     useEffect(() => {
         const container = containerRef.current;
         if (renderBackend !== "adacpp-webgpu" || !container) return;
@@ -354,7 +361,9 @@ const ThreeCanvas: React.FC = () => {
                     return;
                 }
                 adacppRef.current = vp;
-                if (rendererRef.current) rendererRef.current.domElement.style.visibility = "hidden";
+                // Transparent, not hidden: the camera controls and pointer handlers listen on this
+                // canvas, and a visibility:hidden element gets no pointer/touch events at all.
+                if (rendererRef.current) rendererRef.current.domElement.style.opacity = "0";
                 requestRender();
             })
             .catch((err) => console.warn("[adacpp-webgpu] unavailable, staying on three.js:", err));
@@ -362,7 +371,7 @@ const ThreeCanvas: React.FC = () => {
             cancelled = true;
             adacppRef.current?.dispose();
             adacppRef.current = null;
-            if (rendererRef.current) rendererRef.current.domElement.style.visibility = "";
+            if (rendererRef.current) rendererRef.current.domElement.style.opacity = "";
             requestRender();
         };
     }, [renderBackend]);

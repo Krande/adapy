@@ -11,6 +11,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {createPlaneStencilGroup, createCapMesh, orientCapToPlane} from "@/utils/scene/section_caps";
 import {applyClippingPlanes, setSectionClippingPlanes} from "@/utils/scene/section_clipping";
+import {viewportInputElement} from "@/viewport/input";
 
 // Headless: reconciles the section-plane store with three.js (per-material
 // clipping + stencil caps + a drag gizmo). Renders nothing.
@@ -70,7 +71,7 @@ function init(
         const handle = new THREE.Object3D();
         handle.userData.__excludeFromFit = true;
         scene.add(handle);
-        const gizmo = new TransformControls(camera, renderer.domElement);
+        const gizmo = new TransformControls(camera, viewportInputElement(renderer));
         gizmo.setMode("translate");
         gizmo.setSpace("world");
         const gizmoHelper = gizmo.getHelper();

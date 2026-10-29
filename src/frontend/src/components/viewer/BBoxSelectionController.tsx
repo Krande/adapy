@@ -11,6 +11,7 @@ import {bindBBoxSelectionStorage} from "@/utils/bboxSelection/boxPersistence";
 import {BOX_FACES, boxCenter, boxSize, centeredAt, faceCenter, moveFace, type Aabb, type Vec3} from "@/utils/bboxSelection/boxMath";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {lineParamFromRay} from "./cellbuilder/geometryHelpers";
+import {viewportInputElement} from "@/viewport/input";
 
 // Headless: draws the selection boxes, a move gizmo and six face handles on the active
 // box, and re-applies the active box's selection whenever its bounds or mode change. While
@@ -119,7 +120,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const proxy = new THREE.Object3D();
     proxy.userData.__excludeFromFit = true;
     scene.add(proxy);
-    const gizmo = new TransformControls(camera, renderer.domElement);
+    const gizmo = new TransformControls(camera, viewportInputElement(renderer));
     gizmo.setMode("translate");
     gizmo.setSpace("world");
     const gizmoHelper = gizmo.getHelper();
@@ -285,7 +286,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         drag = {face, startBox: {min: [...box.min], max: [...box.max]}, lineOrigin, lineDir, startT, pointerId: ev.pointerId};
         swallowClick = true;
         setControlsEnabled(false);
-        renderer.domElement.setPointerCapture(ev.pointerId);
+        viewportInputElement(renderer).setPointerCapture(ev.pointerId);
     };
 
     const onPointerMove = (ev: PointerEvent) => {
@@ -301,7 +302,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const onPointerUp = (ev: PointerEvent) => {
         if (!drag || ev.pointerId !== drag.pointerId) return;
         drag = null;
-        if (renderer.domElement.hasPointerCapture(ev.pointerId)) renderer.domElement.releasePointerCapture(ev.pointerId);
+        if (viewportInputElement(renderer).hasPointerCapture(ev.pointerId)) viewportInputElement(renderer).releasePointerCapture(ev.pointerId);
         setControlsEnabled(true);
         if (live) commit(live);
     };
@@ -312,7 +313,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ev.stopImmediatePropagation();
     };
 
-    const dom = renderer.domElement;
+    const dom = viewportInputElement(renderer);
     dom.addEventListener("pointerdown", onPointerDown, {capture: true});
     dom.addEventListener("pointermove", onPointerMove);
     dom.addEventListener("pointerup", onPointerUp);
