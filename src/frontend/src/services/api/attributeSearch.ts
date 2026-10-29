@@ -179,6 +179,19 @@ export interface AttributesRequestPermission {
   reason: string | null;
 }
 
+/** Ids and names per `POST .../search/nodes`: the server's `NODES_LOOKUP_MAX`. */
+export const NODES_LOOKUP_MAX = 5000;
+
+/** One row of `POST .../search/nodes`. */
+export interface IndexedNodeRow {
+  node_id: string;
+  parent_id: string | null;
+  full_name: string | null;
+  kind: string | null;
+  provider?: string;
+  attrs: Record<string, unknown>;
+}
+
 function searchBase(scope: ScopeUrl): string {
   return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/assets/search`;
 }
@@ -243,6 +256,42 @@ export const attributeSearchApi = {
     else q.set("name", by.name);
     const r = await authedFetch(`${searchBase(scope)}/node?${q}`, { signal });
     return jsonOrThrow(r, "nodeAttributes");
+  },
+
+  /** Many nodes of one collection, by node ids and/or exact full names (at most
+   *  {@link NODES_LOOKUP_MAX} per request; this sends as many requests as that takes), with only
+   *  the attributes `keys` names (none: an empty list). */
+  async collectionNodes(
+    scope: ScopeUrl,
+    collection: string,
+    by: { nodeIds?: readonly string[]; fullNames?: readonly string[] },
+    keys: readonly string[] = [],
+    signal?: AbortSignal,
+  ): Promise<{ indexed: boolean; nodes: IndexedNodeRow[] }> {
+    const items: { id?: string; name?: string }[] = [
+      ...(by.nodeIds ?? []).map((id) => ({ id })),
+      ...(by.fullNames ?? []).map((name) => ({ name })),
+    ];
+    const out: { indexed: boolean; nodes: IndexedNodeRow[] } = { indexed: false, nodes: [] };
+    for (let i = 0; i < Math.max(items.length, 1); i += NODES_LOOKUP_MAX) {
+      const chunk = items.slice(i, i + NODES_LOOKUP_MAX);
+      const r = await authedFetch(`${searchBase(scope)}/nodes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collection,
+          node_ids: chunk.filter((c) => c.id).map((c) => c.id),
+          full_names: chunk.filter((c) => c.name).map((c) => c.name),
+          keys,
+        }),
+        signal,
+      });
+      const page = await jsonOrThrow<{ indexed: boolean; nodes: IndexedNodeRow[] }>(r, "collectionNodes");
+      out.indexed ||= page.indexed;
+      out.nodes.push(...page.nodes);
+      if (!page.indexed) break;
+    }
+    return out;
   },
 
   async attributesRequestPermission(scope: ScopeUrl, provider: string): Promise<AttributesRequestPermission> {
