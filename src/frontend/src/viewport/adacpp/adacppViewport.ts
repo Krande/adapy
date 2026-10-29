@@ -1,0 +1,165 @@
+// The experimental adacpp WebGPU renderer as a drop-in for the main viewport draw.
+//
+// three.js stays the scene graph: loading, the tree, selection, picking (GpuMeshPicker renders through
+// the WebGLRenderer into its own target), controls and the orientation gizmo are unchanged. Each frame
+// this mirrors what three.js would have drawn into the adacpp renderer (wasm, /wasm/adacpp_render.js)
+// and draws it on a WebGPU canvas layered over the hidden WebGL one. The renderer itself lives in
+// adacpp (src/render).
+//
+// Not drawn yet (three.js-only for now): clipping/section planes and caps, sprites/icons, transform
+// gizmos, face-highlight overlays, fat-line widths (LineSegments2 draws as 1px lines).
+import * as THREE from "three";
+import {create} from "zustand";
+import {resolveModuleUrl} from "@/utils/wasm/emscriptenLoader";
+import {SceneSync} from "./sceneSync";
+import type {AdacppModule, AdacppStats, GpuDeviceLike, GpuLike, WebRendererApi} from "./types";
+
+const MODULE_URL = "/wasm/adacpp_render.js";
+
+export type AdacppRenderState = "off" | "starting" | "active" | "failed";
+
+interface AdacppRenderStatus {
+    state: AdacppRenderState;
+    error: string | null;
+    adapter: string | null;
+    stats: AdacppStats | null;
+}
+
+/** What the Performance panel shows about the adacpp renderer. Not persisted. */
+export const useAdacppRenderStatus = create<AdacppRenderStatus>(() => ({
+    state: "off",
+    error: null,
+    adapter: null,
+    stats: null,
+}));
+
+let canvasSerial = 0;
+
+export class AdacppViewport {
+    readonly canvas: HTMLCanvasElement;
+    private readonly sync: SceneSync;
+    private readonly resizeObserver: ResizeObserver;
+    private alive_ = true;
+    private lastStatsPush = 0;
+    private cssWidth = 0;
+    private cssHeight = 0;
+
+    private constructor(
+        private readonly module: AdacppModule,
+        private readonly renderer: WebRendererApi,
+        canvas: HTMLCanvasElement,
+        private readonly device: GpuDeviceLike,
+    ) {
+        this.canvas = canvas;
+        this.sync = new SceneSync(module, renderer);
+        const host = canvas.parentElement!;
+        this.cssWidth = host.clientWidth;
+        this.cssHeight = host.clientHeight;
+        this.resizeObserver = new ResizeObserver((entries) => {
+            for (const e of entries) {
+                this.cssWidth = e.contentRect.width;
+                this.cssHeight = e.contentRect.height;
+            }
+        });
+        this.resizeObserver.observe(host);
+        void device.lost.then((info) => {
+            if (!this.alive_) return;
+            this.alive_ = false;
+            useAdacppRenderStatus.setState({state: "failed", error: `WebGPU device lost: ${info.message}`});
+        });
+    }
+
+    /** Throws when WebGPU or the module is unavailable; the caller keeps three.js drawing. */
+    static async create(container: HTMLElement): Promise<AdacppViewport> {
+        useAdacppRenderStatus.setState({state: "starting", error: null, stats: null});
+        try {
+            const gpu = (navigator as Navigator & {gpu?: GpuLike}).gpu;
+            if (!gpu) throw new Error("this browser has no WebGPU (navigator.gpu is missing)");
+            const adapter = await gpu.requestAdapter({powerPreference: "high-performance"});
+            if (!adapter) throw new Error("no WebGPU adapter available");
+            // Large merged CAD/FEM buffers exceed the 128 MiB default storage binding: take what the adapter has.
+            const device = await adapter.requestDevice({
+                label: "adacpp.render",
+                requiredLimits: {
+                    maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+                    maxBufferSize: adapter.limits.maxBufferSize,
+                },
+            });
+            device.onuncapturederror = (ev) => console.error("[adacpp-webgpu]", ev.error.message);
+
+            const origin = globalThis.location?.origin;
+            const mod = await import(/* @vite-ignore */ resolveModuleUrl(MODULE_URL, origin));
+            const factory = (mod.default ?? mod) as (opts: object) => Promise<AdacppModule>;
+            const module = await factory({preinitializedWebGPUDevice: device});
+
+            const canvas = document.createElement("canvas");
+            canvas.id = `adacpp-webgpu-canvas-${++canvasSerial}`;
+            Object.assign(canvas.style, {
+                position: "absolute",
+                inset: "0",
+                width: "100%",
+                height: "100%",
+                pointerEvents: "none", // the WebGL canvas' container keeps all input
+                display: "block",
+            });
+            // First child so overlays appended later (gizmo, stats) stay on top.
+            container.insertBefore(canvas, container.firstChild);
+            const renderer = new module.WebRenderer(`#${canvas.id}`, gpu.getPreferredCanvasFormat());
+            const info = adapter.info;
+            useAdacppRenderStatus.setState({
+                state: "active",
+                adapter: [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ") || "WebGPU",
+            });
+            return new AdacppViewport(module, renderer, canvas, device);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            useAdacppRenderStatus.setState({state: "failed", error: message});
+            throw err;
+        }
+    }
+
+    get alive(): boolean {
+        return this.alive_;
+    }
+
+    get lastStats(): AdacppStats | null {
+        return useAdacppRenderStatus.getState().stats;
+    }
+
+    render(scene: THREE.Scene, camera: THREE.Camera, pixelRatio: number, culling: {frustum: boolean; cone: boolean}) {
+        if (!this.alive_) return;
+        const w = Math.max(1, Math.floor(this.cssWidth * pixelRatio));
+        const h = Math.max(1, Math.floor(this.cssHeight * pixelRatio));
+        if (this.canvas.width !== w || this.canvas.height !== h) {
+            this.canvas.width = w;
+            this.canvas.height = h;
+        }
+        try {
+            this.renderer.resize(w, h);
+            this.renderer.setCulling(culling.frustum, culling.cone);
+            this.sync.sync(scene, camera);
+            this.renderer.render();
+        } catch (err) {
+            this.alive_ = false;
+            const message = err instanceof Error ? err.message : String(err);
+            console.error("[adacpp-webgpu] render failed; back to three.js", err);
+            useAdacppRenderStatus.setState({state: "failed", error: message});
+            return;
+        }
+        const now = performance.now();
+        if (now - this.lastStatsPush > 250) {
+            this.lastStatsPush = now;
+            useAdacppRenderStatus.setState({stats: {...this.renderer.stats(), syncMs: this.sync.lastSyncMs}});
+        }
+    }
+
+    dispose(): void {
+        this.alive_ = false;
+        this.resizeObserver.disconnect();
+        this.sync.dispose();
+        this.renderer.delete();
+        this.canvas.remove();
+        this.device.destroy();
+        useAdacppRenderStatus.setState({state: "off", stats: null});
+    }
+}

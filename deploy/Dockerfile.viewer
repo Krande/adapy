@@ -66,6 +66,20 @@ COPY src/ada/ ./src/ada/
 COPY scripts/packaging/build_pyodide_adapy_wheel.py ./scripts/packaging/build_pyodide_adapy_wheel.py
 RUN python scripts/packaging/build_pyodide_adapy_wheel.py /out
 
+# Stage 0c: the experimental adacpp WebGPU renderer (Options > Performance > Renderer, or
+# `?renderer=adacpp`). It needs emscripten >= 4.0.10 for Dawn's emdawnwebgpu port, newer than the
+# pyodide toolchain the wasm base image is built with, so until it ships in that image it compiles
+# here from adacpp source at a pinned commit (about a minute: no OCCT, no pyodide). The viewer loads
+# /wasm/adacpp_render.js only when the renderer is selected and falls back to three.js without it.
+FROM emscripten/emsdk:6.0.11 AS adacpp-render
+ARG ADACPP_RENDER_REF=c596a11d8289a9ee5e6cbd4d8e779fca719b506b
+ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
+RUN git init -q /src && cd /src && \
+    git remote add origin "$ADACPP_GIT_URL" && \
+    git fetch -q --depth 1 origin "$ADACPP_RENDER_REF" && \
+    git checkout -q FETCH_HEAD && \
+    bash tools/build_render_wasm.sh /out
+
 # Stage 1: build the SPA bundle.
 FROM node:20-slim AS frontend-build
 WORKDIR /build
@@ -129,6 +143,7 @@ RUN mkdir -p /build/dist/wasm && \
     if [ -d /build/dist/wheels/wasm ]; then \
         mv /build/dist/wheels/wasm/* /build/dist/wasm/ && rmdir /build/dist/wheels/wasm; \
     fi
+COPY --from=adacpp-render /out/adacpp_render.js /out/adacpp_render.wasm /build/dist/wasm/
 
 # ...and then fail the build if any module the frontend fetches is missing. These are loaded at
 # RUNTIME from /wasm/<name>.js and never bundled, so the SPA build above cannot notice their absence:

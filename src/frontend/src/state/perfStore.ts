@@ -11,7 +11,19 @@ import {persist} from "zustand/middleware";
 
 export type MaterialMode = "standard" | "lambert";
 
+// Which renderer draws the main viewport. "adacpp-webgpu" is the experimental adacpp WebGPU
+// renderer (wasm, /wasm/adacpp_render.js): three.js keeps the scene graph, picking and controls,
+// only the main draw goes through adacpp. Falls back to three.js when WebGPU is unavailable.
+// `?renderer=adacpp` / `?renderer=three` in the URL overrides the stored choice.
+export type RenderBackend = "three" | "adacpp-webgpu";
+
 export interface PerfState {
+    // Renderer backend -------------------------------------------------------
+    renderBackend: RenderBackend;
+    // Cluster culling levers of the adacpp renderer (no effect on three.js).
+    adacppFrustumCull: boolean;
+    adacppConeCull: boolean;
+
     // FEA material gating ----------------------------------------------------
     materialMode: MaterialMode;
     solidsBackfaceCull: boolean;
@@ -61,6 +73,9 @@ export interface PerfState {
     timeSlicedLoad: boolean;
 
     // Setters ----------------------------------------------------------------
+    setRenderBackend: (v: RenderBackend) => void;
+    setAdacppFrustumCull: (v: boolean) => void;
+    setAdacppConeCull: (v: boolean) => void;
     setMaterialMode: (v: MaterialMode) => void;
     setSolidsBackfaceCull: (v: boolean) => void;
     setSolidsSmoothShading: (v: boolean) => void;
@@ -79,6 +94,10 @@ export interface PerfState {
 export const usePerfStore = create<PerfState>()(
     persist(
         (set) => ({
+            renderBackend: "three",
+            adacppFrustumCull: true,
+            adacppConeCull: true,
+
             materialMode: "standard",
             solidsBackfaceCull: false,
             solidsSmoothShading: false,
@@ -97,6 +116,9 @@ export const usePerfStore = create<PerfState>()(
 
             timeSlicedLoad: false,
 
+            setRenderBackend: (v) => set({renderBackend: v}),
+            setAdacppFrustumCull: (v) => set({adacppFrustumCull: v}),
+            setAdacppConeCull: (v) => set({adacppConeCull: v}),
             setMaterialMode: (v) => set({materialMode: v}),
             setSolidsBackfaceCull: (v) => set({solidsBackfaceCull: v}),
             setSolidsSmoothShading: (v) => set({solidsSmoothShading: v}),
@@ -114,6 +136,17 @@ export const usePerfStore = create<PerfState>()(
         {name: "ada-perf"},
     ),
 );
+
+// `?renderer=adacpp|three` picks the backend for this page load (and is remembered like a toggle).
+(() => {
+    try {
+        const param = new URLSearchParams(globalThis.location?.search ?? "").get("renderer");
+        if (param === "adacpp" || param === "adacpp-webgpu") usePerfStore.getState().setRenderBackend("adacpp-webgpu");
+        else if (param === "three") usePerfStore.getState().setRenderBackend("three");
+    } catch {
+        // no location (tests, workers): keep the stored choice
+    }
+})();
 
 // Snapshot of every performance option (the data fields of the store, setters
 // excluded) for the frontend load/render audit logs — so a metrics row records

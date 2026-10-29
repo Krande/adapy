@@ -29,6 +29,25 @@ export class CustomBatchedMesh extends THREE.Mesh {
         useVisibilityStore.getState().bump();
     }
 
+    /** Bumped whenever the hidden or selected ranges change (every `updateGroups`). The adacpp
+     *  WebGPU renderer re-reads the per-range state through `isRangeHidden` / `isRangeSelected`
+     *  only when this moves, instead of interpreting three.js material groups. */
+    public renderStateVersion = 0;
+
+    public isRangeHidden(id: string): boolean {
+        return this.hiddenRanges.has(id);
+    }
+
+    public isRangeSelected(id: string): boolean {
+        return this.selectedRanges.has(id);
+    }
+
+    /** True for this mesh's own selection / face-highlight overlay children: three.js draws the
+     *  highlight with them, the adacpp renderer colours the ranges directly and skips them. */
+    public isHighlightOverlay(obj: THREE.Object3D): boolean {
+        return obj === this._selectionOverlay || obj === this._faceOverlay;
+    }
+
     /** Lazy cache of drawRanges sorted by start offset, stored as
      *  parallel arrays so we walk by index (no per-entry object
      *  allocation, fewer GC pauses).
@@ -169,6 +188,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
     }
 
     private updateGroups() {
+        this.renderStateVersion++;
         const idxCount = this.geometry.index!.count;
         this.geometry.clearGroups();
         // Recompute whether we use vertex colors based on current state
