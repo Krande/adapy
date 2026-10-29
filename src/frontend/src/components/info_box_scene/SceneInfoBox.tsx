@@ -222,8 +222,12 @@ const SceneInfoBox = () => {
                         {/* The viewer's OWN groups, named from a selection across models and
                             shared in the scope -- beside the groups a model carries, not mixed
                             into that list, which is read-only and per model. */}
-                        <CollapsibleSection title="Saved groups" defaultOpen={!isMobile}>
+                        <CollapsibleSection title="Saved groups" defaultOpen={false}>
                             <SavedGroupsSection />
+                        </CollapsibleSection>
+                        {/* Selection boxes beside the groups: both are ways of naming a selection. */}
+                        <CollapsibleSection title="Selection boxes" defaultOpen={!isMobile}>
+                            <BBoxSelectionSection />
                         </CollapsibleSection>
                         <CollapsibleSection title="Source & re-convert" defaultOpen={false}>
                             <SourceSection />
@@ -232,12 +236,7 @@ const SceneInfoBox = () => {
                 ) : tab === "overlays" ? (
                     <OverlaysPanel />
                 ) : tab === "tools" ? (
-                    <>
-                        <CollapsibleSection title="Selection boxes" defaultOpen>
-                            <BBoxSelectionSection />
-                        </CollapsibleSection>
-                        <UtilitiesSection />
-                    </>
+                    <UtilitiesSection />
                 ) : tab === "clip" ? (
                     <SectionPlanesPanel />
                 ) : tab === "mesh" ? (
