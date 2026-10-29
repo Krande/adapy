@@ -171,9 +171,11 @@ ada convert --list-formats
 `--limit`
 :   Stop after this many geometries. Debugging aid; unset by default.
 
-`--log-file`
+`--log-file [PATH]`
 :   Write adapy's log records to this file, truncating it first, and leave only
-    warnings and errors on the console. Useful on large FEM decks, where the
+    warnings and errors on the console. Given without a path, `convert` writes
+    `<OUT stem>.log` beside OUT (put the flag after the positionals, or it takes
+    the input file for its path). Useful on large FEM decks, where the
     `INFO` stream is worth keeping but not worth reading as it scrolls past.
     Without the flag nothing changes: every record at `--log-level` goes to
     stderr.

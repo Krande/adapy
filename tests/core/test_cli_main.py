@@ -433,6 +433,20 @@ def test_without_log_file_the_console_still_gets_everything(tmp_path, example_fi
     assert not list(tmp_path.glob("*.log"))
 
 
+def test_a_bare_log_file_logs_beside_the_output(tmp_path, example_files):
+    """``--log-file`` without a path: ``<OUT stem>.log`` next to OUT, the console keeping only
+    warnings."""
+    src = example_files / "fem_files" / "abaqus" / "box.inp"
+    out = tmp_path / "sub" / "box.FEM"
+
+    proc = _run_convert(src, out, tmp_path, "--log-file")
+
+    assert proc.returncode == 0, proc.stderr
+    log = tmp_path / "sub" / "box.log"
+    assert log.is_file() and "INFO/ada" in log.read_text(encoding="utf-8")
+    assert "INFO/ada" not in proc.stderr, f"INFO records still reach the console:\n{proc.stderr[:500]}"
+
+
 # --------------------------------------------------------------------------------------
 # --strict and the conversion report, through the parser and main()
 # --------------------------------------------------------------------------------------
