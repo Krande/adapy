@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Iterator
 
 from ada.fem.formats.sesam.results.read_sin import (
     _RV_TYPE_NAMES,
-    SinReader,
+    SinCases,
     _refuse_selected_without_mesh,
     attach_sesam_metadata,
     plan_sin_read,
@@ -30,41 +30,29 @@ __all__ = ["SinFieldStream"]
 
 @dataclass
 class _Part:
-    """One superelement: its reader, holding the step-invariant blocks, and its mesh."""
+    """One superelement: its cases (:class:`~.read_sin.SinCases`) and the RV cards it has."""
 
-    sin: SinFile
-    #: The superelement's entry in ``sin``, made active before each read.
-    iref: int | None
-    reader: SinReader
-    mesh: Mesh
-    #: The RV cards the superelement has.
+    cases: SinCases
     cards: set[str]
-    stored: set[int]
-    #: Combinations the file does not store, read as recipes over its stored cases.
-    unstored: dict
     eigen_data: object
     property_fields_taken: bool = False
 
+    @property
+    def mesh(self) -> Mesh:
+        return self.cases.mesh
+
+    @property
+    def cases_to_read(self) -> set[int]:
+        return set(self.cases.cases)
+
     def load(self, step: int, card: str) -> list:
         """The fields of ``card`` in result case ``step``, as a full read maps them."""
-        from ada.fem.formats.sesam.results.read_sif import Sif2Mesh, stamp_eigen_data
+        from ada.fem.formats.sesam.results.read_sif import stamp_eigen_data
 
         if card not in self.cards:
             return []
-        if self.iref is not None:
-            self.sin.use_super_element(self.iref)
-        reader = self.reader
-        if step in self.stored:
-            reader.load_step(step, cards={card})
-        elif step in self.unstored:
-            reader.load_combination(step, self.unstored[step], cards={card})
-        else:
-            return []
-        s2m = Sif2Mesh(reader)
-        s2m.mesh = self.mesh
         # A full read puts the property fields on its first case only.
-        fields = s2m.get_sif_results(property_fields=not self.property_fields_taken)
-        reader.results = list(reader._static_results)
+        fields = self.cases.fields(step, {card}, property_fields=not self.property_fields_taken)
         stamp_eigen_data(fields, self.eigen_data)
         if fields:
             self.property_fields_taken = True
@@ -114,7 +102,7 @@ class SinFieldStream:
 
     @classmethod
     def _build(cls, header, parts, assembled) -> SinFieldStream:
-        steps = sorted(set().union(*(p.stored | set(p.unstored) for p in parts)))
+        steps = sorted(set().union(*(p.cases_to_read for p in parts)))
         cards = [c for c in _RV_TYPE_NAMES if any(c in p.cards for p in parts)]
         return cls(header, steps, cards, parts, assembled)
 
@@ -137,7 +125,7 @@ class SinFieldStream:
                 del fields
 
     def close(self) -> None:
-        self._parts[0].sin.close()
+        self._parts[0].cases.sin.close()
 
     def __enter__(self) -> SinFieldStream:
         return self
@@ -150,12 +138,12 @@ def _open_part(sin: SinFile, iref, name_path: pathlib.Path, complex_phase: float
     """The active superelement's step-invariant blocks read, and its result without fields."""
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh, read_lis_eigen_data
 
-    reader = SinReader(sin=sin, complex_phase=complex_phase)
+    cases = SinCases(sin, iref=iref, complex_phase=complex_phase)
+    reader = cases.reader
     reader.load_step(None, cards=set())
     header = Sif2Mesh(reader).convert(name_path)
     attach_sesam_metadata(header, reader, sin)
-    stored = reader.stored_steps()
-    unstored = {i: r for i, r in reader.combination_terms().items() if r and i not in stored}
+    cases.mesh = header.mesh
     cards = {c for c in _RV_TYPE_NAMES if c in sin.type_blocks}
-    part = _Part(sin, iref, reader, header.mesh, cards, stored, unstored, read_lis_eigen_data(name_path))
+    part = _Part(cases, cards, read_lis_eigen_data(name_path))
     return part, header

@@ -354,14 +354,7 @@ class SinReader(SifReader):
 
     def stored_steps(self) -> set[int]:
         """Result-case ids the SIN physically stores, from the RV* tables."""
-        steps: set[int] = set()
-        for rv in _RV_TYPE_NAMES:
-            if rv not in self.sin.type_blocks:
-                continue
-            ires = self.sin.gather_first_words(rv)
-            if ires.size:
-                steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
-        return steps
+        return stored_result_cases(self.sin)
 
     def append_unstored_combinations(self, cards: "set[str] | None" = None) -> None:
         """Add every ``RDRESCMB`` case the SIN does not already store.
@@ -1155,6 +1148,7 @@ def read_sin_file(
     step: int | None = None,
     complex_phase: float = 0.0,
     super_element: "SuperElementSpec | Iterable[SuperElementSpec] | None" = None,
+    field_cache: "bool | str | pathlib.Path" = False,
 ) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
@@ -1186,14 +1180,67 @@ def read_sin_file(
       numbering.
     * A list or set of them reads just those, placed and merged like the whole
       assembly.
+
+    ``field_cache``: keep the field values in a temporary file, memory-mapped, instead of in
+    memory (see :class:`~ada.fem.results.field_cache.FieldCache`); a directory puts the file
+    there. The fields are read one result case and RV card at a time, so the peak is about
+    one case's worth. The result is the same, byte for byte.
+
+    The fields come in :func:`in_field_order`.
     """
+    if field_cache:
+        directory = None if field_cache is True else field_cache
+        return _read_through_cache(sin_file, step, complex_phase, super_element, directory)
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
     # source's display name (basename) for the FEAResult / convert path.
     sin, rows, parts = plan_sin_read(sin_file, super_element)
     if parts is not None:
-        return _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
-    return _read_selected(sin, sin_file, step, complex_phase)
+        result = _read_assembly(sin, sin_file, rows, parts, step, complex_phase)
+    else:
+        result = _read_selected(sin, sin_file, step, complex_phase)
+    result.results = in_field_order(result.results)
+    return result
+
+
+def in_field_order(fields: list) -> list:
+    """``fields`` in the order every SIN read gives them: the fields as stored, then the
+    derived ones, then the property fields; within each, by step, name and type."""
+    return sorted(fields, key=_field_order_key)
+
+
+def _field_order_key(field) -> tuple:
+    if field.name.startswith("props."):
+        kind = 2
+    elif field.presentation is not None and field.presentation.derived:
+        kind = 1
+    else:
+        kind = 0
+    return (
+        kind,
+        int(field.step),
+        field.name,
+        type(field).__name__,
+        str(getattr(field, "elem_type", None)),
+        str(getattr(field, "field_pos", None)),
+    )
+
+
+def _read_through_cache(sin_file, step, complex_phase, super_element, directory) -> "FEAResult":
+    from ada.fem.formats.sesam.results.sin_field_stream import SinFieldStream
+    from ada.fem.results.field_cache import FieldCache
+
+    fields = []
+    with SinFieldStream.open(sin_file, super_element=super_element, complex_phase=complex_phase) as stream:
+        if step is not None:
+            stream.steps = [s for s in stream.steps if s == step]
+        with FieldCache(directory) as cache:
+            for _, chunk in stream.iter_chunks():
+                cache.spill(chunk)
+                fields += chunk
+        result = stream.header
+    result.results = in_field_order(fields)
+    return result
 
 
 def plan_sin_read(sin_file, super_element=None) -> "tuple[SinFile, list | None, list | None]":
@@ -1332,6 +1379,107 @@ def iter_sin_step_results(
             yield int(step), reader._load_step(int(step))
 
 
+def stored_result_cases(sin: SinFile) -> set[int]:
+    """The result cases (IRES) the active superelement's RV* tables store."""
+    steps: set[int] = set()
+    for rv in _RV_TYPE_NAMES:
+        if rv not in sin.type_blocks:
+            continue
+        ires = sin.gather_first_words(rv)
+        if ires.size:
+            steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
+    return steps
+
+
+class SinCases:
+    """One superelement's result cases, read one at a time over its step-invariant blocks.
+
+    The one place a streamed SIN read turns a case into fields: :class:`SinStreamReader` (the
+    bake) and :class:`~.sin_field_stream.SinFieldStream` (compare, the field cache) both read
+    through it. The static blocks and the mesh are read once; each :meth:`fields` call reads
+    one case's RV* cards and maps them with :class:`Sif2Mesh`, as a full read does. A case
+    the file stores is read as stored; a combination it does not store is superposed from
+    its recipe (``RDRESCMB``).
+
+    ``iref``: the superelement's entry, made active before each read, when several share
+    ``sin``; None reads whichever is active.
+    """
+
+    def __init__(self, sin: SinFile, *, iref=None, complex_phase: float = 0.0, forces_elements=None):
+        self.sin = sin
+        self.iref = iref
+        self.complex_phase = float(complex_phase)
+        self.forces_elements = set(forces_elements) if forces_elements is not None else None
+        self.recipes = read_result_combination_terms(sin)
+        self.stored = stored_result_cases(sin)
+        self.unstored = {i: r for i, r in self.recipes.items() if r and i not in self.stored}
+        self._reader: SinReader | None = None
+        self._mesh = None
+
+    @property
+    def cases(self) -> list[int]:
+        """Every case there is to read: stored, or a combination to superpose."""
+        return sorted(self.stored | set(self.unstored))
+
+    @property
+    def reader(self) -> SinReader:
+        """The reader holding the step-invariant blocks, read on first use."""
+        if self._reader is None:
+            self._activate()
+            self._reader = SinReader(sin=self.sin, complex_phase=self.complex_phase)
+            self._reader._forces_elements = self.forces_elements
+            self._reader._load_static()
+        return self._reader
+
+    @property
+    def mesh(self):
+        """The superelement's mesh, built once."""
+        from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+
+        if self._mesh is None:
+            reader = self.reader
+            self._activate()
+            self._mesh = Sif2Mesh(reader).get_sif_mesh()
+        return self._mesh
+
+    @mesh.setter
+    def mesh(self, mesh) -> None:
+        self._mesh = mesh
+
+    def fields(
+        self,
+        step: int | None,
+        cards: "set[str] | None" = None,
+        *,
+        property_fields: bool = True,
+        requested_fields: "set[str] | None" = None,
+    ) -> list:
+        """The fields of ``cards`` (None: every card) in case ``step``; ``step=None`` with
+        ``cards=set()`` reads no case, only what the static blocks give."""
+        from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+
+        reader, mesh = self.reader, self.mesh
+        self._activate()
+        if step is None:
+            reader.load_step(None, cards=cards)
+        elif int(step) in self.stored:
+            reader.load_step(int(step), cards=cards)
+        elif int(step) in self.unstored:
+            reader.load_combination(int(step), self.unstored[int(step)], cards=cards)
+        else:
+            return []
+        s2m = Sif2Mesh(reader)
+        s2m.mesh = mesh
+        fields = s2m.get_sif_results(requested_fields=requested_fields, property_fields=property_fields)
+        # The case's tables are mapped: free them before the next one is read.
+        reader.results = list(reader._static_results)
+        return fields
+
+    def _activate(self) -> None:
+        if self.iref is not None:
+            self.sin.use_super_element(self.iref)
+
+
 class SinStreamReader:
     """Memory-bounded ``FEAStreamReader`` for Sesam SIN.
 
@@ -1385,18 +1533,14 @@ class SinStreamReader:
             self.sin = SinFile(source=source, _decode_default=super_element is None)
         if super_element is not None:
             self.sin.select_super_element(super_element)
-        self._combinations = read_result_combination_terms(self.sin)
         # Phase (radians) at which complex result cases are presented; see
-        # :attr:`SinReader.complex_phase`.
-        self._complex_phase = float(complex_phase)
-        self._steps = sorted(set(self._discover_steps()) | set(self._combinations))
+        # :attr:`SinReader.complex_phase`. ``forces_elements``: an optional RVFORCES
+        # element-id narrowing for callers that read line forces for a few beams only.
+        self._cases = SinCases(self.sin, complex_phase=complex_phase, forces_elements=forces_elements)
+        self._combinations = self._cases.recipes
+        self._steps = self._cases.cases
         self._offered = list(self._steps)  # every case, before any narrowing
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
-        self._mesh = None  # step-invariant Mesh, built once and reused across steps
-        self._reader = None  # one SinReader; static blocks read once, RV* re-read per step
-        # Optional RVFORCES element-id narrowing for callers that read line
-        # forces for only a small subset of beam elements.
-        self._forces_elements = set(forces_elements) if forces_elements is not None else None
         # The step whose RV cards were decoded last, as (step index, {card: adapter}).
         self._step_cache: "tuple[int, dict[str | None, object]] | None" = None
         # No step chosen on purpose (``steps=[]``): geometry only, no RV* record read.
@@ -1440,15 +1584,6 @@ class SinStreamReader:
         self.close()
 
     # ── helpers ───────────────────────────────────────────────────────
-    def _discover_steps(self) -> list[int]:
-        steps: set[int] = set()
-        for rv in _RV_TYPE_NAMES:
-            if rv in self.sin.type_blocks:
-                ires = self.sin.gather_first_words(rv)
-                if ires.size:
-                    steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
-        return sorted(steps)
-
     def _step_values(self) -> list[float]:
         return [float(s) for s in self._steps]
 
@@ -1473,32 +1608,14 @@ class SinStreamReader:
         from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
         from ada.fem.results.common import FEAResult, FEATypes
 
-        # One persistent reader: read the step-invariant mesh/section/
-        # RDPOINTS blocks once, then only re-read this step's RV* tables.
-        if self._reader is None:
-            self._reader = SinReader(sin=self.sin, complex_phase=self._complex_phase)
-            self._reader._forces_elements = self._forces_elements
-            self._reader._load_static()
-        reader = self._reader
-        recipe = self._combinations.get(int(step)) if step is not None else None
-        if recipe:
-            reader.load_combination(int(step), recipe, cards=cards)
-        else:
-            reader.load_step(None if step is None else int(step), cards=cards)
-        s2m = Sif2Mesh(reader)
-        if self._mesh is None:
-            self._mesh = s2m.get_sif_mesh()
-        # Reuse the cached mesh; get_sif_results() needs it set (RVFORCES
-        # resolves element ids against it) but never rebuilds it.
-        s2m.mesh = self._mesh
-        results = s2m.get_sif_results(requested_fields=requested_fields)
+        fields = self._cases.fields(step, cards, requested_fields=requested_fields)
         return FEAResult(
             "remote",
             FEATypes.SESAM,
-            results=results,
-            mesh=self._mesh,
+            results=in_field_order(fields),
+            mesh=self._cases.mesh,
             results_file_path=pathlib.Path("remote.sin"),
-            step_name_map=s2m.get_result_name_map(),
+            step_name_map=Sif2Mesh(self._cases.reader).get_result_name_map(),
             software_version="N/A",
         )
 
@@ -1511,7 +1628,9 @@ class SinStreamReader:
 
         result = self._load_step(None, cards=set())
         step = self._offered[0] if self._offered else 1
-        result.results = [*result.results, *build_property_fields(self._mesh, self._reader, step=step)]
+        result.results = in_field_order(
+            [*result.results, *build_property_fields(self._cases.mesh, self._cases.reader, step=step)]
+        )
         return result
 
     def _adapter_for(self, idx: int):
@@ -1674,10 +1793,7 @@ class SinStreamReader:
         """
         from ada.fem.formats.sesam.results.sets import manifest_groups
 
-        if self._reader is None:
-            self._reader = SinReader(sin=self.sin, complex_phase=self._complex_phase)
-            self._reader._load_static()
-        groups = manifest_groups(self._reader) or []
+        groups = manifest_groups(self._cases.reader) or []
         # Plus the sets the reader made (dummy-mass beams), which only the converted
         # mesh holds; the representative step's adapter has it, and the bake builds
         # that adapter anyway.
@@ -1724,6 +1840,7 @@ class SinStreamReader:
 
 __all__ = [
     "CombinationRecipe",
+    "SinCases",
     "SinMetadata",
     "SinReader",
     "SinStreamReader",
@@ -1734,4 +1851,5 @@ __all__ = [
     "read_result_names",
     "read_sin_file",
     "read_sin_metadata",
+    "stored_result_cases",
 ]
