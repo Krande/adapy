@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from ada.fem.formats.sesam.results.sin_reader import SuperElementInfo
     from ada.fem.results.common import FEAResult
 
-__all__ = ["assemble_meshes", "placements", "id_bases"]
+__all__ = ["assemble_meshes", "placements", "id_bases", "id_bases_for"]
 
 _UINT32_MAX = 2**32 - 1
 # Component triplets that are vectors in the superelement's system.
@@ -82,15 +82,18 @@ def _max_id(result: FEAResult) -> int:
 def id_bases(rows: list[SuperElementInfo], results: list[FEAResult]) -> list[int]:
     """The id prefix of each superelement: ``seltyp × 10^k``, or by position when that is
     ambiguous (two instances of one type) or would not fit 32 bits."""
-    largest = max((_max_id(r) for r in results), default=0)
+    return id_bases_for([r.seltyp for r in rows], max((_max_id(r) for r in results), default=0))
+
+
+def id_bases_for(seltyps: list[int], largest: int) -> list[int]:
+    """:func:`id_bases` from the superelements' type numbers and the largest id any of them holds."""
     k = max(6, len(str(largest)))
     scale = 10**k
-    seltyps = [r.seltyp for r in rows]
     if len(set(seltyps)) == len(seltyps) and (max(seltyps) + 1) * scale - 1 <= _UINT32_MAX:
         return [s * scale for s in seltyps]
-    if (len(rows) + 1) * scale - 1 > _UINT32_MAX:
-        raise ValueError(f"cannot number {len(rows)} superelements with ids up to {largest} in 32 bits")
-    return [(i + 1) * scale for i in range(len(rows))]
+    if (len(seltyps) + 1) * scale - 1 > _UINT32_MAX:
+        raise ValueError(f"cannot number {len(seltyps)} superelements with ids up to {largest} in 32 bits")
+    return [(i + 1) * scale for i in range(len(seltyps))]
 
 
 def _offset_keys(d: dict | None, base: int) -> dict:

@@ -180,7 +180,25 @@ ada convert --list-formats
 
 `--superelement`
 :   The Sesam super element number, written as the deck's `IDENT` `SELTYP` and
-    used to name the file `<prefix>T<N>.FEM`.
+    used to name the file `<prefix>T<N>.FEM`. Without it the `T<N>` in OUT
+    decides, then what the input says (a `.SIN`'s superelement, a `.FEM`'s
+    `IDENT SELTYP`), then an `R<N>`/`T<N>` in the input's name, then 1.
+
+`--super-element`
+:   Sesam `.SIN` only. Converts just this superelement (type number `12`, type
+    and instance `12.1`, or Xtract's label `SEL12.IND1`), written to OUT as
+    given. Repeat it to convert several, each to `<OUT stem>T<N><OUT suffix>`.
+    Without it, a `.SIN` holding an assembly is written as one such file per
+    first-level superelement with a mesh, each with its own `SELTYP`, and every
+    file written is printed.
+
+`--merge`
+:   Sesam `.SIN` assembly only. Writes all first-level superelements as one file
+    at OUT, with the top level's `SELTYP`. Each superelement is placed by its
+    translation and its node and element numbers are prefixed by its type number
+    (type x 10^6 + its own number), so they stay unique. A superelement placed
+    with a rotation is refused, since the beam orientations and local systems
+    would have to be turned with it. Cannot be combined with `--super-element`.
 
 Without it the `T`-number in the output name decides, so `myPrefixT10.FEM`
 is super element 10. With neither, it is 1 -- and the run says so, rather than

@@ -279,7 +279,30 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
         help=(
             "Sesam super element number: written as the deck's IDENT SELTYP and used to name the "
             "file <prefix>T<N>.FEM. Without it the T-number in OUT decides "
-            "(myPrefixT10.FEM -> 10), and with neither it is 1."
+            "(myPrefixT10.FEM -> 10), then what the input says (a .SIN's superelement, a .FEM's "
+            "IDENT SELTYP), then an R<n>/T<n> in the input's name, and with none of those it is 1."
+        ),
+    )
+    p.add_argument(
+        "--super-element",
+        dest="super_element",
+        action="append",
+        default=None,
+        metavar="SEL",
+        help=(
+            "Sesam .SIN only: convert just this superelement (type number 12, type.instance 12.1 "
+            "or Xtract's label SEL12.IND1), written to OUT as given. Repeat it to convert several, "
+            "each to <OUT stem>T<n><OUT suffix>. Without it an assembly SIN is written as one "
+            "such file per first-level superelement with a mesh."
+        ),
+    )
+    p.add_argument(
+        "--merge",
+        action="store_true",
+        help=(
+            "Sesam .SIN assembly only: write all first-level superelements, placed by their "
+            "transforms and numbered by type number, as ONE file at OUT, with the top level's "
+            "SELTYP."
         ),
     )
     p.add_argument(

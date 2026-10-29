@@ -29,7 +29,28 @@ def get_materials(bulk_str, part) -> Materials:
 
     misosel = (get_mat(m, mat_names, part) for m in cards.MISOSEL.to_ff_re().finditer(bulk_str))
     morsmel = (get_morsmel(m, mat_names, part) for m in cards.MORSMEL.to_ff_re().finditer(bulk_str))
-    return Materials(chain(misosel, morsmel), parent=part)
+    morssel = (get_morssel(m, mat_names, part) for m in cards.MORSSEL.to_ff_re().finditer(bulk_str))
+    return Materials(chain(misosel, morsmel, morssel), parent=part)
+
+
+def get_morssel(m, mat_names, part) -> Material:
+    """MORSSEL, an orthotropic shell material. Its stiffness matrix is not read: the material comes
+    back isotropic with the record's density and default steel stiffness, and the report says so,
+    because the elements that reference it would otherwise have no material at all."""
+    from ada.fem.formats import conversion_report
+
+    d = m.groupdict()
+    matno = str_to_int(d["matno"])
+    name = mat_names.get(matno, f"MORSSEL_{matno}")
+    conversion_report.current().approximated(
+        "sesam reader",
+        "Material",
+        name,
+        "an orthotropic shell material (MORSSEL); its stiffness matrix is not read, so it is an isotropic steel "
+        "with the record's density",
+        matno=matno,
+    )
+    return Material(name=name, mat_id=matno, mat_model=CarbonSteel(rho=float(d["rho"])), parent=part)
 
 
 def grab_name(m):

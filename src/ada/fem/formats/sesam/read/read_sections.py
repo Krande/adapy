@@ -60,7 +60,7 @@ def get_sections(bulk_str, fem: FEM, elrefs: dict[int, dict]) -> FemSections:
     # Section Names
     sect_names = {sec_id: name for sec_id, name in map(get_section_names, cards.re_sectnames.finditer(bulk_str))}
     # Local Coordinate Systems
-    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.GUNIVEC.to_ff_re().finditer(bulk_str))}
+    lcsysd = {transno: vec for transno, vec in map(get_lcsys, cards.re_guniv_padded.finditer(bulk_str))}
     # Hinges
     hinges = {fixno: values for fixno, values in map(get_hinges, cards.re_belfix.finditer(bulk_str))}
     # Thickness'

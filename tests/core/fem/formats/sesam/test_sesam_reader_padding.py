@@ -6,6 +6,15 @@ from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.read.read_sections import _reference_z
 
 
+def test_stale_bnbcd_records_are_dropped_from_the_exported_deck():
+    from ada.fem.formats.sesam.results.export_fem import _consistent_records
+
+    good = (1198.0, 6.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0)
+    stale = (1.0, 1.0, 0.0, 1.0, 778.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0, -2.2e-05, 0.0, 0.0, -2.2e-05, 0.0)
+    assert list(_consistent_records("BNBCD", iter([good, stale]))) == [good]
+    assert list(_consistent_records("GNODE", iter([stale]))) == [stale]
+
+
 def test_padded_gpipe_and_gbarm_do_not_swallow_the_padding():
     deck = (
         "GPIPE     4.00000000E+00  4.09999996E-01  4.49999988E-01  1.99999996E-02\n"
@@ -17,6 +26,17 @@ def test_padded_gpipe_and_gbarm_do_not_swallow_the_padding():
     for regex in (cards.re_gpipe, cards.re_gbarm):
         d = regex.search(deck).groupdict()
         assert float(d["sfy"]) == 1.0 and float(d["sfz"]) == 1.0
+
+
+def test_padded_guniv_keeps_the_vector_apart_from_the_padding():
+    deck = (
+        "GUNIVEC   1.00000000E+00  0.00000000E+00  0.00000000E+00  1.00000000E+00\n"
+        "            0.00000000E+00  0.00000000E+00  -9.80665016E+00  0.00000000E+00\n"
+        "GUNIVEC   2.00000000E+00  1.00000000E+00  0.00000000E+00  0.00000000E+00\n"
+        "IEND      0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00\n"
+    )
+    found = [m.groupdict() for m in cards.re_guniv_padded.finditer(deck)]
+    assert [(float(d["transno"]), float(d["uniz"])) for d in found] == [(1.0, 1.0), (2.0, 0.0)]
 
 
 def test_reference_z_falls_back_when_guniVec_is_missing_or_parallel():

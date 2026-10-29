@@ -410,15 +410,19 @@ def add_supernode_set(fem: FEM, retained: dict[int, tuple[int, ...]]) -> FemSet 
 
     partial = {nid: dofs for nid, dofs in sorted(retained.items()) if dofs != ALL_DOFS}
     if partial:
+        from ..write.write_bcs import RETAINED_BY_NODE_KEY
+
         shown = list(partial.items())[:10]
-        logger.warning(
+        fem.metadata[RETAINED_BY_NODE_KEY] = {nid: tuple(dofs) for nid, dofs in partial.items()}
+        logger.info(
             "sesam reader: %s of %s nodes with BNBCD FIX code 4 are retained on fewer than all six dofs, "
-            "e.g. %s. They are all put in the node set %s, which the writer retains on all six dofs, so "
-            "writing this model back out widens those patterns; the per-dof detail is not preserved.",
+            "e.g. %s. They are put in the node set %s, and their dofs are kept on the model "
+            "(metadata %r) so the writer retains exactly those.",
             len(partial),
             len(retained),
             ", ".join(f"node {nid}: dofs {list(dofs)}" for nid, dofs in shown),
             SUPERNODE_SET_NAME,
+            RETAINED_BY_NODE_KEY,
         )
     else:
         logger.info(

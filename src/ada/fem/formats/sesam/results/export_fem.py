@@ -94,6 +94,34 @@ def _write_text_records(sin: SinFile, name: str, out: TextIO) -> None:
         out.write(f"        {text}\n")
 
 
+def _consistent_records(name: str, records):
+    """``records`` of the type block ``name``, without the stale ones.
+
+    A BNBCD record is ``NODENO NDOF code...``, so its width is 2 + NDOF. A pointer table can end
+    in a stale slot that points into another type's records (an element load, in a SESTRA file
+    that was rewritten after its analysis); read as a BNBCD it is a bogus support on a real node,
+    which then contradicts that node's own record. Such a record is dropped and reported.
+    """
+    if name != "BNBCD":
+        yield from records
+        return
+    dropped = 0
+    for record in records:
+        if len(record) >= 2 and len(record) == 2 + int(record[1]):
+            yield record
+        else:
+            dropped += 1
+    if dropped:
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().omitted(
+            "sin reader",
+            "BNBCD",
+            f"{dropped} record(s)",
+            "records of the wrong width for a boundary condition, from a stale pointer in the SIN; not written",
+        )
+
+
 def write_fem(sin: SinFile, out: TextIO) -> None:
     """Stream the input deck of ``sin`` as Input Interface File text."""
 
@@ -113,7 +141,7 @@ def write_fem(sin: SinFile, out: TextIO) -> None:
             _write_text_records(sin, name, out)
             continue
         nfield_first = _has_logical_nfield(name)
-        for record in sin.iter_records(name):
+        for record in _consistent_records(name, sin.iter_records(name)):
             if nfield_first:
                 record = (float(len(record) + 1), *record)
             for line in _format_record_line(name, record):

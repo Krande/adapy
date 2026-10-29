@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 
 from ada.api.spatial import Assembly, Part
 from ada.config import logger
@@ -75,6 +76,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
         logger.info(8 * "-" + f'Imported "{fem.instance_name}"')
         return part
 
+    read_ident(fem, bulk_str)
     fem.nodes = get_nodes(bulk_str, fem)
     elements, mass_elem, spring_elem, el_id_map = get_elements(bulk_str, fem)
     fem.elements = elements
@@ -106,12 +108,29 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     return part
 
 
+_IDENT = re.compile(r"^IDENT\s+(\S+)\s+(\S+)", re.MULTILINE)
+
+
+def read_ident(fem, text: str) -> None:
+    """Keep the deck's IDENT record on ``fem.metadata``: ``sesam_slevel`` and ``sesam_seltyp``
+    (the super element number a writer should give the deck back), when the record is there."""
+    m = _IDENT.search(text)
+    if m is None:
+        return
+    try:
+        fem.metadata["sesam_slevel"] = int(float(m.group(1)))
+        fem.metadata["sesam_seltyp"] = int(float(m.group(2)))
+    except ValueError:
+        logger.debug("unreadable IDENT record in a Sesam input file")
+
+
 def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ext_map, reader_text) -> None:
     """Assemble the array-backed FEM from parsed mesh arrays + a (small) text blob the
     object section/set/constraint readers run over. Shared by the streaming and
     bulk-string array paths."""
     import numpy as np
 
+    read_ident(part.fem, reader_text)
     from ada.api.mesh.containers import ArrayElements, ArrayNodes
     from ada.api.mesh.store import MeshArrays
 
