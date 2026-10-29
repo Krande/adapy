@@ -101,7 +101,7 @@ class Root:
         for ancestor in self.get_ancestors():
             if isinstance(ancestor, Assembly):
                 return ancestor
-        logger.info("No Assembly found in ancestry. Returning self")
+        logger.debug("No Assembly found in ancestry. Returning self")
         return self
 
     def get_ancestors(self, include_self=True) -> list[Part | Assembly]:

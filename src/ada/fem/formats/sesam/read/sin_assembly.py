@@ -85,12 +85,10 @@ def resolve_specs(path: str | pathlib.Path, layout: SinLayout, specs: list[str])
 
 def _read_part(path: pathlib.Path, row: SuperElementInfo | None, name: str):
     """The deck of ``row`` (None: the file's only one) as a Part with nodes."""
-    from ada.fem.formats.sesam.read.reader import read_fem
-    from ada.fem.formats.sesam.results.export_fem import export_fem_from_sin
+    from ada.fem.formats.sesam.results.export_fem import read_deck_from_sin
 
     with tempfile.TemporaryDirectory(prefix="ada-sin-") as tmp:
-        deck = export_fem_from_sin(path, pathlib.Path(tmp) / "deck.FEM", super_element=row)
-        asm = read_fem(deck, name)
+        asm = read_deck_from_sin(path, tmp, name, super_element=row)
     part = next(p for p in asm.get_all_parts_in_assembly(include_self=False) if len(p.fem.nodes) > 0)
     if row is not None:
         # What the file says this superelement is, rather than what its echoed IDENT happens to hold.

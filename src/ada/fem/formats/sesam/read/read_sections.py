@@ -139,6 +139,14 @@ def element_transno(d: dict, n_nodes: int) -> int:
 _UNRESOLVED_TRANSNO: set[int] = set()
 
 
+def _cross(a, b) -> np.ndarray:
+    """``np.cross`` for two 3-vectors, without its axis handling: called a few times per beam,
+    np.cross was a third of building a 40k-beam deck's sections."""
+    a0, a1, a2 = (float(x) for x in a)
+    b0, b1, b2 = (float(x) for x in b)
+    return np.array([a1 * b2 - a2 * b1, a2 * b0 - a0 * b2, a0 * b1 - a1 * b0])
+
+
 def _reference_z(lcsysd: dict, transno: int, xvec: np.ndarray) -> np.ndarray:
     """The GUNIVEC vector a beam's TRANSNO names.
 
@@ -147,7 +155,7 @@ def _reference_z(lcsysd: dict, transno: int, xvec: np.ndarray) -> np.ndarray:
     :func:`element_transno` before this; it only reaches here when the per-node list is empty.)
     """
     zvec = lcsysd.get(transno)
-    if zvec is not None and np.linalg.norm(np.cross(zvec, xvec)) > 1e-9:
+    if zvec is not None and np.linalg.norm(_cross(zvec, xvec)) > 1e-9:
         return zvec
     # A GUNIVEC parallel to the beam axis defines no orientation either (the cross product is
     # zero); it is handled the same way instead of failing the whole read.
@@ -172,6 +180,9 @@ class _SectionBuilder:
         self.thick = thick
         self._names: set[str] = set()
         self._set_names: set[str] = {fs.name for fs in fem.sets.sets}
+        # The last suffix handed out per base name: thousands of groups share one profile's name,
+        # and counting up from 1 for each was quadratic.
+        self._next: dict[tuple[int, str], int] = {}
 
     def key(self, elno: int, orientation: bool) -> tuple:
         """What an element's section is made of. ``orientation`` adds a beam's own y axis,
@@ -202,14 +213,14 @@ class _SectionBuilder:
         n1, n2 = elem.nodes[0], elem.nodes[-1]
         v = n2.p - n1.p
         xvec = np.array([1.0, 0.0, 0.0]) if vector_length(v) == 0.0 else unit_vector(v)
-        return unit_vector(np.cross(_reference_z(self.lcsysd, transno, xvec), xvec))
+        return unit_vector(_cross(_reference_z(self.lcsysd, transno, xvec), xvec))
 
     def build(self, tagged: list[tuple[FemSet, str]]) -> list[FemSection]:
         sections = []
         assigned: set[int] = set()
         used_sets: set[int] = set()
         for fs, name in tagged:
-            ids = [m.id for m in fs.members]
+            ids = fs.member_ids
             if not ids or any(i not in self.elrefs or i in assigned for i in ids):
                 continue
             if len({self.key(i, orientation=False) for i in ids}) != 1:
@@ -226,7 +237,7 @@ class _SectionBuilder:
 
         exact: dict[frozenset, FemSet] = {}
         for fs in self.fem.sets.elements.values():
-            exact.setdefault(frozenset(m.id for m in fs.members), fs)
+            exact.setdefault(frozenset(fs.member_ids), fs)
 
         for ids in groups.values():
             fs = exact.get(frozenset(ids))
@@ -248,19 +259,19 @@ class _SectionBuilder:
         return f"so{ids[0]}"
 
     def _unique(self, name: str) -> str:
-        out, n = name, 0
-        while out in self._names:
-            n += 1
-            out = f"{name}_{n}"
-        self._names.add(out)
-        return out
+        return self._take(self._names, name)
 
     def _unique_set(self, name: str) -> str:
-        out, n = name, 0
-        while out in self._set_names:
+        return self._take(self._set_names, name)
+
+    def _take(self, taken: set[str], name: str) -> str:
+        """``name``, or ``name_<n>`` with the smallest free ``n`` past those already handed out."""
+        out, n = name, self._next.get((id(taken), name), 0)
+        while out in taken:
             n += 1
             out = f"{name}_{n}"
-        self._set_names.add(out)
+        self._next[(id(taken), name)] = n
+        taken.add(out)
         return out
 
     def section(self, fs: FemSet, name: str, ids: list[int]) -> FemSection:
@@ -524,7 +535,7 @@ def read_line_element(elem: Elem, d: dict, hinges_global, eccentricities, lcsysd
     v = n2.p - n1.p
     xvec = [1, 0, 0] if vector_length(v) == 0.0 else unit_vector(v)
     transno = element_transno(d, len(elem.nodes))
-    yvec = unit_vector(np.cross(_reference_z(lcsysd, transno, np.array(xvec, dtype=float)), xvec))
+    yvec = unit_vector(_cross(_reference_z(lcsysd, transno, np.array(xvec, dtype=float)), xvec))
 
     fix_data = str_to_int(d["fixno"])
     ecc_data = str_to_int(d["eccno"])

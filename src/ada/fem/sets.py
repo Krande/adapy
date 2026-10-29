@@ -199,6 +199,13 @@ class FemSet(FemBase):
         return self._members
 
     @property
+    def member_ids(self) -> list[int]:
+        """The members' ids, without resolving an id-backed set's members to proxies first."""
+        if self._member_ids is not None:
+            return list(self._member_ids)
+        return [m.id for m in self._members]
+
+    @property
     def refs(self):
         return self._refs
 

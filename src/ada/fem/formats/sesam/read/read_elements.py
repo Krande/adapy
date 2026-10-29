@@ -211,7 +211,7 @@ def attach_named_sets(fem: FEM) -> None:
     once the sets are read. (A spring's set is linked by :func:`link_spring_sets`.)"""
     elsets = {}
     for fs in fem.sets.elements.values():
-        elsets.setdefault(frozenset(m.id for m in fs.members), fs)
+        elsets.setdefault(frozenset(fs.member_ids), fs)
     for mass in fem.elements.masses:
         if mass.elset is None and mass.id is not None:
             mass.elset = elsets.get(frozenset([mass.id]))

@@ -119,7 +119,7 @@ def calculate_general_properties(
     }
 
     if section.type == bt.GENERAL:
-        logger.info("Skipping re-calculating a general section as it makes no sense")
+        logger.debug("Skipping re-calculating a general section as it makes no sense")
         return None
 
     calc_func = section_map.get(section.type, None)
