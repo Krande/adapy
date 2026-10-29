@@ -31,7 +31,9 @@ def generate_ifc_cone_geom(shape: PrimCone, f):
         return f.create_entity("IfcDirection", tuple(float(x) for x in v))
 
     origin = f.create_entity("IfcCartesianPoint", tuple(float(x) for x in pos.location))
-    position = f.create_entity("IfcAxis2Placement3D", Location=origin, Axis=direction(normal), RefDirection=direction(ref))
+    position = f.create_entity(
+        "IfcAxis2Placement3D", Location=origin, Axis=direction(normal), RefDirection=direction(ref)
+    )
     r, h = float(c_geom.bottom_radius), float(c_geom.height)
     points = f.create_entity("IfcCartesianPointList2D", CoordList=((0.0, 0.0), (r, 0.0), (0.0, h)))
     segments = [f.create_entity("IfcLineIndex", seg) for seg in ((1, 2), (2, 3), (3, 1))]

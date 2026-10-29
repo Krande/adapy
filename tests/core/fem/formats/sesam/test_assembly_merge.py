@@ -11,7 +11,11 @@ import pytest
 
 from ada.fem.formats.sesam.results.assembly import _FieldPart, _merge_parts
 from ada.fem.formats.sesam.results.property_fields import MATERIAL_FIELD
-from ada.fem.results.field_data import ElementFieldData, FieldPresentation, NodalFieldData
+from ada.fem.results.field_data import (
+    ElementFieldData,
+    FieldPresentation,
+    NodalFieldData,
+)
 
 _TURN = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 

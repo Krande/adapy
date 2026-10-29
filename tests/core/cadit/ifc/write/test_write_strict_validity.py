@@ -29,7 +29,9 @@ def test_profiles_are_2d_and_a_clipped_body_is_a_clipping(tmp_path, schema):
     for curve in f.by_type("IfcIndexedPolyCurve"):
         if any(inv.is_a("IfcProfileDef") for inv in f.get_inverse(curve)):
             assert curve.Points.is_a("IfcCartesianPointList2D"), curve
-    clipped = [r for r in f.by_type("IfcShapeRepresentation") if any(i.is_a("IfcBooleanClippingResult") for i in r.Items)]
+    clipped = [
+        r for r in f.by_type("IfcShapeRepresentation") if any(i.is_a("IfcBooleanClippingResult") for i in r.Items)
+    ]
     assert clipped and all(r.RepresentationType == "Clipping" for r in clipped)
 
     log = ifcopenshell.validate.json_logger()
@@ -48,15 +50,26 @@ def _world_bounds(f, name):
     prod = next(p for p in f.by_type("IfcProduct") if p.Name == name)
     v = ifcopenshell.geom.create_shape(s, prod).geometry.verts
     xs, ys, zs = v[0::3], v[1::3], v[2::3]
-    return [round(min(xs), 6), round(min(ys), 6), round(min(zs), 6), round(max(xs), 6), round(max(ys), 6), round(max(zs), 6)]
+    return [
+        round(min(xs), 6),
+        round(min(ys), 6),
+        round(min(zs), 6),
+        round(max(xs), 6),
+        round(max(ys), 6),
+        round(max(zs), 6),
+    ]
 
 
 @pytest.mark.parametrize("schema", ["IFC4", "IFC4X3_add2"])
 def test_an_extrusion_is_a_2d_profile_in_its_plane_where_it_was(tmp_path, schema):
     # A flat one away from the origin, and one in a tilted plane (normal +y, x along -z): each must
     # land exactly where the primitive is, from a 2D profile.
-    flat = ada.PrimExtrude("flat", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.5, normal=(0, 0, 1), origin=(10, 20, 30), xdir=(1, 0, 0))
-    tilted = ada.PrimExtrude("tilted", [(0, 0), (3, 0), (3, 1), (0, 1)], 0.25, normal=(0, 1, 0), origin=(1, 2, 3), xdir=(0, 0, -1))
+    flat = ada.PrimExtrude(
+        "flat", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.5, normal=(0, 0, 1), origin=(10, 20, 30), xdir=(1, 0, 0)
+    )
+    tilted = ada.PrimExtrude(
+        "tilted", [(0, 0), (3, 0), (3, 1), (0, 1)], 0.25, normal=(0, 1, 0), origin=(1, 2, 3), xdir=(0, 0, -1)
+    )
     a = ada.Assembly("a") / (ada.Part("p") / [flat, tilted])
     a.metadata["schema"] = schema
     dest = tmp_path / "extrude.ifc"
@@ -120,7 +133,9 @@ def test_cylinders_and_cones_are_csg_primitives_unless_swept_ones_are_asked_for(
 def test_a_revolve_is_a_2d_profile_turned_about_its_plane_y_axis(tmp_path, schema):
     # A 1 x 1 square 1 off the axis, a half turn about the plane's y-axis through (5, 5, 5): it spans
     # 2 either side of the axis in x, from the plane up in z, and 1 along the axis.
-    rev = ada.PrimRevolve("rev", [(1, 0), (2, 0), (2, 1), (1, 1)], 180, origin=(5, 5, 5), xdir=(1, 0, 0), normal=(0, 0, 1))
+    rev = ada.PrimRevolve(
+        "rev", [(1, 0), (2, 0), (2, 1), (1, 1)], 180, origin=(5, 5, 5), xdir=(1, 0, 0), normal=(0, 0, 1)
+    )
     a = ada.Assembly("a") / (ada.Part("p") / [rev])
     a.metadata["schema"] = schema
     dest = tmp_path / "revolve.ifc"

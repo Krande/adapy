@@ -36,7 +36,9 @@ class PoolRelationLookup:
         scope = self._scope.prefix()
         if self._scopes is None:
             self._scopes = readable_scopes(scope, await readable_share_origins(self._pool, scope=scope, user_sub=""))
-        return await relations_for(self._pool, scopes=self._scopes, collection=collection, node_ids=ids, full_names=names)
+        return await relations_for(
+            self._pool, scopes=self._scopes, collection=collection, node_ids=ids, full_names=names
+        )
 
     def relations(self, collection, *, node_ids=(), full_names=()) -> NodeRelations:
         answer = NodeRelations()

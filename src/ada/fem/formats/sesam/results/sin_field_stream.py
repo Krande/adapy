@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Iterator
 from ada.fem.formats.sesam.results.read_sin import (
     _RV_TYPE_NAMES,
     SinCases,
-    assembly_parts,
     _refuse_selected_without_mesh,
+    assembly_parts,
     attach_sesam_metadata,
     plan_sin_read,
 )

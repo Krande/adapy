@@ -178,7 +178,14 @@ def _file_schema(path) -> str:
     return m.group(1) if m else ""
 
 
-@pytest.mark.parametrize("schema, declared", [(None, "AUTOMOTIVE_DESIGN"), ("AP214", "AUTOMOTIVE_DESIGN"), ("AP242", "AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF")])
+@pytest.mark.parametrize(
+    "schema, declared",
+    [
+        (None, "AUTOMOTIVE_DESIGN"),
+        ("AP214", "AUTOMOTIVE_DESIGN"),
+        ("AP242", "AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF"),
+    ],
+)
 def test_a_step_export_declares_the_schema_asked_for(tmp_path, schema, declared):
     out = scope_to_selection(_model(), "deck_b")
     options = None if schema is None else {"step_schema": schema}
@@ -209,16 +216,38 @@ def test_only_options_that_change_the_file_change_its_key():
     args = dict(element="PL1", path=["deck_b", "PL1"])
     plain = selection_derived_key("tok", target, fmt="step", filename="PL1.step", **args)
     # The default asked for explicitly is the file it always was -- the cache stays warm.
-    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"step_schema": "AP214"}, **args) == plain
-    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"step_schema": "AP242"}, **args) != plain
+    assert (
+        selection_derived_key(
+            "tok", target, fmt="step", filename="PL1.step", export_options={"step_schema": "AP214"}, **args
+        )
+        == plain
+    )
+    assert (
+        selection_derived_key(
+            "tok", target, fmt="step", filename="PL1.step", export_options={"step_schema": "AP242"}, **args
+        )
+        != plain
+    )
     # A STEP schema does not make another IFC.
     ifc = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", **args)
-    assert selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"step_schema": "AP242"}, **args) == ifc
+    assert (
+        selection_derived_key(
+            "tok", target, fmt="ifc", filename="PL1.ifc", export_options={"step_schema": "AP242"}, **args
+        )
+        == ifc
+    )
     # The IFC schema does, and an IFC export's key names it even at the default: earlier IFC
     # exports were written in another schema under the default key.
-    ifc43 = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_schema": "IFC4X3"}, **args)
+    ifc43 = selection_derived_key(
+        "tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_schema": "IFC4X3"}, **args
+    )
     assert ifc43 != ifc
-    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"ifc_schema": "IFC4X3"}, **args) == plain
+    assert (
+        selection_derived_key(
+            "tok", target, fmt="step", filename="PL1.step", export_options={"ifc_schema": "IFC4X3"}, **args
+        )
+        == plain
+    )
 
 
 def test_an_ifc_header_names_the_file_its_author_and_project(tmp_path):
@@ -239,11 +268,20 @@ def test_an_ifc_header_names_the_file_its_author_and_project(tmp_path):
 def test_an_ifc_header_makes_another_file_and_a_step_ignores_it():
     target = {"source_key": "m.ifc"}
     args = dict(element="PL1", path=["deck_b", "PL1"])
-    one = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_header": {"author": "A"}}, **args)
-    two = selection_derived_key("tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_header": {"author": "B"}}, **args)
+    one = selection_derived_key(
+        "tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_header": {"author": "A"}}, **args
+    )
+    two = selection_derived_key(
+        "tok", target, fmt="ifc", filename="PL1.ifc", export_options={"ifc_header": {"author": "B"}}, **args
+    )
     assert one != two, "one person's export must not be served under another's name"
     step = selection_derived_key("tok", target, fmt="step", filename="PL1.step", **args)
-    assert selection_derived_key("tok", target, fmt="step", filename="PL1.step", export_options={"ifc_header": {"author": "A"}}, **args) == step
+    assert (
+        selection_derived_key(
+            "tok", target, fmt="step", filename="PL1.step", export_options={"ifc_header": {"author": "A"}}, **args
+        )
+        == step
+    )
 
 
 @pytest.mark.parametrize("schema, declared", [(None, "IFC4"), ("IFC4", "IFC4"), ("IFC4X3", "IFC4X3_ADD2")])

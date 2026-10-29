@@ -119,16 +119,22 @@ def parse_export_options(raw: Any) -> dict[str, Any]:
     if "step_schema" in raw:
         schema = str(raw["step_schema"] or "").strip().upper()
         if schema not in STEP_SCHEMAS:
-            raise SelectionExportError(f"'step_schema' must be one of {', '.join(STEP_SCHEMAS)} (got {raw['step_schema']!r})")
+            raise SelectionExportError(
+                f"'step_schema' must be one of {', '.join(STEP_SCHEMAS)} (got {raw['step_schema']!r})"
+            )
         out["step_schema"] = schema
     if "ifc_schema" in raw:
         schema = str(raw["ifc_schema"] or "").strip().upper()
         if schema not in IFC_SCHEMAS:
-            raise SelectionExportError(f"'ifc_schema' must be one of {', '.join(IFC_SCHEMAS)} (got {raw['ifc_schema']!r})")
+            raise SelectionExportError(
+                f"'ifc_schema' must be one of {', '.join(IFC_SCHEMAS)} (got {raw['ifc_schema']!r})"
+            )
         out["ifc_schema"] = schema
     if "ifc_swept_primitives" in raw:
         if not isinstance(raw["ifc_swept_primitives"], bool):
-            raise SelectionExportError(f"'ifc_swept_primitives' must be true or false (got {raw['ifc_swept_primitives']!r})")
+            raise SelectionExportError(
+                f"'ifc_swept_primitives' must be true or false (got {raw['ifc_swept_primitives']!r})"
+            )
         out["ifc_swept_primitives"] = raw["ifc_swept_primitives"]
     if raw.get("ifc_header") is not None:
         header = raw["ifc_header"]
@@ -136,7 +142,9 @@ def parse_export_options(raw: Any) -> dict[str, Any]:
             raise SelectionExportError(f"'ifc_header' must be an object of {', '.join(_HEADER_FIELDS)}")
         if not all(v is None or isinstance(v, str) for v in header.values()):
             raise SelectionExportError("'ifc_header' values must be text")
-        cleaned = {k: header[k].strip()[:200] for k in _HEADER_FIELDS if isinstance(header.get(k), str) and header[k].strip()}
+        cleaned = {
+            k: header[k].strip()[:200] for k in _HEADER_FIELDS if isinstance(header.get(k), str) and header[k].strip()
+        }
         out["ifc_header"] = cleaned or None
     return out
 

@@ -381,7 +381,6 @@ def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
 
 def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
     from ada.base.ifc_types import IFC_ENTITY_KEY
-
     from ada.cadit.ifc.write.write_relations import RELATIONS_KEY
 
     # Instructions to the writer, not properties of the element.

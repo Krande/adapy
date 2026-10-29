@@ -186,7 +186,11 @@ def _pset(ifc_store: IfcStore, element, values: dict[str, str]) -> None:
         for k, v in values.items()
     ]
     pset = f.create_entity(
-        "IfcPropertySet", GlobalId=create_guid(), OwnerHistory=ifc_store.owner_history, Name=PSET_NAME, HasProperties=props
+        "IfcPropertySet",
+        GlobalId=create_guid(),
+        OwnerHistory=ifc_store.owner_history,
+        Name=PSET_NAME,
+        HasProperties=props,
     )
     f.create_entity(
         "IfcRelDefinesByProperties",

@@ -321,7 +321,10 @@ def _streamed_sin_result(fetcher, step: int | None = None, *, pick_first_step: b
     discovery and the read so the page cache stays warm.
     """
     from ada.fem.formats.sesam.results.byte_source import PagedByteSource
-    from ada.fem.formats.sesam.results.read_sin import _read_streamed, stored_result_cases
+    from ada.fem.formats.sesam.results.read_sin import (
+        _read_streamed,
+        stored_result_cases,
+    )
     from ada.fem.formats.sesam.results.sin_reader import SinFile
 
     sin = SinFile(source=PagedByteSource(fetcher))

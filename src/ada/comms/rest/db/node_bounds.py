@@ -582,9 +582,7 @@ async def query_node_bounds(pool: asyncpg.Pool, *, scopes: Sequence[str], query:
                     totals = {str(c["parent_id"]): int(c["n"]) for c in counted}
                 elif found:
                     totals = {}
-                hits.extend(
-                    _hit_wire(r) for r in fold_hits(found, mode=query.mode, child_totals=totals, box=query.box)
-                )
+                hits.extend(_hit_wire(r) for r in fold_hits(found, mode=query.mode, child_totals=totals, box=query.box))
         finally:
             await conn.execute("RESET statement_timeout")
     if len(hits) > query.limit:

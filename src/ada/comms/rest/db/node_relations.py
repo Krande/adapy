@@ -434,7 +434,9 @@ async def system_members(pool: asyncpg.Pool, *, scopes: Sequence[str], collectio
     return {"members": members, "truncated": len(rows) > SYSTEM_MEMBERS_MAX}
 
 
-async def relations_token_for(pool: asyncpg.Pool, *, scopes: Sequence[str], collections: Iterable[str]) -> Optional[str]:
+async def relations_token_for(
+    pool: asyncpg.Pool, *, scopes: Sequence[str], collections: Iterable[str]
+) -> Optional[str]:
     """One token over the relation sets of ``collections`` readable in ``scopes`` -- what an export's
     cache key folds in -- or None when none of them has a set."""
     tokens = {}

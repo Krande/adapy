@@ -1402,9 +1402,8 @@ class SinStreamReader:
         steps: "Iterable[int] | None" = None,
         super_element: SuperElementSpec | None = None,
     ) -> None:
-        from ada.fem.formats.sesam.results.sin_reader import SinFile
-
         from ada.fem.formats.sesam.results.sin_field_stream import SinFieldStream
+        from ada.fem.formats.sesam.results.sin_reader import SinFile
 
         if isinstance(source, SinFile):
             self.sin = source

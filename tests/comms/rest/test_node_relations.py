@@ -22,7 +22,10 @@ import pytest
 
 from ada.comms.rest import db as dbm
 from ada.comms.rest.db import node_relations as nr
-from ada.comms.rest.selection_export import group_export_derived_key, selection_derived_key
+from ada.comms.rest.selection_export import (
+    group_export_derived_key,
+    selection_derived_key,
+)
 
 POSTGRES_URL = os.environ.get("ADA_TEST_POSTGRES_URL", "").strip()
 needs_postgres = pytest.mark.skipif(not POSTGRES_URL, reason="ADA_TEST_POSTGRES_URL not set")

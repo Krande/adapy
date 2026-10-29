@@ -450,7 +450,9 @@ async def api_asset_search_node(
             viewer=user.sub,
         )
     except asyncpg.QueryCanceledError as exc:
-        raise HTTPException(status_code=504, detail=f"the lookup did not finish within {SEARCH_STATEMENT_TIMEOUT}") from exc
+        raise HTTPException(
+            status_code=504, detail=f"the lookup did not finish within {SEARCH_STATEMENT_TIMEOUT}"
+        ) from exc
     return JSONResponse(result)
 
 

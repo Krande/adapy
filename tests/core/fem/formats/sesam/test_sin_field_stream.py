@@ -252,7 +252,10 @@ def test_the_case_index_gathers_what_the_scan_gathers(records, extra_pointers):
 
 
 def test_rdpoints_per_row_matches_a_lookup_by_element():
-    from ada.fem.formats.sesam.results.read_sif import _RdpointsLookup, _rdpoints_per_row
+    from ada.fem.formats.sesam.results.read_sif import (
+        _rdpoints_per_row,
+        _RdpointsLookup,
+    )
 
     nsp_i, eltyp_i = 5, 4
     rows = [
@@ -290,7 +293,10 @@ def _bake(path, out, monkeypatch, *, streamed: bool) -> dict:
 
 def test_a_streamed_bake_of_an_assembly_is_the_full_bake(assembly, monkeypatch, tmp_path):
     """Every superelement placed and merged, from a file or a range source alike."""
-    from ada.fem.formats.sesam.results.byte_source import FileRangeSource, PagedByteSource
+    from ada.fem.formats.sesam.results.byte_source import (
+        FileRangeSource,
+        PagedByteSource,
+    )
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
     from ada.fem.results.artefacts import bake_artefacts
 

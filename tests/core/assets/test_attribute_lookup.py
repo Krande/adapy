@@ -11,7 +11,11 @@ from ada.assets.attribute_lookup import (
     accepts_attributes,
     merge_provider_rows,
 )
-from ada.assets.concepts import clear_asset_concepts, part_for_manifest, register_asset_concepts
+from ada.assets.concepts import (
+    clear_asset_concepts,
+    part_for_manifest,
+    register_asset_concepts,
+)
 
 ROWS = [
     {"node_id": "s", "full_name": "/S", "kind": "SITE", "attrs": {"TYPE": "SITE"}},
@@ -124,6 +128,8 @@ def test_accepts_attributes():
 
 
 def test_the_api_lookup_chunks_one_request_per_chunk(monkeypatch):
+    # The worker package imports the database layer; the core test env has no server deps.
+    pytest.importorskip("asyncpg")
     from ada.comms.rest.worker.attribute_lookup import RestAttributeLookup
 
     sent = []

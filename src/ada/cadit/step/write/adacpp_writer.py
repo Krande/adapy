@@ -17,7 +17,6 @@ from typing import Any
 from ada.base.units import Units
 from ada.visit.colors import Color
 
-
 #: adapy's schema names -> the values OCCT's ``write.step.schema`` accepts. OCCT ignores a value it
 #: does not know -- silently, keeping AP214 -- and "AP242" is not one of its names: AP242 is
 #: "AP242DIS". Shared with the pythonocc writer (``ada.occ.step.writer``), which sets the same static.

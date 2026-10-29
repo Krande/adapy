@@ -63,9 +63,7 @@ def _system_predefined_type(system: System, schema: str | None = None) -> str:
 def _distribution_system_types(schema: str) -> frozenset[str]:
     """The ``IfcDistributionSystemEnum`` values of ``schema``; empty when it has no such enum."""
     try:
-        decl = ifcopenshell.ifcopenshell_wrapper.schema_by_name(schema).declaration_by_name(
-            "IfcDistributionSystemEnum"
-        )
+        decl = ifcopenshell.ifcopenshell_wrapper.schema_by_name(schema).declaration_by_name("IfcDistributionSystemEnum")
         return frozenset(decl.enumeration_items())
     except Exception:  # noqa: BLE001 - an unknown schema takes the kind's default
         return frozenset()
@@ -315,7 +313,9 @@ def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
     num = 0
     for system in systems:
         member_elems = [
-            e for e in (_get_by_guid_or_none(ifc_store, m.guid) for m in getattr(system, "members", ())) if e is not None
+            e
+            for e in (_get_by_guid_or_none(ifc_store, m.guid) for m in getattr(system, "members", ()))
+            if e is not None
         ]
         ifc_system = _resolve_distribution_system(ifc_store, system)
         if ifc_system is None and member_elems:
