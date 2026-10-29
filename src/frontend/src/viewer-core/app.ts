@@ -139,3 +139,9 @@ export function ExternalModelsTab(): null {
 // in-viewer host a shell would put it in; the full-page `/admin` route works
 // unchanged.
 export { default as AdminPanel } from "@/components/admin/AdminPanel";
+
+// Scene > Overlays: core's overlays (systems, flow direction, penetrations, connections) drawn
+// over the loaded models from the relations providers publish. Mounted as a whole for the reason
+// above: the overlays are core entities, and a shell that forked the panel would drift from the
+// set core defines.
+export { default as OverlaysPanel } from "@/components/info_box_scene/OverlaysPanel";

@@ -72,6 +72,7 @@ import { useModelSessionStore as g_useModelSessionStore } from "./modelSession"
 import { useModelState as g_useModelState } from "./modelState"
 import { useNodeEditorStore as g_useNodeEditorStore } from "./useNodeEditorStore"
 import { useObjectInfoStore as g_useObjectInfoStore } from "./objectInfoStore"
+import { useOverlayStore as g_useOverlayStore } from "./overlayStore"
 import { useOptionsStore as g_useOptionsStore } from "./optionsStore"
 import { usePerfStore as g_usePerfStore } from "./perfStore"
 import { useSceneColorOwnerStore as g_useSceneColorOwnerStore } from "./sceneColorOwnerStore"
@@ -104,7 +105,7 @@ export type AdaViewerRefs = ViewerRuntime
  * (`useModelState`, not `useModel`) so a consumer migrating off a direct import
  * does not have to rename call sites.
  *
- * 45 of the viewer's 47 stores are here. The two that are not, and why:
+ * 46 of the viewer's 48 stores are here. The two that are not, and why:
  *
  *   `useThemeStore`      A process singleton by intent. The theme is persisted
  *                        per browser and applied to `document.documentElement`,
@@ -156,6 +157,7 @@ export interface AdaViewerStores {
     useModelState: typeof g_useModelState
     useNodeEditorStore: typeof g_useNodeEditorStore
     useObjectInfoStore: typeof g_useObjectInfoStore
+    useOverlayStore: typeof g_useOverlayStore
     useOptionsStore: typeof g_useOptionsStore
     usePerfStore: typeof g_usePerfStore
     useSceneColorOwnerStore: typeof g_useSceneColorOwnerStore
@@ -222,6 +224,7 @@ export const SINGLETON_VIEWER_STORES: AdaViewerStores = {
     useModelState: g_useModelState,
     useNodeEditorStore: g_useNodeEditorStore,
     useObjectInfoStore: g_useObjectInfoStore,
+    useOverlayStore: g_useOverlayStore,
     useOptionsStore: g_useOptionsStore,
     usePerfStore: g_usePerfStore,
     useSceneColorOwnerStore: g_useSceneColorOwnerStore,

@@ -16,6 +16,7 @@ import FemConceptsPanel from "./FemConceptsPanel";
 import JointsOverviewPanel from "./JointsOverviewPanel";
 import ClashesPanel from "./ClashesPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
+import OverlaysPanel from "./OverlaysPanel";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -42,7 +43,7 @@ const CHROME =
     "bg-[var(--ada-panel-bg)] border border-[var(--ada-panel-border)] " +
     "text-[var(--ada-panel-text)] shadow-lg";
 
-type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem" | "clashes" | "joints";
+type SceneTab = "model" | "overlays" | "tools" | "clip" | "mesh" | "fem" | "clashes" | "joints";
 
 // "Clashes" sits immediately before "Joints", on purpose: identifying joints and reviewing them
 // are two ends of one workflow (`notes_core_asset_browser.md` §Decision 10's naming paragraph),
@@ -51,6 +52,7 @@ type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem" | "clashes" | "joint
 // loaded and says plainly when that source has no members to check.
 const TAB_META: {id: SceneTab; label: string; ctx?: boolean}[] = [
     {id: "model", label: "Model"},
+    {id: "overlays", label: "Overlays"},
     {id: "tools", label: "Tools"},
     {id: "clip", label: "Clip"},
     {id: "mesh", label: "Mesh"},
@@ -68,10 +70,12 @@ const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     fem: "fem",
     clashes: "clashes",
     joints: "joints",
+    overlays: "overlays",
 };
 
 const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     model: "info",
+    overlays: "overlays",
     tools: "utilities",
     clip: "section",
     mesh: "mesh",
@@ -225,6 +229,8 @@ const SceneInfoBox = () => {
                             <SourceSection />
                         </CollapsibleSection>
                     </>
+                ) : tab === "overlays" ? (
+                    <OverlaysPanel />
                 ) : tab === "tools" ? (
                     <>
                         <CollapsibleSection title="Selection boxes" defaultOpen>
