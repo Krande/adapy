@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pathlib
 
 from ada.api.spatial import Assembly, Part
 from ada.config import logger
@@ -21,7 +22,14 @@ from .read_sets import get_sets
 
 
 def read_fem(fem_file: os.PathLike, fem_name: str = None):
-    """Import contents from a Sesam fem file into an assembly object"""
+    """Import contents from a Sesam fem file into an assembly object.
+
+    A Results Interface File (``.SIN``, any case) is accepted too: SESTRA echoes the whole input
+    deck into it, so the deck is extracted (see ``results.export_fem``) and read like a ``.FEM``.
+    """
+    if pathlib.Path(fem_file).suffix.lower() == ".sin":
+        return _read_sin_as_fem(fem_file, fem_name)
+
     from ada.config import Config
 
     logger.info("Starting import of Sesam input file")
@@ -40,6 +48,18 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None):
         part = read_sesam_fem(d.read(), part_name)
 
     return Assembly("TempAssembly") / part
+
+
+def _read_sin_as_fem(sin_file: os.PathLike, fem_name: str = None):
+    """Read the input deck embedded in a Results Interface File through the ``.FEM`` reader."""
+    import tempfile
+
+    from ..results.export_fem import export_fem_from_sin
+
+    logger.info("Sesam results interface file given: extracting its input deck")
+    with tempfile.TemporaryDirectory(prefix="ada-sin-") as tmp:
+        deck = export_fem_from_sin(sin_file, pathlib.Path(tmp) / "deck.FEM")
+        return read_fem(deck, fem_name)
 
 
 def read_sesam_fem(bulk_str, part_name) -> Part:

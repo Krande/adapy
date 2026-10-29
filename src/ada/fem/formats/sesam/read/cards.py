@@ -194,8 +194,10 @@ GBEAMG = DataCard(
     ),
 )
 re_gbox = GBOX.to_ff_re()
-re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
-re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz")
+# Both records are stored padded to two full lines (8 fields) by SESTRA, so the trailing fields
+# after SFZ are optional ones: without them SFZ would swallow the padding ("1.0  0.0  0.0").
+re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz", "pad1|", "pad2|")
+re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz", "pad1|", "pad2|")
 
 # Coordinate System
 GUNIVEC = DataCard("GUNIVEC", ("transno", "unix", "uniy", "uniz"))

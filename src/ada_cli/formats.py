@@ -34,7 +34,7 @@ READ_FORMATS: dict[str, tuple[str, ...]] = {
     "gnx": ("gnx",),
     "acis": ("sat", "acis"),
     "abaqus": ("inp",),
-    "sesam": ("fem", "sif"),
+    "sesam": ("fem", "sif", "sin"),
     "code_aster": ("med", "rmed"),
 }
 
@@ -111,6 +111,7 @@ DEFAULT_READ_BY_EXT: dict[str, str] = {
     "inp": "abaqus",
     "fem": "sesam",
     "sif": "sesam",
+    "sin": "sesam",
     "med": "code_aster",
     "rmed": "code_aster",
 }

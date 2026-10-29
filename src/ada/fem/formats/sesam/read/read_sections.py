@@ -119,6 +119,30 @@ def section_sets(bulk_str, fem: FEM) -> list[tuple[FemSet, str]]:
     return out
 
 
+_UNRESOLVED_TRANSNO: set[int] = set()
+
+
+def _reference_z(lcsysd: dict, transno: int, xvec: np.ndarray) -> np.ndarray:
+    """The GUNIVEC vector a beam's TRANSNO names.
+
+    A TRANSNO that no GUNIVEC answers to (a SESTRA results file stores -1 for beams whose
+    orientation it resolved itself) falls back to global Z as the reference, or global Y for a
+    vertical beam, rather than refusing the whole file.
+    """
+    zvec = lcsysd.get(transno)
+    if zvec is not None and np.linalg.norm(np.cross(zvec, xvec)) > 1e-9:
+        return zvec
+    # A GUNIVEC parallel to the beam axis defines no orientation either (the cross product is
+    # zero); it is handled the same way instead of failing the whole read.
+    if transno not in _UNRESOLVED_TRANSNO:
+        _UNRESOLVED_TRANSNO.add(transno)
+        logger.warning(
+            f"TRANSNO {transno} gives no usable GUNIVEC for some beam (missing or parallel to its axis); "
+            "such beams get a default orientation"
+        )
+    return np.array([0.0, 1.0, 0.0]) if abs(xvec[2]) > 0.999 else np.array([0.0, 0.0, 1.0])
+
+
 class _SectionBuilder:
     """Builds the FemSections of :func:`get_sections` from the per-element GELREF1 records."""
 
@@ -149,6 +173,11 @@ class _SectionBuilder:
             return ElemType.SOLID, matno
         raise ValueError(f"Section not added to conversion: element {elno} of type {elem.type}")
 
+    @staticmethod
+    def _local_x(elem: Elem) -> np.ndarray:
+        v = elem.nodes[-1].p - elem.nodes[0].p
+        return np.array([1.0, 0.0, 0.0]) if vector_length(v) == 0.0 else unit_vector(v)
+
     def _local_y(self, elem: Elem, transno: int) -> np.ndarray:
         # The beam's y axis is GUNIVEC's z crossed with the beam axis. It used to be scaled by
         # its largest component and rounded to 3 decimals, which is only a unit vector for an
@@ -156,7 +185,7 @@ class _SectionBuilder:
         n1, n2 = elem.nodes[0], elem.nodes[-1]
         v = n2.p - n1.p
         xvec = np.array([1.0, 0.0, 0.0]) if vector_length(v) == 0.0 else unit_vector(v)
-        return unit_vector(np.cross(self.lcsysd[transno], xvec))
+        return unit_vector(np.cross(_reference_z(self.lcsysd, transno, xvec), xvec))
 
     def build(self, tagged: list[tuple[FemSet, str]]) -> list[FemSection]:
         sections = []
@@ -231,7 +260,7 @@ class _SectionBuilder:
                 sec_type=ElemType.LINE,
                 elset=fs,
                 section=self.fem.parent.sections.get_by_id(geono),
-                local_z=self.lcsysd[transno],
+                local_z=_reference_z(self.lcsysd, transno, np.array(self._local_x(elem))),
                 local_y=self._local_y(elem, transno),
                 material=mat,
                 parent=self.fem,
@@ -478,7 +507,7 @@ def read_line_element(elem: Elem, d: dict, hinges_global, eccentricities, lcsysd
     v = n2.p - n1.p
     xvec = [1, 0, 0] if vector_length(v) == 0.0 else unit_vector(v)
     transno = str_to_int(d["transno"])
-    yvec = unit_vector(np.cross(lcsysd[transno], xvec))
+    yvec = unit_vector(np.cross(_reference_z(lcsysd, transno, np.array(xvec, dtype=float)), xvec))
 
     fix_data = str_to_int(d["fixno"])
     ecc_data = str_to_int(d["eccno"])
@@ -497,7 +526,7 @@ def read_line_element(elem: Elem, d: dict, hinges_global, eccentricities, lcsysd
 
         ecc = eccentricities[ecc_data]
         end1 = EccPoint(elem.nodes[0], ecc)
-        end2 = EccPoint(elem.nodes[1], ecc)
+        end2 = EccPoint(elem.nodes[-1], ecc)
         elem.eccentricity = Eccentricity(end1, end2)
 
 
@@ -547,13 +576,23 @@ def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> No
     """Add hinge property to element from sesam FEM file"""
     from ada.fem.elements import Hinge, HingeProp
 
-    if len(elem.nodes) > 2:
-        raise ValueError("This algorithm was not designed for more than 2 noded elements")
-
+    last = len(elem.nodes) - 1
+    end1 = end2 = None
     for i, x in enumerate(members):
         if i >= len(elem.nodes):
             break
         if x == 0:
+            continue
+        if 0 < i < last:
+            # A mid node of a higher-order beam: HingeProp has an end 1 and an end 2 only.
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                "sesam reader",
+                "Hinge",
+                f"element {elem.id}",
+                "a release on the mid node of a beam with more than 2 nodes; hinges are kept at the two ends only",
+            )
             continue
         if x not in hinges_global.keys():
             raise ValueError("fixno not found!")
@@ -571,9 +610,10 @@ def add_hinge_prop_to_elem(elem: Elem, members, hinges_global, xvec, yvec) -> No
         dofs = [int(x) for x, i in zip(dofs_origin, (a1, a2, a3, a4, a5, a6)) if int(i) != 0]
         end = Hinge(retained_dofs=dofs, csys=csys, fem_node=n)
         if i == 0:
-            elem.hinge_prop = HingeProp(end1=end)
+            end1 = end
         else:
-            elem.hinge_prop = HingeProp(end2=end)
+            end2 = end
+        elem.hinge_prop = HingeProp(end1=end1, end2=end2)
 
 
 def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
@@ -581,13 +621,14 @@ def add_ecc_to_elem(elem: Elem, members, eccentricities, fix_data) -> None:
     from ada.fem.elements import Eccentricity, EccPoint
 
     # To the interpretation here
-    start = 0 if fix_data != -1 else len(elem.nodes)
-    end = len(elem.nodes) - 1 if fix_data != -1 else 2 * len(elem.nodes)
+    # MEMBERS holds one entry per node: the releases first when the element has them
+    # (FIXNO = -1), then the eccentricities. Anything beyond is record padding.
+    n_nodes = len(elem.nodes)
+    start = 0 if fix_data != -1 else n_nodes
+    end = n_nodes - 1
     end1: Union[None, EccPoint] = None
     end2: Union[None, EccPoint] = None
-    for i, x in enumerate(members[start:]):
-        if i > end:
-            break
+    for i, x in enumerate(members[start : start + n_nodes]):
         if x == 0:
             continue
         n_offset = elem.nodes[i]
