@@ -223,7 +223,8 @@ export function selectSourceElements(refs: readonly { readonly sourceName: strin
 
 /** Select the elements NAMED one of `names` in every loaded model -- a system's members, related
  *  elements -- by full name, whatever model they were loaded in; with `add`, on top of the current
- *  selection rather than instead of it. Returns how many draw ranges were selected. */
+ *  selection rather than instead of it. An element with geometry of its own is selected alone; a
+ *  level without is its subtree. Returns how many draw ranges were selected. */
 export function selectNamedElements(names: ReadonlySet<string>, label: string, add = false): number {
   const idx = indices();
   if (!idx || names.size === 0) return 0;
@@ -236,7 +237,12 @@ export function selectNamedElements(names: ReadonlySet<string>, label: string, a
   }
   const modelKeyMap = getViewerRuntime().modelKeyMap.current;
   const batch: [CustomBatchedMesh, string][] = [];
-  for (const row of geometryRowsUnder(hits)) {
+  // A named element that draws geometry of its own is that geometry: a deck plate is the plate,
+  // not every opening and fitting nested under it. A level that draws nothing itself (an
+  // opening, a run) is what is under it.
+  const own = hits.filter((r) => r.rangeId != null && r.node_name && r.model_key);
+  const levels = hits.filter((r) => !(r.rangeId != null && r.node_name && r.model_key));
+  for (const row of [...own, ...geometryRowsUnder(levels)]) {
     if (row.rangeId == null || !row.node_name || !row.model_key) continue;
     const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
     if (mesh) batch.push([mesh, row.rangeId]);
