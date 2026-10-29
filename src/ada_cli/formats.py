@@ -189,7 +189,7 @@ def format_table_text() -> str:
             if name == "code_aster":
                 note += " plus .comm and two .json sidecars"
             elif name == "sesam":
-                note += ", plus sestra.inp when the model has a step"
+                note += ", plus sestra.inp with --sestra-inp"
         lines.append(f"  {name:<12} {', '.join('.' + e for e in exts):<14}{note}".rstrip())
     lines += [
         "",

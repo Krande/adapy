@@ -76,7 +76,7 @@ extensions, and `--from` / `--to` override that inference.
 | `gnx` | `.gnx` | GeniE workspace. Same model as `xml`, in the container GeniE saves and opens; `Assembly.to_gnx` is the Python entry point. The ACIS body is text unless `--binary-acis` asks for binary. |
 | `abaqus` | `.inp` | Default owner of `.inp`. One self-contained deck — the include files the writer uses internally are inlined and removed. |
 | `calculix` | `.inp` | Shares `.inp` with Abaqus, so it is reachable only as `--to calculix`. |
-| `sesam` | `.fem` | Default owner of `.fem`. Writes `sestra.inp` beside the deck when the model carries an analysis step. |
+| `sesam` | `.fem` | Default owner of `.fem`. The `.FEM` deck alone; `--sestra-inp` adds a `sestra.inp` made from the model's analysis step. |
 | `usfos` | `.fem` | Shares `.fem` with Sesam, so it is reachable only as `--to usfos`. |
 | `code_aster` | `.med` | The output is the `.med` mesh; the `.comm` command file and two `.json` maps land beside it. |
 | `opencourant` | `.rad` | OpenCourant (OpenRadioss) starter deck `<name>_0000.rad`. The engine deck `<name>_0001.rad` is written beside it when the model carries an explicit step. Shell models only for now. |
@@ -206,6 +206,13 @@ leaving you to discover it from Presel. Sesam expects the number in the deck and
 the number in the file name to agree, because Presel matches them when it
 assembles, so a flag contradicting the name is a usage error rather than a
 silent override.
+
+`--sestra-inp`
+:   For `sesam` output: also write a Sestra control file, `sestra.inp`, beside
+    the deck. adapy makes it from the model's first step (a linear static or
+    eigenvalue analysis) and points it at the super element written (`ITOP`). It
+    is not read from the input -- not even from a `.SIN`. By default only the
+    `.FEM` is written. Any other output format refuses the flag.
 
 `--binary-acis`
 :   For `gnx` output: store the ACIS body as binary SAB (`acisGeometry.sab`),

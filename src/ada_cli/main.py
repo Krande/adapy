@@ -306,6 +306,16 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--sestra-inp",
+        dest="sestra_inp",
+        action="store_true",
+        help=(
+            "sesam output only: also write a Sestra control file (sestra.inp) beside OUT, made by adapy from "
+            "the model's first step and pointing at the super element written. By default only the FEM "
+            "file is written."
+        ),
+    )
+    p.add_argument(
         "--binary-acis",
         dest="binary_acis",
         action="store_true",

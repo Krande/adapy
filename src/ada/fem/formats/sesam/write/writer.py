@@ -49,6 +49,10 @@ def _superelement_number(value) -> int:
 def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=False):
     """Write a Sesam input interface file (``<name>T<n>.FEM``).
 
+    With ``model_data_only`` the FEM file is all that is written. Otherwise a model whose first
+    step is a linear static or eigenvalue analysis also gets a ``sestra.inp``, made by adapy from
+    that step and analysing the super element written.
+
     Sesam-specific ``metadata`` keys:
 
     * ``"control_file"`` — an existing Sestra control file to reuse.
@@ -161,11 +165,12 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # step used to be dropped with a log line, and an explicit or dynamic first step raised.
     steps = list(assembly.fem.steps) + list(part.fem.steps)
     step = written_step(steps)
-    sestra_inp = step is not None and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC)
+    # ``model_data_only``: the FEM file alone, no Sestra control file beside it.
+    sestra_inp = not model_data_only and step is not None and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC)
     if sestra_inp:
         with open(analysis_dir / "sestra.inp", "w") as f:
-            f.write(write_sestra_inp(name, step))
-    report_steps(steps, sestra_inp)
+            f.write(write_sestra_inp(name, step, supnr=seltyp))
+    report_steps(steps, sestra_inp, model_data_only=model_data_only)
     report_not_held(fems, materials, written=part.fem)
 
     # One derivation of the per-node dof count, shared by every record that declares an

@@ -323,11 +323,14 @@ def _resolve_superelement(
     return 1
 
 
-def _write_fem(model, output_file, fmt: str, superelement: int | None = None) -> list[pathlib.Path]:
+def _write_fem(
+    model, output_file, fmt: str, superelement: int | None = None, analysis_files: bool = False
+) -> list[pathlib.Path]:
     """Write a FEM deck so that its primary file *is* ``output_file``.
 
     Returns every path written, primary first. See the module docstring for why this goes
-    through a temporary directory next to the destination.
+    through a temporary directory next to the destination. A Sesam deck is written alone unless
+    ``analysis_files`` asks for the ``sestra.inp`` the writer makes from the model's first step.
     """
     out = _prepare_out(output_file)
     name = _deck_name(out, fmt)
@@ -337,7 +340,13 @@ def _write_fem(model, output_file, fmt: str, superelement: int | None = None) ->
     try:
         # ``metadata`` is passed only for sesam: it is the one writer with something to say here,
         # and a writer that takes no metadata should not be handed the keyword at all.
-        extra = {"metadata": {"sesam_superelement": seltyp}} if fmt == "sesam" else {}
+        # A Sesam deck is the model alone unless a Sestra control file was asked for. Other
+        # writers keep their files: a Code_Aster .comm carries the materials and sections.
+        extra = (
+            {"metadata": {"sesam_superelement": seltyp}, "model_data_only": not analysis_files}
+            if fmt == "sesam"
+            else {}
+        )
         model.to_fem(
             name,
             fem_format=fmt,
@@ -386,11 +395,16 @@ def _write_fem(model, output_file, fmt: str, superelement: int | None = None) ->
 
 
 def _write(
-    model, output_file, fmt: str, superelement: int | None = None, binary_acis: bool = False
+    model,
+    output_file,
+    fmt: str,
+    superelement: int | None = None,
+    binary_acis: bool = False,
+    analysis_files: bool = False,
 ) -> list[pathlib.Path]:
     """Write ``model`` as ``fmt`` to ``output_file``. Returns every path written."""
     if fmt in FEM_WRITE_FORMATS:
-        return _write_fem(model, output_file, fmt, superelement=superelement)
+        return _write_fem(model, output_file, fmt, superelement=superelement, analysis_files=analysis_files)
 
     out = _prepare_out(output_file)
     if fmt == "ifc":
@@ -438,10 +452,13 @@ def _convert_sin(args, out: pathlib.Path, out_fmt: str, explicit, specs, merge: 
     if not path.is_file():
         raise CliUsageError(f"input file not found: {args.input}")
     sesam = out_fmt == "sesam"
+    analysis_files = getattr(args, "sestra_inp", False)
 
     def write_one(model, input_number: int | None) -> list[pathlib.Path]:
         seltyp = _resolve_superelement(out, explicit, input_number, args.input) if sesam else None
-        return _write(model, args.output, out_fmt, superelement=seltyp, binary_acis=binary_acis)
+        return _write(
+            model, args.output, out_fmt, superelement=seltyp, binary_acis=binary_acis, analysis_files=analysis_files
+        )
 
     try:
         layout = sa.sin_layout(path)
@@ -493,7 +510,12 @@ def _convert_sin(args, out: pathlib.Path, out_fmt: str, explicit, specs, merge: 
         for row in chosen:
             model = sa.read_superelement(path, row)
             written += _write(
-                model, targets[row.label], out_fmt, superelement=row.seltyp if sesam else None, binary_acis=binary_acis
+                model,
+                targets[row.label],
+                out_fmt,
+                superelement=row.seltyp if sesam else None,
+                binary_acis=binary_acis,
+                analysis_files=analysis_files,
             )
             del model
         logger.info("wrote %d superelements: %s", len(chosen), ", ".join(r.label for r in chosen))
@@ -546,6 +568,8 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         raise CliUsageError(
             "--merge writes every first-level superelement as one file; it cannot be combined with --super-element"
         )
+    if getattr(args, "sestra_inp", False) and out_fmt != "sesam":
+        raise CliUsageError(f"--sestra-inp applies to sesam output only, not {out_fmt}")
     binary_acis = getattr(args, "binary_acis", False)
     if binary_acis and out_fmt != "gnx":
         # Only a GeniE workspace stores its ACIS body as a separate member; anywhere else the flag
@@ -560,7 +584,14 @@ def _cmd_convert(args: argparse.Namespace) -> int:
             seltyp = (
                 _resolve_superelement(out, explicit, _input_seltyp(model), args.input) if out_fmt == "sesam" else None
             )
-            written = _write(model, args.output, out_fmt, superelement=seltyp, binary_acis=binary_acis)
+            written = _write(
+                model,
+                args.output,
+                out_fmt,
+                superelement=seltyp,
+                binary_acis=binary_acis,
+                analysis_files=getattr(args, "sestra_inp", False),
+            )
 
     for path in written:
         print(path)
