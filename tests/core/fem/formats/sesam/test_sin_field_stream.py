@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from .sin_assembly import SIN_PATH, write_assembly_sin
+from .sin_assembly import SIN_PATH, write_assembly_sin, write_two_case_sin
 
 
 def _field_key(f):
@@ -273,3 +273,151 @@ def test_rdpoints_per_row_matches_a_lookup_by_element():
         assert nsp.tolist() == [8, 2, -1, 8, 2]
         assert elem_type.tolist() == [28, 15, -1, 28, 15]
         assert listed.tolist() == [True, True, False, True, True]
+
+
+def _bake_digests(out) -> dict:
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(out.iterdir()) if p.is_file()}
+
+
+def _bake(path, out, monkeypatch, *, streamed: bool) -> dict:
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    monkeypatch.delenv("ADA_FEA_SIN_FIELD_CACHE", raising=False)
+    monkeypatch.setenv("ADA_FEA_SIN_STREAMER", "on" if streamed else "off")
+    bake_fea_artefacts_from_source(path, out, src_key="s")
+    return _bake_digests(out)
+
+
+def test_a_streamed_bake_of_an_assembly_is_the_full_bake(assembly, monkeypatch, tmp_path):
+    """Every superelement placed and merged, from a file or a range source alike."""
+    from ada.fem.formats.sesam.results.byte_source import FileRangeSource, PagedByteSource
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import bake_artefacts
+
+    full = _bake(assembly, tmp_path / "full", monkeypatch, streamed=False)
+    assert _bake(assembly, tmp_path / "streamed", monkeypatch, streamed=True) == full
+    with SinStreamReader(PagedByteSource(FileRangeSource(str(assembly)))) as reader:
+        assert len(reader.read_mesh_geometry().points) == 2 * 403
+        bake_artefacts(reader, tmp_path / "ranged", src="s")
+    assert _bake_digests(tmp_path / "ranged") == full
+
+
+def test_a_case_that_lists_fewer_elements_bakes_as_the_full_read(monkeypatch, tmp_path):
+    path = write_two_case_sin(tmp_path / "TWO.SIN", from_case=2)
+    full = _bake(path, tmp_path / "full", monkeypatch, streamed=False)
+    assert _bake(path, tmp_path / "streamed", monkeypatch, streamed=True) == full
+
+
+def test_a_later_case_that_lists_more_elements_is_refused_by_the_streamer(monkeypatch, tmp_path):
+    path = write_two_case_sin(tmp_path / "TWO.SIN", from_case=1)
+    assert _bake(path, tmp_path / "full", monkeypatch, streamed=False)
+    with pytest.raises(RuntimeError, match="lists elements at step index 1 that the first case does not"):
+        _bake(path, tmp_path / "streamed", monkeypatch, streamed=True)
+
+
+def _result_digest(result) -> str:
+    h = hashlib.sha256()
+    for f in result.results:
+        v = np.ascontiguousarray(f.values)
+        key = (
+            type(f).__name__,
+            f.name,
+            int(f.step),
+            str(getattr(f, "elem_type", None)),
+            str(getattr(f, "field_pos", None)),
+            str(v.dtype),
+            v.shape,
+            repr(f.presentation),
+            list(f.components or []),
+            f.eigen_freq,
+            f.eigen_value,
+        )
+        h.update(repr(key).encode())
+        h.update(v.tobytes())
+    mesh = result.mesh
+    for a in (mesh.nodes.coords, mesh.nodes.identifiers, mesh.nodes.labels):
+        if a is not None:
+            h.update(np.ascontiguousarray(a).tobytes())
+    for b in mesh.elements:
+        for a in (b.node_refs, b.identifiers, b.labels):
+            if a is not None:
+                h.update(np.ascontiguousarray(a).tobytes())
+    metadata = (result.name, result.step_name_map, getattr(result, "sesam_case_names", None))
+    h.update(repr((*metadata, getattr(result, "sesam_groups", None))).encode())
+    return h.hexdigest()[:20]
+
+
+#: What the full read (every case of every card at once, then merged) gave for each
+#: fixture before the streamed read replaced it. The streamed read must give the same.
+_FULL_READ_DIGESTS = {
+    "single": "715e38f1c8fbd73fa470",
+    "single_step1": "715e38f1c8fbd73fa470",
+    "single_step9": "ea19cd68c8208865e61f",
+    "assembly": "8120c8c6250395df2038",
+    "assembly_sel11": "5907043ad9ba05a4c3d1",
+    "assembly_both": "8120c8c6250395df2038",
+    "assembly_phase": "8120c8c6250395df2038",
+    "two_fewer": "b4ceb6504ecf0764bb8b",
+    "two_more": "10b1312d5e9878aa540e",
+    "two_more_step2": "7fe6d65f87b2f3601007",
+}
+
+
+@pytest.mark.parametrize(
+    "which,kw",
+    [
+        ("single", {}),
+        ("single_step1", {"step": 1}),
+        ("single_step9", {"step": 9}),
+        ("assembly", {}),
+        ("assembly_sel11", {"super_element": "SEL11.IND1"}),
+        ("assembly_both", {"super_element": ["SEL10.IND1", "SEL11.IND1"]}),
+        ("assembly_phase", {"complex_phase": 0.5}),
+        ("two_fewer", {}),
+        ("two_more", {}),
+        ("two_more_step2", {"step": 2}),
+    ],
+)
+def test_a_read_is_what_the_full_read_was(which, kw, assembly, tmp_path):
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    if which.startswith("single"):
+        path = SIN_PATH
+    elif which.startswith("assembly"):
+        path = assembly
+    else:
+        fewer = which == "two_fewer"
+        path = write_two_case_sin(
+            tmp_path / ("TWO_FEWER.SIN" if fewer else "TWO_MORE.SIN"), from_case=2 if fewer else 1
+        )
+    assert _result_digest(read_sin_file(path, **kw)) == _FULL_READ_DIGESTS[which]
+
+
+class _FileFetcher:
+    """The host's range fetcher, over a local file."""
+
+    def __init__(self, path):
+        self._data = path.read_bytes()
+
+    def size(self) -> int:
+        return len(self._data)
+
+    def fetch(self, offset: int, length: int) -> bytes:
+        return self._data[offset : offset + length]
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.mark.parametrize("which", ["single", "assembly"])
+def test_the_browser_read_over_a_range_fetcher_is_the_read(which, assembly):
+    from ada.cadit.wasm_convert import _streamed_sin_result
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    path = SIN_PATH if which == "single" else assembly
+    whole = read_sin_file(path)
+    ranged = _streamed_sin_result(_FileFetcher(path))
+    assert _digest(ranged.results) == _digest(whole.results)
+    assert len(ranged.mesh.nodes.identifiers) == len(whole.mesh.nodes.identifiers)
+    first = _streamed_sin_result(_FileFetcher(path), pick_first_step=True)
+    assert _digest(first.results) == _digest(read_sin_file(path, step=1).results)

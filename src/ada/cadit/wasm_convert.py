@@ -320,30 +320,18 @@ def _streamed_sin_result(fetcher, step: int | None = None, *, pick_first_step: b
     Otherwise (the bake) read **all** steps. One ``SinFile`` is reused for
     discovery and the read so the page cache stays warm.
     """
-    import pathlib
-
-    import numpy as np
-
     from ada.fem.formats.sesam.results.byte_source import PagedByteSource
-    from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
-    from ada.fem.formats.sesam.results.read_sin import _RV_TYPE_NAMES, SinReader
+    from ada.fem.formats.sesam.results.read_sin import _read_streamed, stored_result_cases
     from ada.fem.formats.sesam.results.sin_reader import SinFile
 
     sin = SinFile(source=PagedByteSource(fetcher))
     try:
         if step is None and pick_first_step:
-            steps: set[int] = set()
-            for rv in _RV_TYPE_NAMES:
-                if rv in sin.type_blocks:
-                    ires = sin.gather_first_words(rv)
-                    if ires.size:
-                        steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
+            steps = stored_result_cases(sin)
             if not steps:
                 raise RuntimeError("SIN result has no RV* result steps")
-            step = sorted(steps)[0]
-        reader = SinReader(sin=sin, step=None if step is None else int(step))
-        reader.load()
-        return Sif2Mesh(reader).convert(pathlib.Path("remote.sin"))
+            step = min(steps)
+        return _read_streamed(sin, None if step is None else int(step), 0.0, None)
     finally:
         sin.close()
 

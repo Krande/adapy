@@ -2,8 +2,9 @@
 
 A SIN written for a superelement assembly holds one RESULTS entry per superelement, each
 with its own mesh, numbering and result tables, plus the hierarchy that places them
-(HSUPTRAN). :func:`~.read_sin.read_sin_file` reads each superelement on its own; this
-merges them into one :class:`FEAResult` -- what Xtract shows when it opens the assembly.
+(HSUPTRAN). :class:`~.sin_field_stream.SinFieldStream` reads each superelement on its own,
+one result case at a time; this merges them into one :class:`FEAResult` -- what Xtract
+shows when it opens the assembly.
 
 * **Placement.** Each superelement's node coordinates go through its placement (the
   transforms of it and every parent above it, composed). Vectors stored in the
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from ada.fem.formats.sesam.results.sin_reader import SuperElementInfo
     from ada.fem.results.common import FEAResult
 
-__all__ = ["assemble_super_elements", "placements", "id_bases"]
+__all__ = ["assemble_meshes", "placements", "id_bases"]
 
 _UINT32_MAX = 2**32 - 1
 # Component triplets that are vectors in the superelement's system.
@@ -343,29 +344,3 @@ def assemble_meshes(
     out.sesam_result_cases = getattr(first, "sesam_result_cases", None)
     out.sesam_super_elements = index_record
     return AssembledMesh(out, list(rows), bases, rotations, blocks_by_part)
-
-
-def assemble_super_elements(
-    rows: list[SuperElementInfo],
-    results: list[FEAResult],
-    placement: dict[int, np.ndarray],
-    name: str,
-    results_file_path: pathlib.Path | None = None,
-) -> FEAResult:
-    """Merge ``results`` (one per superelement of ``rows``, read on their own) into one.
-
-    Takes the fields out of ``results``: each is left with an empty ``results`` list, so no
-    superelement's field outlives its merge.
-    """
-    assembled = assemble_meshes(rows, results, placement, name, results_file_path)
-    fields_per_part = []
-    for result in results:
-        fields_per_part.append(result.results)
-        result.results = []
-    fields = assembled.merge_fields(fields_per_part)
-    fields += assembled.super_element_fields(fields)
-    out = assembled.result
-    out.results = fields
-    for field in fields:
-        field._mesh = out.mesh
-    return out
