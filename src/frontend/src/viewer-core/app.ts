@@ -145,3 +145,12 @@ export { default as AdminPanel } from "@/components/admin/AdminPanel";
 // above: the overlays are core entities, and a shell that forked the panel would drift from the
 // set core defines.
 export { default as OverlaysPanel } from "@/components/info_box_scene/OverlaysPanel";
+
+// Systems and related elements, from the same relations index. `SystemsPanel` lists the loaded
+// collections' systems (select what is loaded, load the rest); `RelatedSection` is the selected
+// element's system, run and actions, for a shell's selection panel. A shell with a menu of its own
+// lists the same actions through `useRelatedActions` -- the set is core's either way.
+export { default as SystemsPanel } from "@/components/asset_browser/SystemsTab";
+export { default as RelatedSection } from "@/components/info_box_selected_object/RelatedSection";
+export { useRelatedActions } from "@/hooks/useRelatedActions";
+export type { RelatedAction } from "@/utils/systems/relatedActions";

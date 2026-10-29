@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 
-import type {TreeNodeData} from '@/components/tree_view/CustomNode';
+import {useSelectedTreeRow} from '@/hooks/useSelectedTreeRow';
 import {
     attributeLookupFor,
     attributesRequestPermissionFor,
@@ -11,7 +11,6 @@ import {
 import {attributeSearchApi, type NodeAttributesResponse} from '@/services/api/attributeSearch';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {scopeUrlPart} from '@/state/scopeStore';
-import {buildTreeIndices} from '@/utils/tree_view/treeGraph';
 
 /**
  * The selected object's attributes from the attribute index, read for the one selected row of a
@@ -22,33 +21,12 @@ import {buildTreeIndices} from '@/utils/tree_view/treeGraph';
  * request it; the run shows in the toast, and the row is read again when it ends.
  */
 const IndexedAttributesSection: React.FC = () => {
-    const {useObjectInfoStore, useTreeViewStore, useSelectedObjectStore, useScopeStore, useAssetBrowserStore} =
-        useViewerStores();
-    const selectedNodeId = useObjectInfoStore((s) => s.selectedNodeId);
-    const name = useObjectInfoStore((s) => s.name);
-    const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
-    const treeData = useTreeViewStore((s) => s.treeData);
-    const findNodeByRangeId = useTreeViewStore((s) => s.findNodeByRangeId);
+    const {useScopeStore, useAssetBrowserStore} = useViewerStores();
     const loaded = useAssetBrowserStore((s) => s.loaded);
     const scope = scopeUrlPart(useScopeStore((s) => s.current));
 
-    const indices = useMemo(() => (treeData ? buildTreeIndices(treeData) : null), [treeData]);
-
     // The one element picked in 3D (by model key + range id), else the row picked in the tree.
-    const node: TreeNodeData | null = useMemo(() => {
-        if (!indices) return null;
-        let picked: TreeNodeData | null = null;
-        let count = 0;
-        for (const [mesh, ranges] of selectedObjects) {
-            const key: string | undefined = (mesh as any).unique_key ?? mesh.userData?.unique_hash;
-            for (const rid of ranges) {
-                count++;
-                if (key) picked = findNodeByRangeId(key, rid);
-            }
-        }
-        if (count === 1 && picked) return indices.byId.get(picked.id) ?? picked;
-        return selectedNodeId ? indices.byId.get(selectedNodeId) ?? null : null;
-    }, [indices, selectedObjects, selectedNodeId, findNodeByRangeId, name]);
+    const {row: node, indices} = useSelectedTreeRow();
 
     const lookup = useMemo(
         () => (node && indices ? attributeLookupFor(node, indices, loaded) : null),
