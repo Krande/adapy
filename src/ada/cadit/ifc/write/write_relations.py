@@ -9,6 +9,11 @@ object when it is in the model, ``host_guid`` the element an opening is cut into
 * ``fills_opening`` with the host written: an ``IfcOpeningElement`` voiding the host
   (``IfcRelVoidsElement``) that the element fills (``IfcRelFillsElement``), as a window fills a wall.
 * ``penetrates`` with the host written and no opening of the same host: ``IfcRelConnectsElements``.
+* ``flows_to`` with the next element written: an outlet ``IfcDistributionPort`` on this element and
+  an inlet on the next, both at the joint (``at``) and nested on their element (``IfcRelNests``),
+  joined outlet to inlet by ``IfcRelConnectsPorts`` -- how IFC chains a run head to tail. The
+  ports' ``FlowDirection`` is ``SOURCE``/``SINK`` only when the provider knows the medium's
+  direction (``basis: flow``); a run known only by its modelled order gets ``SOURCEANDSINK``.
 * Anything whose other side is not in the file: kept in the element's :data:`PSET_NAME` property
   set, the related element's name and node id per relation, so the relation is not lost.
 
@@ -106,6 +111,69 @@ def _fill(ifc_store: IfcStore, element, host, opening_name: str) -> None:
     )
 
 
+class _Ports:
+    """The ports ``flows_to`` puts on written elements, one per element and joint."""
+
+    def __init__(self, ifc_store: IfcStore):
+        self.store = ifc_store
+        units = getattr(getattr(ifc_store.assembly, "units", None), "value", "m")
+        self.scale = 1000.0 if str(units).lower() == "mm" else 1.0
+        self._made: dict[tuple, object] = {}
+
+    def at(self, element, at, flow: str, name: str):
+        point = tuple(round(float(v) * self.scale, 6) for v in at)
+        key = (element.id(), point, flow)
+        port = self._made.get(key)
+        if port is not None:
+            return port
+        f = self.store.f
+        placement = f.create_entity(
+            "IfcLocalPlacement",
+            None,
+            f.createIfcAxis2Placement3D(f.createIfcCartesianPoint(point), None, None),
+        )
+        port = f.create_entity(
+            "IfcDistributionPort",
+            GlobalId=create_guid(),
+            OwnerHistory=self.store.owner_history,
+            Name=name,
+            ObjectPlacement=placement,
+            FlowDirection=flow,
+        )
+        nests = next((r for r in getattr(element, "IsNestedBy", None) or () if r.is_a("IfcRelNests")), None)
+        if nests is None:
+            f.create_entity(
+                "IfcRelNests",
+                GlobalId=create_guid(),
+                OwnerHistory=self.store.owner_history,
+                RelatingObject=element,
+                RelatedObjects=[port],
+            )
+        else:
+            nests.RelatedObjects = [*nests.RelatedObjects, port]
+        self._made[key] = port
+        return port
+
+
+def _flow(ifc_store: IfcStore, ports: _Ports, element, target, entry: dict) -> bool:
+    """``element`` flows into ``target`` at ``entry["at"]``; False when there is no joint to place."""
+    at = entry.get("at")
+    if not isinstance(at, (list, tuple)) or len(at) != 3:
+        return False
+    known = str(entry.get("basis") or "") == "flow"
+    outlet = ports.at(element, at, "SOURCE" if known else "SOURCEANDSINK", "outlet")
+    inlet = ports.at(target, at, "SINK" if known else "SOURCEANDSINK", "inlet")
+    ifc_store.f.create_entity(
+        "IfcRelConnectsPorts",
+        GlobalId=create_guid(),
+        OwnerHistory=ifc_store.owner_history,
+        Name="flows_to",
+        RelatingPort=outlet,
+        RelatedPort=inlet,
+    )
+    return True
+
+
 def _pset(ifc_store: IfcStore, element, values: dict[str, str]) -> None:
     f = ifc_store.f
     props = [
@@ -129,6 +197,7 @@ def write_relations(ifc_store: IfcStore) -> int:
     number of relations written as IFC relationships (the property-set ones not counted)."""
     a = ifc_store.assembly
     written = 0
+    ports = _Ports(ifc_store)
     objects = [*a.get_all_parts_in_assembly(include_self=False), *a.get_all_physical_objects()]
     for obj in objects:
         entries = (obj.metadata or {}).get(RELATIONS_KEY) or []
@@ -160,6 +229,9 @@ def write_relations(ifc_store: IfcStore) -> int:
                     filled_hosts.add(host.id())
                 elif relation == "penetrates" and target is not None and target.is_a("IfcElement"):
                     if target.id() not in filled_hosts and not _fills(entries, e):
+                        _connect(ifc_store, element, target, relation)
+                elif relation == "flows_to" and target is not None and target.is_a("IfcElement"):
+                    if not _flow(ifc_store, ports, element, target, e):
                         _connect(ifc_store, element, target, relation)
                 else:
                     _keep(fallback, e)

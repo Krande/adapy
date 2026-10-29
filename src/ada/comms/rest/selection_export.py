@@ -455,8 +455,9 @@ def selection_derived_key(
 ) -> str:
     """Where an export lands: one key per (source bytes, what was addressed, selection, format).
 
-    ``relations_token`` (``db.node_relations.relations_token_for``) moves when the relations an IFC
-    is written with change; None, and any non-IFC format, leave the key as it was.
+    ``relations_token`` (``db.node_relations.relations_token_for``) moves when the relations a file
+    is written with change (:data:`RELATION_FORMATS`); None, and any other format, leave the key as
+    it was.
 
     ``content_token`` moves when the source's bytes do, so a re-upload is a miss rather than a
     stale file. ``target`` is what the request addressed -- a source key, or a published node's
@@ -469,7 +470,7 @@ def selection_derived_key(
     differs = export_options_identity(parse_export_options(export_options), fmt)
     if differs:
         identity["options"] = differs
-    if relations_token and fmt == "ifc":
+    if relations_token and fmt in RELATION_FORMATS:
         identity["relations"] = relations_token
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     return f"_derived/export/{content_token}/{token}/{filename}"
@@ -533,9 +534,13 @@ def export_asset_selection(
     return write_selection(asm, fmt, out_path, export_options)
 
 
+#: The formats written with the relations: IFC writes them, and both write runs in their order.
+RELATION_FORMATS = frozenset({"ifc", "step"})
+
+
 def _apply_relations(asm: Any, fmt: str, relations: Any, collections: Iterable[str]) -> None:
-    """The relations of the elements an IFC is written with (``relation_lookup.apply_relations``)."""
-    if fmt != "ifc" or relations is None:
+    """The relations of the elements a file is written with (``relation_lookup.apply_relations``)."""
+    if fmt not in RELATION_FORMATS or relations is None:
         return
     from ada.assets.relation_lookup import apply_relations
 
@@ -551,10 +556,10 @@ def group_export_derived_key(
 ) -> str:
     """Where a several-element export lands: one key per (members and their sources' contents,
     the geometry they were read from, the export options that change the file, file name -- which
-    carries the format -- and, for an IFC, the relations it is written with)."""
+    carries the format -- and the relations it is written with)."""
     fmt = "step" if filename.lower().endswith((".step", ".stp")) else "ifc"
     differs = export_options_identity(parse_export_options(export_options), fmt)
-    if relations_token and fmt == "ifc":
+    if relations_token and fmt in RELATION_FORMATS:
         differs = {**differs, "relations": relations_token}
     if differs:
         token = hashlib.sha256(json.dumps(differs, sort_keys=True).encode("utf-8")).hexdigest()[:8]

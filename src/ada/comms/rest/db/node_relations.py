@@ -39,8 +39,11 @@ NODE_RELATIONS_ROLE = "node-relations.ndjson.gz"
 #: The relations core's writers act on. ``serves_system``: the node belongs to the system named by
 #: the target. ``connects_to``: the node is joined to the target element. ``fills_opening``: the
 #: node fills the opening named by the target, whose host is ``props.host_full_name``.
-#: ``penetrates``: the node passes through the target element.
-RELATIONS = ("serves_system", "connects_to", "fills_opening", "penetrates")
+#: ``penetrates``: the node passes through the target element. ``flows_to``: the target is the next
+#: element downstream in the same run; ``props.at`` / ``props.dir`` are the joint's world position
+#: (metres) and direction, ``props.basis`` is ``flow`` when that is the medium's direction and
+#: ``modelled`` when it is only the order the run was modelled in.
+RELATIONS = ("serves_system", "connects_to", "fills_opening", "penetrates", "flows_to")
 
 INGEST_BATCH_ROWS = 20_000
 #: Node ids plus full names one lookup may name.

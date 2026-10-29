@@ -37,14 +37,18 @@ def _get_by_guid_or_none(ifc_store: IfcStore, guid: str) -> ifcopenshell.entity_
         return None
 
 
-def _system_predefined_type(system: System) -> str:
+def _system_predefined_type(system: System, schema: str | None = None) -> str:
     from ada.api.systems.base import (
         CableSystem,
         DuctSystem,
         ElectricalSystem,
         PipingSystem,
     )
+    from ada.assets.relation_lookup import SYSTEM_TYPE_KEY
 
+    asked = str((system.metadata or {}).get(SYSTEM_TYPE_KEY) or "").upper()
+    if asked and schema and asked in _distribution_system_types(schema):
+        return asked
     if isinstance(system, ElectricalSystem):
         return "ELECTRICAL"
     if isinstance(system, CableSystem):
@@ -54,6 +58,17 @@ def _system_predefined_type(system: System) -> str:
     if isinstance(system, PipingSystem):
         return "WATERSUPPLY"
     return "NOTDEFINED"
+
+
+def _distribution_system_types(schema: str) -> frozenset[str]:
+    """The ``IfcDistributionSystemEnum`` values of ``schema``; empty when it has no such enum."""
+    try:
+        decl = ifcopenshell.ifcopenshell_wrapper.schema_by_name(schema).declaration_by_name(
+            "IfcDistributionSystemEnum"
+        )
+        return frozenset(decl.enumeration_items())
+    except Exception:  # noqa: BLE001 - an unknown schema takes the kind's default
+        return frozenset()
 
 
 def write_ifc_equipment(ifc_store: IfcStore, equipment: Equipment) -> ifcopenshell.entity_instance:
@@ -318,7 +333,7 @@ def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
             continue
 
         ifc_system.Name = system.name
-        ifc_system.PredefinedType = _system_predefined_type(system)
+        ifc_system.PredefinedType = _system_predefined_type(system, getattr(f, "schema_identifier", f.schema))
 
         eq_elems = []
         for eq in system.connected_equipment:

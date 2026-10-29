@@ -60,21 +60,30 @@ def test_a_batch_keeps_usable_lines_and_counts_the_rest():
 def test_the_header_is_checked():
     with pytest.raises(nr.NodeRelationsError):
         nr.parse_relations_header(json.dumps({"schema": "other", "collection": "c"}).encode())
-    assert nr.parse_relations_header(json.dumps({"schema": nr.NODE_RELATIONS_SCHEMA, "collection": "C"}).encode())[
-        "collection"
-    ] == "c"
-
-
-def test_the_relations_token_moves_an_ifc_key_and_nothing_else():
-    target = {"collection": "c", "subject": "s"}
-    base = selection_derived_key("t", target, fmt="ifc", element=None, path=[], filename="x.ifc")
-    assert selection_derived_key("t", target, fmt="ifc", element=None, path=[], filename="x.ifc", relations_token=None) == base
-    assert selection_derived_key("t", target, fmt="ifc", element=None, path=[], filename="x.ifc", relations_token="r") != base
-    step = selection_derived_key("t", target, fmt="step", element=None, path=[], filename="x.step")
-    assert selection_derived_key("t", target, fmt="step", element=None, path=[], filename="x.step", relations_token="r") == step
-    assert group_export_derived_key("g", "geo", "x.ifc", None, relations_token="r") != group_export_derived_key(
-        "g", "geo", "x.ifc", None
+    assert (
+        nr.parse_relations_header(json.dumps({"schema": nr.NODE_RELATIONS_SCHEMA, "collection": "C"}).encode())[
+            "collection"
+        ]
+        == "c"
     )
+
+
+def test_the_relations_token_moves_the_key_of_every_file_written_with_them():
+    """IFC writes the relations and STEP writes runs in their order, so both keys move."""
+    target = {"collection": "c", "subject": "s"}
+    for fmt, filename in (("ifc", "x.ifc"), ("step", "x.step")):
+        base = selection_derived_key("t", target, fmt=fmt, element=None, path=[], filename=filename)
+        assert (
+            selection_derived_key("t", target, fmt=fmt, element=None, path=[], filename=filename, relations_token=None)
+            == base
+        )
+        assert (
+            selection_derived_key("t", target, fmt=fmt, element=None, path=[], filename=filename, relations_token="r")
+            != base
+        )
+        assert group_export_derived_key("g", "geo", filename, None, relations_token="r") != group_export_derived_key(
+            "g", "geo", filename, None
+        )
 
 
 def with_pg(fn):
@@ -101,7 +110,9 @@ def with_pg(fn):
 @pytest.mark.asyncio
 @with_pg
 async def test_ingest_then_one_lookup_by_id_or_name_and_a_token_that_moves(pg):
-    res = await nr.ingest_node_relations(pg.pool, scope=pg.scope, provider=pg.provider, chunks=_chunks(_bytes(pg.provider, "Col", ROWS)))
+    res = await nr.ingest_node_relations(
+        pg.pool, scope=pg.scope, provider=pg.provider, chunks=_chunks(_bytes(pg.provider, "Col", ROWS))
+    )
     assert res["rows"] == 3 and res["skipped"] == 2 and res["collection"] == "col"
     assert any("duplicate" in w for w in res["warnings"])
 
@@ -133,7 +144,9 @@ async def test_the_workers_pool_lookup_answers_a_thread(pg):
 
     from ada.comms.rest.worker.relation_lookup import PoolRelationLookup
 
-    await nr.ingest_node_relations(pg.pool, scope=pg.scope, provider=pg.provider, chunks=_chunks(_bytes(pg.provider, "col", ROWS)))
+    await nr.ingest_node_relations(
+        pg.pool, scope=pg.scope, provider=pg.provider, chunks=_chunks(_bytes(pg.provider, "col", ROWS))
+    )
     scope = SimpleNamespace(prefix=lambda: pg.scope)
     lookup = PoolRelationLookup(pg.pool, scope, asyncio.get_running_loop(), chunk=1)
     answer = await asyncio.get_running_loop().run_in_executor(

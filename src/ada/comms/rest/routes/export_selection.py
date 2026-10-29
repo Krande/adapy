@@ -74,11 +74,13 @@ def _selection_from_body(body: dict) -> tuple[str | None, list[str]]:
 
 
 async def _relations_token(request: Request, scope_obj: Scope, fmt: str, collections: list[str]) -> str | None:
-    """The token over the relation sets an IFC of ``collections`` is written with -- read as the
-    export job reads them (``worker.relation_lookup``) -- or None for another format, without a
-    database, or when none exist."""
+    """The token over the relation sets a file of ``collections`` is written with -- read as the
+    export job reads them (``worker.relation_lookup``) -- or None for a format written without
+    them, without a database, or when none exist."""
+    from ..selection_export import RELATION_FORMATS
+
     pool = getattr(request.app.state, "db_pool", None)
-    if fmt != "ifc" or pool is None or not collections:
+    if fmt not in RELATION_FORMATS or pool is None or not collections:
         return None
     from ..db.attribute_index import readable_share_origins
     from ..db.node_relations import readable_scopes, relations_token_for

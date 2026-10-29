@@ -16,12 +16,20 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Protocol, runtime_checkable
 
 __all__ = [
+    "FLOWS_TO",
     "NodeRelation",
     "NodeRelationLookup",
     "NodeRelations",
+    "SYSTEM_TYPE_KEY",
     "StaticRelationLookup",
     "apply_relations",
+    "order_by_flow",
 ]
+
+#: The relation naming the next element downstream in a run.
+FLOWS_TO = "flows_to"
+#: System metadata key holding the ``IfcDistributionSystemEnum`` value a provider asked for.
+SYSTEM_TYPE_KEY = "ifc_system_type"
 
 
 @dataclass(frozen=True)
@@ -127,12 +135,16 @@ def apply_relations(
 
     * ``serves_system``: the element becomes a member of the ``ada.api.systems`` system named by
       the target, of the kind ``props.system_kind`` names (``duct``, ``piping``, ...), created on
-      ``model.systems`` if the model has none of that name.
-    * ``connects_to``, ``fills_opening``, ``penetrates``: recorded on the element for the IFC
-      writer (``write_relations.RELATIONS_KEY``), with the related element when it is in the model.
+      ``model.systems`` if the model has none of that name. ``props.system_type`` (an
+      ``IfcDistributionSystemEnum`` value) overrides the kind's default type.
+    * ``connects_to``, ``fills_opening``, ``penetrates``, ``flows_to``: recorded on the element for
+      the IFC writer (``write_relations.RELATIONS_KEY``), with the related element when it is in
+      the model; ``flows_to`` keeps its joint (``at``, ``dir``, ``basis``).
 
-    Elements are found by name, which for a provider's objects is the node's full name. Returns
-    ``(relations attached, token)``; a lookup that fails costs the relations, never the export.
+    Then siblings joined by ``flows_to`` are put in run order (:func:`order_by_flow`), which is the
+    order every writer emits them in. Elements are found by name, which for a provider's objects is
+    the node's full name. Returns ``(relations attached, token)``; a lookup that fails costs the
+    relations, never the export.
     """
     from ada.cadit.ifc.write.write_relations import RELATIONS_KEY
 
@@ -161,6 +173,8 @@ def apply_relations(
             system = systems.get(rel.target)
             if system is None:
                 system = _system_class(rel.props.get("system_kind"))(rel.target)
+                if rel.props.get("system_type"):
+                    system.metadata[SYSTEM_TYPE_KEY] = str(rel.props["system_type"]).upper()
                 model.systems.append(system)
                 systems[rel.target] = system
             system.add_member(obj)
@@ -169,6 +183,10 @@ def apply_relations(
             target = named.get(rel.target)
             if target is not None and target is not obj:
                 entry["guid"] = target.guid
+            if rel.relation == FLOWS_TO:
+                for key in ("at", "dir", "basis"):
+                    if rel.props.get(key) is not None:
+                        entry[key] = rel.props[key]
             host_name = rel.props.get("host_full_name")
             if host_name:
                 entry["host_name"] = str(host_name)
@@ -177,4 +195,48 @@ def apply_relations(
                     entry["host_guid"] = host.guid
             obj.metadata.setdefault(RELATIONS_KEY, []).append(entry)
         attached += 1
+    order_by_flow(model)
     return attached, answer.token
+
+
+def order_by_flow(model: Any) -> int:
+    """Put the child parts of every part of ``model`` in run order: a child whose ``flows_to``
+    names a sibling comes before it, chains are followed from their heads, and children outside any
+    chain keep their place after them. Returns the number of parts reordered.
+
+    The writers emit children in this order -- the IFC file and the STEP assembly tree alike -- so
+    a run reads head to tail. A cycle or a fork keeps the first order it meets."""
+    from ada.cadit.ifc.write.write_relations import RELATIONS_KEY
+
+    reordered = 0
+    for part in [model, *model.get_all_parts_in_assembly(include_self=False)]:
+        children = list(part.parts.values())
+        if len(children) < 2:
+            continue
+        by_name = {str(c.name): c for c in children}
+        nxt: dict[str, str] = {}
+        has_prev: set[str] = set()
+        for c in children:
+            for e in (c.metadata or {}).get(RELATIONS_KEY) or ():
+                target = str(e.get("name") or "")
+                if e.get("relation") == FLOWS_TO and target in by_name and target != str(c.name):
+                    if str(c.name) not in nxt and target not in has_prev:
+                        nxt[str(c.name)] = target
+                        has_prev.add(target)
+        if not nxt:
+            continue
+        ordered: list[str] = []
+        placed: set[str] = set()
+        for c in children:
+            name = str(c.name)
+            if name in has_prev or name in placed or name not in nxt:
+                continue
+            while name and name not in placed:
+                ordered.append(name)
+                placed.add(name)
+                name = nxt.get(name)
+        ordered += [str(c.name) for c in children if str(c.name) not in placed]
+        if ordered != [str(c.name) for c in children]:
+            part._parts = {name: by_name[name] for name in ordered}
+            reordered += 1
+    return reordered

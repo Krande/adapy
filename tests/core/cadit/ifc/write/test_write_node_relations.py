@@ -123,6 +123,64 @@ def test_the_system_of_plain_members_reads_back():
     assert PIECE in names or f"{PIECE} body" in names
 
 
+A, B, C = "/RUN-A", "/RUN-B", "/RUN-C"
+
+
+def _flow_rows(basis: str = "modelled") -> list[dict]:
+    return [
+        {"from_node_id": "n-c", "from_full_name": C, "relation": "serves_system", "to_full_name": SYSTEM,
+         "props": {"system_kind": "piping", "system_type": "chemical"}},
+        {"from_node_id": "n-a", "from_full_name": A, "relation": "flows_to", "to_full_name": B,
+         "props": {"at": [1.0, 0.5, 0.5], "dir": [1, 0, 0], "basis": basis}},
+        {"from_node_id": "n-b", "from_full_name": B, "relation": "flows_to", "to_full_name": C,
+         "props": {"at": [3.0, 0.5, 0.5], "dir": [1, 0, 0], "basis": basis}},
+    ]  # fmt: skip
+
+
+def _run_model(schema: str) -> ada.Assembly:
+    a = ada.Assembly("a", schema=schema)
+    top = ada.Part("top")
+    a.add_part(top)
+    # Out of run order, as a reader that groups by primitive table hands them over.
+    for name, x in ((C, 4), (A, 0), (B, 2)):
+        top.add_part(_element(name, x, ifc_entity_spec("IfcPipeSegment", "RIGIDSEGMENT")))
+    return a
+
+
+def test_a_run_is_put_in_flow_order_for_every_writer():
+    a = _run_model("IFC4")
+    apply_relations(a, StaticRelationLookup({"col": _flow_rows()}), ["col"])
+    assert list(a.parts["top"].parts) == [A, B, C]
+
+
+@pytest.mark.parametrize("schema", SCHEMAS)
+@pytest.mark.parametrize(
+    "basis, out_dir, in_dir", [("flow", "SOURCE", "SINK"), ("modelled", "SOURCEANDSINK", "SOURCEANDSINK")]
+)
+def test_a_run_is_chained_port_to_port_head_to_tail(schema, basis, out_dir, in_dir):
+    a = _run_model(schema)
+    apply_relations(a, StaticRelationLookup({"col": _flow_rows(basis)}), ["col"])
+    f = a.to_ifc(file_obj_only=True)
+    errors = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, errors)
+    assert not errors.statements, errors.statements
+
+    def element_of(port):
+        (nest,) = port.Nests
+        return nest.RelatingObject.Name
+
+    chain = [(element_of(r.RelatingPort), element_of(r.RelatedPort)) for r in f.by_type("IfcRelConnectsPorts")]
+    assert sorted(chain) == [(A, B), (B, C)]
+    for rel in f.by_type("IfcRelConnectsPorts"):
+        assert (rel.RelatingPort.FlowDirection, rel.RelatedPort.FlowDirection) == (out_dir, in_dir)
+    (middle,) = [e for e in f.by_type("IfcPipeSegment") if e.Name == B]
+    (nest,) = middle.IsNestedBy
+    assert [p.Name for p in nest.RelatedObjects] == ["inlet", "outlet"]
+    assert [e.Name for e in f.by_type("IfcPipeSegment")] == [A, B, C], "written head to tail"
+    (system,) = f.by_type("IfcDistributionSystem")
+    assert system.PredefinedType == "CHEMICAL"
+
+
 def test_without_a_lookup_nothing_is_attached():
     a = _model("IFC4")
     assert apply_relations(a, None, ["col"]) == (0, None)
