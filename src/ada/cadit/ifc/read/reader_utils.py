@@ -49,7 +49,21 @@ def get_ifc_property_sets(ifc_elem) -> dict:
     return props
 
 
+def is_implicit_building(instance) -> bool:
+    """The IfcBuilding the writer inserts between a site and its storeys (SPS002); not a Part."""
+    from ada.cadit.ifc.write.write_spatial_elements import IMPLICIT_BUILDING_TAG
+
+    return instance is not None and instance.is_a("IfcBuilding") and instance.ObjectType == IMPLICIT_BUILDING_TAG
+
+
 def get_parent(instance):
+    parent = _get_direct_parent(instance)
+    while is_implicit_building(parent):
+        parent = _get_direct_parent(parent)
+    return parent
+
+
+def _get_direct_parent(instance):
     from ifcopenshell.util.element import get_container
 
     if instance.is_a("IfcOpeningElement"):

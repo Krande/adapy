@@ -12,6 +12,9 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
+IMPLICIT_BUILDING_TAG = "ada:implicit-building"
+
+
 def write_ifc_spatial_hierarchy(ifc_store: IfcStore):
     sw = SpatialWriter(ifc_store)
     sw.create_ifc_site()
@@ -77,6 +80,11 @@ class SpatialWriter:
 
         owner_history = self.ifc_store.owner_history
         parent = self.ifc_store.get_by_guid(part.parent.guid)
+
+        if part.ifc_class == ITyp.IfcBuildingStorey and parent.is_a() in ("IfcSite", "IfcProject"):
+            # buildingSMART SPS002: a storey is aggregated by an IfcBuilding (or another storey),
+            # never directly by the site.
+            parent = self._get_or_create_implicit_building(parent)
 
         placement = create_local_placement(
             f,
@@ -157,6 +165,45 @@ class SpatialWriter:
         write_elem_property_sets(part.metadata, ifc_elem, f, owner_history)
 
         return ifc_elem
+
+    def _aggregate(self, parent, children, name: str):
+        existing_rel_agg = self.ifc_store.get_rel_aggregates(parent)
+        if existing_rel_agg is not None:
+            existing_rel_agg.RelatedObjects = tuple([*existing_rel_agg.RelatedObjects, *children])
+            return
+        new_rel_agg = self.ifc_store.f.create_entity(
+            "IfcRelAggregates",
+            GlobalId=create_guid(),
+            OwnerHistory=self.ifc_store.owner_history,
+            Name=name,
+            Description=None,
+            RelatingObject=parent,
+            RelatedObjects=list(children),
+        )
+        self.ifc_store.register_rel_aggregates(parent, new_rel_agg)
+
+    def _get_or_create_implicit_building(self, parent):
+        """The IfcBuilding that stands between ``parent`` (an IfcSite/IfcProject) and the storeys
+        written under it; one per parent, created on first use."""
+        f = self.ifc_store.f
+        existing_rel_agg = self.ifc_store.get_rel_aggregates(parent)
+        if existing_rel_agg is not None:
+            for obj in existing_rel_agg.RelatedObjects:
+                if obj.is_a("IfcBuilding") and obj.ObjectType == IMPLICIT_BUILDING_TAG:
+                    return obj
+
+        building = f.create_entity(
+            "IfcBuilding",
+            GlobalId=create_guid(),
+            OwnerHistory=self.ifc_store.owner_history,
+            Name=f"{parent.Name or 'Site'} Building",
+            ObjectType=IMPLICIT_BUILDING_TAG,
+            # An IfcProject has no placement: the building is then placed in the world.
+            ObjectPlacement=create_local_placement(f, relative_to=getattr(parent, "ObjectPlacement", None)),
+            CompositionType="ELEMENT",
+        )
+        self._aggregate(parent, [building], "Site Container")
+        return building
 
     def _create_ifc_element_part(self, part: Part, choice, placement):
         """``part`` as the element ``choice`` names: no body of its own, its contents aggregated
