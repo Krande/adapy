@@ -669,7 +669,7 @@ const ExportOptionsPanel: React.FC = () => {
                 ))}
                 <label
                     className="mt-1 flex items-start gap-1.5"
-                    title="Cylinders and cones written as swept solids: the same shapes, for IFC readers that cannot build CSG primitives (bolt holes included)"
+                    title="Cylinders and cones written as swept solids: the same shapes, for IFC readers that cannot build primitive solids (bolt holes included)"
                 >
                     <input
                         type="checkbox"
@@ -679,7 +679,7 @@ const ExportOptionsPanel: React.FC = () => {
                     />
                     <span>
                         Swept cylinders and cones
-                        <span className="block text-[10px] text-gray-400">For readers that drop CSG primitives</span>
+                        <span className="block text-[10px] text-gray-400">For readers that drop primitive solids</span>
                     </span>
                 </label>
             </fieldset>

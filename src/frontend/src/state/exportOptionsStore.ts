@@ -33,7 +33,7 @@ export const IFC_SCHEMAS: readonly {readonly value: IfcSchema; readonly label: s
 export interface ExportOptions {
     readonly stepSchema: StepSchema;
     readonly ifcSchema: IfcSchema;
-    /** Write cylinders and cones as swept solids, for readers that cannot convert CSG primitives. */
+    /** Write cylinders and cones as swept solids, for readers that cannot convert primitive solids. */
     readonly ifcSweptPrimitives: boolean;
     /** Start the saved file's name with the project the selection is from. */
     readonly prefixProject: boolean;
