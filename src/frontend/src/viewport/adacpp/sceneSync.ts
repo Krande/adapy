@@ -19,7 +19,12 @@ interface Entry {
     segmentIds: ReadonlyArray<string> | null; // batched: range id per segment
     segmentRangeIdx: Int32Array | null; // edges: rangeId per segment
     stateVersion: number;
+    // Per-vertex data that changes in place, tracked by identity AND version: applyField installs a
+    // fresh morph BufferAttribute on every FEA step, which starts at the version of the one it
+    // replaces, so the version alone cannot tell the swap apart.
+    colorAttr: object | undefined;
     colorVersion: number;
+    morphAttr: object | undefined;
     morphVersion: number;
     seen: number;
 }
@@ -187,7 +192,12 @@ export class SceneSync {
         if (!e) {
             const created = this.upload(obj, geometry, topology, flat, fatLines);
             if (!created) return;
-            e = {...created, obj, signature, stateVersion: -1, colorVersion: attrVersion(geometry.attributes.color), morphVersion: attrVersion(geometry.morphAttributes.position?.[0]), seen: 0};
+            const morph0 = fatLines ? undefined : geometry.morphAttributes.position?.[0];
+            e = {
+                ...created, obj, signature, stateVersion: -1, seen: 0,
+                colorAttr: geometry.attributes.color, colorVersion: attrVersion(geometry.attributes.color),
+                morphAttr: morph0, morphVersion: attrVersion(morph0),
+            };
             this.entries.set(obj.uuid, e);
             for (const id of e.instances) this.byInstance.set(id, e);
         }
@@ -195,12 +205,14 @@ export class SceneSync {
 
         // Per-vertex data that changes in place (FEA field colours, warp).
         const colorAttr = geometry.attributes.color;
-        if (colorAttr && attrVersion(colorAttr) !== e.colorVersion && !fatLines) {
+        if (colorAttr && !fatLines && (colorAttr !== e.colorAttr || attrVersion(colorAttr) !== e.colorVersion)) {
+            e.colorAttr = colorAttr;
             e.colorVersion = attrVersion(colorAttr);
             this.withU32(packedColors(colorAttr), (p, n) => this.r.updateColors(e!.geometry, p, n));
         }
-        const morphAttr = geometry.morphAttributes.position?.[0];
-        if (morphAttr && attrVersion(morphAttr) !== e.morphVersion) {
+        const morphAttr = fatLines ? undefined : geometry.morphAttributes.position?.[0];
+        if (morphAttr && (morphAttr !== e.morphAttr || attrVersion(morphAttr) !== e.morphVersion)) {
+            e.morphAttr = morphAttr;
             e.morphVersion = attrVersion(morphAttr);
             this.withF32(floats(morphAttr), (p) => this.r.updateMorph(e!.geometry, p, morphAttr.count));
         }

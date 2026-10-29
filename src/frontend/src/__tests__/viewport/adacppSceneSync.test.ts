@@ -14,6 +14,7 @@ interface Recorded {
     states: Map<number, number[]>;
     removed: number[];
     colorUpdates: number;
+    morphUpdates: Map<number, number[]>; // geometry -> first morph component of each update
 }
 
 function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Recorded} {
@@ -31,7 +32,8 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         _free: () => {},
     } as unknown as AdacppModule;
     const u32 = (p: number, n: number) => (p ? Array.from(module.HEAPU32.subarray(p >> 2, (p >> 2) + n)) : []);
-    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0};
+    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map()};
+    const f32 = (p: number, n: number) => (p ? Array.from(module.HEAPF32.subarray(p >> 2, (p >> 2) + n)) : []);
     let nextGeom = 0;
     let nextInst = 0;
     const geomOfInst = new Map<number, number>();
@@ -54,7 +56,9 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         updateColors: () => rec.colorUpdates++,
         setInstance: () => {},
         removeInstance: () => {},
-        updateMorph: () => {},
+        updateMorph: (g: number, p: number) => {
+            rec.morphUpdates.set(g, [...(rec.morphUpdates.get(g) ?? []), f32(p, 1)[0]]);
+        },
         setCamera: () => {},
         setBackground: () => {},
     } as unknown as WebRendererApi;
@@ -154,4 +158,37 @@ test("edge overlay: rangeId runs become line segments", () => {
     assert.deepEqual(geom.segments, [0, 4, 4, 2]);
     const state = [...rec.states.values()][0];
     assert.deepEqual([state[1], state[3]], [0, SegmentFlag.Hidden]);
+});
+
+test("a warp swapped in as a new buffer reaches a wireframe that shares it (FEA step change)", () => {
+    // applyField installs a fresh morph BufferAttribute on every step; the element-edge wireframe
+    // shares the morph array with the mesh. A fresh attribute starts at the same version as the one
+    // it replaces, so only its identity says it changed.
+    const {module, renderer, rec} = fakeModule();
+    const pos = new Float32Array(9);
+    const meshGeom = new THREE.BufferGeometry();
+    meshGeom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    const mesh = new THREE.Mesh(meshGeom, new THREE.MeshBasicMaterial());
+    const lineGeom = new THREE.BufferGeometry();
+    lineGeom.setAttribute("position", new THREE.BufferAttribute(pos, 3)); // same array, own attribute
+    lineGeom.setIndex([0, 1, 1, 2]);
+    const lines = new THREE.LineSegments(lineGeom, new THREE.LineBasicMaterial());
+    mesh.add(lines);
+    const {scene, camera} = cameraAndScene(mesh);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera); // wireframe first seen before any result is applied
+
+    const step = (value: number) => {
+        meshGeom.morphAttributes.position = [new THREE.BufferAttribute(new Float32Array(9).fill(value), 3)];
+        meshGeom.morphTargetsRelative = true;
+        lineGeom.morphAttributes.position = meshGeom.morphAttributes.position;
+        lineGeom.morphTargetsRelative = true;
+        mesh.morphTargetInfluences = [1];
+        lines.morphTargetInfluences = mesh.morphTargetInfluences;
+        sync.sync(scene, camera);
+    };
+    step(1);
+    step(2);
+    const lineGeomId = [...rec.geometries.entries()].find(([, g]) => g.topology === Topology.Lines)![0];
+    assert.deepEqual(rec.morphUpdates.get(lineGeomId), [1, 2]);
 });
