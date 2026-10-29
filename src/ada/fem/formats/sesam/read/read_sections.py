@@ -119,15 +119,32 @@ def section_sets(bulk_str, fem: FEM) -> list[tuple[FemSet, str]]:
     return out
 
 
+def element_transno(d: dict, n_nodes: int) -> int:
+    """A beam's TRANSNO from its GELREF1 record.
+
+    TRANSNO = -1 does not mean "none": like FIXNO and ECCNO it means "given per node", in the
+    record's trailing list, which holds the per-node FIXNOs (when FIXNO is -1), then the per-node
+    ECCNOs (when ECCNO is -1), then the per-node TRANSNOs. A beam is oriented by one vector, so
+    its first node's is taken (they agree for a straight beam).
+    """
+    transno = str_to_int(d["transno"])
+    if transno != -1:
+        return transno
+    members = [str_to_int(x) for x in (d.get("members") or "").replace("\n", " ").split()]
+    start = (n_nodes if str_to_int(d["fixno"]) == -1 else 0) + (n_nodes if str_to_int(d["eccno"]) == -1 else 0)
+    per_node = members[start : start + n_nodes]
+    return next((t for t in per_node if t > 0), -1)
+
+
 _UNRESOLVED_TRANSNO: set[int] = set()
 
 
 def _reference_z(lcsysd: dict, transno: int, xvec: np.ndarray) -> np.ndarray:
     """The GUNIVEC vector a beam's TRANSNO names.
 
-    A TRANSNO that no GUNIVEC answers to (a SESTRA results file stores -1 for beams whose
-    orientation it resolved itself) falls back to global Z as the reference, or global Y for a
-    vertical beam, rather than refusing the whole file.
+    A TRANSNO that no GUNIVEC answers to falls back to global Z as the reference, or global Y for
+    a vertical beam, rather than refusing the whole file. (TRANSNO -1 is per-node, resolved by
+    :func:`element_transno` before this; it only reaches here when the per-node list is empty.)
     """
     zvec = lcsysd.get(transno)
     if zvec is not None and np.linalg.norm(np.cross(zvec, xvec)) > 1e-9:
@@ -163,7 +180,7 @@ class _SectionBuilder:
         elem = self.fem.elements.from_id(elno)
         matno, geono = str_to_int(d["matno"]), str_to_int(d["geono"])
         if isinstance(elem.type, shape_def.LineShapes):
-            transno = str_to_int(d["transno"])
+            transno = element_transno(d, len(elem.nodes))
             if not orientation:
                 return ElemType.LINE, matno, geono, transno
             return ElemType.LINE, matno, geono, transno, tuple(self._local_y(elem, transno))
@@ -254,7 +271,7 @@ class _SectionBuilder:
         if isinstance(elem.type, shape_def.LineShapes):
             for i in ids:
                 read_line_element(self.fem.elements.from_id(i), self.elrefs[i], self.hinges, self.ecc, self.lcsysd)
-            transno = str_to_int(d["transno"])
+            transno = element_transno(d, len(elem.nodes))
             return FemSection(
                 name=name,
                 sec_type=ElemType.LINE,
@@ -506,7 +523,7 @@ def read_line_element(elem: Elem, d: dict, hinges_global, eccentricities, lcsysd
     n1, n2 = elem.nodes[0], elem.nodes[-1]
     v = n2.p - n1.p
     xvec = [1, 0, 0] if vector_length(v) == 0.0 else unit_vector(v)
-    transno = str_to_int(d["transno"])
+    transno = element_transno(d, len(elem.nodes))
     yvec = unit_vector(np.cross(_reference_z(lcsysd, transno, np.array(xvec, dtype=float)), xvec))
 
     fix_data = str_to_int(d["fixno"])
