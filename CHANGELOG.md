@@ -2,6 +2,15 @@
 
 
 
+## v0.122.0 (2026-10-29)
+
+### Feature
+
+* feat: viewer box requests by site, export options and valid IFC, attribute/relation seams, streamed SIN compare (folds #469, #470, #471) (#472)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`4b986d6`](https://github.com/Krande/adapy/commit/4b986d64ce4fcbcea78a4059175efb477c7cd04b))
+
+
 ## v0.121.1 (2026-10-27)
 
 ### Fix
