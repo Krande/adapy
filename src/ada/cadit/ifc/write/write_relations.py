@@ -80,28 +80,33 @@ def _connect(ifc_store: IfcStore, relating, related, name: str) -> None:
     )
 
 
-def _fill(ifc_store: IfcStore, element, host, opening_name: str) -> None:
+def _fill(ifc_store: IfcStore, element, host, opening_name: str, openings: dict) -> None:
     """An opening in ``host`` that ``element`` fills. The opening has no shape of its own: the
-    element is what is in it, and the host's own geometry already has the hole where it has one."""
+    element is what is in it, and the host's own geometry already has the hole where it has one.
+    One opening per (host, name): the pieces of one opening -- a plate and its fitting -- fill the
+    same ``IfcOpeningElement`` rather than cutting the host twice."""
     f = ifc_store.f
-    placement = f.create_entity("IfcLocalPlacement", element.ObjectPlacement, f.createIfcAxis2Placement3D(
-        f.createIfcCartesianPoint((0.0, 0.0, 0.0)), None, None
-    ))  # fmt: skip
-    opening = f.create_entity(
-        "IfcOpeningElement",
-        GlobalId=create_guid(),
-        OwnerHistory=ifc_store.owner_history,
-        Name=opening_name,
-        ObjectPlacement=placement,
-        PredefinedType="OPENING",
-    )
-    f.create_entity(
-        "IfcRelVoidsElement",
-        GlobalId=create_guid(),
-        OwnerHistory=ifc_store.owner_history,
-        RelatingBuildingElement=host,
-        RelatedOpeningElement=opening,
-    )
+    opening = openings.get((host.id(), opening_name))
+    if opening is None:
+        placement = f.create_entity("IfcLocalPlacement", element.ObjectPlacement, f.createIfcAxis2Placement3D(
+            f.createIfcCartesianPoint((0.0, 0.0, 0.0)), None, None
+        ))  # fmt: skip
+        opening = f.create_entity(
+            "IfcOpeningElement",
+            GlobalId=create_guid(),
+            OwnerHistory=ifc_store.owner_history,
+            Name=opening_name,
+            ObjectPlacement=placement,
+            PredefinedType="OPENING",
+        )
+        f.create_entity(
+            "IfcRelVoidsElement",
+            GlobalId=create_guid(),
+            OwnerHistory=ifc_store.owner_history,
+            RelatingBuildingElement=host,
+            RelatedOpeningElement=opening,
+        )
+        openings[(host.id(), opening_name)] = opening
     f.create_entity(
         "IfcRelFillsElement",
         GlobalId=create_guid(),
@@ -198,6 +203,7 @@ def write_relations(ifc_store: IfcStore) -> int:
     a = ifc_store.assembly
     written = 0
     ports = _Ports(ifc_store)
+    openings: dict = {}
     objects = [*a.get_all_parts_in_assembly(include_self=False), *a.get_all_physical_objects()]
     for obj in objects:
         entries = (obj.metadata or {}).get(RELATIONS_KEY) or []
@@ -225,7 +231,7 @@ def write_relations(ifc_store: IfcStore) -> int:
                 if relation == "connects_to" and target is not None and target.is_a("IfcElement"):
                     _connect(ifc_store, element, target, relation)
                 elif relation == "fills_opening" and host is not None and host.is_a("IfcElement"):
-                    _fill(ifc_store, element, host, str(e.get("name") or "opening"))
+                    _fill(ifc_store, element, host, str(e.get("name") or "opening"), openings)
                     filled_hosts.add(host.id())
                 elif relation == "penetrates" and target is not None and target.is_a("IfcElement"):
                     if target.id() not in filled_hosts and not _fills(entries, e):

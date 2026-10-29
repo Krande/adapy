@@ -181,6 +181,29 @@ def test_a_run_is_chained_port_to_port_head_to_tail(schema, basis, out_dir, in_d
     assert system.PredefinedType == "CHEMICAL"
 
 
+@pytest.mark.parametrize("schema", SCHEMAS)
+def test_two_pieces_of_one_opening_fill_one_opening_in_its_host(schema):
+    """A plate and its fitting in one structural opening: one IfcOpeningElement voids the host,
+    and each piece fills it."""
+    a = _model(schema, with_plate=True)
+    second = "/PIECE-2"
+    a.parts["top"].add_part(_element(second, 6, ifc_entity_spec("IfcPlate")))
+    rows = [
+        {"from_node_id": n, "from_full_name": name, "relation": "fills_opening", "to_full_name": OPENING,
+         "props": {"host_full_name": PLATE}}
+        for n, name in (("n-piece", PIECE), ("n-piece-2", second))
+    ]  # fmt: skip
+    apply_relations(a, StaticRelationLookup({"col": rows}), ["col"])
+    f = a.to_ifc(file_obj_only=True)
+    errors = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, errors)
+    assert not errors.statements, errors.statements
+    (opening,) = f.by_type("IfcOpeningElement")
+    (voids,) = f.by_type("IfcRelVoidsElement")
+    assert voids.RelatedOpeningElement == opening and voids.RelatingBuildingElement.Name == PLATE
+    assert sorted(r.RelatedBuildingElement.Name for r in opening.HasFillings) == [PIECE, second]
+
+
 def test_without_a_lookup_nothing_is_attached():
     a = _model("IFC4")
     assert apply_relations(a, None, ["col"]) == (0, None)
