@@ -209,6 +209,7 @@ def test_a_cached_bake_is_the_materialised_bake(which, assembly, monkeypatch, tm
     path = SIN_PATH if which == "single" else assembly
     monkeypatch.setenv("ADA_FEA_SIN_STREAMER", "off")
     monkeypatch.setenv("ADA_FIELD_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("ADA_FEA_SIN_FIELD_CACHE", "off")
     bake_fea_artefacts_from_source(path, tmp_path / "memory", src_key="m")
     monkeypatch.setenv("ADA_FEA_SIN_FIELD_CACHE", "1")
     bake_fea_artefacts_from_source(path, tmp_path / "cached", src_key="m")
@@ -216,7 +217,7 @@ def test_a_cached_bake_is_the_materialised_bake(which, assembly, monkeypatch, tm
     assert memory and memory == cached
 
 
-def test_with_the_cache_a_deck_too_big_to_materialise_is_read_whole(assembly, monkeypatch, tmp_path):
+def test_by_default_a_deck_too_big_to_materialise_is_read_whole_through_the_cache(assembly, monkeypatch, tmp_path):
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
     from ada.fem.results.artefacts import (
         FEAResultStreamAdapter,
@@ -236,8 +237,11 @@ def test_with_the_cache_a_deck_too_big_to_materialise_is_read_whole(assembly, mo
                 monkeypatch.setenv(env, value)
         return make_stream_reader(assembly, steps=steps)
 
-    with opened(None) as reader:
+    with opened("off") as reader:
         assert type(reader) is SinStreamReader
+    for cache in (None, "1"):  # on unless told off
+        with opened(cache) as reader:
+            assert type(reader) is FEAResultStreamAdapter
     with opened("1") as reader:
         assert type(reader) is FEAResultStreamAdapter
         result = reader._result

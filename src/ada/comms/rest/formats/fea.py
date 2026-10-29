@@ -61,9 +61,9 @@ async def _run_fea_artefact_bake(
     # (app_settings ``fea_sin_streamer``, ``fea_sin_field_cache``). The bake runs
     # in-process on an executor thread, so we drive the reader choice through the
     # same ADA_* env-var seam the convert path uses; _make_sin_reader reads them.
-    # Default (unset/empty) lets adapy pick: full-materialise, or the streaming
-    # reader for a deck too large for it. Set fresh per job so toggling takes
-    # effect without a worker restart.
+    # Default (unset/empty) lets adapy pick: a full read with its field values in a
+    # file cache (see _make_sin_reader). Set fresh per job so toggling takes effect
+    # without a worker restart.
     if db_pool is not None:
         for setting, env in (
             ("fea_sin_streamer", "ADA_FEA_SIN_STREAMER"),

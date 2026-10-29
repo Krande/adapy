@@ -133,17 +133,19 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None, s
     # ``super_element``: on a superelement assembly SIN, which superelement to
     # read (a type number, (type, instance) or a label such as "SEL10.IND1").
     #
-    # ADA_FEA_SIN_FIELD_CACHE (the admin "Cache SIN FEA bake fields" toggle), on:
-    # materialise with the field values in a memory-mapped file (see
-    # ada.fem.results.field_cache), read one case at a time -- the full read's
-    # output, LIS labels and every superelement of an assembly merged, at about
-    # one case's peak. It replaces the size check, which exists to bound memory;
-    # the values need disk space instead (ADA_FIELD_CACHE_DIR, else the temp
-    # directory). The streamer still wins when forced on or for chosen ``steps``.
+    # ADA_FEA_SIN_FIELD_CACHE (the admin "Cache SIN FEA bake fields" toggle), on
+    # unless told off: materialise with the field values in a memory-mapped file
+    # (see ada.fem.results.field_cache), read one case at a time -- the full read's
+    # output, LIS labels and every superelement of an assembly merged, at about one
+    # case's peak, and faster than the streamer (a 2.7 GB 12-superelement deck:
+    # 55 s at 1.3 GB, against 94 s at 2.8 GB). It replaces the size check, which
+    # exists to bound memory; the values need disk space instead
+    # (ADA_FIELD_CACHE_DIR, else the temp directory). Off, the size check picks as
+    # before. The streamer still wins when forced on or for chosen ``steps``.
     import os
 
     choice = os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower()
-    field_cache = os.environ.get("ADA_FEA_SIN_FIELD_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}
+    field_cache = os.environ.get("ADA_FEA_SIN_FIELD_CACHE", "").strip().lower() not in {"0", "false", "no", "off"}
     if (
         steps is not None
         or choice in {"1", "true", "yes", "on"}
