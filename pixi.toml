@@ -362,10 +362,11 @@ test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=t
 # placement-aware `face_id` (adacpp#62); 0.28.0 for `read_step_shapes(matrix=)` (adacpp#65);
 # 0.30 for the compiled beam-to-beam clash pass and the member scan as JSONL
 # (adacpp#63, #64, #66, #67); 0.31 for the build against ifcopenshell 0.9 (adacpp#69);
-# 0.33 for the faster, memory-bounded native STEP/IFC->GLB and the IFC reader fix (adacpp#72).
+# 0.33 for the faster, memory-bounded native STEP/IFC->GLB and the IFC reader fix (adacpp#72);
+# 0.35 for `adacpp.fea.sin`, the native SIN reader and compare loops (adacpp#74).
 # KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer: the browser runs the
 # same release's wasm build of this same code.
-ada-cpp = "0.34.*"
+ada-cpp = "0.35.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -444,7 +445,9 @@ ada-cpp = "0.34.*"
 # reads its type scans from the index and bounds heavy products (a 1 GB IFC at 3 threads: 9 GB ->
 # 1 GB), and a use-after-free in the IFC reader's bounded cache is gone; the browser's wasm build of
 # the same release adds the multi-worker conversion. Same output, byte for byte, at one thread.
-ada-cpp = "0.34.*"
+# 0.35 (adacpp#74): `adacpp.fea.sin`, the SIN reader's per-record loops, compare statistics and shell
+# derived-field kernels; byte-identical to the numpy path, which stays for range-streamed sources.
+ada-cpp = "0.35.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
