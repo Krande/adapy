@@ -7,6 +7,7 @@ import {queryMeshDrawRange, queryNameFromRangeId, queryFaceInfo} from "./queryMe
 import {useOptionsStore} from "@/state/optionsStore";
 import {setFaceHighlight, clearFaceHighlight} from "./faceHighlight";
 import {perform_selection} from "./perform_selection";
+import {isAdditiveClick} from "./additiveClick";
 import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
 import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -25,7 +26,7 @@ export async function handleClickMesh(
 
     const mesh = intersect.object as CustomBatchedMesh;
     const faceIndex = intersect.faceIndex ?? 0;
-    const shiftKey = event.shiftKey;
+    const shiftKey = isAdditiveClick(event);
 
     // adjust for any translation
     const translation = useModelState.getState().translation;

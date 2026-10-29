@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {handleClickEmptySpace} from "@/utils/mesh_select/handleClickEmptySpace";
 import {handleClickMesh} from "@/utils/mesh_select/handleClickMesh";
 import {handleClickPoints} from "@/utils/mesh_select/handleClickPoints";
+import {isAdditiveClick} from "@/utils/mesh_select/additiveClick";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // handleClickMesh signature change accommodates a prefilledRangeId
 // from the GPU mesh picker; the raycast fallback still passes only
@@ -205,7 +206,7 @@ export function setupPointerHandler(
         //     asked before the geometry. An equipment box is a volume the structure is often
         //     inside or behind: it wins only when it is nearer than the surface under the cursor,
         //     or a deck could never be clicked through the box standing on it.
-        const additive = e.shiftKey || useSelectedObjectStore.getState().additiveMode;
+        const additive = isAdditiveClick(e) || useSelectedObjectStore.getState().additiveMode;
         const femPick = pickFemConcept(e, camera, renderer);
         if (femPick && (!femPick.solid || femBoxInFront(e, femPick.distance, camera, renderer))) {
             selectFemConcept(femPick.ref, additive, e);
