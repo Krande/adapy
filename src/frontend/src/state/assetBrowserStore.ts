@@ -15,7 +15,7 @@ import { EMPTY_FOREST, mergeLevel, mergeSpine, type Forest, type LevelMerge, typ
 import type { TreeViewDoc, TreeViewHints } from "@/assets/treeView";
 import type { AssetIndex, AssetNode, ResolutionMode, WireGeometryRollup } from "@/assets/types";
 
-export type AssetBrowserTab = "files" | "assets";
+export type AssetBrowserTab = "files" | "systems" | "assets";
 
 /** How a tree row is drawn: `outline` (a glyph and the kind as a code) or
  *  `tiles` (a coloured tile per kind). A per-viewer preference, nothing more. */

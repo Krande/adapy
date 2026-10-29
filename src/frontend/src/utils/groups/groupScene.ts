@@ -221,6 +221,32 @@ export function selectSourceElements(refs: readonly { readonly sourceName: strin
   return batch.length;
 }
 
+/** Select the elements NAMED one of `names` in every loaded model -- a system's members, related
+ *  elements -- by full name, whatever model they were loaded in. Returns how many draw ranges were
+ *  selected. */
+export function selectNamedElements(names: ReadonlySet<string>, label: string): number {
+  const idx = indices();
+  if (!idx || names.size === 0) return 0;
+  const hits: TreeNodeData[] = [];
+  const stack: TreeNodeData[] = [...(idx.root.children ?? [])];
+  while (stack.length) {
+    const row = stack.pop()!;
+    if (names.has(row.name)) hits.push(row);
+    else for (const child of row.children ?? []) stack.push(child);
+  }
+  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
+  const batch: [CustomBatchedMesh, string][] = [];
+  for (const row of geometryRowsUnder(hits)) {
+    if (row.rangeId == null || !row.node_name || !row.model_key) continue;
+    const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
+    if (mesh) batch.push([mesh, row.rangeId]);
+  }
+  replaceSelection(batch);
+  useObjectInfoStore.getState().setName(batch.length ? label : "");
+  requestRender();
+  return batch.length;
+}
+
 /** The loaded model of `target` and its rows NAMED one of `names`, anywhere below its root -- a
  *  selection box's members, by full name, in the model of their whole site. Null while no such
  *  model's tree is built. */

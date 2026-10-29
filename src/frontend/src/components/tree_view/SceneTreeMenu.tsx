@@ -2,7 +2,7 @@
 // framing, copying, adding to a saved group, other providers and unloading for the selection, and expanding or collapsing
 // the row it was opened on (when opened in the tree).
 
-import React, {useMemo} from "react";
+import React, {useEffect, useMemo, useState} from "react";
 
 import {useSceneMenuStore, type SceneMenuState} from "@/state/sceneMenuStore";
 import {KebabMenuItem, PositionedMenu} from "@/components/common/PositionedMenu";
@@ -32,6 +32,97 @@ import type {TreeNodeData} from "./CustomNode";
 import {AddToGroupPromptHost, addToGroupBlocker, useAddToGroupPromptStore} from "./AddToGroupPrompt";
 import {BBoxSelectionMenuHost} from "@/components/viewer/BBoxSelectionMenu";
 import {addBoxAroundSelection} from "@/utils/bboxSelection/applyBoxSelection";
+import {
+    collectionOfRow,
+    currentScope,
+    loadMembers,
+    membersOf,
+    relatedOf,
+    selectNames,
+    systemKindLabel,
+    type Related,
+} from "@/utils/systems/systems";
+
+/** What the row right-clicked is related to, read when the menu opens: `undefined` while reading,
+ *  null when there is nothing to offer (a file's row, a collection without relations). */
+function useRelated(row: TreeNodeData, single: boolean): Related | null | undefined {
+    const [related, setRelated] = useState<Related | null | undefined>(undefined);
+    useEffect(() => {
+        const collection = single ? collectionOfRow(row) : null;
+        if (!collection) {
+            setRelated(null);
+            return;
+        }
+        let live = true;
+        setRelated(undefined);
+        relatedOf(currentScope(), collection, row.name)
+            .then((r) => live && setRelated(r))
+            .catch(() => live && setRelated(null));
+        return () => {
+            live = false;
+        };
+    }, [row, single]);
+    return related;
+}
+
+/** "Select / Load <kind> system", "Select / Load run" and "Select related" for the row's element. */
+function relatedItems(row: TreeNodeData, related: Related | null | undefined): KebabMenuItem[] {
+    if (related === null) return [];
+    if (related === undefined) {
+        return [{key: "related-wait", label: "Related…", onClick: () => undefined, disabled: true, title: "Reading what this element is related to", separatorBefore: true}];
+    }
+    const items: KebabMenuItem[] = [];
+    const scope = currentScope();
+    const {collection, system, run, elements} = related;
+    const report = (p: Promise<string>) => p.then((s) => console.info(s)).catch((e) => console.error(e));
+    if (system) {
+        const kind = systemKindLabel(system.kind);
+        items.push(
+            {
+                key: "select-system",
+                label: `Select ${kind} system`,
+                title: `Every loaded element of ${system.name}`,
+                onClick: () => void membersOf(scope, collection, system.name).then((m) => selectNames(m.map((x) => x.full_name), system.name)),
+                separatorBefore: true,
+            },
+            {
+                key: "load-system",
+                label: `Load ${kind} system`,
+                title: `Load ${system.name} into the scene: each element's site, the rest of it hidden`,
+                onClick: () => void report(membersOf(scope, collection, system.name).then((m) => loadMembers(collection, m, system.name))),
+            },
+        );
+    }
+    if (run) {
+        items.push(
+            {
+                key: "select-run",
+                label: "Select run",
+                title: `Every loaded element of ${run}`,
+                onClick: () => void membersOf(scope, collection, system?.name ?? "", run).then((m) => selectNames(m.map((x) => x.full_name), run)),
+                disabled: !system,
+                separatorBefore: !system,
+            },
+            {
+                key: "load-run",
+                label: "Load run",
+                title: `Load ${run} into the scene`,
+                onClick: () => void report(membersOf(scope, collection, system?.name ?? "", run).then((m) => loadMembers(collection, m, run))),
+                disabled: !system,
+            },
+        );
+    }
+    if (elements.length) {
+        items.push({
+            key: "select-related",
+            label: `Select related (${elements.length})`,
+            title: `${row.name} and what it is related to:\n${elements.join("\n")}`,
+            onClick: () => void selectNames([row.name, ...elements], `${row.name} and related`),
+            separatorBefore: !system && !run,
+        });
+    }
+    return items;
+}
 
 /** "Load from <provider>" for a row of a model loaded from a provider: null for a row of anything
  *  else (a file), else the options -- or why there are none. */
@@ -155,6 +246,9 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
             title: groupBlocker ?? "Put the selection in a saved group -- an existing one, or a new one",
         },
     ];
+    // What the element is related to: its system and run, and the elements it names.
+    const related = useRelated(row, rows.length === 1);
+    items.push(...relatedItems(row, related));
     // The same node from the other providers that publish it -- for the row right-clicked.
     const alt = useMemo(() => otherProviderLoads(row), [row]);
     if (alt) {
