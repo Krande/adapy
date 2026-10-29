@@ -283,6 +283,51 @@ def test_a_node_member_is_read_through_its_provider_and_joins_a_file(storage):
     assert {m["name"] for m in doc["joints"][0]["members"]} == {"ga", "gn"}
 
 
+def _two_node_reads(plate_children: tuple[str, ...]):
+    """A provider whose plate and opening are two published nodes, each read on its own."""
+
+    def read_node(*, collection, subject, storage, revision, node):
+        part = ada.Part(subject)
+        if subject == "/PLATE":
+            for child in plate_children:
+                sub = ada.Part(child)
+                sub.add_beam(ada.Beam(f"{child} body", (0, 0, 0), (1, 0, 0), "IPE200"))
+                part.add_part(sub)
+        else:
+            part.add_beam(ada.Beam(f"{subject} body", (0, 0, 0), (1, 0, 0), "IPE200"))
+        return part
+
+    return read_node
+
+
+def _node(subject: str) -> dict:
+    return {"target": {"kind": "node", "provider": "p", "collection": "c", "subject": subject, "revision": "r1"}}
+
+
+def test_a_member_inside_another_member_of_another_source_is_written_once(storage):
+    built = build_group_model(
+        _group(_node("/PLATE"), _node("/OPENING")),
+        storage=storage,
+        read_node=_two_node_reads(("/OPENING",)),
+    )
+    names = [b.name for b in built.model.get_all_physical_objects(by_type=ada.Beam)]
+    assert names == ["/OPENING body"]
+    assert any("is inside member" in w for w in built.warnings)
+
+
+def test_members_of_two_sources_that_overlap_say_so(storage):
+    def read_node(*, collection, subject, storage, revision, node):
+        part = ada.Part(subject)
+        piece = ada.Part("/PIECE")
+        piece.add_beam(ada.Beam(f"{subject} piece body", (0, 0, 0), (1, 0, 0), "IPE200"))
+        part.add_part(piece)
+        return part
+
+    built = build_group_model(_group(_node("/PLATE"), _node("/OPENING")), storage=storage, read_node=read_node)
+    assert built.resolved == 2
+    assert any("both contain /PIECE" in w for w in built.warnings)
+
+
 # ── detail ───────────────────────────────────────────────────────────
 
 
