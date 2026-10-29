@@ -5,6 +5,7 @@ import {CustomNode, TreeNodeData} from './CustomNode';
 import {sceneTreeRow} from './SceneTreeRow';
 import {useSceneMenuStore} from '@/state/sceneMenuStore';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
+import {syncSceneTreeToSelection} from "@/utils/tree_view/revealPick";
 import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
 import {clearScene} from "@/utils/scene/handlers/clear_scene";
 
@@ -66,12 +67,15 @@ const TreeViewComponent: React.FC = () => {
         if (treeRef.current) {
             const tree = treeRef.current
             setTree(tree);
+            // Opened for the first time: show what is already selected in 3D, rather than an empty
+            // tree whose first selection event would clear it.
+            syncSceneTreeToSelection();
         }
     }, []);
 
-    // Back from hidden (the Sources tab was showing, or the drawer was shut): bring the selection
-    // into view again. A pick made meanwhile selected its row here, but scrolled a list zero rows
-    // tall, so the row is selected somewhere off screen.
+    // Back from hidden (the Sources tab was showing, or the drawer was shut): take the 3D view's
+    // selection -- picks made while the drawer was shut did not reach this tree -- and bring it into
+    // view again.
     const wasHidden = useRef(false);
     useEffect(() => {
         if (treeHeight <= 0) {
@@ -80,12 +84,17 @@ const TreeViewComponent: React.FC = () => {
         }
         if (!wasHidden.current) return;
         wasHidden.current = false;
+        if (syncSceneTreeToSelection()) return;
         const tree = treeRef.current;
         const node = tree?.mostRecentNode ?? tree?.selectedNodes?.[0];
         if (node) tree.scrollTo(node.id);
     }, [treeHeight]);
 
     const handleSelect = (ids: NodeApi[]) => {
+        // An EMPTY selection clears the 3D view only when it is the user's doing in this tree. The
+        // tree also reports one on its own -- opening, focus arriving -- and that must not throw away
+        // what was picked in 3D.
+        if (ids.length === 0 && !containerRef.current?.contains(document.activeElement)) return;
         if (!treeRef.current?.isProgrammaticChange) {
             (async () => {
                 await handleTreeSelectionChange(ids);
