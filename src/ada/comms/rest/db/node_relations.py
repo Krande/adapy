@@ -293,19 +293,7 @@ async def relations_for(
     scopes = list(dict.fromkeys(scopes))
     async with pool.acquire() as conn, conn.transaction(readonly=True):
         await conn.execute(f"SET LOCAL statement_timeout = '{LOOKUP_STATEMENT_TIMEOUT}'")
-        sets = await conn.fetch(
-            "SELECT scope, provider, ingested_at FROM node_relations_sets "
-            "WHERE collection = $1 AND scope = ANY($2::text[])",
-            collection,
-            scopes,
-        )
-        chosen: dict[str, str] = {}
-        stamps: dict[str, str] = {}
-        rank = {s: i for i, s in enumerate(scopes)}
-        for s in sorted(sets, key=lambda r: rank.get(r["scope"], len(rank))):
-            if s["provider"] not in chosen:
-                chosen[s["provider"]] = s["scope"]
-                stamps[s["provider"]] = s["ingested_at"].isoformat()
+        chosen, stamps = await _chosen_sets(conn, collection, scopes)
         token = relations_token(collection, stamps)
         if not chosen or not (ids or names):
             return {"indexed": bool(chosen), "relations": [], "token": token}
@@ -346,6 +334,106 @@ async def relations_for(
     return {"indexed": True, "relations": out, "token": token}
 
 
+async def _chosen_sets(conn, collection: str, scopes: list[str]) -> tuple[dict[str, str], dict[str, str]]:
+    """Of each provider's sets for ``collection``, the one the first scope in ``scopes`` holds:
+    ``({provider: scope}, {provider: ingested_at})``."""
+    sets = await conn.fetch(
+        "SELECT scope, provider, ingested_at FROM node_relations_sets WHERE collection = $1 AND scope = ANY($2::text[])",
+        collection,
+        scopes,
+    )
+    chosen: dict[str, str] = {}
+    stamps: dict[str, str] = {}
+    rank = {s: i for i, s in enumerate(scopes)}
+    for s in sorted(sets, key=lambda r: rank.get(r["scope"], len(rank))):
+        if s["provider"] not in chosen:
+            chosen[s["provider"]] = s["scope"]
+            stamps[s["provider"]] = s["ingested_at"].isoformat()
+    return chosen, stamps
+
+
+#: Members one system listing returns.
+SYSTEM_MEMBERS_MAX = 20_000
+
+
+async def systems_in(pool: asyncpg.Pool, *, scopes: Sequence[str], collection: str) -> dict:
+    """Every system ``collection``'s relations name (``serves_system`` targets): ``{indexed,
+    systems: [{provider, name, kind, system_type, members, runs}]}``, largest first."""
+    collection = collection.lower()
+    scopes = list(dict.fromkeys(scopes))
+    async with pool.acquire() as conn, conn.transaction(readonly=True):
+        await conn.execute(f"SET LOCAL statement_timeout = '{LOOKUP_STATEMENT_TIMEOUT}'")
+        chosen, _ = await _chosen_sets(conn, collection, scopes)
+        if not chosen:
+            return {"indexed": False, "systems": []}
+        pairs = sorted(chosen.items())
+        rows = await conn.fetch(
+            """
+            SELECT r.provider, r.to_full_name AS name,
+                   max(r.props->>'system_kind') AS kind, max(r.props->>'system_type') AS system_type,
+                   count(DISTINCT r.from_full_name) AS members, count(DISTINCT r.props->>'run') AS runs
+            FROM node_relations r
+            JOIN unnest($2::text[], $3::text[]) AS c(provider, scope) ON c.provider = r.provider AND c.scope = r.scope
+            WHERE r.collection = $1 AND r.relation = 'serves_system' AND r.to_full_name IS NOT NULL
+            GROUP BY r.provider, r.to_full_name
+            ORDER BY members DESC, name
+            """,
+            collection,
+            [p for p, _ in pairs],
+            [s for _, s in pairs],
+        )
+    return {"indexed": True, "systems": [dict(r) for r in rows]}
+
+
+async def system_members(pool: asyncpg.Pool, *, scopes: Sequence[str], collection: str, system: str) -> dict:
+    """The elements that serve ``system``: ``{members: [{full_name, node_id, run, sites}], truncated}``,
+    ``sites`` naming, per provider that published bounds for the element, the subject (site) and
+    node it is in -- what a viewer loads it through."""
+    collection = collection.lower()
+    scopes = list(dict.fromkeys(scopes))
+    async with pool.acquire() as conn, conn.transaction(readonly=True):
+        await conn.execute(f"SET LOCAL statement_timeout = '{LOOKUP_STATEMENT_TIMEOUT}'")
+        chosen, _ = await _chosen_sets(conn, collection, scopes)
+        if not chosen:
+            return {"members": [], "truncated": False}
+        pairs = sorted(chosen.items())
+        rows = await conn.fetch(
+            """
+            WITH m AS (
+                SELECT DISTINCT ON (r.from_full_name) r.from_full_name, r.from_node_id, r.props->>'run' AS run
+                FROM node_relations r
+                JOIN unnest($2::text[], $3::text[]) AS c(provider, scope) ON c.provider = r.provider AND c.scope = r.scope
+                WHERE r.collection = $1 AND r.relation = 'serves_system' AND r.to_full_name = $4
+                ORDER BY r.from_full_name
+                LIMIT $6
+            )
+            SELECT m.from_full_name, m.from_node_id, m.run,
+                   coalesce(jsonb_agg(jsonb_build_object('provider', b.provider, 'subject', b.subject, 'node_id', b.node_id))
+                            FILTER (WHERE b.node_id IS NOT NULL), '[]'::jsonb) AS sites
+            FROM m
+            LEFT JOIN node_bounds b ON b.collection = $1 AND b.scope = ANY($5::text[]) AND b.full_name = m.from_full_name
+            GROUP BY m.from_full_name, m.from_node_id, m.run
+            ORDER BY m.from_full_name
+            """,
+            collection,
+            [p for p, _ in pairs],
+            [s for _, s in pairs],
+            system,
+            scopes,
+            SYSTEM_MEMBERS_MAX + 1,
+        )
+    members = [
+        {
+            "full_name": r["from_full_name"],
+            "node_id": r["from_node_id"],
+            "run": r["run"],
+            "sites": json.loads(r["sites"]) if isinstance(r["sites"], str) else list(r["sites"] or []),
+        }
+        for r in rows[:SYSTEM_MEMBERS_MAX]
+    ]
+    return {"members": members, "truncated": len(rows) > SYSTEM_MEMBERS_MAX}
+
+
 async def relations_token_for(pool: asyncpg.Pool, *, scopes: Sequence[str], collections: Iterable[str]) -> Optional[str]:
     """One token over the relation sets of ``collections`` readable in ``scopes`` -- what an export's
     cache key folds in -- or None when none of them has a set."""
@@ -383,4 +471,6 @@ __all__ = [
     "relations_for",
     "relations_token",
     "relations_token_for",
+    "system_members",
+    "systems_in",
 ]

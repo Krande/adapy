@@ -545,6 +545,58 @@ async def api_asset_relations(
     return JSONResponse(result)
 
 
+@router.get("/scopes/{scope}/assets/systems")
+async def api_asset_systems(
+    request: Request,
+    collection: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """The systems a collection's relations name, with their kind and member counts
+    (``db.node_relations.systems_in``)."""
+    from ..db.node_relations import readable_scopes, systems_in
+
+    if not collection.strip():
+        raise HTTPException(status_code=400, detail="'collection' is required")
+    pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, False)
+    try:
+        result = await systems_in(
+            pool, scopes=readable_scopes(scope_obj.prefix(), origins.shared_from or ()), collection=collection.strip()
+        )
+    except asyncpg.QueryCanceledError as exc:
+        raise HTTPException(status_code=504, detail="the systems listing did not finish in time") from exc
+    return JSONResponse(result)
+
+
+@router.get("/scopes/{scope}/assets/systems/members")
+async def api_asset_system_members(
+    request: Request,
+    collection: str,
+    system: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """The elements that serve one system, each with the sites it can be loaded through
+    (``db.node_relations.system_members``)."""
+    from ..db.node_relations import readable_scopes, system_members
+
+    if not collection.strip() or not system.strip():
+        raise HTTPException(status_code=400, detail="'collection' and 'system' are required")
+    pool = require_pool(request)
+    origins = await _origins_or_403(pool, scope_obj, user, False)
+    try:
+        result = await system_members(
+            pool,
+            scopes=readable_scopes(scope_obj.prefix(), origins.shared_from or ()),
+            collection=collection.strip(),
+            system=system,
+        )
+    except asyncpg.QueryCanceledError as exc:
+        raise HTTPException(status_code=504, detail="the system's members did not come back in time") from exc
+    return JSONResponse(result)
+
+
 @router.get("/scopes/{scope}/assets/search/collections")
 async def api_asset_search_collections(
     request: Request,

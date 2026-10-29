@@ -139,6 +139,35 @@ async def test_ingest_then_one_lookup_by_id_or_name_and_a_token_that_moves(pg):
 @needs_postgres
 @pytest.mark.asyncio
 @with_pg
+async def test_systems_are_listed_with_their_members(pg):
+    rows = [
+        {"from_node_id": n, "from_full_name": name, "relation": "serves_system", "to_full_name": system,
+         "props": {"system_kind": kind, "system_type": "VENTILATION" if kind == "duct" else "NOTDEFINED", "run": run}}
+        for n, name, system, kind, run in (
+            ("a", "/A", "/DUCTS", "duct", "/R1"),
+            ("b", "/B", "/DUCTS", "duct", "/R1"),
+            ("c", "/C", "/DUCTS", "duct", "/R2"),
+            ("d", "/D", "/PIPES", "piping", "/R3"),
+        )
+    ]  # fmt: skip
+    await nr.ingest_node_relations(
+        pg.pool, scope=pg.scope, provider=pg.provider, chunks=_chunks(_bytes(pg.provider, "col", rows))
+    )
+
+    listing = await nr.systems_in(pg.pool, scopes=[pg.scope], collection="col")
+    assert listing["indexed"]
+    got = [(s["name"], s["kind"], s["system_type"], s["members"], s["runs"]) for s in listing["systems"]]
+    assert got == [("/DUCTS", "duct", "VENTILATION", 3, 2), ("/PIPES", "piping", "NOTDEFINED", 1, 1)]
+    assert (await nr.systems_in(pg.pool, scopes=[pg.scope], collection="other")) == {"indexed": False, "systems": []}
+
+    members = await nr.system_members(pg.pool, scopes=[pg.scope], collection="col", system="/DUCTS")
+    assert [(m["full_name"], m["run"]) for m in members["members"]] == [("/A", "/R1"), ("/B", "/R1"), ("/C", "/R2")]
+    assert members["truncated"] is False and all(m["sites"] == [] for m in members["members"])
+
+
+@needs_postgres
+@pytest.mark.asyncio
+@with_pg
 async def test_the_workers_pool_lookup_answers_a_thread(pg):
     import asyncio
 
