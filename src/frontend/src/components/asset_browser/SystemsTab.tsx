@@ -6,6 +6,7 @@ import React, {useEffect, useMemo, useState} from "react";
 
 import {nodeRelationsApi, type SystemSummary} from "@/services/api/nodeRelations";
 import {useViewerStores} from "@/state/AdaViewerContext";
+import {isAdditiveClick} from "@/utils/mesh_select/additiveClick";
 import {currentScope, loadedCollections, loadMembers, membersOf, selectNames, systemKindLabel} from "@/utils/systems/systems";
 
 const SHOWN_MAX = 300;
@@ -61,14 +62,14 @@ const SystemsTab: React.FC = () => {
         return [...byKind.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     }, [systems, filter]);
 
-    const act = async (s: SystemSummary, what: "select" | "load") => {
+    const act = async (s: SystemSummary, what: "select" | "load", add = false) => {
         if (!active) return;
         setBusy(`${what}:${s.name}`);
         setMessage(null);
         try {
             const members = await membersOf(currentScope(), active, s.name);
             if (what === "select") {
-                const n = await selectNames(members.map((m) => m.full_name), s.name);
+                const n = await selectNames(members.map((m) => m.full_name), s.name, add);
                 setMessage(n ? `Selected ${s.name}: ${n} drawn element${n === 1 ? "" : "s"}.` : `Nothing of ${s.name} is loaded -- Load it first.`);
             } else {
                 setMessage(await loadMembers(active, members, s.name));
@@ -127,8 +128,8 @@ const SystemsTab: React.FC = () => {
                                     <button
                                         type="button"
                                         className="flex-1 min-w-0 truncate text-left text-gray-100 hover:text-white hover:underline disabled:text-gray-500"
-                                        title={`${s.name}\n${s.members} element(s) in ${s.runs} run(s)${s.system_type ? ` · ${s.system_type}` : ""}\nClick to select what of it is loaded`}
-                                        onClick={() => void act(s, "select")}
+                                        title={`${s.name}\n${s.members} element(s) in ${s.runs} run(s)${s.system_type ? ` · ${s.system_type}` : ""}\nClick to select what of it is loaded; Ctrl / Shift + click to add it to the selection`}
+                                        onClick={(e) => void act(s, "select", isAdditiveClick(e))}
                                         disabled={busy !== null}
                                     >
                                         {s.name}

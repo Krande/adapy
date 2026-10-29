@@ -222,9 +222,9 @@ export function selectSourceElements(refs: readonly { readonly sourceName: strin
 }
 
 /** Select the elements NAMED one of `names` in every loaded model -- a system's members, related
- *  elements -- by full name, whatever model they were loaded in. Returns how many draw ranges were
- *  selected. */
-export function selectNamedElements(names: ReadonlySet<string>, label: string): number {
+ *  elements -- by full name, whatever model they were loaded in; with `add`, on top of the current
+ *  selection rather than instead of it. Returns how many draw ranges were selected. */
+export function selectNamedElements(names: ReadonlySet<string>, label: string, add = false): number {
   const idx = indices();
   if (!idx || names.size === 0) return 0;
   const hits: TreeNodeData[] = [];
@@ -241,8 +241,12 @@ export function selectNamedElements(names: ReadonlySet<string>, label: string): 
     const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
     if (mesh) batch.push([mesh, row.rangeId]);
   }
-  replaceSelection(batch);
-  useObjectInfoStore.getState().setName(batch.length ? label : "");
+  if (add) {
+    if (batch.length) recordViewerAction("select", () => useSelectedObjectStore.getState().addBatchofMeshes([...batch]));
+  } else {
+    replaceSelection(batch);
+    useObjectInfoStore.getState().setName(batch.length ? label : "");
+  }
   requestRender();
   return batch.length;
 }

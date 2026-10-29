@@ -98,10 +98,24 @@ export async function membersOf(scope: string, collection: string, system: strin
   return run ? members.filter((m) => m.run === run) : members;
 }
 
-/** Select what is loaded of `names`. Returns how many draw ranges were selected. */
-export async function selectNames(names: Iterable<string>, label: string): Promise<number> {
+/** Select what is loaded of `names` -- with `add`, on top of the current selection. Returns how
+ *  many draw ranges were selected. */
+export async function selectNames(names: Iterable<string>, label: string, add = false): Promise<number> {
   const { selectNamedElements } = await import("@/utils/groups/groupScene");
-  return selectNamedElements(new Set(names), label);
+  return selectNamedElements(new Set(names), label, add);
+}
+
+/** The runs the elements `names` belong to, each with its system: `[{system, run}]`, once each. */
+export async function runsOf(scope: string, collection: string, names: readonly string[]): Promise<{ system: string; run: string }[]> {
+  if (!names.length) return [];
+  const answer = await nodeRelationsApi.relationsFrom(scope, collection, names);
+  const out = new Map<string, { system: string; run: string }>();
+  for (const r of answer.relations) {
+    const run = r.props.run;
+    if (r.relation !== "serves_system" || !r.to_full_name || typeof run !== "string") continue;
+    out.set(`${r.to_full_name}\u0000${run}`, { system: r.to_full_name, run });
+  }
+  return [...out.values()];
 }
 
 /** The load members for `members`: each through the provider `collection` is loaded from when it
