@@ -196,3 +196,54 @@ def test_another_format_is_read_then_moved_to_the_file(tmp_path):
     assert plain.results
     assert _ordered_digest(cached) == _ordered_digest(plain)
     assert all(_mapped(f.values) for f in cached.results if f.values.size)
+
+
+def _bake_digests(out: pathlib.Path) -> dict:
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(out.iterdir()) if p.is_file()}
+
+
+@pytest.mark.parametrize("which", ["single", "assembly"])
+def test_a_cached_bake_is_the_materialised_bake(which, assembly, monkeypatch, tmp_path):
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    path = SIN_PATH if which == "single" else assembly
+    monkeypatch.setenv("ADA_FEA_SIN_STREAMER", "off")
+    monkeypatch.setenv("ADA_FIELD_CACHE_DIR", str(tmp_path))
+    bake_fea_artefacts_from_source(path, tmp_path / "memory", src_key="m")
+    monkeypatch.setenv("ADA_FEA_SIN_FIELD_CACHE", "1")
+    bake_fea_artefacts_from_source(path, tmp_path / "cached", src_key="m")
+    memory, cached = _bake_digests(tmp_path / "memory"), _bake_digests(tmp_path / "cached")
+    assert memory and memory == cached
+
+
+def test_with_the_cache_a_deck_too_big_to_materialise_is_read_whole(assembly, monkeypatch, tmp_path):
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import (
+        FEAResultStreamAdapter,
+        make_stream_reader,
+        readers,
+    )
+
+    monkeypatch.delenv("ADA_FEA_SIN_STREAMER", raising=False)
+    monkeypatch.setenv("ADA_FIELD_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(readers, "SIN_MATERIALISE_MAX_ROWS", 0)
+
+    def opened(cache: str | None, streamer: str | None = None, steps=None):
+        for env, value in (("ADA_FEA_SIN_FIELD_CACHE", cache), ("ADA_FEA_SIN_STREAMER", streamer)):
+            if value is None:
+                monkeypatch.delenv(env, raising=False)
+            else:
+                monkeypatch.setenv(env, value)
+        return make_stream_reader(assembly, steps=steps)
+
+    with opened(None) as reader:
+        assert type(reader) is SinStreamReader
+    with opened("1") as reader:
+        assert type(reader) is FEAResultStreamAdapter
+        result = reader._result
+        assert all(_mapped(f.values) for f in result.results if f.values.size)
+        assert len(reader.read_mesh_geometry().points) == len(result.mesh.nodes.identifiers)
+    with opened("1", streamer="on") as reader:
+        assert type(reader) is SinStreamReader
+    with opened("1", steps=[1]) as reader:
+        assert type(reader) is SinStreamReader

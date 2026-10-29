@@ -57,22 +57,27 @@ async def _run_fea_artefact_bake(
 
     await _on_progress("parsing", 0.10)
 
-    # Admin "Stream SIN FEA bake" toggle (app_settings ``fea_sin_streamer``).
-    # The bake runs in-process on an executor thread, so we drive the
-    # reader choice through the same ADA_* env-var seam the convert path
-    # uses; _make_sin_reader reads it. Default (unset/empty) lets adapy pick:
-    # full-materialise, or the streaming reader for a deck too large for it.
-    # Set fresh per job so toggling takes effect without a worker restart.
+    # Admin "Stream SIN FEA bake" and "Cache SIN FEA bake fields" toggles
+    # (app_settings ``fea_sin_streamer``, ``fea_sin_field_cache``). The bake runs
+    # in-process on an executor thread, so we drive the reader choice through the
+    # same ADA_* env-var seam the convert path uses; _make_sin_reader reads them.
+    # Default (unset/empty) lets adapy pick: full-materialise, or the streaming
+    # reader for a deck too large for it. Set fresh per job so toggling takes
+    # effect without a worker restart.
     if db_pool is not None:
-        try:
-            sin_stream = await db_module.get_setting(db_pool, "fea_sin_streamer")
-        except Exception:
-            logger.exception("worker: failed to read fea_sin_streamer setting")
-            sin_stream = None
-        if sin_stream is not None and sin_stream.strip() != "":
-            os.environ["ADA_FEA_SIN_STREAMER"] = sin_stream
-        else:
-            os.environ.pop("ADA_FEA_SIN_STREAMER", None)
+        for setting, env in (
+            ("fea_sin_streamer", "ADA_FEA_SIN_STREAMER"),
+            ("fea_sin_field_cache", "ADA_FEA_SIN_FIELD_CACHE"),
+        ):
+            try:
+                value = await db_module.get_setting(db_pool, setting)
+            except Exception:
+                logger.exception("worker: failed to read %s setting", setting)
+                value = None
+            if value is not None and value.strip() != "":
+                os.environ[env] = value
+            else:
+                os.environ.pop(env, None)
 
     bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
     try:

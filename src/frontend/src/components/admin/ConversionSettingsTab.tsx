@@ -72,6 +72,18 @@ const ROWS: SettingRow[] = [
         codeDefault: false,
     },
     {
+        key: "fea_sin_field_cache",
+        label: "Cache SIN FEA bake fields",
+        description:
+            "Bake Sesam .sin FEA results from a full read whose field values live in a " +
+            "memory-mapped temporary file, read one load case at a time: the materialised " +
+            "bake's output (eigen-frequency labels, every superelement of an assembly) at " +
+            "about one load case's peak memory. Needs " +
+            "disk space for the values (ADA_FIELD_CACHE_DIR, else the temp directory). On → " +
+            "used instead of the size check; “Stream SIN FEA bake” on still streams.",
+        codeDefault: false,
+    },
+    {
         key: "ifc_streaming",
         label: "Stream IFC write",
         description:
