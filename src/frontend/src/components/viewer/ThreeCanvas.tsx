@@ -26,6 +26,7 @@ import {renderProfiler} from "@/utils/scene/renderProfiler";
 import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 import {AdacppViewport} from "@/viewport/adacpp/adacppViewport";
 import {ensureViewportInput} from "@/viewport/input";
+import {setPickingViewport} from "@/viewport/picking";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -264,6 +265,7 @@ const ThreeCanvas: React.FC = () => {
             if (adacpp && !adacpp.alive) {
                 // Device lost / render failure: hand the viewport back to three.js.
                 adacppRef.current = adacpp = null;
+                setPickingViewport(null);
                 renderer.domElement.style.opacity = "";
             }
             if (shouldRender && adacpp) {
@@ -361,6 +363,7 @@ const ThreeCanvas: React.FC = () => {
                     return;
                 }
                 adacppRef.current = vp;
+                setPickingViewport(vp);
                 // Transparent, not hidden: the camera controls and pointer handlers listen on this
                 // canvas, and a visibility:hidden element gets no pointer/touch events at all.
                 if (rendererRef.current) rendererRef.current.domElement.style.opacity = "0";
@@ -369,6 +372,7 @@ const ThreeCanvas: React.FC = () => {
             .catch((err) => console.warn("[adacpp-webgpu] unavailable, staying on three.js:", err));
         return () => {
             cancelled = true;
+            setPickingViewport(null);
             adacppRef.current?.dispose();
             adacppRef.current = null;
             if (rendererRef.current) rendererRef.current.domElement.style.opacity = "";

@@ -95,6 +95,7 @@ function isUnlit(m: AnyMaterial | undefined): boolean {
 
 export class SceneSync {
     private readonly entries = new Map<string, Entry>();
+    private readonly byInstance = new Map<number, Entry>();
     private frame = 0;
     private readonly matrixPtr: number;
     private readonly viewPtr: number;
@@ -110,6 +111,7 @@ export class SceneSync {
 
     dispose(): void {
         this.entries.clear();
+        this.byInstance.clear();
         this.module._free(this.matrixPtr);
         this.module._free(this.viewPtr);
         this.module._free(this.projPtr);
@@ -148,8 +150,17 @@ export class SceneSync {
         this.lastSyncMs = performance.now() - t0;
     }
 
+    /** The scene object an instance draws, and which of its segments' range ids is which. */
+    entryForInstance(instance: number): {obj: THREE.Object3D; segmentIds: ReadonlyArray<string> | null} | null {
+        const e = this.byInstance.get(instance);
+        return e ? {obj: e.obj, segmentIds: e.segmentIds} : null;
+    }
+
     private drop(e: Entry): void {
-        for (const id of e.instances) this.r.removeInstance(id);
+        for (const id of e.instances) {
+            this.r.removeInstance(id);
+            this.byInstance.delete(id);
+        }
         this.r.removeGeometry(e.geometry);
     }
 
@@ -178,6 +189,7 @@ export class SceneSync {
             if (!created) return;
             e = {...created, obj, signature, stateVersion: -1, colorVersion: attrVersion(geometry.attributes.color), morphVersion: attrVersion(geometry.morphAttributes.position?.[0]), seen: 0};
             this.entries.set(obj.uuid, e);
+            for (const id of e.instances) this.byInstance.set(id, e);
         }
         e.seen = this.frame;
 
@@ -337,6 +349,9 @@ export class SceneSync {
         if (mat?.transparent && opacity < 1) flags |= InstanceFlag.Transparent;
         if (mat && !mat.visible) flags |= InstanceFlag.Hidden;
         if (geometry.morphTargetsRelative) flags |= InstanceFlag.MorphRelative;
+        // Like three.js' GpuMeshPicker, only model meshes are pickable: edges, grid, overlays and
+        // helpers must never stand in front of the object a click is meant for.
+        if (!(obj instanceof CustomBatchedMesh)) flags |= InstanceFlag.NoPick;
         const influence = (obj as THREE.Mesh).morphTargetInfluences?.[0] ?? 0;
         // MeshStandardMaterial's metalness/roughness; Lambert/Phong light as diffuse-only.
         const pbr = mat as unknown as {isMeshStandardMaterial?: boolean; metalness?: number; roughness?: number};

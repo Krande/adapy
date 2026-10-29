@@ -12,7 +12,7 @@ import * as THREE from "three";
 import {create} from "zustand";
 import {resolveModuleUrl} from "@/utils/wasm/emscriptenLoader";
 import {SceneSync} from "./sceneSync";
-import type {AdacppModule, AdacppStats, GpuDeviceLike, GpuLike, WebRendererApi} from "./types";
+import type {AdacppModule, AdacppStats, GpuDeviceLike, GpuLike, RawPick, WebRendererApi} from "./types";
 
 const MODULE_URL = "/wasm/adacpp_render.js";
 
@@ -152,6 +152,29 @@ export class AdacppViewport {
             this.lastStatsPush = now;
             useAdacppRenderStatus.setState({stats: {...this.renderer.stats(), syncMs: this.sync.lastSyncMs}});
         }
+    }
+
+    /** GPU pick at a client (CSS px) position, in the frame last drawn. */
+    pickRaw(clientX: number, clientY: number): Promise<RawPick | null> {
+        if (!this.alive_) return Promise.resolve(null);
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return Promise.resolve(null);
+        const x = Math.floor(((clientX - rect.left) / rect.width) * this.canvas.width);
+        const y = Math.floor(((clientY - rect.top) / rect.height) * this.canvas.height);
+        if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return Promise.resolve(null);
+        return new Promise((resolve) => {
+            try {
+                this.renderer.pick(x, y, this.canvas.width, this.canvas.height, (r) => resolve(r.hit ? r : null));
+            } catch (err) {
+                console.warn("[adacpp-webgpu] pick failed:", err);
+                resolve(null);
+            }
+        });
+    }
+
+    /** The scene object an adacpp instance draws (see SceneSync.entryForInstance). */
+    entryForInstance(instance: number) {
+        return this.sync.entryForInstance(instance);
     }
 
     dispose(): void {

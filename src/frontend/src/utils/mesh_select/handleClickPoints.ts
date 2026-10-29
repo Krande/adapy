@@ -5,12 +5,12 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {enablePointSelectionMask} from "../scene/pointsImpostor";
 import {selectedMaterial} from "../default_materials";
 
-import {gpuPointPicker} from "./GpuPointPicker";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {queryNameFromRangeId, queryPointDrawRange, queryPointRangeByRangeId} from "./queryMeshDrawRange";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {perform_selection} from "./perform_selection";
 import {isAdditiveClick} from "./additiveClick";
+import {pickPointAt} from "@/viewport/picking";
 
 export async function handleClickPoints(
     intersect: THREE.Intersection,
@@ -27,7 +27,7 @@ export async function handleClickPoints(
     let worldPosition = intersect.point.clone();
 
     if (useGpu) {
-        const pick = gpuPointPicker.pickAt(event.clientX, event.clientY);
+        const pick = await pickPointAt(event.clientX, event.clientY);
         if (pick) {
             obj = pick.object;
             idx = pick.index;

@@ -72,7 +72,7 @@ RUN python scripts/packaging/build_pyodide_adapy_wheel.py /out
 # here from adacpp source at a pinned commit (about a minute: no OCCT, no pyodide). The viewer loads
 # /wasm/adacpp_render.js only when the renderer is selected and falls back to three.js without it.
 FROM emscripten/emsdk:6.0.11 AS adacpp-render
-ARG ADACPP_RENDER_REF=c596a11d8289a9ee5e6cbd4d8e779fca719b506b
+ARG ADACPP_RENDER_REF=0a071f3aab2e4a1fd264138ed2cb7df5f31a1db6
 ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
 RUN git init -q /src && cd /src && \
     git remote add origin "$ADACPP_GIT_URL" && \

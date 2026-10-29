@@ -54,8 +54,19 @@ export interface WebRendererApi {
     setBackground(r: number, g: number, b: number): void;
     setLighting(ambient: number, diffuse: number): void;
     setCulling(frustum: boolean, cone: boolean): void;
+    pick(x: number, y: number, width: number, height: number, callback: (r: RawPick) => void): void;
     stats(): AdacppStats;
     delete(): void;
+}
+
+/** What the renderer's GPU pick found under a pixel. */
+export interface RawPick {
+    hit: boolean;
+    instance: number;
+    segment: number;
+    /** Triangle index in the geometry's original index list (index position / 3). */
+    triangle: number;
+    world: [number, number, number];
 }
 
 export interface AdacppModule {
@@ -98,5 +109,6 @@ export const InstanceFlag = {
     Transparent: 1 << 3,
     Hidden: 1 << 4,
     MorphRelative: 1 << 5,
+    NoPick: 1 << 8,
 } as const;
 export const SegmentFlag = {Hidden: 1 << 0} as const;
