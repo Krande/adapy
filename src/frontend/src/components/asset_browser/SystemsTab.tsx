@@ -10,6 +10,11 @@ import {currentScope, loadedCollections, loadMembers, membersOf, selectNames, sy
 
 const SHOWN_MAX = 300;
 
+// The Sources tab's controls (`AssetsTab`), so the three tabs read as one panel.
+const CONTROL = "h-7 rounded-md border border-gray-700 bg-gray-800 text-xs text-gray-100";
+const BTN =
+    "shrink-0 h-6 px-2 rounded-md text-xs font-medium border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50";
+
 const SystemsTab: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
     const treeData = useTreeViewStore((s) => s.treeData);
@@ -79,11 +84,11 @@ const SystemsTab: React.FC = () => {
         return <p className="p-3 text-xs text-gray-400">Load a model from a published source to see its systems.</p>;
     }
     return (
-        <div className="flex flex-col gap-2 p-2 text-sm min-h-0 flex-1">
+        <div className="flex flex-col gap-2 p-2 text-sm text-gray-100 min-h-0 flex-1">
             <div className="flex items-center gap-2">
                 {collections.length > 1 ? (
                     <select
-                        className="bg-gray-800 border border-white/15 rounded px-1 py-0.5 text-xs"
+                        className={`${CONTROL} px-1`}
                         value={active ?? ""}
                         onChange={(e) => setCollection(e.target.value)}
                         aria-label="Collection"
@@ -95,10 +100,10 @@ const SystemsTab: React.FC = () => {
                         ))}
                     </select>
                 ) : (
-                    <span className="text-xs font-semibold">{active?.toUpperCase()}</span>
+                    <span className="text-xs font-semibold text-white">{active?.toUpperCase()}</span>
                 )}
                 <input
-                    className="flex-1 min-w-0 bg-gray-800 border border-white/15 rounded px-1.5 py-0.5 text-xs"
+                    className={`${CONTROL} flex-1 min-w-0 px-2 placeholder:text-gray-500`}
                     placeholder="Filter systems"
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
@@ -121,7 +126,7 @@ const SystemsTab: React.FC = () => {
                                 <li key={`${s.provider}:${s.name}`} className="flex items-center gap-1.5 py-0.5 text-xs">
                                     <button
                                         type="button"
-                                        className="flex-1 min-w-0 truncate text-left hover:underline"
+                                        className="flex-1 min-w-0 truncate text-left text-gray-100 hover:text-white hover:underline disabled:text-gray-500"
                                         title={`${s.name}\n${s.members} element(s) in ${s.runs} run(s)${s.system_type ? ` · ${s.system_type}` : ""}\nClick to select what of it is loaded`}
                                         onClick={() => void act(s, "select")}
                                         disabled={busy !== null}
@@ -131,7 +136,7 @@ const SystemsTab: React.FC = () => {
                                     <span className="text-gray-400 shrink-0">{s.members}</span>
                                     <button
                                         type="button"
-                                        className="shrink-0 px-1.5 rounded border border-white/20 hover:bg-white/10 disabled:opacity-50"
+                                        className={BTN}
                                         onClick={() => void act(s, "load")}
                                         disabled={busy !== null}
                                         title={`Load ${s.name}: each element's site, the rest of it hidden`}
