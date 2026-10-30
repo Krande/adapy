@@ -135,9 +135,9 @@ def test_sin_reader_reads_the_mesh_before_the_fields(monkeypatch, tmp_path):
 
 @pytest.mark.skipif(not SIN_PATH.exists(), reason="fixture not present")
 def test_deferred_reader_closed_unread_releases_the_file():
-    from ada.fem.results.artefacts import make_stream_reader
-
     import os
+
+    from ada.fem.results.artefacts import make_stream_reader
 
     os.environ["ADA_FEA_SIN_STREAMER"] = "off"
     try:
