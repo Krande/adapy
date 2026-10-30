@@ -18,14 +18,16 @@ one ``include_router`` call is order-safe.
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import pathlib
 import posixpath
 import zipfile
+import zlib
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ada.config import logger
 
@@ -33,12 +35,16 @@ from .. import auth as auth_module
 from .. import pending_uploads
 from ..auth import User
 from ..converter import (
+    FEA_MANIFEST_HEAD_BYTES,
     fea_artefact_manifest_key_for,
     fea_artefact_prefix_for,
+    fea_artefact_stamp_key_for,
+    fea_bake_version_from_head,
     fea_case_prefix_for,
     fea_case_stale_reason,
     fea_manifest_stale_reason,
     fea_meta_key_for,
+    fea_stamp_is_current,
     is_fea_artefact_source,
     is_fea_result_key,
 )
@@ -53,6 +59,7 @@ from ..fea_case_upload import (
 )
 from ..job_transport import JobRequest
 from ..scope import Scope
+from ..storage import StreamResult
 from .deps import (
     DIRECT_UPLOAD_THRESHOLD_BYTES,
     RestContext,
@@ -135,6 +142,11 @@ async def api_scope_fea_artefacts_upload(
 
     prefix = fea_artefact_prefix_for(source)
     written = 0
+    # The manifest goes up after everything it names, and the stamp after the
+    # manifest it vouches for (a stamp older than its manifest is ignored --
+    # see fea_stamp_is_current), whatever order the zip lists them in.
+    tail = {"fea.manifest.json": 1, "fea.stamp.json": 2}
+    entries.sort(key=lambda n: tail.get(posixpath.basename(n), 0))
     try:
         for n in entries:
             base = posixpath.basename(n)
@@ -346,6 +358,161 @@ async def api_scope_result_meta(
     )
 
 
+# ── Manifest freshness without reading the manifest ─────────────────────────
+#
+# A cached manifest is served only if it is current (bake_version + source
+# heads, see fea_manifest_stale_reason). Deciding that used to mean get_bytes +
+# gunzip + json.loads of the whole manifest, and serving it a re-serialisation
+# of the parse: on a large SIN model (148 MB of JSON) that peaked the API at
+# ~1.3 GiB and OOM-killed a 1 GiB pod. Now the stored bytes are never parsed:
+#
+# * a bake_version 6+ bake has ``fea.stamp.json`` (a few dozen bytes) carrying
+#   the stamps; the check reads that;
+# * an older bake has none, so the check reads the manifest's first
+#   FEA_MANIFEST_HEAD_BYTES (decompressed) off the stream it is about to serve,
+#   where ``bake_version`` always sits, and serves the same stream on;
+# * either way the response is the stored object streamed through as it is --
+#   gzip at rest, ``Content-Encoding: gzip`` on the wire, like ``/blobs``.
+
+#: A stamp is a handful of keys; anything bigger under its name is not one.
+_STAMP_MAX_BYTES = 64 * 1024
+
+#: Raw (compressed) bytes the head peek may buffer before giving up looking --
+#: a bound on the peek's memory whatever the chunking of the backend.
+_HEAD_PEEK_MAX_RAW = 1024 * 1024
+
+
+@dataclasses.dataclass
+class _CachedManifest:
+    """What the freshness check learned about a stored manifest."""
+
+    manifest_key: str
+    #: Why it must be re-baked, or None when it is current.
+    stale: str | None
+    source_head: dict | None
+    manifest_head: dict | None
+    #: The stored object, opened (and its head buffered) when the check had to
+    #: peek it; the route serves it on rather than opening it twice.
+    stream: StreamResult | None = None
+
+
+async def _read_stamp(ctx: RestContext, scope_obj: Scope, source_key: str, manifest_head: dict | None) -> dict | None:
+    """The bake's stamp when it is there, small, parsable and no older than the manifest."""
+    stamp_key = fea_artefact_stamp_key_for(source_key)
+    try:
+        stamp_head = await ctx.storage.head(scope_obj, stamp_key)
+    except Exception:
+        logger.exception("fea-manifest: stamp head failed for %s", stamp_key)
+        return None
+    if not stamp_head or int(stamp_head.get("size") or 0) > _STAMP_MAX_BYTES:
+        return None
+    if not fea_stamp_is_current(stamp_head, manifest_head):
+        return None
+    try:
+        stamp = json.loads((await ctx.storage.get_bytes(scope_obj, stamp_key)).decode("utf-8"))
+    except Exception:
+        logger.exception("fea-manifest: stamp unreadable for %s", stamp_key)
+        return None
+    return stamp if isinstance(stamp, dict) else None
+
+
+async def _peek_manifest_head(stream: StreamResult) -> tuple[bytes, StreamResult]:
+    """The first FEA_MANIFEST_HEAD_BYTES of a stored manifest, decompressed, and
+    a stream that still yields every stored byte (the peeked chunks re-played).
+
+    Reads at most _HEAD_PEEK_MAX_RAW stored bytes; never the whole object."""
+    buffered: list[bytes] = []
+    raw = 0
+    head = b""
+    gz = stream.content_encoding == "gzip"
+    inflate = zlib.decompressobj(zlib.MAX_WBITS | 16) if gz else None
+    it = stream.stream.__aiter__()
+    exhausted = False
+    while len(head) < FEA_MANIFEST_HEAD_BYTES and raw < _HEAD_PEEK_MAX_RAW:
+        try:
+            chunk = await it.__anext__()
+        except StopAsyncIteration:
+            exhausted = True
+            break
+        buffered.append(chunk)
+        raw += len(chunk)
+        if inflate is not None:
+            head += inflate.decompress(chunk, FEA_MANIFEST_HEAD_BYTES - len(head))
+        else:
+            head += chunk[: FEA_MANIFEST_HEAD_BYTES - len(head)]
+
+    async def _replay():
+        for chunk in buffered:
+            yield chunk
+        if not exhausted:
+            async for chunk in it:
+                yield chunk
+
+    return head, StreamResult(stream=_replay(), content_encoding=stream.content_encoding)
+
+
+async def _check_cached_manifest(
+    ctx: RestContext, scope_obj: Scope, source_key: str, *, keep_stream: bool
+) -> _CachedManifest | None:
+    """Freshness of the stored manifest of ``source_key``; None when there is none.
+
+    Never parses the manifest (see the block comment above). ``keep_stream``:
+    the caller will serve the manifest, so a stream opened for the head peek is
+    handed back instead of dropped."""
+    storage = ctx.storage
+    manifest_key = fea_artefact_manifest_key_for(source_key)
+    try:
+        man_head = await storage.head(scope_obj, manifest_key)
+    except Exception:
+        logger.exception("fea-manifest: head failed for %s", manifest_key)
+        man_head = None
+    if man_head is None:
+        return None
+    try:
+        src_head = await storage.head(scope_obj, source_key)
+    except Exception:
+        logger.exception("fea-manifest: head failed for %s", source_key)
+        src_head = None
+    # The source check is timestamp-only, so an unreadable source head simply
+    # leaves that signal inconclusive -- the same posture as before.
+
+    stamp = await _read_stamp(ctx, scope_obj, source_key, man_head)
+    if stamp is not None:
+        return _CachedManifest(manifest_key, fea_manifest_stale_reason(stamp, src_head, man_head), src_head, man_head)
+
+    # No stamp: a bake older than bake_version 6 (so stale by version unless the
+    # bake queue is off), or a stamp-less writer. Its head says which.
+    try:
+        stream = await storage.open_stream(scope_obj, manifest_key)
+    except FileNotFoundError:
+        return None
+    try:
+        head, stream = await _peek_manifest_head(stream)
+    except Exception:
+        logger.exception("fea-manifest: cached manifest unreadable for %s; rebuilding", manifest_key)
+        return _CachedManifest(manifest_key, "unreadable manifest", src_head, man_head)
+    stale = fea_manifest_stale_reason({"bake_version": fea_bake_version_from_head(head)}, src_head, man_head)
+    return _CachedManifest(manifest_key, stale, src_head, man_head, stream if keep_stream else None)
+
+
+async def _manifest_response(ctx: RestContext, scope_obj: Scope, cached: _CachedManifest) -> StreamingResponse:
+    """The stored manifest as it is stored: no parse, no re-serialisation."""
+    stream = cached.stream
+    if stream is None:
+        try:
+            stream = await ctx.storage.open_stream(scope_obj, cached.manifest_key)
+        except FileNotFoundError as exc:
+            # Deleted between the check and now (a re-bake replacing it).
+            raise HTTPException(status_code=503, detail="manifest is being replaced; retry") from exc
+    headers = {"Cache-Control": "no-cache"}
+    if stream.content_encoding:
+        # As /blobs: the browser inflates a gzip-at-rest body itself, and a
+        # compressed body has no byte ranges a client could ask for.
+        headers["Content-Encoding"] = stream.content_encoding
+        headers["Accept-Ranges"] = "none"
+    return StreamingResponse(stream.stream, media_type="application/json", headers=headers)
+
+
 @router.get("/scopes/{scope}/fea/manifest")
 async def api_scope_fea_manifest(
     request: Request,
@@ -353,10 +520,11 @@ async def api_scope_fea_manifest(
     scope_obj: Scope = Depends(scope_from_path),
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
-) -> JSONResponse:
+) -> Response:
     """Return the streaming-viewer manifest for a FEA source.
 
-    Cache hit: 200 with the parsed manifest JSON.
+    Cache hit: 200 with the stored manifest JSON, streamed through as stored
+    (``Content-Encoding: gzip``) -- the API never parses it.
     Cache miss: 202 with ``{"job_id": ..., "status": "queued"}``;
     frontend polls ``/api/convert/{job_id}`` until done, then
     re-fetches this endpoint.
@@ -399,41 +567,23 @@ async def api_scope_fea_manifest(
         raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
 
     manifest_key = fea_artefact_manifest_key_for(source_key)
-    try:
-        cached = await storage.get_bytes(scope_obj, manifest_key)
-    except FileNotFoundError:
-        cached = None
-    except Exception:
-        logger.exception("fea-manifest: cache read failed for %s", manifest_key)
-        cached = None
     force_rebake = False
-    if cached:
-        manifest: dict | None = None
-        try:
-            manifest = json.loads(cached.decode("utf-8"))
-        except Exception:
-            logger.exception("fea-manifest: cache parse failed for %s; rebuilding", manifest_key)
-        stale: str | None = None
-        if manifest is not None:
-            # Freshness, not just existence: a bake made before the
-            # current bake output (bake_version) or before the source's
-            # last re-upload (a deck is routinely re-solved in place under
-            # the same name) must be rebuilt, not served forever.
-            try:
-                src_head = await storage.head(scope_obj, source_key)
-                man_head = await storage.head(scope_obj, manifest_key)
-            except Exception:
-                logger.exception("fea-manifest: head failed for %s", source_key)
-                src_head = man_head = None
-            stale = fea_manifest_stale_reason(manifest, src_head, man_head)
-            if stale is None:
-                return JSONResponse(manifest)
+    # Freshness, not just existence: a bake made before the current bake
+    # output (bake_version) or before the source's last re-upload (a deck is
+    # routinely re-solved in place under the same name) must be rebuilt, not
+    # served forever. Answered from the stamp (or the manifest's head), never
+    # from a parse of the manifest -- see _check_cached_manifest.
+    cached = await _check_cached_manifest(ctx, scope_obj, source_key, keep_stream=True)
+    if cached is not None:
+        stale = cached.stale
+        if stale is None:
+            return await _manifest_response(ctx, scope_obj, cached)
         # A cached entry exists but is stale or unusable. The worker's
         # already-cached short-circuit keys on the manifest's existence,
         # so a plain enqueue would no-op straight back here; force the
         # rebake through it.
         force_rebake = True
-        if not ctx.jobs.supports("bake") and manifest is not None:
+        if not ctx.jobs.supports("bake") and stale != "unreadable manifest":
             # No worker to rebake with. A stale manifest still describes
             # real (older) results; serving it beats a 503 — log so the
             # operator sees why the deck lacks the newer bake output.
@@ -442,12 +592,8 @@ async def api_scope_fea_manifest(
                 source_key,
                 stale,
             )
-            return JSONResponse(manifest)
-        logger.info(
-            "fea-manifest: cached bake for %s is stale (%s) — re-baking",
-            source_key,
-            stale or "unparsable manifest",
-        )
+            return await _manifest_response(ctx, scope_obj, cached)
+        logger.info("fea-manifest: cached bake for %s is stale (%s) — re-baking", source_key, stale)
 
     # Cache miss (or stale hit) — enqueue a worker bake and return 202.
     # Frontend polls /convert/{job_id} via the existing route and
@@ -527,7 +673,23 @@ async def _fresh_base_manifest(ctx: RestContext, scope_obj: Scope, source_key: s
         raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source_key!r}")
     if not await storage.exists(scope_obj, source_key):
         raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
-    manifest_key = fea_artefact_manifest_key_for(source_key)
+    # Freshness first, from the stamp (or the manifest's head): a stale base --
+    # which every pre-split, possibly huge, manifest is -- is refused without
+    # ever being parsed. Only a current bake's manifest is read, and that is the
+    # compact index (bake_version 6): the per-element tables that made the old
+    # one weigh 148 MB on a large SIN model live in sidecars these routes never
+    # need (they read field names, blob layouts and combination_steps).
+    cached = await _check_cached_manifest(ctx, scope_obj, source_key, keep_stream=False)
+    if cached is None:
+        raise HTTPException(status_code=409, detail="no base bake yet; request the manifest first")
+    if cached.stale is not None:
+        raise HTTPException(status_code=409, detail=f"base bake is stale ({cached.stale}); request the manifest again")
+    manifest_key = cached.manifest_key
+    stored = int((cached.manifest_head or {}).get("size") or 0)
+    if stored > _BASE_MANIFEST_MAX_STORED:
+        # A current bake is an index, so this is not one a viewer produced
+        # (an inline manifest uploaded under a current stamp); refuse to parse it.
+        raise HTTPException(status_code=413, detail=f"base bake manifest is {stored} bytes stored; too large to read")
     try:
         manifest = json.loads((await storage.get_bytes(scope_obj, manifest_key)).decode("utf-8"))
     except FileNotFoundError:
@@ -535,16 +697,13 @@ async def _fresh_base_manifest(ctx: RestContext, scope_obj: Scope, source_key: s
     except Exception as exc:
         logger.exception("fea-case: base manifest unreadable for %s", source_key)
         raise HTTPException(status_code=409, detail="base bake unreadable; request the manifest again") from exc
-    try:
-        src_head = await storage.head(scope_obj, source_key)
-        man_head = await storage.head(scope_obj, manifest_key)
-    except Exception:
-        logger.exception("fea-case: head failed for %s", source_key)
-        src_head = man_head = None
-    stale = fea_manifest_stale_reason(manifest, src_head, man_head)
-    if stale is not None:
-        raise HTTPException(status_code=409, detail=f"base bake is stale ({stale}); request the manifest again")
-    return manifest, {"source": src_head, "manifest": man_head}
+    return manifest, {"source": cached.source_head, "manifest": cached.manifest_head}
+
+
+#: The most stored (gzip) bytes a base manifest may weigh for the combination
+#: routes to parse it. The compact index of a large SIN model is well under 1 MB
+#: gzipped; this only stops an inline manifest from being parsed whole.
+_BASE_MANIFEST_MAX_STORED = 16 * 1024 * 1024
 
 
 async def _cached_json(ctx: RestContext, scope_obj: Scope, key: str) -> tuple[dict | None, dict | None]:
