@@ -184,6 +184,7 @@ def write_assembly_sin(
     instances: tuple[int, int] = (1, 1),
     top_seltyp: int = 100,
     drop_blocks_in_second: Iterable[str] = ("RVSTRESS",),
+    second_source: pathlib.Path | None = None,
 ) -> pathlib.Path:
     """Write a three-entry superelement assembly SIN to ``out``.
 
@@ -192,18 +193,27 @@ def write_assembly_sin(
     single superelement as types ``seltyps[0]`` and ``seltyps[1]`` (instances
     ``instances``), level 1; the second without the blocks in
     ``drop_blocks_in_second`` and placed by :data:`PLACEMENT_ROWS`.
+    ``second_source`` (the same mesh) is copied for entry 3 instead, so the two
+    superelements can store different result cases.
     """
     from ada.fem.formats.sesam.results.sin_reader import open_sin
 
-    data = pathlib.Path(source).read_bytes()
+    def superelement(path: pathlib.Path):
+        """``path``'s bytes, type blocks, first block offset, PTAB offset and element count."""
+        with open_sin(path) as sf:
+            assert len(sf.super_element_refs) == 1, "the source must hold one superelement"
+            blocks = list(sf.type_blocks.values())
+            ptab = sf.super_element_refs[0][1]
+            count = sf.get_count("GELMNT1")
+        assert max(b.records_start for b in blocks) <= ptab, "the source's PTAB must follow its blocks"
+        return pathlib.Path(path).read_bytes(), blocks, min(b.preamble_offset for b in blocks), ptab, count
+
+    sources = [superelement(source)]
+    sources.append(sources[0] if second_source is None else superelement(second_source))
+    data, n_elements = sources[0][0], sources[0][4]
+    assert sources[1][4] == n_elements, "both superelements must have the same mesh"
     with open_sin(source) as sf:
-        assert len(sf.super_element_refs) == 1, "the source must hold one superelement"
-        blocks = list(sf.type_blocks.values())
-        source_ptab = sf.super_element_refs[0][1]
-        n_elements = sf.get_count("GELMNT1")
         prefix_end = next(off for off, name in sf.header_blocks if name == "RESULTS")
-    first = min(b.preamble_offset for b in blocks)
-    assert max(b.records_start for b in blocks) <= source_ptab, "the source's PTAB must follow its blocks"
     drop = set(drop_blocks_in_second)
 
     image = SinBuffer(PAGE)
@@ -232,8 +242,8 @@ def write_assembly_sin(
     ptabs = [(1, image.write_ptab(top_blocks))]
 
     # Entries 2 and 3: the source's superelement, rebased, typed by an IDENT.
-    for iref, seltyp in ((2, first_sub), (3, second_sub)):
-        shift = _copy_rebased(image, data, blocks, first, source_ptab)
+    for (iref, seltyp), (part, blocks, first, part_ptab, _) in zip(((2, first_sub), (3, second_sub)), sources):
+        shift = _copy_rebased(image, part, blocks, first, part_ptab)
         listed = [b.preamble_offset + shift for b in blocks if iref == 2 or b.name not in drop]
         # IDENT: SLEVEL, SELTYP, SELMOD, 0.
         listed.append(image.write_block("IDENT", [(1, seltyp, 3, 0)], type_flag=31))
