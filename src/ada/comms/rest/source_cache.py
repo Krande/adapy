@@ -171,6 +171,81 @@ class SourceBlobCache:
                 except OSError:
                     pass
 
+    async def open_progressive(self, storage, scope, key: str, dest_path: pathlib.Path, *, chunk_bytes: int = 8 << 20):
+        """Start downloading ``key`` in the background and return the
+        :class:`~ada.fem.formats.sesam.results.byte_source.ProgressiveDownload`
+        a decoder can read from at once -- or None, and the caller does the
+        plain :meth:`fetch`: the entry is already a valid hit (nothing to wait
+        for), the object is gzip-at-rest (byte ranges address the uncompressed
+        file, so it cannot be ranged), or it has no metadata.
+
+        With the cache enabled the bytes land in the cache ENTRY's file, and the
+        entry becomes valid -- its ``.meta`` written -- only once every chunk is on
+        disk and the object's version token is unchanged (the download's
+        ``verify`` + ``on_complete``). An interrupted or cancelled download
+        leaves a file without ``.meta``: a miss, never a hit for a partial file.
+        With the cache disabled the bytes land in ``dest_path``.
+
+        Must be called on the event loop the storage runs on: the download's
+        threads fetch through it (``storage.get_range``, one ranged GET per chunk).
+        Raises ``FileNotFoundError`` when the object does not exist.
+        """
+        from ada.fem.formats.sesam.results.byte_source import ProgressiveDownload
+
+        loop = asyncio.get_running_loop()
+        meta = await storage.head(scope, key)
+        if meta is None:
+            raise FileNotFoundError(f"object not found: {key}")
+        if await storage.is_gzip_stored(scope, key):
+            return None
+        size = int(meta.get("size") or 0)
+        version = f"etag:{meta['e_tag']}" if meta.get("e_tag") else f"sz:{size}:lm:{meta.get('last_modified')}"
+
+        target = pathlib.Path(dest_path)
+        on_complete = None
+        if self.enabled:
+            entry = self._entry_path(scope, key, version)
+            if entry is not None and self._entry_valid(entry):
+                return None
+            if entry is not None:
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+                # Invalidate first, then a fresh inode: a link an earlier job still
+                # holds must not see this download's chunks arrive.
+                for p in (entry.with_name(entry.name + ".meta"), entry):
+                    try:
+                        p.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                self._evict(incoming=size)
+                target = entry
+
+                def on_complete(path: str, _entry=entry, _size=size) -> None:
+                    self._write_meta(_entry, _size)
+                    if _size > self.cap_bytes:
+                        self._remove_entry(_entry, reason="over-cap")
+                    else:
+                        self._evict(exclude=_entry.name)
+                    logger.info("source-cache: progressive %s complete (%d bytes cached)", key, _size)
+
+        def verify() -> bool:
+            head = asyncio.run_coroutine_threadsafe(storage.head(scope, key), loop).result()
+            if head is None:
+                return False
+            now = (
+                f"etag:{head['e_tag']}"
+                if head.get("e_tag")
+                else f"sz:{head.get('size')}:lm:{head.get('last_modified')}"
+            )
+            return now == version and int(head.get("size") or 0) == size
+
+        return ProgressiveDownload(
+            _StorageRangeFetcher(storage, scope, key, size, loop),
+            target,
+            chunk_bytes=chunk_bytes,
+            verify=verify,
+            on_complete=on_complete,
+        )
+
     # -- internals -----------------------------------------------------
 
     async def _version_token(self, storage, scope, key: str) -> tuple[str | None, int]:
@@ -277,6 +352,24 @@ class SourceBlobCache:
                 continue
             self._remove_entry(p, reason="lru")
             total -= size
+
+
+class _StorageRangeFetcher:
+    """A ``ProgressiveDownload`` range fetcher over ``Storage.get_range``, for its
+    threads: each fetch is one ranged GET run on the storage's event loop."""
+
+    def __init__(self, storage, scope, key: str, size: int, loop: asyncio.AbstractEventLoop) -> None:
+        self._storage, self._scope, self._key, self._size, self._loop = storage, scope, key, size, loop
+
+    def size(self) -> int:
+        return self._size
+
+    def fetch(self, offset: int, length: int) -> bytes:
+        coro = self._storage.get_range(self._scope, self._key, offset, length)
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+
+    def close(self) -> None:
+        pass
 
 
 _default_cache: SourceBlobCache | None = None

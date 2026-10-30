@@ -1976,6 +1976,16 @@ def _open_sin_file(
         p = Path(unquote(urlsplit(str(path)).path))
     else:
         p = Path(path)
+    # A file the worker is still downloading (byte_source.ProgressiveDownload):
+    # read it through the download, which fetches any chunk not yet on disk.
+    from ada.fem.formats.sesam.results.byte_source import (
+        ProgressiveMmapSource,
+        progressive_file,
+    )
+
+    download = progressive_file(p)
+    if download is not None:
+        return SinFile(source=ProgressiveMmapSource(download), path=p, _decode_default=decode_default)
     fh = open(p, "rb")
     try:
         mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
