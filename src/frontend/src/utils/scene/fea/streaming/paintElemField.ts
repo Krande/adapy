@@ -15,6 +15,7 @@
 import type {ContourSettings} from "../contourScale";
 import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
+import {withFieldDetail} from "@/services/fea/feaFieldDetail";
 import type {FeaManifestField} from "@/services/viewerApi";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import type {FeaSessionHandle} from "@/state/modelSession";
@@ -45,9 +46,13 @@ export async function paintElemField(args: {
     rangeFromShown: boolean;
 }): Promise<[number, number] | null> {
     const {
-        active, field, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
+        active, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
         warpInfo, rangeFetcher, fetcher, cacheKey, rangeFromShown,
     } = args;
+    // The buckets' element labels (and node indices, for the result-point
+    // markers): inline on an older bake, else the field's detail sidecar, fetched
+    // once and cached -- in parallel with nothing, but only for the field shown.
+    const field = await withFieldDetail(args.field, fetcher, cacheKey);
     // Element-field render path (AFEL). Range-fetch one step per
     // element-type bucket in parallel; the bake guarantees parallel
     // step counts across buckets within a logical field, so the same

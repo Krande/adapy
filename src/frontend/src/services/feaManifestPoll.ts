@@ -104,17 +104,34 @@ async function _readDetail(r: Response): Promise<string> {
     }
 }
 
+/** A running job's partial output (mesh first): the server answered 200 with a
+ * body that is not final yet -- ``X-Fea-Manifest-State: preliminary`` -- and named
+ * the job still producing it (``X-Fea-Bake-Job``). */
+function preliminaryJob(r: Response): string | null {
+    if (r.headers?.get?.("X-Fea-Manifest-State") !== "preliminary") return null;
+    return r.headers.get("X-Fea-Bake-Job") ?? "";
+}
+
 /** Generic 200-or-202+poll orchestrator. Both feaManifest and
  * resultMeta share the same control flow; the only differences are
- * the URL, the cached-body type, and the failure descriptor. */
+ * the URL, the cached-body type, and the failure descriptor.
+ *
+ * ``onPartial`` (mesh first): a job that ships its output as it goes says so in
+ * its status (``artefacts_ready``). Each time that moves on -- the mesh is up,
+ * another field landed -- the endpoint is asked again, and a preliminary answer
+ * is handed to ``onPartial`` while the poll carries on to the final one, which
+ * is what the promise resolves with. A failing ``onPartial`` (or a refetch that
+ * fails) is logged and the poll goes on: the final answer still comes. */
 async function pollEnqueueGet<T>(
     deps: PollDeps,
     label: string,
     buildUrl: () => string,
+    onPartial?: (body: T, info: {jobId: string}) => void | Promise<void>,
 ): Promise<T> {
     const url = buildUrl();
     const r = await deps.fetcher(url, {signal: deps.signal});
 
+    let queued: {job_id: string; stage?: string; progress?: number};
     if (r.status === 200) {
         if (!r.ok) {
             // 200 should always be ok; defensive in case fetch shim
@@ -125,17 +142,22 @@ async function pollEnqueueGet<T>(
                 await _readDetail(r),
             );
         }
-        return (await r.json()) as T;
-    }
-    if (r.status !== 202) {
+        const job = onPartial ? preliminaryJob(r) : null;
+        if (job === null || !job) return (await r.json()) as T;
+        // Opened while the bake runs: show what is there, follow the job for the rest.
+        await _partial(onPartial!, (await r.json()) as T, job);
+        queued = {job_id: job, stage: "baking"};
+    } else if (r.status !== 202) {
         throw new ApiError(
             `${label} failed: ${r.status} ${r.statusText}`,
             r.status,
             await _readDetail(r),
         );
+    } else {
+        queued = (await r.json()) as {job_id: string; stage?: string; progress?: number};
     }
-
-    const queued = (await r.json()) as {job_id: string; stage?: string; progress?: number};
+    // What of the job's output has been handed to onPartial: "<fields ready>".
+    let partialSeen: string | null = null;
     let stage = queued.stage ?? "queued";
     let progress = queued.progress ?? 0;
     let status: "queued" | "running" | "done" = "queued";
@@ -198,6 +220,23 @@ async function pollEnqueueGet<T>(
             );
         }
         if (next.status === "done") break;
+        const ready = next.artefacts_ready;
+        if (onPartial && ready?.mesh_ready && !ready.complete) {
+            const key = String(ready.fields_ready ?? 0);
+            if (key !== partialSeen) {
+                partialSeen = key;
+                try {
+                    const rp = await deps.fetcher(url, {signal: deps.signal});
+                    if (rp.status === 200) {
+                        if (preliminaryJob(rp) === null) return (await rp.json()) as T; // final already
+                        await _partial(onPartial, (await rp.json()) as T, queued.job_id);
+                    }
+                } catch (err) {
+                    if (deps.signal?.aborted) throw err;
+                    console.warn(`${label}: partial result not shown`, err);
+                }
+            }
+        }
     }
 
     const r2 = await deps.fetcher(url, {signal: deps.signal});
@@ -211,13 +250,32 @@ async function pollEnqueueGet<T>(
     return (await r2.json()) as T;
 }
 
-export async function fetchFeaManifest(deps: PollDeps): Promise<FeaManifest> {
+async function _partial<T>(
+    onPartial: (body: T, info: {jobId: string}) => void | Promise<void>,
+    body: T,
+    jobId: string,
+): Promise<void> {
+    try {
+        await onPartial(body, {jobId});
+    } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
+        console.warn("partial result not shown", err);
+    }
+}
+
+/** The streaming-viewer manifest. ``onPartial``: called with each preliminary
+ * manifest a running bake ships (mesh first, then fields as they land) before
+ * the promise resolves with the final one; see pollEnqueueGet. */
+export async function fetchFeaManifest(
+    deps: PollDeps & {onPartial?: (manifest: FeaManifest, info: {jobId: string}) => void | Promise<void>},
+): Promise<FeaManifest> {
     return pollEnqueueGet<FeaManifest>(
         deps,
         `feaManifest(${deps.sourceKey})`,
         () =>
             `${deps.apiBase}/scopes/${encodeURIComponent(deps.scope)}` +
             `/fea/manifest?key=${encodeURIComponent(deps.sourceKey)}`,
+        deps.onPartial,
     );
 }
 

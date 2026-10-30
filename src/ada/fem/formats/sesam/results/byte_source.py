@@ -419,6 +419,297 @@ class PagedByteSource:
         pass
 
 
+class DownloadCancelled(RuntimeError):
+    """A :class:`ProgressiveDownload` was cancelled while a read waited on it."""
+
+
+class ProgressiveDownload:
+    """A remote object copied to a local file in the background, readable at once.
+
+    Decode used to wait for the whole download (a large SIN model: 1.7 GB at
+    object-store speed before the first byte was decoded). This overlaps them:
+
+    * a background thread copies the object to ``path`` sequentially, one
+      ``chunk_bytes`` chunk per ranged fetch, recording which chunks are on disk;
+    * a read (:meth:`ensure`) of chunks already on disk costs nothing more; a read
+      of chunks not yet there fetches THOSE chunks immediately, on the reader's
+      thread, writes them into the file and marks them -- so the reader never
+      waits for the sequential copy to get there, and the copy skips them;
+    * a chunk being fetched by one side is waited for by the other, never
+      fetched twice.
+
+    ``fetcher`` is any range fetcher (``size()`` / ``fetch(offset, length)`` /
+    ``close()``: :class:`FileRangeSource`, :class:`S3RangeSource`,
+    :class:`HttpRangeSource`, or the worker's storage adapter). ``verify``,
+    called once every chunk is on disk, says whether the copy is the object the
+    download started from (the worker compares the object's etag); ``on_complete``
+    then runs with the path -- the worker's source cache writes the entry's
+    validity marker there, and ONLY there, so an interrupted or unverified copy
+    is never a cache hit. Memory is one chunk per fetching thread: the data goes
+    to the file, not to a buffer.
+
+    :meth:`cancel` stops the copy and makes every waiting or later read raise
+    :class:`DownloadCancelled`; :meth:`wait` joins the copy and re-raises its
+    failure. Not a :class:`ByteSource`: the decoder reads the file through
+    :class:`ProgressiveMmapSource`, which calls :meth:`ensure` before each access.
+    """
+
+    _MISSING, _FETCHING, _ON_DISK = 0, 1, 2
+
+    def __init__(
+        self,
+        fetcher,
+        path: str | os.PathLike,
+        *,
+        chunk_bytes: int = 8 << 20,
+        verify=None,
+        on_complete=None,
+    ) -> None:
+        if chunk_bytes <= 0 or chunk_bytes % 4096:
+            raise ValueError("chunk_bytes must be a positive multiple of 4096")
+        self._fetcher = fetcher
+        self.path = os.fspath(path)
+        self._size = int(fetcher.size())
+        self.chunk_bytes = int(chunk_bytes)
+        self._n = (self._size + self.chunk_bytes - 1) // self.chunk_bytes
+        self._state = bytearray(self._n)  # one _MISSING/_FETCHING/_ON_DISK byte per chunk
+        self._n_on_disk = 0
+        self._cond = threading.Condition()
+        self._cancelled = False
+        self._error: BaseException | None = None
+        self._verify = verify
+        self._on_complete = on_complete
+        self.complete = False
+        #: Bytes fetched by the sequential copy and by reads that could not wait for it.
+        self.bytes_sequential = 0
+        self.bytes_on_demand = 0
+        # The full-size file up front, so every chunk has its place and a reader can
+        # map it whole; the chunks land in it out of order.
+        with open(self.path, "wb") as fh:
+            fh.truncate(self._size)
+        self._fd = os.open(self.path, os.O_RDWR | getattr(os, "O_BINARY", 0))
+        self._has_pwrite = hasattr(os, "pwrite")
+        self._write_lock = threading.Lock()  # the seek+write fallback (Windows)
+        self._thread = threading.Thread(target=self._run, name="progressive-download", daemon=True)
+        if self._n == 0:
+            self._finish()
+        else:
+            self._thread.start()
+
+    # -- public ---------------------------------------------------------------
+
+    def size(self) -> int:
+        return self._size
+
+    @property
+    def covered_bytes(self) -> int:
+        with self._cond:
+            return sum(self._chunk_len(i) for i in range(self._n) if self._state[i] == self._ON_DISK)
+
+    def is_covered(self, offset: int, length: int) -> bool:
+        if length <= 0 or self.complete:
+            return True
+        with self._cond:
+            return all(self._state[i] == self._ON_DISK for i in self._chunks(offset, length))
+
+    def ensure(self, offset: int, length: int) -> None:
+        """Make ``[offset, offset + length)`` present in the file, fetching what is not."""
+        if length <= 0 or self.complete:
+            return
+        self.ensure_chunks(self._chunks(offset, length))
+
+    def ensure_chunks(self, chunks) -> None:
+        """:meth:`ensure` by chunk index."""
+        if self.complete:
+            return
+        for i in chunks:
+            self._get_chunk(int(i), on_demand=True)
+
+    def chunk_of(self, offset):
+        """The chunk index (or array of them) holding byte ``offset``."""
+        return offset // self.chunk_bytes
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Join the copy; True once complete. Re-raises the copy's failure."""
+        if self._thread.is_alive():
+            self._thread.join(timeout)
+        if self._error is not None:
+            raise self._error
+        if self._cancelled and not self.complete:
+            raise DownloadCancelled(f"download of {self.path} was cancelled")
+        return self.complete
+
+    def cancel(self) -> None:
+        with self._cond:
+            self._cancelled = True
+            self._cond.notify_all()
+
+    def close(self) -> None:
+        """Cancel (if still running), join, release the file handle and the fetcher."""
+        if not self.complete:
+            self.cancel()
+        if self._thread.is_alive():
+            self._thread.join()
+        try:
+            os.close(self._fd)
+        except OSError:
+            pass
+        try:
+            self._fetcher.close()
+        except Exception:
+            pass
+
+    # -- internals --------------------------------------------------------------
+
+    def _chunk_len(self, i: int) -> int:
+        return min(self.chunk_bytes, self._size - i * self.chunk_bytes)
+
+    def _chunks(self, offset: int, length: int) -> range:
+        lo = max(0, offset) // self.chunk_bytes
+        hi = (min(self._size, offset + length) - 1) // self.chunk_bytes
+        return range(lo, hi + 1)
+
+    def _get_chunk(self, i: int, *, on_demand: bool) -> None:
+        with self._cond:
+            while True:
+                if self._cancelled:
+                    raise DownloadCancelled(f"download of {self.path} was cancelled")
+                st = self._state[i]
+                if st == self._ON_DISK:
+                    return
+                if st == self._MISSING:
+                    self._state[i] = self._FETCHING
+                    break
+                if not on_demand:
+                    return  # a reader is fetching it; the copy moves on
+                self._cond.wait()
+        try:
+            offset, length = i * self.chunk_bytes, self._chunk_len(i)
+            data = self._fetcher.fetch(offset, length)
+            if len(data) != length:
+                raise OSError(f"short range read at {offset}: {len(data)} of {length} bytes")
+            self._write(offset, data)
+        except BaseException:
+            with self._cond:
+                self._state[i] = self._MISSING
+                self._cond.notify_all()
+            raise
+        with self._cond:
+            self._state[i] = self._ON_DISK
+            self._n_on_disk += 1
+            if on_demand:
+                self.bytes_on_demand += length
+            else:
+                self.bytes_sequential += length
+            self._cond.notify_all()
+
+    def _write(self, offset: int, data: bytes) -> None:
+        if self._has_pwrite:
+            view = memoryview(data)
+            while view:
+                n = os.pwrite(self._fd, view, offset)
+                view, offset = view[n:], offset + n
+            return
+        with self._write_lock:
+            os.lseek(self._fd, offset, os.SEEK_SET)
+            view = memoryview(data)
+            while view:
+                view = view[os.write(self._fd, view) :]
+
+    def _run(self) -> None:
+        try:
+            while True:
+                for i in range(self._n):
+                    if self._cancelled:
+                        return
+                    self._get_chunk(i, on_demand=False)  # skips chunks on disk or being fetched
+                # Chunks a reader is still fetching: wait for them, so complete means
+                # complete. A reader's failed fetch puts its chunk back to missing:
+                # then go round again and take it.
+                with self._cond:
+                    while not self._cancelled and self._n_on_disk < self._n and self._MISSING not in self._state:
+                        self._cond.wait(0.5)
+                    if self._cancelled:
+                        return
+                    if self._n_on_disk == self._n:
+                        break
+            self._finish()
+        except DownloadCancelled:
+            return
+        except BaseException as exc:  # surfaced by wait(); reads keep fetching on their own
+            self._error = exc
+
+    def _finish(self) -> None:
+        if self._verify is not None and not self._verify():
+            raise OSError(f"{self.path}: the object changed while it was being downloaded")
+        try:
+            os.fsync(self._fd)
+        except OSError:
+            pass
+        self.complete = True
+        if self._on_complete is not None:
+            self._on_complete(self.path)
+
+
+class ProgressiveMmapSource(MmapSource):
+    """:class:`MmapSource` over the file a :class:`ProgressiveDownload` is filling.
+
+    Every access first makes its bytes present (:meth:`ProgressiveDownload.ensure`),
+    so the decoder reads a file that is still arriving as if it were whole. Reads
+    are the mmap's, zero-copy, as on a local file. ``u8_view`` -- the whole-buffer
+    view the adacpp SIN loops read with no way to say which bytes they will touch
+    -- is offered only once the download is complete; until then the reader takes
+    its numpy path, which returns the same arrays bit for bit (``sin_native``).
+    """
+
+    def __init__(self, download: ProgressiveDownload):
+        self._dl = download
+        self._fh = open(download.path, "rb")
+        try:
+            buf = mmap.mmap(self._fh.fileno(), 0, access=mmap.ACCESS_READ) if download.size() else b""
+        except BaseException:
+            self._fh.close()
+            raise
+        super().__init__(buf)
+
+    def read(self, offset: int, length: int) -> bytes:
+        self._dl.ensure(offset, length)
+        return super().read(offset, length)
+
+    def u32(self, offset: int) -> int:
+        self._dl.ensure(offset, 4)
+        return super().u32(offset)
+
+    def f32(self, offset: int) -> float:
+        self._dl.ensure(offset, 4)
+        return super().f32(offset)
+
+    def find(self, needle: bytes, start: int, stop: int) -> int:
+        self._dl.ensure(start, min(stop, self._size) - start)
+        return super().find(needle, start, stop)
+
+    def frombuffer(self, dtype, count: int, offset: int) -> np.ndarray:
+        self._dl.ensure(offset, count * np.dtype(dtype).itemsize)
+        return super().frombuffer(dtype, count, offset)
+
+    def gather_f32(self, word_idx: np.ndarray) -> np.ndarray:
+        if not self._dl.complete:
+            word_idx = np.asarray(word_idx, dtype=np.int64)
+            if word_idx.size:
+                self._dl.ensure_chunks(np.unique(self._dl.chunk_of(word_idx << 2)).tolist())
+        return super().gather_f32(word_idx)
+
+    def u8_view(self):  # type: ignore[override]
+        return super().u8_view() if self._dl.complete else None
+
+    def close(self) -> None:
+        super().close()
+        try:
+            self._fh.close()
+        except OSError:
+            pass
+
+
 def file_paged_source(path: str, **kw) -> PagedByteSource:
     """Convenience: a :class:`PagedByteSource` over a local file (no mmap,
     no whole-file buffer). Swap :class:`FileRangeSource` for
@@ -433,5 +724,43 @@ __all__ = [
     "FileRangeSource",
     "S3RangeSource",
     "HttpRangeSource",
+    "ProgressiveDownload",
+    "ProgressiveMmapSource",
+    "DownloadCancelled",
+    "register_progressive_file",
+    "progressive_file",
     "file_paged_source",
 ]
+
+
+# Local paths whose bytes are still arriving through a ProgressiveDownload. A
+# reader that opens such a path by name (open_sin, deep inside the bake's reader
+# factories) reads it through a ProgressiveMmapSource instead of mapping a file
+# whose unarrived chunks are zeros. Keyed by the resolved path.
+_PROGRESSIVE: dict[str, ProgressiveDownload] = {}
+_PROGRESSIVE_LOCK = threading.Lock()
+
+
+def _progressive_key(path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
+
+
+def register_progressive_file(download: ProgressiveDownload):
+    """Route opens of ``download.path`` through it until the returned callable is called."""
+    key = _progressive_key(download.path)
+    with _PROGRESSIVE_LOCK:
+        _PROGRESSIVE[key] = download
+
+    def unregister() -> None:
+        with _PROGRESSIVE_LOCK:
+            if _PROGRESSIVE.get(key) is download:
+                del _PROGRESSIVE[key]
+
+    return unregister
+
+
+def progressive_file(path) -> ProgressiveDownload | None:
+    """The still-arriving download registered for ``path``, if any (None once complete)."""
+    with _PROGRESSIVE_LOCK:
+        dl = _PROGRESSIVE.get(_progressive_key(path))
+    return dl

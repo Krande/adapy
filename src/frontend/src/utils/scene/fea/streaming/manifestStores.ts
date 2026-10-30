@@ -12,6 +12,8 @@
 
 import * as THREE from "three";
 
+import type {FeaFetcher} from "@/services/fea/feaFetcher";
+import {manifestGroups} from "@/services/fea/feaFieldDetail";
 import type {FeaManifest} from "@/services/viewerApi";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {findFirstMesh} from "./sceneMesh";
@@ -20,6 +22,10 @@ export async function registerManifestStores(args: {
     manifest: FeaManifest;
     sourceName: string;
     feaRoot: THREE.Object3D | null;
+    /** Reads the bake's sidecars (``groups_url``); without one a split
+     *  manifest's sets are not registered. */
+    fetcher?: FeaFetcher;
+    cacheKey?: string;
 }): Promise<void> {
     const {manifest, sourceName, feaRoot} = args;
     // Register CAD↔FEA lineage from the manifest. Mirrors the
@@ -103,7 +109,16 @@ export async function registerManifestStores(args: {
     // against the AFEM element ranges.
     {
         const {useSceneInfoStore} = await import("@/state/sceneInfoStore");
-        const mg = manifest.groups ?? [];
+        // Inline on an older bake; ``fea.groups.json`` beside a split manifest
+        // (bake_version 6). A sidecar that will not load leaves the picker empty
+        // rather than failing the model's load: the sets are not needed to draw it.
+        let mg: NonNullable<FeaManifest["groups"]> = manifest.groups ?? [];
+        if (!manifest.groups && manifest.groups_url && args.fetcher) {
+            mg = await manifestGroups(manifest, args.fetcher, args.cacheKey ?? sourceName).catch((err) => {
+                console.warn(`FEA sets of ${sourceName} could not be read:`, err);
+                return [];
+            });
+        }
         useSceneInfoStore.getState().setAvailableGroups(
             mg.map((g) => ({
                 name: g.name,

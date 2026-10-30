@@ -117,10 +117,13 @@ export interface FeaManifestFieldPerType {
   }>;
   /** Element labels in payload order — frontend maps draw-range
    *  labels back to ``element_labels.indexOf(label)`` to find the
-   *  row in the AFEL blob. */
-  element_labels: number[];
+   *  row in the AFEL blob. Absent in a split manifest (bake_version 6):
+   *  the field's ``detail`` sidecar carries it, and
+   *  ``withFieldDetail`` (services/fea/feaFieldDetail.ts) fills it in. */
+  element_labels?: number[];
   /** Source mesh node indices for each element row. Enables exact marker
-   * placement even when line elements have no triangle draw range. */
+   * placement even when line elements have no triangle draw range. Same
+   * split-manifest rule as ``element_labels``. */
   element_node_indices?: number[][];
   blob: {
     url: string;
@@ -192,6 +195,11 @@ export interface FeaManifestField {
    *  integration points (support === "gauss" or "element_nodal").
    *  Nodal fields carry ``blob`` instead. */
   per_type?: FeaManifestFieldPerType[];
+  /** bake_version 6: where this element field's per-bucket
+   *  ``element_labels`` / ``element_node_indices`` live -- a JSON sidecar
+   *  relative to the manifest, shared by every field over the same mesh.
+   *  Fetched on demand by ``withFieldDetail``. Absent on an inline manifest. */
+  detail?: { url: string; version?: number };
   n_steps: number;
   steps: FeaManifestStep[];
   /** Per-component min/max baked at write time so the colormap
@@ -307,6 +315,13 @@ export interface FeaEnvelope {
 
 export interface FeaManifest {
   version: number;
+  /** A running bake's partial manifest (mesh first): the mesh and the fields
+   *  done so far; ``pending_fields`` names the rest. The final manifest replaces
+   *  it and carries neither key. */
+  preliminary?: boolean;
+  pending_fields?: string[];
+  /** With ``preliminary``: the job producing it. */
+  bake_job_id?: string;
   /** Freshness stamp of the bake that produced this tree (not the manifest
    * FORMAT version above). The server compares it against its expected value
    * and re-bakes older trees; the frontend never needs to read it. */
@@ -320,6 +335,9 @@ export interface FeaManifest {
      * label prints. Omitted when the reader has no identifiers; never
      * fall back to row indices, which lie on renumbered decks. */
     node_labels?: number[];
+    /** bake_version 6: ``node_labels`` as a JSON sidecar instead (read it
+     *  through ``manifestNodeLabels``). */
+    node_labels_url?: string;
     /** Part instances whose element labels the bake moved to keep labels unique across
      * instances (an Abaqus ODB numbers elements per instance): each instance's name and the
      * offset added to its labels. Omitted when every label was unique already. */
@@ -424,6 +442,10 @@ export interface FeaManifest {
      *  the beams that hang a nodal mass off the deck. Absent on a deck's own sets. */
     role?: string;
   }[];
+  /** bake_version 6: ``groups`` as a JSON sidecar instead (read it through
+   *  ``manifestGroups``), and how many sets it holds. */
+  groups_url?: string;
+  n_groups?: number;
   /** What the AFEP sidecar's keys mean (see ``mesh.element_props_url``). */
   element_properties?: FeaElementPropertyTables;
   legacy_glb?: { url_template: string };
@@ -628,6 +650,8 @@ export const feaApi = {
         status: "queued" | "running" | "done";
       }) => void;
       signal?: AbortSignal;
+      /** Mesh first: each preliminary manifest of a running bake. */
+      onPartial?: (manifest: FeaManifest, info: { jobId: string }) => void | Promise<void>;
     },
   ): Promise<FeaManifest> {
     return fetchFeaManifest({
@@ -638,6 +662,7 @@ export const feaApi = {
       sourceKey,
       signal: opts?.signal,
       onProgress: opts?.onProgress,
+      onPartial: opts?.onPartial,
     });
   },
 

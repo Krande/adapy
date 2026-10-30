@@ -25,6 +25,90 @@ from ..worker.audit import _audit_done
 from .registry import JobContext, SourceFormatHandler, SyntheticFormatHandler
 
 
+class BakeCancelled(RuntimeError):
+    """The job was cancelled while its bake ran."""
+
+
+class ArtefactUploader:
+    """Ships each artefact the bake emits, on a thread of its own, in emission order.
+
+    The bake calls :meth:`submit` from its thread the moment a file is complete
+    (``bake_artefacts(on_artefact=...)``) and goes straight back to decoding: the
+    upload never holds up the decode or the download, and the mesh is in storage
+    -- with the preliminary manifest naming it -- while the fields are still being
+    read. Order is kept, so the contract the bake writes in (a manifest after
+    every file it names, its stamp after it) holds in storage too.
+
+    The small JSON files (manifest, stamp, sidecars) are READ at submit time and
+    shipped from memory: the bake re-writes the preliminary manifest as fields
+    land, and the copy queued earlier must be the one it described, not a newer
+    one naming blobs still behind it in the queue -- nor a half-rewritten file.
+    Everything else is written once and streamed from disk.
+
+    A failed upload fails the bake: the next :meth:`submit` raises it, and
+    :meth:`finish` re-raises it -- an artefact is never silently dropped.
+    ``on_uploaded(name, data)`` runs after each upload (``data``: the bytes of a
+    JSON file, else None); the worker turns the stamps into the job's
+    ``artefacts_ready``. :meth:`cancel` drops what is queued and stops.
+    """
+
+    #: JSON files up to this size are snapshotted at submit (the manifest index of a
+    #: large SIN model is ~80 KB; its biggest detail sidecar ~40 MB is written once).
+    SNAPSHOT_MAX_BYTES = 64 << 20
+
+    def __init__(self, upload, on_uploaded=None) -> None:
+        import queue as queue_module
+        import threading
+
+        self._upload = upload  # (name, path | None, data | None, content_encoding) -> None, blocking
+        self._on_uploaded = on_uploaded
+        self._q: "queue_module.Queue" = queue_module.Queue()
+        self._error: BaseException | None = None
+        self._cancelled = False
+        self.uploaded: list[str] = []
+        self._thread = threading.Thread(target=self._run, name="fea-artefact-uploader", daemon=True)
+        self._thread.start()
+
+    def submit(self, path: pathlib.Path) -> None:
+        if self._cancelled:
+            raise BakeCancelled("bake cancelled")
+        if self._error is not None:
+            raise RuntimeError(f"artefact upload failed: {self._error}") from self._error
+        path = pathlib.Path(path)
+        is_json = path.suffix.lower() == ".json"
+        data = path.read_bytes() if is_json and path.stat().st_size <= self.SNAPSHOT_MAX_BYTES else None
+        self._q.put((path, data, "gzip" if is_json else None))
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        self._q.put(None)
+
+    def finish(self) -> None:
+        """Wait for everything submitted to be uploaded; raise the first failure."""
+        self._q.put(None)
+        self._thread.join()
+        if self._error is not None:
+            raise RuntimeError(f"artefact upload failed: {self._error}") from self._error
+        if self._cancelled:
+            raise BakeCancelled("bake cancelled")
+
+    def _run(self) -> None:
+        while True:
+            item = self._q.get()
+            if item is None:
+                return
+            if self._error is not None or self._cancelled:
+                continue  # drain: nothing after a failure (or a cancel) goes up
+            path, data, encoding = item
+            try:
+                self._upload(path.name, None if data is not None else path, data, encoding)
+                self.uploaded.append(path.name)
+                if self._on_uploaded is not None:
+                    self._on_uploaded(path.name, data)
+            except BaseException as exc:
+                self._error = exc
+
+
 async def _run_fea_artefact_bake(
     *,
     job: Job,
@@ -35,19 +119,40 @@ async def _run_fea_artefact_bake(
     db_pool: "asyncpg.Pool | None",
     started_at: float,
     _on_progress: Callable[[str, float], Awaitable[None]],
+    progressive=None,
 ) -> None:
     """Bake the streaming-viewer artefact tree for ``job.source_key``.
 
-    Source has already been streamed to ``src_path``. Produces:
+    The source is at ``src_path`` -- or, for a ``.sin``, still arriving: then
+    ``progressive`` is the :class:`~ada.fem.formats.sesam.results.byte_source.ProgressiveDownload`
+    filling ``progressive.path``, and the bake decodes it as it lands (any chunk
+    the reader needs first is fetched at once). Produces:
 
     * ``_derived/<src>.fea/fea.mesh.glb``
-    * ``_derived/<src>.fea/fea.manifest.json`` (gzip)
+    * ``_derived/<src>.fea/fea.manifest.json`` (gzip) -- the compact index
     * ``_derived/<src>.fea/fea.<field>.bin`` × N (identity — HTTP-Range-able)
+    * ``_derived/<src>.fea/fea.detail.*.json``, ``fea.groups.json``,
+      ``fea.nodelabels.json`` (gzip) -- the manifest's per-model tables
+    * ``_derived/<src>.fea/fea.stamp.json`` (gzip) -- its freshness stamps
+
+    Mesh first: every file goes up the moment the bake has written it, on the
+    :class:`ArtefactUploader`'s thread, and the bake writes a PRELIMINARY manifest
+    (``preliminary: true``, its stamp carrying this job's id) as soon as the mesh
+    is out and again as each field completes. The job's ``artefacts_ready``
+    (``mesh_ready``, ``fields_ready`` / ``fields_total``, ``complete``) says how
+    far storage has got, so a viewer polling ``/convert/{job_id}`` draws the mesh
+    and adds fields while the bake runs; the manifest route serves the
+    preliminary manifest while this job is alive. The final manifest replaces it.
+
+    A failed upload fails the job. A cancelled job (its audit row flipped by the
+    kill endpoint, checked on the heartbeat) stops the download, the decode (at
+    its next step or chunk) and the uploader.
 
     Updates the queue + audit row to mirror the convert flow's
     end-of-job semantics so the existing ``/convert/{job_id}`` poll
     loop works unchanged.
     """
+    import json as _json
 
     job_id = job.job_id
 
@@ -60,9 +165,8 @@ async def _run_fea_artefact_bake(
 
     # Admin "Stream SIN FEA bake" and "Cache SIN FEA bake fields" toggles
     # (app_settings ``fea_sin_streamer``, ``fea_sin_field_cache``). The bake runs
-    # in a forked child (or an executor thread), which inherits this process's
-    # environment, so we drive the reader choice through the same ADA_* env-var
-    # seam the convert path uses; _make_sin_reader reads them.
+    # in-process on an executor thread, so we drive the reader choice through the
+    # same ADA_* env-var seam the convert path uses; _make_sin_reader reads them.
     # Default (unset/empty) lets adapy pick: a full read with its field values in a
     # file cache (see _make_sin_reader). Set fresh per job so toggling takes effect
     # without a worker restart.
@@ -81,85 +185,149 @@ async def _run_fea_artefact_bake(
             else:
                 os.environ.pop(env, None)
 
-    # The baked artefacts land here (a child's work dir, or a temp dir on the thread path).
-    out_dir: pathlib.Path | None = None
-    cleanups: list[Callable[[], None]] = []
-    try:
-        if subprocess_convert.HAVE_POSIX_FORK:
-            # In a forked child, as conversions run: a reader that holds the GIL for minutes (a
-            # multi-GB Abaqus ODB opening and upgrading in native code) would otherwise starve this
-            # event loop. The lease refresh (msg.in_progress) then stopped, JetStream redelivered
-            # the job to a second worker while the first was still on it, and both downloaded and
-            # baked the same deck side by side.
-            from ..worker.state import _touch_liveness
+    loop = asyncio.get_running_loop()
+    prefix = f"_derived/{job.source_key}.fea/"
+    ready: dict = {}
 
-            async def _on_sample(_sample) -> None:
-                _touch_liveness()
-
-            def _in_child(child) -> None:
-                def _progress(done: int, total: int, _label: str) -> None:
-                    child.progress("baking", 0.10 + 0.70 * (done / total if total else 0.0))
-
-                bake_fea_artefacts_from_source(src_path, child.work_dir, src_key=job.source_key, on_progress=_progress)
-
-            try:
-                res = await subprocess_convert.run_isolated(
-                    _in_child,
-                    label="FEA bake",
-                    child_name="FEA bake",
-                    crash_hint="(SIGSEGV/SIGABRT typically means a native fault inside a result reader).",
-                    work_prefix="fea-bake-",
-                    on_progress=_on_progress,
-                    on_sample=_on_sample,
-                )
-            except Exception as exc:
-                # The parent-side machinery failed (fork, pipes): the child never ran or we lost it.
-                logger.exception("worker: fea bake subprocess wrapper failed for %s", job.source_key)
-                await _fail_bake(queue, db_pool, job_id, started_at, str(exc), tb_module.format_exc())
-                return
-            if not res.ok:
-                msg = res.error_message or res.error or "FEA bake subprocess produced no output"
-                if res.signal_name:
-                    logger.warning("worker: fea bake child for %s ended via %s", job.source_key, res.signal_name)
-                await _fail_bake(queue, db_pool, job_id, started_at, msg, res.traceback, dict(res.final_metrics))
-                return
-            out_dir = res.work_dir
-            cleanups.append(res.cleanup)
+    def upload(name: str, path: pathlib.Path | None, data: bytes | None, encoding: str | None) -> None:
+        # Compression policy mirrors the API-side endpoint: gzip only the JSON
+        # (manifest, stamp, sidecars). Field/edge/element ``.bin`` blobs are stored
+        # *identity* — float32/int payloads barely compress, and keeping them
+        # uncompressed lets the viewer HTTP-Range a single step out of a multi-step
+        # field blob (see the blobs route) instead of pulling every step. Streamed
+        # from disk: a large deck's bake runs to GBs across its blobs.
+        if data is not None:
+            coro = storage.put_bytes(scope, prefix + name, data, content_encoding=encoding)
         else:
-            out_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
-            cleanups.append(functools.partial(shutil.rmtree, out_dir, ignore_errors=True))
-            if not await _bake_in_thread(job, src_path, out_dir, _on_progress, queue, db_pool, started_at):
-                return
+            coro = storage.put_path(scope, prefix + name, path, content_encoding=encoding)
+        asyncio.run_coroutine_threadsafe(coro, loop).result()
 
-        await _on_progress("uploading", 0.85)
-        prefix = f"_derived/{job.source_key}.fea/"
-        try:
-            # Listed up front: put_path stages a gzip copy beside the manifest while it uploads,
-            # and that staging file must not be picked up as an artefact of its own.
-            for produced in sorted(out_dir.iterdir()):
-                # Skip what the isolation keeps beside the artefacts (.error.json, .child.log, ...).
-                if not produced.is_file() or produced.name.startswith("."):
-                    continue
-                target_key = prefix + produced.name
-                # Compression policy mirrors the API-side endpoint: gzip
-                # only the manifest JSON. Field/edge/element ``.bin`` blobs
-                # are stored *identity* — float32/int payloads barely
-                # compress, and keeping them uncompressed lets the viewer
-                # HTTP-Range a single step out of a multi-step field blob
-                # (see the blobs route) instead of pulling every step.
-                content_encoding = "gzip" if produced.suffix.lower() == ".json" else None
-                # Streamed from disk: a large deck's bake runs to GBs across its blobs, and
-                # reading each whole would peak the worker at the size of the largest one.
-                await storage.put_path(scope, target_key, produced, content_encoding=content_encoding)
-        except Exception as exc:
-            logger.exception("worker: fea artefact upload failed for %s", job.source_key)
-            trace = tb_module.format_exc()
-            await queue.update(
-                job_id,
-                status=JOB_STATUS_ERROR,
-                stage="upload",
-                error=str(exc),
+    def on_uploaded(name: str, data: bytes | None) -> None:
+        # The stamp is the last file of each manifest write: once it is in storage,
+        # so is that manifest and everything it names. Tell the poller.
+        if name != "fea.stamp.json" or data is None:
+            return
+        stamp = _json.loads(data)
+        if stamp.get("preliminary"):
+            ready.update(
+                mesh_ready=True,
+                fields_ready=int(stamp.get("n_fields_ready") or 0),
+                fields_total=stamp.get("n_fields_total"),
+                complete=False,
             )
+        else:
+            ready.update(mesh_ready=True, fields_ready=int(stamp.get("n_fields") or 0), complete=True)
+            ready["fields_total"] = ready["fields_ready"]
+        coro = queue.update(job_id, artefacts_ready=dict(ready))
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop).result()
+        except Exception:
+            logger.debug("worker: artefacts_ready update failed for %s", job_id, exc_info=True)
+
+    uploader = ArtefactUploader(upload, on_uploaded)
+    cancelled = {"flag": False}
+
+    def check_cancel(*_args) -> None:
+        if cancelled["flag"]:
+            raise BakeCancelled("bake cancelled")
+
+    def on_artefact(path: pathlib.Path) -> None:
+        check_cancel()
+        uploader.submit(path)
+
+    def cancel() -> None:
+        cancelled["flag"] = True
+        uploader.cancel()
+        if progressive is not None:
+            progressive.cancel()  # the decoder's next read of a missing chunk raises
+
+    unregister = None
+    if progressive is not None:
+        from ada.fem.formats.sesam.results.byte_source import register_progressive_file
+
+        src_path = pathlib.Path(progressive.path)
+        unregister = register_progressive_file(progressive)
+
+    bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
+    try:
+        # Heartbeat task — the bake runs on an executor thread and has
+        # no progress callback of its own. Without an external ping
+        # the queue's ``updated_at`` (and ``msg.in_progress`` on the
+        # JetStream side once we plumb it) sit frozen at the last
+        # progress milestone for the duration of the bake; the SPA's
+        # "stuck at 10%" symptom is just the toast displaying the
+        # last write. Re-emit progress every ``HEARTBEAT_SECONDS``
+        # with a slow incremental tick (0.10 → 0.80, never reaching
+        # the real 0.85 "uploading" milestone) so the user can tell
+        # the worker is still alive. The same tick asks whether the job
+        # was cancelled.
+        HEARTBEAT_SECONDS = 15
+        HEARTBEAT_INC = 0.003
+        HEARTBEAT_MAX = 0.80
+        heartbeat_stop = asyncio.Event()
+        heartbeat_progress = {"value": 0.10}
+
+        async def _heartbeat() -> None:
+            while not heartbeat_stop.is_set():
+                try:
+                    await asyncio.wait_for(heartbeat_stop.wait(), timeout=HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    heartbeat_progress["value"] = min(HEARTBEAT_MAX, heartbeat_progress["value"] + HEARTBEAT_INC)
+                    try:
+                        await _on_progress("baking", heartbeat_progress["value"])
+                    except Exception:
+                        logger.exception("worker: heartbeat update failed")
+                    if db_pool is not None and not cancelled["flag"]:
+                        try:
+                            if await db_module.audit_is_cancelled(db_pool, job_id):
+                                logger.info("worker: job %s cancelled mid-bake; stopping", job_id)
+                                cancel()
+                        except Exception:
+                            logger.debug("worker: mid-bake cancel check failed for %s", job_id, exc_info=True)
+                else:
+                    return
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        try:
+            if src_path.suffix.lower() == ".odb":
+                await _export_odb_isolated(src_path)
+            bake = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    bake_fea_artefacts_from_source,
+                    src_path,
+                    bake_dir,
+                    src_key=job.source_key,
+                    on_artefact=on_artefact,
+                    on_progress=check_cancel,
+                    partial_manifests=True,
+                    stamp_extra={"job_id": job_id},
+                ),
+            )
+            await _on_progress("uploading", 0.85)
+            # Everything emitted is queued; wait for the last of it (the final manifest
+            # and stamp) to be in storage. Then the download: the bake read what it
+            # needed, and the rest is the cache's -- but only a download that completed
+            # and verified (the object unchanged) vouches for the bytes the bake read.
+            await asyncio.to_thread(uploader.finish)
+            if progressive is not None:
+                await asyncio.to_thread(progressive.wait)
+        except BaseException as exc:
+            uploader.cancel()
+            if progressive is not None and not progressive.complete:
+                progressive.cancel()
+            was_cancelled = cancelled["flag"] or isinstance(exc, BakeCancelled)
+            if not isinstance(exc, Exception) and not was_cancelled:
+                raise
+            trace = tb_module.format_exc()
+            heartbeat_stop.set()
+            await heartbeat_task
+            if was_cancelled:
+                await queue.update(job_id, status="cancelled", stage="cancelled", error=None)
+                await _audit_done(db_pool, job_id, "cancelled", None, started_at)
+                return
+            logger.exception("worker: fea bake failed for %s", job.source_key)
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc))
             await _audit_done(
                 db_pool,
                 job_id,
@@ -169,6 +337,14 @@ async def _run_fea_artefact_bake(
                 traceback=trace,
             )
             return
+        finally:
+            heartbeat_stop.set()
+            if not heartbeat_task.done():
+                try:
+                    await heartbeat_task
+                except Exception:
+                    pass
+        del bake
 
         await queue.update(
             job_id,
@@ -179,80 +355,49 @@ async def _run_fea_artefact_bake(
         )
         await _audit_done(db_pool, job_id, "done", None, started_at)
     finally:
-        for cleanup in cleanups:
-            try:
-                cleanup()
-            except Exception:
-                pass
-
-
-async def _fail_bake(
-    queue: "JobQueue",
-    db_pool: "asyncpg.Pool | None",
-    job_id: str,
-    started_at: float,
-    msg: str,
-    trace: str | None,
-    metrics: dict | None = None,
-) -> None:
-    await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=msg)
-    await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace, metrics=metrics or None)
-
-
-async def _bake_in_thread(
-    job: Job,
-    src_path: pathlib.Path,
-    out_dir: pathlib.Path,
-    _on_progress: Callable[[str, float], Awaitable[None]],
-    queue: "JobQueue",
-    db_pool: "asyncpg.Pool | None",
-    started_at: float,
-) -> bool:
-    """The bake on an executor thread, where there is no fork. False when it failed (and was reported)."""
-    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
-
-    loop = asyncio.get_running_loop()
-    # Heartbeat task -- the bake has no progress callback wired on this path. Without an
-    # external ping the queue's ``updated_at`` sits frozen at the last milestone for the whole
-    # bake; the SPA's "stuck at 10%" symptom is just the toast displaying the last write.
-    # Re-emit progress every HEARTBEAT_SECONDS with a slow tick (0.10 -> 0.80, never reaching the
-    # real 0.85 "uploading" milestone) so the user can tell the worker is still alive.
-    HEARTBEAT_SECONDS = 15
-    HEARTBEAT_INC = 0.003
-    HEARTBEAT_MAX = 0.80
-    heartbeat_stop = asyncio.Event()
-    heartbeat_progress = {"value": 0.10}
-
-    async def _heartbeat() -> None:
-        while not heartbeat_stop.is_set():
-            try:
-                await asyncio.wait_for(heartbeat_stop.wait(), timeout=HEARTBEAT_SECONDS)
-            except asyncio.TimeoutError:
-                heartbeat_progress["value"] = min(HEARTBEAT_MAX, heartbeat_progress["value"] + HEARTBEAT_INC)
-                try:
-                    await _on_progress("baking", heartbeat_progress["value"])
-                except Exception:
-                    logger.exception("worker: heartbeat update failed")
-            else:
-                return
-
-    heartbeat_task = asyncio.create_task(_heartbeat())
-    try:
-        await loop.run_in_executor(
-            None,
-            functools.partial(bake_fea_artefacts_from_source, src_path, out_dir, src_key=job.source_key),
-        )
-        return True
-    except Exception as exc:
-        logger.exception("worker: fea bake failed for %s", job.source_key)
-        await _fail_bake(queue, db_pool, job.job_id, started_at, str(exc), tb_module.format_exc())
-        return False
-    finally:
-        heartbeat_stop.set()
+        if unregister is not None:
+            unregister()
         try:
-            await heartbeat_task
+            shutil.rmtree(bake_dir, ignore_errors=True)
         except Exception:
             pass
+
+
+async def _export_odb_isolated(odb_path: pathlib.Path) -> None:
+    """Export an Abaqus ODB to its results SQLite (beside it) in a forked child, before the bake.
+
+    The export runs in aba-cpp's native code and holds the GIL for minutes on a multi-GB ODB. On
+    the executor thread that starved this event loop: the JetStream lease refresh (msg.in_progress)
+    stopped, the job was redelivered to a second worker while the first was still on it, and both
+    downloaded and baked the same deck. The bake's ODB reader then finds the export newer than the
+    ODB and reads it instead of exporting again (``convert_odb_to_sqlite``). Where there is no fork,
+    the bake exports in-process as before. Raises on a failed export.
+    """
+    if not subprocess_convert.HAVE_POSIX_FORK:
+        return
+    from ada.fem.formats.abaqus.results.read_odb import convert_odb_to_sqlite
+
+    from ..worker.state import _touch_liveness
+
+    async def _on_sample(_sample) -> None:
+        _touch_liveness()
+
+    def _in_child(_child) -> None:
+        convert_odb_to_sqlite(odb_path)
+
+    res = await subprocess_convert.run_isolated(
+        _in_child,
+        label="ODB export",
+        child_name="ODB export",
+        crash_hint="(SIGSEGV/SIGABRT typically means a native fault inside the ODB exporter).",
+        work_prefix="odb-export-",
+        on_sample=_on_sample,
+    )
+    try:
+        if not res.ok:
+            raise RuntimeError(res.error_message or res.error or "the ODB export produced no output")
+    finally:
+        res.cleanup()
 
 
 async def _run_fea_meta_compute(
@@ -540,6 +685,23 @@ class FeaEnvelopeHandler(SyntheticFormatHandler):
 class FeaArtefactsHandler(SyntheticFormatHandler if not True else SourceFormatHandler):
     kind = "fea_artefacts"
 
+    async def is_cached(self, storage: "Storage", scope, job: Job) -> bool:
+        """The manifest exists AND is a finished bake's: a bake ships a preliminary
+        manifest (stamp ``preliminary: true``) at the derived key while it runs, and
+        one left behind by a crashed run must not pass a redelivery off as cached."""
+        import json as _json
+
+        if not await storage.exists(scope, job.derived_key):
+            return False
+        stamp_key = job.derived_key.rsplit("/", 1)[0] + "/fea.stamp.json"
+        try:
+            stamp = _json.loads((await storage.get_bytes(scope, stamp_key)).decode("utf-8"))
+        except FileNotFoundError:
+            return True  # a bake from before the stamp: finished, as it always was
+        except Exception:
+            return False
+        return not stamp.get("preliminary")
+
     async def run(self, job: Job, ctx: JobContext) -> None:
         await _run_fea_artefact_bake(
             job=job,
@@ -550,6 +712,7 @@ class FeaArtefactsHandler(SyntheticFormatHandler if not True else SourceFormatHa
             started_at=ctx.started_at,
             src_path=ctx.src_path,
             _on_progress=ctx.on_progress,
+            progressive=getattr(ctx.fetch, "progressive", None),
         )
 
 

@@ -2,6 +2,13 @@
 
 
 
+## v0.122.1 (2026-10-30)
+
+### Fix
+
+* fix(fea): stream a compact FEA manifest, decode while downloading, show the mesh first (#474) ([`4ba35b2`](https://github.com/Krande/adapy/commit/4ba35b228583af31c1dd97901b893c8dffa11118))
+
+
 ## v0.122.0 (2026-10-29)
 
 ### Feature
