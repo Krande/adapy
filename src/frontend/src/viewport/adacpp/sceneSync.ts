@@ -120,6 +120,7 @@ export class SceneSync {
         clearStencil: () => {},
     };
     lastSyncMs = 0;
+    private pixelRatio = 1;
 
     constructor(private readonly module: AdacppModule, private readonly r: WebRendererApi) {
         this.matrixPtr = module._malloc(64);
@@ -136,7 +137,8 @@ export class SceneSync {
     }
 
     /** `width` x `height`: the drawing-buffer size, reported to onBeforeRender hooks that ask the renderer. */
-    sync(scene: THREE.Scene, camera: THREE.Camera, width = 1, height = 1): void {
+    sync(scene: THREE.Scene, camera: THREE.Camera, width = 1, height = 1, pixelRatio = 1): void {
+        this.pixelRatio = pixelRatio;
         const t0 = performance.now();
         this.frame++;
         scene.updateMatrixWorld();
@@ -394,6 +396,7 @@ export class SceneSync {
         const specular = !!pbr?.isMeshStandardMaterial;
         const metalness = specular ? (pbr.metalness ?? 0) : 0;
         const roughness = specular ? (pbr.roughness ?? 1) : 1;
+        const lineWidth = this.lineWidth(obj, mat);
 
         const heap = this.module.HEAPF32;
         const inst = obj as THREE.InstancedMesh;
@@ -407,9 +410,19 @@ export class SceneSync {
             }
             this.r.setInstance(
                 e.instances[i], this.matrixPtr, color.r, color.g, color.b, opacity, flags, influence,
-                metalness, roughness, specular,
+                metalness, roughness, specular, lineWidth,
             );
         }
+    }
+
+    /** Device-pixel width of a fat line (LineMaterial.linewidth, in CSS px unless in world units) or
+     *  diameter of a point (PointsMaterial.size without size attenuation); 1 for everything else. */
+    private lineWidth(obj: THREE.Object3D, mat: AnyMaterial | undefined): number {
+        const o = obj as unknown as Record<string, boolean>;
+        const m = mat as unknown as {linewidth?: number; worldUnits?: boolean; size?: number; sizeAttenuation?: boolean} | undefined;
+        if ((o.isLineSegments2 || o.isLine2) && m?.linewidth && !m.worldUnits) return m.linewidth * this.pixelRatio;
+        if (o.isPoints && m?.size && m.sizeAttenuation === false) return m.size * this.pixelRatio;
+        return 1;
     }
 
     private pushSegmentStates(obj: THREE.Object3D, e: Entry): void {

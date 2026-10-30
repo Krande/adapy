@@ -99,7 +99,7 @@ const RendererBackendOptions: React.FC = () => {
                             />
                             <div>
                                 Not drawn by this renderer yet: section planes, icons, transform gizmos,
-                                face highlight, fat-line widths.
+                                face highlight.
                             </div>
                         </>
                     )}

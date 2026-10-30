@@ -51,6 +51,8 @@ export interface WebRendererApi {
         metalness: number,
         roughness: number,
         specular: boolean,
+        /** Lines: width, points: diameter, in device pixels; above 1 they draw as quads. */
+        lineWidth: number,
     ): void;
     setSegmentStates(instance: number, packed: number, count: number): void;
     removeInstance(instance: number): void;
