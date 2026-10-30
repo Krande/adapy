@@ -182,3 +182,57 @@ def test_a_failed_upload_fails_the_bake(tmp_path, monkeypatch):
     # Nothing behind the failed blob reached storage -- no manifest naming a missing blob.
     keys = [e.key for e in asyncio.run(storage.list(Scope.shared()))]
     assert not any(k.endswith("fea.manifest.json") for k in keys)
+
+
+def test_an_odb_is_exported_in_a_child_process_before_the_bake(tmp_path, monkeypatch):
+    """aba-cpp's ODB export holds the GIL for minutes; on the worker's executor thread it starved
+    the event loop (the job lease lapsed and the job was redelivered mid-bake). It runs in a forked
+    child now, and the in-process bake reads the export it left beside the ODB."""
+    import ada.fem.formats.abaqus.results.read_odb as read_odb
+    import ada.fem.results.artefacts as artefacts
+
+    parent = os.getpid()
+
+    def _fake_export(odb_path, *a, **kw):
+        sqlite = pathlib.Path(odb_path).with_suffix(".sqlite")
+        sqlite.write_text(str(os.getpid()))
+        return sqlite
+
+    seen = {}
+
+    def _fake_bake(src_path, bake_dir, *, src_key, on_artefact, **kw):
+        seen["export_pid"] = int(pathlib.Path(src_path).with_suffix(".sqlite").read_text())
+        out = pathlib.Path(bake_dir) / "out"
+        out.mkdir()
+        (out / "fea.manifest.json").write_bytes(b"{}")
+        on_artefact(out / "fea.manifest.json")
+        return SimpleNamespace(out_dir=out)
+
+    monkeypatch.setattr(read_odb, "convert_odb_to_sqlite", _fake_export)
+    monkeypatch.setattr(artefacts, "bake_fea_artefacts_from_source", _fake_bake)
+    monkeypatch.setattr(fea, "_audit_done", _noop_audit)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    storage = Storage(LocalStore(str(store_dir)), prefix="")
+    queue = _Queue()
+    src = tmp_path / "deck.odb"
+    src.write_bytes(b"odb")
+
+    async def _progress(_stage, _frac):
+        return None
+
+    job = Job(job_id="j", source_key="d.odb", derived_key="_derived/d.odb.fea/fea.manifest.json", status="queued")
+    asyncio.run(
+        fea._run_fea_artefact_bake(
+            job=job,
+            src_path=src,
+            scope=Scope.shared(),
+            storage=storage,
+            queue=queue,
+            db_pool=None,
+            started_at=0.0,
+            _on_progress=_progress,
+        )
+    )
+    assert queue.updates[-1]["status"] == "done", queue.updates
+    assert seen["export_pid"] != parent
