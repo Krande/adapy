@@ -10,6 +10,7 @@ port, so posters frame the model the way the live viewer first shows it.
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -111,12 +112,17 @@ def glb_to_image(
     member_thickness: float = 4.0,
     point_size: float = 4.0,
     background: tuple[float, float, float] | None = None,
+    overlay: dict | None = None,
 ) -> "Image":
     """Render ``glb_path`` to a PIL Image; the signature of ``pygfx_offscreen_utils.glb_to_image``.
 
     Lines without vertex colours (element / feature edges) draw in ``line_color`` (sRGB, as pygfx reads
     colours) at ``line_thickness`` pixels; coloured lines (beam members) in their own colours at
     ``member_thickness``. ``background``: sRGB, opaque; ``None`` = transparent, as the pygfx posters are.
+
+    ``overlay`` draws Ada Studio's orientation gizmo and colour legend over the image, e.g.
+    ``{"gizmo": True, "legend": {"header": [...], "gradient": [[r, g, b], ...], "ticks": [...]}}``
+    (sRGB colours; the spec in full: adacpp ``src/render/overlay_json.h``).
     """
     from adacpp import _render
     from PIL import Image
@@ -147,6 +153,13 @@ def glb_to_image(
         z_up=z_up,
     )
     renderer.set_camera(view, proj)
+    if overlay:
+        legend = overlay.get("legend")
+        if background is None and isinstance(legend, dict) and "panel_bg" not in legend:
+            # Studio's panel is 62% slate over the dark viewport; over a transparent poster on a white
+            # page that turns grey, so make it nearly opaque to read the same anywhere.
+            overlay = {**overlay, "legend": {**legend, "panel_bg": [30 / 255, 41 / 255, 59 / 255, 0.92]}}
+        renderer.set_overlay(json.dumps(overlay))
     rgba = renderer.render()
     if background is None:
         rgba = _unpremultiply(rgba)

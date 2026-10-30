@@ -235,6 +235,28 @@ def _beam_solids_geometry(case_dir: Path, manifest: dict, values, components, no
     return flat
 
 
+# The poster palette (`_abaqus_rgba`), blue -> cyan -> green -> yellow -> red.
+_POSTER_STOPS = ((0.0, 0.0, 1.0), (0.0, 1.0, 1.0), (0.0, 1.0, 0.0), (1.0, 1.0, 0.0), (1.0, 0.0, 0.0))
+
+
+def _legend_spec(manifest: dict, blob_url: str, step_idx: int, max_magnitude: float) -> dict:
+    """The colour legend for a displacement poster, as Ada Studio's ColorLegend draws it: the field's
+    path, the reduction with its unit, the case, and the scale from 0 to the mode's peak magnitude (what
+    `_abaqus_rgba` normalises to), ticked as `contourTicks` does (6 intervals, highest first)."""
+    field = next((f for f in manifest.get("fields", []) if (f.get("blob") or {}).get("url") == blob_url), {})
+    path = " / ".join(field.get("group_path") or []) or field.get("name_canonical") or "Displacement"
+    units = field.get("component_units") or []
+    components = field.get("components") or []
+    unit = next((u for c, u in zip(components, units) if c.upper() in ("X", "DX", "U1") and u), "")
+    header = [path, f"Magnitude [{unit}]" if unit else "Magnitude"]
+    steps = field.get("steps") or []
+    step = next((s for s in steps if s.get("i") == step_idx), None)
+    if step is not None:
+        header.append(f"Case: {step.get('label', step_idx)}")
+    ticks = [max_magnitude - i * max_magnitude / 6 for i in range(7)]
+    return {"header": header, "gradient": [list(c) for c in _POSTER_STOPS], "ticks": ticks}
+
+
 def _abaqus_rgba(magnitudes):
     """Per-vertex RGBA uint8 from displacement magnitudes, using the
     same blue→cyan→green→yellow→red palette the embed uses in
@@ -280,9 +302,14 @@ def render_fea_mode_from_bundle(
     preset: Optional[dict] = None,
     size: tuple[int, int] = (640, 480),
     beam_solids: bool = False,
+    overlay: bool = True,
 ) -> "PILImage":
     """Render a single deformed mode shape from a pre-baked FEA
     artefact bundle (the layout `bake_artefacts` writes).
+
+    `overlay` draws Ada Studio's colour legend (with `apply_colormap`)
+    and orientation gizmo over the poster -- with the adacpp backend;
+    pygfx and chromium posters have neither.
 
     `case_dir` must contain `fea.mesh.glb`, `fea.manifest.json`, and
     the AFBL displacement blobs the manifest references.
@@ -439,7 +466,12 @@ def render_fea_mode_from_bundle(
     with tempfile.TemporaryDirectory(prefix="fea_render_") as tmp:
         out_glb = Path(tmp) / "deformed.glb"
         scene.export(file_obj=str(out_glb), file_type="glb")
-        return glb_to_image(out_glb, backend=backend, preset=preset, size=size)
+        spec = None
+        if overlay:
+            spec = {"gizmo": True}
+            if apply_colormap:
+                spec["legend"] = _legend_spec(manifest, blob_url, step_idx, float(np.linalg.norm(delta, axis=1).max()))
+        return glb_to_image(out_glb, backend=backend, preset=preset, size=size, overlay=spec)
 
 
 def render_fea_mode(
