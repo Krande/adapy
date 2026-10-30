@@ -37,6 +37,26 @@ export type { Runtime } from "@/runtime/config";
 export { viewerApi } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------
+// Number formatting and banded colour scales (pure).
+// ---------------------------------------------------------------------------
+export { formatNumber } from "@/utils/format";
+export type { FormatNumberOptions } from "@/utils/format";
+export { cssScaleColor, scaleColor } from "@/utils/colorScale";
+export type { ColorScale, ColorScaleBand, ScaleColor } from "@/utils/colorScale";
+
+// ---------------------------------------------------------------------------
+// A plugin's own sidecar: AFEL element-field blobs read with core's reader (range
+// fetch, whole-blob fallback, header checks, caching), and cache-busting for a
+// sidecar a re-run rewrites in place.
+// ---------------------------------------------------------------------------
+export {
+  readSidecarElementFieldEnvelope,
+  readSidecarElementFieldStep,
+  withCacheBust,
+} from "@/services/sidecarElementField";
+export type { ElementFieldEnvelope, SidecarElementFieldBlob } from "@/services/sidecarElementField";
+
+// ---------------------------------------------------------------------------
 // The local viewer's lifetime. On a viewer a launcher started on a workstation
 // (and only there), the page may stop it: `localShutdownAvailable()` says
 // whether to offer that, `stopLocalViewer()` does it. Never available on a

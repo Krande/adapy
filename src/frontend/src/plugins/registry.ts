@@ -77,7 +77,8 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          parity, so -- as with 1.4.0 -- the number moved up rather than meaning two things.
 //          Plugin-side only, so viewer-core stays at 1.7.0, as it did through 1.6.0.
 // 1.9.0 -- renderer-neutral scene overlays on `SceneHandle`: `addLines`, `addLabels`,
-//          `paintFeaElements` (each returns a `SceneOverlay`), `hasFeaModel`, FEA element isolation
+//          `paintFeaElements` (each returns a `SceneOverlay`), `hasFeaModel`, `showColorScale`
+//          (a plugin's banded scale in core's colour legend), FEA element isolation
 //          (`isolateFeaElements`, `hideFeaElements`, `hiddenFeaElements`) and
 //          `setFeaElementEdgesVisible`. A plugin states what to draw in plain data and core
 //          builds it, so it draws the same under three.js and the WebGPU renderer and moves
@@ -198,6 +199,8 @@ export interface SceneColorFieldResult {
 
 /** sRGB, as CSS: "#ffaa00", or [r, g, b] in 0..1. */
 export type SceneColor = string | readonly [number, number, number];
+
+import type { ColorScale } from "@/utils/colorScale";
 
 /** Something core drew for a plugin; `remove` takes it out of the scene. */
 export interface SceneOverlay {
@@ -334,6 +337,10 @@ export interface SceneHandle {
   hideFeaElements: (elements: Iterable<number>) => void;
   hiddenFeaElements: () => number[];
   setFeaElementEdgesVisible: (visible: boolean) => void;
+  // Show `scale` (see `ColorScale`, `scaleColor` on @/viewer-core) in core's colour legend,
+  // in place of the result colormap, while the plugin paints with it; null takes it away.
+  // `remove(owner)` takes it away too.
+  showColorScale: (owner: string, scale: ColorScale | null) => void;
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */

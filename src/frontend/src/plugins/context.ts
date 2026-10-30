@@ -15,6 +15,7 @@ import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useColorStore } from "@/state/colorLegendStore";
+import { usePluginColorScaleStore } from "@/state/pluginColorScaleStore";
 import { noteOwnerPainted } from "@/utils/scene/fea/modeSceneColor";
 import { effectivePluginTheme, useThemeStore } from "@/state/themeStore";
 import type { PluginTheme } from "./registry";
@@ -85,6 +86,7 @@ function makeSceneHandle(): SceneHandle {
           if (child.userData?.__pluginOwner === owner) scene.remove(child);
         }
         removeOwnerOverlays(owner);
+        usePluginColorScaleStore.getState().show(owner, null);
       }
       requestRender();
     },
@@ -160,6 +162,11 @@ function makeSceneHandle(): SceneHandle {
     hideFeaElements,
     hiddenFeaElements,
     setFeaElementEdgesVisible,
+    showColorScale(owner, scale) {
+      usePluginColorScaleStore.getState().show(owner, scale);
+      if (scale) useColorStore.getState().setShowLegend(true);
+      requestRender();
+    },
   };
 }
 

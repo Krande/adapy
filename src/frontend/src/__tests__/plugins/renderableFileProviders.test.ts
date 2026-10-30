@@ -58,6 +58,7 @@ function fakeCtx(): AdaPluginContext {
       hideFeaElements() {},
       hiddenFeaElements: () => [],
       setFeaElementEdgesVisible() {},
+      showColorScale() {},
     },
     scope: () => "user:me",
     trackJob: () => "",
