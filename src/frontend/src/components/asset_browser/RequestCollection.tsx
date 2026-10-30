@@ -14,7 +14,9 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
+import { pickOptions, type CollectionPicks } from "@/assets/collectionChoices";
 import { requestCollection, type CollectionRequestDeps } from "@/assets/collectionRequest";
+import CollectionChoicesEditor from "@/components/admin/CollectionChoicesEditor";
 import { providerIdTitle } from "@/assets/providerNames";
 import { requestValues } from "@/assets/providerOptions";
 import { PROVIDER_STORE_SCOPE } from "@/assets/providerStore";
@@ -77,6 +79,20 @@ export function requestDeps(
     };
 }
 
+/** `deps` whose provider options also carry the admin's per-collection picks (`{option: value}`),
+ *  so the request's job reads the chosen source instead of the worker's own choice. */
+export function withChoices(deps: CollectionRequestDeps, picked: Record<string, unknown>): CollectionRequestDeps {
+    if (!Object.keys(picked).length) return deps;
+    const base = deps.providerOptions;
+    return {
+        ...deps,
+        providerOptions: async (scope, providerId, collection) => ({
+            ...(base ? await base(scope, providerId, collection) : {}),
+            ...picked,
+        }),
+    };
+}
+
 const RequestCollection: React.FC<{
     scope: string;
     /** Called with the collection a request published, so the tab can show it. */
@@ -98,6 +114,8 @@ const RequestCollection: React.FC<{
     const [stage, setStage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [done, setDone] = useState<string | null>(null);
+    // The admin's per-collection picks for this request (a share, say); none: the worker decides.
+    const [picks, setPicks] = useState<CollectionPicks>({});
 
     const load = useCallback(async () => {
         // A provider job stages into the provider store, whichever scope asked, so an admin's
@@ -227,7 +245,7 @@ const RequestCollection: React.FC<{
                             onClick={() =>
                                 void run(async () => {
                                     const out = await requestCollection(
-                                        requestDeps(setStage),
+                                        withChoices(requestDeps(setStage), pickOptions(request.collectionChoices ?? [], picks, collection)),
                                         scope,
                                         provider.providerId,
                                         request,
@@ -242,6 +260,15 @@ const RequestCollection: React.FC<{
                             {busy ? "Working…" : request.label}
                         </button>
                     </div>
+                    {!!collection && !!request.collectionChoices?.length && (
+                        <CollectionChoicesEditor
+                            decls={request.collectionChoices}
+                            collections={[collection]}
+                            picks={picks}
+                            onChange={setPicks}
+                            disabled={busy}
+                        />
+                    )}
                     {enabled !== null && (
                         <div className="text-gray-500">
                             {offered.length === 0

@@ -88,6 +88,9 @@ export interface ProviderSchedules {
   plugin_id: string;
   collections: string[];
   jobs: ProviderScheduleJob[];
+  /** Per-collection choices an admin may pin (`[{option, label, collections: {c: {default,
+   *  choices}}}]`); read through `parseCollectionChoiceDecls`. Absent on an older API. */
+  collection_choices?: unknown;
 }
 
 export interface ProviderSchedule {
@@ -188,6 +191,9 @@ export interface SweepItem {
    *  revision?, message?, error?, subjects?, timings}` -- in the order they ran. Read through
    *  `sweepTargetsOf`. */
   targets?: Record<string, unknown> | null;
+  /** The per-collection picks this item's provider job was SENT (`{option: value}`); `{}` when the
+   *  worker chose itself. Absent when the provider declares no such choice. */
+  collection_choices?: Record<string, unknown> | null;
   started_at: string | null;
   finished_at: string | null;
 }

@@ -161,6 +161,139 @@ def collections_of(spec: dict) -> list[str]:
     return [str(v) for v in values] if isinstance(values, list) else []
 
 
+# --- per-collection choices an admin may override ------------------------------------------------
+#
+# A provider may find, per collection, several sources it could read it from -- several copies of a
+# project, say -- and pick one itself. It declares
+#
+#     asset_collection_choices=[{"option": "project_root", "label": "Share", "field": "project_locations"}]
+#
+# and in the spec field named there, a dict keyed by collection, listing only collections with two
+# or more choices: ``{"ABC": {"default": v, "choices": [{"value": v, "label": "..."}, ...]}}`` (a
+# ``union_fields`` key, merged across workers by ``deps._merge_keyed``). An admin may pin one per
+# collection on any sweep / apply-changes / collection-request run or schedule -- core's own setting
+# ``collection_choices: {option: {collection: value}}``, holding ONLY picks that differ from the
+# worker's default. The driver sends ``options[option] = pick`` for the collection; without a pick
+# the worker decides. Core never names a provider here, and never sends an option a provider does
+# not declare.
+
+#: Core's setting holding the admin's per-collection picks.
+COLLECTION_CHOICES = "collection_choices"
+
+
+def collection_choice_decls(specs: list[dict] | dict) -> list[dict]:
+    """``[{option, label, collections: {collection: {default, choices: [{value, label}]}}}]`` -- what
+    the provider declares, its choices merged over all of its specs (first spec's default wins)."""
+    from .deps import _merge_keyed
+
+    out: dict[str, dict] = {}
+    for spec in [specs] if isinstance(specs, dict) else specs:
+        for decl in spec.get("asset_collection_choices") or ():
+            if not isinstance(decl, dict):
+                continue
+            option, field = decl.get("option"), decl.get("field")
+            if not (isinstance(option, str) and option and isinstance(field, str) and field):
+                continue
+            values = spec.get(field) if isinstance(spec.get(field), dict) else {}
+            clean = {
+                str(c): {
+                    "default": v.get("default"),
+                    "choices": [x for x in v.get("choices") or () if isinstance(x, dict) and "value" in x],
+                }
+                for c, v in values.items()
+                if isinstance(v, dict)
+            }
+            have = out.setdefault(
+                option, {"option": option, "label": str(decl.get("label") or option), "collections": {}}
+            )
+            have["collections"] = _merge_keyed(have["collections"], clean)
+    for d in out.values():
+        d["collections"] = {c: v for c, v in d["collections"].items() if len(v.get("choices") or ()) >= 2}
+    return list(out.values())
+
+
+def _advertised(decl: dict, collection: str) -> dict | None:
+    """The declaration's entry for ``collection`` (matched case-insensitively), or None."""
+    want = collection.lower()
+    for c, v in decl["collections"].items():
+        if c.lower() == want:
+            return v
+    return None
+
+
+def clean_collection_choices(decls: list[dict], raw) -> dict:
+    """An admin's ``{option: {collection: value}}`` checked against what the provider advertises:
+    a pick of the worker's default is dropped (no override), a value that is not one of the
+    collection's choices is refused (400, naming the valid ones), an option the provider does not
+    declare is refused. A pick for a collection the provider does not advertise (any more) is kept
+    as it is -- the run reports it and does not send it (:func:`collection_choice_options`)."""
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail=f"{COLLECTION_CHOICES} must be {{option: {{collection: value}}}}")
+    by_option = {d["option"]: d for d in decls}
+    out: dict[str, dict] = {}
+    for option, picks in raw.items():
+        decl = by_option.get(option)
+        if decl is None:
+            raise HTTPException(
+                status_code=400, detail=f"{option!r} is not a per-collection choice the provider declares"
+            )
+        if not isinstance(picks, dict):
+            raise HTTPException(status_code=400, detail=f"{COLLECTION_CHOICES}.{option} must be {{collection: value}}")
+        kept: dict[str, Any] = {}
+        for collection, value in picks.items():
+            if value in (None, ""):
+                continue
+            entry = _advertised(decl, str(collection))
+            if entry is None:
+                kept[str(collection)] = value  # no longer advertised: kept, reported at run time
+                continue
+            if same_choice(value, entry.get("default")):
+                continue
+            valid = [c.get("value") for c in entry.get("choices") or ()]
+            if not any(same_choice(value, v) for v in valid):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{decl['label']} for {collection}: {value!r} is not one of {', '.join(map(repr, valid))}",
+                )
+            kept[str(collection)] = value
+        if kept:
+            out[option] = kept
+    return out
+
+
+def collection_choice_options(decls: list[dict], picks, collection: str) -> tuple[dict, list[str]]:
+    """``(options to add, warnings)`` for one collection's provider job: ``{option: pick}`` for each
+    pick the provider still advertises for it; a pick for a collection (or a value) it no longer
+    advertises is not sent, and said."""
+    options: dict = {}
+    warnings: list[str] = []
+    if not isinstance(picks, dict):
+        return options, warnings
+    by_option = {d["option"]: d for d in decls}
+    for option, per in picks.items():
+        if not isinstance(per, dict):
+            continue
+        value = next((v for c, v in per.items() if str(c).lower() == collection.lower()), None)
+        if value in (None, ""):
+            continue
+        decl = by_option.get(option)
+        entry = _advertised(decl, collection) if decl else None
+        label = decl["label"] if decl else option
+        if entry is None:
+            warnings.append(
+                f"{label} {value!r} was chosen for {collection}, which the provider no longer offers a choice "
+                "for; not sent (the worker decides)"
+            )
+            continue
+        if not any(same_choice(value, c.get("value")) for c in entry.get("choices") or ()):
+            warnings.append(f"{label} {value!r} for {collection} is no longer offered; not sent (the worker decides)")
+            continue
+        options[option] = value
+    return options, warnings
+
+
 def _declared_option(spec: dict, name: str) -> dict:
     for decl in spec.get("job_options") or ():
         if isinstance(decl, dict) and decl.get("name") == name:
@@ -368,7 +501,19 @@ async def build_options(
                 )
         options[str(collection_option)] = collection
     declared = {s["name"]: s for s in entry_settings(spec, entry)}
-    for name, value in (settings or {}).items():
+    settings = dict(settings or {})
+    picks = settings.pop(COLLECTION_CHOICES, None)
+    if picks not in (None, {}):
+        # Core's per-collection overrides (see collection_choice_decls): only on runs that ask a
+        # provider per collection. Stored with the options; the driver takes them off again.
+        if (entry.get("kind") or "job") not in (SWEEP, APPLY_CHANGES):
+            if validate:
+                raise HTTPException(status_code=400, detail=f"{COLLECTION_CHOICES} is not a setting of {entry['id']!r}")
+        else:
+            cleaned = clean_collection_choices(collection_choice_decls(spec), picks) if validate else picks
+            if cleaned:
+                options[COLLECTION_CHOICES] = cleaned
+    for name, value in settings.items():
         setting = declared.get(name)
         if setting is None:
             if validate:
@@ -412,6 +557,8 @@ def settings_of(entry: dict, options: dict) -> dict:
     entry's kind (:data:`CORE_SETTINGS`) included."""
     names = [s if isinstance(s, str) else (s or {}).get("name") for s in entry.get("settings") or ()]
     names += list(CORE_SETTINGS.get(entry.get("kind") or "", ()))
+    if (entry.get("kind") or "job") in (SWEEP, APPLY_CHANGES):
+        names.append(COLLECTION_CHOICES)
     return {n: options[n] for n in names if n and n in options}
 
 
@@ -730,6 +877,8 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
                 "provider": provider,
                 "plugin_id": _plugin_id(spec),
                 "collections": collections_of(spec),
+                # What an admin may pin per collection (worker-found choices, the worker's default).
+                "collection_choices": collection_choice_decls(group),
                 "jobs": [
                     {
                         "id": e["id"],

@@ -369,6 +369,44 @@ async def scope_from_header(
     return s
 
 
+def _choice_marker(v) -> str:
+    """What makes two list entries the same: a ``{"value": ...}`` choice is its value (one worker's
+    label of it -- a release, a last-written date -- must not list the same choice twice)."""
+    if isinstance(v, dict) and "value" in v:
+        return "value:" + json.dumps(v["value"], sort_keys=True)
+    return json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else f"scalar:{v!r}"
+
+
+def _merge_keyed(have: dict, add: dict) -> dict:
+    """Merge a second worker's dict-valued union field into the first's, key by key: a key only one
+    of them has is taken as it is; for a key both have, list members union (choices by ``value``,
+    the first worker's entry kept) and every other member keeps the first worker's value unless it
+    had none -- so ``{"ABC": {"default", "choices": [...]}}`` gets every choice any worker found and
+    the first worker's default."""
+    for key, theirs in add.items():
+        mine = have.get(key)
+        if mine is None:
+            have[key] = theirs
+            continue
+        if not (isinstance(mine, dict) and isinstance(theirs, dict)):
+            continue  # the first worker's scalar wins
+        merged = dict(mine)
+        for sub, value in theirs.items():
+            current = merged.get(sub)
+            if isinstance(current, list) and isinstance(value, list):
+                seen = {_choice_marker(v) for v in current}
+                out = list(current)
+                for v in value:
+                    if _choice_marker(v) not in seen:
+                        seen.add(_choice_marker(v))
+                        out.append(v)
+                merged[sub] = out
+            elif current is None:
+                merged[sub] = value
+        have[key] = merged
+    return have
+
+
 def _merge_spec(base: dict, other: dict) -> None:
     """Fold a second worker's advertisement of the same slug into ``base``.
 
@@ -404,6 +442,11 @@ def _merge_spec(base: dict, other: dict) -> None:
         if not isinstance(key, str) or key == "union_fields":
             continue
         add = other.get(key)
+        if isinstance(add, dict):
+            # A DICT-valued field (keyed by collection, say) merges per key: see _merge_keyed.
+            have = base.get(key)
+            base[key] = _merge_keyed(dict(have) if isinstance(have, dict) else {}, add)
+            continue
         if not isinstance(add, list):
             continue
         have = base.get(key)

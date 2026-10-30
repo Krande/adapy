@@ -120,8 +120,11 @@ from ..run_driver import (
 from ..scope import Scope
 from .asset_schedules import (
     APPLY_CHANGES,
+    COLLECTION_CHOICES,
     SWEEP,
     build_options,
+    collection_choice_decls,
+    collection_choice_options,
     collections_of,
     find_entry,
     job_keys,
@@ -490,6 +493,30 @@ class worker_slot:
             logger.warning("asset sweep %s: could not release a worker slot", self.run["id"], exc_info=True)
 
 
+async def with_collection_choices(pool, run: dict, options: dict, spec: dict, collection: str, timings: dict) -> dict:
+    """``options`` for ONE collection's provider job with core's ``collection_choices`` taken off and
+    the admin's pick for this collection sent instead (``options[option] = pick``) -- only for an
+    option the provider declares and a value it still advertises; otherwise the worker decides, and
+    the run says why (a run warning). What was sent is kept on the item (``collection_choices``, ``{}``
+    for "the worker's own choice"), so the run view shows which source each collection ran on."""
+    picks = options.pop(COLLECTION_CHOICES, None)
+    decls = collection_choice_decls(spec)
+    if not decls:
+        return options
+    sent, warnings = collection_choice_options(decls, picks, collection)
+    for option in (d["option"] for d in decls):
+        options.pop(option, None)  # never a stale value from elsewhere: a pick, or nothing
+    options.update(sent)
+    timings["collection_choices"] = sent
+    if warnings:
+        logger.warning("asset sweep %s: %s", run["id"], "; ".join(warnings))
+        try:
+            await db_module.add_asset_sweep_run_warnings(pool, run["id"], warnings)
+        except Exception:  # noqa: BLE001 - the item still runs, on the worker's choice
+            logger.warning("asset sweep %s: could not record a run warning", run["id"], exc_info=True)
+    return options
+
+
 async def _wait(
     ctx: RestContext, pool, run_id: str, job_id: str, timeout_s: float, position: int | None = None
 ) -> tuple[int, int]:
@@ -762,6 +789,8 @@ async def _sweep_targets(
         for phase in ("queued_ms", "fetch_ms", "publish_ms"):
             if phase in own:
                 timings[phase] = timings.get(phase, 0) + own[phase]
+        if "collection_choices" in own:
+            timings["collection_choices"] = own["collection_choices"]  # the same for every target
         if status == "error":
             failed.append(key)
             blocked.add(key)
@@ -813,6 +842,7 @@ async def _fetch_and_publish(
     )
     if target is not None:
         options[target[0]] = target[1]
+    options = await with_collection_choices(pool, run, options, spec, collection, timings)
     # The collection's provider options UNDER the entry's: they add to a request and never
     # change which job it is or which collection. `requested_at` makes it a new job, not a
     # cache hit on the last sweep's.
@@ -1107,7 +1137,7 @@ async def sweep_with_progress(ctx: RestContext, pool, run_id: str) -> dict | Non
         # free column); it is read as the item's own: `apply_changes` and `roles`. So does a
         # multi-target sweep item its per-target outcome: `targets`.
         timings = item.get("timings") or {}
-        for name in ("apply_changes", "roles", "targets"):
+        for name in ("apply_changes", "roles", "targets", "collection_choices"):
             if name in timings:
                 item[name] = timings[name]
         job_id = {"fetching": item["fetch_job_id"], "publishing": item["publish_job_id"]}.get(item["status"])

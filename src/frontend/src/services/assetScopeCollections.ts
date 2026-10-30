@@ -36,6 +36,7 @@
 // collection.
 
 // React-free and import-free, so this module stays DOM-free.
+import { collectionChoiceDeclsOfSpec, type CollectionChoiceDecl } from "@/assets/collectionChoices";
 import { declaredOptions, type PluginJobOption } from "@/components/admin/pluginOptionFields";
 import { compareProjects as compare } from "@/utils/sortProjects";
 
@@ -318,6 +319,9 @@ export interface AssetCollectionRequest {
   /** The plugin's job needs an admin (`requiresAdminOf`: its spec's `requires_admin`, or any asset
    *  provider's), so anyone else is told why rather than offered a button the server refuses. */
   requiresAdmin: boolean;
+  /** Per-collection choices the worker found and an admin may pin for this request (a share, say:
+   *  `@/assets/collectionChoices`). Present only when the spec declares some. */
+  collectionChoices?: CollectionChoiceDecl[];
 }
 
 function parseRequest(pluginId: string, raw: unknown, requiresAdmin: boolean): AssetCollectionRequest | null {
@@ -431,6 +435,8 @@ export function assetProviderCollections(
     }
     if (!entry.request) {
       entry.request = parseRequest(pluginId, spec.asset_collection_request, requiresAdminOf(spec));
+      const choices = entry.request ? collectionChoiceDeclsOfSpec(spec) : [];
+      if (entry.request && choices.length) entry.request = { ...entry.request, collectionChoices: choices };
     }
     if (!entry.nodeRequest) {
       entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, requiresAdminOf(spec));

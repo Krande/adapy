@@ -28,6 +28,15 @@ import {
     valueOfKey,
     withMultiDefaults,
 } from "./scheduleSettings";
+import {
+    affectedChoices,
+    parseCollectionChoiceDecls,
+    picksOfSettings,
+    picksSummary,
+    settingsWithPicks,
+} from "@/assets/collectionChoices";
+
+import CollectionChoicesEditor from "./CollectionChoicesEditor";
 import ProviderMaxParallel from "./ProviderMaxParallel";
 import SweepDefaults from "./SweepDefaults";
 
@@ -216,6 +225,7 @@ const AddSchedule: React.FC<{
     const sweep = job?.kind === "sweep";
     const apply = job?.kind === "apply-changes";
     const driven = sweep || apply;
+    const choiceDecls = useMemo(() => parseCollectionChoiceDecls(provider.collection_choices), [provider.collection_choices]);
 
     const pickJob = (id: string) => {
         setJobId(id);
@@ -339,6 +349,15 @@ const AddSchedule: React.FC<{
                 value={settings}
                 onChange={setSettings}
             />
+            {driven && (
+                <CollectionChoicesEditor
+                    decls={choiceDecls}
+                    collections={apply && collection ? [collection] : null}
+                    picks={picksOfSettings(settings)}
+                    onChange={(picks) => setSettings(settingsWithPicks(settings, picks))}
+                    disabled={busy}
+                />
+            )}
             {error && <div className="text-xs text-red-300">{error}</div>}
         </div>
     );
@@ -414,6 +433,7 @@ const ScheduleRow: React.FC<{
     const [settings, setSettings] = useState<Record<string, unknown>>(s.settings);
     const job = provider.jobs.find((j) => j.id === s.job);
     const last = lastRunText(s);
+    const choiceDecls = useMemo(() => parseCollectionChoiceDecls(provider.collection_choices), [provider.collection_choices]);
 
     const act = async (what: string, fn: () => Promise<unknown>) => {
         setBusy(what);
@@ -472,6 +492,14 @@ const ScheduleRow: React.FC<{
                             value={settings}
                             onChange={setSettings}
                         />
+                        {(s.kind === "sweep" || s.kind === "apply-changes") && (
+                            <CollectionChoicesEditor
+                                decls={choiceDecls}
+                                collections={s.collection ? [s.collection] : null}
+                                picks={picksOfSettings(settings)}
+                                onChange={(picks) => setSettings(settingsWithPicks(settings, picks))}
+                            />
+                        )}
                         <div className="flex gap-1">
                             <button
                                 type="button"
@@ -503,8 +531,16 @@ const ScheduleRow: React.FC<{
                     </div>
                 ) : (
                     <div className="flex items-start gap-1">
-                        <span className="text-gray-300">{settingSummary(job, s.settings)}</span>
-                        {!!job?.settings.length && (
+                        <span className="text-gray-300">
+                            {settingSummary(job, s.settings)}
+                            {/* The admin's per-collection overrides (a share, say), if any. */}
+                            {picksSummary(choiceDecls, picksOfSettings(s.settings)).map((line) => (
+                                <span key={line} className="block text-[11px] text-sky-300" data-testid="schedule-pick">
+                                    {line}
+                                </span>
+                            ))}
+                        </span>
+                        {(!!job?.settings.length || affectedChoices(choiceDecls, s.collection ? [s.collection] : null).length > 0) && (
                             <button
                                 type="button"
                                 className="text-[11px] text-blue-300 hover:text-blue-200"
@@ -669,7 +705,11 @@ const ProviderSchedulesSection: React.FC = () => {
                         <>
                             {/* The jobs its runs -- side by side -- may have in flight together. */}
                             <ProviderMaxParallel provider={p.provider} />
-                            <ProviderSweepRuns provider={p.provider} refreshKey={refreshKey} />
+                            <ProviderSweepRuns
+                                provider={p.provider}
+                                refreshKey={refreshKey}
+                                choiceDecls={parseCollectionChoiceDecls(p.collection_choices)}
+                            />
                         </>
                     )}
                 </div>

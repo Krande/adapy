@@ -340,6 +340,8 @@ async def apply_one(
         )
         # Core's own setting: decided here, never sent to the provider.
         options.pop(MISSING_FULL_EXPORT, None)
+        # The admin's per-collection pick (a share, say), as in any sweep.
+        options = await sweeps.with_collection_choices(pool, run, options, spec, collection, timings)
         # The collection's saved provider options UNDER the entry's, as a sweep sends them: they
         # say how to open the collection, never which job this is. `requested_at` makes it a new
         # job, never a cache hit on the last run's answer.

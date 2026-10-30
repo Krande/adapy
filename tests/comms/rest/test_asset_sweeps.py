@@ -1200,3 +1200,123 @@ async def test_claims_and_worker_slots_hold_across_runs_against_postgres():
     finally:
         await pool.execute("DELETE FROM asset_sweep_runs WHERE provider = $1", provider)
         await dbm.close_pool(pool)
+
+
+# --- an admin's per-collection pick (a "share") -------------------------------------------------------
+
+CHOICE_SPEC = {
+    **SPEC,
+    "asset_collection_choices": [{"option": "source_root", "label": "Share", "field": "source_roots"}],
+    "source_roots": {
+        "ALPHA": {
+            "default": "//a/1",
+            "choices": [{"value": "//a/1", "label": "one (r1, 2026-01-01)"}, {"value": "//a/2", "label": "two"}],
+        },
+        "GAMMA": {"default": "//g/1", "choices": [{"value": "//g/1", "label": "only"}]},  # one choice: no override
+    },
+    "union_fields": ["source_roots"],
+}
+
+
+def test_dict_union_fields_merge_choices_by_value_and_keep_the_first_default():
+    from ada.comms.rest.routes.deps import _merge_spec
+
+    base = {
+        "union_fields": ["source_roots"],
+        "source_roots": {"ALPHA": {"default": "//a/1", "choices": [{"value": "//a/1", "label": "one"}]}},
+    }
+    other = {
+        "union_fields": ["source_roots"],
+        "source_roots": {
+            "ALPHA": {
+                "default": "//a/2",
+                "choices": [{"value": "//a/1", "label": "ONE"}, {"value": "//a/2", "label": "two"}],
+            },
+            "BETA": {"default": "//b/1", "choices": [{"value": "//b/1", "label": "b"}]},
+        },
+    }
+    _merge_spec(base, other)
+    alpha = base["source_roots"]["ALPHA"]
+    assert alpha["default"] == "//a/1" and [c["value"] for c in alpha["choices"]] == ["//a/1", "//a/2"]
+    assert alpha["choices"][0]["label"] == "one"  # the first worker's entry kept
+    assert base["source_roots"]["BETA"]["default"] == "//b/1"
+
+
+def test_the_declared_choices_list_only_collections_with_two_or_more():
+    [decl] = sched.collection_choice_decls([CHOICE_SPEC])
+    assert decl["option"] == "source_root" and decl["label"] == "Share" and list(decl["collections"]) == ["ALPHA"]
+    assert sched.collection_choice_decls([SPEC]) == []
+
+
+def test_picks_are_validated_and_only_overrides_kept():
+    decls = sched.collection_choice_decls([CHOICE_SPEC])
+    assert sched.clean_collection_choices(decls, {"source_root": {"alpha": "//a/2"}}) == {
+        "source_root": {"alpha": "//a/2"}
+    }
+    assert sched.clean_collection_choices(decls, {"source_root": {"ALPHA": "//a/1"}}) == {}  # the default: no override
+    assert sched.clean_collection_choices(decls, {"source_root": {"ZETA": "//z"}}) == {"source_root": {"ZETA": "//z"}}
+    with pytest.raises(HTTPException) as exc:
+        sched.clean_collection_choices(decls, {"source_root": {"ALPHA": "//nope"}})
+    assert exc.value.status_code == 400 and "'//a/1', '//a/2'" in exc.value.detail
+    with pytest.raises(HTTPException):
+        sched.clean_collection_choices(decls, {"other_root": {"ALPHA": "x"}})
+
+
+@pytest.mark.asyncio
+async def test_build_options_stores_the_picks_for_sweeps_only():
+    entry = CHOICE_SPEC["asset_schedules"][0]
+    kw = dict(scope="providers", provider="vendor", collection=None)
+    opts = await sched.build_options(
+        None, CHOICE_SPEC, entry, settings={"collection_choices": {"source_root": {"ALPHA": "//a/2"}}}, **kw
+    )
+    assert opts["collection_choices"] == {"source_root": {"ALPHA": "//a/2"}}
+    assert sched.settings_of(entry, opts)["collection_choices"] == {"source_root": {"ALPHA": "//a/2"}}
+    with pytest.raises(HTTPException):
+        await sched.build_options(None, CHOICE_SPEC, {**entry, "kind": "job", "collection_option": None},
+                                  settings={"collection_choices": {"source_root": {"ALPHA": "//a/2"}}}, **kw)  # fmt: skip
+
+
+@pytest.mark.asyncio
+async def test_the_pick_is_sent_for_its_collection_only_and_a_stale_one_is_reported(world, monkeypatch):
+    warnings = []
+
+    async def add_warnings(pool, run_id, ws):
+        warnings.extend(ws)
+
+    monkeypatch.setattr(dbm, "add_asset_sweep_run_warnings", add_warnings)
+    w = world(fetch_summaries={"ALPHA": {"asset_unchanged": True}, "BETA": {"asset_unchanged": True}})
+    run = {
+        **RUN,
+        "settings": {
+            "sweep_target": "tree",
+            "collection_choices": {"source_root": {"ALPHA": "//a/2", "BETA": "//b/9"}},
+        },
+    }
+    entry = CHOICE_SPEC["asset_schedules"][0]
+    await sweeps._drive(
+        w.ctx,
+        None,
+        run,
+        scope_obj=Scope.shared(),
+        spec=CHOICE_SPEC,
+        entry=entry,
+        collections=["ALPHA", "BETA"],
+        user=None,
+    )
+    alpha, beta = (e["options"] for e in w.enqueued)
+    assert alpha["source_root"] == "//a/2" and "source_root" not in beta
+    assert "collection_choices" not in alpha and "collection_choices" not in beta
+    assert w.items[0]["timings"]["collection_choices"] == {"source_root": "//a/2"}
+    assert w.items[1]["timings"]["collection_choices"] == {}
+    assert warnings and "BETA" in warnings[0] and "not sent" in warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_a_provider_that_declares_no_choice_gets_no_option(world):
+    w = world(fetch_summaries={"ALPHA": {"asset_unchanged": True}})
+    run = {**RUN, "settings": {"sweep_target": "tree", "collection_choices": {"source_root": {"ALPHA": "//a/2"}}}}
+    await sweeps._drive(
+        w.ctx, None, run, scope_obj=Scope.shared(), spec=SPEC, entry=SWEEP_ENTRY, collections=["ALPHA"], user=None
+    )
+    [opts] = (e["options"] for e in w.enqueued)
+    assert "source_root" not in opts and "collection_choices" not in opts

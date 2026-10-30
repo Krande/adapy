@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from "react";
 
+import {itemChoiceLines, type CollectionChoiceDecl} from "@/assets/collectionChoices";
 import type {SweepItem, SweepRun} from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 import {sweepSkipTarget, trackSweep, untrackSweep} from "@/services/sweepTracking";
@@ -204,11 +205,24 @@ const SweepTargets: React.FC<{item: SweepItem}> = ({item}) => {
     );
 };
 
+/** Which per-collection choice (a share, say) the item's provider job was sent -- an admin's pick --
+ *  or that the worker chose itself. Nothing when the provider declares no such choice. */
+const ItemChoices: React.FC<{item: SweepItem; decls: CollectionChoiceDecl[]}> = ({item, decls}) => {
+    const lines = itemChoiceLines(decls, item.collection, item.collection_choices);
+    if (!lines.length) return null;
+    return (
+        <div className="text-[11px] text-sky-300" data-testid="sweep-item-choices">
+            {lines.join(" · ")}
+        </div>
+    );
+};
+
 const SweepItems: React.FC<{
     run: SweepRun;
+    choiceDecls: CollectionChoiceDecl[];
     onSkip: (position: number) => void;
     onToggleRun: (position: number, on: boolean) => void;
-}> = ({run, onSkip, onToggleRun}) => {
+}> = ({run, choiceDecls, onSkip, onToggleRun}) => {
     // Only the item in flight can be skipped, and only once: a pending skip shows as "skipping…"
     // until the sweep carries it out (the item then ends `skipped`, "skipped by <user>").
     const skipAt = sweepSkipTarget(run);
@@ -298,6 +312,7 @@ const SweepItems: React.FC<{
                                 )}
                                 <ApplyChangesResult item={i} />
                                 <SweepTargets item={i} />
+                                <ItemChoices item={i} decls={choiceDecls} />
                             </td>
                         </tr>
                     ))}
@@ -343,7 +358,12 @@ const ToastToggle: React.FC<{run: SweepRun}> = ({run}) => {
     );
 };
 
-const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({provider, refreshKey}) => {
+const ProviderSweepRuns: React.FC<{
+    provider: string;
+    refreshKey: number;
+    /** The provider's per-collection choices, to label what each item was sent. */
+    choiceDecls?: CollectionChoiceDecl[];
+}> = ({provider, refreshKey, choiceDecls = []}) => {
     const [runs, setRuns] = useState<SweepRun[]>([]);
     const [open, setOpen] = useState<SweepRun | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -589,6 +609,7 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
                         {open?.id === r.id && (
                             <SweepItems
                                 run={open}
+                                choiceDecls={choiceDecls}
                                 onSkip={(position) => void skip(r.id, position)}
                                 onToggleRun={(position, on) => void toggleRun(r.id, position, on)}
                             />
