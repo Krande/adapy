@@ -259,7 +259,7 @@ def assets_for_docs(
     key: str,
     out_dir: "pathlib.Path | str",
     modes: "str | int | Iterable[int] | None" = "all",
-    poster_backend: str = "pygfx",
+    poster_backend: str = "auto",
     normalize_modes: bool | float = True,
 ) -> FeaDocAssets:
     """Bake the bundle + posters and return a :class:`FeaDocAssets`.
@@ -612,7 +612,7 @@ def _count_displacement_steps(manifest: dict) -> int:
     return len(_list_displacement_entries(manifest))
 
 
-def render_missing_posters(assets: FeaDocAssets, *, poster_backend: str = "pygfx") -> FeaDocAssets:
+def render_missing_posters(assets: FeaDocAssets, *, poster_backend: str = "auto") -> FeaDocAssets:
     """Render a poster for every displacement step of ``assets`` that has none on disk.
 
     Same filenames as :func:`bake_with_posters` (``fea.mesh.png`` for mode 1,
@@ -741,7 +741,7 @@ class FeaCaseFilter(Filter):
         out_dir: "pathlib.Path | str | None" = None,
         *,
         modes: "str | int | Iterable[int] | None" = "all",
-        poster_backend: str = "pygfx",
+        poster_backend: str = "auto",
         camera_preset: str = "iso_3",
         assets: "FeaDocAssets | None" = None,
     ) -> None:
@@ -919,7 +919,7 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
         camera_pos: iso_3
         layout: per_mode      # or "gallery" (TODO)
         n_modes: 10           # optional cap; default = every mode
-        poster_backend: pygfx # or "chromium"
+        poster_backend: auto # or "adacpp", "pygfx", "chromium"
         -->
 
     Each mode produces one ``ThreeDData`` row + one PNG figure tag,
@@ -979,12 +979,13 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
                 "transient analyses from blowing out the doc size."
             ),
         )
-        poster_backend: Literal["pygfx", "chromium"] = Field(
-            "pygfx",
+        poster_backend: Literal["auto", "adacpp", "pygfx", "chromium"] = Field(
+            "auto",
             description=(
-                "Offscreen backend for the per-mode PNG posters. Same "
-                "split as the cad_model_file source: pygfx is fast and "
-                "pure-Python; chromium drives the production embed for "
+                "Offscreen backend for the per-mode PNG posters. auto picks "
+                "adacpp (Ada Studio's WebGPU renderer, headless) when the "
+                "installed adacpp ships it, else pygfx; both are fast and "
+                "need no browser. chromium drives the production embed for "
                 "bit-identical output, at ~5 s/PNG."
             ),
         )

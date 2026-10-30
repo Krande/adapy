@@ -20,8 +20,8 @@ wrapper:
     the mesh GLB's POSITION attribute.
   * Optionally apply the Abaqus colormap on per-vertex displacement
     magnitude (matching what the live viewer paints).
-  * Render via `pygfx_offscreen_utils.glb_to_image` (or chromium)
-    with the existing camera-preset math.
+  * Render via `offscreen.glb_to_image` (adacpp's WebGPU renderer, pygfx
+    or chromium) with the embed's camera-preset math.
 
 The wrapper is intentionally single-call: each invocation bakes a
 fresh temp bundle so loop state from `FEAResult.to_gltf` can't leak
@@ -41,7 +41,9 @@ import json
 import struct
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Optional
+
+from ada.visit.rendering.offscreen import OffscreenBackend, glb_to_image
 
 if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
@@ -274,7 +276,7 @@ def render_fea_mode_from_bundle(
     mode_index: int = 0,
     *,
     apply_colormap: bool = True,
-    backend: Literal["pygfx", "chromium"] = "pygfx",
+    backend: OffscreenBackend = "auto",
     preset: Optional[dict] = None,
     size: tuple[int, int] = (640, 480),
     beam_solids: bool = False,
@@ -366,10 +368,9 @@ def render_fea_mode_from_bundle(
     # `fea.mesh.edges.bin` (AFEG) — deduped uint32 (from, to) pairs
     # sharing the mesh's vertex layout. Add a `trimesh.PointCloud`
     # parented separately? No — trimesh exports `Path3D` as glTF
-    # LINES which is what pygfx_offscreen_utils' mode=1 branch
-    # renders. Skipped silently when the sidecar is missing or the
-    # mesh was loaded as a PointCloud (the bake doesn't ship edges
-    # for those cases yet).
+    # LINES, which every offscreen backend draws as lines. Skipped
+    # silently when the sidecar is missing or the mesh was loaded as a
+    # PointCloud (the bake doesn't ship edges for those cases yet).
     # Line elements -- a beam model, or a plate's stiffener -- live in their own
     # sidecar, `fea.mesh.line_edges.bin`, in the same AFEG format. The mesh GLB
     # carries no line primitives (a line-only mesh even loads as a PointCloud),
@@ -438,26 +439,7 @@ def render_fea_mode_from_bundle(
     with tempfile.TemporaryDirectory(prefix="fea_render_") as tmp:
         out_glb = Path(tmp) / "deformed.glb"
         scene.export(file_obj=str(out_glb), file_type="glb")
-
-        if backend == "chromium":
-            from ada.visit.rendering.chromium_offscreen_utils import (
-                glb_to_image_via_browser,
-            )
-
-            return glb_to_image_via_browser(out_glb, preset=preset, size=size)
-        from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
-
-        # Translate paradoc-style preset dict into glb_to_image kwargs.
-        allowed = {
-            "azimuth_deg",
-            "elevation_deg",
-            "fov_deg",
-            "distance",
-            "margin",
-            "z_up",
-        }
-        kwargs = {k: v for k, v in (preset or {}).items() if k in allowed}
-        return glb_to_image(out_glb, size=size, **kwargs)
+        return glb_to_image(out_glb, backend=backend, preset=preset, size=size)
 
 
 def render_fea_mode(
@@ -465,7 +447,7 @@ def render_fea_mode(
     mode_index: int = 0,
     *,
     apply_colormap: bool = True,
-    backend: Literal["pygfx", "chromium"] = "pygfx",
+    backend: OffscreenBackend = "auto",
     preset: Optional[dict] = None,
     size: tuple[int, int] = (640, 480),
     beam_solids: bool = False,

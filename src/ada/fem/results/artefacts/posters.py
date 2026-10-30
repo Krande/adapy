@@ -7,7 +7,9 @@ import os
 import pathlib
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Iterable, Literal
+from typing import Iterable
+
+from ada.visit.rendering.offscreen import OffscreenBackend
 
 from .bake import BakeResult, bake_artefacts
 from .readers import make_stream_reader
@@ -79,7 +81,7 @@ def bake_with_posters(
     *,
     src: str = "",
     modes: "str | int | Iterable[int] | None" = "all",
-    poster_backend: Literal["pygfx", "chromium"] = "pygfx",
+    poster_backend: OffscreenBackend = "auto",
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
@@ -108,8 +110,12 @@ def bake_with_posters(
           interactive-only in a context where that's acceptable).
 
     ``poster_backend``:
-        * ``"pygfx"`` (default) — fast, no browser. Camera framing is
-          the same `iso_3` math the embed uses.
+        * ``"auto"`` (default) — ``"adacpp"`` when the installed adacpp
+          ships its renderer extension, else ``"pygfx"``.
+        * ``"adacpp"`` — adacpp's WebGPU renderer, headless: the renderer
+          Ada Studio's WebGPU mode draws with. No browser; camera framing
+          is the same `iso_3` math the embed uses.
+        * ``"pygfx"`` — the pygfx renderer it replaces.
         * ``"chromium"`` — drives the production embed headless via
           playwright. Bit-identical to the live viewer, ~5 s/PNG.
 
@@ -225,7 +231,7 @@ def bake_with_posters_from_source(
     *,
     src_key: str = "",
     modes: "str | int | Iterable[int] | None" = "all",
-    poster_backend: Literal["pygfx", "chromium"] = "pygfx",
+    poster_backend: OffscreenBackend = "auto",
     legacy_glb_url_template: str | None = None,
     include_beam_solids: bool = True,
     normalize_modes: bool | float = False,
