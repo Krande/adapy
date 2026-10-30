@@ -99,8 +99,10 @@ export interface FormatNumberOptions {
     expAbove?: number;
     /** ... and below this one (non-zero). Default 0: never for small values. */
     expBelow?: number;
-    /** Significant digits for exponent notation and for values below 1. Default 3. */
+    /** Significant digits below 1. Default 3. */
     sig?: number;
+    /** Digits after the point in exponent notation. Default `sig`. */
+    expDigits?: number;
     /** Decimals at or above 100. Default 1. */
     largeDecimals?: number;
     /** Decimals from 1 up to 100 (and for 0). Default 2. */
@@ -121,10 +123,11 @@ export interface FormatNumberOptions {
 export function formatNumber(value: number | null | undefined, opts: FormatNumberOptions = {}): string {
     if (value == null || !Number.isFinite(value)) return opts.empty ?? "-";
     const {expAbove = 1e6, expBelow = 0, sig = 3, largeDecimals = 1, decimals = 2} = opts;
+    const expDigits = opts.expDigits ?? sig;
     const a = Math.abs(value);
     const s =
         a >= expAbove || (a > 0 && a < expBelow)
-            ? value.toExponential(sig)
+            ? value.toExponential(expDigits)
             : a >= 100
               ? value.toFixed(largeDecimals)
               : a >= 1 || a === 0

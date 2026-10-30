@@ -24,8 +24,9 @@ test("formatNumber: one ladder, thresholds and digits as options", () => {
     assert.equal(formatNumber(12.345, {unit: "MPa"}), "12.35 MPa");
     assert.equal(formatNumber(12.345, {unit: "-"}), "12.35");
     // A provenance-style ladder: exponent below 1e-3 too, more digits.
-    const fine = {expBelow: 1e-3, largeDecimals: 2, decimals: 4, sig: 4};
-    assert.equal(formatNumber(0.0001234, fine), "1.2340e-4");
+    const fine = {expBelow: 1e-3, largeDecimals: 2, decimals: 4, sig: 4, expDigits: 3};
+    assert.equal(formatNumber(0.0001234, fine), "1.234e-4");
+    assert.equal(formatNumber(0.012345, fine), "0.01235");
     assert.equal(formatNumber(1.23456, fine), "1.2346");
 });
 
