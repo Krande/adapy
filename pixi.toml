@@ -1,6 +1,6 @@
 [workspace]
 channels = ["conda-forge"]
-platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
+platforms = ["win-64", "linux-64", "osx-arm64"]
 
 # ---------------------------------------------------------------------------
 # The local stack: the viewer, one worker and a queue, BUILT FROM THIS CHECKOUT.
@@ -363,10 +363,11 @@ test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=t
 # 0.30 for the compiled beam-to-beam clash pass and the member scan as JSONL
 # (adacpp#63, #64, #66, #67); 0.31 for the build against ifcopenshell 0.9 (adacpp#69);
 # 0.33 for the faster, memory-bounded native STEP/IFC->GLB and the IFC reader fix (adacpp#72);
-# 0.35 for `adacpp.fea.sin`, the native SIN reader and compare loops (adacpp#74).
+# 0.35 for `adacpp.fea.sin`, the native SIN reader and compare loops (adacpp#74);
+# 0.36 for `adacpp._render`, the WebGPU renderer every offscreen image is drawn with (adacpp#75).
 # KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer: the browser runs the
 # same release's wasm build of this same code.
-ada-cpp = "0.35.*"
+ada-cpp = "0.36.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -447,7 +448,8 @@ ada-cpp = "0.35.*"
 # the same release adds the multi-worker conversion. Same output, byte for byte, at one thread.
 # 0.35 (adacpp#74): `adacpp.fea.sin`, the SIN reader's per-record loops, compare statistics and shell
 # derived-field kernels; byte-identical to the numpy path, which stays for range-streamed sources.
-ada-cpp = "0.35.*"
+# 0.36 (adacpp#75): `adacpp._render`, the headless WebGPU renderer posters and thumbnails need.
+ada-cpp = "0.36.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
