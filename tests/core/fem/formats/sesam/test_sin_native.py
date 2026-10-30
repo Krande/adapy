@@ -75,6 +75,22 @@ def test_streamed_chunks_are_bit_identical(which, assembly, monkeypatch):
     assert native == numpy_path
 
 
+def test_a_bake_of_superelements_storing_different_cases_is_identical(monkeypatch, tmp_path):
+    """The deck shape whose streamed bake was refused as an element order drift."""
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    path = _stream_tests.write_uneven_assembly_sin(tmp_path / "UNEVEN.SIN")
+    monkeypatch.delenv("ADA_FEA_SIN_FIELD_CACHE", raising=False)
+    monkeypatch.setenv("ADA_FEA_SIN_STREAMER", "on")
+    digests = []
+    for native in (True, False):
+        monkeypatch.setenv("ADA_SIN_NATIVE", "1" if native else "0")
+        out = tmp_path / ("native" if native else "numpy")
+        bake_fea_artefacts_from_source(path, out, src_key="s")
+        digests.append(_stream_tests._bake_digests(out))
+    assert digests[0] and digests[0] == digests[1]
+
+
 @pytest.mark.parametrize("other", ["itself", "perturbed"])
 def test_streamed_comparison_is_identical(other, assembly, perturbed, monkeypatch):
     from ada.fem.formats.sesam.results.sin_field_stream import SinFieldStream
