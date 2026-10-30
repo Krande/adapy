@@ -320,6 +320,10 @@ export interface FeaManifest {
      * label prints. Omitted when the reader has no identifiers; never
      * fall back to row indices, which lie on renumbered decks. */
     node_labels?: number[];
+    /** Part instances whose element labels the bake moved to keep labels unique across
+     * instances (an Abaqus ODB numbers elements per instance): each instance's name and the
+     * offset added to its labels. Omitted when every label was unique already. */
+    element_instances?: {name: string; offset: number}[];
     /** Optional sidecar carrying deduped per-element edge index
      * pairs. When present, the frontend overlays them as a
      * THREE.LineSegments sharing the mesh's position attribute

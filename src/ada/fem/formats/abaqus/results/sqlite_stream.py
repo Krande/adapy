@@ -360,6 +360,51 @@ class ResultsSqliteStreamReader:
             )
         return [int(r[0]) for r in rows]
 
+    def _elem_id_offsets(self) -> dict[int, int]:
+        """What to add to each instance's element labels so labels are unique across instances.
+
+        Abaqus numbers elements per part instance, so a multi-instance ODB repeats labels (two
+        parts can both have an element 57). Downstream every element is keyed by its label (the
+        mesh's per-element draw ranges, element fields, beam solids), and a repeated label made
+        the later instance overwrite the earlier one: those elements could not be selected.
+
+        An instance whose labels do not collide with those taken before it keeps them; one that
+        collides moves into its own block above every label (block = the next power of ten past
+        the largest label), so ``1000057`` reads as instance block 1, element 57.
+        """
+        cached = getattr(self, "_elem_offsets_cache", None)
+        if cached is not None:
+            return cached
+        labels_by_inst: dict[int, np.ndarray] = {}
+        for inst_id in self._instance_ids:
+            rows = self._conn.execute("SELECT ElemID FROM ElementInfo WHERE InstanceID = ?", (inst_id,)).fetchall()
+            labels_by_inst[inst_id] = np.fromiter((r[0] for r in rows), dtype=np.int64, count=len(rows))
+        top = max((int(a.max()) for a in labels_by_inst.values() if a.size), default=0)
+        block = 10 ** len(str(top)) if top > 0 else 1
+        offsets: dict[int, int] = {}
+        taken: set[int] = set()
+        next_block = 1
+        for inst_id in self._instance_ids:
+            labels = labels_by_inst[inst_id]
+            if labels.size and not taken.isdisjoint(labels.tolist()):
+                offsets[inst_id] = next_block * block
+                next_block += 1
+            else:
+                offsets[inst_id] = 0
+            taken.update((labels + offsets[inst_id]).tolist())
+        self._elem_offsets_cache = offsets
+        return offsets
+
+    def _element_instances(self) -> list[dict] | None:
+        """The instances whose labels were moved (name + offset), for the manifest; None when none were."""
+        offsets = self._elem_id_offsets()
+        if not any(offsets.values()):
+            return None
+        names = dict(self._conn.execute("SELECT ID, Name FROM ModelInstances").fetchall())
+        return [
+            {"name": str(names.get(inst_id, inst_id)), "offset": int(offset)} for inst_id, offset in offsets.items()
+        ]
+
     def _ensure_indexes(self) -> None:
         # The schema ships no indexes. Add the ones the streaming
         # protocol needs so per-step queries don't scan the whole
@@ -506,10 +551,13 @@ class ResultsSqliteStreamReader:
                 # ElemIDs of unique elements are every nodes_per'th row
                 # — the ORDER BY ElemID, Seq guarantee makes them
                 # contiguous.
-                elem_ids = np.fromiter(
-                    (conn_rows[i][0] for i in range(0, total, nodes_per)),
-                    dtype=np.int64,
-                    count=n_elements,
+                elem_ids = (
+                    np.fromiter(
+                        (conn_rows[i][0] for i in range(0, total, nodes_per)),
+                        dtype=np.int64,
+                        count=n_elements,
+                    )
+                    + self._elem_id_offsets()[inst_id]
                 )
 
                 cell_blocks.append(
@@ -520,7 +568,7 @@ class ResultsSqliteStreamReader:
                     )
                 )
 
-        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
+        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks, element_instances=self._element_instances())
         return self._geom
 
     def _steps_kind(self, step_ids) -> str | None:
@@ -733,7 +781,8 @@ class ResultsSqliteStreamReader:
                 if ok_row is None:
                     continue
 
-                inst_labels = [int(r[0]) for r in elem_rows]
+                elem_offset = self._elem_id_offsets()[inst_id]
+                inst_labels = [int(r[0]) + elem_offset for r in elem_rows]
                 offset = len(combined_labels)
                 combined_labels.extend(inst_labels)
                 inst_buckets.append((inst_id, abq_type, location, list(field_var_ids), offset, len(inst_labels)))
@@ -925,7 +974,8 @@ class ResultsSqliteStreamReader:
                     mat=tables.materials[int(mat_id)],
                     up=tables.vectors[int(vec_id)],
                 )
-                beams.append((beam, int(el_id), index[int(n0)] + offset, index[int(n1)] + offset, p0, p1))
+                label = int(el_id) + self._elem_id_offsets()[inst_id]
+                beams.append((beam, label, index[int(n0)] + offset, index[int(n1)] + offset, p0, p1))
         if not beams:
             return None
         if format == "compact":

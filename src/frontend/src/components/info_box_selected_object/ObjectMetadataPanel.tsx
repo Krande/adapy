@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {movedElementName} from "@/utils/scene/fea/elementInstances";
 import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
 import type {LinkResult} from '@/state/lineageStore';
 import {useViewerStores} from '@/state/AdaViewerContext';
@@ -214,12 +215,14 @@ const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
     const section = props?.section ? tables.sections?.[String(props.section)] ?? null : null;
     const material = props?.material ? tables.materials?.[String(props.material)] ?? null : null;
     const thickness = props && Number.isFinite(props.thickness) ? props.thickness : null;
+    const instanceLabel = label !== null ? movedElementName(manifest, label) : null;
     return (
         <>
             <Row label="Element:">
                 {nodes?.elemType ?? '—'}
                 {typeName ? ` (${typeName})` : props?.eltype ? ` (type ${props.eltype})` : ''}
             </Row>
+            {instanceLabel && <Row label="Instance:">{instanceLabel}</Row>}
             {nodes && nodes.nodes.length > 0 && <Row label="Nodes:">{nodes.nodes.join(', ')}</Row>}
             {thickness !== null && <Row label="Thickness:">{fmtMm(thickness)}</Row>}
             {section && <SectionRows section={section} />}
