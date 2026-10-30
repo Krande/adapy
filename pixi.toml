@@ -523,44 +523,16 @@ openpyxl = "*"
 [feature.prod.target.win-64.dependencies]
 python = "3.12.13.*"
 
-# Notebook / rendering / static-export deps. Held separate from `prod`
-# so the slim viewer-api / worker images don't ship the
-# pygfx→wgpu→imgui→libopencv→ffmpeg closure (~260 MiB).
+# Notebook / static-export deps. Held separate from `prod` so the slim viewer-api / worker
+# images don't ship the notebook stack. Offscreen rendering (posters, thumbnails) is adacpp's
+# own renderer (`adacpp._render`), which comes with ada-cpp.
 [feature.desktop.dependencies]
 notebook = "*"
 ipywidgets = "*"
 jupyterlab = "*"
 plotly = "*"
 python-kaleido = ">=1.0.0"
-pygfx = ">=0.16"
-# pygfx 0.16 needs wgpu ≥ 0.21 (no more `wgpu.gui.offscreen`) and
-# rendercanvas ≥ 2.0 for our offscreen path.
-wgpu-py = ">=0.31"
-rendercanvas = ">=2.6"
-glfw = "==3.4"
-pyglfw = "*"
 send2trash = "*"
-
-# LINUX ONLY, and deliberately so. `harfbuzz` and `libharfbuzz` ship the same
-# `lib/libharfbuzz.so.0`, so a solve taking them at different versions resolves the symlink by
-# conda's clobber rule rather than by intent: on linux/py314 it picked harfbuzz 14.2.1 beside
-# libharfbuzz 14.5.0, the older file won, and `uharfbuzz` -- built against 14.5 -- failed to
-# import with `undefined symbol: hb_paint_funcs_set_fill_glyph_func`, taking pygfx with it.
-# Nothing pinned the old one (librsvg asks only for >=14.2.0), so this gives the solver a reason
-# to prefer the matching pair.
-#
-# Scoped to linux because that is where the clobber happens -- but note it changes nothing on
-# win-64 either way: `libharfbuzz-devel` arrives there regardless, because `pango` and `librsvg`
-# require `harfbuzz` BY NAME and conda-forge turned that name into a metapackage whose only
-# dependency IS the devel package. Nothing here can ask for "runtime harfbuzz only"; `uharfbuzz`,
-# the one thing in the pygfx stack that actually links it, correctly asks for `libharfbuzz`.
-#
-# BOTH bounds, deliberately: `libharfbuzz` is what uharfbuzz links, and `harfbuzz` is what has to
-# move with it -- below 14.5 that package still ships its own `lib/libharfbuzz.so.0`, which is the
-# file that wins the clobber and breaks the pair.
-[feature.desktop.target.linux-64.dependencies]
-libharfbuzz = ">=14.5"
-harfbuzz = ">=14.5"
 
 [feature.prod.target.win-64.activation.env]
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"

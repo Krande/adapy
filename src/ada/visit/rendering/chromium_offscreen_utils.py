@@ -1,11 +1,12 @@
 """Render a GLB to PNG via the *real* embed in headless Chromium.
 
-Why exist when `pygfx_offscreen_utils.glb_to_image` already produces a
+Why exist when `adacpp_offscreen.glb_to_image` already produces a
 PNG? Because the embed (`src/frontend/embed/index.ts`) is the source
 of truth for what a user sees in the browser — camera framing, line /
-mesh material choices, lighting, anti-aliasing, the lot. Reimplementing
-that in pygfx is fiddly and silently drifts (e.g. the `applyCameraPreset`
-margin-multiplier semantics aren't obvious from the field name alone).
+mesh material choices, lighting, anti-aliasing, the lot. Any other
+renderer is a port of that and can drift (e.g. the `applyCameraPreset`
+margin-multiplier semantics aren't obvious from the field name alone),
+so this is the visual oracle the faster backends are checked against.
 
 So instead we drive a headless Chromium through Playwright, mount the
 exact same `dist-embed/index.js` the hosted viewer consumes, and

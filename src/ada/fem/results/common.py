@@ -775,7 +775,7 @@ class FEAResult:
         # Append alpha = 255 (fully opaque). The earlier `+ [1]` looked
         # like "opaque" in float space but lands as 1/255 ≈ 0 once GLB
         # readers normalise uint8 VEC4 colours — which is what made
-        # pygfx posters render the middle of every FEA beam as white
+        # the (since removed) pygfx posters render every FEA beam's middle white
         # while Three.js' opaque material happened to ignore the
         # bogus alpha and got away with it.
         return np.array([[i * 255 for i in x] + [255] for x in vertex_colors], dtype=np.int32)
@@ -858,7 +858,7 @@ class FEAResult:
         warp_step: int = None,
         warp_scale: float = 1.0,
         cfunc=None,
-        renderer: Literal["react", "pygfx"] = "react",
+        renderer: Literal["react"] = "react",
         host="localhost",
         port=8765,
         server_exe: pathlib.Path = None,
@@ -878,11 +878,12 @@ class FEAResult:
         and let the viewer read it the way the REST viewer does -- the mesh first, then
         one step of one field at a time, every field (nodal and element) selectable in
         the viewer. Off, the result is sent as one GLB with its nodal steps baked in as
-        animations (the notebook and pygfx paths always do this); ``step``, ``field``,
+        animations (the notebook path always does this); ``step``, ``field``,
         ``warp_field``, ``warp_step`` and ``cfunc`` only apply there.
         """
-        from ada.visit.renderer_manager import RendererManager
+        from ada.visit.renderer_manager import RendererManager, resolve_renderer
 
+        renderer = resolve_renderer(renderer)
         if stream is None:
             from ada.visit.utils import in_notebook
 

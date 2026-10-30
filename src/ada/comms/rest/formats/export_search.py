@@ -148,13 +148,10 @@ def _thumbnail_unavailable() -> str | None:
         if os.environ.get("ADA_EXPORT_THUMBNAILS", "1").lower() in ("0", "false", "no", "off"):
             reason = "thumbnails disabled (ADA_EXPORT_THUMBNAILS=0)"
         else:
-            from ada.visit.rendering.offscreen import resolve_backend
+            from ada.visit.rendering.adacpp_offscreen import is_available
 
-            try:
-                if resolve_backend("auto") == "pygfx":
-                    import ada.visit.rendering.pygfx_offscreen_utils  # noqa: F401
-            except Exception as exc:  # noqa: BLE001 - neither adacpp's renderer nor pygfx in this worker
-                reason = f"no offscreen renderer in this worker, thumbnails skipped ({type(exc).__name__}: {exc})"
+            if not is_available():
+                reason = "no offscreen renderer in this worker (adacpp without _render), thumbnails skipped"
         _THUMB_UNAVAILABLE.append(reason)
     return _THUMB_UNAVAILABLE[0]
 
@@ -168,8 +165,7 @@ def _render_thumb(glb_path: pathlib.Path, out_path: pathlib.Path) -> str | None:
     from ada.visit.rendering.offscreen import glb_to_image
 
     try:
-        # pygfx reads plain glTF only; a built (meshopt-packed) GLB is unpacked first.
-        image = glb_to_image(_plain_glb(glb_path), size=(THUMB_SIZE, THUMB_SIZE))
+        image = glb_to_image(glb_path, size=(THUMB_SIZE, THUMB_SIZE))  # adacpp decodes meshopt GLBs itself
         image.save(out_path, format="PNG")
     except Exception as exc:  # noqa: BLE001 - a thumbnail is a nicety
         return f"thumbnail render failed ({type(exc).__name__}: {exc})"

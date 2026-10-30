@@ -1696,7 +1696,7 @@ class Part(BackendGeom):
         self,
         camera: Camera | None = None,
         *,
-        backend: Literal["auto", "adacpp", "pygfx", "chromium"] = "auto",
+        backend: Literal["auto", "adacpp", "chromium"] = "auto",
         preset: dict | None = None,
         size: tuple[int, int] = (640, 480),
     ) -> Image:
@@ -1705,37 +1705,29 @@ class Part(BackendGeom):
         Parameters
         ----------
         camera
-            Legacy pygfx camera. When supplied (with ``backend`` "auto" or
-            "pygfx"), the trimesh-scene pygfx render path is used (kept for
-            callers that already pass a hand-built ``Camera``). When
-            ``None``, every backend routes through the embed's
-            ``applyCameraPreset`` math so the offscreen renderers and the
-            live 3D viewer all use identical camera setup.
+            Deprecated and ignored: it drove the removed pygfx renderer. Every backend frames the
+            model with the embed's ``applyCameraPreset``; pass ``preset`` to change the view.
         backend
-            ``"auto"`` (default) — ``"adacpp"`` when the installed adacpp
-            ships its renderer extension, else ``"pygfx"``.
-            ``"adacpp"`` — adacpp's WebGPU renderer, headless: the renderer
+            ``"auto"`` (default) or ``"adacpp"`` — adacpp's WebGPU renderer, headless: the renderer
             Ada Studio's WebGPU mode draws with.
-            ``"pygfx"`` — fast offscreen render via pygfx/wgpu.
-            ``"chromium"`` drives the production adapy embed in headless
-            Chromium via Playwright. ``camera`` is ignored by chromium;
-            pass ``preset`` to override the embed's ``CameraPreset``.
+            ``"chromium"`` drives the production adapy embed in headless Chromium via Playwright.
         preset
             Camera preset dict (azimuth_deg, elevation_deg, fov_deg,
-            distance, margin, …). Honored by every backend when
-            ``camera`` is None — same field names as
+            distance, margin, …), honored by every backend — same field names as
             ``paradoc.camera.presets.CameraPreset`` so the render paths
             read from a single source of truth.
         size
             Viewport size (also the output PNG size at DPR=1).
         """
-        if camera is not None and backend in ("auto", "pygfx"):
-            # Legacy pygfx path: trimesh scene + hand-built Camera. Kept for
-            # callers that already supply a Camera; new code should drop the
-            # arg and use the preset-driven path below.
-            from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
+        if camera is not None:
+            import warnings
 
-            return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
+            warnings.warn(
+                "Part.render_offscreen(camera=...) drove the removed pygfx renderer and is ignored; "
+                "pass preset=... (azimuth_deg, elevation_deg, fov_deg, distance, margin) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         # Every preset-driven backend roundtrips via a temp GLB, so they all
         # frame the model identically (same math, same defaults).

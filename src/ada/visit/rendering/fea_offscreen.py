@@ -20,8 +20,8 @@ wrapper:
     the mesh GLB's POSITION attribute.
   * Optionally apply the Abaqus colormap on per-vertex displacement
     magnitude (matching what the live viewer paints).
-  * Render via `offscreen.glb_to_image` (adacpp's WebGPU renderer, pygfx
-    or chromium) with the embed's camera-preset math.
+  * Render via `offscreen.glb_to_image` (adacpp's WebGPU renderer or
+    chromium) with the embed's camera-preset math.
 
 The wrapper is intentionally single-call: each invocation bakes a
 fresh temp bundle so loop state from `FEAResult.to_gltf` can't leak
@@ -31,7 +31,7 @@ expose `render_fea_mode_from_bundle` for cases where you already have
 the artefacts on disk.
 
 All non-stdlib imports are lazy inside the functions — adapy's docs
-env doesn't pull `trimesh` / pygfx / chromium unless something
+env doesn't pull `trimesh` / adacpp / chromium unless something
 actually renders, so importing this module is cheap.
 """
 
@@ -309,7 +309,7 @@ def render_fea_mode_from_bundle(
 
     `overlay` draws Ada Studio's colour legend (with `apply_colormap`)
     and orientation gizmo over the poster -- with the adacpp backend;
-    pygfx and chromium posters have neither.
+    chromium posters have neither.
 
     `case_dir` must contain `fea.mesh.glb`, `fea.manifest.json`, and
     the AFBL displacement blobs the manifest references.
@@ -319,7 +319,7 @@ def render_fea_mode_from_bundle(
     a torsion mode twists) -- the viewer's "Beams as solid". Needs the
     bundle's mesh-format beam solids; without them beams stay lines.
 
-    All heavy imports (numpy, trimesh, pygfx, playwright) are lazy
+    All heavy imports (numpy, trimesh, adacpp, playwright) are lazy
     inside the function — pygltflib intentionally is NOT used, so
     callers in slimmer envs (e.g. the docs build) don't need it.
     """

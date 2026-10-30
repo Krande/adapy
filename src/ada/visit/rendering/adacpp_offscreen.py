@@ -1,11 +1,11 @@
 """Offscreen GLB -> image through adacpp's WebGPU renderer (``adacpp._render``, wgpu-native).
 
 The renderer Ada Studio draws with in its WebGPU mode, run headless: same clusters, same shading (three.js'
-MeshStandardMaterial port), same lights. It replaces the pygfx path (``pygfx_offscreen_utils``) with one
-small native extension instead of the pygfx/wgpu-py/imgui closure.
+MeshStandardMaterial port), same lights, in one small native extension. It replaced adapy's pygfx renderer
+and its pygfx/wgpu-py/imgui dependency closure.
 
-The camera is the embed's ``applyCameraPreset`` (adapy ``src/frontend/embed/index.ts``), as in the pygfx
-port, so posters frame the model the way the live viewer first shows it.
+The camera is the embed's ``applyCameraPreset`` (adapy ``src/frontend/embed/index.ts``), so posters frame
+the model the way the live viewer first shows it.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def _shared_renderer(width: int, height: int):
 
 
 def is_available() -> bool:
-    """True when the installed adacpp ships the renderer extension and a WebGPU adapter can be loaded."""
+    """True when the installed adacpp ships the renderer extension (``adacpp._render``, adacpp >= 0.36)."""
     try:
         from adacpp import _render  # noqa: F401
     except ImportError:
@@ -128,19 +128,19 @@ def glb_to_image(
     z_up: bool = True,
     size: tuple[int, int] = (640, 480),
     line_color: tuple[float, float, float, float] = (0.15, 0.15, 0.15, 1.0),
-    # 1 px, not pygfx's 1.5: pygfx feathers its lines, ours are solid (MSAA) quads, and at 1.5 px the mesh
-    # edges read twice as heavy and darken the result colours on fine meshes.
+    # 1 px, not the retired pygfx renderer's 1.5: pygfx feathered its lines, ours are solid (MSAA) quads,
+    # and at 1.5 px the mesh edges read twice as heavy and darken the result colours on fine meshes.
     line_thickness: float = 1.0,
     member_thickness: float = 4.0,
     point_size: float = 4.0,
     background: tuple[float, float, float] | None = None,
     overlay: dict | None = None,
 ) -> "Image":
-    """Render ``glb_path`` to a PIL Image; the signature of ``pygfx_offscreen_utils.glb_to_image``.
+    """Render ``glb_path`` to a PIL Image.
 
-    Lines without vertex colours (element / feature edges) draw in ``line_color`` (sRGB, as pygfx reads
-    colours) at ``line_thickness`` pixels; coloured lines (beam members) in their own colours at
-    ``member_thickness``. ``background``: sRGB, opaque; ``None`` = transparent, as the pygfx posters are.
+    Lines without vertex colours (element / feature edges) draw in ``line_color`` (sRGB) at ``line_thickness``
+    pixels; coloured lines (beam members) in their own colours at ``member_thickness``. ``background``: sRGB,
+    opaque; ``None`` = transparent.
 
     ``overlay`` draws Ada Studio's orientation gizmo and colour legend over the image, e.g.
     ``{"gizmo": True, "legend": {"header": [...], "gradient": [[r, g, b], ...], "ticks": [...]}}``
@@ -157,7 +157,7 @@ def glb_to_image(
             member_width=member_thickness,
             point_size=point_size,
             line_color=(*(_srgb_to_linear(float(c)) for c in line_color[:3]), float(line_color[3])),
-            # pygfx draws both faces by default and shell posters rely on it: an FEA shell seen from behind.
+            # Both faces: shell posters rely on it (an FEA shell seen from behind), as they did under pygfx.
             double_sided=True,
         )
         if background is None:

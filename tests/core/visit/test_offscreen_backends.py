@@ -1,30 +1,30 @@
 """The offscreen renderer seam: backend choice, the embed camera preset as matrices, the poster legend.
 
-None of this needs a GPU or adacpp's renderer extension, so it runs everywhere.
+All but the last test need no GPU or adacpp's renderer extension, so they run everywhere.
 """
 
-import builtins
 import math
 
 import numpy as np
 import pytest
 
+from ada.visit.renderer_manager import resolve_renderer
 from ada.visit.rendering import offscreen
 from ada.visit.rendering.adacpp_offscreen import preset_camera
 from ada.visit.rendering.fea_offscreen import _legend_spec
 
 
-def test_auto_falls_back_to_pygfx_without_the_adacpp_extension(monkeypatch):
-    real_import = builtins.__import__
-
-    def no_render(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "adacpp" and fromlist and "_render" in fromlist:
-            raise ImportError("adacpp built without the renderer")
-        return real_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", no_render)
-    assert offscreen.resolve_backend("auto") == "pygfx"
+def test_backends_resolve_to_adacpp_and_the_removed_pygfx_one_warns():
+    assert offscreen.resolve_backend("auto") == "adacpp"
     assert offscreen.resolve_backend("chromium") == "chromium"
+    with pytest.warns(DeprecationWarning, match="pygfx"):
+        assert offscreen.resolve_backend("pygfx") == "adacpp"
+
+
+def test_the_removed_pygfx_viewer_shows_with_react():
+    assert resolve_renderer("trimesh") == "trimesh"
+    with pytest.warns(DeprecationWarning, match="pygfx"):
+        assert resolve_renderer("pygfx") == "react"
 
 
 def test_preset_camera_places_the_eye_as_the_embed_does():

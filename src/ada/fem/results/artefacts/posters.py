@@ -110,12 +110,9 @@ def bake_with_posters(
           interactive-only in a context where that's acceptable).
 
     ``poster_backend``:
-        * ``"auto"`` (default) — ``"adacpp"`` when the installed adacpp
-          ships its renderer extension, else ``"pygfx"``.
-        * ``"adacpp"`` — adacpp's WebGPU renderer, headless: the renderer
-          Ada Studio's WebGPU mode draws with. No browser; camera framing
-          is the same `iso_3` math the embed uses.
-        * ``"pygfx"`` — the pygfx renderer it replaces.
+        * ``"auto"`` (default) / ``"adacpp"`` — adacpp's WebGPU renderer,
+          headless: the renderer Ada Studio's WebGPU mode draws with. No
+          browser; camera framing is the same `iso_3` math the embed uses.
         * ``"chromium"`` — drives the production embed headless via
           playwright. Bit-identical to the live viewer, ~5 s/PNG.
 
@@ -170,7 +167,7 @@ def bake_with_posters(
             field_blob_paths=bake.field_blob_paths,
         )
 
-    # Lazy import — the renderer pulls trimesh + pygfx + numpy heavy
+    # Lazy import — the renderer pulls trimesh + adacpp + numpy heavy
     # machinery, which a slimmer caller (a smoke test that just wants
     # the bundle, say) shouldn't pay for.
     from ada.visit.rendering.fea_offscreen import (

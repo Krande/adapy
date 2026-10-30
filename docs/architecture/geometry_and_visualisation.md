@@ -129,4 +129,4 @@ Some sources never become an `Assembly`:
 | `renderer_manager` | `visit/renderer_manager.py` | What `obj.show()` calls, from any script. In a plain script it starts the local `wsock` server and opens the viewer in a browser tab. In Jupyter it embeds the viewer in the cell output instead. |
 | `RendererReact` | `visit/rendering/renderer_react.py` | The viewer bundle (`resources/index.zip`): served to the browser, or inlined with the GLB in an `<iframe srcdoc>` in Jupyter. |
 | `WebSocketRenderer` | `visit/rendering/renderer_widget.py` | The viewer connected to a running `wsock` server. |
-| pygfx offscreen | `visit/rendering/render_pygfx.py`, `fea_offscreen.py` | Headless PNG posters (for example the FEA verification report's mode shapes). |
+| Offscreen | `visit/rendering/offscreen.py`, `adacpp_offscreen.py`, `fea_offscreen.py` | Headless PNG posters and thumbnails (for example the FEA verification report's mode shapes), drawn by adacpp's WebGPU renderer (`adacpp._render`), the renderer Ada Studio's WebGPU mode uses. `chromium_offscreen_utils.py` renders through the real embed as the visual oracle for tests. |
