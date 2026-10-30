@@ -532,6 +532,12 @@ class Mesh:
                 mat = self.materials.get(mat_id) if self.materials is not None else None
                 sec = self.sections.get(sec_id) if self.sections is not None else None
                 vec = self.vectors.get(vec_id) if self.vectors is not None else None
+                if mat is None:
+                    # Not in the tables (a graft covers only the elements it matched, an ODB export
+                    # only those with a drawable profile): a FemSection needs a material, so this
+                    # one stays a line without one.
+                    line_elems.append(el)
+                    continue
                 if vec is None:
                     vec = _default_local_z(el)
                     num_defaulted += 1

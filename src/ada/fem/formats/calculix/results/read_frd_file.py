@@ -359,6 +359,7 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
     identifiers = ccx_results.nodes[:, 0]
     nodes = FemNodes(coords=coords, identifiers=identifiers)
     mesh = Mesh(elements=blocks, nodes=nodes)
+    graft_deck_sections(mesh, frd_file.with_suffix(".inp"))
 
     software_version = extract_calculix_version(frd_file)
 
@@ -378,6 +379,45 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
         eigen_mode_data=eigen_mode_data,
         analysis_kind=frd_analysis_kind(ccx_results.analysis_types),
     )
+
+
+#: A ``*BEAM SECTION`` with a geometric profile (not ``SECTION=GENERAL``): the only kind a deck's
+#: beams can be drawn as solids from.
+_PROFILED_BEAM_SECTION = re.compile(r"^\*\s*BEAM\s+SECTION\b(?![^\n]*SECTION\s*=\s*GENERAL)", re.I | re.M)
+
+
+def graft_deck_sections(mesh: Mesh, inp_file: pathlib.Path) -> int:
+    """Give ``mesh`` the beam sections of the input deck beside the ``.frd``; how many elements got one.
+
+    The ``.frd`` holds no section, but the deck that was solved does, and CalculiX writes its
+    results next to it under the same name. Taken only by element id and end-node position
+    (:func:`~ada.fem.results.line_sections.graft_line_sections`), so it applies where the ``.frd``
+    holds the deck's line elements (``*NODE FILE, OUTPUT=2D``). Without it ccx writes each beam as
+    the brick it expanded it into, under new nodes: that result is a solid already, and nothing
+    matches. A deck beam the ``.frd`` left out entirely is added back when its end nodes are in
+    the result. A deck whose beams all have ``SECTION=GENERAL`` (area and inertias, no outline --
+    adapy's ``U1`` beams) is not read: it has nothing to draw.
+    """
+    from ada.config import logger
+
+    if not inp_file.is_file():
+        return 0
+    try:
+        if _PROFILED_BEAM_SECTION.search(inp_file.read_text(errors="replace")) is None:
+            return 0
+        import ada
+        from ada.fem.results.line_sections import (
+            graft_line_sections,
+            line_section_tables,
+        )
+
+        assembly = ada.from_fem(inp_file)
+        parts = assembly.get_all_parts_in_assembly(include_self=True)
+        lines = [el for p in parts if p.fem is not None for el in p.fem.elements.lines]
+        return graft_line_sections(mesh, line_section_tables(lines), add_missing=True)
+    except Exception as exc:  # noqa: BLE001 - the sections are decoration; the result reads without them
+        logger.warning(f"beam sections of {inp_file.name} not read: {exc}")
+        return 0
 
 
 def _read_eigen_mode_data(ccx_results: CcxResultModel, frd_file: pathlib.Path):
