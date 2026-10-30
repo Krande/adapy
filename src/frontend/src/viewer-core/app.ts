@@ -37,6 +37,25 @@ export type { Runtime } from "@/runtime/config";
 export { viewerApi } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------
+// Finishing a tracked job: register, at module load, what to do once a job of a
+// `kind` (AdaPluginContext.trackJob) is done -- also for a job resumed after a reload.
+// ---------------------------------------------------------------------------
+export { registerJobFinisher } from "@/services/jobTracking";
+export type { JobFinishContext, JobFinisher, JobFinishResult } from "@/services/jobTracking";
+
+// ---------------------------------------------------------------------------
+// Cross-window simulation sync (BroadcastChannel): a maximized / follower window
+// of a Simulation panel drives the original tab's scene, and back.
+// ---------------------------------------------------------------------------
+export { followerParams, followerUrl, postSim, subscribeSim } from "@/utils/simChannel";
+export type { SimMsg } from "@/utils/simChannel";
+
+// ---------------------------------------------------------------------------
+// Panel building blocks a plugin panel shares with core's own.
+// ---------------------------------------------------------------------------
+export { default as CollapsibleSection } from "@/components/common/CollapsibleSection";
+
+// ---------------------------------------------------------------------------
 // Number formatting and banded colour scales (pure).
 // ---------------------------------------------------------------------------
 export { formatNumber } from "@/utils/format";

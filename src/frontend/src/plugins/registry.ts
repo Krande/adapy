@@ -78,7 +78,8 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          Plugin-side only, so viewer-core stays at 1.7.0, as it did through 1.6.0.
 // 1.9.0 -- renderer-neutral scene overlays on `SceneHandle`: `addLines`, `addLabels`,
 //          `paintFeaElements` (each returns a `SceneOverlay`), `hasFeaModel`, `showColorScale`
-//          (a plugin's banded scale in core's colour legend), FEA element isolation
+//          (a plugin's banded scale in core's colour legend), `trackJob` `kind` / `data` /
+//          `persist` (with `registerJobFinisher` on @/viewer-core/app), FEA element isolation
 //          (`isolateFeaElements`, `hideFeaElements`, `hiddenFeaElements`) and
 //          `setFeaElementEdgesVisible`. A plugin states what to draw in plain data and core
 //          builds it, so it draws the same under three.js and the WebGPU renderer and moves
@@ -391,8 +392,21 @@ export interface AdaPluginContext {
    *
    * Returns the store key for the toast entry. Fire-and-forget: the poll is
    * detached, which is the point.
+   *
+   * To act when the job is done (reload results, say), give it a `kind` and register a
+   * finisher for that kind at module load (`registerJobFinisher` on @/viewer-core/app,
+   * 1.9.0): it runs as the entry's last stage, with `data`. With `persist` the entry is
+   * remembered in this browser, so the toast -- and the finisher -- resume after a reload.
    */
-  trackJob: (opts: {jobId: string; label: string; derivedKey?: string; storeKey?: string}) => string;
+  trackJob: (opts: {
+    jobId: string;
+    label: string;
+    derivedKey?: string;
+    storeKey?: string;
+    kind?: string;
+    data?: unknown;
+    persist?: boolean;
+  }) => string;
 }
 
 export type ActivationPredicate = (ctx: AdaPluginContext) => boolean;
