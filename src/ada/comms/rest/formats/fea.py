@@ -83,7 +83,7 @@ async def _run_fea_artefact_bake(
 
     # The baked artefacts land here (a child's work dir, or a temp dir on the thread path).
     out_dir: pathlib.Path | None = None
-    cleanup: Callable[[], None] = lambda: None
+    cleanups: list[Callable[[], None]] = []
     try:
         if subprocess_convert.HAVE_POSIX_FORK:
             # In a forked child, as conversions run: a reader that holds the GIL for minutes (a
@@ -124,11 +124,10 @@ async def _run_fea_artefact_bake(
                 await _fail_bake(queue, db_pool, job_id, started_at, msg, res.traceback, dict(res.final_metrics))
                 return
             out_dir = res.work_dir
-            cleanup = res.cleanup
+            cleanups.append(res.cleanup)
         else:
             out_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
-            bake_dir = out_dir
-            cleanup = lambda: shutil.rmtree(bake_dir, ignore_errors=True)  # noqa: E731
+            cleanups.append(functools.partial(shutil.rmtree, out_dir, ignore_errors=True))
             if not await _bake_in_thread(job, src_path, out_dir, _on_progress, queue, db_pool, started_at):
                 return
 
@@ -180,10 +179,11 @@ async def _run_fea_artefact_bake(
         )
         await _audit_done(db_pool, job_id, "done", None, started_at)
     finally:
-        try:
-            cleanup()
-        except Exception:
-            pass
+        for cleanup in cleanups:
+            try:
+                cleanup()
+            except Exception:
+                pass
 
 
 async def _fail_bake(
