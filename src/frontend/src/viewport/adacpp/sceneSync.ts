@@ -133,13 +133,16 @@ export class SceneSync {
     private readonly hookRenderer = {
         width: 1,
         height: 1,
+        pixelRatio: 1,
         getSize(target: THREE.Vector2) {
             return target.set(this.width, this.height);
         },
         getDrawingBufferSize(target: THREE.Vector2) {
             return target.set(this.width, this.height);
         },
-        getPixelRatio: () => 1,
+        getPixelRatio(): number {
+            return this.pixelRatio;
+        },
         clearStencil: () => {},
     };
     lastSyncMs = 0;
@@ -198,6 +201,7 @@ export class SceneSync {
             // morph, handles scale with the camera. Run it as three would, then mirror the result.
             this.hookRenderer.width = width;
             this.hookRenderer.height = height;
+            this.hookRenderer.pixelRatio = pixelRatio;
             const mesh = obj as THREE.Mesh;
             obj.onBeforeRender(this.hookRenderer as unknown as THREE.WebGLRenderer, scene, camera, mesh.geometry,
                 baseMaterial(obj) as THREE.Material, null as unknown as THREE.Group);
@@ -512,7 +516,12 @@ export class SceneSync {
                 const id = ids[s];
                 if (!id) continue;
                 if (obj.isRangeHidden(id)) packed[s * 2 + 1] = SegmentFlag.Hidden;
-                else if (obj.isRangeSelected(id)) packed[s * 2] = highlight;
+                else if (obj.isRangeSelected(id)) {
+                    // Lit as three.js lights selectedMaterial (matte), not the model's own material: on a
+                    // metallic glTF material the highlight would come out almost black.
+                    packed[s * 2] = highlight;
+                    packed[s * 2 + 1] = SegmentFlag.Matte;
+                }
             }
         } else if (e.segmentKind === "edges") {
             const tex = baseMaterial(obj)?.uniforms?.uVisibleTex?.value as THREE.DataTexture | undefined;

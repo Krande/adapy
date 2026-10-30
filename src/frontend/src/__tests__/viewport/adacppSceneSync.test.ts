@@ -116,7 +116,9 @@ test("hidden and selected ranges reach the renderer as segment state, only when 
     // segments: gap, a, gap, b -> a hidden, b coloured (override alpha 255), gaps untouched
     assert.equal(state[3], SegmentFlag.Hidden);
     assert.equal(state[6] >>> 24, 255);
-    assert.equal(state[1] | state[5] | state[7], 0);
+    // The selected segment is lit matte, as three.js' selection material is.
+    assert.equal(state[7], SegmentFlag.Matte);
+    assert.equal(state[1] | state[5], 0);
 
     rec.states.clear();
     sync.sync(scene, camera);

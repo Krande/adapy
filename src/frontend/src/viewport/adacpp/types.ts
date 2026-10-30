@@ -128,4 +128,8 @@ export const InstanceFlag = {
     Clipped: 1 << 11, // cut by the section planes (setClipPlanes)
     DepthOffset: 1 << 12, // in front of coplanar faces (a negative polygonOffset)
 } as const;
-export const SegmentFlag = {Hidden: 1 << 0} as const;
+export const SegmentFlag = {
+    Hidden: 1 << 0,
+    // The colour override is a matte surface (metalness 0, roughness 1), as the selection material is.
+    Matte: 1 << 1,
+} as const;
