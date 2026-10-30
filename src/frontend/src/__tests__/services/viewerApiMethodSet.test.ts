@@ -52,7 +52,7 @@ const EXPECTED_METHODS = [
   "adminGetAuditLog", "adminGetSetting", "adminIssueTargetGet", "adminIssueTargetSet",
   "adminListCliTokens", "adminListMembers", "adminListProjects", "adminListStorage", "adminListUsers", "adminListWorkers",
   "adminMetricsHistory", "adminMintCliToken", "adminMoveKeysToFolder", "adminPerfHotspots",
-  "adminPerfReport", "adminPerfThresholdsGet", "adminPerfThresholdsSet", "adminPerfWorkers",
+  "adminPerfReport", "adminPerfThresholdsGet", "adminPerfThresholdsSet", "adminPerfWorkers", "adminPurgeDerived",
   "adminPluginJobScheduleArchive", "adminPluginJobScheduleCreate",
   "adminPluginJobScheduleRunNow", "adminPluginJobScheduleUpdate",
   "adminPluginJobSchedulesList", "adminProfileStats", "adminProfileUrl",
