@@ -265,10 +265,19 @@ function parseChangeCheck(pluginId: string, spec: Record<string, unknown>): Asse
       id: entry.id.trim(),
       label: typeof entry.label === "string" && entry.label.trim() ? entry.label.trim() : "Check for changes",
       description: typeof entry.description === "string" && entry.description.trim() ? entry.description.trim() : null,
-      requiresAdmin: spec.requires_admin === true,
+      requiresAdmin: requiresAdminOf(spec),
     };
   }
   return null;
+}
+
+/** Whether running this spec's jobs takes an admin: its own `requires_admin`, and ALWAYS for an asset
+ *  provider (`asset_provider_id`). Provider data lives once in the provider store and every job of a
+ *  provider writes there, so members never start one -- the server answers 403 -- and the browser
+ *  offers them no button for it. Scheduled jobs keep the data current. */
+export function requiresAdminOf(spec: Record<string, unknown>): boolean {
+  if (spec.requires_admin === true) return true;
+  return typeof spec.asset_provider_id === "string" && spec.asset_provider_id.trim().length > 0;
 }
 
 /** A declared `asset_request_options`: `{options: [names], choices?: request}`.
@@ -291,7 +300,7 @@ function parseRequestOptions(pluginId: string, spec: Record<string, unknown>): A
   const byName = new Map(declaredOptions(spec).map((d) => [d.name, d]));
   const decls = names.map((n) => byName.get(n)).filter((d): d is PluginJobOption => !!d);
   if (!decls.length) return null;
-  return { pluginId, decls, choices: parseRequest(pluginId, raw.choices, spec.requires_admin === true) };
+  return { pluginId, decls, choices: parseRequest(pluginId, raw.choices, requiresAdminOf(spec)) };
 }
 
 /** A declared request: `asset_collection_request` on a plugin spec.
@@ -306,8 +315,8 @@ export interface AssetCollectionRequest {
   options: Readonly<Record<string, unknown>>;
   collectionOption: string;
   label: string;
-  /** The plugin's job needs an admin (its spec's EFFECTIVE `requires_admin`), so
-   *  anyone else is told why rather than offered a button the server refuses. */
+  /** The plugin's job needs an admin (`requiresAdminOf`: its spec's `requires_admin`, or any asset
+   *  provider's), so anyone else is told why rather than offered a button the server refuses. */
   requiresAdmin: boolean;
 }
 
@@ -421,10 +430,10 @@ export function assetProviderCollections(
       entry.refresh = { pluginId, options: { ...spec.asset_collections_refresh } };
     }
     if (!entry.request) {
-      entry.request = parseRequest(pluginId, spec.asset_collection_request, spec.requires_admin === true);
+      entry.request = parseRequest(pluginId, spec.asset_collection_request, requiresAdminOf(spec));
     }
     if (!entry.nodeRequest) {
-      entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, spec.requires_admin === true);
+      entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, requiresAdminOf(spec));
     }
     if (!entry.requestOptions) entry.requestOptions = parseRequestOptions(pluginId, spec);
     if (!entry.changeCheck) entry.changeCheck = parseChangeCheck(pluginId, spec);

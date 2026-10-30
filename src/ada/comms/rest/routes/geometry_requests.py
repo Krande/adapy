@@ -390,13 +390,27 @@ async def request_missing(
     Every job is enqueued before the first is waited for (one session drains them back to back),
     each answer is published as soon as it arrives (the publish runs while the next export does),
     and one job's failure is that batch's outcome, not the export's. Raises only RunCancelled /
-    ItemSkipped -- after cancelling every request job not yet finished."""
+    ItemSkipped -- after cancelling every request job not yet finished.
+
+    AN ADMIN OPERATION, IN THE PROVIDER STORE. The geometry provider's node request is a provider
+    job: it runs in ``Scope.providers()`` whatever ``scope_obj`` the export was started from, its
+    summary is read and its staging published there (``job_scope``), and a member asks for none
+    of it -- provider data is kept current by the admins' scheduled jobs and read through the
+    grants on the member's scope. A member's request therefore enqueues nothing: each batch is
+    reported refused, with the reason, and the export writes what the store already holds."""
     from .asset_schedules import job_keys
+    from .provider_store import ADMIN_ONLY_REQUEST, is_asset_provider_spec, job_scope
 
     out = RequestOutcome(
         missing=sum(1 for s in states if s.state in MISSING_STATES),
         unknown=sum(1 for s in states if s.state == "unknown"),
     )
+    if is_asset_provider_spec(dict(req.spec)) and not getattr(user, "is_admin", False):
+        n = sum(len(c) for c in request_chunks([request_target(s) for s in states if s.state in MISSING_STATES]))
+        if n:
+            out.batches.append({"nodes": n, "status": "error", "message": ADMIN_ONLY_REQUEST.format(provider=provider)})
+        return out
+    requested_from, scope_obj = scope_obj, job_scope(dict(req.spec), scope_obj)
     wanted = [s for s in states if s.state in MISSING_STATES]
     by_target: dict[str, list[HitState]] = {}
     targets = []
@@ -410,7 +424,9 @@ async def request_missing(
         return out
 
     t0 = time.monotonic()
-    extra = await _provider_options(ctx, scope_obj, provider, collection)
+    # The store's options for the collection; the requesting scope's copy from before the store
+    # answers only while the store has none (asset_sweeps._provider_options).
+    extra = await _provider_options(ctx, requested_from, provider, collection)
     queued: list[tuple[list[dict], str, str]] = []
     for chunk in chunks:
         options = request_options(

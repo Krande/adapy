@@ -38,6 +38,18 @@ could not read is refused (403), and a re-run asks again, so losing access stops
 into the origin is gated on being able to write there (:func:`_may_write`): a geometry or tree
 request publishes into the scope the hit lies in, or is reported as one to make from there.
 
+PROVIDER DATA IS READ THROUGH GRANTS (docs/design/provider-scope-grants.md). A hit from the provider
+store (``scope: "providers"``) is accepted only when its (provider, collection) carries an
+``attributes`` grant on the searched scope (:func:`refuse_unreadable_hits`). DESIGN GEOMETRY for any
+hit -- a web3d hit included; web3d is never a geometry source -- is the ``GEOMETRY_PROVIDER`` CSG of
+the same collection IN THE STORE when the scope holds a ``geometry`` grant on (``GEOMETRY_PROVIDER``,
+collection), and a store hit without that grant writes no file: it reports ``no_geometry`` with
+``reason: "not_granted"`` (:func:`geometry_read_scope`; the preflight counts them as
+``not_granted``). A mesh export reads its provider's dataset under the same rule. Requests for
+missing geometry or trees are an asset provider's jobs, so ADMIN operations: a member's preflight
+says so (``request.allowed`` false, with the reason) and a member's start asking for one is refused
+up front, never halfway through a run. Files still go to the target scope.
+
 ``GET /scopes/{scope}/files/meta?key=`` answers ``ada.files/meta@1`` for ANY file: the export's
 sidecar when there is one, else the provenance the file carries itself (an IFC's ``ADA_*`` property
 sets, a GLB's ``asset.extras.provenance``), else 404.
@@ -98,6 +110,13 @@ from .deps import (
     rest_context,
     scope_from_path,
 )
+from .provider_store import (
+    PROVIDER_STORE,
+    PROVIDER_STORE_WIRE,
+    is_asset_provider_spec,
+    job_scope,
+    store_holds_geometry,
+)
 
 router = APIRouter()
 
@@ -144,23 +163,78 @@ def _clean_path(raw: Any) -> list[dict]:
     return out
 
 
-def refuse_unreadable_hits(raw_hits: list, own: str, readable: frozenset[str] | set[str]) -> None:
+def refuse_unreadable_hits(raw_hits: list, own: str, readable: frozenset[str] | set[str], origins=None) -> None:
     """Refuse (403) hits whose origin (``scope``, a storage prefix) is not one this caller's search
     reads (``SearchOrigins.readable``): the export would read that scope's index and geometry on
-    their behalf. A hit that names no ``scope`` (a client from before shares) is ``own``'s."""
-    unreadable = sorted(
-        {
-            str(h.get("scope"))
-            for h in raw_hits
-            if isinstance(h, dict) and h.get("scope") not in (None, own) and h.get("scope") not in readable
-        }
-    )
+    their behalf. A hit that names no ``scope`` (a client from before shares) is ``own``'s.
+
+    A hit from the PROVIDER STORE is readable per dataset, not per scope: only when its (provider,
+    collection) carries an ``attributes`` grant on the searched scope (``origins.grants``, the
+    search's own :class:`~.attribute_search.SearchOrigins`). Revoking the grant stops a re-run too."""
+    unreadable: set[str] = set()
+    ungranted: set[str] = set()
+    for h in raw_hits:
+        if not isinstance(h, dict) or h.get("scope") in (None, own) or h.get("scope") in readable:
+            continue
+        if h.get("scope") == PROVIDER_STORE_WIRE:
+            provider, collection = str(h.get("provider") or ""), str(h.get("collection") or "")
+            if origins is not None and origins.grants(provider, collection):
+                continue
+            ungranted.add(f"{provider}/{collection}")
+            continue
+        unreadable.add(str(h.get("scope")))
     if unreadable:
         raise ExportRefused(
             403,
-            f"hits from {', '.join(unreadable)} cannot be exported from here: this scope's search does not read "
-            "that scope for you (no share into it you can reach)",
+            f"hits from {', '.join(sorted(unreadable))} cannot be exported from here: this scope's search does not "
+            "read that scope for you (no share into it you can reach)",
         )
+    if ungranted:
+        raise ExportRefused(
+            403,
+            f"hits of {', '.join(sorted(ungranted))} cannot be exported from here: this scope holds no attributes "
+            "grant on that provider data (an admin grants it)",
+        )
+
+
+#: A file's ``reason`` (and a preflight count) when its geometry lies in the provider store and the
+#: searched scope holds no ``geometry`` grant on the dataset it would come from.
+NOT_GRANTED = "not_granted"
+
+
+async def geometry_read_scope(
+    ctx, pool, scope_obj: Scope, origin_obj: Scope, provider: str, collection: str
+) -> tuple[Scope, str | None]:
+    """``(where, refusal)``: the scope (``provider``, ``collection``)'s published geometry is read
+    from for hits of ``origin_obj`` exported from ``scope_obj`` -- the design geometry
+    (``provider`` = ``GEOMETRY_PROVIDER``) or a mesh export's own provider's tree.
+
+    * a ``geometry`` grant on the dataset, and the store holds the collection (or the hits come from
+      the store) -> the provider store: one copy, whoever searched;
+    * hits from the store without that grant -> the store, refused as :data:`NOT_GRANTED` -- every
+      such file reports ``no_geometry`` with that reason, and nothing is read;
+    * otherwise the hits' origin, as before (a legacy copy, until the store holds the dataset).
+
+    An admin exporting from the store itself reads it directly. web3d is never asked here for design
+    geometry: the caller names ``GEOMETRY_PROVIDER``, whatever provider found the hit."""
+    if scope_obj.kind == "providers" or pool is None:
+        return origin_obj, None
+    access = await db_module.grant_access(
+        pool, target_scope=scope_obj.prefix(), provider=provider, collection=collection
+    )
+    from_store = origin_obj.kind == "providers"
+    if access.geometry and (from_store or await store_holds_geometry(ctx, collection)):
+        return PROVIDER_STORE, None
+    if from_store:
+        return PROVIDER_STORE, NOT_GRANTED
+    return origin_obj, None
+
+
+def not_granted_message(provider: str, collection: str) -> str:
+    return (
+        f"this scope holds no geometry grant on {provider!r} {collection!r}: the geometry is provider data, read "
+        "through a grant an admin gives the scope"
+    )
 
 
 def clean_hit(raw: Any, where_keys: list[str], own: str | None = None) -> dict | None:
@@ -224,11 +298,14 @@ def _origin_fields(origin: Scope, scope_obj: Scope, user) -> dict:
     from ..db.attribute_index import scope_wire
 
     prefix = origin.prefix()
-    return {
+    out = {
         "scope": prefix,
         "scope_wire": scope_wire(prefix, getattr(user, "sub", None)),
         "shared": origin != scope_obj,
     }
+    if origin.kind == "providers" and scope_obj.kind != "providers":
+        out["granted"] = True  # read through a provider grant, as the search row said
+    return out
 
 
 def batch_hits(
@@ -303,6 +380,7 @@ async def all_hits(
             shared_from=origins.shared_from if origins else None,
             read_from=origins.read_from if origins else None,
             viewer=viewer,
+            granted=origins.granted if origins else None,
         )
         total = sum(int(n) for n in (page.get("counts") or {}).values())
         if total > limit:
@@ -358,7 +436,7 @@ async def _hits_of_body(pool, body: dict, query: dict, *, scope_obj: Scope, user
         )
     if not isinstance(raw_hits, list):
         raise ExportRefused(400, "'hits' must be a list of search rows, or null for every match")
-    refuse_unreadable_hits(raw_hits, scope_obj.prefix(), origins.readable(scope_obj.prefix()))
+    refuse_unreadable_hits(raw_hits, scope_obj.prefix(), origins.readable(scope_obj.prefix()), origins)
     return raw_hits
 
 
@@ -525,9 +603,25 @@ async def request_permission(pool, user, req: "greq.NodeRequest | None") -> tupl
         return False, f"no online worker of {GEOMETRY_PROVIDER!r} declares a node request"
     from .plugin_jobs import plugin_job_requires_admin
 
+    if not getattr(user, "is_admin", False):
+        refused = provider_job_refusal(req.spec, GEOMETRY_PROVIDER)
+        if refused:
+            return False, refused
     if await plugin_job_requires_admin(req.plugin_id, pool, dict(req.spec)) and not getattr(user, "is_admin", False):
         return False, f"the {req.plugin_id!r} job is restricted to administrators"
     return True, None
+
+
+def provider_job_refusal(spec, provider: str) -> str | None:
+    """Why a member may not run ``spec``'s job, when it is an asset provider's: its output is
+    provider data, kept current by administrators (``provider_store.require_admin_for_provider_job``).
+    Asked up front, so a preflight says so and a run never meets a 403 halfway."""
+    if is_asset_provider_spec(dict(spec) if spec else None):
+        return (
+            f"{provider!r} data is kept current by administrators (scheduled jobs and sweeps); ask an admin to "
+            "extract it -- this scope reads what is granted to it"
+        )
+    return None
 
 
 #: Examples of unknown nodes listed per collection in a preflight.
@@ -551,19 +645,28 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
         return await mesh_preflight(
             ctx, pool, scope_obj=scope_obj, hits=raw_hits, where_keys=where_keys, user=user, t0=t0
         )
-    # Per ORIGIN: a hit's geometry is the scope its partition lies in.
+    # Per GEOMETRY SCOPE: a hit's design geometry is read where its partition lies -- or from the
+    # provider store, when the scope holds a geometry grant on the design dataset
+    # (:func:`geometry_read_scope`). A store hit without that grant is not classified at all: every
+    # one of its files would say ``not_granted``, and the preflight says so up front.
     groups: dict[tuple[str | None, str], dict[str, dict]] = {}
     for hit in (clean_hit(r, where_keys, scope_obj.prefix()) for r in raw_hits):
         if hit is not None:
             groups.setdefault((hit.get("origin"), hit["collection"]), {}).setdefault(hit["node_id"], hit)
-    by_origin: dict[str | None, list[tuple[str, list[dict]]]] = {}
-    for (origin, collection), nodes in groups.items():
-        by_origin.setdefault(origin, []).append((collection, list(nodes.values())))
-    classified: list[tuple[Scope, str, list]] = []
-    for ordered in by_origin.values():
-        origin_obj = hit_origin(ordered[0][1], scope_obj)
-        states = await greq.classify_in_scope(ctx.storage, origin_obj, ordered)
-        classified.extend((origin_obj, c, rows) for (c, _), rows in zip(ordered, states))
+    by_geometry: dict[Scope, list[tuple[Scope, str, list[dict]]]] = {}
+    refused: list[tuple[Scope, Scope, str, list[dict]]] = []
+    for (_, collection), nodes in groups.items():
+        hits_of = list(nodes.values())
+        origin_obj = hit_origin(hits_of, scope_obj)
+        geo_obj, refusal = await geometry_read_scope(ctx, pool, scope_obj, origin_obj, GEOMETRY_PROVIDER, collection)
+        if refusal:
+            refused.append((origin_obj, geo_obj, collection, hits_of))
+        else:
+            by_geometry.setdefault(geo_obj, []).append((origin_obj, collection, hits_of))
+    classified: list[tuple[Scope, Scope, str, list]] = []
+    for geo_obj, ordered in by_geometry.items():
+        states = await greq.classify_in_scope(ctx.storage, geo_obj, [(c, h) for _, c, h in ordered])
+        classified.extend((origin_obj, geo_obj, c, rows) for (origin_obj, c, _), rows in zip(ordered, states))
 
     req = await greq.geometry_node_request(ctx)
     allowed, why = await request_permission(pool, user, req)
@@ -575,22 +678,28 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
 
     collections = []
     writable: dict[Scope, bool] = {}
-    for origin_obj, collection, rows in classified:
+    for origin_obj, geo_obj, collection, rows in classified:
         by: dict[str, list] = {}
         for s in rows:
             by.setdefault(s.state, []).append(s)
         missing = len(by.get("listed", ())) + len(by.get("unpublished", ()))
         unknown = by.get("unknown", [])
-        if origin_obj not in writable:
-            writable[origin_obj] = await _may_write(pool, user, origin_obj, scope_obj)
+        if geo_obj not in writable:
+            writable[geo_obj] = await _may_write(pool, user, geo_obj, scope_obj)
         collections.append(
             {
                 **_origin_fields(origin_obj, scope_obj, user),
-                # A request publishes into the scope the hits lie in; null when this user may.
+                # A request publishes where the geometry is read; null when this user may. The
+                # provider store is an admin's (a member's request is refused up front, `request`).
                 "request_blocked": (
                     None
-                    if writable[origin_obj]
-                    else f"its geometry lies in {origin_obj.prefix()}, which you cannot publish into -- request it from that scope"
+                    if writable[geo_obj]
+                    else (
+                        "its geometry is provider data, which administrators keep current"
+                        if geo_obj.kind == "providers"
+                        else f"its geometry lies in {geo_obj.prefix()}, which you cannot publish into -- request it "
+                        "from that scope"
+                    )
                 ),
                 "collection": collection,
                 "hits": len(rows),
@@ -599,10 +708,31 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
                 "listed": len(by.get("listed", ())),
                 "unpublished": len(by.get("unpublished", ())),
                 "unknown": len(unknown),
+                NOT_GRANTED: 0,
                 "jobs": greq.request_estimate(missing),
                 "missing_reason": next((s.message for s in rows if s.state in greq.MISSING_STATES), None),
                 "unknown_reason": unknown[0].message if unknown else None,
                 "unknown_examples": [s.hit.get("full_name") or s.hit["node_id"] for s in unknown[:PREFLIGHT_EXAMPLES]],
+            }
+        )
+    for origin_obj, _geo_obj, collection, hits_of in refused:
+        # Nothing to request either: granting the geometry is the fix, and it is an admin's.
+        collections.append(
+            {
+                **_origin_fields(origin_obj, scope_obj, user),
+                "request_blocked": not_granted_message(GEOMETRY_PROVIDER, collection),
+                "collection": collection,
+                "hits": len(hits_of),
+                "ready": 0,
+                "missing": 0,
+                "listed": 0,
+                "unpublished": 0,
+                "unknown": 0,
+                NOT_GRANTED: len(hits_of),
+                "jobs": 0,
+                "missing_reason": not_granted_message(GEOMETRY_PROVIDER, collection),
+                "unknown_reason": None,
+                "unknown_examples": [],
             }
         )
     return {
@@ -611,6 +741,7 @@ async def export_preflight(ctx, pool, *, scope_obj: Scope, body: dict, user) -> 
         "ready": sum(c["ready"] for c in collections),
         "missing": sum(c["missing"] for c in collections),
         "unknown": sum(c["unknown"] for c in collections),
+        NOT_GRANTED: sum(c[NOT_GRANTED] for c in collections),
         "jobs": sum(c["jobs"] for c in collections),
         "collections": collections,
         "request": {
@@ -645,7 +776,10 @@ async def collection_request_permission(ctx, pool, user, provider: str) -> dict:
     spec, entry = found
     plugin_id = str(spec.get("slug") or spec.get("id") or "")
     allowed, reason = True, None
-    if await plugin_job_requires_admin(plugin_id, pool, dict(spec)) and not getattr(user, "is_admin", False):
+    refused = None if getattr(user, "is_admin", False) else provider_job_refusal(spec, provider)
+    if refused:
+        allowed, reason = False, refused
+    elif await plugin_job_requires_admin(plugin_id, pool, dict(spec)) and not getattr(user, "is_admin", False):
         allowed, reason = False, f"the {plugin_id!r} job is restricted to administrators"
     return {"available": True, "allowed": allowed, "reason": reason, "label": entry["label"], "plugin_id": plugin_id}
 
@@ -666,17 +800,38 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
             groups.setdefault((hit.get("origin"), hit["provider"], hit["collection"]), {}).setdefault(
                 hit["node_id"], hit
             )
-    # Per (origin, provider): each origin's published trees are its own.
-    by_provider: dict[tuple[str | None, str], list[tuple[str, list[dict]]]] = {}
-    for (origin, provider, collection), nodes in groups.items():
-        by_provider.setdefault((origin, provider), []).append((collection, list(nodes.values())))
-
+    # Per (tree scope, provider): each origin's published trees are its own -- or the provider
+    # store's, for a dataset granted to the scope with geometry (:func:`geometry_read_scope`). A
+    # store hit without that grant answers ``not_granted`` and is not classified.
+    by_provider: dict[tuple[Scope, Scope, str], list[tuple[str, list[dict]]]] = {}
     collections: list[dict] = []
+    for (_, provider, collection), nodes in groups.items():
+        hits_of = list(nodes.values())
+        origin_obj = hit_origin(hits_of, scope_obj)
+        tree_obj, refusal = await geometry_read_scope(ctx, pool, scope_obj, origin_obj, provider, collection)
+        if refusal:
+            collections.append(
+                {
+                    **_origin_fields(origin_obj, scope_obj, user),
+                    "provider": provider,
+                    "collection": collection,
+                    "hits": len(hits_of),
+                    "ready": 0,
+                    "no_tree": 0,
+                    "unknown": 0,
+                    NOT_GRANTED: len(hits_of),
+                    "unknown_reason": not_granted_message(provider, collection),
+                    "unknown_examples": [],
+                }
+            )
+            continue
+        by_provider.setdefault((origin_obj, tree_obj, provider), []).append((collection, hits_of))
+
     requests: dict[tuple[str | None, str], dict] = {}
     sweeps: dict[str, dict | None] = {}
-    for (origin, provider), ordered in by_provider.items():
-        origin_obj = hit_origin(ordered[0][1], scope_obj)
-        states = await greq.classify_in_scope(ctx.storage, origin_obj, ordered, provider=provider)
+    for (origin_obj, tree_obj, provider), ordered in by_provider.items():
+        origin = origin_obj.prefix() if origin_obj != scope_obj else None
+        states = await greq.classify_in_scope(ctx.storage, tree_obj, ordered, provider=provider)
         mine: list[dict] = []
         for (collection, _), rows in zip(ordered, states):
             by: dict[str, list] = {}
@@ -692,6 +847,7 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
                     "ready": len(by.get("ready", ())),
                     "no_tree": len(by.get("unpublished", ())),
                     "unknown": len(unknown),
+                    NOT_GRANTED: 0,
                     "unknown_reason": unknown[0].message if unknown else None,
                     "unknown_examples": [
                         s.hit.get("full_name") or s.hit["node_id"] for s in unknown[:PREFLIGHT_EXAMPLES]
@@ -701,21 +857,22 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
         collections.extend(mine)
         lacking = [c["collection"] for c in mine if c["no_tree"] or c["unknown"]]
         if lacking:
-            # A tree request publishes into the origin: offered as such, and only where the user
-            # may publish (else what to do instead, as the reason).
+            # A tree request publishes where the trees are read: offered as such, and only where
+            # the user may publish (else what to do instead, as the reason). An asset provider's
+            # request is an admin's anyway (`collection_request_permission`).
             permission = await collection_request_permission(ctx, pool, user, provider)
-            if permission["allowed"] and not await _may_write(pool, user, origin_obj, scope_obj):
+            if permission["allowed"] and not await _may_write(pool, user, tree_obj, scope_obj):
                 permission = {
                     **permission,
                     "allowed": False,
-                    "reason": f"the trees lie in {origin_obj.prefix()}, which you cannot publish into -- "
+                    "reason": f"the trees lie in {tree_obj.prefix()}, which you cannot publish into -- "
                     "request them from that scope",
                 }
             requests[(origin, provider)] = {
                 **permission,
                 "collections": lacking,
                 # Where the trees are requested into; null is this scope.
-                "origin": origin_obj.prefix() if origin_obj != scope_obj else None,
+                "origin": tree_obj.prefix() if tree_obj != scope_obj else None,
             }
             if provider not in sweeps:
                 try:
@@ -728,6 +885,7 @@ async def mesh_preflight(ctx, pool, *, scope_obj: Scope, hits: list, where_keys:
         "ready": sum(c["ready"] for c in collections),
         "no_tree": sum(c["no_tree"] for c in collections),
         "unknown": sum(c["unknown"] for c in collections),
+        NOT_GRANTED: sum(c[NOT_GRANTED] for c in collections),
         "collections": collections,
         "tree_requests": [
             {
@@ -1037,9 +1195,21 @@ async def export_one(
             "origin_scope": origin_obj.prefix(),
             "source_scope": origin_wire(origin_obj, scope_obj, str(job_opts.get("source_scope") or ""), user),
         }
+    mesh = job_opts.get("geometry") == GEOMETRY_MESH
     try:
-        may_publish = await _may_write(pool, user, origin_obj, scope_obj)
-        if job_opts.get("request_missing_geometry"):
+        # Where the geometry is READ: the design geometry provider's (or, for a mesh, the hits' own
+        # provider's) dataset -- from the provider store when this scope holds a geometry grant on
+        # it, refused per file when the hits come from the store without one. The job is told both.
+        geo_obj, refusal = await geometry_read_scope(
+            ctx, pool, scope_obj, origin_obj, provider if mesh else GEOMETRY_PROVIDER, collection
+        )
+        if geo_obj != origin_obj:
+            origin_opts["geometry_scope"] = geo_obj.prefix()  # a mesh's builds are read there too
+        if refusal and not mesh:
+            origin_opts["geometry_refused"] = refusal
+            origin_opts["geometry_refused_message"] = not_granted_message(GEOMETRY_PROVIDER, collection)
+        may_publish = await _may_write(pool, user, geo_obj, scope_obj) and not refusal
+        if job_opts.get("request_missing_geometry") and not refusal:
             async with request_gate or asyncio.Lock():
                 requested = await request_geometry(
                     ctx,
@@ -1048,14 +1218,18 @@ async def export_one(
                     position,
                     collection,
                     hits,
-                    scope_obj=origin_obj,
+                    scope_obj=geo_obj,
                     user=user,
                     wait=wait,
                     timings=timings,
                     may_publish=may_publish,
                 )
             await item(status="running", message=requested.sentence() if requested else None, timings=timings)
-        if job_opts.get("geometry") == GEOMETRY_MESH:
+        if mesh and refusal:
+            # Nothing to build: the mesh is provider data this scope may not read.
+            message = not_granted_message(provider, collection)
+            hits = [{**h, "mesh_error": message, "mesh_reason": refusal} for h in hits]
+        elif mesh:
             hits = await build_meshes(
                 ctx,
                 pool,
@@ -1064,7 +1238,7 @@ async def export_one(
                 provider,
                 collection,
                 hits,
-                scope_obj=origin_obj,
+                scope_obj=geo_obj,
                 user=user,
                 timings=timings,
                 request_tree=bool(job_opts.get("request_trees")),
@@ -1121,7 +1295,10 @@ async def export_one(
                     f["error"] = f"the geometry provider has nothing for it: {said}"
             message = "; ".join(filter(None, [requested.sentence(), message]))
         errors = [
-            {k: f.get(k) for k in ("node_id", "full_name", "status", "error")}
+            {
+                **{k: f.get(k) for k in ("node_id", "full_name", "status", "error")},
+                **({"reason": f["reason"]} if f.get("reason") else {}),
+            }
             for f in file_rows
             if f.get("status") != "written"
         ]
@@ -1225,6 +1402,9 @@ async def request_collection_tree(
         return f"no online worker of {provider!r} declares a collection request"
     spec, entry = found
     plugin_id = str(spec.get("slug") or spec.get("id") or "")
+    # An asset provider's job runs in the provider store whatever scope asks (``job_scope``): its
+    # summary, its staging and the publish of its answer are all read and written there.
+    scope_obj = job_scope(spec, scope_obj)
     names, _ = offered_names(_all_collections(specs), [collection])
     name = names[0] if names else collection
     t0 = time.monotonic()
@@ -1667,11 +1847,16 @@ async def api_search_export_rerun(
         target = await _writable_scope(pool, run["target_scope"], user)
         # Access is asked again: a re-run reads the origins with the caller's rights of NOW, so a
         # share revoked (or a project left) since the run started stops it here.
-        foreign = [{"scope": h["origin"]} for _, _, _, hits, _ in plan for h in hits if h.get("origin")]
+        foreign = [
+            {"scope": h["origin"], "provider": h.get("provider"), "collection": h.get("collection")}
+            for _, _, _, hits, _ in plan
+            for h in hits
+            if h.get("origin")
+        ]
         if foreign:
             query_doc = run.get("query") if isinstance(run.get("query"), dict) else {}
             origins = await export_origins(pool, scope_obj, user, all_scopes=query_doc.get("all_scopes") is True)
-            refuse_unreadable_hits(foreign, scope_obj.prefix(), origins.readable(scope_obj.prefix()))
+            refuse_unreadable_hits(foreign, scope_obj.prefix(), origins.readable(scope_obj.prefix()), origins)
     except ExportRefused as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     options = dict(run.get("options") or {})
@@ -1875,12 +2060,7 @@ async def api_file_request_geometry(
 
     from ..scope import can_access
 
-    source_obj = await resolve_project_scope(pool, parse_scope(str(src["scope"]), user))
-    if not await can_access(user, source_obj, pool):
-        raise HTTPException(status_code=403, detail=f"you cannot read the source scope {src['scope']!r}")
-    req = await greq.geometry_node_request(ctx)
-    may_request, _why = await request_permission(pool, user, req)
-    folder = key.rsplit("/", 1)[0] if "/" in key else ""
+    source_wire = str(src["scope"])
     hit = {
         "provider": src["provider"],
         "collection": src["collection"],
@@ -1890,11 +2070,24 @@ async def api_file_request_geometry(
         "path": src.get("path") or [],
         "attrs": {},
     }
+    if source_wire == PROVIDER_STORE_WIRE and not getattr(user, "is_admin", False):
+        # The mesh came from provider data read through THIS scope's grant: the design export is
+        # this scope's too, its hit the store's -- accepted while the grant stands (`start_export`
+        # asks it again), as a search export of the same hit would be.
+        source_wire, source_obj = scope, scope_obj
+        hit["scope"] = PROVIDER_STORE_WIRE
+    else:
+        source_obj = await resolve_project_scope(pool, parse_scope(source_wire, user))
+        if not await can_access(user, source_obj, pool):
+            raise HTTPException(status_code=403, detail=f"you cannot read the source scope {src['scope']!r}")
+    req = await greq.geometry_node_request(ctx)
+    may_request, _why = await request_permission(pool, user, req)
+    folder = key.rsplit("/", 1)[0] if "/" in key else ""
     try:
         run = await start_export(
             ctx,
             pool,
-            scope=str(src["scope"]),
+            scope=source_wire,
             scope_obj=source_obj,
             body={
                 "query": meta.get("query") if isinstance(meta.get("query"), dict) else {},
@@ -1912,4 +2105,4 @@ async def api_file_request_geometry(
         )
     except ExportRefused as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-    return JSONResponse({**_as_wire(run, str(src["scope"])), "requesting": may_request}, status_code=202)
+    return JSONResponse({**_as_wire(run, source_wire), "requesting": may_request}, status_code=202)

@@ -13,6 +13,13 @@ shared FROM. The scope comes from the path, through the same access check every
 per request (:func:`search_origins`) and handed to the database layer, which reads nothing else.
 Every row and collection says its origin (``scope``, ``scope_wire``, ``shared``).
 
+PROVIDER DATA IS READ THROUGH GRANTS. The provider store (``providers``) holds every provider's
+attribute index once; a scope an admin granted ``attributes`` on a dataset (``db/provider_grants.py``)
+reads the store's partition of it as if it were its own, and the store's partition shadows the
+scope's own legacy copy of the same (provider, collection) once it exists. Such rows say ``scope:
+"providers"``, ``scope_wire: null`` and ``granted: true`` -- the store is never a path a member names.
+Search, keys, values, the collection listing and the node lookups all read them the same way.
+
 AN ADMIN MAY SEARCH EVERY PROVIDER SCOPE (``all_scopes``, a body field of the search and a query
 parameter of the listings): the shared scope, every live project and the corpora, shared here or
 not (``admin_search_origins``) -- the same origin-tagged rows a share gives, each partition read
@@ -58,6 +65,7 @@ from ..db.node_bounds import (
 )
 from ..scope import Scope
 from .deps import RestContext, require_pool, rest_context, scope_from_path
+from .provider_store import is_asset_provider_spec
 
 router = APIRouter()
 
@@ -72,14 +80,26 @@ _TARGET_WORDS = {BOUNDS_TARGET: "node bounds", ATTRIBUTES_TARGET: "attribute ind
 @dataclass(frozen=True)
 class SearchOrigins:
     """The other scopes a search of one scope reads, for one caller: ``shared_from`` (shares into it
-    whose origin the caller can reach) and ``read_from`` (an admin's ``all_scopes``)."""
+    whose origin the caller can reach), ``read_from`` (an admin's ``all_scopes``) and ``granted``
+    -- the ``(provider, collection | None)`` datasets an admin granted the scope ``attributes`` on,
+    read from the provider store (``db/provider_grants.py``)."""
 
     shared_from: tuple[str, ...] = ()
     read_from: tuple[str, ...] = ()
+    granted: tuple[tuple[str, str | None], ...] = ()
 
     def readable(self, own: str) -> frozenset[str]:
-        """Every origin a hit of such a search may come from -- what an export may read."""
+        """Every origin a hit of such a search may come from -- what an export may read. The
+        provider store is NOT among them by scope: a store hit is readable per dataset
+        (:meth:`grants`)."""
         return frozenset({own, *self.shared_from, *self.read_from})
+
+    def grants(self, provider: str, collection: str) -> bool:
+        """Whether a hit of (``provider``, ``collection``) from the provider store is readable here:
+        the scope holds an ``attributes`` grant covering it."""
+        from .provider_store import granted_covers
+
+        return granted_covers(self.granted, provider, collection)
 
 
 class AllScopesRefused(PermissionError):
@@ -99,7 +119,14 @@ async def search_origins(pool, scope_obj: Scope, user: User, *, all_scopes: bool
         pool, scope=scope_obj.prefix(), user_sub=getattr(user, "sub", ""), is_admin=is_admin
     )
     whole = await db_module.admin_search_origins(pool, scope=scope_obj.prefix()) if all_scopes else []
-    return SearchOrigins(tuple(shared), tuple(whole))
+    # The provider store's datasets granted to the scope (attributes). The store itself has none:
+    # an admin searching it reads it as its own.
+    granted = (
+        await db_module.granted_datasets(pool, target_scope=scope_obj.prefix(), permission="attributes")
+        if scope_obj.kind != "providers"
+        else []
+    )
+    return SearchOrigins(tuple(shared), tuple(whole), tuple((p, c) for p, c in granted))
 
 
 async def _origins_or_403(pool, scope_obj: Scope, user: User, all_scopes: bool) -> SearchOrigins:
@@ -165,6 +192,7 @@ async def api_asset_search(
             shared_from=origins.shared_from,
             read_from=origins.read_from,
             viewer=user.sub,
+            granted=origins.granted,
         )
     except SearchQueryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -275,7 +303,13 @@ async def sweep_request_permission(ctx: RestContext, pool, user: User, provider:
     spec, entry = found
     plugin_id = str(spec.get("slug") or spec.get("id") or "")
     allowed, reason = True, None
-    if await plugin_job_requires_admin(plugin_id, pool, dict(spec)) and not getattr(user, "is_admin", False):
+    if is_asset_provider_spec(spec) and not getattr(user, "is_admin", False):
+        # An asset provider's sweep writes the provider store: keeping it current is an admin's
+        # (provider_store.require_admin_for_provider_job), and asked up front here so the viewer
+        # offers no button the start would refuse.
+        allowed = False
+        reason = f"{provider!r} data is kept current by administrators; this scope reads what an admin grants it"
+    elif await plugin_job_requires_admin(plugin_id, pool, dict(spec)) and not getattr(user, "is_admin", False):
         allowed, reason = False, f"the {plugin_id!r} job is restricted to administrators"
     return {
         "provider": provider,
@@ -448,6 +482,7 @@ async def api_asset_search_node(
             full_name=name or None,
             shared_from=origins.shared_from,
             viewer=user.sub,
+            granted=origins.granted,
         )
     except asyncpg.QueryCanceledError as exc:
         raise HTTPException(
@@ -502,6 +537,7 @@ async def api_asset_search_nodes(
             ancestors=ancestors,
             providers=strings("providers"),
             shared_from=origins.shared_from,
+            granted=origins.granted,
         )
     except asyncpg.QueryCanceledError as exc:
         raise HTTPException(
@@ -617,6 +653,7 @@ async def api_asset_search_collections(
         shared_from=origins.shared_from,
         read_from=origins.read_from,
         viewer=user.sub,
+        granted=origins.granted,
     )
     return JSONResponse({"collections": collections})
 
@@ -640,6 +677,7 @@ async def api_asset_search_keys(
         collection=collection or None,
         shared_from=origins.shared_from,
         read_from=origins.read_from,
+        granted=origins.granted,
     )
     return JSONResponse({"keys": keys})
 
@@ -671,5 +709,6 @@ async def api_asset_search_values(
         collection=collection or None,
         shared_from=origins.shared_from,
         read_from=origins.read_from,
+        granted=origins.granted,
     )
     return JSONResponse({"values": values})

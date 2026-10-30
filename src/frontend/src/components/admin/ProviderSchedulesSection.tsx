@@ -18,9 +18,12 @@ import {choiceKey, choiceLabel, selectedKey, valueOfKey} from "./scheduleSetting
 import SweepDefaults from "./SweepDefaults";
 
 // Admin → Providers → Scheduled jobs: the jobs each asset provider declares on its plugin spec
-// (`asset_schedules`), scheduled per scope and collection.
+// (`asset_schedules`), scheduled per collection.
 //
-// EVERY FIELD IS A CHOICE. Job, scope, collection, frequency and each setting are dropdowns of what
+// NO SCOPE. A provider job always runs in the provider store, whoever or whatever starts it, so a schedule or
+// a sweep names no scope; scopes read the store's data through Access grants (the Access section).
+//
+// EVERY FIELD IS A CHOICE. Job, collection, frequency and each setting are dropdowns of what
 // the provider and the server offer, and the server re-checks every value -- this replaces the
 // generic plugin-job schedule form, whose options were free text. A setting with no choices is not
 // offered at all.
@@ -32,11 +35,6 @@ import SweepDefaults from "./SweepDefaults";
 // it offers and publishes each, so its schedule names no collection, it can also be run once
 // without saving a schedule ("Run once now"), and its runs -- with every phase timed -- list
 // under the provider (ProviderSweepRuns).
-
-export interface ScheduleScopeRow {
-    scope: string;
-    label: string;
-}
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e));
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—");
@@ -128,27 +126,26 @@ const SettingField: React.FC<{
     );
 };
 
-/** Settings editor for one job, scope and collection; fetches the choices that depend on them. */
+/** Settings editor for one job and collection; fetches the choices that depend on them. */
 const SettingsEditor: React.FC<{
     provider: ProviderSchedules;
     job: ProviderScheduleJob | undefined;
-    scope: string;
     collection: string;
     value: Record<string, unknown>;
     onChange: (v: Record<string, unknown>) => void;
-}> = ({provider, job, scope, collection, value, onChange}) => {
+}> = ({provider, job, collection, value, onChange}) => {
     const [choices, setChoices] = useState<Record<string, ScheduleChoice[]>>({});
     useEffect(() => {
         if (!job || !job.settings.length) return;
         let alive = true;
         void viewerApi
-            .adminAssetScheduleChoices(provider.provider, job.id, scope, collection)
+            .adminAssetScheduleChoices(provider.provider, job.id, collection)
             .then((c) => alive && setChoices(c))
             .catch(() => alive && setChoices({}));
         return () => {
             alive = false;
         };
-    }, [provider.provider, job, scope, collection]);
+    }, [provider.provider, job, collection]);
     if (!job || !job.settings.length) return null;
     return (
         <div className="flex flex-wrap gap-2">
@@ -167,13 +164,11 @@ const SettingsEditor: React.FC<{
 
 const AddSchedule: React.FC<{
     provider: ProviderSchedules;
-    rows: readonly ScheduleScopeRow[];
     frequencies: AssetSchedulesListing["frequencies"];
     onAdded: () => void;
     onSwept: () => void;
-}> = ({provider, rows, frequencies, onAdded, onSwept}) => {
+}> = ({provider, frequencies, onAdded, onSwept}) => {
     const [jobId, setJobId] = useState(provider.jobs[0]?.id ?? "");
-    const [scope, setScope] = useState(rows[0]?.scope ?? "");
     const collections = useMemo(() => sortProjects(provider.collections), [provider.collections]);
     const [collection, setCollection] = useState(collections[0] ?? "");
     const [frequency, setFrequency] = useState("daily");
@@ -187,7 +182,7 @@ const AddSchedule: React.FC<{
         setBusy(true);
         setError(null);
         try {
-            await viewerApi.adminStartAssetSweep({provider: provider.provider, job: jobId, scope, settings});
+            await viewerApi.adminStartAssetSweep({provider: provider.provider, job: jobId, settings});
             onSwept();
         } catch (e) {
             setError(errText(e));
@@ -203,7 +198,6 @@ const AddSchedule: React.FC<{
             await viewerApi.adminCreateAssetSchedule({
                 provider: provider.provider,
                 job: jobId,
-                scope,
                 collection: sweep ? null : collection || null,
                 frequency,
                 settings,
@@ -225,13 +219,6 @@ const AddSchedule: React.FC<{
                     {provider.jobs.map((j) => (
                         <option key={j.id} value={j.id}>
                             {j.label}
-                        </option>
-                    ))}
-                </select>
-                <select className={select} value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Scope">
-                    {rows.map((r) => (
-                        <option key={r.scope} value={r.scope}>
-                            {r.label}
                         </option>
                     ))}
                 </select>
@@ -266,7 +253,7 @@ const AddSchedule: React.FC<{
                 <button
                     type="button"
                     className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
-                    disabled={busy || !jobId || !scope || (!sweep && !!provider.collections.length && !collection)}
+                    disabled={busy || !jobId || (!sweep && !!provider.collections.length && !collection)}
                     onClick={() => void add()}
                 >
                     {busy ? "…" : "Add schedule"}
@@ -275,7 +262,7 @@ const AddSchedule: React.FC<{
                     <button
                         type="button"
                         className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-2 py-0.5 rounded-sm"
-                        disabled={busy || !jobId || !scope}
+                        disabled={busy || !jobId}
                         onClick={() => void runOnce()}
                         title="Sweep every collection once, now, with these settings; no schedule is saved"
                     >
@@ -287,7 +274,6 @@ const AddSchedule: React.FC<{
             <SettingsEditor
                 provider={provider}
                 job={job}
-                scope={scope}
                 collection={collection}
                 value={settings}
                 onChange={setSettings}
@@ -300,16 +286,14 @@ const AddSchedule: React.FC<{
 const ScheduleRow: React.FC<{
     provider: ProviderSchedules;
     schedule: ProviderSchedule;
-    rows: readonly ScheduleScopeRow[];
     frequencies: AssetSchedulesListing["frequencies"];
     onChanged: () => void;
-}> = ({provider, schedule: s, rows, frequencies, onChanged}) => {
+}> = ({provider, schedule: s, frequencies, onChanged}) => {
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [editing, setEditing] = useState(false);
     const [settings, setSettings] = useState<Record<string, unknown>>(s.settings);
     const job = provider.jobs.find((j) => j.id === s.job);
-    const scopeLabel = rows.find((r) => r.scope === s.scope)?.label ?? s.scope;
     const last = lastRunText(s);
 
     const act = async (what: string, fn: () => Promise<unknown>) => {
@@ -331,7 +315,6 @@ const ScheduleRow: React.FC<{
                 <div className="text-gray-100">{job?.label ?? s.job}</div>
                 {!s.declared && <div className="text-[11px] text-amber-300">the provider no longer declares this job</div>}
             </td>
-            <td className="px-2 py-1.5">{scopeLabel}</td>
             <td className="px-2 py-1.5 font-mono">{s.kind === "sweep" ? "(every)" : (s.collection ?? "—")}</td>
             <td className="px-2 py-1.5">
                 <select
@@ -356,7 +339,6 @@ const ScheduleRow: React.FC<{
                         <SettingsEditor
                             provider={provider}
                             job={job}
-                            scope={s.scope}
                             collection={s.collection ?? ""}
                             value={settings}
                             onChange={setSettings}
@@ -428,7 +410,7 @@ const ScheduleRow: React.FC<{
                     className="bg-red-800 hover:bg-red-700 text-white px-1.5 py-0.5 rounded-sm disabled:opacity-50"
                     disabled={busy !== null}
                     onClick={() => {
-                        if (confirm(`Remove the schedule "${job?.label ?? s.job}" for ${scopeLabel}?`)) {
+                        if (confirm(`Remove the schedule "${job?.label ?? s.job}" ?`)) {
                             void act("remove", () => viewerApi.adminDeleteAssetSchedule(s.id));
                         }
                     }}
@@ -441,7 +423,7 @@ const ScheduleRow: React.FC<{
     );
 };
 
-const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = ({rows}) => {
+const ProviderSchedulesSection: React.FC = () => {
     const [listing, setListing] = useState<AssetSchedulesListing | null>(null);
     const [error, setError] = useState<string | null>(null);
     // Bumped on every reload, so each provider's sweep list re-reads after a Run now / Run once.
@@ -489,7 +471,8 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
         >
             <div className="px-3 pt-2 pb-1 space-y-1">
                 <div className="text-xs text-gray-400">
-                    Jobs a provider offers to run on a schedule, per scope and collection. A change check reports what
+                    Jobs a provider offers to run on a schedule, per collection. They always write to the provider store;
+                    scopes read it through the grants under Access. A change check reports what
                     moved upstream; inspect a run in the Sources tab under Changes. Nothing is published automatically.
                 </div>
             </div>
@@ -509,7 +492,6 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
                                 <thead className="text-left text-gray-500">
                                     <tr>
                                         <th className="px-2 py-1 font-normal">Job</th>
-                                        <th className="px-2 py-1 font-normal">Scope</th>
                                         <th className="px-2 py-1 font-normal">Collection</th>
                                         <th className="px-2 py-1 font-normal">Frequency</th>
                                         <th className="px-2 py-1 font-normal">Settings</th>
@@ -523,7 +505,6 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
                                             key={s.id}
                                             provider={p}
                                             schedule={s}
-                                            rows={rows}
                                             frequencies={listing.frequencies}
                                             onChanged={() => void load()}
                                         />
@@ -534,7 +515,6 @@ const ProviderSchedulesSection: React.FC<{rows: readonly ScheduleScopeRow[]}> = 
                     )}
                     <AddSchedule
                         provider={p}
-                        rows={rows}
                         frequencies={listing.frequencies}
                         onAdded={() => void load()}
                         onSwept={() => void load()}

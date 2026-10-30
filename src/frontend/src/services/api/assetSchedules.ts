@@ -86,7 +86,8 @@ export interface ProviderSchedule {
   provider: string;
   job: string;
   kind: string | null;
-  scope: string;
+  /** `providers` for a provider schedule: its jobs always run in the provider store. */
+  scope?: string;
   collection: string | null;
   frequency: string | null;
   settings: Record<string, unknown>;
@@ -153,7 +154,7 @@ export interface SweepItem {
  *  only on the listing. `interrupted`: the API process driving it is gone. */
 export interface SweepRun {
   id: string;
-  scope: string;
+  scope?: string;
   provider: string;
   plugin_id: string;
   job: string;
@@ -213,14 +214,13 @@ export const assetSchedulesApi = {
     return jsonOrThrow(r, "adminAssetSchedules");
   },
 
-  /** Each setting's choices for one job, scope and collection. */
+  /** Each setting's choices for one job and collection. */
   async adminAssetScheduleChoices(
     provider: string,
     job: string,
-    scope: string,
     collection: string,
   ): Promise<Record<string, ScheduleChoice[]>> {
-    const q = new URLSearchParams({ provider, job, scope, collection });
+    const q = new URLSearchParams({ provider, job, collection });
     const r = await authedFetch(`${runtime.apiBase()}/admin/asset-schedules/choices?${q}`);
     return (await jsonOrThrow<{ settings: Record<string, ScheduleChoice[]> }>(r, "adminAssetScheduleChoices")).settings;
   },
@@ -228,7 +228,6 @@ export const assetSchedulesApi = {
   async adminCreateAssetSchedule(body: {
     provider: string;
     job: string;
-    scope: string;
     collection: string | null;
     frequency: string;
     settings: Record<string, unknown>;
@@ -260,7 +259,6 @@ export const assetSchedulesApi = {
   async adminStartAssetSweep(body: {
     provider: string;
     job: string;
-    scope: string;
     settings: Record<string, unknown>;
   }): Promise<SweepRun> {
     const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps`, json("POST", body));

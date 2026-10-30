@@ -73,9 +73,11 @@ export const pluginsApi = {
   /** Enqueue an on-demand backend job for a plugin. Generic — core names no
    *  plugin here; `options` is passed opaquely to the plugin's job_entrypoint.
    *
-   *  Returns `{job_id, derived_key}` only (NOT a status): poll via
+   *  Returns `{job_id, derived_key, scope?}` only (NOT a status): poll via
    *  `convertStatus(job_id)` and, on `done`, read the JSON summary with
-   *  `getBlob(scope, derived_key)`. Core hashes `options` into the job's
+   *  `getBlob(scope, derived_key)` -- `scope` being the one the answer names, which is where
+   *  the job RAN (`providers` for an asset provider's job, whatever scope asked) and falls back
+   *  to the scope that asked on a server that does not say. Core hashes `options` into the job's
    *  synthetic source key, so an identical repeat request cache-hits a finished
    *  job — add a `refresh` token to the options to deliberately miss that. */
   async pluginJob(
@@ -87,7 +89,7 @@ export const pluginsApi = {
       capability?: string;
     },
     opts?: { scope?: ScopeUrl },
-  ): Promise<{ job_id: string; derived_key: string }> {
+  ): Promise<{ job_id: string; derived_key: string; scope?: string }> {
     const base = `${runtime.apiBase()}/plugins/${encodeURIComponent(pluginId)}/jobs`;
     const url = opts?.scope
       ? `${base}?scope=${encodeURIComponent(opts.scope)}`
@@ -97,7 +99,7 @@ export const pluginsApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    return jsonOrThrow<{ job_id: string; derived_key: string }>(
+    return jsonOrThrow<{ job_id: string; derived_key: string; scope?: string }>(
       r,
       `pluginJob(${pluginId})`,
     );

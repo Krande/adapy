@@ -1302,10 +1302,55 @@ def scope_wire(prefix: str, viewer: Optional[str] = None) -> Optional[str]:
 def _origin(part: dict, viewer: Optional[str]) -> dict:
     """Where a partition lies, as a row or collection entry reports it. ``admin``: read only because
     an admin searched every scope (:func:`admin_search_origins`), not through a share -- absent
-    otherwise, so a search without that option answers exactly as it always did."""
+    otherwise, so a search without that option answers exactly as it always did. ``granted``: read
+    from the provider store through a provider grant (:func:`_partitions`' ``granted``) -- its
+    ``scope`` is ``providers`` and its ``scope_wire`` null, because nobody but an admin names the
+    store; the dataset is read through the searched scope."""
     out = {"scope": part["scope"], "scope_wire": scope_wire(part["scope"], viewer), "shared": part["shared"]}
     if part.get("admin"):
         out["admin"] = True
+    if part.get("granted"):
+        out["granted"] = True
+    return out
+
+
+#: The provider store's prefix (``Scope.providers().prefix()``), as ``attr_collections.scope`` holds it.
+PROVIDER_STORE_SCOPE = "providers"
+
+
+def _norm_granted(granted: Optional[Iterable[tuple[str, Optional[str]]]]) -> tuple[list[str], list[Optional[str]]]:
+    """``granted`` as the two parallel arrays the store query unnests: providers, and collections
+    lower-cased (None: every collection of that provider)."""
+    providers: list[str] = []
+    collections: list[Optional[str]] = []
+    for provider, collection in granted or ():
+        if not provider:
+            continue
+        providers.append(str(provider))
+        collections.append(str(collection).lower() if collection else None)
+    return providers, collections
+
+
+def merge_granted_partitions(parts: list[dict], store_parts: list[dict], scope: str) -> list[dict]:
+    """``parts`` (the scope's own, shared and admin-read partitions) with the provider store's
+    granted ``store_parts`` folded in: each store partition is marked ``granted`` (and ``shared``,
+    being another scope's), and SHADOWS the scope's own partition of the same (provider,
+    collection) -- once the store holds a dataset the scope's legacy copy is never read again
+    (design section 4). Shares into the scope are left as they are. A store partition already read
+    another way (an admin's ``all_scopes``) is not listed twice. Pure, so it is tested without a
+    database."""
+    if not store_parts:
+        return parts
+    held = {(p["provider"], p["collection"]) for p in store_parts}
+    known = {p["part_key"] for p in parts}
+    out = [p for p in parts if not (p["scope"] == scope and (p["provider"], p["collection"]) in held)]
+    for p in store_parts:
+        if p["part_key"] in known:
+            for q in out:
+                if q["part_key"] == p["part_key"]:
+                    q["granted"] = True
+            continue
+        out.append({**p, "shared": p["scope"] != scope, "admin": False, "granted": True})
     return out
 
 
@@ -1321,9 +1366,16 @@ async def _partitions(
     read_from: Optional[Iterable[str]] = None,
     partitions: Optional[Iterable[str]] = None,
     exclude_partitions: Optional[Iterable[str]] = None,
+    granted: Optional[Iterable[tuple[str, Optional[str]]]] = None,
 ) -> list[dict]:
     """The scope's partitions, narrowed to the included providers / collections (``None``: all) and
     minus the excluded ones -- an excluded partition is never queried.
+
+    ``granted``: ``[(provider, collection | None)]`` the scope holds an ``attributes`` provider
+    grant on (``db.granted_datasets``; None: every collection of the provider). The provider
+    store's partitions of those datasets are read too, each saying ``granted``, and each shadows the
+    scope's own partition of the same (provider, collection) (:func:`merge_granted_partitions`).
+    Before the store holds a dataset there is no such partition, and the scope's own copy answers.
 
     ``shared_from``: origin scopes whose partitions shared INTO ``scope`` are read too. The caller
     names them -- :func:`readable_share_origins`, for a request -- so a share whose origin the
@@ -1374,6 +1426,30 @@ async def _partitions(
         by_share = bool(p.pop("by_share"))
         p["shared"] = p["scope"] != scope
         p["admin"] = p["shared"] and not by_share
+    grant_providers, grant_collections = _norm_granted(granted)
+    if grant_providers and scope != PROVIDER_STORE_SCOPE:
+        store_rows = await conn.fetch(
+            """
+            SELECT c.scope, c.provider, c.collection, c.revision, c.rows, c.source_etag, c.ingested_at,
+                   c.partition_name, c.part_key, c.keys, c.high_card_keys
+            FROM attr_collections c
+            WHERE c.scope = $1
+              AND EXISTS (
+                  SELECT 1 FROM unnest($2::text[], $3::text[]) AS g(provider, collection)
+                  WHERE g.provider = c.provider AND (g.collection IS NULL OR g.collection = c.collection))
+              AND ($4::text[] IS NULL OR c.provider = ANY($4)) AND ($5::text[] IS NULL OR c.collection = ANY($5))
+              AND NOT (c.provider = ANY($6::text[])) AND NOT (c.collection = ANY($7::text[]))
+            """,
+            PROVIDER_STORE_SCOPE,
+            grant_providers,
+            grant_collections,
+            providers,
+            collections,
+            exclude_providers or [],
+            exclude_collections or [],
+        )
+        store_parts = [dict(r) for r in store_rows if _PARTITION_RE.match(r["partition_name"])]
+        parts = merge_granted_partitions(parts, store_parts, scope)
     if partitions is not None:
         wanted = set(partitions)
         parts = [p for p in parts if _label(p) in wanted]
@@ -1428,10 +1504,12 @@ async def search_attributes(
     shared_from: Optional[Iterable[str]] = None,
     viewer: Optional[str] = None,
     read_from: Optional[Iterable[str]] = None,
+    granted: Optional[Iterable[tuple[str, Optional[str]]]] = None,
 ) -> dict:
     """One page of the contract's search response for ``scope``, plus the partitions shared into it
-    from ``shared_from`` and every partition of ``read_from`` (see :func:`_partitions`). ``viewer``
-    (the caller's sub) is only for the rows' ``scope_wire`` (:func:`scope_wire`)."""
+    from ``shared_from``, every partition of ``read_from`` and the provider store's partitions of
+    the ``granted`` datasets (see :func:`_partitions`). ``viewer`` (the caller's sub) is only for
+    the rows' ``scope_wire`` (:func:`scope_wire`)."""
     t0 = time.perf_counter()
     fp = query.fingerprint()
     cur = decode_cursor(query.cursor, fp) if query.cursor else None
@@ -1454,6 +1532,7 @@ async def search_attributes(
             read_from=read_from,
             partitions=query.partitions,
             exclude_partitions=query.exclude_partitions,
+            granted=granted,
         )
 
         counts: dict[str, int]
@@ -1572,6 +1651,7 @@ async def node_attributes(
     full_name: Optional[str] = None,
     shared_from: Optional[Iterable[str]] = None,
     viewer: Optional[str] = None,
+    granted: Optional[Iterable[tuple[str, Optional[str]]]] = None,
 ) -> dict:
     """One node's row, by ``node_id`` or by ``full_name`` (exactly one), from the partitions of
     (provider, collection) readable in ``scope`` (:func:`_partitions`), the scope's own first.
@@ -1584,7 +1664,7 @@ async def node_attributes(
     column, value = ("node_id", node_id) if node_id is not None else ("full_name", full_name)
     async with pool.acquire() as conn, conn.transaction(readonly=True):
         await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
-        parts = await _partitions(conn, scope, [provider], [collection], shared_from=shared_from)
+        parts = await _partitions(conn, scope, [provider], [collection], shared_from=shared_from, granted=granted)
         for part in parts:
             rows = await conn.fetch(
                 f"SELECT {_SELECT_COLUMNS} FROM {_ident(part['partition_name'])} "
@@ -1630,6 +1710,7 @@ async def nodes_attributes(
     ancestors: int = 0,
     providers: Optional[Iterable[str]] = None,
     shared_from: Optional[Iterable[str]] = None,
+    granted: Optional[Iterable[tuple[str, Optional[str]]]] = None,
 ) -> dict:
     """Many nodes of ``collection`` at once, by ``node_ids`` and/or ``full_names``, from every
     partition of it readable in ``scope`` (``providers`` narrows them). One query per partition.
@@ -1671,7 +1752,12 @@ async def nodes_attributes(
     async with pool.acquire() as conn, conn.transaction(readonly=True):
         await conn.execute(f"SET LOCAL statement_timeout = '{SEARCH_STATEMENT_TIMEOUT}'")
         parts = await _partitions(
-            conn, scope, list(providers) if providers else None, [collection], shared_from=shared_from
+            conn,
+            scope,
+            list(providers) if providers else None,
+            [collection],
+            shared_from=shared_from,
+            granted=granted,
         )
         if not (ids or names):
             return {"indexed": bool(parts), "nodes": [], "ancestors": {}}
@@ -1735,12 +1821,14 @@ async def list_attr_collections(
     shared_from: Optional[Iterable[str]] = None,
     viewer: Optional[str] = None,
     read_from: Optional[Iterable[str]] = None,
+    granted: Optional[Iterable[tuple[str, Optional[str]]]] = None,
 ) -> list[dict]:
     """One entry per partition searchable in ``scope``: its own, then (per collection) the ones
-    shared into it from ``shared_from`` (and every one of ``read_from``), each saying its origin and
-    its ``key`` -- the name a search's ``partitions`` / ``exclude_partitions`` and ``counts`` use."""
+    shared into it from ``shared_from`` (and every one of ``read_from``, and the provider store's
+    of the ``granted`` datasets), each saying its origin and its ``key`` -- the name a search's
+    ``partitions`` / ``exclude_partitions`` and ``counts`` use."""
     async with pool.acquire() as conn:
-        parts = await _partitions(conn, scope, shared_from=shared_from, read_from=read_from)
+        parts = await _partitions(conn, scope, shared_from=shared_from, read_from=read_from, granted=granted)
     return [
         {
             "key": _label(p),
@@ -1764,6 +1852,7 @@ async def list_attr_keys(
     collection: Optional[str] = None,
     shared_from: Optional[Iterable[str]] = None,
     read_from: Optional[Iterable[str]] = None,
+    granted: Optional[Iterable[tuple[str, Optional[str]]]] = None,
 ) -> list[str]:
     """Every attribute key of the matching collections, sorted (byte order: keys are case-sensitive)."""
     async with pool.acquire() as conn:
@@ -1774,6 +1863,7 @@ async def list_attr_keys(
             [collection] if collection else None,
             shared_from=shared_from,
             read_from=read_from,
+            granted=granted,
         )
     keys: set[str] = set()
     for p in parts:
@@ -1792,6 +1882,7 @@ async def list_attr_values(
     collection: Optional[str] = None,
     shared_from: Optional[Iterable[str]] = None,
     read_from: Optional[Iterable[str]] = None,
+    granted: Optional[Iterable[tuple[str, Optional[str]]]] = None,
 ) -> list[dict]:
     """The commonest values of ``key`` (as text) across the matching collections, most frequent
     first. From the ingest histogram where the key has one; by scanning the partition where its
@@ -1808,6 +1899,7 @@ async def list_attr_values(
             [collection] if collection else None,
             shared_from=shared_from,
             read_from=read_from,
+            granted=granted,
         )
         tracked = [p["part_key"] for p in parts if key in (p["keys"] or []) and key not in (p["high_card_keys"] or [])]
         scanned = [p for p in parts if key in (p["high_card_keys"] or [])]

@@ -51,6 +51,14 @@ reads each item's state just before starting it. And a provider has a DEFAULT li
 (``/asset-sweeps/defaults``): every new sweep of it, scheduled or one-off, starts with the
 collections unticked there already ``excluded``. Some collections are too big for a routine sweep,
 and remembering to untick them every time is exactly what a default is for. Neither is a failure.
+
+NO SCOPE. A sweep keeps provider data current, and provider data lives once, in the provider store
+(``Scope.providers()``, ``routes/provider_store.py``). Every sweep -- an admin's, a scheduled one, a
+request made from a scope -- enqueues, stages and publishes there, reads each collection's provider
+options from ``providers/assets/_options/<collection>.json``, and an interrupted one resumes there
+even when it was started before the store under ``shared`` or a project. An admin's and a scheduled
+sweep are recorded under ``providers``; one requested from a scope is recorded under that scope,
+which is how the scope polls it.
 """
 
 from __future__ import annotations
@@ -96,6 +104,7 @@ from .deps import (
     rest_context,
 )
 from .plugin_jobs import enqueue_plugin_job
+from .provider_store import PROVIDER_STORE, PROVIDER_STORE_WIRE, job_scope
 
 admin_router = APIRouter()
 
@@ -191,17 +200,28 @@ def _all_collections(specs: list[dict]) -> list[str]:
     return list(seen)
 
 
-async def _provider_options(ctx: RestContext, scope_obj: Scope, provider: str, collection: str) -> dict:
+async def _provider_options(ctx: RestContext, scope_obj: Scope | None, provider: str, collection: str) -> dict:
     """The collection's saved provider options (``assets/_options/<collection>.json``, as
     ``assets/providerOptions.ts`` writes it), sent with every request for it -- a sweep asks the
-    same question the Sources tab would. None saved is the ordinary case."""
+    same question the Sources tab would. None saved is the ordinary case.
+
+    Read from the PROVIDER STORE (``providers/assets/_options/<collection>.json``): one
+    configuration per (provider, collection), edited by admins, because the job runs there. Until
+    the store holds a document for the collection, the copy a scope saved before the store
+    (``scope_obj``, when it is not the store) still answers -- so a request from a scope that
+    configured its collection keeps asking what it asked."""
     key = f"assets/_options/{collection.lower()}.json"
-    try:
-        doc = _json_of(await ctx.storage.get_bytes(scope_obj, key))
-    except Exception:  # noqa: BLE001 - absent, or unreadable: nothing to add
-        return {}
-    values = ((doc or {}).get("providers") or {}).get(provider) if isinstance(doc, dict) else None
-    return dict(values) if isinstance(values, dict) else {}
+    places = [PROVIDER_STORE]
+    if scope_obj is not None and scope_obj != PROVIDER_STORE:
+        places.append(scope_obj)
+    for place in places:
+        try:
+            doc = _json_of(await ctx.storage.get_bytes(place, key))
+        except Exception:  # noqa: BLE001 - absent, or unreadable: nothing to add from here
+            continue
+        values = ((doc or {}).get("providers") or {}).get(provider) if isinstance(doc, dict) else None
+        return dict(values) if isinstance(values, dict) else {}
+    return {}
 
 
 async def start_sweep(
@@ -222,7 +242,13 @@ async def start_sweep(
 
     ``collections``: only these (matched to the provider's spelling, refused when it does not offer
     one), in that order -- and then the provider's default exclusions do not apply: somebody named
-    exactly what to run. ``job`` may be :data:`COLLECTION_REQUEST`."""
+    exactly what to run. ``job`` may be :data:`COLLECTION_REQUEST`.
+
+    THE SWEEP RUNS IN THE PROVIDER STORE, whatever ``scope_obj`` says: its jobs enqueue, stage and
+    publish there (``job_scope`` -- every spec reaching here declares ``asset_provider_id``).
+    ``scope`` is only what the run is RECORDED under: ``providers`` for an admin's or a scheduled
+    sweep, the requesting scope's wire for a request made from one (that scope polls its run by
+    it)."""
     specs, found = await sweep_entry(ctx, provider, job)
     if not specs:
         raise SweepRefused(f"no online worker advertises provider {provider!r}")
@@ -230,6 +256,7 @@ async def start_sweep(
         what = "no collection request" if job == COLLECTION_REQUEST else f"no sweep {job!r}"
         raise SweepRefused(f"provider {provider!r} declares {what}")
     spec, entry = found
+    scope_obj = job_scope(spec, scope_obj)
     busy = await db_module.running_asset_sweep(pool, provider=provider)
     if busy is not None:
         raise SweepRefused(f"a {provider} sweep is already running (started {busy['created_at']})")
@@ -558,17 +585,17 @@ async def admin_asset_sweep_start(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Run a provider's sweep once, now. Body: ``{provider, job, scope, settings}`` -- the same
-    choices a schedule of it is made from, and checked the same way."""
+    """Run a provider's sweep once, now. Body: ``{provider, job, settings}`` -- the same choices a
+    schedule of it is made from, and checked the same way. ``scope`` (from before the provider
+    store) is accepted and ignored: the sweep runs in, and is recorded under, the store."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
     job = str(body.get("job") or "").strip()
-    scope = str(body.get("scope") or "").strip()
-    if not provider or not job or not scope:
-        raise HTTPException(status_code=400, detail="provider, job and scope are required")
+    if not provider or not job:
+        raise HTTPException(status_code=400, detail="provider and job are required")
     settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
-    scope_obj = await _scope_of(pool, scope, user)
+    scope_obj = PROVIDER_STORE
     specs = (await provider_specs(ctx)).get(provider) or []
     found = find_entry(specs, job)
     if found is not None:
@@ -591,7 +618,7 @@ async def admin_asset_sweep_start(
         run = await start_sweep(
             ctx,
             pool,
-            scope=scope,
+            scope=PROVIDER_STORE_WIRE,
             scope_obj=scope_obj,
             provider=provider,
             job=job,
@@ -755,7 +782,9 @@ async def resume_sweep(ctx: RestContext, pool, run_id: str, *, user) -> dict:
     busy = await db_module.running_asset_sweep(pool, provider=provider)
     if busy is not None and busy["id"] != run_id:
         raise SweepRefused(f"a {provider} sweep is already running (started {busy['created_at']})")
-    scope_obj = await _scope_of(pool, run["scope"], user)
+    # The store, whatever the run is recorded under: a run from before the store (recorded under
+    # `shared` or a project) goes on where every provider job runs now.
+    scope_obj = PROVIDER_STORE
     rearmed = await db_module.resume_asset_sweep_run(pool, run_id)
     if rearmed is None:
         # Between the read and here: someone else resumed it, or it was cancelled.

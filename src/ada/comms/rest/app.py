@@ -1185,24 +1185,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # and their ids are namespaced so they can never collide with a queued
         # job's. Checking them before the `queue.enabled` gate is what lets one
         # polling loop in the frontend serve both paths.
+        #
+        # THE PROVIDER STORE. A job in the ``providers`` scope is an admin's --
+        # every provider job is -- EXCEPT a build: a member opening a dataset
+        # granted to their scope has core build it as a store job on their
+        # behalf (one shared cache for every granted scope), and must be able to
+        # poll it. Builds only, never a provider job, and the id is unguessable;
+        # what the poll returns is a status and a derived key, not the data.
+        def _readable_store_build(kind: str, target_format: str | None, derived_key: str | None) -> bool:
+            if kind != "providers":
+                return False
+            if target_format == "asset_build":
+                return True
+            # An in-process job records no target format; a build's summary is
+            # the only one composed under `_derived/assets/` (a plugin job's is
+            # under `_derived/plugin_jobs/`).
+            return target_format is None and str(derived_key or "").startswith("_derived/assets/")
+
+        def _job_scope_of(kind: str, ident: str | None) -> Scope:
+            # `shared` and `providers` carry no id; a record may hold "" or None.
+            if kind in ("shared", "providers"):
+                return Scope(kind=kind)  # type: ignore[arg-type]
+            return Scope(kind=kind, id=ident)  # type: ignore[arg-type]
+
         local = local_jobs.registry.get(job_id)
         if local is not None:
-            local_scope = Scope(kind=local.scope_kind, id=local.scope_id)
-            if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
-                raise HTTPException(status_code=403, detail="forbidden")
+            if not _readable_store_build(local.scope_kind, getattr(local, "target_format", None), local.derived_key):
+                local_scope = _job_scope_of(local.scope_kind, local.scope_id)
+                if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
+                    raise HTTPException(status_code=403, detail="forbidden")
             return JSONResponse(local.as_json())
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
         job = await queue.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail=f"job {job_id} not found")
-        job_scope = (
-            Scope.shared()
-            if job.scope_kind == "shared"
-            else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
-        )
-        if not await scope_can_access(user, job_scope, getattr(request.app.state, "db_pool", None)):
-            raise HTTPException(status_code=403, detail="forbidden")
+        if not _readable_store_build(job.scope_kind, job.target_format or "", job.derived_key):
+            job_scope = _job_scope_of(job.scope_kind, job.scope_id)
+            if not await scope_can_access(user, job_scope, getattr(request.app.state, "db_pool", None)):
+                raise HTTPException(status_code=403, detail="forbidden")
         return JSONResponse(asdict(job))
 
     # ── /api/components/* ────────────────────────────────────────────
@@ -1450,6 +1471,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Search hits exported as IFC into a chosen folder (routes/asset_exports.py), and per-file
     # provenance (`/scopes/{scope}/files/meta`). Fixed paths, no parameterised sibling to collide with.
     api.include_router(asset_exports_router)
+    # What a scope may read of the provider store (routes/provider_grants.py): the member-facing
+    # `/scopes/{scope}/provider-grants` and the workers' `/provider-grants/datasets`. Fixed paths.
+    from .routes.provider_grants import router as provider_grants_router
+
+    api.include_router(provider_grants_router)
 
     # Core asset store (routes/assets.py). Every path is
     # ``/scopes/{scope}/assets/...`` with a fixed first segment after

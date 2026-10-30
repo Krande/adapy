@@ -39,6 +39,7 @@ import {sortProjects, sortProjectsBy} from "@/utils/sortProjects";
 
 import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
+import ProviderAccessSection from "./ProviderAccessSection";
 import ProviderSchedulesSection from "./ProviderSchedulesSection";
 
 // Admin tab — which of an asset provider's collections may be REQUESTED in each
@@ -658,9 +659,12 @@ const ProvidersTab: React.FC = () => {
                 it shares the scope rows and nothing else. */}
             <ClashSpecProvidersSection rows={rows.filter((r) => !r.stale)} />
 
-            {/* The jobs each provider declares for scheduling (`asset_schedules`), per scope and
-                collection -- replaces the generic plugin-job schedules under Audit. */}
-            <ProviderSchedulesSection rows={rows.filter((r) => !r.stale)} />
+            {/* The jobs each provider declares for scheduling (`asset_schedules`), per collection --
+                replaces the generic plugin-job schedules under Audit. */}
+            <ProviderSchedulesSection />
+
+            {/* Which scopes read the provider store, and what of it (attributes, geometry). */}
+            <ProviderAccessSection projects={projects} />
         </div>
     );
 };

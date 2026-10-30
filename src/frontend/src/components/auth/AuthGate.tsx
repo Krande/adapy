@@ -1,7 +1,7 @@
 import React, {useEffect, useState} from "react";
 import {bootstrap, isAuthEnabled, isSignedIn, signIn} from "@/services/auth/oidc";
 import {viewerApi} from "@/services/viewerApi";
-import {useScopeStore} from "@/state/scopeStore";
+import {useScopeStore, withProviderStore} from "@/state/scopeStore";
 import {followScope, recallScope} from "@/state/lastScope";
 import {useMeStore} from "@/state/meStore";
 import {subscribeSpecsToScope} from "@/state/componentSpecsStore";
@@ -30,7 +30,7 @@ async function loadMe(): Promise<void> {
         });
         // A tab without a scope of its own (a new window, a restarted browser) starts in the one
         // this user last browsed.
-        useScopeStore.getState().setAvailable(me.scopes, recallScope(me.sub));
+        useScopeStore.getState().setAvailable(withProviderStore(me.scopes, me.isAdmin), recallScope(me.sub));
         if (me.sub) followScope(me.sub);
     } catch (err) {
         console.warn("failed to load /api/me", err);

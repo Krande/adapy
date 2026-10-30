@@ -99,6 +99,8 @@ const EXPECTED_METHODS = [
   "adminDbFoldAttr", "adminDbPrune", "adminDbPruneAttrRevisions", "adminDbSetRetention",
   "adminDbShareAttrCollection", "adminDbShareAttrProvider", "adminDbStorage", "adminDbTableRows",
   "adminDbUnshareAttrCollection", "adminDbUnshareAttrProvider",
+  // Provider grants (providerGrants): which scopes read which of the provider store's datasets.
+  "adminProviderGrants", "adminRevokeProviderGrant", "adminSetProviderGrant", "scopeProviderGrants",
 ].sort();
 
 test("viewerApi exposes exactly the pinned method set", () => {

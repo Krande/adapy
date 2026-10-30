@@ -229,8 +229,14 @@ async def set_plugin_job_schedule_skip_reason(pool: asyncpg.Pool, schedule_id: s
         logger.exception("plugin-job scheduler: could not record skip reason for %s", schedule_id)
 
 
-async def plugin_job_in_flight_jobs(pool: asyncpg.Pool, *, scope_kind: str, scope_id, plugin_id: str) -> list[str]:
+async def plugin_job_in_flight_jobs(
+    pool: asyncpg.Pool, *, scope_kind: str, scope_id, plugin_id: str, any_scope: bool = False
+) -> list[str]:
     """Job ids for this plugin and scope whose audit row is still queued or running.
+
+    ``any_scope``: for this plugin in EVERY scope -- the guard of an asset provider, whose jobs
+    all run in the provider store and share one seat wherever they were started from (one
+    started from a scope before the store may still be in flight across the upgrade).
 
     The concurrent-fire guard's first pass, and the guard matters more for a plugin
     than for an audit sweep: a plugin job can hold a single licensed workstation
@@ -261,13 +267,13 @@ async def plugin_job_in_flight_jobs(pool: asyncpg.Pool, *, scope_kind: str, scop
         SELECT job_id FROM audit_log
         WHERE target_format = 'plugin_job'
           AND status IN ('queued', 'running')
-          AND scope_kind = $1
-          AND scope_id IS NOT DISTINCT FROM $2
+          AND ($4::boolean OR (scope_kind = $1 AND scope_id IS NOT DISTINCT FROM $2))
           AND starts_with(key, $3)
           AND job_id IS NOT NULL
         """,
         scope_kind,
         scope_id,
         prefix,
+        bool(any_scope),
     )
     return [str(r["job_id"]) for r in rows]

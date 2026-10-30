@@ -315,7 +315,7 @@ export interface AdaPluginContext {
    * Returns the store key for the toast entry. Fire-and-forget: the poll is
    * detached, which is the point.
    */
-  trackJob: (opts: {jobId: string; label: string; derivedKey?: string; storeKey?: string}) => string;
+  trackJob: (opts: {jobId: string; label: string; derivedKey?: string; storeKey?: string; scope?: string}) => string;
 }
 
 export type ActivationPredicate = (ctx: AdaPluginContext) => boolean;

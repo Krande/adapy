@@ -8,6 +8,7 @@ import {
   enabledFor,
   isCollectionEnabled,
   parseScopeCollections,
+  requiresAdminOf,
   serialiseScopeCollections,
   setCollections,
   storedProviders,
@@ -270,6 +271,24 @@ test("storedProviders lists every provider the map mentions", () => {
   assert.deepEqual(storedProviders(map), ["a", "b", "c"]);
 });
 
+test("every asset provider's requests are admin-only, whatever its spec says", () => {
+  const [p] = assetProviderCollections([
+    {
+      id: "one",
+      asset_provider_id: "vendor",
+      requires_admin: false,
+      asset_collection_request: { options: {}, collection_option: "project" },
+      asset_node_request: { options: {}, collection_option: "project", node_option: "nodes" },
+    },
+  ]);
+  assert.equal(p.request?.requiresAdmin, true);
+  assert.equal(p.nodeRequest?.requiresAdmin, true);
+  assert.equal(requiresAdminOf({ id: "x", asset_provider_id: "vendor" }), true);
+  assert.equal(requiresAdminOf({ id: "x", asset_provider_id: " " }), false);
+  assert.equal(requiresAdminOf({ id: "x" }), false);
+  assert.equal(requiresAdminOf({ id: "x", requires_admin: true }), true);
+});
+
 test("a spec's asset_node_request is read with the option that carries the node", () => {
   const [vendor] = assetProviderCollections([
     {
@@ -285,7 +304,8 @@ test("a spec's asset_node_request is read with the option that carries the node"
     collectionOption: "project",
     nodeOption: "nodes",
     label: "Request geometry",
-    requiresAdmin: false,
+    // Any asset provider's job runs in the provider store, so asking for it takes an admin.
+    requiresAdmin: true,
   });
   // Without a node option it is not a node request: the node would have nowhere to go.
   const [none] = assetProviderCollections([

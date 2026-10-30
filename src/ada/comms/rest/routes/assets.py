@@ -93,10 +93,51 @@ from ..job_transport import JobRequest
 from ..scope import Scope
 from .deps import RestContext, rest_context, scope_from_path
 from .plugins import online_plugin_specs
+from .provider_store import (
+    PROVIDER_STORE,
+    PROVIDER_STORE_WIRE,
+    granted_store_collections,
+    is_store_provider,
+    resolve_collection,
+    resolve_dataset,
+    wire_of,
+)
 
 router = APIRouter()
 
 PUBLISHED_PROVIDER_ID = "published"
+
+
+# -- reads through grants ---------------------------------------------------------------------
+#
+# Provider data lives once, in the provider store, and a scope an admin granted a dataset reads it
+# THROUGH ITS OWN ROUTES: the URL names the reader's scope, and the route resolves where the bytes
+# are (``provider_store``; docs/design/provider-scope-grants.md section 4). Until the store holds a
+# dataset the scope keeps reading its own copy, so with an empty store nothing here changes. Every
+# cache below is keyed by the RESOLVED scope's prefix, so a store answer is shared by every granted
+# scope and never mixed with a scope's legacy copy. An admin browsing ``providers`` directly reads
+# it as any other scope (the resolvers short-circuit on it).
+
+
+def _db_pool(request: Request | None):
+    return getattr(request.app.state, "db_pool", None) if request is not None else None
+
+
+async def _read_scope(ctx: RestContext, pool, scope_obj: Scope, provider: str | None, collection: str | None) -> Scope:
+    """Where ``scope_obj`` reads (``provider``, ``collection``)'s published geometry: per provider
+    for a named one, per COLLECTION for ``published`` (any provider) or none -- that read takes the
+    newest revision of whichever provider wrote it, so it follows the collection as a whole."""
+    if not collection or pool is None:
+        return scope_obj
+    try:
+        if not provider or provider == PUBLISHED_PROVIDER_ID:
+            return await resolve_collection(ctx, pool, scope_obj, collection, "geometry")
+        return await resolve_dataset(ctx, pool, scope_obj, provider, collection, "geometry")
+    except Exception as exc:  # noqa: BLE001 - an unanswerable grant reads the scope's own copy, never more
+        logger.warning(
+            "assets: could not resolve the provider grants of %s for %s: %s", scope_obj.prefix(), collection, exc
+        )
+        return scope_obj
 
 
 #: Bodies above this are gzipped for a client that accepts it. A hierarchy slice is row after row of
@@ -231,6 +272,9 @@ async def api_asset_index(
     """
     if manifests and not collection:
         raise HTTPException(status_code=400, detail="manifests=true needs a collection")
+    # A collection's index follows the collection's grant (the store's when granted and held); the
+    # unscoped index is the scope's own walk -- the store is not folded into it.
+    scope_obj = await _read_scope(ctx, _db_pool(request), scope_obj, None, collection)
     prefix = f"{ASSET_PREFIX}/{collection}/" if collection else f"{ASSET_PREFIX}/"
     index = fold_listing(await _list_asset_keys(ctx, scope_obj, prefix))
     body = index.to_dict()
@@ -241,6 +285,7 @@ async def api_asset_index(
 
 @router.get("/scopes/{scope}/assets/collections")
 async def api_asset_collections(
+    request: Request,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
@@ -249,9 +294,24 @@ async def api_asset_collections(
     What picking a collection needs, without the unscoped index's walk of every published key.
     A name is listed when its prefix holds any key, so a collection of only malformed keys is
     listed here and folds to no subjects in its own index.
+
+    Plus the provider store's collections this scope holds a ``geometry`` grant on
+    (``provider_store.granted_store_collections``), once each: picking one reads it through this
+    scope's routes like any of its own.
     """
     names = await ctx.storage.list_child_names(scope_obj, f"{ASSET_PREFIX}/")
-    return JSONResponse({"collections": [n for n in names if is_valid_segment(n)]})
+    try:
+        granted = await granted_store_collections(ctx, _db_pool(request), scope_obj, "geometry")
+    except Exception as exc:  # noqa: BLE001 - the scope's own collections still answer
+        logger.warning("assets: could not list the store collections granted to %s: %s", scope_obj.prefix(), exc)
+        granted = []
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in [*names, *granted]:
+        if is_valid_segment(n) and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return JSONResponse({"collections": out})
 
 
 @router.get("/scopes/{scope}/assets/geometry/{collection}")
@@ -275,6 +335,9 @@ async def api_asset_geometry(
     """
     if not is_valid_segment(collection):
         raise HTTPException(status_code=400, detail=f"invalid collection {collection!r}")
+    # Collection-addressed: the store's roll-up for a granted collection it holds, computed and
+    # cached there once for every granted scope (a core-composed cache, like a build's).
+    scope_obj = await _read_scope(ctx, _db_pool(request), scope_obj, None, collection)
     entries = await ctx.storage.list_prefix(scope_obj, f"{ASSET_PREFIX}/{collection}/")
     if not entries:
         raise HTTPException(status_code=404, detail=f"no published collection {collection!r}")
@@ -431,7 +494,11 @@ async def api_asset_tree(
     per expanded row, and "nothing under it in this spine" is the answer either way -- a 404 stays
     reserved for a spine that is not there. Why it exists: one site's spine can be tens of MB, and
     shipping it whole to expand one row froze the browser parsing it.
+
+    Read where the scope reads (``provider``, ``collection``) -- the provider store for a granted
+    dataset it holds -- and a live provider is handed that scope too.
     """
+    scope_obj = await _read_scope(ctx, _db_pool(request), scope_obj, provider, collection)
     if not _is_published(provider):
         slice_ = await _live_hierarchy(provider, scope_obj, collection, root, depth)
         return JSONResponse(_slice_to_dict(slice_))
@@ -618,6 +685,7 @@ async def api_asset_attributes(
     provider: str,
     collection: str,
     node: str,
+    request: Request,
     subject: str | None = None,
     revision: str | None = None,
     scope_obj: Scope = Depends(scope_from_path),
@@ -636,7 +704,12 @@ async def api_asset_attributes(
     404 means "nothing recorded for this node", which is the same answer for a provider that
     publishes no attributes, a document that does not mention the node, and a node that is not
     published at all. A caller asking what something is cannot act differently on those three.
+
+    The attributes DOCUMENT is published geometry-side (an artefact of the subject's publish), so
+    it follows the dataset's ``geometry`` grant, as the tree and the delivery do; the attribute
+    INDEX (search) follows ``attributes``.
     """
+    scope_obj = await _read_scope(ctx, _db_pool(request), scope_obj, provider, collection)
     live = _is_published(provider) is False and hasattr(asset_provider(provider), "attributes")
     if live:
         attrs = await asyncio.to_thread(
@@ -682,6 +755,7 @@ async def api_asset_delivery(
     provider: str,
     collection: str,
     node: str,
+    request: Request,
     subject: str | None = None,
     revision: str | None = None,
     scope_obj: Scope = Depends(scope_from_path),
@@ -695,7 +769,12 @@ async def api_asset_delivery(
     routes take it; it defaults to the node itself. For a store-backed read, a ``provider`` other
     than ``published`` selects that provider's newest complete revision of the subject (see
     ``_manifest_for_node``); ``published`` takes the newest of any provider.
+
+    A granted dataset's claim is read from the provider store, and a ``mesh`` claim's ``url`` stays
+    a KEY: the viewer loads it through this scope's blob route, which resolves it to the store the
+    same way (``provider_store.resolve_blob``), so the store is never named to the viewer.
     """
+    scope_obj = await _read_scope(ctx, _db_pool(request), scope_obj, provider, collection)
     if not _is_published(provider):
         claim = await asyncio.to_thread(
             lambda: asset_provider(provider).delivery(scope_obj, collection, node, revision=revision)
@@ -749,6 +828,7 @@ async def api_asset_delivery(
 
 @router.post("/scopes/{scope}/assets/build")
 async def api_asset_build(
+    scope: str,
     body: dict,
     request: Request,
     scope_obj: Scope = Depends(scope_from_path),
@@ -799,6 +879,9 @@ async def api_asset_build(
         request=request,
         user=user,
     )
+    # Where ``derived_key`` lives, for a client that reads it by scope: the store for a granted
+    # dataset, else the scope as it was asked for. The scope's own blob route serves either.
+    answer.setdefault("scope", scope)
     return JSONResponse(answer)
 
 
@@ -814,11 +897,23 @@ async def submit_node_build(
     force: bool = False,
     request: Request | None = None,
     user: User | None = None,
+    pool=None,
 ) -> dict:
     """:func:`api_asset_build`'s work, for callers that are not the route (the search export's
     mesh path builds the nodes it writes). Answers ``{derived_key, capability, provider, subject,
-    revision, node, fingerprint, job_id, cached}``; raises HTTPException as the route would."""
+    revision, node, fingerprint, job_id, cached}`` -- plus ``scope`` (``providers``) when the build
+    is a granted dataset's; raises HTTPException as the route would.
+
+    A GRANTED DATASET IS BUILT IN THE PROVIDER STORE: the manifest is read there, the cached check
+    asks there and the job runs there, so every granted scope shares one built GLB. A member may
+    trigger it -- the key is composed by core from the published claim, never by the caller, so it
+    is a derived cache and not a provider job (design section 6). ``pool`` is the database the grant
+    is asked in; ``request``'s app's when absent, and without either the scope reads its own."""
     ctx.jobs.require("asset_build")
+    if pool is None:
+        pool = _db_pool(request)
+    requested_scope = scope_obj
+    scope_obj = await _read_scope(ctx, pool, scope_obj, asked_provider, collection)
 
     # WHICH PROVIDER'S PUBLISH. One subject can carry publishes from several providers, so a
     # store-backed provider id SELECTS the newest complete revision that provider wrote (an
@@ -888,6 +983,10 @@ async def submit_node_build(
         "node": node,
         "fingerprint": fingerprint,
     }
+    if scope_obj != requested_scope:
+        answer["scope"] = wire_of(scope_obj)
+        # The store's build is every granted scope's: only an admin rebuilds over a cached one.
+        force = force and bool(getattr(user, "is_admin", False))
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         return {**answer, "job_id": None, "cached": True}
 
@@ -948,6 +1047,13 @@ async def api_asset_publish(
     ``staging_id`` is the ordinary case -- everything under ``assets/_staging/<id>/`` is handed
     to the provider by role (its filename), which is why staging survives a reload: the keys are
     in the store, not in a browser's memory (see ``GET /assets/staging``).
+
+    PROVIDER DATA IS PUBLISHED IN THE PROVIDER STORE, BY AN ADMIN. A ``provider`` a live plugin
+    spec advertises as its ``asset_provider_id`` (or listed in ``ADA_STORE_PROVIDERS``) is provider
+    data: the publish is refused (403) for anyone but an admin, whatever scope the path names, and
+    runs in the store -- staging read there, job there -- and the answer says ``scope:
+    "providers"``, where its summary is read. The built-in ``published`` provider (user uploads)
+    and any provider nobody advertises publish into the path's scope, as before.
     """
     provider = str(body.get("provider") or "")
     if not provider:
@@ -955,6 +1061,18 @@ async def api_asset_publish(
             status_code=400, detail="'provider' is required: it names whose format the staged bytes are in"
         )
     ctx.jobs.require("asset_publish")
+
+    store = await is_store_provider(ctx, provider)
+    if store:
+        if not getattr(user, "is_admin", False):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"{provider!r} publishes provider data, which is an admin operation: it lands once in the "
+                    "provider store and scopes read it through the grants an admin gives them"
+                ),
+            )
+        scope_obj = PROVIDER_STORE
 
     staged: dict[str, str] = {}
     staging_id = body.get("staging_id")
@@ -989,7 +1107,10 @@ async def api_asset_publish(
         dry_run=dry_run,
         replace=bool(body.get("replace")),
     )
-    return JSONResponse({"job_id": job_id, "derived_key": derived_key, "dry_run": dry_run})
+    answer = {"job_id": job_id, "derived_key": derived_key, "dry_run": dry_run}
+    if store:
+        answer["scope"] = PROVIDER_STORE_WIRE
+    return JSONResponse(answer)
 
 
 async def staged_by_role(ctx: RestContext, scope_obj: Scope, staging_id: str) -> dict[str, str]:
@@ -1016,7 +1137,10 @@ async def submit_asset_publish(
 ) -> tuple[str, str]:
     """Submit one ``asset_publish`` job; ``(job_id, derived_key)``. The route above and a provider
     sweep (``routes/asset_sweeps.py``) both publish through here, so authorship is stamped the
-    same way for a click and for a scheduled firing. Authorisation is the caller's."""
+    same way for a click and for a scheduled firing. Authorisation is the caller's, and so is the
+    scope: the job runs in ``scope_obj`` and reads ``staged`` there, so a caller publishing provider
+    data passes the provider store (``provider_store.PROVIDER_STORE``) -- as the route above and a
+    sweep do -- and nothing here redirects behind its back."""
     derived_key = f"_derived/assets/_publish/{provider}/{uuid.uuid4().hex[:16]}/summary.json"
     submitted = await ctx.jobs.submit(
         JobRequest(

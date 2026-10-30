@@ -12,17 +12,24 @@ jobs it offers for scheduling::
 
 Two surfaces read it:
 
-* **Admin → Providers → Scheduled jobs** (``admin_router``): job × scope × collection ×
-  frequency × settings, every one a choice -- nothing here accepts free-text options. A row is
-  stored in ``plugin_job_schedules`` (the scheduler that already runs those fires it) with the
-  provider, collection and entry id beside it, so its options are rebuilt from the LIVE
-  declaration at every firing rather than frozen at creation.
+* **Admin → Providers → Scheduled jobs** (``admin_router``): job × collection × frequency ×
+  settings, every one a choice -- nothing here accepts free-text options. A row is stored in
+  ``plugin_job_schedules`` (the scheduler that already runs those fires it) with the provider,
+  collection and entry id beside it, so its options are rebuilt from the LIVE declaration at every
+  firing rather than frozen at creation.
 * **Sources tab → Check for changes** (``router``): runs the provider's ``change-check`` entry
-  now.
+  now. An admin operation, like every provider job.
 
-Every change check, from either, gets an ``asset_change_runs`` row. Its job answers with the
-provider-neutral ``asset_changes`` block (``ada.assets/changes@1``), which this module copies in
-once the job is done. Report only: nothing is published as a consequence.
+NO SCOPE. Every job of an asset provider runs in the provider store (``Scope.providers()``,
+``routes/provider_store.py``): provider data is kept once and read by scopes through grants. A
+schedule therefore has no scope to choose -- ``scope`` is accepted and ignored, new rows store
+``providers``, and a row from before (still naming ``shared`` or a project) fires into the store
+all the same. One live schedule per (provider, collection, job).
+
+Every change check, from either, gets an ``asset_change_runs`` row, keyed under the store. Its job
+answers with the provider-neutral ``asset_changes`` block (``ada.assets/changes@1``), which this
+module copies in once the job is done. Report only: nothing is published as a consequence. A scope
+lists the store's runs of the datasets granted to it, beside its own rows from before the store.
 """
 
 from __future__ import annotations
@@ -51,7 +58,15 @@ from .deps import (
     rest_context,
     scope_from_path,
 )
-from .plugin_jobs import enqueue_plugin_job, plugin_job_requires_admin
+from .plugin_jobs import enqueue_plugin_job
+from .provider_store import (
+    PROVIDER_STORE,
+    PROVIDER_STORE_WIRE,
+    granted_covers,
+    job_scope,
+    readable_store_datasets,
+    require_admin_for_provider_job,
+)
 
 router = APIRouter()
 admin_router = APIRouter()
@@ -311,8 +326,15 @@ async def start_change_check(
     schedule_id: str | None = None,
     request: Request | None = None,
 ) -> dict:
-    """Enqueue one change check and record its run. ``options`` are final (built and stamped)."""
+    """Enqueue one change check and record its run. ``options`` are final (built and stamped).
+
+    The check runs in the provider store and its run is keyed there, whatever ``scope_obj`` /
+    ``scope`` the caller passed (``job_scope``): the summary it is finished from is then read from
+    the same scope the job wrote it in, and every scope granted the dataset sees the one run."""
     plugin_id = _plugin_id(spec)
+    scope_obj = job_scope(spec, scope_obj)
+    if scope_obj == PROVIDER_STORE:
+        scope = PROVIDER_STORE.prefix()
     derived_key, derived_prefix = job_keys(plugin_id, options)
     job_id = await enqueue_plugin_job(
         ctx,
@@ -345,9 +367,25 @@ def _block_of(summary: Any) -> dict | None:
     return block if isinstance(block, dict) else None
 
 
-async def finish_pending_runs(ctx: RestContext, pool, scope_obj: Scope, runs: list[dict]) -> list[dict]:
+def run_scope(run: dict, fallback: Scope | None = None) -> Scope:
+    """The scope a run's job wrote in -- its summary and item list are read there. A run row keys
+    the scope by storage prefix (``providers`` for every run since the store, the launching scope's
+    prefix before); ``fallback`` answers for a row whose key does not parse."""
+    try:
+        return Scope.from_prefix(str(run.get("scope") or ""))
+    except ValueError:
+        if fallback is None:
+            raise
+        return fallback
+
+
+async def finish_pending_runs(ctx: RestContext, pool, scope_obj: Scope | None, runs: list[dict]) -> list[dict]:
     """Copy the result of every finished job into its run. Best-effort per run: one unreadable
-    summary must not fail the listing."""
+    summary must not fail the listing.
+
+    Each summary is read from the scope the RUN belongs to (:func:`run_scope`), not the reader's:
+    a scope lists the store's runs of its granted datasets beside its own, and an admin's table
+    lists rows of both ages. ``scope_obj`` is only the fallback for a row that names no scope."""
     out = []
     for run in runs:
         if run["status"] != "queued" or not run.get("job_id"):
@@ -359,7 +397,7 @@ async def finish_pending_runs(ctx: RestContext, pool, scope_obj: Scope, runs: li
             finished = None
             if state == "done":
                 try:
-                    summary = json.loads(await ctx.storage.get_bytes(scope_obj, run["derived_key"]))
+                    summary = json.loads(await ctx.storage.get_bytes(run_scope(run, scope_obj), run["derived_key"]))
                 except Exception as exc:  # noqa: BLE001 - reported on the run
                     finished = await db_module.finish_asset_change_run(
                         pool, run["id"], status="error", error=f"the job's summary could not be read: {exc}"
@@ -410,18 +448,45 @@ async def _specs_or_404(ctx: RestContext, provider: str) -> list[dict]:
     return specs
 
 
-async def _saved_settings(pool, *, key: str, provider: str, collection: str, entry: dict) -> dict:
-    """A manual check uses the settings of this scope's scheduled check for the same collection,
-    if there is one -- so excluding a batch account applies to both."""
-    for row in await db_module.list_plugin_job_schedules(pool, asset_provider=provider):
-        if row["collection"] != collection or row["schedule_job"] != entry["id"]:
-            continue
-        try:
-            if await scope_key(pool, row["scope"]) == key:
-                return settings_of(entry, row["options"])
-        except HTTPException:
-            continue
-    return {}
+async def _saved_settings(pool, *, provider: str, collection: str, entry: dict) -> dict:
+    """A manual check uses the settings of the scheduled check for the same collection, if there
+    is one -- so excluding a batch account applies to both. One live schedule per collection since
+    the store; of rows from before it (one per scope), a ``providers`` row wins, else the first."""
+    rows = [
+        row
+        for row in await db_module.list_plugin_job_schedules(pool, asset_provider=provider)
+        if row["collection"] == collection and row["schedule_job"] == entry["id"]
+    ]
+    rows.sort(key=lambda row: row.get("scope") != PROVIDER_STORE_WIRE)
+    return settings_of(entry, rows[0]["options"]) if rows else {}
+
+
+async def _store_runs_for(pool, scope_obj: Scope, *, provider: str | None, collection: str | None, limit: int):
+    """The provider store's runs ``scope_obj`` may read: those of datasets granted to it with
+    attributes or geometry. Filtered here rather than in SQL -- a scope holds a handful of grants --
+    so the store is read a little wider than ``limit`` to leave room for what the filter drops."""
+    datasets = await readable_store_datasets(pool, scope_obj)
+    if provider:
+        datasets = [d for d in datasets if d[0] == provider]
+    if not datasets:
+        return []
+    runs = await db_module.list_asset_change_runs(
+        pool,
+        scope=PROVIDER_STORE.prefix(),
+        provider=provider or None,
+        collection=collection or None,
+        limit=min(max(limit * 4, 50), 400),
+    )
+    return [r for r in runs if granted_covers(datasets, r["provider"], r["collection"])]
+
+
+async def _may_read_run(pool, scope_obj: Scope, run: dict) -> bool:
+    """Whether ``scope_obj`` may read ``run``: its own row, or a store run of a dataset granted to it."""
+    if run["scope"] == scope_obj.prefix():
+        return True
+    if run["scope"] != PROVIDER_STORE.prefix():
+        return False
+    return granted_covers(await readable_store_datasets(pool, scope_obj), run["provider"], run["collection"])
 
 
 # --- Sources tab: check now, list runs, read a run's items ---------------------------------
@@ -434,7 +499,11 @@ async def api_asset_changes_check(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Run a provider's change check for one collection now. Body: ``{provider, collection}``."""
+    """Run a provider's change check for one collection now. Body: ``{provider, collection}``.
+
+    ADMIN ONLY, and it runs in the provider store whichever scope it is asked from: a change check
+    is a provider job, and provider data is kept current by admins. The run is the store's, so
+    every scope granted the dataset lists it."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
@@ -445,10 +514,13 @@ async def api_asset_changes_check(
     if found is None:
         raise HTTPException(status_code=404, detail=f"{provider!r} declares no change check")
     spec, entry = found
-    if not user.is_admin and await plugin_job_requires_admin(_plugin_id(spec), pool, spec):
-        raise HTTPException(status_code=403, detail=f"{provider!r} change checks are restricted to admins")
-    key = scope_obj.prefix()
-    settings = await _saved_settings(pool, key=key, provider=provider, collection=collection, entry=entry)
+    require_admin_for_provider_job(user, spec)
+    if not getattr(user, "is_admin", False):
+        # A spec without `asset_provider_id` cannot reach here (provider_specs groups by it), but a
+        # change check is never a member's to run either way.
+        raise HTTPException(status_code=403, detail=f"{provider!r} change checks are admin operations")
+    key = PROVIDER_STORE.prefix()
+    settings = await _saved_settings(pool, provider=provider, collection=collection, entry=entry)
     options = await build_options(
         pool, spec, entry, scope=key, provider=provider, collection=collection, settings=settings, validate=False
     )
@@ -458,7 +530,7 @@ async def api_asset_changes_check(
     run = await start_change_check(
         ctx,
         pool,
-        scope_obj=scope_obj,
+        scope_obj=PROVIDER_STORE,
         scope=key,
         provider=provider,
         collection=collection,
@@ -481,15 +553,21 @@ async def api_asset_changes_runs(
     collection: str | None = None,
     limit: int = 50,
 ) -> JSONResponse:
-    """This scope's change-check runs, newest first, finishing any whose job has completed."""
+    """The change-check runs this scope may read, newest first, finishing any whose job has
+    completed: the provider store's runs of every dataset granted to it (attributes or geometry),
+    plus its own rows from before the store. The store itself (an admin) reads the store's."""
     pool = require_pool(request)
+    limit = max(1, min(int(limit), 200))
     runs = await db_module.list_asset_change_runs(
         pool,
         scope=scope_obj.prefix(),
         provider=provider or None,
         collection=collection or None,
-        limit=max(1, min(int(limit), 200)),
+        limit=limit,
     )
+    store_runs = await _store_runs_for(pool, scope_obj, provider=provider, collection=collection, limit=limit)
+    if store_runs:
+        runs = sorted(runs + store_runs, key=lambda r: r.get("created_at") or "", reverse=True)[:limit]
     runs = await finish_pending_runs(ctx, pool, scope_obj, runs)
     return JSONResponse({"runs": [_public_run(r) for r in runs]})
 
@@ -501,16 +579,17 @@ async def api_asset_changes_items(
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """One run's changed nodes (``ada.assets/change-items@1``)."""
+    """One run's changed nodes (``ada.assets/change-items@1``): one of this scope's own runs, or a
+    store run of a dataset granted to it. The item list is read where the RUN's job wrote it."""
     pool = require_pool(request)
     run = await db_module.get_asset_change_run(pool, run_id)
-    if run is None or run["scope"] != scope_obj.prefix():
+    if run is None or not await _may_read_run(pool, scope_obj, run):
         raise HTTPException(status_code=404, detail="run not found")
     [run] = await finish_pending_runs(ctx, pool, scope_obj, [run])
     items = run.get("items")
     if items is None and run.get("items_key"):
         try:
-            doc = json.loads(await ctx.storage.get_bytes(scope_obj, run["items_key"]))
+            doc = json.loads(await ctx.storage.get_bytes(run_scope(run, scope_obj), run["items_key"]))
         except Exception as exc:  # noqa: BLE001 - the run outlived its item file
             raise HTTPException(status_code=410, detail=f"this run's item list is no longer stored: {exc}") from exc
         items = doc.get("items") if isinstance(doc, dict) else doc
@@ -558,16 +637,16 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
         run = latest.get(row["id"])
         if run is not None and run["status"] == "queued":
             # Finished here too, not only by the Sources tab's listing: an admin watching this
-            # table after "Run now" must see the result without opening the scope.
-            try:
-                scope_obj = await resolve_project_scope(pool, parse_scope(row["scope"], SystemUser()))
-                [run] = await finish_pending_runs(ctx, pool, scope_obj, [run])
-            except HTTPException:
-                pass
+            # table after "Run now" must see the result without opening a scope. Read where the
+            # run's job wrote (the store, or the scope of a run from before it).
+            [run] = await finish_pending_runs(ctx, pool, PROVIDER_STORE, [run])
         found = find_entry(specs.get(row["asset_provider"], []), row["schedule_job"])
         schedules.append(
             {
-                **{k: row[k] for k in ("id", "scope", "collection", "enabled", "last_fired_at", "next_fire_at")},
+                **{k: row[k] for k in ("id", "collection", "enabled", "last_fired_at", "next_fire_at")},
+                # Where it fires, whatever an older row still names: every provider job runs in
+                # the store.
+                "scope": PROVIDER_STORE_WIRE,
                 "provider": row["asset_provider"],
                 "job": row["schedule_job"],
                 "kind": row["schedule_kind"],
@@ -599,18 +678,19 @@ async def admin_asset_schedule_choices(
     request: Request,
     provider: str,
     job: str,
-    scope: str,
+    scope: str | None = None,
     collection: str = "",
-    user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Each setting's choices for one job, scope and collection (``change_users`` depends on both)."""
+    """Each setting's choices for one job and collection (``change_users`` comes from the store's
+    earlier change checks of that collection). ``scope`` is accepted and ignored: provider jobs
+    run in the provider store."""
     pool = require_pool(request)
     found = find_entry(await _specs_or_404(ctx, provider), job)
     if found is None:
         raise HTTPException(status_code=404, detail=f"{provider!r} declares no job {job!r}")
     spec, entry = found
-    key = await scope_key(pool, scope, user)
+    key = PROVIDER_STORE.prefix()
     return JSONResponse(
         {
             "settings": {
@@ -634,16 +714,18 @@ async def admin_asset_schedules_create(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Body: ``{provider, job, scope, collection, frequency, settings, enabled}`` -- all choices."""
+    """Body: ``{provider, job, collection, frequency, settings, enabled}`` -- all choices.
+
+    ``scope`` (from before the provider store) is accepted and ignored: the row stores
+    ``providers``, where every provider job runs. One live schedule per (provider, collection,
+    job) -- a second, or one beside a row from before the store, is refused (409)."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
     job = str(body.get("job") or "").strip()
-    scope = str(body.get("scope") or "").strip()
     collection = str(body.get("collection") or "").strip() or None
-    if not provider or not job or not scope:
-        raise HTTPException(status_code=400, detail="provider, job and scope are required")
-    _ = parse_scope(scope, user)
+    if not provider or not job:
+        raise HTTPException(status_code=400, detail="provider and job are required")
     found = find_entry(await _specs_or_404(ctx, provider), job)
     if found is None:
         raise HTTPException(status_code=404, detail=f"{provider!r} declares no job {job!r}")
@@ -656,18 +738,24 @@ async def admin_asset_schedules_create(
         pool,
         spec,
         entry,
-        scope=await scope_key(pool, scope, user),
+        scope=PROVIDER_STORE.prefix(),
         provider=provider,
         collection=collection,
         settings=settings,
     )
-    name = f"{provider}: {entry.get('label') or job} -- {scope}{' / ' + collection if collection else ''}"
+    taken = "that job is already scheduled for this collection"
+    for live in await db_module.list_plugin_job_schedules(pool, asset_provider=provider):
+        # Rows from before the store carry their scope in the name, so the name's uniqueness
+        # alone would let a second schedule of the same job sit beside one of them.
+        if live["schedule_job"] == job and (live["collection"] or None) == collection:
+            raise HTTPException(status_code=409, detail=taken)
+    name = f"{provider}: {entry.get('label') or job}{' -- ' + collection if collection else ''}"
     try:
         row = await db_module.create_plugin_job_schedule(
             pool,
             name=name,
             cron_expr=cron,
-            scope=scope,
+            scope=PROVIDER_STORE_WIRE,
             plugin_id=_plugin_id(spec),
             options=options,
             enabled=bool(body.get("enabled", True)),
@@ -680,9 +768,7 @@ async def admin_asset_schedules_create(
         )
     except Exception as exc:
         if exc.__class__.__name__ == "UniqueViolationError":
-            raise HTTPException(
-                status_code=409, detail="that job is already scheduled for this scope and collection"
-            ) from exc
+            raise HTTPException(status_code=409, detail=taken) from exc
         raise
     return JSONResponse(row, status_code=201)
 
@@ -712,7 +798,7 @@ async def admin_asset_schedules_update(
             pool,
             spec,
             entry,
-            scope=await scope_key(pool, row["scope"]),
+            scope=PROVIDER_STORE.prefix(),
             provider=row["asset_provider"],
             collection=row["collection"],
             settings=body["settings"] if isinstance(body["settings"], dict) else {},
@@ -753,7 +839,8 @@ async def asset_schedule_dispatch(ctx: RestContext, pool, schedule_row: dict, op
         pool,
         spec,
         entry,
-        scope=schedule_row["scope"],
+        # The store, whatever an older row still names: the job fires there.
+        scope=PROVIDER_STORE.prefix(),
         provider=provider,
         collection=schedule_row["collection"],
         settings=settings_of(entry, schedule_row["options"] or {}),
@@ -772,11 +859,16 @@ async def record_scheduled_run(
     pool, schedule_row: dict, *, scope_obj: Scope, job_id: str, derived_key: str | None
 ) -> None:
     """The run row for a change check the scheduler just fired. Best-effort: the job is already
-    queued, and failing to record it must not turn a fired slot into a skipped one."""
+    queued, and failing to record it must not turn a fired slot into a skipped one.
+
+    Keyed under the provider store -- where ``plugin_schedule_fire`` ran the job, for a row of any
+    age -- so its summary is read back from the scope it was written in. ``scope_obj`` is kept for
+    callers and ignored for a provider schedule."""
+    scope = PROVIDER_STORE.prefix() if schedule_row.get("asset_provider") else scope_obj.prefix()
     try:
         await db_module.insert_asset_change_run(
             pool,
-            scope=scope_obj.prefix(),
+            scope=scope,
             provider=schedule_row["asset_provider"],
             collection=schedule_row["collection"] or "",
             plugin_id=schedule_row["plugin_id"],

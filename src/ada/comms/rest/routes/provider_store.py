@@ -60,6 +60,14 @@ def job_scope(spec: Optional[dict], requested: Scope) -> Scope:
     return PROVIDER_STORE if is_asset_provider_spec(spec) else requested
 
 
+#: Why a member's request of provider data enqueues nothing -- the message a refused request
+#: reports where it cannot raise (a run driver's batch). ``{provider}`` is filled in.
+ADMIN_ONLY_REQUEST = (
+    "requesting {provider!r} data is an admin operation: provider data is kept current by the scheduled "
+    "jobs, and a scope reads what an admin granted it -- ask an admin to schedule or run the request"
+)
+
+
 def require_admin_for_provider_job(user, spec: Optional[dict]) -> None:
     """403 unless ``user`` is an admin, for an asset provider's job. Provider data is kept current
     by admins (scheduled jobs and sweeps); a member reads what is granted to their scope."""
@@ -247,3 +255,44 @@ def providers_of(specs: Iterable[dict]) -> set[str]:
         if is_asset_provider_spec(spec):
             out.add(spec["asset_provider_id"].strip())
     return out
+
+
+async def store_provider_ids(ctx) -> set[str]:
+    """:func:`providers_of` the plugin specs online right now -- the providers whose publishes are
+    provider data. A spec read that fails leaves :data:`STORE_PROVIDERS_ENV` alone answering, and
+    is logged: a publish of a provider nobody advertises then stays in the caller's scope, as one
+    from a provider core never heard of always did."""
+    from .plugins import online_plugin_specs
+
+    try:
+        specs = list((await online_plugin_specs(ctx)).values())
+    except Exception as exc:  # noqa: BLE001 - the env list still answers
+        logger.warning("provider store: could not read the online plugin specs: %s", exc)
+        specs = []
+    return providers_of(specs)
+
+
+async def is_store_provider(ctx, provider: Optional[str]) -> bool:
+    """Whether a publish under ``provider`` is provider data (it lands in the provider store). The
+    built-in ``published`` provider -- user uploads -- never is."""
+    if not provider or provider == "published":
+        return False
+    return provider in await store_provider_ids(ctx)
+
+
+def granted_covers(granted: Iterable[tuple[str, Optional[str]]], provider: str, collection: str) -> bool:
+    """Whether ``granted`` (``db.granted_datasets`` rows: ``(provider, collection | None)``, None
+    for every collection of the provider) covers (``provider``, ``collection``)."""
+    wanted = (collection or "").lower()
+    return any(p == provider and (c is None or c.lower() == wanted) for p, c in granted)
+
+
+async def readable_store_datasets(pool, scope_obj: Scope) -> list[tuple[str, Optional[str]]]:
+    """``[(provider, collection | None)]`` ``scope_obj`` may read ANY of (an ``attributes`` or a
+    ``geometry`` grant) -- what a scope's change-feed reads (``asset-changes/runs``,
+    ``source-nodes``) follow into the store, checked with :func:`granted_covers`. A
+    ``request``-only grant reads nothing. Empty for the store itself and without a pool."""
+    if pool is None or scope_obj.kind == "providers":
+        return []
+    rows = await db_module.list_provider_grants(pool, target_scope=scope_obj.prefix())
+    return [(r["provider"], r["collection"]) for r in rows if r.get("attributes") or r.get("geometry")]

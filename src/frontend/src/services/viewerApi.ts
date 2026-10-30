@@ -26,6 +26,7 @@ import { adminAuditApi } from "./api/adminAudit";
 import { adminCorpusApi } from "./api/adminCorpus";
 import { adminProjectsApi } from "./api/adminProjects";
 import { assetSchedulesApi } from "./api/assetSchedules";
+import { providerGrantsApi } from "./api/providerGrants";
 import { attributeSearchApi } from "./api/attributeSearch";
 import { searchExportApi } from "./api/searchExport";
 import { adminStorageApi } from "./api/adminStorage";
@@ -51,6 +52,7 @@ export const viewerApi = {
   ...adminCorpusApi,
   ...adminProjectsApi,
   ...assetSchedulesApi,
+  ...providerGrantsApi,
   ...attributeSearchApi,
   ...searchExportApi,
   ...adminStorageApi,
@@ -65,6 +67,7 @@ export const viewerApi = {
 // and out-of-tree plugins) ────────────────────────────────────────
 
 export type { TargetFormat, ConvertStatus, ScopeUrl } from "./api/client";
+export type { ProviderGrant, ProviderGrantInput } from "@/assets/providerGrants";
 export type {
   AssetSchedulesListing,
   ChangeItem,

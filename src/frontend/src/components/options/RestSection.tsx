@@ -143,7 +143,7 @@ const ScopeSelector: React.FC = () => {
             >
                 {available.map((s) => (
                     <option key={scopeUrlPart(s)} value={scopeUrlPart(s)}>
-                        {s.name} ({s.kind})
+                        {s.kind === "providers" ? s.name : `${s.name} (${s.kind})`}
                     </option>
                 ))}
             </select>

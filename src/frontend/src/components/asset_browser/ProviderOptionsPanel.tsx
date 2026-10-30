@@ -19,6 +19,7 @@ import {
 import type { PluginJobOption } from "@/components/admin/pluginOptionFields";
 import { providerIdTitle } from "@/assets/providerNames";
 import type { AssetRequestOptions } from "@/services/assetScopeCollections";
+import { useMeStore } from "@/state/meStore";
 import { useProviderName } from "@/state/providerNamesStore";
 import { readProviderOptions, saveListedChoices, saveProviderOptions } from "@/services/providerOptions";
 
@@ -43,7 +44,7 @@ const ProviderSection: React.FC<{
   providerId: string;
   declared: AssetRequestOptions;
   stored: ProviderOptionValues;
-  /** What the choices job answered last time, from the scope's document. */
+  /** What the choices job answered last time, from the provider store's document. */
   cached: ListedChoices | null;
   deps: (onStage: (s: string) => void) => CollectionRequestDeps;
   onSaved: () => void;
@@ -77,9 +78,9 @@ const ProviderSection: React.FC<{
       const listed = parseOptionChoices(summary);
       setChoices(listed);
       setListedAt(new Date().toISOString());
-      // Kept for the next visit, and for everyone in the scope. Best effort: the list is on
+      // Kept for the next visit, and for every admin. Best effort: the list is on
       // screen either way, and a failed save only means asking again next time.
-      saveListedChoices(scope, collection, providerId, listed).catch(() => undefined);
+      saveListedChoices(collection, providerId, listed).catch(() => undefined);
     } catch (e) {
       setError(`Could not list the choices: ${message(e)}`);
     } finally {
@@ -94,7 +95,7 @@ const ProviderSection: React.FC<{
       // Only what the provider declares now: anything else would arrive as an option it does
       // not know.
       const values = Object.fromEntries(declared.decls.map((d) => [d.name, draft[d.name]]));
-      await saveProviderOptions(scope, collection, providerId, values);
+      await saveProviderOptions(collection, providerId, values);
       setSaved(true);
       onSaved();
     } catch (e) {
@@ -232,6 +233,7 @@ const ProviderOptionsPanel: React.FC<{
   providers: ReadonlyMap<string, AssetRequestOptions>;
   deps: (onStage: (s: string) => void) => CollectionRequestDeps;
 }> = ({ scope, collection, providers, deps }) => {
+  const isAdmin = useMeStore((s) => s.isAdmin);
   const [doc, setDoc] = useState<ProviderOptionsDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -239,18 +241,21 @@ const ProviderOptionsPanel: React.FC<{
   useEffect(() => {
     let live = true;
     setError(null);
-    readProviderOptions(scope, collection)
+    readProviderOptions(collection)
       .then((read) => live && setDoc(read))
       .catch((e) => live && setError(`Could not read the provider options: ${message(e)}`));
     return () => {
       live = false;
     };
-  }, [scope, collection, version]);
+  }, [collection, version]);
+
+  // Provider options live once, in the provider store, and are an admin's to set.
+  if (!isAdmin) return null;
 
   return (
     <div className="px-1 py-1 space-y-2 border-b border-gray-700 text-xs">
       <div className="text-gray-400">
-        Sent with every request for {collection.toUpperCase()} — its tree and every node's geometry — for everyone in this scope.
+        Sent with every request for {collection.toUpperCase()} — its tree and every node's geometry — for every scope that reads it.
       </div>
       {providers.size === 0 && <div className="text-gray-500">No provider declares options for this collection.</div>}
       {error && <div className="text-red-300 break-words">{error}</div>}

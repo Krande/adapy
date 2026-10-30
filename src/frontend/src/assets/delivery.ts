@@ -296,7 +296,7 @@ export interface LoadNodeDeps {
    *  load is a 401. Read at load time, not at prepare time: a bulk load prepares ahead,
    *  and a build can outlive the token it started with. */
   blobHeaders?: () => Record<string, string>;
-  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void;
+  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string; scope?: string }) => void;
   /** Poll backoff between job-status checks. Defaults to a real 1.5s timer;
    *  tests inject an instant no-op so a job/poll test runs with no fake timers
    *  and no real delay. */

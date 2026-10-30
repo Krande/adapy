@@ -479,7 +479,7 @@ export interface ContactFlowDeps {
   /** Measure a soup, each mesh hulled (a group run). */
   convexContacts?(soup: MeshSoup, opts: { securityMargin: number; minContactArea: number; lineContactThickness: number }): Promise<ConvexContactsColumns>;
   jobStatus(jobId: string): Promise<{ status: string; error: string | null }>;
-  trackJob?(opts: { jobId: string; label: string; derivedKey?: string }): void;
+  trackJob?(opts: { jobId: string; label: string; derivedKey?: string; scope?: string }): void;
   wait?(ms: number): Promise<void>;
   now?(): number;
   newRunId?(): string;

@@ -23,7 +23,7 @@ export async function geometryRequestDeps(
   scope: string,
   onStage: (stage: string | null) => void,
   /** An operation's `trackJob` (`services/operationTracking`): the jobs become rows under it. */
-  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void,
+  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string; scope?: string }) => void,
 ): Promise<
   Pick<GeometryCheckFlowDeps, "geometryPlan" | "nodeRequestFor" | "isAdmin" | "resolveRows" | "request" | "afterRequest">
 > {
