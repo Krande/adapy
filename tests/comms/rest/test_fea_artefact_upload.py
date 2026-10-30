@@ -39,9 +39,12 @@ def test_bake_artefacts_are_streamed_with_the_encoding_policy(tmp_path, monkeypa
     manifest = b'{"fields": ["u"], "steps": 2}'
     mesh = b"glTF" + os.urandom(1024)
 
-    def _fake_bake(src_path, bake_dir, *, src_key):
-        out = pathlib.Path(bake_dir) / "out"
-        out.mkdir()
+    parent_pid = os.getpid()
+
+    def _fake_bake(src_path, out_dir, *, src_key, on_progress=None):
+        out = pathlib.Path(out_dir)
+        # In a child process: a reader holding the GIL must not starve the worker's event loop.
+        (out / "fea.pid.txt").write_text(str(os.getpid()))
         (out / "fea.u.bin").write_bytes(blob)
         (out / "fea.manifest.json").write_bytes(manifest)
         (out / "fea.mesh.glb").write_bytes(mesh)
@@ -93,8 +96,11 @@ def test_bake_artefacts_are_streamed_with_the_encoding_policy(tmp_path, monkeypa
 
     prefix = "_derived/decks/deck.SIN.fea/"
     assert queue.updates[-1]["status"] == "done", queue.updates
-    # Exactly the bake's three files -- the gzip staging copy of the manifest is not an artefact.
-    assert sorted(streamed) == sorted(prefix + n for n in ("fea.u.bin", "fea.manifest.json", "fea.mesh.glb"))
+    # Exactly the bake's files -- not the gzip staging copy of the manifest, nor the isolation's own
+    # .error.json / .child.log beside them.
+    names = ("fea.u.bin", "fea.manifest.json", "fea.mesh.glb", "fea.pid.txt")
+    assert sorted(streamed) == sorted(prefix + n for n in names)
+    assert asyncio.run(storage.get_bytes(scope, prefix + "fea.pid.txt")) != str(parent_pid).encode()
     assert sorted(e.key for e in asyncio.run(storage.list(scope))) == sorted(streamed)
 
     assert asyncio.run(storage.get_range(scope, prefix + "fea.u.bin", 0, len(blob))) == blob  # identity

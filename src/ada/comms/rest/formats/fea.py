@@ -18,6 +18,7 @@ import asyncpg
 from ada.config import logger
 
 from .. import db as db_module
+from .. import subprocess_convert
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
 from ..worker.audit import _audit_done
@@ -59,8 +60,9 @@ async def _run_fea_artefact_bake(
 
     # Admin "Stream SIN FEA bake" and "Cache SIN FEA bake fields" toggles
     # (app_settings ``fea_sin_streamer``, ``fea_sin_field_cache``). The bake runs
-    # in-process on an executor thread, so we drive the reader choice through the
-    # same ADA_* env-var seam the convert path uses; _make_sin_reader reads them.
+    # in a forked child (or an executor thread), which inherits this process's
+    # environment, so we drive the reader choice through the same ADA_* env-var
+    # seam the convert path uses; _make_sin_reader reads them.
     # Default (unset/empty) lets adapy pick: a full read with its field values in a
     # file cache (see _make_sin_reader). Set fresh per job so toggling takes effect
     # without a worker restart.
@@ -79,79 +81,65 @@ async def _run_fea_artefact_bake(
             else:
                 os.environ.pop(env, None)
 
-    bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
+    # The baked artefacts land here (a child's work dir, or a temp dir on the thread path).
+    out_dir: pathlib.Path | None = None
+    cleanup: Callable[[], None] = lambda: None
     try:
-        loop = asyncio.get_running_loop()
-        # Heartbeat task — the bake runs on an executor thread and has
-        # no progress callback of its own. Without an external ping
-        # the queue's ``updated_at`` (and ``msg.in_progress`` on the
-        # JetStream side once we plumb it) sit frozen at the last
-        # progress milestone for the duration of the bake; the SPA's
-        # "stuck at 10%" symptom is just the toast displaying the
-        # last write. Re-emit progress every ``HEARTBEAT_SECONDS``
-        # with a slow incremental tick (0.10 → 0.80, never reaching
-        # the real 0.85 "uploading" milestone) so the user can tell
-        # the worker is still alive.
-        HEARTBEAT_SECONDS = 15
-        HEARTBEAT_INC = 0.003
-        HEARTBEAT_MAX = 0.80
-        heartbeat_stop = asyncio.Event()
-        heartbeat_progress = {"value": 0.10}
+        if subprocess_convert.HAVE_POSIX_FORK:
+            # In a forked child, as conversions run: a reader that holds the GIL for minutes (a
+            # multi-GB Abaqus ODB opening and upgrading in native code) would otherwise starve this
+            # event loop. The lease refresh (msg.in_progress) then stopped, JetStream redelivered
+            # the job to a second worker while the first was still on it, and both downloaded and
+            # baked the same deck side by side.
+            from ..worker.state import _touch_liveness
 
-        async def _heartbeat() -> None:
-            while not heartbeat_stop.is_set():
-                try:
-                    await asyncio.wait_for(heartbeat_stop.wait(), timeout=HEARTBEAT_SECONDS)
-                except asyncio.TimeoutError:
-                    heartbeat_progress["value"] = min(HEARTBEAT_MAX, heartbeat_progress["value"] + HEARTBEAT_INC)
-                    try:
-                        await _on_progress("baking", heartbeat_progress["value"])
-                    except Exception:
-                        logger.exception("worker: heartbeat update failed")
-                else:
-                    return
+            async def _on_sample(_sample) -> None:
+                _touch_liveness()
 
-        heartbeat_task = asyncio.create_task(_heartbeat())
-        try:
-            bake = await loop.run_in_executor(
-                None,
-                functools.partial(
-                    bake_fea_artefacts_from_source,
-                    src_path,
-                    bake_dir,
-                    src_key=job.source_key,
-                ),
-            )
-        except Exception as exc:
-            logger.exception("worker: fea bake failed for %s", job.source_key)
-            trace = tb_module.format_exc()
-            heartbeat_stop.set()
-            await heartbeat_task
-            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc))
-            await _audit_done(
-                db_pool,
-                job_id,
-                "error",
-                str(exc),
-                started_at,
-                traceback=trace,
-            )
-            return
-        finally:
-            heartbeat_stop.set()
-            if not heartbeat_task.done():
-                try:
-                    await heartbeat_task
-                except Exception:
-                    pass
+            def _in_child(child) -> None:
+                def _progress(done: int, total: int, _label: str) -> None:
+                    child.progress("baking", 0.10 + 0.70 * (done / total if total else 0.0))
+
+                bake_fea_artefacts_from_source(src_path, child.work_dir, src_key=job.source_key, on_progress=_progress)
+
+            try:
+                res = await subprocess_convert.run_isolated(
+                    _in_child,
+                    label="FEA bake",
+                    child_name="FEA bake",
+                    crash_hint="(SIGSEGV/SIGABRT typically means a native fault inside a result reader).",
+                    work_prefix="fea-bake-",
+                    on_progress=_on_progress,
+                    on_sample=_on_sample,
+                )
+            except Exception as exc:
+                # The parent-side machinery failed (fork, pipes): the child never ran or we lost it.
+                logger.exception("worker: fea bake subprocess wrapper failed for %s", job.source_key)
+                await _fail_bake(queue, db_pool, job_id, started_at, str(exc), tb_module.format_exc())
+                return
+            if not res.ok:
+                msg = res.error_message or res.error or "FEA bake subprocess produced no output"
+                if res.signal_name:
+                    logger.warning("worker: fea bake child for %s ended via %s", job.source_key, res.signal_name)
+                await _fail_bake(queue, db_pool, job_id, started_at, msg, res.traceback, dict(res.final_metrics))
+                return
+            out_dir = res.work_dir
+            cleanup = res.cleanup
+        else:
+            out_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
+            bake_dir = out_dir
+            cleanup = lambda: shutil.rmtree(bake_dir, ignore_errors=True)  # noqa: E731
+            if not await _bake_in_thread(job, src_path, out_dir, _on_progress, queue, db_pool, started_at):
+                return
 
         await _on_progress("uploading", 0.85)
         prefix = f"_derived/{job.source_key}.fea/"
         try:
             # Listed up front: put_path stages a gzip copy beside the manifest while it uploads,
             # and that staging file must not be picked up as an artefact of its own.
-            for produced in sorted(bake.out_dir.iterdir()):
-                if not produced.is_file():
+            for produced in sorted(out_dir.iterdir()):
+                # Skip what the isolation keeps beside the artefacts (.error.json, .child.log, ...).
+                if not produced.is_file() or produced.name.startswith("."):
                     continue
                 target_key = prefix + produced.name
                 # Compression policy mirrors the API-side endpoint: gzip
@@ -193,7 +181,76 @@ async def _run_fea_artefact_bake(
         await _audit_done(db_pool, job_id, "done", None, started_at)
     finally:
         try:
-            shutil.rmtree(bake_dir, ignore_errors=True)
+            cleanup()
+        except Exception:
+            pass
+
+
+async def _fail_bake(
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    job_id: str,
+    started_at: float,
+    msg: str,
+    trace: str | None,
+    metrics: dict | None = None,
+) -> None:
+    await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=msg)
+    await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace, metrics=metrics or None)
+
+
+async def _bake_in_thread(
+    job: Job,
+    src_path: pathlib.Path,
+    out_dir: pathlib.Path,
+    _on_progress: Callable[[str, float], Awaitable[None]],
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> bool:
+    """The bake on an executor thread, where there is no fork. False when it failed (and was reported)."""
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    loop = asyncio.get_running_loop()
+    # Heartbeat task -- the bake has no progress callback wired on this path. Without an
+    # external ping the queue's ``updated_at`` sits frozen at the last milestone for the whole
+    # bake; the SPA's "stuck at 10%" symptom is just the toast displaying the last write.
+    # Re-emit progress every HEARTBEAT_SECONDS with a slow tick (0.10 -> 0.80, never reaching the
+    # real 0.85 "uploading" milestone) so the user can tell the worker is still alive.
+    HEARTBEAT_SECONDS = 15
+    HEARTBEAT_INC = 0.003
+    HEARTBEAT_MAX = 0.80
+    heartbeat_stop = asyncio.Event()
+    heartbeat_progress = {"value": 0.10}
+
+    async def _heartbeat() -> None:
+        while not heartbeat_stop.is_set():
+            try:
+                await asyncio.wait_for(heartbeat_stop.wait(), timeout=HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                heartbeat_progress["value"] = min(HEARTBEAT_MAX, heartbeat_progress["value"] + HEARTBEAT_INC)
+                try:
+                    await _on_progress("baking", heartbeat_progress["value"])
+                except Exception:
+                    logger.exception("worker: heartbeat update failed")
+            else:
+                return
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
+    try:
+        await loop.run_in_executor(
+            None,
+            functools.partial(bake_fea_artefacts_from_source, src_path, out_dir, src_key=job.source_key),
+        )
+        return True
+    except Exception as exc:
+        logger.exception("worker: fea bake failed for %s", job.source_key)
+        await _fail_bake(queue, db_pool, job.job_id, started_at, str(exc), tb_module.format_exc())
+        return False
+    finally:
+        heartbeat_stop.set()
+        try:
+            await heartbeat_task
         except Exception:
             pass
 
