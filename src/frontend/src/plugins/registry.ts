@@ -77,7 +77,7 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          parity, so -- as with 1.4.0 -- the number moved up rather than meaning two things.
 //          Plugin-side only, so viewer-core stays at 1.7.0, as it did through 1.6.0.
 // 1.9.0 -- renderer-neutral scene overlays on `SceneHandle`: `addLines`, `addLabels`,
-//          `paintFeaElements` (each returns a `SceneOverlay`), FEA element isolation
+//          `paintFeaElements` (each returns a `SceneOverlay`), `hasFeaModel`, FEA element isolation
 //          (`isolateFeaElements`, `hideFeaElements`, `hiddenFeaElements`) and
 //          `setFeaElementEdgesVisible`. A plugin states what to draw in plain data and core
 //          builds it, so it draws the same under three.js and the WebGPU renderer and moves
@@ -221,6 +221,7 @@ export interface SceneLabel {
   text: string;
   color?: string; // text, CSS; default dark slate
   background?: string; // CSS; none by default
+  border?: string; // CSS outline around the background; none by default
   shape?: "rect" | "circle";
 }
 
@@ -324,6 +325,8 @@ export interface SceneHandle {
   // with `remove(owner)`. Coordinates are the FEA model's own when one is loaded. ──
   addLines: (owner: string, lines: SceneLines) => SceneOverlay;
   addLabels: (owner: string, labels: SceneLabel[], opts?: SceneLabelOptions) => SceneOverlay;
+  // Whether an FEA model is loaded (the frame the coordinates above are in).
+  hasFeaModel: () => boolean;
   // Null when no FEA model is loaded.
   paintFeaElements: (owner: string, paint: SceneElementPaint) => SceneOverlay | null;
   // Show only these elements of the active FEA model; null shows all again.

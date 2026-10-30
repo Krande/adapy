@@ -52,6 +52,7 @@ function fakeCtx(): AdaPluginContext {
       unloadModel() {},
       addLines: () => ({remove() {}}),
       addLabels: () => ({remove() {}}),
+      hasFeaModel: () => false,
       paintFeaElements: () => null,
       isolateFeaElements() {},
       hideFeaElements() {},

@@ -21,6 +21,7 @@ import type { PluginTheme } from "./registry";
 import {
   addLabels,
   addLines,
+  hasFeaModel,
   hiddenFeaElements,
   hideFeaElements,
   isolateFeaElements,
@@ -153,6 +154,7 @@ function makeSceneHandle(): SceneHandle {
     },
     addLines,
     addLabels,
+    hasFeaModel,
     paintFeaElements,
     isolateFeaElements,
     hideFeaElements,

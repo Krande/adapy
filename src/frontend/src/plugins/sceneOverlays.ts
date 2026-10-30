@@ -134,14 +134,19 @@ function labelTexture(label: SceneLabel): {texture: THREE.CanvasTexture; aspect:
     const circle = label.shape === "circle";
     canvas.width = circle ? h : Math.max(h, Math.ceil(ctx.measureText(label.text).width + h * 0.5));
     canvas.height = h;
-    if (label.background) {
-        ctx.fillStyle = label.background;
-        if (circle) {
-            ctx.beginPath();
-            ctx.arc(h / 2, h / 2, h / 2 - 2, 0, Math.PI * 2);
+    if (label.background || label.border) {
+        const inset = label.border ? 5 : 2;
+        ctx.beginPath();
+        if (circle) ctx.arc(h / 2, h / 2, h / 2 - inset, 0, Math.PI * 2);
+        else ctx.rect(inset / 2, inset / 2, canvas.width - inset, h - inset);
+        if (label.background) {
+            ctx.fillStyle = label.background;
             ctx.fill();
-        } else {
-            ctx.fillRect(0, 0, canvas.width, h);
+        }
+        if (label.border) {
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = label.border;
+            ctx.stroke();
         }
     }
     ctx.font = font; // resizing the canvas reset it
@@ -177,6 +182,8 @@ export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabel
     }
     return attach(owner, group);
 }
+
+export const hasFeaModel = (): boolean => feaMesh() !== null;
 
 /** Colour elements of the active FEA mesh, over the model; null when no FEA model is loaded. */
 export function paintFeaElements(owner: string, paint: SceneElementPaint): SceneOverlay | null {
