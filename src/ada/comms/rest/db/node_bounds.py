@@ -377,7 +377,7 @@ async def patch_node_bounds(
             # A re-exported unit: the bounds of every node below it go too, walked through the set's
             # own parent_id (indexed: node_bounds_parent_idx).
             await expand_subtree_deletes(
-                conn, "node_bounds n", "n.scope = $1 AND n.provider = $2 AND n.collection = $3", *key
+                conn, "node_bounds", "n.scope = $1 AND n.provider = $2 AND n.collection = $3", *key
             )
         cols = ", ".join(_COLUMNS)
         removed = await conn.execute(

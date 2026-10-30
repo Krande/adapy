@@ -899,7 +899,7 @@ async def patch_attribute_index(
         if loaded["subtrees"]:
             # A re-exported unit: it and every row below it (its components) go as of that line.
             await ensure_parent_index(conn, held["partition_name"])
-            await expand_subtree_deletes(conn, "attr_nodes n", "n.part_key = $1", part_key)
+            await expand_subtree_deletes(conn, "attr_nodes", "n.part_key = $1", part_key)
         await conn.execute(
             """
             CREATE TEMP TABLE patch_touched ON COMMIT DROP AS

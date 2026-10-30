@@ -334,7 +334,7 @@ async def patch_node_relations(
                 )
             else:
                 await ensure_parent_index(conn, part["partition_name"])
-                await expand_subtree_deletes(conn, "attr_nodes n", "n.part_key = $1", part["part_key"])
+                await expand_subtree_deletes(conn, "attr_nodes", "n.part_key = $1", part["part_key"])
         removed = await conn.execute(
             """
             DELETE FROM node_relations r

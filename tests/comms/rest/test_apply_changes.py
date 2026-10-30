@@ -997,9 +997,11 @@ def test_a_subtree_deletion_is_planned_apart_from_a_node_deletion():
     plan = ai.plan_patch_batch(lines, parse, 0)
     assert plan.subtree == [("unit-1", 0)] and plan.deleted == [("n9", 2)]
     assert [(r[3], r[-1]) for r in plan.records] == [("unit-1", 1)]  # written after the subtree line: survives
-    sql = ai.subtree_expansion_sql("attr_nodes n", "n.part_key = $1")
+    sql = ai.subtree_expansion_sql("attr_nodes", "n.part_key = $1")
     # Descendants are deleted at the subtree line's own sequence number, walked by parent_id.
     assert "SELECT d.seq, n.node_id" in sql and "n.parent_id = d.node_id" in sql and "WHERE d.subtree" in sql
+    # The template aliases the source itself: a caller passing "attr_nodes n" made "attr_nodes n n".
+    assert "JOIN attr_nodes n ON" in sql and " n n " not in sql
 
 
 def test_the_relations_patch_goes_before_the_attribute_patch():
