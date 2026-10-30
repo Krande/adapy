@@ -69,6 +69,17 @@ A core that does not know the kind drops the entry with a log line (as for `swee
   store; the first run only says where "since" starts.
 - Runs are recorded like sweeps (one run row, one item per collection, timings per phase), so the
   Providers tab shows them in the existing runs table with per-collection counts.
+- **No full export, no apply.** Before asking the provider, core checks that the store holds a
+  complete revision of the collection's index subject (`assets/<c>/<c>/<rev>/` with its manifest)
+  published by this provider -- matched case-insensitively, one listing per run. A collection
+  without one is not sent to the provider and gets no cursor: its item ends `no_full_export`
+  ("<collection> has not had a full project export yet") and the run's `warnings` name it. The
+  provider's own "no baseline" answer, and a refused tree or index patch, are treated the same and
+  keep the cursor. Core's own setting `missing_full_export` (on every apply-changes entry, never
+  sent to the provider) picks `warn` (default) or `export`: queue the provider's full export
+  (its collection request, driven as a sweep, `requested_via: apply-changes`) for exactly those
+  collections once the run has finished; the two runs link through their `summary`
+  (`queued_full_exports` / `apply_changes_run_id`).
 
 ## 3. The job's answer (provider -> core)
 
