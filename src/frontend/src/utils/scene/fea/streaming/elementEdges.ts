@@ -15,6 +15,7 @@ import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import type {FeaManifest} from "@/services/viewerApi";
 import {usePerfStore} from "@/state/perfStore";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clipWithModel} from "@/utils/scene/section_clipping";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
@@ -41,27 +42,45 @@ function typicalEdgeLength(position: THREE.BufferAttribute, edges: Uint32Array):
     return lengths[Math.floor(lengths.length / 2)] ?? 0;
 }
 
+/** The orbit target: where the user is looking, by the controls' convention. */
+function orbitTarget(): THREE.Vector3 | null {
+    const target = (getViewerRuntime().controls.current as {target?: THREE.Vector3} | null)?.target;
+    return target?.isVector3 ? target : null;
+}
+
 /** Fade `segments` (an element grid on `mesh`) by its on-screen density, every frame it draws.
+ *
+ *  The density is taken where the user is looking: at the orbit target, clamped into the model's box
+ *  (without a target, the point of the box nearest the camera). Taking it at the model's centre made
+ *  the fade depend on which side the model was seen from: orbiting a point off the centre, one side
+ *  is nearer the centre than the other, and the same standoff showed the grid from one side only.
  *
  *  On the MATERIAL's onBeforeRender: the overlay's own hook belongs to the warp (sourceMorph replaces it
  *  whenever a field is painted), and a fade installed there was dropped, frozen at whatever opacity the
  *  first frames computed -- 0 while the camera was still fitting, which hid the edges for good. */
-export function fadeWithDensity(segments: THREE.LineSegments, mesh: THREE.Mesh, edges: Uint32Array): void {
+export function fadeWithDensity(
+    segments: THREE.LineSegments,
+    mesh: THREE.Mesh,
+    edges: Uint32Array,
+    lookingAt: () => THREE.Vector3 | null = orbitTarget,
+): void {
     const length = typicalEdgeLength(mesh.geometry.attributes.position as THREE.BufferAttribute, edges);
     if (!(length > 0)) return;
     const material = segments.material as THREE.LineBasicMaterial;
     const size = new THREE.Vector2();
-    const centre = new THREE.Vector3();
+    const box = new THREE.Box3();
+    const focus = new THREE.Vector3();
     material.onBeforeRender = (renderer, _scene, camera) => {
         const geometry = mesh.geometry;
-        if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-        centre.copy(geometry.boundingSphere!.center).applyMatrix4(mesh.matrixWorld);
-        // CSS pixels per model unit at the model's centre.
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        box.copy(geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
+        box.clampPoint(lookingAt() ?? camera.position, focus);
+        // CSS pixels per model unit at the point looked at.
         const cssHeight = renderer.getDrawingBufferSize(size).y / renderer.getPixelRatio();
         const ortho = camera as THREE.OrthographicCamera;
         const perUnit = ortho.isOrthographicCamera
             ? (cssHeight * ortho.zoom) / (ortho.top - ortho.bottom)
-            : cssHeight / (2 * Math.max(centre.distanceTo(camera.position), 1e-9) *
+            : cssHeight / (2 * Math.max(focus.distanceTo(camera.position), 1e-9) *
                 Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov) / 2));
         const px = length * perUnit;
         material.opacity = THREE.MathUtils.clamp((px - EDGE_GONE_PX) / (EDGE_FULL_PX - EDGE_GONE_PX), 0, 1);
