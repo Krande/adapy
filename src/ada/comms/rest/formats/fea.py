@@ -10,6 +10,7 @@ import os
 import pathlib
 import shutil
 import tempfile
+import threading
 import traceback as tb_module
 from typing import Awaitable, Callable
 
@@ -289,21 +290,25 @@ async def _run_fea_artefact_bake(
 
         heartbeat_task = asyncio.create_task(_heartbeat())
         try:
-            if src_path.suffix.lower() == ".odb":
-                await _export_odb_isolated(src_path)
-            bake = await loop.run_in_executor(
-                None,
-                functools.partial(
-                    bake_fea_artefacts_from_source,
-                    src_path,
-                    bake_dir,
-                    src_key=job.source_key,
-                    on_artefact=on_artefact,
-                    on_progress=check_cancel,
-                    partial_manifests=True,
-                    stamp_extra={"job_id": job_id},
-                ),
-            )
+            if subprocess_convert.HAVE_POSIX_FORK:
+                await _bake_in_child(
+                    job, src_path, bake_dir, uploader=uploader, progressive=progressive, cancelled=cancelled
+                )
+                bake = None
+            else:
+                bake = await loop.run_in_executor(
+                    None,
+                    functools.partial(
+                        bake_fea_artefacts_from_source,
+                        src_path,
+                        bake_dir,
+                        src_key=job.source_key,
+                        on_artefact=on_artefact,
+                        on_progress=check_cancel,
+                        partial_manifests=True,
+                        stamp_extra={"job_id": job_id},
+                    ),
+                )
             await _on_progress("uploading", 0.85)
             # Everything emitted is queued; wait for the last of it (the final manifest
             # and stamp) to be in storage. Then the download: the bake read what it
@@ -363,41 +368,167 @@ async def _run_fea_artefact_bake(
             pass
 
 
-async def _export_odb_isolated(odb_path: pathlib.Path) -> None:
-    """Export an Abaqus ODB to its results SQLite (beside it) in a forked child, before the bake.
+async def _bake_in_child(
+    job: Job,
+    src_path: pathlib.Path,
+    bake_dir: pathlib.Path,
+    *,
+    uploader: "ArtefactUploader",
+    progressive,
+    cancelled: dict,
+) -> None:
+    """Run the bake in a forked child, relaying what it needs from this process.
 
-    The export runs in aba-cpp's native code and holds the GIL for minutes on a multi-GB ODB. On
-    the executor thread that starved this event loop: the JetStream lease refresh (msg.in_progress)
-    stopped, the job was redelivered to a second worker while the first was still on it, and both
-    downloaded and baked the same deck. The bake's ODB reader then finds the export newer than the
-    ODB and reads it instead of exporting again (``convert_odb_to_sqlite``). Where there is no fork,
-    the bake exports in-process as before. Raises on a failed export.
+    In-process, on an executor thread, a reader holding the GIL for minutes (aba-cpp's export of
+    a multi-GB Abaqus ODB) starved this event loop: the JetStream lease refresh stopped, and the
+    job was redelivered to a second worker while the first was still on it. The child relays
+    instead of calling in:
+
+    * each artefact it writes (``on_artefact``) goes to this process's ``uploader``, which uploads
+      it as before -- partial manifests and stamps included;
+    * a SIN still arriving (``progressive``) is read through :class:`_RelayedDownload`: the child
+      maps the same file, and asks this process to make a range present before reading it;
+    * a cancel (``cancelled["flag"]``) kills the child.
+
+    Raises :class:`BakeCancelled` when cancelled, the upload's own error when an upload failed,
+    else the child's error.
     """
-    if not subprocess_convert.HAVE_POSIX_FORK:
-        return
-    from ada.fem.formats.abaqus.results.read_odb import convert_odb_to_sqlite
+    relayed = (
+        None
+        if progressive is None
+        else {
+            "path": str(progressive.path),
+            "size": int(progressive.size()),
+            "chunk_bytes": int(progressive.chunk_bytes),
+        }
+    )
+    src_key, job_id = job.source_key, job.job_id
+
+    def _in_child(child) -> None:
+        _bake_child(child, src_path, bake_dir, src_key, job_id, relayed)
+
+    async def _serve(op: str, args: dict):
+        if op == "artefact":
+            uploader.submit(pathlib.Path(args["path"]))
+            return None
+        if op == "ensure":
+            await asyncio.to_thread(progressive.ensure, int(args["offset"]), int(args["length"]))
+            return {"complete": bool(progressive.complete)}
+        if op == "ensure_chunks":
+            await asyncio.to_thread(progressive.ensure_chunks, [int(c) for c in args["chunks"]])
+            return {"complete": bool(progressive.complete)}
+        raise ValueError(f"unknown bake request {op!r}")
+
+    async def _cancel_check() -> bool:
+        return bool(cancelled["flag"])
 
     from ..worker.state import _touch_liveness
 
     async def _on_sample(_sample) -> None:
         _touch_liveness()
 
-    def _in_child(_child) -> None:
-        convert_odb_to_sqlite(odb_path)
-
     res = await subprocess_convert.run_isolated(
         _in_child,
-        label="ODB export",
-        child_name="ODB export",
-        crash_hint="(SIGSEGV/SIGABRT typically means a native fault inside the ODB exporter).",
-        work_prefix="odb-export-",
+        label="FEA bake",
+        child_name="FEA bake",
+        crash_hint="(SIGSEGV/SIGABRT typically means a native fault inside a result reader).",
+        work_prefix="fea-bake-",
         on_sample=_on_sample,
+        cancel_check=_cancel_check,
+        serve=_serve,
+        # Not the conversion ceiling (ADA_CONVERT_MEM_LIMIT_MB, ~3 GB): a large deck's bake peaks
+        # past it (a 2.7 GB SIN: about 5 GB), and on its old executor thread only the pod limit
+        # applied. ADA_FEA_BAKE_MEM_LIMIT_MB when set, else 85% of the pod's limit -- so a runaway
+        # bake dies on its own instead of taking the worker pod down.
+        mem_limit_bytes=subprocess_convert._mem_limit_from_env("ADA_FEA_BAKE_MEM_LIMIT_MB"),
     )
-    try:
-        if not res.ok:
-            raise RuntimeError(res.error_message or res.error or "the ODB export produced no output")
-    finally:
-        res.cleanup()
+    ok = res.ok  # read before cleanup: ``ok`` needs the work dir
+    res.cleanup()  # the artefacts are in bake_dir; the child's own work dir holds only its logs
+    if res.cancelled or cancelled["flag"]:
+        raise BakeCancelled("bake cancelled")
+    if not ok:
+        if res.signal_name:
+            logger.warning("worker: fea bake child for %s ended via %s", src_key, res.signal_name)
+        # An upload that failed failed the child (its next relay raised it): report the upload.
+        await asyncio.to_thread(uploader.finish)
+        raise RuntimeError(res.error_message or res.error or "the FEA bake produced no output")
+
+
+def _bake_child(child, src_path, out_dir, src_key: str, job_id: str, relayed: dict | None) -> None:
+    """The bake, in the forked child (see :func:`_bake_in_child`)."""
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    # One request at a time on the relay: the bake may emit from several threads.
+    lock = threading.Lock()
+
+    def call(op: str, **args):
+        with lock:
+            return child.call(op, **args)
+
+    if relayed is not None:
+        from ada.fem.formats.sesam.results.byte_source import register_progressive_file
+
+        # Replaces the parent's registration this process inherited: that download's threads
+        # did not come along across the fork.
+        register_progressive_file(_RelayedDownload(call, **relayed))
+    bake_fea_artefacts_from_source(
+        src_path,
+        out_dir,
+        src_key=src_key,
+        on_artefact=lambda path: call("artefact", path=str(path)),
+        partial_manifests=True,
+        stamp_extra={"job_id": job_id},
+    )
+
+
+class _RelayedDownload:
+    """The parent's ``ProgressiveDownload``, seen from the bake's child process.
+
+    What ``ProgressiveMmapSource`` uses of a download: the child maps the same file (the parent's
+    writes show through the shared page cache) and asks the parent, over the relay, to make a range
+    present before reading it. Chunks it has been told are on disk are not asked about again.
+    """
+
+    def __init__(self, call: Callable[..., dict], *, path: str, size: int, chunk_bytes: int) -> None:
+        self._call = call
+        self.path = path
+        self._size = int(size)
+        self.chunk_bytes = int(chunk_bytes)
+        self._n = (self._size + self.chunk_bytes - 1) // self.chunk_bytes
+        self._have = bytearray(self._n)
+        self.complete = self._n == 0
+
+    def size(self) -> int:
+        return self._size
+
+    def chunk_of(self, offset):
+        return offset // self.chunk_bytes
+
+    def _chunks(self, offset: int, length: int) -> range:
+        if length <= 0:
+            return range(0)
+        return range(offset // self.chunk_bytes, min(self._n, (offset + length - 1) // self.chunk_bytes + 1))
+
+    def _mark(self, reply: dict | None, chunks) -> None:
+        for i in chunks:
+            self._have[i] = 1
+        if reply and reply.get("complete"):
+            self.complete = True
+
+    def ensure(self, offset: int, length: int) -> None:
+        if self.complete:
+            return
+        chunks = self._chunks(int(offset), int(length))
+        if all(self._have[i] for i in chunks):
+            return
+        self._mark(self._call("ensure", offset=int(offset), length=int(length)), chunks)
+
+    def ensure_chunks(self, chunks) -> None:
+        if self.complete:
+            return
+        missing = [int(c) for c in chunks if not self._have[int(c)]]
+        if missing:
+            self._mark(self._call("ensure_chunks", chunks=missing), missing)
 
 
 async def _run_fea_meta_compute(
