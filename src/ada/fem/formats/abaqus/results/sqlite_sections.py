@@ -7,7 +7,9 @@ approximate n1 direction (``MaterialOrientations``, Kind ``beam``). Here they be
 and each element's local z, which both the FEAResult reader and the streaming bake use.
 
 A database written before these tables were filled (or by an exporter that leaves them empty)
-has no sections, and its beams stay lines.
+has no sections, and its beams stay lines. So does one whose exporter writes only the profile's
+NAME in ``Profile`` (aba-cpp's ``OdbDump`` today): with no dimensions there is no solid to draw,
+and its line elements are counted under ``profile-without-dimensions``.
 """
 
 from __future__ import annotations
@@ -135,7 +137,7 @@ def local_z_from_n1(x_vec: np.ndarray, n1) -> np.ndarray:
 def has_line_sections(conn: sqlite3.Connection) -> bool:
     """Whether the database carries any beam profile (a cheap check before the full read)."""
     try:
-        return conn.execute("SELECT 1 FROM Sections WHERE Profile IS NOT NULL LIMIT 1").fetchone() is not None
+        return conn.execute("SELECT 1 FROM Sections WHERE Profile <> '' LIMIT 1").fetchone() is not None
     except sqlite3.OperationalError:
         return False
 
@@ -165,8 +167,12 @@ def read_line_section_tables(
     # Section name -> (adapy section or None, reason, material name)
     sections_by_name: dict[str, tuple] = {}
     for name, material_name, profile_json in conn.execute(
-        "SELECT Name, MaterialName, Profile FROM Sections WHERE Profile IS NOT NULL"
+        "SELECT Name, MaterialName, Profile FROM Sections WHERE Profile <> ''"
     ):
+        if not profile_json.lstrip().startswith("{"):
+            # A profile's name, not its definition (aba-cpp writes ``Profile-<name>``).
+            sections_by_name[name] = (None, "profile-without-dimensions", material_name)
+            continue
         try:
             profile = json.loads(profile_json)
         except ValueError:

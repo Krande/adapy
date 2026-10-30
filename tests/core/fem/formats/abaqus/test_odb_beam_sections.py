@@ -307,6 +307,18 @@ def test_a_database_without_sections_has_no_tables(odb_sqlite):
     conn = sqlite3.connect(odb_sqlite)
     conn.execute("UPDATE Sections SET Profile = NULL")
     assert read_line_section_tables(conn, 1) == (None, {})
+    conn.execute("UPDATE Sections SET Profile = ''")  # empty, as aba-cpp writes for shells
+    assert read_line_section_tables(conn, 1) == (None, {})
+
+
+def test_a_profile_name_without_dimensions_is_named_as_such(odb_sqlite):
+    """aba-cpp's exporter writes the profile's name, not its definition: no solid can be drawn, and
+    the skip reason says why instead of calling the export malformed."""
+    conn = sqlite3.connect(odb_sqlite)
+    conn.execute("UPDATE Sections SET Profile = 'Profile-' || Name WHERE Profile IS NOT NULL")
+    tables, skipped = read_line_section_tables(conn, 1)
+    assert tables is None
+    assert set(skipped) == {"profile-without-dimensions"}
 
 
 # ----- both readers and the bake -----------------------------------------------------------------
