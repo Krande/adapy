@@ -80,8 +80,10 @@ ASSET_PUBLISH_KIND = "asset_publish"
 HIERARCHY_PATCH_ROLE = "hierarchy-patch.json"
 
 #: The element-level patches of an apply-changes answer, in the order they are applied: the tree
-#: first, so every other set's rows hang off nodes the tree has.
-PATCH_ROLES = (HIERARCHY_PATCH_ROLE, ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_PATCH_ROLE, NODE_RELATIONS_PATCH_ROLE)
+#: first, so every other set's rows hang off nodes the tree has; the relations BEFORE the attribute
+#: index, because a relations patch's subtree deletion finds the rows below a unit in the attribute
+#: partition -- as it stands before the attribute patch rewrites that unit.
+PATCH_ROLES = (HIERARCHY_PATCH_ROLE, NODE_RELATIONS_PATCH_ROLE, ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_PATCH_ROLE)
 
 #: Staged roles core ingests itself; a provider's ``derive()`` never sees them.
 _CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, *PATCH_ROLES})

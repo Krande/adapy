@@ -338,7 +338,7 @@ async def patch_node_bounds(
 
     ``ingested_at`` and ``rows`` of the set follow; its ``revision`` and ``frame`` stay those of the
     full export."""
-    from .attribute_index import load_patch, parse_patch_header, patch_refused
+    from .attribute_index import expand_subtree_deletes, load_patch, parse_patch_header, patch_refused
 
     t0 = time.perf_counter()
     lines = ndjson_lines(chunks)
@@ -373,6 +373,12 @@ async def patch_node_bounds(
             conn, lines, load_table="node_bounds_patch_load", columns=_COLUMNS, parse=parse, batch_rows=batch_rows
         )
         t1 = time.perf_counter()
+        if loaded["subtrees"]:
+            # A re-exported unit: the bounds of every node below it go too, walked through the set's
+            # own parent_id (indexed: node_bounds_parent_idx).
+            await expand_subtree_deletes(
+                conn, "node_bounds n", "n.scope = $1 AND n.provider = $2 AND n.collection = $3", *key
+            )
         cols = ", ".join(_COLUMNS)
         removed = await conn.execute(
             """

@@ -512,6 +512,8 @@ async def ingest_attribute_index(
                     await conn.execute(f"CREATE UNIQUE INDEX ON {b} (node_id)")
                 await conn.execute(f"CREATE INDEX ON {b} USING gin (attrs jsonb_path_ops)")
                 await conn.execute(f"CREATE INDEX ON {b} (full_name)")
+                # What a patch's subtree deletion (a re-exported unit and its components) walks.
+                await conn.execute(f"CREATE INDEX ON {b} (parent_id)")
                 await conn.execute(f"CREATE INDEX ON {b} (kind, depth)")
                 await conn.execute(f"ANALYZE {b}")
                 await conn.execute("RESET maintenance_work_mem")
@@ -684,10 +686,13 @@ def parse_patch_header(line: bytes, schema: str, error: type[ValueError] = Value
 @dataclass
 class PatchBatch:
     """One batch of patch lines, classified. ``records`` are the set's COPY records with the line's
-    sequence number appended; ``deleted`` is ``(node_id, seq)`` per deletion line."""
+    sequence number appended; ``deleted`` is ``(node_id, seq)`` per deletion line; ``subtree`` the
+    same for a ``{"node", "deleted": true, "subtree": true}`` line -- the node AND every row below it
+    (by ``parent_id``) go, as of that line (:func:`expand_subtree_deletes`)."""
 
     records: list[tuple] = field(default_factory=list)
     deleted: list[tuple[str, int]] = field(default_factory=list)
+    subtree: list[tuple[str, int]] = field(default_factory=list)
     skipped: int = 0
 
 
@@ -706,7 +711,7 @@ def plan_patch_batch(lines: list[bytes], parse, start_seq: int) -> PatchBatch:
         if isinstance(obj, dict) and obj.get("deleted") is True:
             node = _clean_text(obj.get("node"))
             if node and node.strip():
-                out.deleted.append((node, seq))
+                (out.subtree if obj.get("subtree") is True else out.deleted).append((node, seq))
             else:
                 out.skipped += 1
             continue
@@ -744,14 +749,16 @@ async def load_patch(
     batch_rows: int,
 ) -> dict:
     """Stream the body of a patch into ``load_table`` (``columns`` + ``seq``, created by the caller)
-    and the deletions into a temp ``patch_deletes (node_id, seq)`` this creates. Inside the caller's
-    transaction. Returns ``{lines, rows, deletions, skipped}``."""
+    and the deletions into a temp ``patch_deletes (node_id, seq, subtree)`` this creates. Inside the
+    caller's transaction. Returns ``{lines, rows, deletions, subtrees, skipped}``; a subtree deletion
+    is expanded by the caller, against its own set (:func:`expand_subtree_deletes`)."""
     await conn.execute(
-        'CREATE TEMP TABLE patch_deletes (node_id TEXT COLLATE "C" NOT NULL, seq INT NOT NULL) ON COMMIT DROP'
+        'CREATE TEMP TABLE patch_deletes (node_id TEXT COLLATE "C" NOT NULL, seq INT NOT NULL, '
+        "subtree BOOLEAN NOT NULL DEFAULT FALSE) ON COMMIT DROP"
     )
     loop = asyncio.get_running_loop()
     cols = [*columns, "seq"]
-    counts = {"lines": 0, "rows": 0, "deletions": 0, "skipped": 0}
+    counts = {"lines": 0, "rows": 0, "deletions": 0, "subtrees": 0, "skipped": 0}
 
     async def flush(batch: list[bytes]) -> None:
         plan = await loop.run_in_executor(None, plan_patch_batch, batch, parse, counts["lines"])
@@ -763,6 +770,11 @@ async def load_patch(
         if plan.deleted:
             await conn.copy_records_to_table("patch_deletes", records=plan.deleted, columns=["node_id", "seq"])
             counts["deletions"] += len(plan.deleted)
+        if plan.subtree:
+            await conn.copy_records_to_table(
+                "patch_deletes", records=[(n, s, True) for n, s in plan.subtree], columns=["node_id", "seq", "subtree"]
+            )
+            counts["subtrees"] += len(plan.subtree)
 
     batch: list[bytes] = []
     async for line in lines:
@@ -773,6 +785,45 @@ async def load_patch(
     if batch:
         await flush(batch)
     return counts
+
+
+def subtree_expansion_sql(source: str, where: str) -> str:
+    """SQL adding, for every ``subtree`` row of ``patch_deletes``, a deletion of each row below it in
+    ``source`` (aliased ``n``, narrowed by ``where``, walked by ``parent_id``) at the SAME sequence
+    number: a row the file writes after the subtree line survives, one it wrote before does not.
+    Bounded at :data:`PATH_MAX_DEPTH` levels, so a parent cycle ends."""
+    return f"""
+        INSERT INTO patch_deletes (node_id, seq, subtree)
+        WITH RECURSIVE sub AS (
+            SELECT d.seq, n.node_id, 1 AS lvl
+            FROM patch_deletes d JOIN {source} n ON {where} AND n.parent_id = d.node_id
+            WHERE d.subtree
+            UNION ALL
+            SELECT s.seq, n.node_id, s.lvl + 1
+            FROM sub s JOIN {source} n ON {where} AND n.parent_id = s.node_id
+            WHERE s.lvl < {PATH_MAX_DEPTH}
+        )
+        SELECT node_id, seq, FALSE FROM sub
+    """
+
+
+async def expand_subtree_deletes(conn, source: str, where: str, *args) -> int:
+    """Run :func:`subtree_expansion_sql`; returns how many descendant deletions it added."""
+    if not await conn.fetchval("SELECT EXISTS (SELECT 1 FROM patch_deletes WHERE subtree)"):
+        return 0
+    status = await conn.execute(subtree_expansion_sql(source, where), *args)
+    return int(status.split()[-1])
+
+
+async def ensure_parent_index(conn, partition_name: str) -> None:
+    """A btree on ``parent_id`` of an attribute partition -- what a subtree deletion walks. A full
+    ingest builds it with the others; a partition from before that gets it at its first patch."""
+    has = await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = $1 AND indexdef LIKE '%(parent_id)%')",
+        partition_name,
+    )
+    if not has:
+        await conn.execute(f"CREATE INDEX ON {_ident(partition_name)} (parent_id)")
 
 
 #: The rows a patch leaves standing: of each node, its first line after its last deletion. Over a
@@ -822,7 +873,7 @@ async def patch_attribute_index(
         # Waits for a full ingest of this partition (session lock, same key) to finish its swap.
         await conn.execute("SELECT pg_advisory_xact_lock($1)", _lock_id(part_key))
         held = await conn.fetchrow(
-            "SELECT part_key, keys, high_card_keys FROM attr_collections "
+            "SELECT part_key, partition_name, keys, high_card_keys FROM attr_collections "
             "WHERE scope = $1 AND provider = $2 AND collection = $3 FOR UPDATE",
             scope,
             provider,
@@ -845,6 +896,10 @@ async def patch_attribute_index(
             conn, lines, load_table="attr_patch_load", columns=_NODE_COLUMNS, parse=parse, batch_rows=batch_rows
         )
         t1 = time.perf_counter()
+        if loaded["subtrees"]:
+            # A re-exported unit: it and every row below it (its components) go as of that line.
+            await ensure_parent_index(conn, held["partition_name"])
+            await expand_subtree_deletes(conn, "attr_nodes n", "n.part_key = $1", part_key)
         await conn.execute(
             """
             CREATE TEMP TABLE patch_touched ON COMMIT DROP AS

@@ -982,3 +982,61 @@ async def test_pre_build_meshes_builds_the_published_elements_not_their_ancestor
     pre = w.items[0]["timings"]["prebuild"]
     assert pre["built"] == 1 and "rebuild on demand" in pre["note"]
     assert "meshes pre-built 1 of 1" in w.items[0]["message"]
+
+
+def test_a_subtree_deletion_is_planned_apart_from_a_node_deletion():
+    lines = [
+        json.dumps({"node": "unit-1", "deleted": True, "subtree": True}).encode(),
+        json.dumps({"node_id": "unit-1", "bbox": [0, 0, 0, 1, 1, 1]}).encode(),
+        json.dumps({"node": "n9", "deleted": True}).encode(),
+    ]
+
+    def parse(batch):
+        return nb.parse_bounds_batch(batch, scope="providers", provider="vendor", collection="alpha")
+
+    plan = ai.plan_patch_batch(lines, parse, 0)
+    assert plan.subtree == [("unit-1", 0)] and plan.deleted == [("n9", 2)]
+    assert [(r[3], r[-1]) for r in plan.records] == [("unit-1", 1)]  # written after the subtree line: survives
+    sql = ai.subtree_expansion_sql("attr_nodes n", "n.part_key = $1")
+    # Descendants are deleted at the subtree line's own sequence number, walked by parent_id.
+    assert "SELECT d.seq, n.node_id" in sql and "n.parent_id = d.node_id" in sql and "WHERE d.subtree" in sql
+
+
+def test_the_relations_patch_goes_before_the_attribute_patch():
+    roles = list(ap.PATCH_ROLES)
+    assert roles.index(nr.NODE_RELATIONS_PATCH_ROLE) < roles.index(ai.ATTRIBUTE_INDEX_PATCH_ROLE)
+    assert roles[0] == ap.HIERARCHY_PATCH_ROLE
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_a_subtree_patch_removes_a_units_components_against_postgres():
+    pool = await dbm.init_pool(POSTGRES_URL)
+    provider = f"test-{uuid.uuid4().hex[:8]}"
+    scope = "providers"
+    try:
+        full = [
+            json.dumps(
+                {"schema": ai.ATTRIBUTE_INDEX_SCHEMA, "provider": provider, "collection": "alpha", "revision": "1"}
+            ).encode(),
+            json.dumps({"node_id": "unit", "attrs": {"TYPE": "EQUI"}}).encode(),
+            json.dumps({"node_id": "c1", "parent_id": "unit", "attrs": {"TYPE": "BOX"}}).encode(),
+            json.dumps({"node_id": "c2", "parent_id": "c1", "attrs": {"TYPE": "CYL"}}).encode(),
+            json.dumps({"node_id": "other", "attrs": {"TYPE": "PIPE"}}).encode(),
+        ]
+        await ai.ingest_attribute_index(pool, scope=scope, provider=provider, chunks=_chunks(*full))
+        out = await ai.patch_attribute_index(pool, scope=scope, provider=provider, chunks=_chunks(
+            _header("attribute-index", provider=provider),
+            json.dumps({"node": "unit", "deleted": True, "subtree": True}).encode(),
+            json.dumps({"node_id": "unit", "attrs": {"TYPE": "EQUI"}}).encode(),
+            json.dumps({"node_id": "c3", "parent_id": "unit", "attrs": {"TYPE": "BOX"}}).encode(),
+        ))  # fmt: skip
+        assert out["applied"]
+        part = await pool.fetchval(
+            "SELECT part_key FROM attr_collections WHERE scope = $1 AND provider = $2", scope, provider
+        )
+        ids = {r["node_id"] for r in await pool.fetch("SELECT node_id FROM attr_nodes WHERE part_key = $1", part)}
+        assert ids == {"unit", "c3", "other"}
+    finally:
+        await ai.drop_attr_collection(pool, scope=scope, provider=provider, collection="alpha")
+        await dbm.close_pool(pool)

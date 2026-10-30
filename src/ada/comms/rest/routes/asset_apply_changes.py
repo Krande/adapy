@@ -99,7 +99,7 @@ APPLY_CHANGES_SCHEMA = "ada.assets/apply-changes@1"
 #: The patch roles and every core-handled role, as ``formats/asset_publish.py`` names them --
 #: spelled out here because the API image does not ship the publish handler (a test keeps the two
 #: in step).
-PATCH_ROLES = ("hierarchy-patch.json", ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_PATCH_ROLE, NODE_RELATIONS_PATCH_ROLE)
+PATCH_ROLES = ("hierarchy-patch.json", NODE_RELATIONS_PATCH_ROLE, ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_PATCH_ROLE)
 CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, *PATCH_ROLES})
 #: The element counts an answer reports (each at its own level, never its level or SITE).
 COUNT_KEYS = ("changed", "inserted", "deleted", "unplaceable")

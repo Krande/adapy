@@ -274,7 +274,13 @@ async def patch_node_relations(
 
     ``ingested_at`` moves -- it is the token a cached export reads its relations by
     (:func:`relations_token`), and those relations just changed."""
-    from .attribute_index import load_patch, parse_patch_header, patch_refused
+    from .attribute_index import (
+        ensure_parent_index,
+        expand_subtree_deletes,
+        load_patch,
+        parse_patch_header,
+        patch_refused,
+    )
 
     t0 = time.perf_counter()
     lines = ndjson_lines(chunks)
@@ -312,6 +318,23 @@ async def patch_node_relations(
             conn, lines, load_table="node_relations_patch_load", columns=_COLUMNS, parse=parse, batch_rows=batch_rows
         )
         t1 = time.perf_counter()
+        if loaded["subtrees"]:
+            # A re-exported unit: the relations of every row below it go too. Relations hold no tree,
+            # so the rows below are read from the collection's ATTRIBUTE partition -- which is why
+            # the publish applies this patch before the attribute patch rewrites that partition.
+            part = await conn.fetchrow(
+                "SELECT part_key, partition_name FROM attr_collections WHERE scope = $1 AND provider = $2 "
+                "AND collection = $3",
+                *key,
+            )
+            if part is None:
+                warnings.append(
+                    "a subtree deletion could not reach below its node (no attribute index for the collection): "
+                    "only the node's own relations were removed"
+                )
+            else:
+                await ensure_parent_index(conn, part["partition_name"])
+                await expand_subtree_deletes(conn, "attr_nodes n", "n.part_key = $1", part["part_key"])
         removed = await conn.execute(
             """
             DELETE FROM node_relations r
