@@ -8,8 +8,6 @@ selected.
 
 import sqlite3
 
-import numpy as np
-
 from ada.fem.formats.abaqus.results.sqlite_stream import ResultsSqliteStreamReader
 from ada.fem.results.sqlite_schema import create_schema
 
