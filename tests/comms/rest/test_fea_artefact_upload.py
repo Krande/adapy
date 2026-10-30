@@ -331,7 +331,7 @@ def _bake_with_fake(tmp_path, monkeypatch, fake):
 def _hungry_bake(src_path, bake_dir, *, src_key, on_artefact, **kw):
     """Holds ~200 MB for long enough for the watchdog to sample it, then writes a manifest."""
     hold = bytearray(200 << 20)
-    hold[:: 4096] = b"x" * len(hold[:: 4096])
+    hold[::4096] = b"x" * len(hold[::4096])
     time.sleep(3)
     out = pathlib.Path(bake_dir)
     (out / "fea.manifest.json").write_bytes(b"{}")
