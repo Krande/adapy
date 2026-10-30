@@ -94,6 +94,7 @@ from .converters.keys import (  # noqa: F401
     HIDDEN_PREFIXES,
     PUBLISHED_ASSET_PREFIX,
     SCOPE_STATE_PREFIXES,
+    TEMP_PREFIXES,
     _ext,
     derived_key_for,
     fea_artefact_manifest_key_for,

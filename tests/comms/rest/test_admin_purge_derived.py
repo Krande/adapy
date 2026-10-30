@@ -63,3 +63,19 @@ def test_purge_of_one_source_leaves_a_lookalike_source_alone(app_client: TestCli
     r = app_client.delete("/api/admin/scopes/shared/derived", params={"source": "m/a.step"})
     assert r.json() == {"deleted": 2, "errors": []}
     assert "_derived/m/a.step.v2.glb" in _keys(app_client)
+
+
+def test_clear_temp_removes_caches_and_keeps_sources_and_user_made_content(app_client: TestClient):
+    _put(app_client, "m/a.step", b"step")
+    _put(app_client, "_derived/m/a.step.glb", b"glb")
+    _put(app_client, "_overlays/diff-1.glb", b"o")
+    _put(app_client, "_reconvert/m/a.step.glb", b"r")
+    _put(app_client, "_procedural/model-1/spec.json", b"{}")  # user-made: stays
+    _put(app_client, "_groups/groups.json", b"[]")  # saved clash groups: stay
+
+    r = app_client.delete("/api/scopes/shared/temp")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"deleted": 3, "errors": []}
+    keys = _keys(app_client)
+    assert {"m/a.step", "_procedural/model-1/spec.json", "_groups/groups.json"} <= keys
+    assert not any(k.startswith(("_derived/", "_overlays/", "_reconvert/")) for k in keys)

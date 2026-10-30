@@ -334,6 +334,13 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
 )
 
 
+# The hidden namespaces that are only caches or throwaways, regenerated on demand: the convert-output
+# cache, auto-disposed utility overlays and the gallery's throwaway re-conversions. What "Clear temp
+# files" removes. NOT the rest of HIDDEN_PREFIXES: procedural models, equipment, engine wheels, saved
+# clash groups and clash runs are content a user made.
+TEMP_PREFIXES: tuple[str, ...] = ("_derived/", "_overlays/", "_reconvert/")
+
+
 def is_hidden_key(key: str) -> bool:
     return key.lstrip("/").startswith(HIDDEN_PREFIXES)
 

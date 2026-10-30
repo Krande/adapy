@@ -60,7 +60,7 @@ const EXPECTED_METHODS = [
   "adminRenameOrMoveFolder", "adminRenderProfiles", "adminResumeAssetSweep", "adminRevokeCiBot",
   "adminRevokeCliToken", "adminRevokeCliTokens", "adminSetSetting", "adminStartCompressionSweep",
   "adminUpdateAssetSchedule", "adminWorkerPackages", "assetChangeRunItems", "auditLocalCreate",
-  "auditLocalUpdate", "blobUrl", "cancelMyJob", "checkAssetChanges",
+  "auditLocalUpdate", "blobUrl", "cancelMyJob", "checkAssetChanges", "clearScopeTemp",
   "commitProceduralModel", "compileProceduralModel", "completeUpload", "componentsBuild",
   "componentsProfiles", "componentsSpecs", "convert", "convertStatus", "convertTargets",
   "copyEquipmentCadFromScope", "createEquipmentType", "createProceduralEngine",

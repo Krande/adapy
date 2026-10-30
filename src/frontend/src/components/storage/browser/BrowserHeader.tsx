@@ -37,6 +37,9 @@ export interface BrowserHeaderProps {
     setNewFolderAt: (at: string | null) => void;
     onRefresh: () => void;
     refreshing: boolean;
+    /** Null when this user may not clear the scope's temp files. */
+    onClearTemp: (() => void) | null;
+    clearingTemp: boolean;
     anyLoaded: boolean;
     bulkBusy: string | null;
     onHideAll: () => Promise<void>;
@@ -66,6 +69,8 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
     setNewFolderAt,
     onRefresh,
     refreshing,
+    onClearTemp,
+    clearingTemp,
     anyLoaded,
     bulkBusy,
     onHideAll,
@@ -132,7 +137,7 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                         }
                         onClick={() => setPlusOpen((v) => !v)}
                         disabled={uploading}
-                        title="Add — upload files or create a folder"
+                        title="Add — upload files or create a folder; clear temp files"
                         aria-label="Add"
                         aria-haspopup="menu"
                         aria-expanded={plusOpen}
@@ -183,6 +188,16 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                                         setTemplatesOpen(true);
                                     },
                                 },
+                                ...(onClearTemp
+                                    ? [{
+                                        key: "clear-temp",
+                                        label: clearingTemp ? "Clearing temp files…" : "Clear temp files…",
+                                        onClick: () => {
+                                            setPlusOpen(false);
+                                            onClearTemp();
+                                        },
+                                    }]
+                                    : []),
                             ]}
                             onClose={() => setPlusOpen(false)}
                             ignoreOutsideRef={plusBtnRef}
