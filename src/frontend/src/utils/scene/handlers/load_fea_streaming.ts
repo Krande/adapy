@@ -165,7 +165,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // mesh; switching source forces a reload.
     let active: FeaSessionHandle | null = session.active;
     if (!active || active.sourceName !== sourceName) {
-        active = await openFeaSession({fetcher, sourceName, manifest, stage, throwIfAborted});
+        active = await openFeaSession({fetcher, sourceName, manifest, stage, throwIfAborted, cacheKey});
         active.scope = scope;
         const mesh = active.mesh;
 

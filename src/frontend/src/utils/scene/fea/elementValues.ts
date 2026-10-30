@@ -16,6 +16,7 @@ import type {
     FeaManifestFieldPerType,
 } from "@/services/viewerApi";
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
+import {withFieldDetail} from "@/services/fea/feaFieldDetail";
 import {capabilities} from "@/services/capabilities";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {peekCase, resolveCase} from "@/services/fea/feaCaseResolver";
@@ -80,7 +81,7 @@ function locate(
         // linear scan over a few thousand is not what makes this slow — the
         // fetch is. Correctness over a binary search that a future reader would
         // have to prove.
-        const index = bucket.element_labels.indexOf(elementId);
+        const index = bucket.element_labels?.indexOf(elementId) ?? -1;
         if (index >= 0) return {bucket, index};
     }
     return null;
@@ -138,6 +139,13 @@ export async function feaValuesForElement(
                 step = 0;
             } else {
                 step = Math.min(ref.stored, Math.max(0, (baseField.n_steps ?? 1) - 1));
+            }
+            // The labels to find the element by: the field's detail sidecar on a
+            // split bake (cached, and shared with the colouring that fetched it).
+            try {
+                field = await withFieldDetail(field, fetcher, cacheKey);
+            } catch {
+                return;
             }
             const found = locate(field, elementId);
             if (!found) return;

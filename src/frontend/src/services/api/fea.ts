@@ -117,10 +117,13 @@ export interface FeaManifestFieldPerType {
   }>;
   /** Element labels in payload order — frontend maps draw-range
    *  labels back to ``element_labels.indexOf(label)`` to find the
-   *  row in the AFEL blob. */
-  element_labels: number[];
+   *  row in the AFEL blob. Absent in a split manifest (bake_version 6):
+   *  the field's ``detail`` sidecar carries it, and
+   *  ``withFieldDetail`` (services/fea/feaFieldDetail.ts) fills it in. */
+  element_labels?: number[];
   /** Source mesh node indices for each element row. Enables exact marker
-   * placement even when line elements have no triangle draw range. */
+   * placement even when line elements have no triangle draw range. Same
+   * split-manifest rule as ``element_labels``. */
   element_node_indices?: number[][];
   blob: {
     url: string;
@@ -192,6 +195,11 @@ export interface FeaManifestField {
    *  integration points (support === "gauss" or "element_nodal").
    *  Nodal fields carry ``blob`` instead. */
   per_type?: FeaManifestFieldPerType[];
+  /** bake_version 6: where this element field's per-bucket
+   *  ``element_labels`` / ``element_node_indices`` live -- a JSON sidecar
+   *  relative to the manifest, shared by every field over the same mesh.
+   *  Fetched on demand by ``withFieldDetail``. Absent on an inline manifest. */
+  detail?: { url: string; version?: number };
   n_steps: number;
   steps: FeaManifestStep[];
   /** Per-component min/max baked at write time so the colormap
@@ -320,6 +328,9 @@ export interface FeaManifest {
      * label prints. Omitted when the reader has no identifiers; never
      * fall back to row indices, which lie on renumbered decks. */
     node_labels?: number[];
+    /** bake_version 6: ``node_labels`` as a JSON sidecar instead (read it
+     *  through ``manifestNodeLabels``). */
+    node_labels_url?: string;
     /** Optional sidecar carrying deduped per-element edge index
      * pairs. When present, the frontend overlays them as a
      * THREE.LineSegments sharing the mesh's position attribute
@@ -420,6 +431,10 @@ export interface FeaManifest {
      *  the beams that hang a nodal mass off the deck. Absent on a deck's own sets. */
     role?: string;
   }[];
+  /** bake_version 6: ``groups`` as a JSON sidecar instead (read it through
+   *  ``manifestGroups``), and how many sets it holds. */
+  groups_url?: string;
+  n_groups?: number;
   /** What the AFEP sidecar's keys mean (see ``mesh.element_props_url``). */
   element_properties?: FeaElementPropertyTables;
   legacy_glb?: { url_template: string };

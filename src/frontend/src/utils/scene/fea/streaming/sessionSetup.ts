@@ -34,8 +34,10 @@ export async function openFeaSession(args: {
     manifest: FeaManifest;
     stage: (label: string, progress: number) => void;
     throwIfAborted: () => void;
+    /** The fetcher's cache key, for the manifest's sidecars (sets). */
+    cacheKey?: string;
 }): Promise<FeaSessionHandle> {
-    const {fetcher, sourceName, manifest, stage, throwIfAborted} = args;
+    const {fetcher, sourceName, manifest, stage, throwIfAborted, cacheKey} = args;
     stage("loading mesh", 0.05);
     throwIfAborted();
     const buf = await fetcher(manifest.mesh.url);
@@ -98,7 +100,7 @@ export async function openFeaSession(args: {
         // Lineage, FEM concepts and groups from the manifest into the stores
         // that render them. After setLoadedSourceName, whose subscription
         // would otherwise clear what this writes.
-        await registerManifestStores({manifest, sourceName, feaRoot});
+        await registerManifestStores({manifest, sourceName, feaRoot, fetcher, cacheKey});
     } catch (err) {
         URL.revokeObjectURL(url);
         throw err;
