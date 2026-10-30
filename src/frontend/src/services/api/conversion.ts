@@ -33,6 +33,16 @@ export interface ConvertResponse {
    * job and then never delivers it, so there is no error, no retry and no worker
    * log line — only a row that stays `queued`. */
   target_capability?: string | null;
+  /** How much of a running job's output is already in storage. The FEA bake
+   *  ships the mesh first and fields as they land (mesh first): ``mesh_ready``
+   *  once a preliminary manifest naming the mesh is up, then ``fields_ready`` of
+   *  ``fields_total``, ``complete`` with the final manifest. Absent elsewhere. */
+  artefacts_ready?: {
+    mesh_ready?: boolean;
+    fields_ready?: number;
+    fields_total?: number | null;
+    complete?: boolean;
+  } | null;
 }
 
 export interface ConvertTargetsResponse {

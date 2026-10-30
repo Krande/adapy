@@ -315,6 +315,13 @@ export interface FeaEnvelope {
 
 export interface FeaManifest {
   version: number;
+  /** A running bake's partial manifest (mesh first): the mesh and the fields
+   *  done so far; ``pending_fields`` names the rest. The final manifest replaces
+   *  it and carries neither key. */
+  preliminary?: boolean;
+  pending_fields?: string[];
+  /** With ``preliminary``: the job producing it. */
+  bake_job_id?: string;
   /** Freshness stamp of the bake that produced this tree (not the manifest
    * FORMAT version above). The server compares it against its expected value
    * and re-bakes older trees; the frontend never needs to read it. */
@@ -639,6 +646,8 @@ export const feaApi = {
         status: "queued" | "running" | "done";
       }) => void;
       signal?: AbortSignal;
+      /** Mesh first: each preliminary manifest of a running bake. */
+      onPartial?: (manifest: FeaManifest, info: { jobId: string }) => void | Promise<void>;
     },
   ): Promise<FeaManifest> {
     return fetchFeaManifest({
@@ -649,6 +658,7 @@ export const feaApi = {
       sourceKey,
       signal: opts?.signal,
       onProgress: opts?.onProgress,
+      onPartial: opts?.onPartial,
     });
   },
 
