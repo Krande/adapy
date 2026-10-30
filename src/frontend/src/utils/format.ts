@@ -93,3 +93,45 @@ export function formatRelativeTime(epochSeconds: number, nowEpochSeconds: number
     if (dt < 86400) return `${Math.round(dt / 3600)}h ago`;
     return `${Math.round(dt / 86400)}d ago`;
 }
+
+export interface FormatNumberOptions {
+    /** Exponent notation at or above this magnitude. Default 1e6. */
+    expAbove?: number;
+    /** ... and below this one (non-zero). Default 0: never for small values. */
+    expBelow?: number;
+    /** Significant digits below 1. Default 3. */
+    sig?: number;
+    /** Digits after the point in exponent notation. Default `sig`. */
+    expDigits?: number;
+    /** Decimals at or above 100. Default 1. */
+    largeDecimals?: number;
+    /** Decimals from 1 up to 100 (and for 0). Default 2. */
+    decimals?: number;
+    /** Appended after a space; "" and "-" mean dimensionless. */
+    unit?: string;
+    /** Rendered for null / NaN / infinity. Default "-". */
+    empty?: string;
+}
+
+/**
+ * An engineering value for a table or a readout: "1.23e+6", "123.4", "12.35", "0.0123".
+ *
+ * One ladder with the thresholds as options, because panels showing input values,
+ * intermediate results and provenance each grew their own copy of it that differed
+ * only in where the switches sit.
+ */
+export function formatNumber(value: number | null | undefined, opts: FormatNumberOptions = {}): string {
+    if (value == null || !Number.isFinite(value)) return opts.empty ?? "-";
+    const {expAbove = 1e6, expBelow = 0, sig = 3, largeDecimals = 1, decimals = 2} = opts;
+    const expDigits = opts.expDigits ?? sig;
+    const a = Math.abs(value);
+    const s =
+        a >= expAbove || (a > 0 && a < expBelow)
+            ? value.toExponential(expDigits)
+            : a >= 100
+              ? value.toFixed(largeDecimals)
+              : a >= 1 || a === 0
+                ? value.toFixed(decimals)
+                : value.toPrecision(sig);
+    return opts.unit && opts.unit !== "-" ? `${s} ${opts.unit}` : s;
+}

@@ -391,7 +391,7 @@ def beam_glb(assembly: ada.Assembly):
             asm.to_gltf(dest)
             logger.info(f"wrote beam GLB → {dest}")
             try:
-                from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+                from ada.visit.rendering.offscreen import glb_to_image
 
                 glb_to_image(dest).save(str(dest.with_suffix(".png")))
             except Exception as exc:
@@ -715,7 +715,7 @@ def plate_glb(a: ada.Assembly):
             a.to_gltf(dest)
             logger.info(f"wrote plate GLB → {dest}")
             try:
-                from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+                from ada.visit.rendering.offscreen import glb_to_image
 
                 glb_to_image(dest).save(str(dest.with_suffix(".png")))
             except Exception as exc:  # noqa: BLE001

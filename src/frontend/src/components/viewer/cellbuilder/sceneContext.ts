@@ -20,6 +20,7 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CellBox, Vec3} from "@/utils/cellbuilder/snap";
 import {GHOST_COLOR, HOVER_EDGE_COLOR, HOVER_EDGE_WIDTH, SELECTED_EDGE_COLOR, SELECTED_EDGE_WIDTH, SELECTED_FACE_COLOR} from "./sceneConstants";
 import type {DragState, EquipEntry, HoveredEdge, HoveredFace, LoftActive, ModalMove, NumEntry, OpenEntry, PendingGizmoExit, PendingSelect, PlaceEntry} from "./sceneTypes";
+import {viewportInputElement} from "@/viewport/input";
 
 export function createCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -121,7 +122,7 @@ export function createCellBuilderScene(
     // produces round-trips to identical ROT_X/Y/Z on the built equipment.
     gizmoProxy.rotation.order = "ZYX";
     container.add(gizmoProxy);
-    const gizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), renderer.domElement);
+    const gizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), viewportInputElement(renderer));
     gizmo.setSpace("world");
     const gizmoHelper = gizmo.getHelper();
     gizmoHelper.userData.__excludeFromFit = true;
@@ -161,7 +162,7 @@ export function createCellBuilderScene(
     const portProxy = new THREE.Object3D();
     portProxy.userData.__excludeFromFit = true;
     container.add(portProxy);
-    const portGizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), renderer.domElement);
+    const portGizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), viewportInputElement(renderer));
     portGizmo.setSpace("world");
     const portGizmoHelper = portGizmo.getHelper();
     portGizmoHelper.userData.__excludeFromFit = true;

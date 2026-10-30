@@ -512,6 +512,38 @@ async def api_scope_blob_delete(
     return JSONResponse(result)
 
 
+@router.delete("/scopes/{scope}/temp")
+async def api_scope_clear_temp(
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Delete the scope's temporary files (TEMP_PREFIXES: convert cache, utility overlays, throwaway
+    re-conversions) -- everything regenerated on demand; sources and user-made content stay.
+
+    Allowed in your own scope, in a project scope you are a member of (``scope_from_path`` has
+    checked access) and, for admins, anywhere. One listing per prefix, batched deletes.
+    Returns ``{"deleted": n, "errors": [keys]}``.
+    """
+    from ..converter import TEMP_PREFIXES
+
+    if scope_obj.kind not in ("user", "project") and not user.is_admin:
+        raise HTTPException(status_code=403, detail="only admins clear temp files in this scope")
+    keys = [entry.key for prefix in TEMP_PREFIXES for entry in await ctx.storage.list_prefix(scope_obj, prefix)]
+    failed = await ctx.storage.delete_many(scope_obj, keys)
+    await ctx.audit(
+        request,
+        user,
+        scope_obj,
+        "delete",
+        key="temp",
+        status="ok" if not failed else "error",
+        error=f"{len(failed)} of {len(keys)} temp files not deleted" if failed else None,
+    )
+    return JSONResponse({"deleted": len(keys) - len(failed), "errors": failed})
+
+
 @router.post("/scopes/{scope}/keys/move-to-folder")
 async def api_scope_keys_move_to_folder(
     request: Request,

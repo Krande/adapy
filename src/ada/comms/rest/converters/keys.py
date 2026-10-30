@@ -166,7 +166,60 @@ _FEA_ARTEFACT_SUFFIX = ".fea/"
 # labels, ...) instead of serving its old artefacts forever. A pinned copy of
 # ``ada.fem.results.artefacts.FEA_BAKE_VERSION`` — the slim API container
 # cannot import ada.fem — kept equal by a test.
-EXPECTED_FEA_BAKE_VERSION = 5
+EXPECTED_FEA_BAKE_VERSION = 6
+
+
+#: How much of a stored manifest's DECOMPRESSED head the API reads to find its
+#: ``bake_version`` when the bake wrote no stamp (bake_version <= 5). Every
+#: writer since the stamp was introduced puts ``version`` and ``bake_version``
+#: first, so it sits in the first ~40 bytes; the bound is what makes the read
+#: cheap whatever the manifest weighs (a large SIN model's was 148 MB).
+FEA_MANIFEST_HEAD_BYTES = 64 * 1024
+
+_BAKE_VERSION_RE = re.compile(rb'"bake_version"\s*:\s*(\d+)')
+
+
+def fea_bake_version_from_head(head: bytes) -> int:
+    """``bake_version`` as stated in the first bytes of a manifest, 0 if absent.
+
+    0 is also what :func:`fea_manifest_stale_reason` makes of an unstamped
+    manifest, so a head without the key reads exactly as the parsed manifest
+    would have. Bounded to :data:`FEA_MANIFEST_HEAD_BYTES`: the key, when
+    present, is always near the top."""
+    m = _BAKE_VERSION_RE.search(head[:FEA_MANIFEST_HEAD_BYTES])
+    return int(m.group(1)) if m else 0
+
+
+def fea_stamp_is_current(stamp_head: dict | None, manifest_head: dict | None) -> bool:
+    """Whether a stored ``fea.stamp.json`` describes the stored manifest.
+
+    The bake writes (and the uploaders store) the stamp AFTER the manifest, so
+    a stamp OLDER than its manifest is left over from an earlier bake -- the
+    manifest was replaced by a writer that knows no stamp (a browser bake from
+    an older client) -- and must not vouch for it. Unknown timestamps are
+    inconclusive and trust the stamp, the same posture as the source check:
+    a backend without timestamps must not churn every open into a re-bake."""
+    if not stamp_head:
+        return False
+    st, mt = _head_ts(stamp_head), _head_ts(manifest_head)
+    if st is None or mt is None:
+        return True
+    try:
+        return st >= mt
+    except TypeError:
+        return True
+
+
+def _head_ts(head: dict | None):
+    raw = (head or {}).get("last_modified")
+    if not raw:
+        return None
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
 
 
 def fea_manifest_stale_reason(
@@ -175,6 +228,11 @@ def fea_manifest_stale_reason(
     manifest_head: dict | None,
 ) -> str | None:
     """Why a cached streaming-FEA manifest should be re-baked, or ``None``.
+
+    ``manifest`` is anything carrying the bake's ``bake_version``: the parsed
+    manifest, its ``fea.stamp.json`` (what the API reads, bake_version 6+), or
+    ``{"bake_version": fea_bake_version_from_head(...)}`` for an older bake.
+    Only that key is read.
 
     Two independent signals:
 
@@ -282,6 +340,14 @@ def fea_artefact_manifest_key_for(source_key: str) -> str:
     return fea_artefact_prefix_for(source_key) + "fea.manifest.json"
 
 
+def fea_artefact_stamp_key_for(source_key: str) -> str:
+    """The bake's ``fea.stamp.json`` (bake_version 6+): the manifest's
+    freshness stamps in a few bytes, so the API never reads the manifest to
+    decide whether to serve it. Name pinned to
+    ``ada.fem.results.artefacts.STAMP_NAME`` (the slim API cannot import it)."""
+    return fea_artefact_prefix_for(source_key) + "fea.stamp.json"
+
+
 def fea_meta_key_for(source_key: str) -> str:
     src = source_key.strip("/")
     return f"_derived/{src}{_FEA_META_SUFFIX}"
@@ -332,6 +398,13 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     # browser's run is POSTed to /clash-contacts/runs, which validates it before storing it.
     "_clash/",
 )
+
+
+# The hidden namespaces that are only caches or throwaways, regenerated on demand: the convert-output
+# cache, auto-disposed utility overlays and the gallery's throwaway re-conversions. What "Clear temp
+# files" removes. NOT the rest of HIDDEN_PREFIXES: procedural models, equipment, engine wheels, saved
+# clash groups and clash runs are content a user made.
+TEMP_PREFIXES: tuple[str, ...] = ("_derived/", "_overlays/", "_reconvert/")
 
 
 def is_hidden_key(key: str) -> bool:

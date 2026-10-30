@@ -406,7 +406,7 @@ def _add_view(sub: argparse._SubParsersAction) -> None:
             "On a result file this reads the mesh alone."
         ),
     )
-    _add_viewer_opts(p, ("react", "pygfx", "trimesh"))
+    _add_viewer_opts(p, ("react", "trimesh"))
     p.add_argument("--split", action="store_true")
     p.add_argument("--limit", type=int, default=None)
     _add_super_element(p)
@@ -476,7 +476,7 @@ def _add_results(sub: argparse._SubParsersAction) -> None:
     )
     compare.add_argument("--no-show", dest="show", action="store_false", help="Print the comparison only.")
     _add_super_element(compare)
-    _add_viewer_opts(compare, ("react", "pygfx"))
+    _add_viewer_opts(compare, ("react",))
     _add_log_file(compare)
     compare.set_defaults(func=_cmd_results_compare, needs_ada_logging=True)
 

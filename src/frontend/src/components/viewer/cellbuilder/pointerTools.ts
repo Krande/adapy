@@ -18,6 +18,7 @@ import {lineParamFromRay} from "./geometryHelpers";
 import {refreshEdgeOverlays, refreshFaceStyles} from "./overlays";
 import {applyCellTranslate, cellCenterModel, computeMove, endModalMove, equipContainedIn, showSnapMarker} from "./cellGizmo";
 import {pickPort} from "./portGizmo";
+import {viewportInputElement} from "@/viewport/input";
 
 export const startFaceDrag = (ctx: CellBuilderScene, cell: BuilderCell, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
     // Equipment is sized by its type — never face-drag-resized in the scene.
@@ -53,7 +54,7 @@ export const startFaceDrag = (ctx: CellBuilderScene, cell: BuilderCell, faceInde
         st.beginTransaction();
         const runtimeCtl = getViewerRuntime().controls.current;
         if (runtimeCtl) runtimeCtl.enabled = false;
-        ctx.renderer.domElement.setPointerCapture(ev.pointerId);
+        viewportInputElement(ctx.renderer).setPointerCapture(ev.pointerId);
     }
     return true;
 };
@@ -121,7 +122,7 @@ export const pickBuilderMesh = (ctx: CellBuilderScene): THREE.Intersection | nul
 };
 
 export const syncCursor = (ctx: CellBuilderScene) => {
-    ctx.renderer.domElement.style.cursor = ctx.hoveredEdge ? "crosshair" : ctx.hovered ? "pointer" : "";
+    viewportInputElement(ctx.renderer).style.cursor = ctx.hoveredEdge ? "crosshair" : ctx.hovered ? "pointer" : "";
 };
 
 export const setHoveredFace = (ctx: CellBuilderScene, mesh: THREE.Mesh | null, faceIndex: number) => {
@@ -406,7 +407,7 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
             st.beginTransaction();
             const runtimeCtl = getViewerRuntime().controls.current;
             if (runtimeCtl) runtimeCtl.enabled = false;
-            ctx.renderer.domElement.setPointerCapture(ctx.drag.pointerId);
+            viewportInputElement(ctx.renderer).setPointerCapture(ctx.drag.pointerId);
         }
         const t = lineParamFromRay(ctx.raycaster.ray, ctx.drag.lineOrigin, ctx.drag.lineDir);
         if (t === null) return;
@@ -439,7 +440,7 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
             st.selectMode !== "none" &&
             st.gizmoMode === "none" &&
             pickBuilderMesh(ctx) !== null;
-        ctx.renderer.domElement.style.cursor =
+        viewportInputElement(ctx.renderer).style.cursor =
             overCell ? (st.selectMode === "edge" ? "crosshair" : "pointer") : "";
     }
 };
@@ -462,7 +463,7 @@ export const finalizeDrag = (ctx: CellBuilderScene, ev: PointerEvent, cancelled:
         const runtimeCtl = getViewerRuntime().controls.current;
         if (runtimeCtl) runtimeCtl.enabled = true;
         try {
-            ctx.renderer.domElement.releasePointerCapture(pending.pointerId);
+            viewportInputElement(ctx.renderer).releasePointerCapture(pending.pointerId);
         } catch {
             /* already released */
         }

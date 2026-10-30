@@ -1092,6 +1092,57 @@ def _field_order_key(field) -> tuple:
     )
 
 
+def read_sin_file_deferred(
+    sin_file: str | pathlib.Path,
+    *,
+    complex_phase: float = 0.0,
+    super_element: "SuperElementSpec | Iterable[SuperElementSpec] | None" = None,
+    field_cache: "bool | str | pathlib.Path" = False,
+):
+    """:func:`read_sin_file` in two halves: ``(result, load, close)``.
+
+    ``result`` comes back with its mesh, sets and case names -- everything the
+    file's header records give -- and no fields yet; ``load()`` reads the fields
+    into it, exactly as :func:`read_sin_file` would have (same order, same
+    values, same field cache), and closes the file; ``close()`` closes the file
+    without reading them (a bake that stopped early). One of the two must be
+    called.
+
+    What this buys is order: a bake can write and ship the mesh while the fields
+    -- nearly all of the file's bytes on a large deck -- are still to be read."""
+    from ada.fem.formats.sesam.results.sin_field_stream import SinFieldStream
+
+    opened = SinFieldStream.open(sin_file, super_element=super_element, complex_phase=complex_phase)
+    result = opened.header
+
+    def load() -> None:
+        try:
+            if field_cache:
+                from ada.fem.results.field_cache import FieldCache
+
+                directory = None if field_cache is True else field_cache
+                with FieldCache(directory) as cache:
+                    fields = _consume_fields(opened, None, cache.spill)
+            else:
+                fields = _consume_fields(opened, None, None)
+        finally:
+            opened.close()
+        result.results = in_field_order(fields)
+
+    return result, load, opened.close
+
+
+def _consume_fields(stream, step, keep) -> list:
+    if step is not None:
+        stream.steps = [s for s in stream.steps if s == step]
+    fields = []
+    for _, chunk in stream.iter_chunks():
+        if keep is not None:
+            keep(chunk)
+        fields += chunk
+    return fields
+
+
 def _read_through_cache(sin_file, step, complex_phase, super_element, directory) -> "FEAResult":
     from ada.fem.results.field_cache import FieldCache
 
@@ -1109,14 +1160,8 @@ def _read_streamed(sin_file, step, complex_phase, super_element, keep=None) -> "
         opened = SinFieldStream.over(sin_file, super_element=super_element, complex_phase=complex_phase)
     else:
         opened = SinFieldStream.open(sin_file, super_element=super_element, complex_phase=complex_phase)
-    fields = []
     with opened as stream:
-        if step is not None:
-            stream.steps = [s for s in stream.steps if s == step]
-        for _, chunk in stream.iter_chunks():
-            if keep is not None:
-                keep(chunk)
-            fields += chunk
+        fields = _consume_fields(stream, step, keep)
         result = stream.header
     result.results = in_field_order(fields)
     return result

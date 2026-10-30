@@ -9,8 +9,9 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {applyBoxSelection} from "@/utils/bboxSelection/applyBoxSelection";
 import {bindBBoxSelectionStorage} from "@/utils/bboxSelection/boxPersistence";
 import {BOX_FACES, boxCenter, boxSize, centeredAt, faceCenter, moveFace, type Aabb, type Vec3} from "@/utils/bboxSelection/boxMath";
-import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {lineParamFromRay} from "./cellbuilder/geometryHelpers";
+import {viewportInputElement} from "@/viewport/input";
+import {pickMeshAt} from "@/viewport/picking";
 
 // Headless: draws the selection boxes, a move gizmo and six face handles on the active
 // box, and re-applies the active box's selection whenever its bounds or mode change. While
@@ -25,7 +26,7 @@ const BOX_RENDER_ORDER = 9990;
 let boxPickTargets: THREE.Mesh[] = [];
 
 /** The selection box under the cursor, when it is nearer than the geometry there. */
-export function pickSelectionBox(clientX: number, clientY: number): string | null {
+export async function pickSelectionBox(clientX: number, clientY: number): Promise<string | null> {
     const {camera: cameraRef, renderer: rendererRef} = getViewerRuntime();
     const camera = cameraRef.current;
     const renderer = rendererRef.current;
@@ -39,9 +40,9 @@ export function pickSelectionBox(clientX: number, clientY: number): string | nul
     );
     const hit = ray.intersectObjects(boxPickTargets.filter((m) => m.visible), false)[0];
     if (!hit) return null;
-    let surface: ReturnType<typeof gpuMeshPicker.pickAt> = null;
+    let surface: Awaited<ReturnType<typeof pickMeshAt>> = null;
     try {
-        surface = gpuMeshPicker.pickAt(clientX, clientY);
+        surface = await pickMeshAt(clientX, clientY);
     } catch {
         surface = null;
     }
@@ -119,7 +120,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const proxy = new THREE.Object3D();
     proxy.userData.__excludeFromFit = true;
     scene.add(proxy);
-    const gizmo = new TransformControls(camera, renderer.domElement);
+    const gizmo = new TransformControls(camera, viewportInputElement(renderer));
     gizmo.setMode("translate");
     gizmo.setSpace("world");
     const gizmoHelper = gizmo.getHelper();
@@ -285,7 +286,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         drag = {face, startBox: {min: [...box.min], max: [...box.max]}, lineOrigin, lineDir, startT, pointerId: ev.pointerId};
         swallowClick = true;
         setControlsEnabled(false);
-        renderer.domElement.setPointerCapture(ev.pointerId);
+        viewportInputElement(renderer).setPointerCapture(ev.pointerId);
     };
 
     const onPointerMove = (ev: PointerEvent) => {
@@ -301,7 +302,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const onPointerUp = (ev: PointerEvent) => {
         if (!drag || ev.pointerId !== drag.pointerId) return;
         drag = null;
-        if (renderer.domElement.hasPointerCapture(ev.pointerId)) renderer.domElement.releasePointerCapture(ev.pointerId);
+        if (viewportInputElement(renderer).hasPointerCapture(ev.pointerId)) viewportInputElement(renderer).releasePointerCapture(ev.pointerId);
         setControlsEnabled(true);
         if (live) commit(live);
     };
@@ -312,7 +313,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ev.stopImmediatePropagation();
     };
 
-    const dom = renderer.domElement;
+    const dom = viewportInputElement(renderer);
     dom.addEventListener("pointerdown", onPointerDown, {capture: true});
     dom.addEventListener("pointermove", onPointerMove);
     dom.addEventListener("pointerup", onPointerUp);

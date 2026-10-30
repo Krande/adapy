@@ -312,14 +312,29 @@ export function shownElemFieldRange(args: {
         if (!stepView) continue;
         const ipIndices = layerIpIndices(bucket, layer);
         const elemStride = bucket.n_ips * n_components;
+        const labels = bucketLabels(field, bucket);
         for (let e = 0; e < bucket.n_elements; e++) {
-            if (!isShown(bucket.element_labels[e])) continue;
+            if (!isShown(labels[e])) continue;
             const elemBase = e * elemStride;
             acc.add(read(stepView, elemBase, ipIndices));
             if (perIp) for (const ip of ipIndices) acc.add(read(stepView, elemBase, [ip]));
         }
     }
     return acc.result();
+}
+
+/** A bucket's element labels, which a split manifest (bake_version 6) keeps in
+ *  the field's detail sidecar: the caller resolves the field through
+ *  ``withFieldDetail`` first (paintElemField does). Missing here is a caller
+ *  bug, and painting every element as label ``undefined`` would hide it. */
+function bucketLabels(field: FeaManifestField, bucket: FeaManifestFieldPerType): number[] {
+    if (!bucket.element_labels) {
+        throw new Error(
+            `field ${field.name_canonical} bucket ${bucket.elem_type}: element labels not loaded ` +
+            `(resolve the field with withFieldDetail first)`,
+        );
+    }
+    return bucket.element_labels;
 }
 
 /** Same shape as ``applyFieldToMesh`` but takes the AFEL render path
@@ -460,6 +475,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         }
         const ipIndices = layerIpIndices(bucket, layer);
         const elemStride = bucket.n_ips * n_components;
+        const labels = bucketLabels(colorField, bucket);
 
         // What each element ended up painted with, so a legend can say which
         // values are on screen rather than which values the deck contains. One
@@ -467,7 +483,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
 
         for (let e = 0; e < bucket.n_elements; e++) {
             const elemBase = e * elemStride;
-            const label = bucket.element_labels[e];
+            const label = labels[e];
             const dr = drawRanges.get(`E${label}`);
             {
                 const own = computeElementScalar(stepView, elemBase, ipIndices);

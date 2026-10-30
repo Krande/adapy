@@ -21,31 +21,9 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {syncFeaOverlayVisibility} from "@/utils/scene/handlers/load_fea_streaming";
 
 import {applyDummyMassVisibility} from "./dummyMassVisibility";
-import {visibleEdgeIndex} from "./feaEdgeFilter";
 import {complementRanges} from "./feaSets";
 import {setResultLineSegmentsIsolation} from "./resultLineSegments";
-
-/** The element-boundary wireframe overlays the FEA loader adds.
- *
- *  Matched by name rather than by type: these are plain LineSegments sharing their mesh's
- *  position buffer, and the scene holds other LineSegments (a GLB's own) that must not be
- *  touched. Absent when the "hide element edges" perf toggle was on at load, which is why
- *  every use tolerates finding none.
- */
-const EDGE_OVERLAY_NAMES = ["fea-element-edges", "fea-beam-element-edges"];
-
-/** Where the untouched edge index is parked so filtering is reversible. */
-const FULL_INDEX_KEY = "__adaFullEdgeIndex";
-
-function edgeOverlays(): THREE.LineSegments[] {
-    const scene = getViewerRuntime().scene.current;
-    if (!scene) return [];
-    const found: THREE.LineSegments[] = [];
-    scene.traverse((o: THREE.Object3D) => {
-        if (EDGE_OVERLAY_NAMES.includes(o.name)) found.push(o as THREE.LineSegments);
-    });
-    return found;
-}
+import {followEdgeVisibility, setHiddenEdgesGhosted, syncFeaEdgeVisibility} from "./streaming/edgeVisibility";
 
 /** Every CustomBatchedMesh currently in the scene.
  *
@@ -60,24 +38,6 @@ function batchedMeshes(): CustomBatchedMesh[] {
         if (o instanceof CustomBatchedMesh) found.push(o);
     });
     return found;
-}
-
-/** The original, unfiltered edge index — captured the first time it is needed, before any
- *  filtering has replaced it. */
-function fullIndexOf(overlay: THREE.LineSegments): ArrayLike<number> | null {
-    const cached = overlay.userData[FULL_INDEX_KEY] as ArrayLike<number> | undefined;
-    if (cached) return cached;
-    const idx = overlay.geometry.getIndex();
-    if (!idx) return null;
-    const arr = idx.array as ArrayLike<number>;
-    overlay.userData[FULL_INDEX_KEY] = arr;
-    return arr;
-}
-
-function restoreEdges(overlay: THREE.LineSegments): void {
-    const full = overlay.userData[FULL_INDEX_KEY] as Uint32Array | undefined;
-    if (!full) return;
-    overlay.geometry.setIndex(new THREE.BufferAttribute(full, 1));
 }
 
 /** Show only ``memberIds`` (draw-range ids, ``E{n}``); hide the rest, as a wireframe ghost
@@ -114,6 +74,11 @@ export function applyFeaGroupVisibility(memberIds: Iterable<string>, wireframeRe
             for (const id of m.drawRanges.keys()) if (keep.has(id)) return true;
             return false;
         });
+    // Element boundaries follow the hidden ranges (streaming/edgeVisibility): the isolated
+    // group keeps its own outlines, and with "show rest as wireframe" the hidden rest keeps
+    // its outline as a ghost.
+    followEdgeVisibility();
+    setHiddenEdgesGhosted(matches && wireframeRest);
     let isolating = false;
     if (matches) {
         for (const m of meshes) {
@@ -131,33 +96,7 @@ export function applyFeaGroupVisibility(memberIds: Iterable<string>, wireframeRe
         setResultLineSegmentsIsolation(m, isolating ? keep : null);
     }
 
-    // Element boundaries.
-    //
-    // Hiding a draw range hides its FACES. The element-boundary wireframe is a separate
-    // LineSegments over the whole model, so left alone it keeps drawing outlines for
-    // elements that are no longer there — which is exactly the ghost we want when "show
-    // rest as wireframe" is on, and exactly what we do not want when it is off.
-    //
-    // Off does not mean "no lines". The group you isolated has to keep its OWN element
-    // boundaries, or it renders as a featureless solid and stops reading as a mesh at all.
-    // So the overlay gets re-indexed down to the visible elements' edges rather than
-    // switched off wholesale.
-    for (const overlay of edgeOverlays()) {
-        if (!isolating || wireframeRest) {
-            restoreEdges(overlay);
-            continue;
-        }
-        const mesh = overlay.parent;
-        const full = fullIndexOf(overlay);
-        if (!(mesh instanceof CustomBatchedMesh) || !full) continue;
-        const filtered = visibleEdgeIndex(
-            mesh.geometry.getIndex()?.array ?? null,
-            mesh.drawRanges,
-            keep,
-            full,
-        );
-        if (filtered) overlay.geometry.setIndex(new THREE.BufferAttribute(filtered, 1));
-    }
+    syncFeaEdgeVisibility();
 
     // Unhiding everything above brought the dummy-mass beams back with it.
     applyDummyMassVisibility(isolating ? keep : null);
@@ -175,7 +114,8 @@ export function clearFeaGroupVisibility(): void {
         m.unhideAllDrawRanges();
         setResultLineSegmentsIsolation(m, null);
     }
-    for (const o of edgeOverlays()) restoreEdges(o);
+    setHiddenEdgesGhosted(false);
+    syncFeaEdgeVisibility();
     // "Everything" still leaves out what the dummy-mass toggle hides.
     applyDummyMassVisibility(null);
     syncFeaOverlayVisibility();

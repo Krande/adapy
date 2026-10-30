@@ -379,28 +379,18 @@ export function useAdminStorage() {
             `Sources are not touched; next Convert will regenerate them.`,
         )) return;
         setBusyKey(`${file.key}::delete-all-derived`);
-        const failures: string[] = [];
+        // One request: the server deletes this source's derived blobs in batches.
+        let message: string | null = null;
         try {
-            const results = await Promise.allSettled(
-                file.derived.map((d) => viewerApi.adminDeleteBlob(scope, d.key)),
-            );
-            results.forEach((r, i) => {
-                if (r.status === "rejected") {
-                    const reason = r.reason instanceof ApiError
-                        ? r.reason.detail || r.reason.message
-                        : String(r.reason);
-                    failures.push(`${file.derived[i].key}: ${reason}`);
-                }
-            });
-            if (failures.length) {
-                setError(
-                    `Deleted ${n - failures.length} of ${n}; failures:\n${failures.join("\n")}`,
-                );
-            } else {
-                setError(null);
+            const result = await viewerApi.adminPurgeDerived(scope, file.key);
+            if (result.errors.length) {
+                message = `Deleted ${result.deleted}; could not delete:\n${result.errors.join("\n")}`;
             }
-            await reload();
+        } catch (e) {
+            message = e instanceof ApiError ? e.detail || e.message : String(e);
         } finally {
+            await reload(); // first: a successful reload clears the error
+            setError(message);
             setBusyKey(null);
         }
     };
@@ -421,28 +411,23 @@ export function useAdminStorage() {
             `Sources are preserved; next Convert regenerates them.`,
         )) return;
         setBusyKey("__clear_all_derived__");
-        const failures: string[] = [];
+        // One request: the server lists _derived/ once and deletes in batches. Firing one DELETE per
+        // blob from here had the browser abort thousands of queued requests part way through.
+        let message: string | null = null;
         try {
-            const results = await Promise.allSettled(
-                allDerived.map((d) => viewerApi.adminDeleteBlob(scope, d.derivedKey)),
-            );
-            results.forEach((r, i) => {
-                if (r.status === "rejected") {
-                    const reason = r.reason instanceof ApiError
-                        ? r.reason.detail || r.reason.message
-                        : String(r.reason);
-                    failures.push(`${allDerived[i].derivedKey}: ${reason}`);
-                }
-            });
-            if (failures.length) {
-                setError(
-                    `Cleared ${total - failures.length} of ${total}; failures:\n${failures.join("\n")}`,
-                );
-            } else {
-                setError(null);
+            const result = await viewerApi.adminPurgeDerived(scope);
+            if (result.errors.length) {
+                const shown = result.errors.slice(0, 20).join("\n");
+                const more = result.errors.length > 20 ? `\n… and ${result.errors.length - 20} more` : "";
+                message = `Cleared ${result.deleted}; ${result.errors.length} could not be deleted:\n${shown}${more}`;
             }
-            await reload();
+        } catch (e) {
+            message = e instanceof ApiError ? e.detail || e.message : String(e);
         } finally {
+            // Reload first: a successful reload clears the error, which is how a failure report used
+            // to flash up and vanish.
+            await reload();
+            setError(message);
             setBusyKey(null);
         }
     };

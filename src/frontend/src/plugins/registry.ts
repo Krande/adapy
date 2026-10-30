@@ -76,7 +76,20 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          This entry was 1.7.0 on its branch; main published 1.7.0 first, for viewer-core
 //          parity, so -- as with 1.4.0 -- the number moved up rather than meaning two things.
 //          Plugin-side only, so viewer-core stays at 1.7.0, as it did through 1.6.0.
-export const PLUGIN_API_VERSION = "1.8.0";
+// 1.9.0 -- renderer-neutral scene overlays on `SceneHandle`: `addLines`, `addLabels`,
+//          `paintFeaElements` (each returns a `SceneOverlay`), `hasFeaModel`, `showColorScale`
+//          (a plugin's banded scale in core's colour legend), `trackJob` `kind` / `data` /
+//          `persist` (with `registerJobFinisher` on @/viewer-core/app), FEA element isolation
+//          (`isolateFeaElements`, `hideFeaElements`, `hiddenFeaElements`) and
+//          `setFeaElementEdgesVisible`. A plugin states what to draw in plain data and core
+//          builds it, so it draws the same under three.js and the WebGPU renderer and moves
+//          and clips with the model. `add` (a raw Object3D) and `getActiveFeaMesh` stay, now
+//          deprecated: they tie a plugin to one renderer and to the FEA mesh's internals.
+//          Also `addElementOutlines` (an element set's outline, following the warp),
+//          `paintFeaElements` `on: "beamSolids"`, lines `opacity` / `throughModel`, and labels
+//          with several lines, `atElements` (pinned to a warping element set) and an `anchor`.
+//          Additive, so a minor bump.
+export const PLUGIN_API_VERSION = "1.9.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -188,6 +201,74 @@ export interface SceneColorFieldResult {
   colorFor?: (v: number) => [number, number, number];
 }
 
+/** sRGB, as CSS: "#ffaa00", or [r, g, b] in 0..1. */
+export type SceneColor = string | readonly [number, number, number];
+
+import type { ColorScale } from "@/utils/colorScale";
+
+/** Something core drew for a plugin; `remove` takes it out of the scene. */
+export interface SceneOverlay {
+  remove: () => void;
+}
+
+/** Line segments in the FEA model's coordinates (world coordinates without an FEA model). */
+export interface SceneLines {
+  // 6 numbers per segment: x0, y0, z0, x1, y1, z1.
+  segments: Float32Array | readonly number[];
+  // One colour for all, or `colors`: 3 numbers (sRGB, 0..1) per segment.
+  color?: SceneColor;
+  colors?: Float32Array | readonly number[];
+  widthPx?: number; // default 2
+  dashed?: { dash: number; gap: number }; // in model units
+  opacity?: number; // 0..1; default 1
+  // Drawn over the model instead of hidden behind it (a selection behind a deck is still where
+  // it is). Of several, the one added last draws on top.
+  throughModel?: boolean;
+}
+
+/** The outline of FEA elements' faces: the edges no two of them share, following the warp. */
+export interface SceneElementOutline {
+  elements: Iterable<number>; // element labels of the active FEA mesh
+  color?: SceneColor; // default white
+  widthPx?: number; // default 2
+  dashed?: { dash: number; gap: number }; // in model units
+  opacity?: number; // 0..1; default 1
+  throughModel?: boolean; // as on `SceneLines`
+}
+
+/** A screen-space label pinned to a point (FEA model coordinates, as `SceneLines`). */
+export interface SceneLabel {
+  // Where it is pinned: a point, or `atElements`, the centre of those FEA elements' faces, which
+  // moves with the warp. One of the two.
+  position?: readonly [number, number, number];
+  atElements?: Iterable<number>;
+  // Several: a line each, the first bold.
+  text: string | readonly string[];
+  color?: string; // text, CSS; default dark slate
+  background?: string; // CSS; none by default
+  border?: string; // CSS outline around the background; none by default
+  shape?: "rect" | "rounded" | "circle";
+  // "center" (default) centres it on the point; "above-right" puts its lower-left corner just
+  // above it, so it does not cover what it names.
+  anchor?: "center" | "above-right";
+}
+
+export interface SceneLabelOptions {
+  heightPx?: number; // on-screen height, CSS px; default 18
+}
+
+/** Colours for elements of the active FEA mesh, drawn over the model and following its warp. */
+export interface SceneElementPaint {
+  colors: ReadonlyMap<number, SceneColor>; // element label -> colour
+  // Colour for elements in `only` (or every element, without `only`) that `colors` leaves out;
+  // omitted / null: those are not drawn.
+  neutral?: SceneColor | null;
+  only?: Iterable<number>;
+  // Which of the FEA model's meshes: "model" (default), its shells and lines as drawn, or
+  // "beamSolids", the swept beam sections when they are shown (same element labels).
+  on?: "model" | "beamSolids";
+}
+
 /** A manifest-relative byte/JSON fetcher handed to sidecar loaders. */
 export interface SidecarFetcher {
   json: (relKey: string) => Promise<unknown>;
@@ -200,7 +281,10 @@ export interface SidecarFetcher {
  * resources uniformly by owner. Kept structural (`unknown` object type) so this
  * module needs no `three` import. */
 export interface SceneHandle {
+  /** @deprecated A raw three.js object draws only as the renderer in use happens to treat it; use
+   *  `addLines` / `addLabels` / `paintFeaElements`, or ask core for the verb you need. */
   add: (owner: string, obj: unknown) => void;
+  // Removes `obj`, or everything `owner` added (by `add` and the overlay verbs below).
   remove: (owner: string, obj?: unknown) => void;
   requestRender: () => void;
   // Route a named color field through core's paint + legend path
@@ -210,6 +294,8 @@ export interface SceneHandle {
   // null when no FEA model is loaded. Lets a result plugin drive element-level
   // scene ops (isolate / highlight / attach overlays) off the same mesh core
   // deforms. Structural ``unknown`` — no three import in this dependency-free core.
+  /** @deprecated Reaches into the FEA mesh's internals; use `paintFeaElements`,
+   *  `isolateFeaElements`, `hideFeaElements` and the selection verbs. */
   getActiveFeaMesh: () => unknown | null;
   // Draw-range ids (per-element selection) currently highlighted on the active
   // FEA mesh, or an empty array when nothing is selected / no FEA model is
@@ -264,6 +350,27 @@ export interface SceneHandle {
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.
   unloadModel: (sourceName: string) => void;
+
+  // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
+  // the same under three.js and the WebGPU renderer, move and clip with the model, and go
+  // with `remove(owner)`. Coordinates are the FEA model's own when one is loaded. ──
+  addLines: (owner: string, lines: SceneLines) => SceneOverlay;
+  addLabels: (owner: string, labels: SceneLabel[], opts?: SceneLabelOptions) => SceneOverlay;
+  // Whether an FEA model is loaded (the frame the coordinates above are in).
+  hasFeaModel: () => boolean;
+  // Null when no FEA model is loaded (or, `on: "beamSolids"`, its beam solids are not shown).
+  paintFeaElements: (owner: string, paint: SceneElementPaint) => SceneOverlay | null;
+  // Null when no FEA model is loaded or none of `elements` is in it.
+  addElementOutlines: (owner: string, outline: SceneElementOutline) => SceneOverlay | null;
+  // Show only these elements of the active FEA model; null shows all again.
+  isolateFeaElements: (elements: Iterable<number> | null) => void;
+  hideFeaElements: (elements: Iterable<number>) => void;
+  hiddenFeaElements: () => number[];
+  setFeaElementEdgesVisible: (visible: boolean) => void;
+  // Show `scale` (see `ColorScale`, `scaleColor` on @/viewer-core) in core's colour legend,
+  // in place of the result colormap, while the plugin paints with it; null takes it away.
+  // `remove(owner)` takes it away too.
+  showColorScale: (owner: string, scale: ColorScale | null) => void;
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */
@@ -314,8 +421,25 @@ export interface AdaPluginContext {
    *
    * Returns the store key for the toast entry. Fire-and-forget: the poll is
    * detached, which is the point.
+   *
+   * To act when the job is done (reload results, say), give it a `kind` and register a
+   * finisher for that kind at module load (`registerJobFinisher` on @/viewer-core/app,
+   * 1.9.0): it runs as the entry's last stage, with `data`. With `persist` the entry is
+   * remembered in this browser, so the toast -- and the finisher -- resume after a reload.
+   *
+   * `scope` is the scope the job RAN in, when that is not the open one: a provider job runs in
+   * the provider store, and `POST /plugins/{id}/jobs` answers which (`scope` in its response).
    */
-  trackJob: (opts: {jobId: string; label: string; derivedKey?: string; storeKey?: string; scope?: string}) => string;
+  trackJob: (opts: {
+    jobId: string;
+    label: string;
+    derivedKey?: string;
+    storeKey?: string;
+    scope?: string;
+    kind?: string;
+    data?: unknown;
+    persist?: boolean;
+  }) => string;
 }
 
 export type ActivationPredicate = (ctx: AdaPluginContext) => boolean;

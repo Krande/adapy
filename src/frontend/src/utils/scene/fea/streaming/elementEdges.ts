@@ -15,9 +15,83 @@ import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import type {FeaManifest} from "@/services/viewerApi";
 import {usePerfStore} from "@/state/perfStore";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clipWithModel} from "@/utils/scene/section_clipping";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
+
+// Zoomed out, a dense element grid draws a line every few pixels and washes the result colours
+// out to the edge colour. Fade the shell grid by how far apart its edges are on screen: full
+// strength from `edgeFadeFullPx` apart (a user setting, 8 by default), gone at 3/8 of that.
+const EDGE_GONE_FRACTION = 3 / 8;
+
+/** Median length of a sample of `edges` (index pairs into `position`), in model units. */
+function typicalEdgeLength(position: THREE.BufferAttribute, edges: Uint32Array): number {
+    const pairs = edges.length / 2;
+    const step = Math.max(1, Math.floor(pairs / 2000));
+    const lengths: number[] = [];
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    for (let i = 0; i < pairs; i += step) {
+        a.fromBufferAttribute(position, edges[i * 2]);
+        b.fromBufferAttribute(position, edges[i * 2 + 1]);
+        lengths.push(a.distanceTo(b));
+    }
+    lengths.sort((x, y) => x - y);
+    return lengths[Math.floor(lengths.length / 2)] ?? 0;
+}
+
+/** The orbit target: where the user is looking, by the controls' convention. */
+function orbitTarget(): THREE.Vector3 | null {
+    const target = (getViewerRuntime().controls.current as {target?: THREE.Vector3} | null)?.target;
+    return target?.isVector3 ? target : null;
+}
+
+/** Fade `segments` (an element grid on `mesh`) by its on-screen density, every frame it draws.
+ *
+ *  The density is taken where the user is looking: at the orbit target, clamped into the model's box
+ *  (without a target, the point of the box nearest the camera). Taking it at the model's centre made
+ *  the fade depend on which side the model was seen from: orbiting a point off the centre, one side
+ *  is nearer the centre than the other, and the same standoff showed the grid from one side only.
+ *
+ *  On the MATERIAL's onBeforeRender: the overlay's own hook belongs to the warp (sourceMorph replaces it
+ *  whenever a field is painted), and a fade installed there was dropped, frozen at whatever opacity the
+ *  first frames computed -- 0 while the camera was still fitting, which hid the edges for good. */
+export function fadeWithDensity(
+    segments: THREE.LineSegments,
+    mesh: THREE.Mesh,
+    edges: Uint32Array,
+    lookingAt: () => THREE.Vector3 | null = orbitTarget,
+): void {
+    const length = typicalEdgeLength(mesh.geometry.attributes.position as THREE.BufferAttribute, edges);
+    if (!(length > 0)) return;
+    const material = segments.material as THREE.LineBasicMaterial;
+    const size = new THREE.Vector2();
+    const box = new THREE.Box3();
+    const focus = new THREE.Vector3();
+    material.onBeforeRender = (renderer, _scene, camera) => {
+        const {edgeFade, edgeFadeFullPx} = usePerfStore.getState();
+        if (!edgeFade) {
+            material.opacity = 1;
+            return;
+        }
+        const geometry = mesh.geometry;
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        box.copy(geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
+        box.clampPoint(lookingAt() ?? camera.position, focus);
+        // CSS pixels per model unit at the point looked at.
+        const cssHeight = renderer.getDrawingBufferSize(size).y / renderer.getPixelRatio();
+        const ortho = camera as THREE.OrthographicCamera;
+        const perUnit = ortho.isOrthographicCamera
+            ? (cssHeight * ortho.zoom) / (ortho.top - ortho.bottom)
+            : cssHeight / (2 * Math.max(focus.distanceTo(camera.position), 1e-9) *
+                Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov) / 2));
+        const px = length * perUnit;
+        const fullPx = edgeFadeFullPx;
+        const gonePx = fullPx * EDGE_GONE_FRACTION;
+        material.opacity = THREE.MathUtils.clamp((px - gonePx) / (fullPx - gonePx), 0, 1);
+    };
+}
 
 /** Attach the element-edge overlays to `mesh` and return the full edge index
  *  the bake shipped (the caller keeps it for the undeformed reference
@@ -77,7 +151,7 @@ export async function installElementEdges(
                 const lineMat = new THREE.LineBasicMaterial({
                     color: FEA_EDGE_COLOR,
                     depthTest: true,
-                    // Transparent (opacity stays 1 — colour unchanged) so the
+                    // Transparent (opacity 1 until zoomed out: fadeWithDensity) so the
                     // element-edge wireframe joins the transparent render pass
                     // and, with the renderOrder below, sorts ABOVE a plugin
                     // field/utilisation face overlay instead of being painted
@@ -107,6 +181,7 @@ export async function installElementEdges(
                 // a LineSegments with no unique_key and selection
                 // fails with "No drawRanges found for key: undefined".
                 segments.layers.set(1);
+                fadeWithDensity(segments, mesh, shellEdgeIndices);
                 // Share the mesh's morph attribute + influences
                 // array so the line wireframe morphs in lockstep
                 // with the face mesh. We set this *after* the

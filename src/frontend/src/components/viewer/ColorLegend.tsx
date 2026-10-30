@@ -1,6 +1,8 @@
 import React, {useMemo, useState} from "react";
 
 import {useColorStore} from "@/state/colorLegendStore";
+import {usePluginColorScaleStore} from "@/state/pluginColorScaleStore";
+import {cssScaleColor, type ColorScale} from "@/utils/colorScale";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {getColormap} from "@/utils/scene/fea/colormaps";
 import {
@@ -46,6 +48,7 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
     // unchanged.
     const [expanded, setExpanded] = useState(false);
     const {min, max, step, colorPalette, showLegend} = useColorStore();
+    const pluginScale = usePluginColorScaleStore((s) => s.scale);
     const {
         sessionActive,
         manifest,
@@ -137,6 +140,8 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
 
     if (!showLegend) return null;
     if (!inPanel && isMobile && sessionActive) return null;
+    // A plugin painting its own banded scale over the model: its bands, not the result colormap.
+    if (pluginScale) return <ScaleLegend scale={pluginScale} inPanel={inPanel}/>;
 
     // A difference of two results (FEAResultComparison) says so: its colours are a change,
     // centred on zero, not the field itself.
@@ -274,5 +279,42 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
         </div>
     );
 };
+
+/** A plugin's banded scale (SceneHandle.showColorScale), drawn like the contour bands. */
+const ScaleLegend: React.FC<{scale: ColorScale; inPanel: boolean}> = ({scale, inPanel}) => (
+    <div
+        className={
+            (inPanel ? "w-full " : "w-56 shadow-lg backdrop-blur-sm ") +
+            "select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-bg)] p-2 text-[11px] leading-tight text-[var(--ada-panel-text)]"
+        }
+        data-testid="plugin-color-scale"
+    >
+        {scale.title?.length ? (
+            <div className="mb-2 space-y-0.5 break-words">
+                {scale.title.map((line, index) => (
+                    <div key={index} className={index === 0 ? "font-semibold" : undefined}>{line}</div>
+                ))}
+            </div>
+        ) : null}
+        <div className="flex flex-col-reverse font-mono tabular-nums">
+            {scale.bands.map((band, index) => (
+                <div key={index} className="flex items-center gap-2">
+                    <span
+                        aria-hidden
+                        className="h-5 w-5 shrink-0 rounded-[1px] border border-[var(--ada-panel-border)]"
+                        style={{backgroundColor: cssScaleColor(band.color)}}
+                    />
+                    <span>{band.label ?? formatValue(band.from)}</span>
+                </div>
+            ))}
+            {scale.max !== undefined && (
+                <div className="flex items-center gap-2">
+                    <span aria-hidden className="h-0 w-5 shrink-0"/>
+                    <span>{formatValue(scale.max)}</span>
+                </div>
+            )}
+        </div>
+    </div>
+);
 
 export default ColorLegend;

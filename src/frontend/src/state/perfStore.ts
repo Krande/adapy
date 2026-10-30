@@ -11,7 +11,21 @@ import {persist} from "zustand/middleware";
 
 export type MaterialMode = "standard" | "lambert";
 
+// Which renderer draws the main viewport. "adacpp-webgpu" is the experimental adacpp WebGPU
+// renderer (wasm, /wasm/adacpp_render.js): three.js keeps the scene graph, picking and controls,
+// only the main draw goes through adacpp. Falls back to three.js when WebGPU is unavailable.
+// `?renderer=adacpp` / `?renderer=three` in the URL overrides the stored choice.
+export type RenderBackend = "three" | "adacpp-webgpu";
+
 export interface PerfState {
+    // Renderer backend -------------------------------------------------------
+    renderBackend: RenderBackend;
+    // Cluster culling levers of the adacpp renderer (no effect on three.js).
+    adacppFrustumCull: boolean;
+    adacppConeCull: boolean;
+    // GPU two-pass occlusion culling; the renderer applies it to large scenes (2M+ triangles) only.
+    adacppOcclusionCull: boolean;
+
     // FEA material gating ----------------------------------------------------
     materialMode: MaterialMode;
     solidsBackfaceCull: boolean;
@@ -32,6 +46,11 @@ export interface PerfState {
     // FEA content gating -----------------------------------------------------
     hideBeamSolids: boolean;
     hideElementEdges: boolean;
+    // Zoomed out, the shell element grid fades so the result colours under it stay readable:
+    // full strength while its edges are at least `edgeFadeFullPx` CSS px apart on screen, gone at
+    // 3/8 of that. Off: always full strength.
+    edgeFade: boolean;
+    edgeFadeFullPx: number;
 
     // Picking ---------------------------------------------------------------
     // Flat-varying picker: builds an INDEXED picker geometry where
@@ -61,6 +80,10 @@ export interface PerfState {
     timeSlicedLoad: boolean;
 
     // Setters ----------------------------------------------------------------
+    setRenderBackend: (v: RenderBackend) => void;
+    setAdacppFrustumCull: (v: boolean) => void;
+    setAdacppConeCull: (v: boolean) => void;
+    setAdacppOcclusionCull: (v: boolean) => void;
     setMaterialMode: (v: MaterialMode) => void;
     setSolidsBackfaceCull: (v: boolean) => void;
     setSolidsSmoothShading: (v: boolean) => void;
@@ -71,6 +94,8 @@ export interface PerfState {
     setOnDemandRender: (v: boolean) => void;
     setHideBeamSolids: (v: boolean) => void;
     setHideElementEdges: (v: boolean) => void;
+    setEdgeFade: (v: boolean) => void;
+    setEdgeFadeFullPx: (v: number) => void;
     setUseFlatPicker: (v: boolean) => void;
     setGpuFacePicking: (v: boolean) => void;
     setTimeSlicedLoad: (v: boolean) => void;
@@ -79,6 +104,11 @@ export interface PerfState {
 export const usePerfStore = create<PerfState>()(
     persist(
         (set) => ({
+            renderBackend: "three",
+            adacppFrustumCull: true,
+            adacppConeCull: true,
+            adacppOcclusionCull: true,
+
             materialMode: "standard",
             solidsBackfaceCull: false,
             solidsSmoothShading: false,
@@ -91,12 +121,18 @@ export const usePerfStore = create<PerfState>()(
 
             hideBeamSolids: false,
             hideElementEdges: false,
+            edgeFade: true,
+            edgeFadeFullPx: 8,
 
             useFlatPicker: false,
             gpuFacePicking: true,
 
             timeSlicedLoad: false,
 
+            setRenderBackend: (v) => set({renderBackend: v}),
+            setAdacppFrustumCull: (v) => set({adacppFrustumCull: v}),
+            setAdacppConeCull: (v) => set({adacppConeCull: v}),
+            setAdacppOcclusionCull: (v) => set({adacppOcclusionCull: v}),
             setMaterialMode: (v) => set({materialMode: v}),
             setSolidsBackfaceCull: (v) => set({solidsBackfaceCull: v}),
             setSolidsSmoothShading: (v) => set({solidsSmoothShading: v}),
@@ -107,6 +143,8 @@ export const usePerfStore = create<PerfState>()(
             setOnDemandRender: (v) => set({onDemandRender: v}),
             setHideBeamSolids: (v) => set({hideBeamSolids: v}),
             setHideElementEdges: (v) => set({hideElementEdges: v}),
+            setEdgeFade: (v) => set({edgeFade: v}),
+            setEdgeFadeFullPx: (v) => set({edgeFadeFullPx: Number.isFinite(v) ? Math.min(100, Math.max(1, v)) : 8}),
             setUseFlatPicker: (v) => set({useFlatPicker: v}),
             setGpuFacePicking: (v) => set({gpuFacePicking: v}),
             setTimeSlicedLoad: (v) => set({timeSlicedLoad: v}),
@@ -114,6 +152,17 @@ export const usePerfStore = create<PerfState>()(
         {name: "ada-perf"},
     ),
 );
+
+// `?renderer=adacpp|three` picks the backend for this page load (and is remembered like a toggle).
+(() => {
+    try {
+        const param = new URLSearchParams(globalThis.location?.search ?? "").get("renderer");
+        if (param === "adacpp" || param === "adacpp-webgpu") usePerfStore.getState().setRenderBackend("adacpp-webgpu");
+        else if (param === "three") usePerfStore.getState().setRenderBackend("three");
+    } catch {
+        // no location (tests, workers): keep the stored choice
+    }
+})();
 
 // Snapshot of every performance option (the data fields of the store, setters
 // excluded) for the frontend load/render audit logs — so a metrics row records

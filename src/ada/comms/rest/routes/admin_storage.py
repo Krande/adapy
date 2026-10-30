@@ -124,6 +124,43 @@ async def admin_storage_delete(
     return JSONResponse(result)
 
 
+@router.delete("/scopes/{scope}/derived")
+async def admin_storage_purge_derived(
+    request: Request,
+    source: str | None = None,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Delete every derived product in the scope -- or, with ``?source=<key>``, every derived product of
+    that one source: one listing of the prefix and batched deletes (S3 multi-object delete).
+
+    What "Clear all derived" in the admin storage tab calls. It used to send one DELETE per derived
+    file from the browser -- thousands at once, which the browser itself aborted part way (and each
+    FEA one listed the whole scope). Sources are untouched; a Convert regenerates what is needed.
+    Returns ``{"deleted": n, "errors": [keys]}``.
+    """
+    src = source.lstrip("/") if source else None
+    # Listings match whole path segments, so a source's derived files are found by listing its
+    # directory and keeping the keys that parse back to exactly this source (not "a.step.v2" for
+    # "a.step").
+    prefix = f"_derived/{src.rsplit('/', 1)[0]}/" if src and "/" in src else "_derived/"
+    keys = [entry.key for entry in await ctx.storage.list_prefix(scope_obj, prefix)]
+    if src:
+        keys = [k for k in keys if (derived_source_of(k) or ("",))[0] == src]
+    failed = await ctx.storage.delete_many(scope_obj, keys)
+    await ctx.audit(
+        request,
+        user,
+        scope_obj,
+        "delete",
+        key=f"_derived/{src}" if src else prefix,
+        status="ok" if not failed else "error",
+        error=f"{len(failed)} of {len(keys)} derived blobs not deleted" if failed else None,
+    )
+    return JSONResponse({"deleted": len(keys) - len(failed), "errors": failed})
+
+
 @router.post("/scopes/{scope}/keys/move-to-folder")
 async def admin_keys_move_to_folder(
     request: Request,

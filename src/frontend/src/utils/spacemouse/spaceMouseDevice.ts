@@ -57,6 +57,7 @@ import {
 import {applyObjectModeMotion, DEFAULT_RATES, rolledUp} from "./navigation";
 import {createOneEuro, resetOneEuro, stepOneEuro} from "./smoothing";
 import type {InputWindow} from "@/utils/scene/renderInputSummary";
+import {VIEWPORT_INPUT_ATTR} from "@/viewport/input";
 
 // The slice of WebHID this file uses. TypeScript's DOM lib does not carry the
 // API, and these few lines are cheaper than a types dependency.
@@ -351,7 +352,9 @@ function capDeflected(): boolean {
 }
 
 function onWheel(event: WheelEvent): void {
-    if (!(event.target instanceof HTMLCanvasElement)) return;
+    // Over the viewport: its input surface (viewport/input.ts) or a canvas without one.
+    const t = event.target;
+    if (!(t instanceof HTMLCanvasElement || (t instanceof Element && t.hasAttribute(VIEWPORT_INPUT_ATTR)))) return;
     if (probe) probe.wheels++;
     if (!device) return;
     if (performance.now() - axis.lastMotionAt > WHEEL_GUARD_MS || !capDeflected()) return;

@@ -413,7 +413,7 @@ class FEM:
 
     def show(
         self,
-        renderer: Literal["react", "pygfx"] = "react",
+        renderer: Literal["react"] = "react",
         host="localhost",
         port=8765,
         server_exe: pathlib.Path = None,

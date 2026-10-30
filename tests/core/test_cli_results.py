@@ -135,7 +135,7 @@ def test_results_stats_refuses_a_model(example_files, capsys):
 def test_results_compare_prints_then_shows_the_difference(example_files, shown, capsys):
     sin = str(example_files / _SIN)
 
-    assert ada_cli.main.main(["results", "compare", sin, sin, "--renderer", "pygfx"]) == 0
+    assert ada_cli.main.main(["results", "compare", sin, sin, "--ws-port", "9000"]) == 0
 
     out = capsys.readouterr().out
     assert "differing=0" in out
@@ -143,7 +143,7 @@ def test_results_compare_prints_then_shows_the_difference(example_files, shown, 
     assert len(shown) == 1
     name, kw = shown[0]
     assert name == "STATIC_SHELL_CANTILEVER_SESAMR1 - STATIC_SHELL_CANTILEVER_SESAMR1"
-    assert kw == {"renderer": "pygfx", "host": "localhost", "port": 8765}
+    assert kw == {"renderer": "react", "host": "localhost", "port": 9000}
 
 
 def test_results_compare_no_show(example_files, shown):

@@ -12,14 +12,15 @@
 // capabilities, and the conversion store.
 
 import {capabilities} from "@/services/capabilities";
+import type {FeaCapability} from "@/services/capabilities/types";
 import type {FeaManifest} from "@/services/viewerApi";
 import type {SidecarFetcher} from "@/plugins/registry";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import {useConversionStore} from "@/state/conversionStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {initialStepIndex} from "../timeHistory";
 import type {LoadFeaStreaming} from "./types";
-import {defaultResultField} from "./defaultField";
+import {feaOpening} from "./meshFirst";
 
 /** Toggle entry point: fetch the manifest, pick sensible defaults
  * (first field, default reduction, step 0, factor 1), and run
@@ -28,9 +29,16 @@ import {defaultResultField} from "./defaultField";
  *
  * Returns silently on a manifest with no fields; the storage row
  * stays unchecked-but-toggled which the user can interpret as
- * "nothing renderable in this file". */
-export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: string): Promise<void> {
-    if (!capabilities.fea.supports("fetchManifest") || !capabilities.fea.supports("fieldFetchers")) {
+ * "nothing renderable in this file".
+ *
+ * ``fea``: the transport's FEA capability (the selected one by default; tests
+ * pass their own). */
+export async function loadFeaWithDefaults(
+    load: LoadFeaStreaming,
+    sourceName: string,
+    fea: FeaCapability = capabilities.fea,
+): Promise<void> {
+    if (!fea.supports("fetchManifest") || !fea.supports("fieldFetchers")) {
         throw new Error("This transport cannot serve streamed FEA results");
     }
     const scope = scopeUrlPart(useScopeStore.getState().current);
@@ -88,10 +96,34 @@ export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: st
     // state, but only this toast tells the user that.
     const MANIFEST_PROGRESS_CEILING = 0.55;
 
+    // Mesh first: a running bake ships the mesh and a preliminary manifest long
+    // before it ends, then the fields as they land. Each one is loaded as it comes
+    // -- the model is on screen while the bake runs -- and the toast keeps showing
+    // the bake. Once something is painted, a later manifest (more fields, or the
+    // final one) keeps what the user is looking at (meshFirst.ts).
+    let partialShown = false;
+    const opening = (m: FeaManifest) => feaOpening(m, sourceName, partialShown, useFeaAnimationStore.getState());
+    const loadPartial = async (partial: FeaManifest) => {
+        if (controller.signal.aborted) return;
+        const open = opening(partial);
+        await load({
+            sourceName,
+            manifest: partial,
+            fieldName: open.field ? open.field.name_canonical : null,
+            stepIndex: open.stepIndex,
+            reduction: open.reduction,
+            displacementScale: open.displacementScale,
+            sliderFactor: 1,
+            signal: controller.signal,
+        });
+        partialShown = true;
+    };
+
     let manifest: FeaManifest;
     try {
-        manifest = await capabilities.fea.fetchManifest(scope, sourceName, {
+        manifest = await fea.fetchManifest(scope, sourceName, {
             signal: controller.signal,
+            onPartial: (partial) => loadPartial(partial),
             onProgress: ({jobId, stage, progress, status}) => {
                 // Race guard: if the user cleared the row between
                 // .abort() and AbortError actually propagating up the
@@ -121,14 +153,22 @@ export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: st
         // dir the mesh + field blobs come from. Best-effort — never breaks the load.
         const fireResultSidecarLoaders = () => {
             try {
-                const {fetcher, rangeFetcher} = capabilities.fea.fieldFetchers(scope, sourceName);
+                const {fetcher, rangeFetcher} = fea.fieldFetchers(scope, sourceName);
                 const feaPrefix = `_derived/${sourceName.replace(/^\/+/, "")}.fea/`;
+                // A query on a relative key (`withCacheBust`'s `?v=`) is a URL's, not part of the blob's
+                // name: it stays on `url` and is dropped from the key the blob is read by.
+                const keyOf = (rel: string) => rel.split("?")[0];
+                const queryOf = (rel: string) => (rel.includes("?") ? rel.slice(rel.indexOf("?") + 1) : "");
                 const sidecar: SidecarFetcher = {
-                    url: (rel) => capabilities.files.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),
+                    url: (rel) => {
+                        const url = capabilities.files.blobUrl(scope, feaPrefix + keyOf(rel).replace(/^\/+/, ""));
+                        const query = queryOf(rel);
+                        return query ? `${url}${url.includes("?") ? "&" : "?"}${query}` : url;
+                    },
                     json: async (rel) =>
-                        JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
+                        JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(keyOf(rel))))),
                     bytes: async (rel, range) =>
-                        range ? (await rangeFetcher(rel, range.start, range.end)).buf : fetcher(rel),
+                        range ? (await rangeFetcher(keyOf(rel), range.start, range.end)).buf : fetcher(keyOf(rel)),
                 };
                 void runResultSidecarLoaders({manifest, fetcher: sidecar, scope, sourceName});
             } catch (err) {
@@ -164,15 +204,15 @@ export async function loadFeaWithDefaults(load: LoadFeaStreaming, sourceName: st
         }
         // The field a fresh load opens on; null opens the mesh only. See
         // defaultResultField: displacement first, never a model property.
-        const field = defaultResultField(manifest.fields);
-        const reduction = field?.default_view?.reduction ?? "magnitude";
+        // (After preliminary manifests: what the user has open stays open.)
+        const open = opening(manifest);
         await load({
             sourceName,
             manifest,
-            fieldName: field ? field.name_canonical : null,
-            stepIndex: initialStepIndex(field),
-            reduction: field ? reduction : null,
-            displacementScale: 1,
+            fieldName: open.field ? open.field.name_canonical : null,
+            stepIndex: open.stepIndex,
+            reduction: open.reduction,
+            displacementScale: open.displacementScale,
             sliderFactor: 1,
             signal: controller.signal,
             onStage: (stage, progress) => {

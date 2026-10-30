@@ -1,6 +1,6 @@
 [workspace]
 channels = ["conda-forge"]
-platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
+platforms = ["win-64", "linux-64", "osx-arm64"]
 
 # ---------------------------------------------------------------------------
 # The local stack: the viewer, one worker and a queue, BUILT FROM THIS CHECKOUT.
@@ -363,10 +363,11 @@ test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=t
 # 0.30 for the compiled beam-to-beam clash pass and the member scan as JSONL
 # (adacpp#63, #64, #66, #67); 0.31 for the build against ifcopenshell 0.9 (adacpp#69);
 # 0.33 for the faster, memory-bounded native STEP/IFC->GLB and the IFC reader fix (adacpp#72);
-# 0.35 for `adacpp.fea.sin`, the native SIN reader and compare loops (adacpp#74).
+# 0.35 for `adacpp.fea.sin`, the native SIN reader and compare loops (adacpp#74);
+# 0.36 for `adacpp._render`, the WebGPU renderer every offscreen image is drawn with (adacpp#75).
 # KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer: the browser runs the
 # same release's wasm build of this same code.
-ada-cpp = "0.35.*"
+ada-cpp = "0.36.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -447,7 +448,8 @@ ada-cpp = "0.35.*"
 # the same release adds the multi-worker conversion. Same output, byte for byte, at one thread.
 # 0.35 (adacpp#74): `adacpp.fea.sin`, the SIN reader's per-record loops, compare statistics and shell
 # derived-field kernels; byte-identical to the numpy path, which stays for range-streamed sources.
-ada-cpp = "0.35.*"
+# 0.36 (adacpp#75): `adacpp._render`, the headless WebGPU renderer posters and thumbnails need.
+ada-cpp = "0.36.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -523,44 +525,16 @@ openpyxl = "*"
 [feature.prod.target.win-64.dependencies]
 python = "3.12.13.*"
 
-# Notebook / rendering / static-export deps. Held separate from `prod`
-# so the slim viewer-api / worker images don't ship the
-# pygfx→wgpu→imgui→libopencv→ffmpeg closure (~260 MiB).
+# Notebook / static-export deps. Held separate from `prod` so the slim viewer-api / worker
+# images don't ship the notebook stack. Offscreen rendering (posters, thumbnails) is adacpp's
+# own renderer (`adacpp._render`), which comes with ada-cpp.
 [feature.desktop.dependencies]
 notebook = "*"
 ipywidgets = "*"
 jupyterlab = "*"
 plotly = "*"
 python-kaleido = ">=1.0.0"
-pygfx = ">=0.16"
-# pygfx 0.16 needs wgpu ≥ 0.21 (no more `wgpu.gui.offscreen`) and
-# rendercanvas ≥ 2.0 for our offscreen path.
-wgpu-py = ">=0.31"
-rendercanvas = ">=2.6"
-glfw = "==3.4"
-pyglfw = "*"
 send2trash = "*"
-
-# LINUX ONLY, and deliberately so. `harfbuzz` and `libharfbuzz` ship the same
-# `lib/libharfbuzz.so.0`, so a solve taking them at different versions resolves the symlink by
-# conda's clobber rule rather than by intent: on linux/py314 it picked harfbuzz 14.2.1 beside
-# libharfbuzz 14.5.0, the older file won, and `uharfbuzz` -- built against 14.5 -- failed to
-# import with `undefined symbol: hb_paint_funcs_set_fill_glyph_func`, taking pygfx with it.
-# Nothing pinned the old one (librsvg asks only for >=14.2.0), so this gives the solver a reason
-# to prefer the matching pair.
-#
-# Scoped to linux because that is where the clobber happens -- but note it changes nothing on
-# win-64 either way: `libharfbuzz-devel` arrives there regardless, because `pango` and `librsvg`
-# require `harfbuzz` BY NAME and conda-forge turned that name into a metapackage whose only
-# dependency IS the devel package. Nothing here can ask for "runtime harfbuzz only"; `uharfbuzz`,
-# the one thing in the pygfx stack that actually links it, correctly asks for `libharfbuzz`.
-#
-# BOTH bounds, deliberately: `libharfbuzz` is what uharfbuzz links, and `harfbuzz` is what has to
-# move with it -- below 14.5 that package still ships its own `lib/libharfbuzz.so.0`, which is the
-# file that wins the clobber and breaks the pair.
-[feature.desktop.target.linux-64.dependencies]
-libharfbuzz = ">=14.5"
-harfbuzz = ">=14.5"
 
 [feature.prod.target.win-64.activation.env]
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"

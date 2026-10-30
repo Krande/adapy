@@ -180,7 +180,7 @@ class BackendGeom(Root):
 
     def show(
         self,
-        renderer: Literal["react", "pygfx", "trimesh"] = "react",
+        renderer: Literal["react", "trimesh"] = "react",
         host="localhost",
         ws_port=8765,
         server_exe: pathlib.Path = None,
@@ -200,9 +200,9 @@ class BackendGeom(Root):
         always_use_external_viewer=False,
     ):
         """
-        Show model using either react, pygfx or trimesh renderer and set up WebSocket connection
+        Show model using either the react or trimesh renderer and set up WebSocket connection
 
-        :param renderer: The renderer to use, can be 'react', 'pygfx' or 'trimesh'.
+        :param renderer: The renderer to use, 'react' or 'trimesh' ('pygfx' is removed and shows with 'react').
         :param host: The host to run the WebSocket server on.
         :param ws_port: The port for the WebSocket server.
         :param server_exe: Path to the WebSocket server executable.

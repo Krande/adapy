@@ -205,6 +205,12 @@ class SourceFetch:
     source_fetch_mode: str | None = None
     fetch_ms: int = 0
     fetch_bytes: int | None = None
+    # A ``.sin`` FEA bake decodes while the source downloads: the download (a
+    # byte_source.ProgressiveDownload, still running when fetch_source returns) fills
+    # its file in the background and the reader fetches any chunk it needs first.
+    # The handler reads ``progressive.path``; the job's teardown closes it (which
+    # cancels it if it is still running). Its fetch mode is "progressive".
+    progressive: object | None = None
 
 
 async def fetch_source(storage: Storage, scope: Scope, job: Job, src_path: pathlib.Path) -> SourceFetch:
@@ -236,7 +242,24 @@ async def fetch_source(storage: Storage, scope: Scope, job: Job, src_path: pathl
         sif_reduced = await _try_reduced_sif_source(storage, scope, job.source_key, job.step, src_path)
     elif src_suffix.lower() == ".sin" and job.target_format == "glb":
         sin_source_uri = await _try_sin_stream_uri(storage, scope, job.source_key)
-    if not sif_reduced and sin_source_uri is None:
+    progressive = None
+    if src_suffix.lower() == ".sin" and job.target_format == "fea_artefacts":
+        # Decode while it downloads (see SourceFetch.progressive). None -- a cache
+        # hit, a gzip-at-rest object -- falls through to the plain fetch below.
+        try:
+            from ada.fem.formats.sesam.results.byte_source import ProgressiveDownload
+
+            progressive = await source_cache.default_cache().open_progressive(
+                storage, scope, job.source_key, src_path, download_cls=ProgressiveDownload
+            )
+        except FileNotFoundError:
+            raise
+        except Exception:
+            logger.exception("worker: progressive download of %s failed to start; plain download", job.source_key)
+            progressive = None
+        if progressive is not None:
+            source_fetch_mode = "progressive"
+    if not sif_reduced and sin_source_uri is None and progressive is None:
         # Cross-job source cache: an audit sweep converts the same
         # source to many targets, and re-downloading a multi-hundred-
         # MB source per target costs 30-60 s each time. Falls back to
@@ -273,10 +296,11 @@ async def fetch_source(storage: Storage, scope: Scope, job: Job, src_path: pathl
     # otherwise read as a slow conversion.
     fetch_ms = round((time.monotonic() - fetch_t0) * 1000)
     try:
-        fetch_bytes = src_path.stat().st_size
+        fetch_bytes = progressive.size() if progressive is not None else src_path.stat().st_size
     except OSError:
         fetch_bytes = None
     return SourceFetch(
+        progressive=progressive,
         src_suffix=src_suffix,
         sif_reduced=sif_reduced,
         sin_source_uri=sin_source_uri,

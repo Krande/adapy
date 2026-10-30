@@ -349,6 +349,25 @@ class Storage:
             # backends word it differently.
             raise
 
+    async def delete_many(self, scope: Scope, keys: Sequence[str]) -> list[str]:
+        """Remove many objects in batched backend calls (S3 multi-object delete); returns the keys that
+        could not be deleted. A batch the backend refuses is retried key by key, so one bad key does not
+        fail its thousand neighbours and the caller learns exactly which ones remain."""
+        failed: list[str] = []
+        for start in range(0, len(keys), 1000):
+            batch = list(keys[start : start + 1000])
+            try:
+                await self._store.delete_async([self._full_key(scope, k) for k in batch])
+            except Exception:
+                for key in batch:
+                    try:
+                        await self._store.delete_async(self._full_key(scope, key))
+                    except Exception as exc:
+                        msg = str(exc).lower()
+                        if "not found" not in msg and "no such" not in msg:
+                            failed.append(key)
+        return failed
+
     async def get_bytes(self, scope: Scope, key: str) -> bytes:
         """Read an object and return its decompressed payload.
 

@@ -279,7 +279,7 @@ would:
 
 ```bash
 ada view model.ifc
-ada view model.ifc --renderer pygfx
+ada view model.ifc --renderer trimesh
 ada view deck.dat --from abaqus
 ada view run.SIN                                 # the results
 ada view run.SIN --super-element SEL12.IND1      # one superelement of the assembly
@@ -292,8 +292,7 @@ ada view run.rmed --from code_aster              # the mesh alone
     reads the mesh alone, without the results.
 
 `--renderer`
-:   One of `react` (default), `pygfx` or `trimesh`. Results are shown with
-    `react` or `pygfx`.
+:   `react` (default) or `trimesh`. Results are shown with `react`.
 
 `--host`
 :   Host to bind the viewer websocket to. Default `localhost`.
@@ -337,7 +336,7 @@ as `ada view` does.
     named fields, `--rtol` sets the relative difference above which a field
     counts as differing (default `1e-5`), `--max-rows` caps the table (default
     50, `0` for all), and `--no-show` stops after printing. `--renderer`
-    (`react` or `pygfx`), `--host` and `--ws-port` are as for `ada view`.
+    (`react`), `--host` and `--ws-port` are as for `ada view`.
 
 ```bash
 ada results stats run.SIN

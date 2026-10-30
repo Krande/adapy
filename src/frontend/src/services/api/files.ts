@@ -44,6 +44,17 @@ export const filesApi = {
     return body.files;
   },
 
+  /** Delete the scope's regenerable caches (converted formats, utility overlays, re-convert
+   * staging) in one request; sources and user-made content stay. Personal and project scopes
+   * for anyone with access, the shared scope for admins. */
+  async clearScopeTemp(scope: ScopeUrl): Promise<{ deleted: number; errors: string[] }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/temp`,
+      { method: "DELETE" },
+    );
+    return jsonOrThrow(r, "clearScopeTemp");
+  },
+
   /** Saved utility overlays (_overlays/<model>.<utility>.glb) for the scope. The utils
    * menu filters these by the loaded model so an overlay generated on one model only
    * shows when that model is loaded. */

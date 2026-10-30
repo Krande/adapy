@@ -37,12 +37,19 @@ MANIFEST_VERSION = 2
 #   5  GeniE dummy-mass beams as a ``dummy_mass`` role group, drawn on their
 #      eccentric axis and left out of the edge sidecars; the AFEP
 #      element-property sidecar and ``element_properties`` tables
+#   6  split manifest: the manifest is a compact index; each element field's
+#      ``element_labels`` / ``element_node_indices`` live in a content-addressed
+#      ``fea.detail.<sha16>.json`` (``fields[].detail.url``), the sets in
+#      ``fea.groups.json`` (``groups_url``), the node ids in
+#      ``fea.nodelabels.json`` (``mesh.node_labels_url``), and ``fea.stamp.json``
+#      carries the freshness stamps so a server never reads the manifest to
+#      decide whether to serve it (see manifest.split_manifest)
 #
 # The REST API compares this against ``bake_version`` in a cached manifest —
 # via its own pinned copy (EXPECTED_FEA_BAKE_VERSION in comms/rest/converter),
 # because the slim API container cannot import ada.fem. A test asserts the two
 # stay equal.
-FEA_BAKE_VERSION = 5
+FEA_BAKE_VERSION = 6
 
 
 # Element-field blob format (AFEL). Same fixed-header pattern as

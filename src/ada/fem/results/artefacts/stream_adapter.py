@@ -151,8 +151,16 @@ class FEAResultStreamAdapter:
     artefact code on top doesn't change.
     """
 
-    def __init__(self, result):
+    def __init__(self, result, *, load_results=None, on_close=None):
         self._result = result
+        # ``load_results``: the result's fields are not read yet (its mesh is). Called
+        # once, the first time anything needs a field -- so a bake writes and ships
+        # the mesh while the fields are still being decoded behind it, instead of
+        # after the whole file was read (see readers._make_sin_reader).
+        # ``on_close``: releases what ``load_results`` would have read from, when
+        # the bake stops before it ran.
+        self._load_results = load_results
+        self._on_close = on_close
         self._geom: MeshGeometry | None = None
         self._field_specs: list[FieldSpec] | None = None
         self._elem_field_specs: list[ElementFieldSpec] | None = None
@@ -197,6 +205,14 @@ class FEAResultStreamAdapter:
         extra = role_groups(result.mesh, self._elem_shown)
         if extra:
             self._groups = [*(self._groups or []), *extra]
+
+    def _loaded(self):
+        """The result with its fields read (reading them now, once, if they were deferred)."""
+        if self._load_results is not None:
+            load, self._load_results = self._load_results, None
+            self._on_close = None  # the load owns (and releases) what it reads from
+            load()
+        return self._result
 
     def _shown_elem(self, elem_id: int) -> int:
         """The number a person reads for element ``elem_id``."""
@@ -256,7 +272,7 @@ class FEAResultStreamAdapter:
         mat[~np.isin(mat, np.fromiter(materials_by_id.keys(), dtype=np.int64, count=len(materials_by_id)))] = 0
 
         thickness = np.full(ids.size, np.nan, dtype=np.float64)
-        for field in self._result.results or []:
+        for field in self._loaded().results or []:
             if getattr(field, "name", None) != THICKNESS_FIELD:
                 continue
             values = np.asarray(field.values, dtype=float)
@@ -345,7 +361,7 @@ class FEAResultStreamAdapter:
         if getattr(software, "value", software) != "sesam":
             return set()
 
-        results = self._result.results
+        results = self._loaded().results
         hidden: set[tuple[str, object | None]] = set()
         if any(
             getattr(getattr(field, "presentation", None), "group_path", ()) == ("Nodes", "DISPLACEMENT")
@@ -480,7 +496,7 @@ class FEAResultStreamAdapter:
         specs: list[FieldSpec] = []
 
         hidden_raw = self._sesam_superseded_raw_fields()
-        for name, results in self._result.get_results_grouped_by_field_value().items():
+        for name, results in self._loaded().get_results_grouped_by_field_value().items():
             if not results:
                 continue
             sorted_results = sorted(results, key=lambda r: r.step)
@@ -532,7 +548,7 @@ class FEAResultStreamAdapter:
                 f"not implemented via iter_field_steps; use iter_element_field_steps"
             )
 
-        results = self._result.get_results_grouped_by_field_value().get(field_name, [])
+        results = self._loaded().get_results_grouped_by_field_value().get(field_name, [])
         sorted_results = sorted(results, key=lambda r: r.step)
         for i, r in enumerate(sorted_results):
             arr = self._dense_nodal_values(r, np.asarray(r.get_all_values()), spec.n_points)
@@ -580,7 +596,7 @@ class FEAResultStreamAdapter:
 
         grouped: dict[tuple[str, str], list] = defaultdict(list)
         hidden_raw = self._sesam_superseded_raw_fields()
-        for r in self._result.results:
+        for r in self._loaded().results:
             if not isinstance(r, ElementFieldData):
                 continue
             if r.elem_type is None:
@@ -890,7 +906,10 @@ class FEAResultStreamAdapter:
         )
 
     def close(self) -> None:
-        pass
+        if self._on_close is not None:
+            on_close, self._on_close = self._on_close, None
+            self._load_results = None
+            on_close()
 
     def __enter__(self) -> "FEAResultStreamAdapter":
         return self

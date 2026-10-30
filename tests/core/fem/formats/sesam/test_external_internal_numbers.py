@@ -22,7 +22,6 @@ where mixing them up gives a wrong answer instead of an error.
 
 from __future__ import annotations
 
-import json
 import struct
 
 import numpy as np
@@ -30,6 +29,7 @@ import pytest
 
 from ada.fem.formats.sesam.results.read_sif import read_sif_file
 from ada.fem.formats.sesam.write.write_utils import write_ff
+from ada.fem.results.artefacts import read_manifest
 
 _FIXTURE = "sesam/2EL_SHELL_R1.SIF"
 
@@ -170,7 +170,7 @@ def test_bake_labels_are_external_numbers(decks, tmp_path):
     out = tmp_path / "bake"
     with SifStreamReader(other) as reader:
         bake_artefacts(reader, out, src="deck")
-    manifest = json.loads((out / "fea.manifest.json").read_text())
+    manifest = read_manifest(out)
 
     # Node labels in point order (GCOORD order = internal 1..n).
     assert manifest["mesh"]["node_labels"] == [nodes[n] for n in range(1, 7)]
@@ -207,7 +207,7 @@ def test_bake_element_values_follow_their_labels(decks, tmp_path):
         out = tmp_path / tag
         with SifStreamReader(path) as reader:
             bake_artefacts(reader, out, src="deck")
-        manifests[tag] = json.loads((out / "fea.manifest.json").read_text())
+        manifests[tag] = read_manifest(out)
         blobs[tag] = out
 
     def bucket_values(tag, field_name):

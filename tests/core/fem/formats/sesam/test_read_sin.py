@@ -544,8 +544,9 @@ def test_sin_bake_of_no_steps_is_the_geometry_only(tmp_path):
     assert not [name for name in read_cards if name.startswith("RV")]
     a, b = digests(whole), digests(geometry)
     assert b, "nothing baked"
-    # Everything the geometry bake wrote is the whole bake's, byte for byte, but the manifest.
-    assert [n for n in b if n != "fea.manifest.json" and a.get(n) != b[n]] == []
+    # Everything the geometry bake wrote is the whole bake's, byte for byte, but the
+    # manifest and its stamp (whose field count follows it).
+    assert [n for n in b if n not in ("fea.manifest.json", "fea.stamp.json") and a.get(n) != b[n]] == []
     manifest = json.loads((geometry / "fea.manifest.json").read_text(encoding="utf-8"))
     assert manifest["baked_steps"] == []
     assert manifest["fields"], "the property fields are part of the model"
@@ -674,7 +675,8 @@ def test_bake_artefacts_on_artefact_sink_ships_each_file(tmp_path):
         bake_artefacts(reader, sink_dir, src="cantilever", on_artefact=sink)
 
     assert shipped == ref, f"sink bytes differ: {[n for n in ref if ref[n] != shipped.get(n)]}"
-    assert order[-1] == "fea.manifest.json", f"manifest must be shipped last, got order {order}"
+    # The manifest after every file it names, then the stamp that vouches for it.
+    assert order[-2:] == ["fea.manifest.json", "fea.stamp.json"], f"manifest must be shipped last, got order {order}"
     # The sink deleted each file as it landed; nothing should remain.
     assert not [p for p in sink_dir.iterdir() if p.is_file()], "sink should have drained out_dir"
 

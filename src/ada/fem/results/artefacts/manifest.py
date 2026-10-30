@@ -406,6 +406,9 @@ def build_manifest(
     node_labels = getattr(mesh_geom, "node_labels", None)
     if node_labels is not None:
         mesh_meta["node_labels"] = [int(x) for x in node_labels]
+    element_instances = getattr(mesh_geom, "element_instances", None)
+    if element_instances:
+        mesh_meta["element_instances"] = list(element_instances)
     if mesh_edges_filename is not None:
         mesh_meta["edges_url"] = mesh_edges_filename
         mesh_meta["n_edges"] = int(n_edges)
@@ -601,3 +604,231 @@ def write_manifest(manifest: dict, out_path: os.PathLike) -> None:
     # every platform.
     with open(out_path, "w", encoding="utf-8", newline="") as f:
         json.dump(manifest, f, separators=MANIFEST_JSON_SEPARATORS)
+
+
+# ---------------------------------------------------------------------------
+# Split manifest (bake_version 6)
+# ---------------------------------------------------------------------------
+#
+# The inline manifest grows with the MODEL, not with what a viewer opens: every
+# element field carries its buckets' ``element_labels`` and
+# ``element_node_indices`` (one row per element, repeated for every field), the
+# node/element sets carry every member, and ``mesh.node_labels`` one id per
+# node. A large SIN model (~64k beams, 32 fields) baked a 148 MB manifest of
+# which 124 MB were those per-field tables, 17 MB the sets and 7 MB the node
+# ids -- and every open paid for all of it twice, once in the API (parse +
+# re-serialise, which OOM-killed a 1 GiB pod) and once in the browser
+# (JSON.parse of 148 MB before the first pixel).
+#
+# The bake now writes the manifest as a compact INDEX -- names, steps, units,
+# ranges, blob layouts, the IP layout the pickers read -- and moves the
+# per-model tables into sidecars the viewer fetches when it needs them:
+#
+# * ``fea.detail.<sha16>.json``: one element field's per-bucket
+#   ``element_labels`` / ``element_node_indices``, named by the hash of its
+#   bytes, so the fields that share a mesh (all of them, on a typical deck)
+#   share one file. The field's index entry says where: ``detail.url``.
+# * ``fea.groups.json``: the node/element sets (``groups_url``).
+# * ``fea.nodelabels.json``: the solver node ids (``mesh.node_labels_url``).
+# * ``fea.stamp.json``: the few bytes a server needs to decide whether the
+#   bake is current (``bake_version`` and friends), so it can answer that
+#   without reading the manifest at all. Written LAST, after the manifest: a
+#   stamp older than its manifest belongs to an earlier bake and is ignored.
+#
+# All four are JSON and stored gzip-at-rest like the manifest. A reader that
+# wants the old inline shape back (tests, offline tools) calls
+# :func:`read_manifest`.
+
+#: Version of the ``fea.detail.*.json`` payload shape.
+FIELD_DETAIL_VERSION = 1
+
+#: Sidecar names, relative to the bake directory like every other artefact URL.
+GROUPS_NAME = "fea.groups.json"
+NODE_LABELS_NAME = "fea.nodelabels.json"
+STAMP_NAME = "fea.stamp.json"
+FIELD_DETAIL_PREFIX = "fea.detail."
+
+#: The per-bucket keys that move out of the index into a field's detail sidecar.
+FIELD_DETAIL_KEYS = ("element_labels", "element_node_indices")
+
+
+def _dumps(obj) -> bytes:
+    return json.dumps(obj, separators=MANIFEST_JSON_SEPARATORS).encode("utf-8")
+
+
+def split_manifest(manifest: dict) -> tuple[dict, dict[str, bytes]]:
+    """The compact index of an inline ``manifest`` and its sidecars.
+
+    Returns ``(index, {filename: json bytes})``. ``manifest`` is not modified;
+    the index shares every untouched sub-object with it. A manifest that is
+    already split (no inline tables) comes back unchanged with no sidecars.
+    Field detail sidecars are content-addressed, so N fields over one mesh
+    produce one file, not N."""
+    sidecars: dict[str, bytes] = {}
+    index = _split_manifest(manifest, sidecars.setdefault)
+    return index, sidecars
+
+
+def _split_manifest(manifest: dict, put) -> dict:
+    """:func:`split_manifest` handing each sidecar to ``put(name, bytes)`` as it
+    is made, so a writer holds one sidecar at a time, not all of them. A
+    content-addressed name can come round more than once; ``put`` keeps the first."""
+    import hashlib
+
+    index = dict(manifest)
+    sidecars = _PutOnce(put)
+
+    fields_out = []
+    for field in manifest.get("fields") or []:
+        buckets = field.get("per_type") or []
+        if not any(any(k in b for k in FIELD_DETAIL_KEYS) for b in buckets):
+            fields_out.append(field)
+            continue
+        detail = {
+            "version": FIELD_DETAIL_VERSION,
+            "per_type": [
+                {"elem_type": b.get("elem_type"), **{k: b[k] for k in FIELD_DETAIL_KEYS if k in b}} for b in buckets
+            ],
+        }
+        payload = _dumps(detail)
+        name = f"{FIELD_DETAIL_PREFIX}{hashlib.sha256(payload).hexdigest()[:16]}.json"
+        sidecars(name, payload)
+        del payload
+        fields_out.append(
+            {
+                **field,
+                "per_type": [{k: v for k, v in b.items() if k not in FIELD_DETAIL_KEYS} for b in buckets],
+                "detail": {"url": name, "version": FIELD_DETAIL_VERSION},
+            }
+        )
+    if "fields" in manifest:
+        index["fields"] = fields_out
+
+    if manifest.get("groups"):
+        sidecars(GROUPS_NAME, _dumps(manifest["groups"]))
+        index.pop("groups")
+        index["groups_url"] = GROUPS_NAME
+        index["n_groups"] = len(manifest["groups"])
+
+    mesh = manifest.get("mesh")
+    if isinstance(mesh, dict) and mesh.get("node_labels") is not None:
+        sidecars(NODE_LABELS_NAME, _dumps(mesh["node_labels"]))
+        index["mesh"] = {k: v for k, v in mesh.items() if k != "node_labels"}
+        index["mesh"]["node_labels_url"] = NODE_LABELS_NAME
+
+    return index
+
+
+class _PutOnce:
+    """``put(name, payload)`` once per name."""
+
+    def __init__(self, put) -> None:
+        self._put = put
+        self._seen: set[str] = set()
+
+    def __call__(self, name: str, payload: bytes) -> None:
+        if name in self._seen:
+            return
+        self._seen.add(name)
+        self._put(name, payload)
+
+
+def manifest_stamp(manifest: dict) -> dict:
+    """The ``fea.stamp.json`` payload: what a server's freshness check reads.
+
+    Mirrors the manifest's own stamps -- the API's ``fea_manifest_stale_reason``
+    takes either -- so the check runs on a few bytes instead of the manifest."""
+    stamp = {
+        "bake_version": manifest.get("bake_version"),
+        "version": manifest.get("version"),
+        "src": manifest.get("src"),
+        "n_fields": len(manifest.get("fields") or []),
+    }
+    if manifest.get("source_sha256"):
+        stamp["source_sha256"] = manifest["source_sha256"]
+    return stamp
+
+
+def write_manifest_tree(manifest: dict, out_dir: os.PathLike, *, stamp_extra: dict | None = None) -> list[pathlib.Path]:
+    """Write ``manifest`` split (see :func:`split_manifest`) into ``out_dir``.
+
+    Returns the written paths in write order: the sidecars, then
+    ``fea.manifest.json``, then ``fea.stamp.json``. That order is the contract
+    an uploader keeps -- a reader that finds the manifest finds every file it
+    names, and a stamp is never older than the manifest it describes.
+
+    Called again on the same directory (a bake re-writing its preliminary
+    manifest as fields land), a sidecar already there with the same bytes is
+    neither re-written nor returned: it has been shipped. ``stamp_extra`` is
+    merged into the stamp."""
+    out_dir = pathlib.Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[pathlib.Path] = []
+
+    def put(name: str, payload: bytes) -> None:
+        path = out_dir / name
+        try:
+            if path.stat().st_size == len(payload) and path.read_bytes() == payload:
+                return
+        except OSError:
+            pass
+        path.write_bytes(payload)
+        written.append(path)
+
+    index = _split_manifest(manifest, put)
+    manifest_path = out_dir / "fea.manifest.json"
+    write_manifest(index, manifest_path)
+    written.append(manifest_path)
+    stamp_path = out_dir / STAMP_NAME
+    stamp_path.write_bytes(_dumps({**manifest_stamp(index), **(stamp_extra or {})}))
+    written.append(stamp_path)
+    return written
+
+
+def inline_manifest(index: dict, read_sidecar) -> dict:
+    """The inline manifest an index describes: :func:`split_manifest` undone.
+
+    ``read_sidecar(name) -> bytes`` reads one sidecar of the bake. An inline
+    (pre-split) manifest comes back as it is."""
+    manifest = dict(index)
+    details: dict[str, dict] = {}
+    fields_out = []
+    for field in index.get("fields") or []:
+        ref = field.get("detail")
+        if not ref:
+            fields_out.append(field)
+            continue
+        url = str(ref["url"])
+        if url not in details:
+            details[url] = json.loads(read_sidecar(url))
+        per_detail = details[url].get("per_type") or []
+        buckets = []
+        for i, b in enumerate(field.get("per_type") or []):
+            d = per_detail[i] if i < len(per_detail) else {}
+            buckets.append({**b, **{k: d[k] for k in FIELD_DETAIL_KEYS if k in d}})
+        fields_out.append({**{k: v for k, v in field.items() if k != "detail"}, "per_type": buckets})
+    if "fields" in index:
+        manifest["fields"] = fields_out
+    if index.get("groups_url"):
+        manifest["groups"] = json.loads(read_sidecar(str(index["groups_url"])))
+        manifest.pop("groups_url")
+        manifest.pop("n_groups", None)
+    mesh = index.get("mesh")
+    if isinstance(mesh, dict) and mesh.get("node_labels_url"):
+        manifest["mesh"] = {k: v for k, v in mesh.items() if k != "node_labels_url"}
+        manifest["mesh"]["node_labels"] = json.loads(read_sidecar(str(mesh["node_labels_url"])))
+    return manifest
+
+
+def read_manifest(path: os.PathLike, *, inline: bool = True) -> dict:
+    """Read a bake's ``fea.manifest.json`` (``path`` is the file or its directory).
+
+    ``inline`` (default): with the sidecars folded back in, i.e. the shape
+    :func:`build_manifest` returns, whichever layout the bake wrote."""
+    path = pathlib.Path(path)
+    if path.is_dir():
+        path = path / "fea.manifest.json"
+    index = json.loads(path.read_text(encoding="utf-8"))
+    if not inline:
+        return index
+    return inline_manifest(index, lambda name: (path.parent / name).read_bytes())

@@ -532,6 +532,10 @@ export interface FeaManifestProgress {
 export interface FeaManifestOptions {
   onProgress?: (info: FeaManifestProgress) => void;
   signal?: AbortSignal;
+  /** Mesh first: each preliminary manifest a running bake ships (the mesh, then
+   *  fields as they land), before the call resolves with the final one. A
+   *  transport without partial results never calls it. */
+  onPartial?: (manifest: FeaManifest, info: {jobId: string}) => void | Promise<void>;
 }
 
 export interface FeaCapability {

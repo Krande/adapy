@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 
 /**
  * Recursively free the GPU resources (geometries, materials, their textures) under
@@ -13,11 +14,13 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
  *
  * Only per-model resources are disposed: ``CustomBatchedMesh`` disposes its own cloned
  * materials (never the shared singletons), and a ``seen`` set makes shared materials within
- * the subtree dispose exactly once. Safe to call more than once.
+ * the subtree dispose exactly once. The GPU picker forgets the subtree's meshes too: its
+ * registrations held every unloaded model alive. Safe to call more than once.
  */
 export function disposeObject3D(root: THREE.Object3D | null | undefined): void {
     if (!root) return;
     const seenMat = new Set<THREE.Material>();
+    const batched = new Set<CustomBatchedMesh>();
 
     const disposeMaterial = (m: THREE.Material) => {
         if (seenMat.has(m)) return;
@@ -36,6 +39,7 @@ export function disposeObject3D(root: THREE.Object3D | null | undefined): void {
         // materials, overlay) — let it free them itself.
         if (obj instanceof CustomBatchedMesh) {
             obj.dispose();
+            batched.add(obj);
             return;
         }
         const mesh = obj as THREE.Mesh;
@@ -50,4 +54,5 @@ export function disposeObject3D(root: THREE.Object3D | null | undefined): void {
             disposeMaterial(mat);
         }
     });
+    gpuMeshPicker.unregisterMeshes(batched);
 }

@@ -12,8 +12,6 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {pickJointMarker} from "@/utils/scene/clashJointMarkers";
 import {pickContactPatch} from "@/utils/scene/clashContactOverlay";
 import {focusJoint} from "@/utils/scene/clashJointFocus";
-import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
-import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {pickResultLineSegment} from "@/utils/scene/fea/resultLineSegments";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
@@ -31,6 +29,7 @@ import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import type {FemConceptRef} from "@/utils/fem/femSelection";
 import {selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
+import {pickMeshAt, pickPointAt} from "@/viewport/picking";
 
 // A second click/tap inside this window + radius counts as a double.
 // 350ms matches the OS-level double-tap threshold on iOS / Android and
@@ -132,7 +131,7 @@ export function setupPointerHandler(
             // the second and chain double-taps.
             lastTapTime = 0;
             lastTapPos = null;
-            const point = pickWorldPoint(e, camera, scene, renderer);
+            const point = await pickWorldPoint(e, camera, scene, renderer);
             if (point) {
                 applyOrbitPoint(controls, point);
                 // Skip normal selection on the double-tap — the first
@@ -163,14 +162,14 @@ export function setupPointerHandler(
             if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
         }
         // A selection box in front of the geometry has its own menu.
-        const boxId = pickSelectionBox(e.clientX, e.clientY);
+        const boxId = await pickSelectionBox(e.clientX, e.clientY);
         if (boxId) {
             useBBoxSelectionStore.getState().openMenu({boxId, x: e.clientX, y: e.clientY});
             return;
         }
-        let pick: ReturnType<typeof gpuMeshPicker.pickAt> = null;
+        let pick: Awaited<ReturnType<typeof pickMeshAt>> = null;
         try {
-            pick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
+            pick = await pickMeshAt(e.clientX, e.clientY);
         } catch {
             pick = null;
         }
@@ -208,7 +207,7 @@ export function setupPointerHandler(
         //     or a deck could never be clicked through the box standing on it.
         const additive = isAdditiveClick(e) || useSelectedObjectStore.getState().additiveMode;
         const femPick = pickFemConcept(e, camera, renderer);
-        if (femPick && (!femPick.solid || femBoxInFront(e, femPick.distance, camera, renderer))) {
+        if (femPick && (!femPick.solid || (await femBoxInFront(e, femPick.distance, camera, renderer)))) {
             selectFemConcept(femPick.ref, additive, e);
             return;
         }
@@ -218,7 +217,7 @@ export function setupPointerHandler(
         // 1) Try GPU point picking first so points in front of meshes are prioritized
         if (useOptionsStore.getState().useGpuPointPicking) {
             try {
-                const pick = gpuPointPicker.pickAt(e.clientX, e.clientY);
+                const pick = await pickPointAt(e.clientX, e.clientY);
                 if (pick) {
                     const fakeIntersection: THREE.Intersection = {
                         object: pick.object,
@@ -253,7 +252,7 @@ export function setupPointerHandler(
         //     CustomBatchedMesh) meshes + empty-space clicks still work
         //     via the legacy path.
         try {
-            const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
+            const meshPick = await pickMeshAt(e.clientX, e.clientY);
             if (meshPick) {
                 if (meshPick.faceId !== undefined) {
                     // GPU FACE picking (gpuFacePicking): the pixel decoded straight to the source
@@ -429,15 +428,15 @@ function selectFemConcept(ref: FemConceptRef, additive: boolean, e: MouseEvent):
 }
 
 /** Is the equipment box hit at `boxDistance` in front of the geometry under the cursor? */
-function femBoxInFront(
+async function femBoxInFront(
     e: MouseEvent,
     boxDistance: number,
     camera: THREE.PerspectiveCamera,
     renderer: THREE.WebGLRenderer,
-): boolean {
-    let pick: ReturnType<typeof gpuMeshPicker.pickAt> = null;
+): Promise<boolean> {
+    let pick: Awaited<ReturnType<typeof pickMeshAt>> = null;
     try {
-        pick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
+        pick = await pickMeshAt(e.clientX, e.clientY);
     } catch {
         pick = null;
     }
@@ -660,14 +659,14 @@ function raycastPointOnMesh(
     }
 }
 
-function pickWorldPoint(
+async function pickWorldPoint(
     e: MouseEvent,
     camera: THREE.PerspectiveCamera,
     scene: THREE.Scene,
     renderer: THREE.WebGLRenderer,
-): THREE.Vector3 | null {
+): Promise<THREE.Vector3 | null> {
     try {
-        const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
+        const meshPick = await pickMeshAt(e.clientX, e.clientY);
         if (meshPick) return meshPick.worldPosition.clone();
     } catch {
         // GPU pick unavailable — CPU raycast below still works.

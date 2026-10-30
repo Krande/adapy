@@ -10,6 +10,10 @@ import {useMeStore} from "@/state/meStore";
 // false the UI hides rename/move/delete affordances entirely.
 export interface StorageMutations {
     canMutate: boolean;
+    /** Clearing the scope's temp files (regenerable caches): personal and project scopes for
+     * their members, any scope for admins -- the same split the endpoint enforces. */
+    canClearTemp: boolean;
+    clearTemp: () => Promise<{deleted: number; errors: string[]}>;
     deleteKey: (key: string) => Promise<{deleted: string[]; errors?: string[]}>;
     moveKeys: (keys: string[], folder: string) => Promise<MoveKeysResult>;
     renameKey: (oldKey: string, newKey: string) => Promise<MovedKeyEntry>;
@@ -28,10 +32,14 @@ export function useStorageMutations(): StorageMutations {
         const scopeUrl = scopeUrlPart(scope);
         const personal = scope?.kind === "user";
         const canMutate = personal || isAdmin;
+        const canClearTemp = personal || scope?.kind === "project" || isAdmin;
+        const clearTemp = () => viewerApi.clearScopeTemp(scopeUrl);
 
         if (personal) {
             return {
                 canMutate,
+                canClearTemp,
+                clearTemp,
                 deleteKey: (key) => viewerApi.deleteBlob(scopeUrl, key),
                 moveKeys: (keys, folder) => viewerApi.moveKeysToFolder(scopeUrl, keys, folder),
                 renameKey: (oldKey, newKey) => viewerApi.renameKey(scopeUrl, oldKey, newKey),
@@ -41,6 +49,8 @@ export function useStorageMutations(): StorageMutations {
         }
         return {
             canMutate,
+            canClearTemp,
+            clearTemp,
             deleteKey: (key) => viewerApi.adminDeleteBlob(scopeUrl, key),
             moveKeys: (keys, folder) => viewerApi.adminMoveKeysToFolder(scopeUrl, keys, folder),
             renameKey: (oldKey, newKey) => viewerApi.adminRenameKey(scopeUrl, oldKey, newKey),

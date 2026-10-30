@@ -3,6 +3,7 @@ import {usePerfStore, requestRender} from "@/state/perfStore";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
+import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 
 // Phase A perf-toggle panel. Each row is an opt-in A/B switch for one
 // rendering-cost lever. Defaults reproduce the pre-toggle behaviour so
@@ -32,6 +33,81 @@ const Row: React.FC<{
         </span>
     </label>
 );
+
+const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : `${n}`;
+
+/** Renderer backend switch + live state of the experimental adacpp WebGPU renderer. */
+const RendererBackendOptions: React.FC = () => {
+    const renderBackend = usePerfStore((s) => s.renderBackend);
+    const setRenderBackend = usePerfStore((s) => s.setRenderBackend);
+    const adacppFrustumCull = usePerfStore((s) => s.adacppFrustumCull);
+    const setAdacppFrustumCull = usePerfStore((s) => s.setAdacppFrustumCull);
+    const adacppConeCull = usePerfStore((s) => s.adacppConeCull);
+    const setAdacppConeCull = usePerfStore((s) => s.setAdacppConeCull);
+    const adacppOcclusionCull = usePerfStore((s) => s.adacppOcclusionCull);
+    const setAdacppOcclusionCull = usePerfStore((s) => s.setAdacppOcclusionCull);
+    const status = useAdacppRenderStatus();
+    const st = status.stats;
+
+    return (
+        <div className="space-y-1">
+            <div className="text-xs text-gray-300">Renderer</div>
+            <select
+                value={renderBackend}
+                onChange={(e) => {
+                    setRenderBackend(e.target.value as typeof renderBackend);
+                    requestRender();
+                }}
+                className="bg-gray-700 text-white text-xs rounded-sm px-2 py-1 w-full"
+            >
+                <option value="three">three.js (WebGL)</option>
+                <option value="adacpp-webgpu">adacpp WebGPU (experimental)</option>
+            </select>
+            {renderBackend === "adacpp-webgpu" && (
+                <div className="text-xs text-gray-400 space-y-1">
+                    {status.state === "starting" && <div>Starting WebGPU…</div>}
+                    {status.state === "failed" && (
+                        <div className="text-amber-300">Not available, three.js is drawing: {status.error}</div>
+                    )}
+                    {status.state === "active" && (
+                        <>
+                            <div>Adapter: <span className="font-mono">{status.adapter}</span></div>
+                            {st && (
+                                <div className="font-mono leading-tight">
+                                    clusters {fmt(st.clustersDrawn)} / {fmt(st.clustersTotal)}<br/>
+                                    triangles {fmt(st.trianglesDrawn)} / {fmt(st.trianglesTotal)}<br/>
+                                    {st.gpuCulled && <>occluded {fmt(st.clustersOccluded)} clusters (GPU culled)<br/></>}
+                                    draws {st.drawCalls} · cull {st.cullMs.toFixed(2)} ms · sync {(st.syncMs ?? 0).toFixed(2)} ms
+                                </div>
+                            )}
+                            <Row
+                                checked={adacppFrustumCull}
+                                onChange={() => { setAdacppFrustumCull(!adacppFrustumCull); requestRender(); }}
+                                title="Cluster frustum culling"
+                            />
+                            <Row
+                                checked={adacppConeCull}
+                                onChange={() => { setAdacppConeCull(!adacppConeCull); requestRender(); }}
+                                title="Cluster back-face cone culling"
+                                blurb="Single-sided materials only; double-sided shells are never cone-culled."
+                            />
+                            <Row
+                                checked={adacppOcclusionCull}
+                                onChange={() => { setAdacppOcclusionCull(!adacppOcclusionCull); requestRender(); }}
+                                title="Occlusion culling (GPU)"
+                                blurb="Skips clusters hidden behind others. Used on models of 2M+ triangles; smaller ones cull on the CPU."
+                            />
+                            <div>
+                                Not drawn by this renderer yet: section caps, transform gizmos, face
+                                highlight. Labels and icons draw on top of the model.
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
 
 const PerformanceOptions: React.FC = () => {
     const {
@@ -70,6 +146,10 @@ const PerformanceOptions: React.FC = () => {
                 />
                 <span>Show Stats (FPS / draw calls)</span>
             </label>
+
+            <hr className="border-gray-600 my-1"/>
+
+            <RendererBackendOptions/>
 
             <hr className="border-gray-600 my-1"/>
 

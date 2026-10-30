@@ -155,6 +155,31 @@ const StorageBrowser: React.FC = () => {
             refreshTimerRef.current = null;
         }, 600);
     };
+    // Clear temp files: one request; the server deletes the scope's regenerable caches (converted
+    // formats, utility overlays) natively. Loaded models keep their meshes; the next load
+    // reconverts.
+    const [clearingTemp, setClearingTemp] = useState(false);
+    const onClearTemp = async () => {
+        if (clearingTemp) return;
+        if (!window.confirm(
+            "Clear temp files in this scope?\n" +
+            "Converted view caches and utility overlays are removed; sources, folders and " +
+            "procedural models stay. Models are reconverted the next time they load.",
+        )) return;
+        setClearingTemp(true);
+        try {
+            const {deleted, errors} = await mutations.clearTemp();
+            window.alert(
+                `Cleared ${deleted} temp file${deleted === 1 ? "" : "s"}.` +
+                (errors.length ? `\n${errors.length} could not be removed:\n${errors.slice(0, 10).join("\n")}` : ""),
+            );
+        } catch (e) {
+            window.alert(`Clearing temp files failed: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+            setClearingTemp(false);
+            void request_list_of_files_from_server();
+        }
+    };
     // Cancel a pending spin-window callback if the panel unmounts
     // while we're still in the visible-busy hold.
     useEffect(() => () => {
@@ -315,6 +340,8 @@ const StorageBrowser: React.FC = () => {
                 setNewFolderAt={setNewFolderAt}
                 onRefresh={onRefresh}
                 refreshing={refreshing}
+                onClearTemp={mutations.canClearTemp ? () => void onClearTemp() : null}
+                clearingTemp={clearingTemp}
                 anyLoaded={anyLoaded}
                 bulkBusy={bulkBusy}
                 onHideAll={onHideAll}

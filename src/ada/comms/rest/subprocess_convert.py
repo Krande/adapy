@@ -254,6 +254,10 @@ def _read_rss_kb(pid: int) -> Optional[int]:
     return None
 
 
+#: ``run_isolated(mem_limit_bytes=...)`` default: the conversion ceiling (see _resolve_mem_limit_bytes).
+DEFAULT_MEM_LIMIT = object()
+
+
 def _resolve_mem_limit_bytes() -> Optional[int]:
     """RSS ceiling for the conversion child, or None to disable the watchdog.
 
@@ -263,7 +267,12 @@ def _resolve_mem_limit_bytes() -> Optional[int]:
     pod. The point: an out-of-memory conversion dies in isolation, the parent
     survives and acks the job as failed once, instead of taking down the pod and
     triggering an ~80 min redelivery loop."""
-    env = os.environ.get("ADA_CONVERT_MEM_LIMIT_MB", "").strip()
+    return _mem_limit_from_env("ADA_CONVERT_MEM_LIMIT_MB")
+
+
+def _mem_limit_from_env(var: str) -> Optional[int]:
+    """``var`` (MB; 0 or less disables) when set, else 85% of the container's cgroup memory limit."""
+    env = os.environ.get(var, "").strip()
     if env:
         try:
             mb = int(env)
@@ -436,6 +445,7 @@ async def run_isolated(
     timeout_s: Optional[float] = None,
     cancel_check: Optional[Callable[[], Awaitable[bool]]] = None,
     serve: Optional[ServeFn] = None,
+    mem_limit_bytes: Optional[int] | object = DEFAULT_MEM_LIMIT,
 ) -> IsolatedResult:
     """Fork, run ``fn(child)`` in the child, sample resource usage in the parent, and join with
     full rusage on exit -- killable on cancel, timeout and RSS.
@@ -460,6 +470,9 @@ async def run_isolated(
     grace, SIGKILL follows. ``cancel_check`` is polled every few seconds; True reaps the child the
     same way with a 5 s grace. The result carries ``signal_name`` "TIMEOUT" / "CANCELLED" / "OOM"
     when the watchdog did the killing, so the caller can tell those apart from a crash.
+
+    ``mem_limit_bytes``: the child's RSS ceiling; by default the conversion one
+    (``ADA_CONVERT_MEM_LIMIT_MB``, else 85% of the container's memory limit), None for none.
 
     ``label`` names the work in the watchdog's own error messages ("conversion ran out of
     memory ..."); ``child_name`` + ``crash_hint`` word the killed-by-signal message.
@@ -694,7 +707,10 @@ async def run_isolated(
     # RSS ceiling for the child (None = disabled). When it breaches we SIGKILL
     # immediately — unlike the timeout's graceful TERM-then-KILL — because the
     # alternative is the kernel OOM-killing the whole pod a moment later.
-    mem_limit_bytes: Optional[int] = _resolve_mem_limit_bytes()
+    # ``DEFAULT_MEM_LIMIT``: the conversion ceiling (ADA_CONVERT_MEM_LIMIT_MB / cgroup); a caller
+    # whose work has another budget passes its own (None disables the watchdog).
+    if mem_limit_bytes is DEFAULT_MEM_LIMIT:
+        mem_limit_bytes = _resolve_mem_limit_bytes()
     oomed = False
 
     try:

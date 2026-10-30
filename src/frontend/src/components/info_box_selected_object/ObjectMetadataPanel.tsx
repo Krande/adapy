@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {movedElementName} from "@/utils/scene/fea/elementInstances";
 import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
 import type {LinkResult} from '@/state/lineageStore';
 import {useViewerStores} from '@/state/AdaViewerContext';
@@ -11,7 +12,7 @@ import ProceduralSystemSection from './ProceduralSystemSection';
 import ProceduralEquipmentSection from './ProceduralEquipmentSection';
 import {capabilities} from '@/services/capabilities';
 import {fetchElementProps, type FeaElementProps} from '@/services/feaElementProps';
-import type {FeaManifest} from '@/services/viewerApi';
+import {elementNodes} from '@/services/fea/feaFieldDetail';
 import {useFeaAnimationStore} from '@/state/feaAnimationStore';
 import {elementLabelNumber} from '@/utils/scene/fea/elementValues';
 import {feaSourceScope} from '@/utils/scene/fea/streaming/session';
@@ -202,11 +203,23 @@ const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
         };
     }, [isElement, label, manifest, sourceName]);
 
-    const nodes = React.useMemo(() => (isElement && manifest && label !== null ? elementNodes(manifest, label) : null), [
-        isElement,
-        manifest,
-        label,
-    ]);
+    // Async: a split manifest (bake_version 6) keeps the element tables and the
+    // node ids in sidecars, fetched once per source on the first pick.
+    const [nodes, setNodes] = useState<{elemType: string; nodes: number[]} | null>(null);
+    React.useEffect(() => {
+        setNodes(null);
+        if (!isElement || !manifest || !sourceName || label === null) return;
+        let live = true;
+        const {fetcher, cacheKey} = capabilities.fea.fieldFetchers(feaSourceScope(sourceName), sourceName);
+        void elementNodes(manifest, label, fetcher, cacheKey)
+            .then((found) => {
+                if (live) setNodes(found);
+            })
+            .catch(() => undefined);
+        return () => {
+            live = false;
+        };
+    }, [isElement, label, manifest, sourceName]);
 
     if (!isElement || !manifest) return null;
     const tables = manifest.element_properties ?? {};
@@ -214,12 +227,14 @@ const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
     const section = props?.section ? tables.sections?.[String(props.section)] ?? null : null;
     const material = props?.material ? tables.materials?.[String(props.material)] ?? null : null;
     const thickness = props && Number.isFinite(props.thickness) ? props.thickness : null;
+    const instanceLabel = label !== null ? movedElementName(manifest, label) : null;
     return (
         <>
             <Row label="Element:">
                 {nodes?.elemType ?? '—'}
                 {typeName ? ` (${typeName})` : props?.eltype ? ` (type ${props.eltype})` : ''}
             </Row>
+            {instanceLabel && <Row label="Instance:">{instanceLabel}</Row>}
             {nodes && nodes.nodes.length > 0 && <Row label="Nodes:">{nodes.nodes.join(', ')}</Row>}
             {thickness !== null && <Row label="Thickness:">{fmtMm(thickness)}</Row>}
             {section && <SectionRows section={section} />}
@@ -227,24 +242,6 @@ const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
         </>
     );
 };
-
-/** The element's type bucket and its node numbers, from the first element field that lists it. */
-function elementNodes(manifest: FeaManifest, label: number): {elemType: string; nodes: number[]} | null {
-    const nodeLabels = manifest.mesh?.node_labels;
-    // Property fields first: every element of the model is in them, and they are few.
-    const fields = [...(manifest.fields ?? [])].sort(
-        (a, b) => Number(b.category === 'property') - Number(a.category === 'property'),
-    );
-    for (const field of fields) {
-        for (const bucket of field.per_type ?? []) {
-            const i = bucket.element_labels.indexOf(label);
-            if (i < 0) continue;
-            const idx = bucket.element_node_indices?.[i] ?? [];
-            return {elemType: bucket.elem_type, nodes: idx.map((n) => nodeLabels?.[n] ?? n)};
-        }
-    }
-    return null;
-}
 
 const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
     if (link.kind === 'fea') {
