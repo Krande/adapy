@@ -243,7 +243,8 @@ def test_step_major_bake_decodes_each_step_once_and_writes_the_same_bytes(tmp_pa
     assert step_major.decodes == {v: 1 for v in STEP_VALUES}  # once for all fields
     # One unit per step of every field at once.
     assert calls == [(1, 4, "step 1"), (2, 4, "step 2"), (3, 4, "step 5"), (4, 4, "step 9")]
-    assert shipped[-1] == "fea.manifest.json"
+    # The manifest after every file it names, its stamp after it (write_manifest_tree).
+    assert shipped[-2:] == ["fea.manifest.json", "fea.stamp.json"]
 
 
 def test_step_major_subset_bake(tmp_path):

@@ -94,6 +94,11 @@ class Job:
     # jobs leave this False so the worker keeps its safety-net
     # short-circuit on NATS redelivery.
     force_rebuild: bool = False
+    # How much of a running job's output is already in storage, for a client that
+    # can use it before the job ends. The FEA bake sets ``{"mesh_ready": bool,
+    # "fields_ready": int, "fields_total": int | None, "complete": bool}`` as its
+    # uploader lands the preliminary manifests (formats/fea.py). None: nothing to say.
+    artefacts_ready: dict | None = None
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")

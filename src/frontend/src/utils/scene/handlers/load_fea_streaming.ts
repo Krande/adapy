@@ -32,6 +32,7 @@ import {
 } from "../fea/modeSceneColor";
 import type {FeaSessionHandle} from "@/state/modelSession";
 import {feaSession as session, feaSourceScope} from "../fea/streaming/session";
+import {registerManifestStores} from "../fea/streaming/manifestStores";
 import {openFeaSession} from "../fea/streaming/sessionSetup";
 import {linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
 import {syncResultSession} from "../fea/streaming/legendSync";
@@ -102,6 +103,33 @@ function requestStep(step: number, run: (step: number) => Promise<void>): Promis
 /** Load the mesh GLB, fetch the chosen field's blob, and apply the
  * (component, step) selection. Subsequent calls for the same source
  * + field skip the network and just swap the step. */
+/** The beam-solid mesh of `manifest`, when the bake shipped one, attached to the
+ *  session's result mesh with its warp mapping. Optional -- only manifests baked
+ *  from SIF/SIN sources with section info carry it. Attached as a child of the
+ *  main mesh so it inherits the FEA root parent and gets disposed alongside the
+ *  main mesh on scene swap. Visibility is driven by ``beamSolidsVisible`` in
+ *  feaAnimationStore. */
+async function attachBeamSolids(
+    active: FeaSessionHandle,
+    fetcher: Parameters<typeof tryLoadBeamSolids>[0],
+    sourceName: string,
+    manifest: Parameters<typeof tryLoadBeamSolids>[2],
+): Promise<void> {
+    const beamSolidsVisible = useFeaAnimationStore.getState().beamSolidsVisible;
+    const beamSolid = await tryLoadBeamSolids(fetcher, sourceName, manifest, beamSolidsVisible, active.basePositions);
+    if (!beamSolid) return;
+    active.mesh.add(beamSolid.mesh);
+    active.beamSolidMesh = beamSolid.mesh;
+    active.beamSolidBasePositions = beamSolid.basePositions;
+    // The compact artefact expands into its own warp triple -- same (node0, node1,
+    // t) AFBV carried, computed from the frames and the node positions instead of
+    // shipped per vertex. Only a manifest that still points at the GLB has a
+    // sidecar to fetch. (No element-edge wireframe over the beam solids: a beam's
+    // mesh line is its element line, which the main mesh's edge sidecar has.)
+    const warp = beamSolid.warp ?? await fetchBeamSolidWarpSidecar(fetcher, manifest, beamSolid.basePositions);
+    if (warp) active.beamSolidWarp = warp;
+}
+
 export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<void> {
     // The mesh, field and sidecar blobs are read from a bake, which only a
     // transport that serves FEA manifests and their files can do (REST, or the
@@ -165,7 +193,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // mesh; switching source forces a reload.
     let active: FeaSessionHandle | null = session.active;
     if (!active || active.sourceName !== sourceName) {
-        active = await openFeaSession({fetcher, sourceName, manifest, stage, throwIfAborted});
+        active = await openFeaSession({fetcher, sourceName, manifest, stage, throwIfAborted, cacheKey});
         active.scope = scope;
         const mesh = active.mesh;
 
@@ -182,40 +210,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         // default false so the existing line-only render stays the
         // default and a fresh bake doesn't surprise users with the
         // new solid mesh.
-        const beamSolidsVisible = useFeaAnimationStore.getState().beamSolidsVisible;
-        const beamSolid = await tryLoadBeamSolids(
-            fetcher, sourceName, manifest, beamSolidsVisible, active.basePositions,
-        );
-        if (beamSolid) {
-            mesh.add(beamSolid.mesh);
-            active.beamSolidMesh = beamSolid.mesh;
-            active.beamSolidBasePositions = beamSolid.basePositions;
-
-            // No element-edge wireframe over the beam solids.
-            //
-            // There used to be one, drawn from the AFEG sidecar: the perimeter of
-            // each extruded section plus the seams between adjacent beam
-            // elements. It is the wrong thing to call a mesh line. A beam element
-            // IS a line — two nodes and the span between them — and its mesh line
-            // should be that line whether or not the section is drawn around it.
-            // Outlining the extrusion instead put a rectangle round every section
-            // end and read as mesh that the model does not have.
-            //
-            // Nothing replaces it, because nothing needs to: the main mesh's edge
-            // sidecar already carries one edge per line element (see
-            // get_mesh_topology — "Line elements contribute edges but no
-            // triangles"), so beams keep exactly the mesh line they have with the
-            // sections switched off. The bake still writes beam_solids_edges_url;
-            // it is simply no longer consumed.
-
-            // The compact artefact expands into its own warp triple — same
-            // (node0, node1, t) AFBV carried, computed from the frames and
-            // the node positions instead of shipped per vertex. Only a
-            // manifest that still points at the GLB has a sidecar to fetch.
-            const warp = beamSolid.warp
-                ?? await fetchBeamSolidWarpSidecar(fetcher, manifest, beamSolid.basePositions);
-            if (warp) active.beamSolidWarp = warp;
-        }
+        await attachBeamSolids(active, fetcher, sourceName, manifest);
 
         // Element-edge wireframe overlays, from the bake's edge sidecar. The
         // index is kept on the session so the undeformed reference wireframe can
@@ -227,6 +222,18 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         // default: they are not structure). The manifest's sets were registered by
         // openFeaSession above; the beam solids they hide are only now in the scene.
         applyDummyMassVisibility(null);
+    } else if (active.manifest !== manifest) {
+        // Mesh first: a running bake's preliminary manifest opened this session, and
+        // this is a later one (more fields, or the final). The mesh is the same
+        // file; what a later manifest can add is the beam solids (built after the
+        // mesh) and what it feeds the stores (the sets, lineage, concepts).
+        const previous = active.manifest;
+        active.manifest = manifest;
+        if (previous.preliminary) {
+            if (!active.beamSolidMesh) await attachBeamSolids(active, fetcher, sourceName, manifest);
+            await registerManifestStores({manifest, sourceName, feaRoot: active.mesh, fetcher, cacheKey});
+            applyDummyMassVisibility(null);
+        }
     }
 
     stage("loading field data", 0.55);

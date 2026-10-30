@@ -4,6 +4,7 @@ guards, cached-blob short-circuit, source download, conversion settings, progres
 
 from __future__ import annotations
 
+import asyncio
 import os
 import pathlib
 import tempfile
@@ -118,10 +119,18 @@ async def _process_one(
     # cached preview would short-circuit every re-infer and the bbox would never be
     # (re)applied — leaving it stuck at the archetype default.
     handler = resolve(job)
+    # A handler whose derived blob can exist without being finished (the FEA bake
+    # ships a preliminary manifest at the derived key while it runs) says itself
+    # whether it is cached.
+    is_cached = getattr(handler, "is_cached", None)
     if (
         not getattr(job, "force_rebuild", False)
         and not handler.skip_cached_short_circuit
-        and await storage.exists(scope, job.derived_key)
+        and (
+            await is_cached(storage, scope, job)
+            if is_cached is not None
+            else await storage.exists(scope, job.derived_key)
+        )
     ):
         await queue.update(
             job_id,
@@ -182,6 +191,14 @@ async def _process_one(
         ctx.src_path = src_path
         await handler.run(job, ctx)
     finally:
+        progressive = getattr(ctx.fetch, "progressive", None)
+        if progressive is not None:
+            # Stops a download the job no longer needs (a failed or cancelled bake);
+            # a completed one has already made its cache entry valid.
+            try:
+                await asyncio.to_thread(progressive.close)
+            except Exception:
+                logger.exception("worker: closing the progressive download for job %s failed", job_id)
         try:
             src_path.unlink()
         except OSError:

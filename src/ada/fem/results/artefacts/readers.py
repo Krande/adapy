@@ -160,9 +160,15 @@ def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None, s
 
         return SinStreamReader(open_sin(str(path), super_element=super_element), steps=steps)
 
-    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+    # Read in two halves (read_sin_file_deferred): the mesh, sets and case names
+    # now, the fields when the bake first asks for one -- after it has written and
+    # shipped the mesh artefacts, so a viewer can show the model while the fields,
+    # nearly all of the file's bytes, are still being read. Same result as
+    # read_sin_file, which this used to call.
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file_deferred
 
-    return FEAResultStreamAdapter(read_sin_file(path, super_element=super_element, field_cache=field_cache))
+    result, load, close = read_sin_file_deferred(path, super_element=super_element, field_cache=field_cache)
+    return FEAResultStreamAdapter(result, load_results=load, on_close=close)
 
 
 def _sin_lazy_base_steps(path: pathlib.Path) -> "list[int] | None":

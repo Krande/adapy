@@ -4,13 +4,12 @@ lazy base bake (stored cases only)."""
 
 from __future__ import annotations
 
-import json
 import pathlib
 from dataclasses import dataclass
 
 import pytest
 
-from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+from ada.fem.results.artefacts import bake_fea_artefacts_from_source, read_manifest
 
 from .synthetic_sin import SyntheticDeck, build_fixture_deck, build_synthetic_deck
 
@@ -38,8 +37,8 @@ def _bake(deck: SyntheticDeck, root: pathlib.Path) -> BakedDeck:
         deck=deck,
         eager_dir=root / "eager",
         base_dir=root / "base",
-        eager=json.loads(eager.manifest_path.read_text(encoding="utf-8")),
-        base=json.loads(base.manifest_path.read_text(encoding="utf-8")),
+        eager=read_manifest(eager.manifest_path),
+        base=read_manifest(base.manifest_path),
     )
 
 
