@@ -49,7 +49,9 @@ from .asset_exports import (
     update_asset_export_item,
 )
 from .asset_sweeps import (
+    add_asset_sweep_run_warnings,
     asset_sweep_item_status,
+    merge_asset_sweep_run_summary,
     cancel_asset_sweep_run,
     clear_asset_sweep_skip,
     finish_asset_sweep_run,
@@ -340,6 +342,8 @@ __all__ = [
     "set_asset_sweep_item_run",
     "asset_sweep_item_status",
     "resume_asset_sweep_run",
+    "add_asset_sweep_run_warnings",
+    "merge_asset_sweep_run_summary",
     "get_asset_apply_cursor",
     "set_asset_apply_cursor",
     "list_asset_apply_cursors",

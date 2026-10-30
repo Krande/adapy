@@ -1,4 +1,4 @@
-import type {ScheduleChoice} from "@/services/api/assetSchedules";
+import type {ScheduleChoice, ScheduleSetting} from "@/services/api/assetSchedules";
 
 // A schedule setting's choices carry their DECLARED type: an enum of strings, of numbers, or a
 // `bool` setting's `[false, true]`. An HTML <option> value is always text, so the select keys each
@@ -50,6 +50,14 @@ export function valueOfKey(key: string, choices: ScheduleChoice[]): unknown {
 export function choiceLabel(value: unknown, choices: ScheduleChoice[] | undefined): string {
     const hit = (choices ?? []).find((c) => sameChoice(value, c.value));
     return hit ? hit.label : String(value);
+}
+
+/** The label of a single-choice setting's EMPTY option: what leaving it unset means. A provider's
+ *  setting falls to the provider's default; core's own (`core`, e.g. `missing_full_export`) to core's
+ *  declared default, named. */
+export function emptyChoiceLabel(setting: ScheduleSetting, choices: ScheduleChoice[] | undefined): string {
+    if (setting.core && setting.default != null) return `(default: ${choiceLabel(setting.default, choices ?? setting.choices)})`;
+    return "(provider default)";
 }
 
 // A MULTIPLE setting (`"multiple": true`, an enum with choices) holds a LIST of its choices and is

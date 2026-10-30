@@ -39,6 +39,10 @@ def _run_row(r) -> dict:
         "error": r["error"],
         # A pending "skip current" (migration 038): the position the driver has not acted on yet.
         "skip_position": r["skip_position"],
+        # Run-level notes and facts (migration 047): an apply-changes run's skipped collections and
+        # the full-export run it queued; a follow-up run's link back.
+        "warnings": _loads(r["warnings"]) or [],
+        "summary": _loads(r["summary"]) or {},
     }
 
 
@@ -60,7 +64,7 @@ def _item_row(r) -> dict:
 
 _RUN_COLS = (
     "id, scope, provider, plugin_id, job, settings, schedule_id, requested_by, requested_via, status, total, "
-    "created_at, heartbeat_at, finished_at, error, skip_position, "
+    "created_at, heartbeat_at, finished_at, error, skip_position, warnings, summary, "
     f"(heartbeat_at < NOW() - INTERVAL '{HEARTBEAT_STALE_S} seconds') AS stale"
 )
 _ITEM_COLS = (
@@ -82,16 +86,18 @@ async def insert_asset_sweep_run(
     requested_via: str,
     schedule_id: Optional[str] = None,
     excluded: frozenset[str] = frozenset(),
+    summary: Optional[dict] = None,
 ) -> dict:
     """The run and its items in one transaction: a sweep is listed whole or not at all. Items for
     ``excluded`` collections start ``excluded`` instead of ``pending``: not run unless someone
-    ticks them back on while the sweep has not reached them."""
+    ticks them back on while the sweep has not reached them. ``summary`` seeds the run's facts
+    (a follow-up run's ``apply_changes_run_id``)."""
     async with pool.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
             f"""
             INSERT INTO asset_sweep_runs
-                (scope, provider, plugin_id, job, settings, schedule_id, requested_by, requested_via, total)
-            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+                (scope, provider, plugin_id, job, settings, schedule_id, requested_by, requested_via, total, summary)
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb)
             RETURNING {_RUN_COLS}
             """,
             scope,
@@ -103,6 +109,7 @@ async def insert_asset_sweep_run(
             requested_by,
             requested_via,
             len(collections),
+            json.dumps(summary or {}),
         )
         await conn.executemany(
             "INSERT INTO asset_sweep_items (run_id, position, collection, status, message) VALUES ($1, $2, $3, $4, $5)",
@@ -209,6 +216,29 @@ async def finish_asset_sweep_run(pool: asyncpg.Pool, run_id: str, *, status: str
         run_id,
         status,
         error,
+    )
+
+
+async def add_asset_sweep_run_warnings(pool: asyncpg.Pool, run_id: str, warnings: list[str]) -> None:
+    """Append ``warnings`` to the run's list (a sentence already there is not added twice)."""
+    if not warnings:
+        return
+    await pool.execute(
+        """
+        UPDATE asset_sweep_runs SET warnings = warnings || (
+            SELECT COALESCE(jsonb_agg(w), '[]'::jsonb) FROM jsonb_array_elements($2::jsonb) w
+            WHERE NOT asset_sweep_runs.warnings @> jsonb_build_array(w)
+        ) WHERE id = $1
+        """,
+        run_id,
+        json.dumps(list(dict.fromkeys(warnings))),
+    )
+
+
+async def merge_asset_sweep_run_summary(pool: asyncpg.Pool, run_id: str, summary: dict) -> None:
+    """Merge ``summary``'s keys into the run's (a key given replaces the stored one)."""
+    await pool.execute(
+        "UPDATE asset_sweep_runs SET summary = summary || $2::jsonb WHERE id = $1", run_id, json.dumps(summary)
     )
 
 

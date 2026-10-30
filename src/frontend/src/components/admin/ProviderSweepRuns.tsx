@@ -6,7 +6,15 @@ import {sweepSkipTarget, trackSweep, untrackSweep} from "@/services/sweepTrackin
 import {useRunFocusStore} from "@/state/runFocusStore";
 import {useConversionStore} from "@/state/conversionStore";
 
-import {applyChangesOf, countsLine} from "./applyChangesItem";
+import {
+    NO_FULL_EXPORT,
+    applyChangesOf,
+    countsLine,
+    queuedByApplyRunOf,
+    queuedFullExportOf,
+    runWarningsOf,
+    sweepCountsText,
+} from "./applyChangesItem";
 
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
 // what every phase of each took. See `routes/asset_sweeps.py`.
@@ -70,18 +78,47 @@ const STATUS_TONE: Record<string, string> = {
     running: "text-blue-300",
     cancelled: "text-gray-400",
     interrupted: "text-amber-300",
+    [NO_FULL_EXPORT]: "text-amber-300",
 };
 
-function countsText(run: SweepRun): string {
-    const c = run.counts ?? {};
-    const finished = (c.done ?? 0) + (c.unchanged ?? 0) + (c.nothing ?? 0) + (c.error ?? 0) + (c.skipped ?? 0);
-    // Out of the collections that will run: ticked-off ones are not "left to do".
-    const parts = [`${finished}/${run.total - (c.excluded ?? 0)}`];
-    if (c.error) parts.push(`${c.error} failed`);
-    if (c.excluded) parts.push(`${c.excluded} not run`);
-    if (c.unchanged) parts.push(`${c.unchanged} unchanged`);
-    return parts.join(" · ");
-}
+const countsText = sweepCountsText;
+
+/** An apply-changes run's run-level notes and its link to the full export it queued -- or, on that
+ *  queued export, the link back. `onOpen` opens a linked run. */
+export const RunNotes: React.FC<{run: SweepRun; onOpen: (id: string) => void}> = ({run, onOpen}) => {
+    const warnings = runWarningsOf(run);
+    const queued = queuedFullExportOf(run);
+    const queuedBy = queuedByApplyRunOf(run);
+    if (!warnings.length && !queued && !queuedBy) return null;
+    const link = "underline decoration-dotted hover:text-white";
+    return (
+        <div className="space-y-0.5" data-testid="sweep-run-notes">
+            {warnings.length > 0 && (
+                <ul className="text-amber-300" data-testid="sweep-run-warnings">
+                    {warnings.map((w) => (
+                        <li key={w}>⚠ {w}</li>
+                    ))}
+                </ul>
+            )}
+            {queued && (
+                <div className="text-blue-300" data-testid="sweep-run-follow-up">
+                    Full project export queued for {queued.collections.join(", ") || "the collections left out"}:{" "}
+                    <button type="button" className={link} onClick={() => onOpen(queued.runId)}>
+                        open that run
+                    </button>
+                </div>
+            )}
+            {queuedBy && (
+                <div className="text-gray-400" data-testid="sweep-run-queued-by">
+                    Queued by an apply-changes run for collections without a full export:{" "}
+                    <button type="button" className={link} onClick={() => onOpen(queuedBy)}>
+                        open that run
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
 
 /** Whether an item's "run" box can still be changed: the sweep is running and has not reached it. */
 export function canToggleRun(run: SweepRun, item: SweepItem): boolean {
@@ -123,8 +160,8 @@ const ApplyChangesResult: React.FC<{item: SweepItem}> = ({item}) => {
             {a.roles.length > 0 && (
                 <ul>
                     {a.roles.map((r) => (
-                        <li key={r.role} className={r.applied ? "text-emerald-300" : "text-amber-300"}>
-                            {r.role}: {r.applied ? "applied" : "refused"}
+                        <li key={r.role} className={r.applied ? "text-emerald-300" : r.status === "failed" ? "text-red-300" : "text-amber-300"}>
+                            {r.role}: {r.status}
                             {r.warning && <span className="text-gray-400"> — {r.warning}</span>}
                         </li>
                     ))}
@@ -179,7 +216,17 @@ const SweepItems: React.FC<{
                             </td>
                             <td className="px-1.5 py-1 font-mono">{i.collection}</td>
                             <td className={`px-1.5 py-1 ${STATUS_TONE[i.status] ?? ""}`}>
-                                {i.status}
+                                {i.status === NO_FULL_EXPORT ? (
+                                    <span
+                                        className="px-1 rounded-sm border border-amber-600 text-amber-300 text-[10px] uppercase tracking-wide"
+                                        title={i.message ?? "This collection has not had a full project export yet; it was not asked for changes"}
+                                        data-testid="no-full-export-badge"
+                                    >
+                                        no full export
+                                    </span>
+                                ) : (
+                                    i.status
+                                )}
                                 {i.timings.login?.mode && <span className="text-gray-500"> ({i.timings.login.mode})</span>}
                                 {run.skip_position === i.position && <span className="text-amber-300"> skipping…</span>}
                                 {skipAt === i.position && (
@@ -208,6 +255,8 @@ const SweepItems: React.FC<{
                                     </span>
                                 ) : i.error ? (
                                     <span className="text-red-300 break-words">{i.error}</span>
+                                ) : i.status === NO_FULL_EXPORT ? (
+                                    <span className="text-amber-300 break-words">{i.message}</span>
                                 ) : (
                                     <span className="text-gray-400 break-words">
                                         {i.revision ?? ""}
@@ -433,7 +482,12 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
                                           .map(([k, v]) => `${k}=${String(v)}`)
                                           .join(", ")}`
                                     : ""}{" "}
-                                · {r.scope} · {r.requested_via === "schedule" ? "scheduled" : (r.requested_by ?? "user")}
+                                · {r.scope} ·{" "}
+                                {r.requested_via === "schedule"
+                                    ? "scheduled"
+                                    : r.requested_via === "apply-changes"
+                                      ? "queued by apply-changes"
+                                      : (r.requested_by ?? "user")}
                             </span>
                             {r.finished_at && r.created_at && (
                                 <span className="text-gray-500">
@@ -488,6 +542,16 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
                             )}
                             {r.error && <span className="text-red-300">{r.error}</span>}
                         </div>
+                        {/* At the top of the run: what it left out and the export it queued. */}
+                        <RunNotes
+                            run={open?.id === r.id ? open : r}
+                            onOpen={(id) =>
+                                // Re-list first: a follow-up queued a moment ago may not be listed yet.
+                                void load()
+                                    .then(() => openRun(id))
+                                    .then(() => rowRefs.current.get(id)?.scrollIntoView({block: "center", behavior: "smooth"}))
+                            }
+                        />
                         {open?.id === r.id && (
                             <SweepItems
                                 run={open}

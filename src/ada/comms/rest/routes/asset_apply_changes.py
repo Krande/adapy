@@ -30,11 +30,22 @@ PER COLLECTION, CORE OWNS THE CURSOR (``asset_apply_cursors``, migration 046):
    outcome in the publish summary's ``patches``;
 5. then -- and only if every step succeeded and no patch FAILED -- store ``next_cursor``.
 
-A baseline (``since`` null) or a ``nothing`` answer advances the cursor with no publish. A patch
-REFUSED for want of a baseline set is a warning, not a failure: it can never apply until a full
-export builds the set, and that export carries the change anyway. Anything else that goes wrong
+A baseline (``since`` null) or a ``nothing`` answer advances the cursor with no publish. A bounds
+or relations patch REFUSED for want of a baseline set is a warning, not a failure: it can never
+apply until a full export builds the set, and that export carries the change anyway. Anything else that goes wrong
 leaves the cursor where it was and the item ``error``: the next run asks the same question again,
 which is safe because every patch is an idempotent upsert or delete.
+
+NO FULL EXPORT, NO APPLY. Applying changes presumes the collection is already in the store. Before
+step 1, core checks that the provider store holds a complete revision of the collection's INDEX
+subject published by this provider (:func:`has_full_export`, one listing per run). A collection
+without one is never sent to the provider and gets no cursor: its item ends ``no_full_export``
+("<collection> has not had a full project export yet") and the run's ``warnings`` name it. The same
+happens -- and the cursor stays -- when the provider itself answers that it found no index, or core
+refuses the tree or index patch for want of one. Core's own setting ``missing_full_export`` (every
+apply-changes entry carries it; never sent to the provider) chooses ``warn`` (the default) or
+``export``: when the run has finished, start the provider's full export of exactly those
+collections (:func:`after_apply_run`), the two runs linked through their ``summary``.
 
 WHAT AN ITEM RECORDS. The sweep tables have one free JSON column per item, ``timings``; beside the
 phases (``queued_ms``, ``fetch_ms``, ``publish_ms``, ``total_ms``, the provider's own ``provider``
@@ -48,13 +59,17 @@ NO SCOPE, ADMIN ONLY: as every provider job (``routes/provider_store.py``).
 
 from __future__ import annotations
 
+import asyncio
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ada.assets.keys import ASSET_PREFIX, STAGING_SEGMENT
+from ada.assets.manifest import MANIFEST_FILENAME
 from ada.config import logger
 
 from .. import db as db_module
@@ -62,7 +77,15 @@ from ..db.attribute_index import ATTRIBUTE_INDEX_PATCH_ROLE, ATTRIBUTE_INDEX_ROL
 from ..db.node_bounds import NODE_BOUNDS_PATCH_ROLE, NODE_BOUNDS_ROLE
 from ..db.node_relations import NODE_RELATIONS_PATCH_ROLE, NODE_RELATIONS_ROLE
 from ..run_driver import ItemSkipped, RunCancelled, json_of, ms
-from .asset_schedules import APPLY_TARGETS, build_options, entry_settings, job_keys
+from .asset_schedules import (
+    APPLY_TARGETS,
+    MISSING_FULL_EXPORT,
+    MISSING_FULL_EXPORT_EXPORT,
+    MISSING_FULL_EXPORT_WARN,
+    build_options,
+    entry_settings,
+    job_keys,
+)
 from .assets import staged_by_role, submit_asset_publish
 from .deps import require_pool
 from .plugin_jobs import enqueue_plugin_job
@@ -77,6 +100,101 @@ PATCH_ROLES = ("hierarchy-patch.json", ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_P
 CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, *PATCH_ROLES})
 #: The element counts an answer reports (each at its own level, never its level or SITE).
 COUNT_KEYS = ("changed", "inserted", "deleted", "unplaceable")
+#: The item status of a collection left out because the store holds no full export of it.
+NO_FULL_EXPORT = "no_full_export"
+#: Patch roles whose refusal means the collection has no full export at all (no index, no tree):
+#: the cursor must not move past changes nothing could hold. A refused bounds or relations patch
+#: only means that one set was never exported -- a warning, and the cursor moves.
+INDEX_ROLES = ("hierarchy-patch.json", ATTRIBUTE_INDEX_PATCH_ROLE)
+#: ``requested_via`` of the full export an apply-changes run queues for what it left out.
+VIA_APPLY_CHANGES = "apply-changes"
+#: Revisions of the index subject read, newest first, before "no full export by this provider".
+MAX_REVISIONS_READ = 50
+
+
+def no_full_export_message(collection: str) -> str:
+    return f"{collection} has not had a full project export yet"
+
+
+@dataclass
+class ApplyRunState:
+    """What the collections of one apply-changes run share: the provider store's collection names
+    (one listing per run, lower-case -> the store's own spellings), each collection's answer to
+    "has a full export" (cached), and the collections left out for want of one."""
+
+    spellings: dict[str, list[str]] | None = None
+    full: dict[str, bool] = field(default_factory=dict)
+    missing: list[str] = field(default_factory=list)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+async def has_full_export(ctx, scope_obj, *, provider: str, collection: str, state: ApplyRunState) -> bool:
+    """Whether the provider store holds a FULL export of ``collection`` by ``provider``: a complete
+    revision of the collection's INDEX subject -- ``assets/<collection>/<collection>/<rev>/`` with
+    its manifest, which lands last, so its presence is completeness -- whose manifest names this
+    provider. The collection is matched case-insensitively against the store's own spelling (a
+    provider may offer ``ALPHA`` and have published ``alpha``). Cached per run."""
+    key = collection.lower()
+    if key in state.full:
+        return state.full[key]
+    async with state.lock:
+        if key in state.full:
+            return state.full[key]
+        if state.spellings is None:
+            names = await ctx.storage.list_child_names(scope_obj, f"{ASSET_PREFIX}/")
+            spellings: dict[str, list[str]] = {}
+            for name in names:
+                if name != STAGING_SEGMENT:
+                    spellings.setdefault(name.lower(), []).append(name)
+            state.spellings = spellings
+        found = False
+        for stored in state.spellings.get(key, ()):
+            subjects = await ctx.storage.list_child_names(scope_obj, f"{ASSET_PREFIX}/{stored}/")
+            for subject in (s for s in subjects if s.lower() == key):
+                prefix = f"{ASSET_PREFIX}/{stored}/{subject}/"
+                revisions = sorted(await ctx.storage.list_child_names(scope_obj, prefix), reverse=True)
+                for revision in revisions[:MAX_REVISIONS_READ]:
+                    try:
+                        doc = json_of(await ctx.storage.get_bytes(scope_obj, f"{prefix}{revision}/{MANIFEST_FILENAME}"))
+                    except Exception:  # noqa: BLE001 - no manifest: an incomplete revision
+                        continue
+                    if isinstance(doc, dict) and doc.get("provider") == provider:
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                break
+        state.full[key] = found
+        return found
+
+
+def _mode(run: dict) -> str:
+    value = (run.get("settings") or {}).get(MISSING_FULL_EXPORT)
+    return MISSING_FULL_EXPORT_EXPORT if value == MISSING_FULL_EXPORT_EXPORT else MISSING_FULL_EXPORT_WARN
+
+
+async def _left_out(pool, run: dict, collection: str, state: ApplyRunState, reason: str | None = None) -> str:
+    """Record ``collection`` as left out of the run for want of a full export: a run-level warning
+    naming it (logged at WARNING), and the message its item ends with."""
+    text = no_full_export_message(collection)
+    if collection not in state.missing:
+        state.missing.append(collection)
+    logger.warning("apply changes %s: %s%s", run["id"], text, f" ({reason})" if reason else "")
+    try:
+        await db_module.add_asset_sweep_run_warnings(pool, run["id"], [text])
+    except Exception:  # noqa: BLE001 - the item still says it
+        logger.exception("apply changes %s: could not record the run warning", run["id"])
+    message = text + (f" ({reason})" if reason else "")
+    if _mode(run) == MISSING_FULL_EXPORT_EXPORT:
+        message += "; a full project export is queued when this run ends"
+    return message + "; not asked for changes, no cursor"
+
+
+def _provider_says_no_baseline(summary: dict) -> bool:
+    """The provider's own "no index for this collection" answer (the E3D provider warns ``no baseline
+    for collection ...`` when the store holds no tree it could patch)."""
+    return any("no baseline" in str(w).lower() for w in summary.get("warnings") or ())
 
 
 class AnswerError(ValueError):
@@ -179,11 +297,18 @@ async def apply_one(
     spec: dict,
     entry: dict,
     user,
+    run_state: ApplyRunState | None = None,
 ) -> bool:
     """Ask for, and apply, one collection's changes since core's cursor. Returns False when it
-    failed (the cursor then stays); raises only ``RunCancelled``. The sweep driver's per-item hook."""
+    failed (the cursor then stays); raises only ``RunCancelled``. The sweep driver's per-item hook.
+
+    A collection the provider store holds no full export of (:func:`has_full_export`) is NOT asked:
+    its item ends ``no_full_export``, the run warns, and no cursor is made. The same when the
+    provider answers that it found no index, or core refuses the index or tree patch for want of
+    one -- then the cursor does not move either."""
     from . import asset_sweeps as sweeps
 
+    state = run_state if run_state is not None else ApplyRunState()
     run_id, provider, plugin_id = run["id"], run["provider"], run["plugin_id"]
     t_item = time.monotonic()
     timings: dict = {}
@@ -197,6 +322,9 @@ async def apply_one(
 
     await item(status="fetching", started_at=datetime.now(timezone.utc))
     try:
+        if not await has_full_export(ctx, scope_obj, provider=provider, collection=collection, state=state):
+            await finish(NO_FULL_EXPORT, message=await _left_out(pool, run, collection, state))
+            return True
         held = await db_module.get_asset_apply_cursor(pool, provider=provider, collection=collection)
         since = held["cursor"] if held else None
         options = await build_options(
@@ -209,6 +337,8 @@ async def apply_one(
             settings=run["settings"],
             validate=False,
         )
+        # Core's own setting: decided here, never sent to the provider.
+        options.pop(MISSING_FULL_EXPORT, None)
         # The collection's saved provider options UNDER the entry's, as a sweep sends them: they
         # say how to open the collection, never which job this is. `requested_at` makes it a new
         # job, never a cache hit on the last run's answer.
@@ -243,6 +373,12 @@ async def apply_one(
             timings["provider"] = summary["timings"]
         if isinstance(summary.get("login"), dict):
             timings["login"] = summary["login"]
+        if _provider_says_no_baseline(summary):
+            # The provider found no index to patch: what core's own check should have caught (a
+            # store written behind its back, a check that raced a deletion). Same outcome.
+            reason = "the provider found no published index"
+            await finish(NO_FULL_EXPORT, message=await _left_out(pool, run, collection, state, reason))
+            return True
 
         staging_ids = sweeps.staging_ids_of(summary)
         if not staging_ids and not (answer["baseline"] or answer["nothing"]):
@@ -278,6 +414,13 @@ async def apply_one(
             )
             await finish("error", revision=revision, error=f"not applied, cursor kept: {details}")
             return False
+        no_index = [r for r in INDEX_ROLES if (roles.get(r) or {}).get("status") == "refused"]
+        if no_index:
+            reason = f"refused for want of a baseline: {', '.join(no_index)}"
+            await finish(
+                NO_FULL_EXPORT, revision=revision, message=await _left_out(pool, run, collection, state, reason)
+            )
+            return True
 
         await db_module.set_asset_apply_cursor(
             pool, provider=provider, collection=collection, cursor=answer["next_cursor"], run_id=run_id
@@ -304,6 +447,66 @@ async def apply_one(
         logger.warning("apply changes %s: %s failed: %s", run_id, collection, exc)
         await finish("error", error=str(exc))
     return False
+
+
+async def after_apply_run(ctx, pool, run: dict, state: ApplyRunState, *, user) -> dict | None:
+    """Once the run has FINISHED (and so released the one-run-per-provider guard): with
+    ``missing_full_export: export``, start a full export of exactly the collections it left out --
+    the provider's own collection request (``asset_collection_request``, as the Sources tab's
+    "Request"), driven as a sweep in the provider store, ``requested_via`` ``apply-changes``, its
+    summary naming this run (``apply_changes_run_id``) and this run's naming it
+    (``queued_full_exports: {run_id, collections}``). Returns that, or None.
+
+    The collections are read from the run's items, not only this driver's memory, so a resumed run
+    queues what its first driver left out too. No second follow-up for a collection while another
+    run of the provider -- an earlier follow-up included -- is still going: that is refused, and
+    said, as is a provider that declares no collection request (then it is "warn only")."""
+    from .asset_sweeps import COLLECTION_REQUEST, SweepRefused, start_sweep
+    from .provider_store import PROVIDER_STORE, PROVIDER_STORE_WIRE
+
+    missing = list(state.missing)
+    try:
+        full = await db_module.get_asset_sweep_run(pool, run["id"])
+        missing = list(
+            dict.fromkeys(
+                [i["collection"] for i in (full or {}).get("items") or () if i.get("status") == NO_FULL_EXPORT]
+                + missing
+            )
+        )
+    except Exception:  # noqa: BLE001 - this driver's own list still answers
+        logger.exception("apply changes %s: could not read the run's items", run["id"])
+    if not missing or _mode(run) != MISSING_FULL_EXPORT_EXPORT:
+        return None
+    try:
+        follow = await start_sweep(
+            ctx,
+            pool,
+            scope=PROVIDER_STORE_WIRE,
+            scope_obj=PROVIDER_STORE,
+            provider=run["provider"],
+            job=COLLECTION_REQUEST,
+            settings={},
+            user=user,
+            via=VIA_APPLY_CHANGES,
+            collections=missing,
+            summary={"apply_changes_run_id": run["id"]},
+        )
+    except SweepRefused as exc:
+        text = str(exc)
+        if "declares no collection request" in text:
+            warning = (
+                f"no full project export queued for {', '.join(missing)}: the provider declares no full export "
+                "(collection request); warned only"
+            )
+        else:
+            warning = f"no full project export queued for {', '.join(missing)}: {text}"
+        logger.warning("apply changes %s: %s", run["id"], warning)
+        await db_module.add_asset_sweep_run_warnings(pool, run["id"], [warning])
+        return None
+    queued = {"run_id": follow["id"], "collections": missing}
+    await db_module.merge_asset_sweep_run_summary(pool, run["id"], {"queued_full_exports": queued})
+    logger.info("apply changes %s: full project export queued as run %s for %s", run["id"], follow["id"], missing)
+    return queued
 
 
 # --- Admin -> Providers: the cursors -----------------------------------------------------------

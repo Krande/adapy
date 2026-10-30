@@ -245,8 +245,12 @@ async def start_sweep(
     via: str,
     schedule_id: str | None = None,
     collections: list[str] | None = None,
+    summary: dict | None = None,
 ) -> dict:
     """Record a sweep and start driving it. Returns the run. Raises :class:`SweepRefused`.
+
+    ``summary`` seeds the run's run-level facts -- the full export an apply-changes run queues
+    carries ``apply_changes_run_id``.
 
     ``collections``: only these (matched to the provider's spelling, refused when it does not offer
     one), in that order -- and then the provider's default exclusions do not apply: somebody named
@@ -296,6 +300,7 @@ async def start_sweep(
             if chosen or entry.get("kind") == APPLY_CHANGES
             else frozenset(await default_excluded(pool, provider))
         ),
+        **({"summary": summary} if summary else {}),
     )
     spawn(
         _drive(ctx, pool, run, scope_obj=scope_obj, spec=spec, entry=entry, collections=collections, user=user),
@@ -392,10 +397,16 @@ async def _drive(
     # what changed since core's cursor and applies the patches (routes/asset_apply_changes.py). The
     # lanes, heartbeat, cancel, skip and resume around it are the same.
     one = _sweep_one
+    apply_state = None
     if entry.get("kind") == APPLY_CHANGES:
-        from .asset_apply_changes import apply_one
+        from .asset_apply_changes import ApplyRunState, apply_one
 
-        one = apply_one
+        # What every collection of the run shares: the store's listing of full exports (read once)
+        # and the collections left out for want of one.
+        apply_state = ApplyRunState()
+
+        async def one(*args, **kw) -> bool:
+            return await apply_one(*args, run_state=apply_state, **kw)
 
     async def lane() -> None:
         # Lanes share one iterator, so collections still START in order; with one lane this is
@@ -436,6 +447,15 @@ async def _drive(
     error = f"{failed} of {len(collections)} collection(s) failed" if failed else None
     await db_module.finish_asset_sweep_run(pool, run_id, status="error" if failed else "done", error=error)
     logger.info("asset sweep %s: %s finished (%s)", run_id, provider, error or "all ok")
+    if apply_state is not None:
+        # After the finish: the run no longer holds the one-run-per-provider guard, so a follow-up
+        # full export of the collections it left out can start.
+        from .asset_apply_changes import after_apply_run
+
+        try:
+            await after_apply_run(ctx, pool, run, apply_state, user=user)
+        except Exception:  # noqa: BLE001 - the run itself is finished and recorded
+            logger.exception("apply changes %s: the follow-up after the run failed", run_id)
 
 
 async def _sweep_one(

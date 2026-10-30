@@ -27,7 +27,8 @@ import {useViewerPanelStore} from "@/state/viewerPanelStore";
 const POLL_MS = 5000;
 const STORAGE_KEY = "ada.sweeps.toast";
 const EXPORT_STORAGE_KEY = "ada.exports.toast";
-const FINISHED = new Set(["done", "unchanged", "nothing", "error", "skipped"]);
+// `no_full_export`: an apply-changes collection left out (no full export in the store yet) -- done with.
+const FINISHED = new Set(["done", "unchanged", "nothing", "error", "skipped", "no_full_export"]);
 const EXPORT_FINISHED = new Set(["done", "partial", "error", "skipped"]);
 
 const storeKey = (runId: string) => `sweep:${runId}`;

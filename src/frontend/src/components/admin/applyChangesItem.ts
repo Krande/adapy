@@ -16,6 +16,8 @@ export interface ApplyCounts {
 export interface RoleOutcome {
     role: string;
     applied: boolean;
+    /** What core said: `applied`, `refused` (no baseline), `failed`, `skipped`. */
+    status: string;
     /** Why a role was refused (e.g. no baseline), or a note on one that was applied. */
     warning: string | null;
 }
@@ -53,8 +55,11 @@ function readCounts(v: unknown): ApplyCounts | null {
 
 /** One role's entry: a bare status word, or an object with `status` / `applied` / `refused` and a `warning`. */
 function readRole(role: string, v: unknown): RoleOutcome | null {
-    if (typeof v === "string") return {role, applied: /^(applied|ok|done)$/i.test(v), warning: /^(applied|ok|done)$/i.test(v) ? null : v};
-    if (typeof v === "boolean") return {role, applied: v, warning: null};
+    if (typeof v === "string") {
+        const ok = /^(applied|ok|done)$/i.test(v);
+        return {role, applied: ok, status: ok ? "applied" : v, warning: ok ? null : v};
+    }
+    if (typeof v === "boolean") return {role, applied: v, status: v ? "applied" : "refused", warning: null};
     if (!isRecord(v)) return null;
     const status = text(v.status);
     const applied =
@@ -66,7 +71,7 @@ function readRole(role: string, v: unknown): RoleOutcome | null {
                 ? /^(applied|ok|done)$/i.test(status)
                 : !text(v.warning ?? v.error);
     const warning = text(v.warning) ?? text(v.error) ?? text(v.reason) ?? (!applied && status && !/^refused$/i.test(status) ? status : null);
-    return {role, applied, warning};
+    return {role, applied, status: status ?? (applied ? "applied" : "refused"), warning};
 }
 
 function readRoles(v: unknown): RoleOutcome[] {
@@ -97,8 +102,54 @@ export function applyChangesOf(item: unknown): ApplyChangesView | null {
         nothing: block.nothing === true,
         since: text(block.since),
         nextCursor: text(block.next_cursor),
-        roles: readRoles(block.roles ?? block.publish ?? block.outcomes),
+        // Core puts the publish outcome per role BESIDE the block, on the item (`roles`).
+        roles: readRoles(block.roles ?? item.roles ?? block.publish ?? block.outcomes),
     };
+}
+
+/** The item status of a collection an apply-changes run left out: the provider store holds no full
+ *  export of it, so it was not asked for changes and got no cursor. */
+export const NO_FULL_EXPORT = "no_full_export";
+
+/** A run row's progress line from its item counts: "finished/to run · n failed · ...". A collection
+ *  left out for want of a full export is finished (nothing more will happen to it this run). */
+export function sweepCountsText(run: {total: number; counts?: Partial<Record<string, number>>}): string {
+    const c = run.counts ?? {};
+    const finished =
+        (c.done ?? 0) + (c.unchanged ?? 0) + (c.nothing ?? 0) + (c.error ?? 0) + (c.skipped ?? 0) + (c[NO_FULL_EXPORT] ?? 0);
+    // Out of the collections that will run: ticked-off ones are not "left to do".
+    const parts = [`${finished}/${run.total - (c.excluded ?? 0)}`];
+    if (c.error) parts.push(`${c.error} failed`);
+    if (c.excluded) parts.push(`${c.excluded} not run`);
+    if (c.unchanged) parts.push(`${c.unchanged} unchanged`);
+    if (c[NO_FULL_EXPORT]) parts.push(`${c[NO_FULL_EXPORT]} without a full export`);
+    return parts.join(" · ");
+}
+
+/** A run's run-level warnings (an apply-changes run names every collection it left out). */
+export function runWarningsOf(run: unknown): string[] {
+    if (!isRecord(run) || !Array.isArray(run.warnings)) return [];
+    return run.warnings.map(text).filter((w): w is string => !!w);
+}
+
+export interface FullExportLink {
+    runId: string;
+    collections: string[];
+}
+
+/** The full project export an apply-changes run queued for what it left out, or null. */
+export function queuedFullExportOf(run: unknown): FullExportLink | null {
+    const q = isRecord(run) && isRecord(run.summary) ? run.summary.queued_full_exports : null;
+    if (!isRecord(q)) return null;
+    const runId = text(q.run_id);
+    if (!runId) return null;
+    const collections = Array.isArray(q.collections) ? q.collections.map(text).filter((c): c is string => !!c) : [];
+    return {runId, collections};
+}
+
+/** On a queued full export: the apply-changes run that queued it, or null. */
+export function queuedByApplyRunOf(run: unknown): string | null {
+    return isRecord(run) && isRecord(run.summary) ? text(run.summary.apply_changes_run_id) : null;
 }
 
 /** "3 changed · 1 inserted · 2 deleted", leaving out the zeros. */

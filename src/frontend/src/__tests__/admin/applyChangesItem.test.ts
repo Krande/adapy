@@ -1,7 +1,17 @@
 ﻿import assert from "node:assert/strict";
 import test from "node:test";
 
-import {applyChangesOf, countsLine} from "@/components/admin/applyChangesItem";
+import {
+    NO_FULL_EXPORT,
+    applyChangesOf,
+    countsLine,
+    queuedByApplyRunOf,
+    queuedFullExportOf,
+    runWarningsOf,
+    sweepCountsText,
+} from "@/components/admin/applyChangesItem";
+import {emptyChoiceLabel} from "@/components/admin/scheduleSettings";
+import type {ScheduleSetting} from "@/services/api/assetSchedules";
 
 test("an item without the block is a plain sweep item", () => {
     assert.equal(applyChangesOf({collection: "ALPHA"}), null);
@@ -24,8 +34,8 @@ test("counts, badges, cursors and per-role outcomes are read; absent parts stay 
     assert.equal(a?.baseline, false);
     assert.equal(countsLine(a?.counts ?? null), "3 changed · 1 inserted · 2 unplaceable");
     assert.deepEqual(a?.roles, [
-        {role: "geometry.db", applied: true, warning: null},
-        {role: "node-bounds-patch.ndjson.gz", applied: false, warning: "no baseline; run a full export first"},
+        {role: "geometry.db", applied: true, status: "applied", warning: null},
+        {role: "node-bounds-patch.ndjson.gz", applied: false, status: "refused", warning: "no baseline; run a full export first"},
     ]);
     const bare = applyChangesOf({apply_changes: {baseline: true, counts: "garbage", roles: 7}});
     assert.deepEqual(bare, {counts: null, baseline: true, nothing: false, since: null, nextCursor: null, roles: []});
@@ -36,3 +46,40 @@ test("roles may also arrive as a list", () => {
     assert.deepEqual(a?.roles.map((r) => [r.role, r.applied]), [["hierarchy-patch.json", false], ["x", true]]);
 });
 
+test("roles beside the block on the item (where core puts them) are read, a failed one named", () => {
+    const a = applyChangesOf({
+        apply_changes: {nothing: false},
+        roles: {"csg.db": {status: "applied", subjects: 2}, "attribute-index-patch.ndjson.gz": {status: "failed", error: "deadlock"}},
+    });
+    assert.deepEqual(a?.roles.map((r) => [r.role, r.status, r.warning]), [
+        ["csg.db", "applied", null],
+        ["attribute-index-patch.ndjson.gz", "failed", "deadlock"],
+    ]);
+});
+
+test("run-level warnings and the links between an apply-changes run and its queued full export", () => {
+    const run = {
+        warnings: ["BETA has not had a full project export yet", 7, ""],
+        summary: {queued_full_exports: {run_id: "follow-1", collections: ["BETA", null]}},
+    };
+    assert.deepEqual(runWarningsOf(run), ["BETA has not had a full project export yet", "7"]);
+    assert.deepEqual(queuedFullExportOf(run), {runId: "follow-1", collections: ["BETA"]});
+    assert.equal(queuedByApplyRunOf(run), null);
+    assert.equal(queuedByApplyRunOf({summary: {apply_changes_run_id: "run-1"}}), "run-1");
+    assert.deepEqual(runWarningsOf({}), []);
+    assert.equal(queuedFullExportOf({summary: {queued_full_exports: {collections: ["X"]}}}), null);
+});
+
+test("a collection left out for want of a full export counts as finished, and says so", () => {
+    assert.equal(sweepCountsText({total: 3, counts: {done: 1, [NO_FULL_EXPORT]: 2}}), "3/3 · 2 without a full export");
+});
+
+test("core's own setting names its default on the empty choice; a provider's says the provider decides", () => {
+    const choices = [
+        {value: "warn", label: "Warn only"},
+        {value: "export", label: "Queue a full project export"},
+    ];
+    const core = {name: "missing_full_export", type: "enum", title: "t", description: null, default: "warn", source: "enum", core: true, choices} as ScheduleSetting;
+    assert.equal(emptyChoiceLabel(core, choices), "(default: Warn only)");
+    assert.equal(emptyChoiceLabel({...core, core: false}, choices), "(provider default)");
+});

@@ -18,6 +18,7 @@ import ProviderSweepRuns from "./ProviderSweepRuns";
 import {
     choiceKey,
     choiceLabel,
+    emptyChoiceLabel,
     isMultiSetting,
     multiSettingError,
     multiValue,
@@ -150,7 +151,7 @@ const SettingField: React.FC<{
                 value={selectedKey(value, choices)}
                 onChange={(e) => onChange(valueOfKey(e.target.value, choices))}
             >
-                <option value="">(provider default)</option>
+                <option value="">{emptyChoiceLabel(setting, choices)}</option>
                 {choices.map((c) => (
                     <option key={choiceKey(c.value)} value={choiceKey(c.value)}>
                         {c.label}

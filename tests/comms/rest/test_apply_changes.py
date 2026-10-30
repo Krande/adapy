@@ -81,7 +81,7 @@ def test_apply_changes_is_a_kind_that_needs_a_collection_option():
 
 
 def test_a_multiple_enum_says_so_and_defaults_to_a_list():
-    [targets, users] = sched.entry_settings(SPEC, ENTRY)
+    [targets, users, _core] = sched.entry_settings(SPEC, ENTRY)
     assert targets["multiple"] is True and targets["default"] == TARGETS
     assert [c["value"] for c in targets["choices"]] == TARGETS and targets["choices"][2]["label"] == "Node bounds"
     assert users["multiple"] is False and users["source"] == "change_users"
@@ -92,7 +92,12 @@ async def test_build_options_keeps_a_multi_choice_a_list_and_defaults_it():
     kw = dict(scope="providers", provider="vendor", collection=None)
     row = await sched.build_options(None, SPEC, ENTRY, settings={"apply_targets": ["bounds", "attributes"]}, **kw)
     # No collection: an apply-changes row may run every collection, like a sweep's.
-    assert row == {"action": "apply-changes", "schema_version": 1, "apply_targets": ["bounds", "attributes"]}
+    assert row == {
+        "action": "apply-changes",
+        "schema_version": 1,
+        "apply_targets": ["bounds", "attributes"],
+        "missing_full_export": "warn",  # core's own setting, stored at its default
+    }
     unset = await sched.build_options(None, SPEC, ENTRY, settings={}, **kw)
     assert unset["apply_targets"] == TARGETS and unset["apply_targets"] is not SPEC["job_options"][0]["default"]
     one = await sched.build_options(None, SPEC, ENTRY, settings={"apply_targets": "geometry"}, collection="ALPHA",
@@ -167,12 +172,30 @@ def test_role_outcomes_report_patches_as_published_and_geometry_as_applied():
 # --- driving one collection -------------------------------------------------------------------
 
 
+def _manifest_key(collection: str, revision: str = "20260101T000000Z") -> str:
+    return f"assets/{collection}/{collection}/{revision}/asset.json"
+
+
 class _World:
-    def __init__(self, *, answers: dict[str, dict], publish_patches: dict | None = None, fail_publish=False):
+    def __init__(
+        self,
+        *,
+        answers: dict[str, dict],
+        publish_patches: dict | None = None,
+        fail_publish=False,
+        exported: tuple[str, ...] | None = None,
+    ):
         self.answers = answers
         self.publish_patches = publish_patches or {}
         self.fail_publish = fail_publish
         self.blobs: dict[str, bytes] = {}
+        # A full export in the store of every answering collection, unless told otherwise -- under
+        # the store's lower-case spelling, as a provider offering ALPHA publishes it.
+        for c in answers if exported is None else exported:
+            self.blobs[_manifest_key(c.lower())] = json.dumps({"provider": "vendor"}).encode()
+        self.listings = 0
+        self.warnings: list[str] = []
+        self.summary: dict = {}
         self.jobs_status: dict[str, str] = {}
         self.enqueued: list[dict] = []
         self.published: list[dict] = []
@@ -182,8 +205,26 @@ class _World:
         self.finished = None
         self.ctx = SimpleNamespace(
             jobs=SimpleNamespace(status=self._status, cancel=self._cancel),
-            storage=SimpleNamespace(get_bytes=self._get, list_prefix=self._list),
+            storage=SimpleNamespace(get_bytes=self._get, list_prefix=self._list, list_child_names=self._children),
         )
+
+    async def _children(self, scope, prefix):
+        self.listings += 1
+        return sorted(
+            {k[len(prefix) :].split("/", 1)[0] for k in self.blobs if k.startswith(prefix) and "/" in k[len(prefix) :]}
+        )
+
+    async def add_warnings(self, pool, run_id, warnings):
+        self.warnings += [w for w in warnings if w not in self.warnings]
+
+    async def merge_summary(self, pool, run_id, summary):
+        self.summary.update(summary)
+
+    async def get_run(self, pool, run_id):
+        # The items as the database lists them; a resumed run's earlier driver left BETA out.
+        return {"id": run_id, "items": list(self.db_items)}
+
+    db_items: tuple = ()
 
     async def _status(self, job_id):
         st = self.jobs_status.get(job_id)
@@ -260,6 +301,9 @@ def world(monkeypatch):
         monkeypatch.setattr(dbm, "asset_sweep_item_status", w.item_status)
         monkeypatch.setattr(dbm, "get_asset_apply_cursor", w.get_cursor)
         monkeypatch.setattr(dbm, "set_asset_apply_cursor", w.set_cursor)
+        monkeypatch.setattr(dbm, "add_asset_sweep_run_warnings", w.add_warnings)
+        monkeypatch.setattr(dbm, "merge_asset_sweep_run_summary", w.merge_summary)
+        monkeypatch.setattr(dbm, "get_asset_sweep_run", w.get_run)
         monkeypatch.setattr(sweeps, "POLL_INTERVAL_S", 0)
         return w
 
@@ -376,6 +420,169 @@ async def test_the_sweep_driver_runs_apply_changes_per_collection(world):
     )
     assert [e["options"]["project"] for e in w.enqueued] == ["ALPHA", "BETA"]
     assert set(w.cursors) == {("vendor", "alpha"), ("vendor", "beta")} and w.finished == ("done", None)
+
+
+# --- no full export, no apply ---------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_core_offers_and_checks_its_own_missing_full_export_setting():
+    core = sched.entry_settings(SPEC, ENTRY)[-1]
+    assert core["name"] == "missing_full_export" and core["source"] == "enum" and core["default"] == "warn"
+    assert [(c["value"], c["label"]) for c in core["choices"]] == [
+        ("warn", "Warn only"),
+        ("export", "Queue a full project export"),
+    ]
+    kw = dict(scope="providers", provider="vendor", collection=None)
+    opts = await sched.build_options(None, SPEC, ENTRY, settings={"missing_full_export": "export"}, **kw)
+    assert opts["missing_full_export"] == "export"
+    assert sched.settings_of(ENTRY, opts)["missing_full_export"] == "export"  # kept on the schedule
+    with pytest.raises(HTTPException):
+        await sched.build_options(None, SPEC, ENTRY, settings={"missing_full_export": "delete"}, **kw)
+    # Never offered on another kind.
+    assert "missing_full_export" not in {s["name"] for s in sched.entry_settings(SPEC, {**ENTRY, "kind": "sweep"})}
+
+
+@pytest.mark.asyncio
+async def test_the_setting_is_never_sent_to_the_provider(world):
+    w = world(answers={"ALPHA": _answer(nothing=True)})
+    assert await _one(w, run={**RUN, "settings": {**RUN["settings"], "missing_full_export": "export"}})
+    assert "missing_full_export" not in w.enqueued[0]["options"]
+
+
+@pytest.mark.asyncio
+async def test_a_collection_without_a_full_export_is_not_asked_and_gets_no_cursor(world):
+    w = world(answers={"ALPHA": _answer(baseline=True)}, exported=())
+    assert await _one(w)
+    assert w.enqueued == [] and w.cursors == {}
+    item = w.items[0]
+    assert item["status"] == "no_full_export"
+    assert item["message"].startswith("ALPHA has not had a full project export yet")
+    assert w.warnings == ["ALPHA has not had a full project export yet"]
+
+
+@pytest.mark.asyncio
+async def test_a_full_export_must_be_this_providers_and_complete():
+    async def check(blobs):
+        storage = SimpleNamespace(list_child_names=None, get_bytes=None)
+
+        async def children(scope, prefix):
+            return sorted({k[len(prefix) :].split("/", 1)[0] for k in blobs if k.startswith(prefix)})
+
+        async def get(scope, key):
+            return blobs[key]
+
+        storage.list_child_names, storage.get_bytes = children, get
+        return await apply.has_full_export(
+            SimpleNamespace(storage=storage), STORE, provider="vendor", collection="ALPHA", state=apply.ApplyRunState()
+        )
+
+    other = json.dumps({"provider": "other"}).encode()
+    mine = json.dumps({"provider": "vendor"}).encode()
+    assert await check({_manifest_key("alpha"): mine})  # the store's own spelling, matched case-insensitively
+    assert not await check({_manifest_key("alpha"): other})
+    assert not await check({"assets/alpha/alpha/20260101T000000Z/tree.json": b"{}"})  # no manifest: incomplete
+    assert not await check({"assets/alpha/site-1/20260101T000000Z/asset.json": mine})  # not the index subject
+    assert await check(
+        {_manifest_key("Alpha", "20260101T000000Z"): other, _manifest_key("Alpha", "20250101T000000Z"): mine}
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_store_is_listed_once_per_run(world):
+    w = world(answers={"ALPHA": _answer(nothing=True), "BETA": _answer(nothing=True)}, exported=("ALPHA",))
+    state = apply.ApplyRunState()
+    for position, c in enumerate(["ALPHA", "BETA", "ALPHA"]):
+        await apply.apply_one(w.ctx, None, RUN, position, c, scope_obj=STORE, spec=SPEC, entry=ENTRY, user=None,
+                              run_state=state)  # fmt: skip
+    # assets/ once; ALPHA's subjects and revisions once (cached after); BETA is not in the store.
+    assert w.listings == 3
+    assert [e["options"]["project"] for e in w.enqueued] == ["ALPHA", "ALPHA"] and state.missing == ["BETA"]
+
+
+@pytest.mark.asyncio
+async def test_the_providers_own_no_baseline_answer_keeps_the_cursor(world):
+    answer = {**_answer(), "warnings": ["no baseline for collection 'alpha'; run a full export first"]}
+    w = world(answers={"ALPHA": answer})
+    w.cursors[("vendor", "alpha")] = "old"
+    assert await _one(w)
+    assert w.cursors[("vendor", "alpha")] == "old" and w.items[0]["status"] == "no_full_export"
+    assert "the provider found no published index" in w.items[0]["message"] and w.warnings
+
+
+@pytest.mark.asyncio
+async def test_a_refused_tree_or_index_patch_keeps_the_cursor(world):
+    patches = {"hierarchy-patch.json": {"status": "refused", "warning": "no baseline for vendor/alpha"}}
+    w = world(answers={"ALPHA": {**_answer(), "asset_staging_id": "s-1"}}, publish_patches=patches)
+    w.cursors[("vendor", "alpha")] = "old"
+    assert await _one(w)
+    assert w.cursors[("vendor", "alpha")] == "old" and w.items[0]["status"] == "no_full_export"
+
+
+@pytest.mark.asyncio
+async def test_export_mode_queues_one_full_export_of_what_was_left_out_after_the_run(world, monkeypatch):
+    started = []
+
+    async def start(ctx, pool, **kw):
+        # The run is finished before the follow-up starts: the guard is free.
+        assert w.finished is not None
+        started.append(kw)
+        return {"id": "follow-1"}
+
+    monkeypatch.setattr(sweeps, "start_sweep", start)
+    w = world(answers={"ALPHA": _answer(nothing=True), "BETA": {}, "GAMMA": {}}, exported=("ALPHA",))
+    run = {**RUN, "settings": {**RUN["settings"], "missing_full_export": "export"}}
+    await sweeps._drive(
+        w.ctx, None, run, scope_obj=STORE, spec=SPEC, entry=ENTRY, collections=["ALPHA", "BETA", "GAMMA"], user=None
+    )
+    [kw] = started
+    assert kw["job"] == sweeps.COLLECTION_REQUEST and kw["collections"] == ["BETA", "GAMMA"]
+    assert kw["via"] == "apply-changes" and kw["summary"] == {"apply_changes_run_id": "run-1"}
+    assert kw["scope_obj"] == STORE
+    assert w.summary == {"queued_full_exports": {"run_id": "follow-1", "collections": ["BETA", "GAMMA"]}}
+    assert w.finished == ("done", None) and len(w.warnings) == 2
+    assert "a full project export is queued" in w.items[1]["message"]
+
+
+@pytest.mark.asyncio
+async def test_export_mode_reads_what_an_earlier_driver_left_out(world, monkeypatch):
+    started = []
+
+    async def start(ctx, pool, **kw):
+        started.append(kw)
+        return {"id": "follow-1"}
+
+    monkeypatch.setattr(sweeps, "start_sweep", start)
+    w = world(answers={"ALPHA": _answer(nothing=True)})
+    w.db_items = ({"collection": "BETA", "status": "no_full_export"}, {"collection": "ALPHA", "status": "done"})
+    run = {**RUN, "settings": {"missing_full_export": "export"}}
+    await apply.after_apply_run(w.ctx, None, run, apply.ApplyRunState(), user=None)
+    assert started[0]["collections"] == ["BETA"]
+
+
+@pytest.mark.asyncio
+async def test_export_mode_falls_back_to_a_warning_without_a_collection_request(world, monkeypatch):
+    async def refuse(ctx, pool, **kw):
+        raise sweeps.SweepRefused("provider 'vendor' declares no collection request")
+
+    monkeypatch.setattr(sweeps, "start_sweep", refuse)
+    w = world(answers={"BETA": {}}, exported=())
+    state = apply.ApplyRunState(missing=["BETA"])
+    out = await apply.after_apply_run(
+        w.ctx, None, {**RUN, "settings": {"missing_full_export": "export"}}, state, user=None
+    )
+    assert out is None and w.summary == {}
+    assert "declares no full export" in w.warnings[-1] and "warned only" in w.warnings[-1]
+
+
+@pytest.mark.asyncio
+async def test_warn_mode_queues_nothing(world, monkeypatch):
+    async def start(ctx, pool, **kw):
+        raise AssertionError("warn only")
+
+    monkeypatch.setattr(sweeps, "start_sweep", start)
+    w = world(answers={"BETA": {}}, exported=())
+    assert await apply.after_apply_run(w.ctx, None, RUN, apply.ApplyRunState(missing=["BETA"]), user=None) is None
 
 
 @pytest.mark.asyncio

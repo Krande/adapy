@@ -245,7 +245,34 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
             )
             continue
         out.append(setting)
+    if entry.get("kind") == APPLY_CHANGES:
+        out.append(dict(MISSING_FULL_EXPORT_SETTING, choices=[dict(c) for c in MISSING_FULL_EXPORT_SETTING["choices"]]))
     return out
+
+
+#: CORE's own setting of every apply-changes entry -- no provider declares it, and it is never sent
+#: to the provider's job: what to do about a collection the provider store holds no full export of
+#: (such a collection is never asked for its changes; routes/asset_apply_changes.py).
+MISSING_FULL_EXPORT = "missing_full_export"
+MISSING_FULL_EXPORT_WARN = "warn"
+MISSING_FULL_EXPORT_EXPORT = "export"
+MISSING_FULL_EXPORT_SETTING: dict = {
+    "name": MISSING_FULL_EXPORT,
+    "type": "enum",
+    "title": "Collections without a full export",
+    "description": "A collection the provider store holds no full export of is left out of the run. Warn "
+    "about it, or also queue a full export of it once the run has finished.",
+    "default": MISSING_FULL_EXPORT_WARN,
+    "multiple": False,
+    "source": "enum",
+    "core": True,
+    "choices": [
+        {"value": MISSING_FULL_EXPORT_WARN, "label": "Warn only"},
+        {"value": MISSING_FULL_EXPORT_EXPORT, "label": "Queue a full project export"},
+    ],
+}
+#: Settings core adds to an entry of a kind, beside what the provider declares.
+CORE_SETTINGS: dict[str, tuple[str, ...]] = {APPLY_CHANGES: (MISSING_FULL_EXPORT,)}
 
 
 async def setting_choices(pool, setting: dict, *, scope: str, provider: str, collection: str) -> list[dict]:
@@ -324,12 +351,17 @@ async def build_options(
         # A multi choice left unset takes its declared default list (a copy: never the spec's own).
         if setting.get("multiple") and name not in options and isinstance(setting.get("default"), list):
             options[name] = list(setting["default"])
+        # A core setting left unset is stored as its default, so a run says what it did.
+        elif setting.get("core") and name not in options and setting.get("default") is not None:
+            options[name] = setting["default"]
     return options
 
 
 def settings_of(entry: dict, options: dict) -> dict:
-    """The chosen settings, read back out of stored job options."""
+    """The chosen settings, read back out of stored job options -- the core settings of the
+    entry's kind (:data:`CORE_SETTINGS`) included."""
     names = [s if isinstance(s, str) else (s or {}).get("name") for s in entry.get("settings") or ()]
+    names += list(CORE_SETTINGS.get(entry.get("kind") or "", ()))
     return {n: options[n] for n in names if n and n in options}
 
 

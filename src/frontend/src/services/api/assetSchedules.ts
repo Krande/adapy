@@ -64,6 +64,9 @@ export interface ScheduleSetting {
   choices?: ScheduleChoice[];
   /** An enum a schedule holds SEVERAL of (a list): rendered as checkboxes, sent as a list. */
   multiple?: boolean;
+  /** Core's own setting (e.g. an apply-changes entry's `missing_full_export`), not the provider's:
+   *  never sent to its job, and its empty choice means core's `default`, not the provider's. */
+  core?: boolean;
 }
 
 export interface ProviderScheduleJob {
@@ -149,7 +152,19 @@ export interface SweepItem {
   position: number;
   collection: string;
   /** `excluded`: ticked off -- by the provider's default list or while the sweep ran -- and not run. */
-  status: "pending" | "excluded" | "fetching" | "publishing" | "done" | "unchanged" | "nothing" | "error" | "skipped";
+  /** `no_full_export`: an apply-changes item left out because the provider store holds no full
+   *  export of the collection yet -- not asked for changes, no cursor. */
+  status:
+    | "pending"
+    | "excluded"
+    | "fetching"
+    | "publishing"
+    | "done"
+    | "unchanged"
+    | "nothing"
+    | "error"
+    | "skipped"
+    | "no_full_export";
   fetch_job_id: string | null;
   publish_job_id: string | null;
   revision: string | null;
@@ -163,6 +178,8 @@ export interface SweepItem {
   /** An apply-changes run's per-collection answer (`ada.assets/apply-changes@1`, plus how each
    *  staging role was applied); absent on a sweep's item. Read through `applyChangesOf`. */
   apply_changes?: Record<string, unknown> | null;
+  /** An apply-changes item's publish outcome per staging role, beside `apply_changes`. */
+  roles?: Record<string, unknown> | null;
   started_at: string | null;
   finished_at: string | null;
 }
@@ -178,8 +195,15 @@ export interface SweepRun {
   settings: Record<string, unknown>;
   schedule_id: string | null;
   requested_by: string | null;
-  requested_via: "schedule" | "user";
+  /** `apply-changes`: the full project export an apply-changes run queued for what it left out. */
+  requested_via: "schedule" | "user" | "apply-changes" | (string & {});
   status: "running" | "done" | "error" | "cancelled" | "interrupted";
+  /** Run-level notes: an apply-changes run names every collection it left out for want of a full
+   *  export, and a full export it could not queue. Absent on an older API. */
+  warnings?: string[];
+  /** Run-level facts: an apply-changes run's `queued_full_exports: {run_id, collections}`; the
+   *  queued run's `apply_changes_run_id`. */
+  summary?: Record<string, unknown>;
   total: number;
   created_at: string | null;
   heartbeat_at: string | null;
