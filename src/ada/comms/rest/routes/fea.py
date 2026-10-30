@@ -24,6 +24,7 @@ import json
 import pathlib
 import posixpath
 import zipfile
+import re
 import zlib
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -394,6 +395,9 @@ class _CachedManifest:
     #: The stored object, opened (and its head buffered) when the check had to
     #: peek it; the route serves it on rather than opening it twice.
     stream: StreamResult | None = None
+    #: A running bake's preliminary manifest: that bake's job id (the client keeps
+    #: polling it for the fields still to come). None for a finished bake.
+    preliminary_job: str | None = None
 
 
 async def _read_stamp(ctx: RestContext, scope_obj: Scope, source_key: str, manifest_head: dict | None) -> dict | None:
@@ -478,10 +482,17 @@ async def _check_cached_manifest(
 
     stamp = await _read_stamp(ctx, scope_obj, source_key, man_head)
     if stamp is not None:
-        return _CachedManifest(manifest_key, fea_manifest_stale_reason(stamp, src_head, man_head), src_head, man_head)
+        stale = fea_manifest_stale_reason(stamp, src_head, man_head)
+        job_id = None
+        if stale is None and stamp.get("preliminary"):
+            job_id = str(stamp.get("job_id") or "")
+            stale = await _preliminary_stale_reason(ctx, job_id)
+        return _CachedManifest(manifest_key, stale, src_head, man_head, preliminary_job=job_id if not stale else None)
 
     # No stamp: a bake older than bake_version 6 (so stale by version unless the
-    # bake queue is off), or a stamp-less writer. Its head says which.
+    # bake queue is off), or a stamp-less writer. Its head says which. (Also the
+    # moment between a running bake's manifest landing and its stamp following:
+    # a preliminary manifest names itself and its job in its first bytes.)
     try:
         stream = await storage.open_stream(scope_obj, manifest_key)
     except FileNotFoundError:
@@ -492,7 +503,41 @@ async def _check_cached_manifest(
         logger.exception("fea-manifest: cached manifest unreadable for %s; rebuilding", manifest_key)
         return _CachedManifest(manifest_key, "unreadable manifest", src_head, man_head)
     stale = fea_manifest_stale_reason({"bake_version": fea_bake_version_from_head(head)}, src_head, man_head)
-    return _CachedManifest(manifest_key, stale, src_head, man_head, stream if keep_stream else None)
+    job_id = None
+    if stale is None and _PRELIMINARY_RE.search(head):
+        m = _BAKE_JOB_RE.search(head)
+        job_id = m.group(1).decode() if m else ""
+        stale = await _preliminary_stale_reason(ctx, job_id)
+    return _CachedManifest(
+        manifest_key,
+        stale,
+        src_head,
+        man_head,
+        stream if keep_stream else None,
+        preliminary_job=job_id if not stale else None,
+    )
+
+
+_PRELIMINARY_RE = re.compile(rb'"preliminary"\s*:\s*true')
+_BAKE_JOB_RE = re.compile(rb'"bake_job_id"\s*:\s*"([^"]*)"')
+
+
+async def _preliminary_stale_reason(ctx: RestContext, job_id: str) -> str | None:
+    """A preliminary manifest -- what a running bake ships before it ends (mesh
+    first, fields as they land) -- is current only while that bake runs. Once its
+    job is gone or failed it is the leftover of an interrupted bake: stale, so
+    the next request re-bakes. A job that ended ``done`` replaced it already;
+    finding it still preliminary means the final upload did not land."""
+    if not job_id:
+        return "preliminary manifest of an unknown bake"
+    try:
+        job = await ctx.queue.get(job_id) if ctx.queue.enabled else None
+    except Exception:
+        logger.exception("fea-manifest: job lookup failed for %s", job_id)
+        job = None
+    if job is not None and job.status in ("queued", "running"):
+        return None
+    return f"preliminary manifest of a bake that is not running ({job.status if job else 'gone'})"
 
 
 async def _manifest_response(ctx: RestContext, scope_obj: Scope, cached: _CachedManifest) -> StreamingResponse:
@@ -510,6 +555,11 @@ async def _manifest_response(ctx: RestContext, scope_obj: Scope, cached: _Cached
         # compressed body has no byte ranges a client could ask for.
         headers["Content-Encoding"] = stream.content_encoding
         headers["Accept-Ranges"] = "none"
+    if cached.preliminary_job is not None:
+        # Mesh first: what the running bake has shipped so far. The client draws
+        # it and polls the job (``artefacts_ready``) for the fields still coming.
+        headers["X-Fea-Manifest-State"] = "preliminary"
+        headers["X-Fea-Bake-Job"] = cached.preliminary_job
     return StreamingResponse(stream.stream, media_type="application/json", headers=headers)
 
 
@@ -684,6 +734,9 @@ async def _fresh_base_manifest(ctx: RestContext, scope_obj: Scope, source_key: s
         raise HTTPException(status_code=409, detail="no base bake yet; request the manifest first")
     if cached.stale is not None:
         raise HTTPException(status_code=409, detail=f"base bake is stale ({cached.stale}); request the manifest again")
+    if cached.preliminary_job is not None:
+        # A running bake's preliminary manifest lists only the fields done so far.
+        raise HTTPException(status_code=409, detail="base bake still running; request the manifest when it is done")
     manifest_key = cached.manifest_key
     stored = int((cached.manifest_head or {}).get("size") or 0)
     if stored > _BASE_MANIFEST_MAX_STORED:

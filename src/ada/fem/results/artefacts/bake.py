@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Callable, Iterable
@@ -126,6 +127,9 @@ def bake_fea_artefacts_from_source(
     on_progress: "ProgressCallback | None" = None,
     steps_hint: str | None = None,
     lazy_combinations: bool = True,
+    on_artefact: Callable[[pathlib.Path], None] | None = None,
+    partial_manifests: bool = False,
+    stamp_extra: dict | None = None,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -133,8 +137,9 @@ def bake_fea_artefacts_from_source(
     endpoint, CLI, tests) is responsible for the policy decision of
     when to surface that vs route to a different code path.
 
-    ``steps``, ``on_progress`` and ``steps_hint``: see :func:`bake_artefacts`. The reader is
-    opened on ``steps`` already, so a SIN is read for those cases only.
+    ``steps``, ``on_progress``, ``steps_hint``, ``on_artefact``, ``partial_manifests``
+    and ``stamp_extra``: see :func:`bake_artefacts`. The reader is opened on ``steps`` already, so a SIN is
+    read for those cases only.
 
     ``lazy_combinations`` (default on), with ``steps`` None: a source that stores
     its basic load cases and leaves its combinations as recipes (see
@@ -165,6 +170,9 @@ def bake_fea_artefacts_from_source(
             steps=steps,
             on_progress=on_progress,
             steps_hint=steps_hint,
+            on_artefact=on_artefact,
+            partial_manifests=partial_manifests,
+            stamp_extra=stamp_extra,
         )
 
 
@@ -324,6 +332,8 @@ def bake_artefacts(
     steps: Iterable[int | float] | None = None,
     on_progress: ProgressCallback | None = None,
     steps_hint: str | None = None,
+    partial_manifests: bool = False,
+    stamp_extra: dict | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
 
@@ -423,7 +433,20 @@ def bake_artefacts(
     completing them one field after another, so each step is decoded once
     rather than once per field. Skipped when ``on_artefact`` is given, since
     every blob then completes at the very end. The bytes written are the same
-    either way."""
+    either way.
+
+    ``partial_manifests``: write (and emit) a PRELIMINARY manifest as soon as the
+    mesh artefacts and beam solids are out -- before any field is read -- and
+    again as each field completes: the compact index of what is written so far,
+    ``preliminary: true``, ``pending_fields`` naming the rest, and a stamp saying
+    ``preliminary`` with ``n_fields_ready`` / ``n_fields_total``. The final
+    manifest replaces it at the end. With a deferred reader (the SIN materialise
+    path, see ``readers._make_sin_reader``) the first one goes out before the
+    fields are even decoded, so a caller shipping each emitted file (the worker's
+    uploader) lets a viewer draw the model long before the bake ends. Implies the
+    field-by-field order. ``stamp_extra``: merged into every stamp written (the
+    worker records its job id, which the API reads to tell a running bake's
+    preliminary manifest from an abandoned one)."""
 
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -485,15 +508,57 @@ def bake_artefacts(
     n_elements = write_mesh_elements(geom, mesh_elements_path, element_ranges=topology.element_ranges)
     emit(mesh_elements_path)
 
-    # What each element IS (type, material, section, thickness), for the viewer's
-    # Selected Object panel; the property tables go in the manifest. Only from a
-    # reader that knows (the Sesam ones).
-    element_props = getattr(reader, "try_element_properties", lambda: None)()
-    element_props_path = None
-    if element_props is not None:
-        element_props_path = out_dir / "fea.mesh.element_props.bin"
-        write_element_properties(element_props, element_props_path)
-        emit(element_props_path)
+    def write_partial(field_metas_done, elem_metas_done, pending: list[str] | None, n_total: int | None) -> None:
+        """A preliminary manifest: the mesh artefacts written so far plus the fields
+        complete so far, ``preliminary: true``. Only with ``partial_manifests``."""
+        partial = build_manifest(
+            src=src,
+            source_sha256=source_sha256,
+            mesh_geom=geom,
+            mesh_glb_filename=mesh_glb_path.name,
+            field_metas=list(field_metas_done),
+            elem_field_metas=list(elem_metas_done),
+            mesh_edges_filename=mesh_edges_path.name,
+            mesh_line_edges_filename=(mesh_line_edges_path.name if mesh_line_edges_path else None),
+            n_edges=n_edges,
+            mesh_elements_filename=mesh_elements_path.name,
+            n_elements=n_elements,
+            beam_solids_glb_filename=(beam_solids_glb_path.name if beam_solids_glb_path else None),
+            beam_solids_elements_filename=(beam_solids_elements_path.name if beam_solids_elements_path else None),
+            beam_solids_warp_filename=(beam_solids_warp_path.name if beam_solids_warp_path else None),
+            beam_solids_compact_filename=(beam_solids_compact_path.name if beam_solids_compact_path else None),
+            n_beam_solids=n_beam_solids,
+            n_beam_solid_verts=n_beam_solid_verts,
+            n_beam_total=(solid_beams.total_beams if solid_beams is not None else 0),
+            beam_solids_skip_reasons=(solid_beams.skip_reasons if solid_beams is not None else None),
+            legacy_glb_url_template=legacy_glb_url_template,
+            baked_steps=baked_steps,
+            baked_steps_hint=steps_hint if baked_steps is not None else None,
+        )
+        # ``preliminary`` (and the bake's job id) right after the stamps at the top: a
+        # server that finds this manifest without its stamp (the moment between the
+        # two uploads) reads its first bytes only, and must still see what it is.
+        head = {k: partial.pop(k) for k in ("version", "bake_version") if k in partial}
+        job_id = (stamp_extra or {}).get("job_id")
+        partial = {**head, "preliminary": True, **({"bake_job_id": str(job_id)} if job_id else {}), **partial}
+        if pending is not None:
+            partial["pending_fields"] = list(pending)
+        extra = {**(stamp_extra or {}), "preliminary": True, "n_fields_ready": len(partial["fields"])}
+        if n_total is not None:
+            extra["n_fields_total"] = n_total
+        for path in write_manifest_tree(partial, out_dir, stamp_extra=extra):
+            emit(path)
+
+    # Mesh first: with ``partial_manifests`` the model can be drawn from here on --
+    # the mesh and its sidecars are written and emitted -- so a preliminary manifest
+    # naming them goes out before a single field is read (with a deferred reader,
+    # before the fields are even decoded), and before the beam solids are built.
+    beam_solids_glb_path = beam_solids_elements_path = beam_solids_compact_path = None
+    beam_solids_warp_path = None
+    n_beam_solids = n_beam_solid_verts = 0
+    solid_beams = None
+    if partial_manifests:
+        write_partial([], [], None, None)
 
     # Beam-solid mesh — optional, depends on whether the reader has
     # section + axis info per beam (SIF via FEAResultStreamAdapter
@@ -546,6 +611,11 @@ def bake_artefacts(
         # whether or not a section is drawn around it. The viewer stopped
         # consuming it; writing it was ~58 KB per bake of nothing.
         pass
+
+    # And again with the beam solids, which take a while on a deck of many beams:
+    # the viewer swaps its beam lines for them when this one lands.
+    if partial_manifests and (beam_solids_compact_path or beam_solids_glb_path):
+        write_partial([], [], None, None)
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -612,7 +682,7 @@ def bake_artefacts(
     # completed together at the end this way, which would defeat a sink that
     # exists to keep only one on disk at a time). Otherwise field by field, as
     # the bake always did. The bytes are the same either way.
-    step_major = bool(getattr(reader, "step_major_bake", False)) and on_artefact is None
+    step_major = bool(getattr(reader, "step_major_bake", False)) and on_artefact is None and not partial_manifests
     progress = _Progress(
         on_progress,
         (
@@ -633,6 +703,26 @@ def bake_artefacts(
             blob_paths.append(path)
             emit(path)
     else:
+        # With ``partial_manifests``, the preliminary manifest is re-written as each
+        # field completes (an element field once every one of its element-type
+        # blobs has), so a viewer adds fields as they land. The index is small
+        # (field metadata only; the per-element tables are content-addressed
+        # sidecars written once), so re-writing it per field costs little.
+        elem_count: dict[str, int] = defaultdict(int)
+        for es in elem_specs:
+            elem_count[es.name] += 1
+        field_names = [j.spec.name for j in nodal_jobs] + list(dict.fromkeys(es.name for es in elem_specs))
+
+        def field_done() -> None:
+            if not partial_manifests:
+                return
+            seen: dict[str, int] = defaultdict(int)
+            for em in elem_field_metas:
+                seen[em.spec.name] += 1
+            complete = [em for em in elem_field_metas if seen[em.spec.name] == elem_count[em.spec.name]]
+            done = {m.spec.name for m in field_metas} | {em.spec.name for em in complete}
+            write_partial(field_metas, complete, [n for n in field_names if n not in done], len(field_names))
+
         for job in nodal_jobs:
             meta = write_field_blob_streaming(
                 reader,
@@ -644,6 +734,7 @@ def bake_artefacts(
             field_metas.append(_finish_nodal(job, meta, target_fraction, ref_length, reference_peak))
             blob_paths.append(job.path)
             emit(job.path)
+            field_done()
         for es, blob_path in zip(elem_specs, elem_paths):
             em = write_element_field_blob_streaming(
                 reader,
@@ -654,6 +745,19 @@ def bake_artefacts(
             elem_field_metas.append(em)
             blob_paths.append(blob_path)
             emit(blob_path)
+            field_done()
+
+    # What each element IS (type, material, section, thickness), for the viewer's
+    # Selected Object panel; the property tables go in the manifest. Only from a
+    # reader that knows (the Sesam ones). After the fields, not with the mesh: the
+    # thickness comes from a property field, and asking for it first would make a
+    # deferred reader decode every field before the mesh could be shipped.
+    element_props = getattr(reader, "try_element_properties", lambda: None)()
+    element_props_path = None
+    if element_props is not None:
+        element_props_path = out_dir / "fea.mesh.element_props.bin"
+        write_element_properties(element_props, element_props_path)
+        emit(element_props_path)
 
     # History output — time series at monitored points. Optional; the
     # bake tolerates readers that pre-date the method (AttributeError)
@@ -742,7 +846,7 @@ def bake_artefacts(
     # element tables, sets, node ids, the freshness stamp), emitted in write
     # order: sidecars, manifest, stamp -- see write_manifest_tree. The inline
     # dict is dropped as soon as it is written; nothing below needs it.
-    written = write_manifest_tree(manifest, out_dir)
+    written = write_manifest_tree(manifest, out_dir, stamp_extra=stamp_extra)
     del manifest
     manifest_path = out_dir / "fea.manifest.json"
     for path in written:

@@ -746,19 +746,29 @@ def manifest_stamp(manifest: dict) -> dict:
     return stamp
 
 
-def write_manifest_tree(manifest: dict, out_dir: os.PathLike) -> list[pathlib.Path]:
+def write_manifest_tree(manifest: dict, out_dir: os.PathLike, *, stamp_extra: dict | None = None) -> list[pathlib.Path]:
     """Write ``manifest`` split (see :func:`split_manifest`) into ``out_dir``.
 
     Returns the written paths in write order: the sidecars, then
     ``fea.manifest.json``, then ``fea.stamp.json``. That order is the contract
     an uploader keeps -- a reader that finds the manifest finds every file it
-    names, and a stamp is never older than the manifest it describes."""
+    names, and a stamp is never older than the manifest it describes.
+
+    Called again on the same directory (a bake re-writing its preliminary
+    manifest as fields land), a sidecar already there with the same bytes is
+    neither re-written nor returned: it has been shipped. ``stamp_extra`` is
+    merged into the stamp."""
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[pathlib.Path] = []
 
     def put(name: str, payload: bytes) -> None:
         path = out_dir / name
+        try:
+            if path.stat().st_size == len(payload) and path.read_bytes() == payload:
+                return
+        except OSError:
+            pass
         path.write_bytes(payload)
         written.append(path)
 
@@ -767,7 +777,7 @@ def write_manifest_tree(manifest: dict, out_dir: os.PathLike) -> list[pathlib.Pa
     write_manifest(index, manifest_path)
     written.append(manifest_path)
     stamp_path = out_dir / STAMP_NAME
-    stamp_path.write_bytes(_dumps(manifest_stamp(index)))
+    stamp_path.write_bytes(_dumps({**manifest_stamp(index), **(stamp_extra or {})}))
     written.append(stamp_path)
     return written
 

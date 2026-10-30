@@ -225,3 +225,93 @@ def test_case_route_refuses_a_stale_base_without_parsing_it(app_client, tmp_path
     r = app_client.get("/api/scopes/shared/fea/case", params={"key": src, "case": 101})
     assert r.status_code == 409
     assert "stale" in r.json()["detail"]
+
+
+# ── Mesh first: a running bake's preliminary manifest ──────────────────────
+#
+# While the worker bakes it ships the mesh and a preliminary manifest (stamp
+# ``preliminary: true`` + its job id), then fields as they land. The route serves
+# that manifest while the job runs -- telling the client so, and which job to
+# poll -- and treats it as stale once the job is gone.
+
+
+@pytest.fixture
+def jobs(monkeypatch):
+    """Jobs the route's queue knows, by id -> status."""
+    from ada.comms.rest.queue import Job, JobQueue
+
+    known: dict[str, str] = {}
+
+    async def get(self, job_id):
+        status = known.get(job_id)
+        return None if status is None else Job(job_id=job_id, source_key="", derived_key="", status=status)
+
+    monkeypatch.setattr(JobQueue, "enabled", property(lambda self: True))
+    monkeypatch.setattr(JobQueue, "get", get)
+    return known
+
+
+def _preliminary(src: str, job_id: str) -> dict:
+    return {
+        "version": 2,
+        "bake_version": EXPECTED_FEA_BAKE_VERSION,
+        "preliminary": True,
+        "bake_job_id": job_id,
+        "src": src,
+        "mesh": {"url": "fea.mesh.glb"},
+        "fields": [],
+    }
+
+
+def test_running_bakes_preliminary_manifest_is_served_with_its_job(app_client, tmp_path, jobs, verdicts):
+    src = f"models/{uuid.uuid4().hex}.sin"
+    _upload(app_client, src, b"sin")
+    jobs["job-7"] = "running"
+    stamp = {"bake_version": EXPECTED_FEA_BAKE_VERSION, "preliminary": True, "job_id": "job-7"}
+    raw = _stage(tmp_path, src, _preliminary(src, "job-7"), stamp=stamp)
+    r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
+    assert r.status_code == 200 and r.content == raw
+    assert r.headers["x-fea-manifest-state"] == "preliminary"
+    assert r.headers["x-fea-bake-job"] == "job-7"
+
+    # The combination routes do not combine from a half-written base.
+    r = app_client.get("/api/scopes/shared/fea/case", params={"key": src, "case": 1})
+    assert r.status_code == 409 and "still running" in r.json()["detail"]
+
+
+def test_preliminary_manifest_of_a_dead_bake_is_stale(app_client, tmp_path, jobs, verdicts, monkeypatch):
+    src = f"models/{uuid.uuid4().hex}.sin"
+    _upload(app_client, src, b"sin")
+    jobs["job-8"] = "error"
+    stamp = {"bake_version": EXPECTED_FEA_BAKE_VERSION, "preliminary": True, "job_id": "job-8"}
+    _stage(tmp_path, src, _preliminary(src, "job-8"), stamp=stamp)
+    stale = []
+    real = fea_routes._preliminary_stale_reason
+
+    async def spy(ctx, job_id):
+        stale.append(await real(ctx, job_id))
+        return stale[-1]
+
+    monkeypatch.setattr(fea_routes, "_preliminary_stale_reason", spy)
+    r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
+    assert stale and "not running (error)" in stale[0]
+    # Stale -> a re-bake is asked for (the test app has no bake queue: 503), and no
+    # preliminary headers are ever sent for it.
+    assert "x-fea-manifest-state" not in r.headers
+
+
+def test_preliminary_manifest_without_its_stamp_yet_is_recognised_from_its_head(app_client, tmp_path, jobs, verdicts):
+    """Between the manifest's upload and its stamp's, the stamp on disk is the
+    previous write's (older): the manifest's head names it preliminary and its job."""
+    src = f"models/{uuid.uuid4().hex}.sin"
+    _upload(app_client, src, b"sin")
+    jobs["job-9"] = "running"
+    stamp = {"bake_version": EXPECTED_FEA_BAKE_VERSION, "preliminary": True, "job_id": "job-9"}
+    raw = _stage(tmp_path, src, _preliminary(src, "job-9"), stamp=stamp)
+    d = _bake_dir(tmp_path, src)
+    _date(tmp_path / "shared" / src, 9000)
+    _date(d / "fea.stamp.json", 7200)
+    _date(d / "fea.manifest.json", 3600)
+    r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
+    assert r.status_code == 200 and r.content == raw
+    assert r.headers["x-fea-bake-job"] == "job-9"
