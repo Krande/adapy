@@ -46,6 +46,11 @@ export interface PerfState {
     // FEA content gating -----------------------------------------------------
     hideBeamSolids: boolean;
     hideElementEdges: boolean;
+    // Zoomed out, the shell element grid fades so the result colours under it stay readable:
+    // full strength while its edges are at least `edgeFadeFullPx` CSS px apart on screen, gone at
+    // 3/8 of that. Off: always full strength.
+    edgeFade: boolean;
+    edgeFadeFullPx: number;
 
     // Picking ---------------------------------------------------------------
     // Flat-varying picker: builds an INDEXED picker geometry where
@@ -89,6 +94,8 @@ export interface PerfState {
     setOnDemandRender: (v: boolean) => void;
     setHideBeamSolids: (v: boolean) => void;
     setHideElementEdges: (v: boolean) => void;
+    setEdgeFade: (v: boolean) => void;
+    setEdgeFadeFullPx: (v: number) => void;
     setUseFlatPicker: (v: boolean) => void;
     setGpuFacePicking: (v: boolean) => void;
     setTimeSlicedLoad: (v: boolean) => void;
@@ -114,6 +121,8 @@ export const usePerfStore = create<PerfState>()(
 
             hideBeamSolids: false,
             hideElementEdges: false,
+            edgeFade: true,
+            edgeFadeFullPx: 8,
 
             useFlatPicker: false,
             gpuFacePicking: true,
@@ -134,6 +143,8 @@ export const usePerfStore = create<PerfState>()(
             setOnDemandRender: (v) => set({onDemandRender: v}),
             setHideBeamSolids: (v) => set({hideBeamSolids: v}),
             setHideElementEdges: (v) => set({hideElementEdges: v}),
+            setEdgeFade: (v) => set({edgeFade: v}),
+            setEdgeFadeFullPx: (v) => set({edgeFadeFullPx: Number.isFinite(v) ? Math.min(100, Math.max(1, v)) : 8}),
             setUseFlatPicker: (v) => set({useFlatPicker: v}),
             setGpuFacePicking: (v) => set({gpuFacePicking: v}),
             setTimeSlicedLoad: (v) => set({timeSlicedLoad: v}),

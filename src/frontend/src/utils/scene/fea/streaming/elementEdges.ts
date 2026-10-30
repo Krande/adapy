@@ -22,9 +22,8 @@ import {withoutEdges} from "../edgeSplit";
 
 // Zoomed out, a dense element grid draws a line every few pixels and washes the result colours
 // out to the edge colour. Fade the shell grid by how far apart its edges are on screen: full
-// strength from EDGE_FULL_PX apart, gone at EDGE_GONE_PX.
-const EDGE_FULL_PX = 8;
-const EDGE_GONE_PX = 3;
+// strength from `edgeFadeFullPx` apart (a user setting, 8 by default), gone at 3/8 of that.
+const EDGE_GONE_FRACTION = 3 / 8;
 
 /** Median length of a sample of `edges` (index pairs into `position`), in model units. */
 function typicalEdgeLength(position: THREE.BufferAttribute, edges: Uint32Array): number {
@@ -71,6 +70,11 @@ export function fadeWithDensity(
     const box = new THREE.Box3();
     const focus = new THREE.Vector3();
     material.onBeforeRender = (renderer, _scene, camera) => {
+        const {edgeFade, edgeFadeFullPx} = usePerfStore.getState();
+        if (!edgeFade) {
+            material.opacity = 1;
+            return;
+        }
         const geometry = mesh.geometry;
         if (!geometry.boundingBox) geometry.computeBoundingBox();
         box.copy(geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
@@ -83,7 +87,9 @@ export function fadeWithDensity(
             : cssHeight / (2 * Math.max(focus.distanceTo(camera.position), 1e-9) *
                 Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov) / 2));
         const px = length * perUnit;
-        material.opacity = THREE.MathUtils.clamp((px - EDGE_GONE_PX) / (EDGE_FULL_PX - EDGE_GONE_PX), 0, 1);
+        const fullPx = edgeFadeFullPx;
+        const gonePx = fullPx * EDGE_GONE_FRACTION;
+        material.opacity = THREE.MathUtils.clamp((px - gonePx) / (fullPx - gonePx), 0, 1);
     };
 }
 

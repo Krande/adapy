@@ -3,6 +3,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 
+import {usePerfStore} from "@/state/perfStore";
 import {fadeWithDensity} from "@/utils/scene/fea/streaming/elementEdges";
 
 test("element edges fade as they crowd together on screen", () => {
@@ -55,4 +56,34 @@ test("the fade is the same from either side of what is looked at, wherever the m
     const fromMinus = opacityFrom(-90);
     assert.ok(fromPlus > 0 && fromPlus < 1);
     assert.equal(fromPlus, fromMinus);
+});
+
+test("the fade can be turned off, and where it starts adjusted", () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const mesh = new THREE.Mesh(g);
+    const segments = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({transparent: true}));
+    fadeWithDensity(segments, mesh, new Uint32Array([0, 1, 0, 2]), () => null);
+    const renderer = {
+        getDrawingBufferSize: (v: THREE.Vector2) => v.set(1000, 1000),
+        getPixelRatio: () => 1,
+    } as unknown as THREE.WebGLRenderer;
+    const camera = new THREE.PerspectiveCamera(90, 1);
+    camera.position.set(0, 0, 100); // unit edges 5 px apart
+    const opacity = () => {
+        (segments.material as THREE.Material).onBeforeRender(renderer, new THREE.Scene(), camera, g, segments, null as never);
+        return (segments.material as THREE.LineBasicMaterial).opacity;
+    };
+    try {
+        assert.ok(opacity() > 0 && opacity() < 1);
+        usePerfStore.getState().setEdgeFadeFullPx(4); // full strength from 4 px: 5 px apart is full
+        assert.equal(opacity(), 1);
+        usePerfStore.getState().setEdgeFadeFullPx(40); // gone below 15 px
+        assert.equal(opacity(), 0);
+        usePerfStore.getState().setEdgeFade(false);
+        assert.equal(opacity(), 1);
+    } finally {
+        usePerfStore.getState().setEdgeFade(true);
+        usePerfStore.getState().setEdgeFadeFullPx(8);
+    }
 });

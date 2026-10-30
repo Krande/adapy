@@ -21,6 +21,7 @@ import React, {useEffect, useMemo, useState, useSyncExternalStore} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
+import {requestRender, usePerfStore} from "@/state/perfStore";
 
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
@@ -339,6 +340,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setEnvelopeMode,
     } = useFeaAnimationStore();
 
+    const edgeFade = usePerfStore((s) => s.edgeFade);
+    const edgeFadeFullPx = usePerfStore((s) => s.edgeFadeFullPx);
+    const onEdgeFadeChange = (on: boolean, fullPx: number) => {
+        const perf = usePerfStore.getState();
+        perf.setEdgeFade(on);
+        perf.setEdgeFadeFullPx(fullPx);
+        requestRender();
+    };
     const beamSolidsToggle = beamSolidsToggleState(manifest, beamSolidsUnavailable);
     const onToggleBeamSolids = (next: boolean) => {
         setBeamSolidsVisible(next);
@@ -990,6 +999,39 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </label>
                         );
                     })()}
+                    {/* The element grid's zoom fade: off keeps the edges at full strength at any
+                        distance; the number is how far apart (CSS px) the edges must be on screen
+                        to show at full strength. */}
+                    <label
+                        className="flex items-center gap-1"
+                        title="Fade the element edges as they crowd together when zoomed out, so the result colours stay readable"
+                    >
+                        <input
+                            type="checkbox"
+                            checked={edgeFade}
+                            onChange={(e) => onEdgeFadeChange(e.target.checked, edgeFadeFullPx)}
+                        />
+                        <span className="text-gray-300">Fade edges when zoomed out</span>
+                    </label>
+                    {edgeFade && (
+                        <label
+                            className="flex items-center gap-1"
+                            title="Edges show at full strength while they are at least this many pixels apart on screen; they are gone at 3/8 of it. Higher fades sooner."
+                        >
+                            <span className="text-gray-300">from</span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={100}
+                                step={1}
+                                value={edgeFadeFullPx}
+                                onChange={(e) => onEdgeFadeChange(edgeFade, parseFloat(e.target.value))}
+                                className={`${FIELD_CONTROL} w-12 font-mono tabular-nums`}
+                                aria-label="Edge spacing in pixels below which the edges fade"
+                            />
+                            <span className="text-gray-400">px</span>
+                        </label>
+                    )}
                 </div>
             )}
 
