@@ -62,16 +62,22 @@ export interface ScheduleSetting {
   default: unknown;
   source: "enum" | "spec" | "change_users";
   choices?: ScheduleChoice[];
+  /** An enum a schedule holds SEVERAL of (a list): rendered as checkboxes, sent as a list. */
+  multiple?: boolean;
 }
 
 export interface ProviderScheduleJob {
   id: string;
   /** `sweep`: every collection the provider offers, one job each, each published
-   *  (`routes/asset_sweeps.py`). Its schedule names no collection. */
-  kind: "change-check" | "job" | "sweep";
+   *  (`routes/asset_sweeps.py`). Its schedule names no collection.
+   *  `apply-changes`: one collection, or ALL (an empty collection, driven like a sweep), keeping
+   *  the provider store current with what changed since a per-collection cursor. */
+  kind: "change-check" | "job" | "sweep" | "apply-changes";
   label: string;
   description: string | null;
   settings: ScheduleSetting[];
+  /** What the provider calls its collections, plural ("projects"); the "All ..." option reads it. */
+  collections_label?: string;
 }
 
 export interface ProviderSchedules {
@@ -98,6 +104,14 @@ export interface ProviderSchedule {
   last_skipped_reason: string | null;
   last_job_id: string | null;
   last_run: ChangeRun | null;
+  /** An `apply-changes` row: where each collection's "since" stands (`asset_apply_cursors`). */
+  cursors?: Record<string, ApplyCursor>;
+}
+
+/** One collection's apply-changes cursor: the provider's opaque `next_cursor` and when core applied it. */
+export interface ApplyCursor {
+  cursor: string | null;
+  applied_at: string | null;
 }
 
 export interface LegacyPluginSchedule {
@@ -146,6 +160,9 @@ export interface SweepItem {
   job_status?: string;
   stage?: string | null;
   progress?: number | null;
+  /** An apply-changes run's per-collection answer (`ada.assets/apply-changes@1`, plus how each
+   *  staging role was applied); absent on a sweep's item. Read through `applyChangesOf`. */
+  apply_changes?: Record<string, unknown> | null;
   started_at: string | null;
   finished_at: string | null;
 }
@@ -260,9 +277,19 @@ export const assetSchedulesApi = {
     provider: string;
     job: string;
     settings: Record<string, unknown>;
+    /** An `apply-changes` run of ONE collection; omitted, every collection the provider offers. */
+    collection?: string;
   }): Promise<SweepRun> {
     const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps`, json("POST", body));
     return jsonOrThrow(r, "adminStartAssetSweep");
+  },
+
+  /** Forget one collection's apply-changes cursor: its next run is a baseline again (records where
+   *  "since" starts, applies nothing). */
+  async adminResetAssetApplyCursor(provider: string, collection: string): Promise<unknown> {
+    const q = new URLSearchParams({ provider, collection });
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-apply-cursors?${q}`, { method: "DELETE" });
+    return jsonOrThrow(r, "adminResetAssetApplyCursor");
   },
 
   async adminAssetSweeps(provider?: string, limit = 10): Promise<SweepRun[]> {

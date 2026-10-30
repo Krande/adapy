@@ -59,6 +59,12 @@ options from ``providers/assets/_options/<collection>.json``, and an interrupted
 even when it was started before the store under ``shared`` or a project. An admin's and a scheduled
 sweep are recorded under ``providers``; one requested from a scope is recorded under that scope,
 which is how the scope polls it.
+
+APPLY CHANGES RIDES ON THIS. An ``apply-changes`` entry (``routes/asset_apply_changes.py``) is
+started, scheduled, resumed, skipped and cancelled exactly as a sweep is, and recorded as one; only
+the per-collection work differs (``apply_one``: ask for the changes since core's cursor, publish the
+patches, then advance the cursor). It may name the collections it runs (a schedule's one, or a
+one-off start's ``collection``), and the provider's default sweep list does not apply to it.
 """
 
 from __future__ import annotations
@@ -87,6 +93,7 @@ from ..run_driver import (
 )
 from ..scope import Scope
 from .asset_schedules import (
+    APPLY_CHANGES,
     SWEEP,
     build_options,
     collections_of,
@@ -153,8 +160,9 @@ async def advertised_provider_specs(ctx: RestContext, provider: str) -> list[dic
 
 
 async def sweep_entry(ctx: RestContext, provider: str, job: str) -> tuple[list[dict], tuple[dict, dict] | None]:
-    """``(specs, (spec, entry) | None)`` for ``job`` of ``provider``: a declared sweep, or
-    :data:`COLLECTION_REQUEST` -- the first spec declaring a collection request."""
+    """``(specs, (spec, entry) | None)`` for ``job`` of ``provider``: a declared sweep or
+    apply-changes entry (both driven here), or :data:`COLLECTION_REQUEST` -- the first spec
+    declaring a collection request."""
     if job == COLLECTION_REQUEST:
         specs = await advertised_provider_specs(ctx, provider)
         for spec in specs:
@@ -164,7 +172,7 @@ async def sweep_entry(ctx: RestContext, provider: str, job: str) -> tuple[list[d
         return specs, None
     specs = (await provider_specs(ctx)).get(provider) or []
     found = find_entry(specs, job)
-    return specs, found if found is not None and found[1].get("kind") == SWEEP else None
+    return specs, found if found is not None and found[1].get("kind") in (SWEEP, APPLY_CHANGES) else None
 
 
 def offered_names(offered: list[str], wanted: list[str]) -> tuple[list[str], list[str]]:
@@ -281,7 +289,13 @@ async def start_sweep(
         requested_by=getattr(user, "sub", None),
         requested_via=via,
         schedule_id=schedule_id,
-        excluded=frozenset() if chosen else frozenset(await default_excluded(pool, provider)),
+        # The default list is a SWEEP's (collections too big to export whole routinely); applying
+        # changes to one is small by definition, and leaving it out would let its cursor go stale.
+        excluded=(
+            frozenset()
+            if chosen or entry.get("kind") == APPLY_CHANGES
+            else frozenset(await default_excluded(pool, provider))
+        ),
     )
     spawn(
         _drive(ctx, pool, run, scope_obj=scope_obj, spec=spec, entry=entry, collections=collections, user=user),
@@ -374,6 +388,14 @@ async def _drive(
     failed = 0
     width = await sweep_width(ctx, spec, entry)
     queue = iter(enumerate(collections))
+    # One collection's work: a sweep fetches and publishes it whole; an apply-changes run asks for
+    # what changed since core's cursor and applies the patches (routes/asset_apply_changes.py). The
+    # lanes, heartbeat, cancel, skip and resume around it are the same.
+    one = _sweep_one
+    if entry.get("kind") == APPLY_CHANGES:
+        from .asset_apply_changes import apply_one
+
+        one = apply_one
 
     async def lane() -> None:
         # Lanes share one iterator, so collections still START in order; with one lane this is
@@ -385,7 +407,7 @@ async def _drive(
             # Read now, not at start: it may have been ticked off (or back on) since.
             if await db_module.asset_sweep_item_status(pool, run_id, position) != "pending":
                 continue
-            if not await _sweep_one(
+            if not await one(
                 ctx, pool, run, position, collection, scope_obj=scope_obj, spec=spec, entry=entry, user=user
             ):
                 failed += 1
@@ -585,9 +607,11 @@ async def admin_asset_sweep_start(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Run a provider's sweep once, now. Body: ``{provider, job, settings}`` -- the same choices a
-    schedule of it is made from, and checked the same way. ``scope`` (from before the provider
-    store) is accepted and ignored: the sweep runs in, and is recorded under, the store."""
+    """Run a provider's sweep -- or its apply-changes entry -- once, now. Body: ``{provider, job,
+    settings, collection?}`` -- the same choices a schedule of it is made from, and checked the same
+    way. ``collection`` (or a ``collections`` list) runs only those; absent or empty, every
+    collection the provider offers. ``scope`` (from before the provider store) is accepted and
+    ignored: the run is driven in, and recorded under, the store."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
@@ -595,6 +619,8 @@ async def admin_asset_sweep_start(
     if not provider or not job:
         raise HTTPException(status_code=400, detail="provider and job are required")
     settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
+    named = body.get("collections") if isinstance(body.get("collections"), list) else [body.get("collection")]
+    chosen = [str(c).strip() for c in named if isinstance(c, str) and c.strip()] or None
     scope_obj = PROVIDER_STORE
     specs = (await provider_specs(ctx)).get(provider) or []
     found = find_entry(specs, job)
@@ -625,6 +651,7 @@ async def admin_asset_sweep_start(
             settings=settings,
             user=user,
             via="user",
+            collections=chosen,
         )
     except SweepRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -706,6 +733,12 @@ async def sweep_with_progress(ctx: RestContext, pool, run_id: str) -> dict | Non
     if run is None:
         return None
     for item in run["items"]:
+        # An apply-changes item keeps its answer beside its timings (the sweep tables have no other
+        # free column); it is read as the item's own: `apply_changes` and `roles`.
+        timings = item.get("timings") or {}
+        for name in ("apply_changes", "roles"):
+            if name in timings:
+                item[name] = timings[name]
         job_id = {"fetching": item["fetch_job_id"], "publishing": item["publish_job_id"]}.get(item["status"])
         if not job_id:
             continue

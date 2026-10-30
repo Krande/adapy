@@ -111,6 +111,11 @@ def fold_listing(keys: Iterable[str]) -> AssetIndex:
             continue  # not ours; a scope holds plenty else
         if key.endswith("/"):
             continue  # directory marker
+        # The same reservation one level down: a leading `_` in the SUBJECT position is core's
+        # (a collection's hierarchy patches under `<collection>/_patches/`), never a subject.
+        parts = key.split("/", 3)
+        if len(parts) >= 3 and parts[2].startswith("_"):
+            continue
         try:
             parsed = parse_asset_key(key)
         except AssetKeyError as exc:

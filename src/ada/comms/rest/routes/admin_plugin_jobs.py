@@ -280,9 +280,10 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
             await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
             return {"skipped": reason}
 
-    if schedule_row.get("schedule_kind") == "sweep":
+    if schedule_row.get("schedule_kind") in ("sweep", "apply-changes"):
         # A provider sweep is not one job but one per collection, driven by the API; it has its
         # own guard (one running sweep per provider) and its own record. routes/asset_sweeps.py.
+        # An apply-changes run is driven the same way (routes/asset_apply_changes.py).
         return await _fire_sweep(ctx, pool, schedule_row, scope_obj=scope_obj)
 
     # Concurrent-fire guard. A plugin job can hold a single licensed
@@ -461,6 +462,8 @@ async def _fire_sweep(ctx: RestContext, pool, schedule_row: dict, *, scope_obj) 
             user=SystemUser(),
             via="schedule",
             schedule_id=str(sched_id),
+            # An apply-changes row may name one collection; a sweep row never does (every one).
+            collections=[schedule_row["collection"]] if schedule_row.get("collection") else None,
         )
     except SweepRefused as exc:
         reason = f"{exc}; slot skipped"

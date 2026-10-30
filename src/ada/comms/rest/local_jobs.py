@@ -321,6 +321,7 @@ def start_asset_build(
     derived_key: str,
     storage: Any,
     scope: Any,
+    exclude_nodes: Any = (),
 ) -> LocalJob:
     """Run an ``asset_build`` in a thread -- the queue-less half of Decision 1's ``build`` kind.
 
@@ -340,9 +341,14 @@ def start_asset_build(
         parse_build_summary,
         validate_build_summary,
     )
-    from ada.assets.builders import asset_builder
+    from ada.assets.builders import (
+        asset_builder,
+        invoke_builder,
+        unhonoured_exclusions_warning,
+    )
 
     builder = asset_builder(capability)  # LookupError if this process does not serve it
+    excluded = sorted({str(n) for n in exclude_nodes or ()})
     loop = asyncio.get_running_loop()
 
     from ada.comms.rest.worker import _SyncStorageFacade
@@ -367,8 +373,10 @@ def start_asset_build(
 
     def _run() -> None:
         try:
-            result = builder.build(
+            result, honoured = invoke_builder(
+                builder,
                 options,
+                exclude_nodes=excluded,
                 request=request,
                 storage=sync_storage,
                 scope=scope,
@@ -396,6 +404,8 @@ def start_asset_build(
             job.stage = "upload"
             job.progress = 0.95
             payload = summary.to_dict()
+            if not honoured:
+                payload["warnings"] = [*payload.get("warnings", []), unhonoured_exclusions_warning(excluded)]
             sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
             job.result = payload
             job.status = STATUS_DONE

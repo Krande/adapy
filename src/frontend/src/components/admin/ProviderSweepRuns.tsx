@@ -6,6 +6,8 @@ import {sweepSkipTarget, trackSweep, untrackSweep} from "@/services/sweepTrackin
 import {useRunFocusStore} from "@/state/runFocusStore";
 import {useConversionStore} from "@/state/conversionStore";
 
+import {applyChangesOf, countsLine} from "./applyChangesItem";
+
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
 // what every phase of each took. See `routes/asset_sweeps.py`.
 //
@@ -85,6 +87,52 @@ function countsText(run: SweepRun): string {
 export function canToggleRun(run: SweepRun, item: SweepItem): boolean {
     return run.status === "running" && (item.status === "pending" || item.status === "excluded");
 }
+
+/** An apply-changes item's own answer under its message: the element counts, `baseline` /
+ *  `nothing`, the cursor moved (since → next), and each staging role's outcome. Nothing for a
+ *  sweep's item, which carries no such block. */
+const ApplyChangesResult: React.FC<{item: SweepItem}> = ({item}) => {
+    const a = applyChangesOf(item);
+    if (!a) return null;
+    const badge = "px-1 rounded-sm border text-[10px] uppercase tracking-wide";
+    return (
+        <div className="mt-0.5 space-y-0.5" data-testid="apply-changes-result">
+            <div className="flex flex-wrap items-center gap-1.5">
+                {a.baseline && (
+                    <span className={`${badge} border-blue-700 text-blue-300`} title="First run: only records where changes start from; nothing was applied">
+                        baseline
+                    </span>
+                )}
+                {a.nothing && (
+                    <span className={`${badge} border-gray-700 text-gray-400`} title="Nothing changed since the last cursor">
+                        nothing
+                    </span>
+                )}
+                {a.counts && !a.baseline && <span className="text-gray-300">{countsLine(a.counts)}</span>}
+                {!!a.counts?.unplaceable && (
+                    <span className="text-amber-300" title="Elements the provider could not place in the tree">
+                        {a.counts.unplaceable} unplaceable
+                    </span>
+                )}
+            </div>
+            {(a.since || a.nextCursor) && (
+                <div className="font-mono text-gray-500" title="The cursor this run asked from, and the one it leaves for the next">
+                    {a.since ?? "(none)"} → {a.nextCursor ?? "—"}
+                </div>
+            )}
+            {a.roles.length > 0 && (
+                <ul>
+                    {a.roles.map((r) => (
+                        <li key={r.role} className={r.applied ? "text-emerald-300" : "text-amber-300"}>
+                            {r.role}: {r.applied ? "applied" : "refused"}
+                            {r.warning && <span className="text-gray-400"> — {r.warning}</span>}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+};
 
 const SweepItems: React.FC<{
     run: SweepRun;
@@ -166,6 +214,7 @@ const SweepItems: React.FC<{
                                         {i.message ? `${i.revision ? " — " : ""}${i.message}` : ""}
                                     </span>
                                 )}
+                                <ApplyChangesResult item={i} />
                             </td>
                         </tr>
                     ))}

@@ -19,6 +19,12 @@ via the :func:`get_pool` accessor.
 from __future__ import annotations
 
 from ._common import _loads_jsonb as _loads_jsonb  # noqa: F401
+from .asset_apply_cursors import (
+    delete_asset_apply_cursor,
+    get_asset_apply_cursor,
+    list_asset_apply_cursors,
+    set_asset_apply_cursor,
+)
 from .asset_changes import (
     asset_change_users,
     finish_asset_change_run,
@@ -334,6 +340,10 @@ __all__ = [
     "set_asset_sweep_item_run",
     "asset_sweep_item_status",
     "resume_asset_sweep_run",
+    "get_asset_apply_cursor",
+    "set_asset_apply_cursor",
+    "list_asset_apply_cursors",
+    "delete_asset_apply_cursor",
     "insert_asset_export_run",
     "heartbeat_asset_export_run",
     "finish_asset_export_run",

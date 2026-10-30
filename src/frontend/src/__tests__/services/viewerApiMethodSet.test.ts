@@ -101,6 +101,8 @@ const EXPECTED_METHODS = [
   "adminDbUnshareAttrCollection", "adminDbUnshareAttrProvider",
   // Provider grants (providerGrants): which scopes read which of the provider store's datasets.
   "adminProviderGrants", "adminRevokeProviderGrant", "adminSetProviderGrant", "scopeProviderGrants",
+  // Apply changes: reset a collection's cursor (assetSchedules).
+  "adminResetAssetApplyCursor",
 ].sort();
 
 test("viewerApi exposes exactly the pinned method set", () => {

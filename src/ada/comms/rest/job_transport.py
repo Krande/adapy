@@ -450,6 +450,7 @@ class LocalJobTransport(_BaseTransport):
                 derived_key=req.derived_key or "",
                 storage=self._storage,
                 scope=req.scope,
+                exclude_nodes=opts.get("exclude_nodes") or (),
             )
         except LookupError as exc:
             # No builder HERE for that capability: 501 (this process cannot), not 503 (this

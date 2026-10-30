@@ -88,6 +88,7 @@ from ada.config import logger
 
 from .. import auth as auth_module
 from .. import db as db_module
+from .. import hierarchy_patches as hp
 from ..auth import User
 from ..job_transport import JobRequest
 from ..scope import Scope
@@ -331,7 +332,9 @@ async def api_asset_geometry(
     Computed from the stored documents only -- manifests and hierarchy slices -- and cached under
     ``_derived/assets/_geometry/<collection>/<token>.json``, where the token hashes the collection's
     listing (keys, sizes, times): any publish or unpublish moves it, so a cached answer is never
-    stale and needs no invalidation.
+    stale and needs no invalidation. The collection's hierarchy patches live under that listing
+    (``<collection>/_patches/``), so a new patch moves it too -- and the roll-up reads the tree
+    through them, as the tree route does.
     """
     if not is_valid_segment(collection):
         raise HTTPException(status_code=400, detail=f"invalid collection {collection!r}")
@@ -369,7 +372,8 @@ async def api_asset_geometry(
 #: with ``_``, the same reservation ``_publish`` relies on.
 _ROLLUP_PREFIX = f"{DERIVED_ASSET_PREFIX}/_geometry"
 #: Bumped when the roll-up's RULES change, so an answer cached under the old ones is not served.
-_ROLLUP_VERSION = "1"
+#: 2: hierarchy patches overlay the tree (their keys are in the listing, so they move the token).
+_ROLLUP_VERSION = "2"
 #: Hierarchy documents read at once. Low on purpose: a site spine can be tens of MB parsed.
 _ROLLUP_SPINE_CONCURRENCY = 4
 _ROLLUP_INFLIGHT: "dict[tuple[str, str], asyncio.Future]" = {}
@@ -415,12 +419,17 @@ async def _compute_rollup(
     summaries = await asyncio.gather(*(manifest(s, r) for s, r in wanted))
     plan = plan_rollup(collection, subjects, dict(zip(wanted, summaries)))
     placement = TreePlacement(collection)
+    # The collection's hierarchy patches, from the listing already in hand: the same overlay the
+    # tree route serves, and their keys are part of the token, so a new patch re-computes this.
+    placement.apply_patches(
+        await hp.read_hierarchy_patches(ctx.storage, scope_obj, hp.patch_keys_in((e.key for e in entries), collection))
+    )
 
     tree_gate = asyncio.Semaphore(_ROLLUP_SPINE_CONCURRENCY)
     targets = [s for s in plan.any_here if s != collection]
 
     def done() -> bool:
-        return all(placement.placed(s) for s in targets)
+        return all(placement.placed(s) or placement.removed(s) for s in targets)
 
     async def read(doc: TreeDocument, *, skip_when_done: bool = False) -> None:
         key = asset_key(collection, doc.subject, doc.revision, HIERARCHY_FILENAME)
@@ -497,6 +506,11 @@ async def api_asset_tree(
 
     Read where the scope reads (``provider``, ``collection``) -- the provider store for a granted
     dataset it holds -- and a live provider is handed that scope too.
+
+    A published spine is served THROUGH the collection's hierarchy patches
+    (``ada.comms.rest.hierarchy_patches``): every patch not superseded by this spine's revision,
+    in order -- upserted rows replace or join by id under the parent they name, deleted ones go
+    with their subtree, and ``children`` counts follow. The spine itself is never rewritten.
     """
     scope_obj = await _read_scope(ctx, _db_pool(request), scope_obj, provider, collection)
     if not _is_published(provider):
@@ -515,6 +529,11 @@ async def api_asset_tree(
     except AssetKeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     spine = await _spine_cached(ctx, scope_obj, key, subject)
+    overlaid = await _overlaid_spine(ctx, scope_obj, collection, key, subject, revision, spine)
+    if overlaid is not None:
+        if parent is None:
+            return _json_response(request, overlaid.slice_body())
+        return _json_response(request, overlaid.children_slice(parent))
     if parent is None:
         return _json_response(request, _slice_to_dict(spine.slice_))
     return _json_response(request, spine.children_slice(parent))
@@ -624,10 +643,45 @@ async def _spine_cached(ctx: RestContext, scope_obj: Scope, key: str, subject: s
 
 
 def clear_asset_spine_cache() -> None:
-    """Test hook. The cache is keyed by an immutable revision, so nothing in production needs it."""
+    """Test hook. The cache is keyed by an immutable revision, so nothing in production needs it.
+    Clears the patch overlays and the patch listings with it: they are views over the spines."""
     global _SPINE_CACHE_BYTES
     _SPINE_CACHE.clear()
     _SPINE_CACHE_BYTES = 0
+    _OVERLAY_CACHE.clear()
+    _COLLECTION_LISTINGS.clear()
+    hp.clear_hierarchy_patch_caches()
+
+
+# -- hierarchy patches over spines --------------------------------------------------------------
+#
+# A spine seen through its collection's patches is cached keyed by (resolved scope prefix, spine
+# key, NEWEST patch key): a new patch is a new key, so nothing is ever invalidated, and a level
+# answer stays O(level). The overlay holds references into the cached spine plus a few small maps,
+# so the bound is a count. When no patch applies over a spine (none stored, or all superseded by
+# its revision) the bare spine answers and nothing is cached here.
+_OVERLAY_CACHE_ENTRIES = int(os.environ.get("ADA_ASSET_OVERLAY_CACHE_ENTRIES", "32"))
+_OVERLAY_CACHE: "OrderedDict[tuple[str, str, str], hp.OverlaidSpine | None]" = OrderedDict()
+
+
+async def _overlaid_spine(
+    ctx: RestContext, scope_obj: Scope, collection: str, key: str, subject: str, revision: str, spine: "_Spine"
+) -> "hp.OverlaidSpine | None":
+    """``spine`` through the collection's patches, or None when none applies over it."""
+    patch_keys = await hp.list_hierarchy_patch_keys(ctx.storage, scope_obj, collection)
+    if not patch_keys:
+        return None
+    cache_key = (scope_obj.prefix(), key, patch_keys[-1])
+    if cache_key in _OVERLAY_CACHE:
+        _OVERLAY_CACHE.move_to_end(cache_key)
+        return _OVERLAY_CACHE[cache_key]
+    patches = await hp.read_hierarchy_patches(ctx.storage, scope_obj, patch_keys)
+    overlay = hp.HierarchyOverlay(patches, subject, revision)
+    overlaid = hp.OverlaidSpine(spine, overlay, subject, _slice_to_dict) if overlay else None
+    _OVERLAY_CACHE[cache_key] = overlaid
+    while len(_OVERLAY_CACHE) > _OVERLAY_CACHE_ENTRIES:
+        _OVERLAY_CACHE.popitem(last=False)
+    return overlaid
 
 
 # -- attributes -------------------------------------------------------------------------------
@@ -901,8 +955,10 @@ async def submit_node_build(
 ) -> dict:
     """:func:`api_asset_build`'s work, for callers that are not the route (the search export's
     mesh path builds the nodes it writes). Answers ``{derived_key, capability, provider, subject,
-    revision, node, fingerprint, job_id, cached}`` -- plus ``scope`` (``providers``) when the build
-    is a granted dataset's; raises HTTPException as the route would.
+    revision, node, fingerprint, exclude_nodes, overrides, job_id, cached}`` -- plus ``scope``
+    (``providers``) when the build is a granted dataset's; raises HTTPException as the route would.
+    ``exclude_nodes`` / ``overrides`` are :func:`_build_exclusions`'s (both empty for most builds,
+    whose key is then exactly what it was before exclusions existed).
 
     A GRANTED DATASET IS BUILT IN THE PROVIDER STORE: the manifest is read there, the cached check
     asks there and the job runs there, so every granted scope shares one built GLB. A member may
@@ -948,12 +1004,21 @@ async def submit_node_build(
     # the same leaf re-published against a newer one are two builds, because the node can sit
     # under a different parent -- so the tree the placement came from is part of the identity.
     hierarchy_source = manifest.hierarchy_revision or manifest.revision
+    # What the build must leave out (apply-changes.md section 4): descendants with their own newer
+    # publish -- the viewer loads those beside the build (``overrides``) -- and descendants a
+    # hierarchy patch removed since this revision.
+    try:
+        exclude_nodes, overrides = await _build_exclusions(ctx, scope_obj, collection, node, manifest, revision)
+    except Exception as exc:  # noqa: BLE001 - the covering publish still builds; say why it is whole
+        logger.warning("asset build: exclusions of %s/%s@%s not computed: %s", collection, node, revision, exc)
+        exclude_nodes, overrides = [], []
     try:
         fingerprint = build_fingerprint(
             options=dict(spec.options),
             fingerprint_inputs=spec.fingerprint_inputs,
             node=node,
             hierarchy_source=hierarchy_source,
+            exclude_nodes=exclude_nodes,
         )
         prefix = derived_asset_prefix(
             provider=manifest.provider,
@@ -982,6 +1047,10 @@ async def submit_node_build(
         "revision": revision,
         "node": node,
         "fingerprint": fingerprint,
+        # The descendants this build skips, and of them the ones with their own newer publish,
+        # which the viewer loads beside it: ``{node, subject, revision, provider}`` each.
+        "exclude_nodes": exclude_nodes,
+        "overrides": overrides,
     }
     if scope_obj != requested_scope:
         answer["scope"] = wire_of(scope_obj)
@@ -1011,6 +1080,9 @@ async def submit_node_build(
                 "capability": spec.capability,
                 "options": dict(spec.options),
                 "derived_prefix": prefix,
+                # Only when there is something to skip: the worker hands it to the builder then
+                # (``ada.assets.builders.invoke_builder``), and an empty build travels as before.
+                **({"exclude_nodes": exclude_nodes} if exclude_nodes else {}),
             },
             target_capability=spec.capability,
         ),
@@ -1026,6 +1098,144 @@ async def submit_node_build(
         ),
     )
     return {**answer, "job_id": submitted.job_id, "cached": False}
+
+
+# -- build exclusions -------------------------------------------------------------------------
+#
+# An element published as its own subject is newer than the level-wide publish that also covers
+# it, and a hierarchy patch can delete or move an element the covering publish still holds. A build
+# of an ANCESTOR must then skip those subtrees, or its mesh shows the element's old geometry next to
+# its new one, or an element that is gone (apply-changes.md section 4).
+#
+# Which subjects have a newer revision needs the collection's listing. It is folded once and held
+# for a few seconds (``ADA_ASSET_COLLECTION_LISTING_TTL_S``), and it is read ONLY for a node that
+# has descendants -- a leaf's build never pays for it.
+_COLLECTION_LISTING_TTL_S = float(os.environ.get("ADA_ASSET_COLLECTION_LISTING_TTL_S", "10"))
+_COLLECTION_LISTINGS: "dict[tuple[str, str], tuple[float, dict]]" = {}
+
+
+async def _collection_subjects(ctx: RestContext, scope_obj: Scope, collection: str) -> dict:
+    """``subject -> SubjectEntry`` of the collection (revisions newest first), briefly cached."""
+    ck = (scope_obj.prefix(), collection)
+    hit = _COLLECTION_LISTINGS.get(ck)
+    if hit is not None and hit[0] > time.monotonic():
+        return hit[1]
+    keys = await _list_asset_keys(ctx, scope_obj, f"{ASSET_PREFIX}/{collection}/")
+    subjects = {s.subject: s for s in fold_listing(keys).subjects(collection)}
+    _COLLECTION_LISTINGS[ck] = (time.monotonic() + _COLLECTION_LISTING_TTL_S, subjects)
+    return subjects
+
+
+def _carries_hierarchy(manifest) -> bool:
+    return any(
+        a.role == "hierarchy" or (a.file or a.key or "").rsplit("/", 1)[-1] == HIERARCHY_FILENAME
+        for a in manifest.artefacts
+    )
+
+
+async def _build_exclusions(
+    ctx: RestContext, scope_obj: Scope, collection: str, node: str, manifest, revision: str
+) -> tuple[list[str], list[dict]]:
+    """``(exclude_nodes, overrides)`` for a build of ``node`` covered by ``manifest.subject@revision``.
+
+    THE TREE is the covering subject's own spine at that revision when it carries one, else the
+    collection index's newest -- whichever holds ``node`` with something under it -- seen through
+    the hierarchy patches in force over it (the tree route's overlay).
+
+    EXCLUDED, as the topmost of each subtree (the builder skips a subtree whole, so naming its
+    descendants again would only re-key the build):
+
+    * a descendant in the patched tree whose own newest complete, content-carrying revision
+      (delivery ``mesh`` or ``build``) is NEWER than ``revision`` -- revisions are compact UTC
+      instants, so newer is lexically greater. These are the ``overrides``
+      (``{node, subject, revision, provider}``), which the viewer loads beside the build;
+    * a descendant of the published tree that the patched tree no longer has under ``node`` --
+      deleted by a patch, or moved out from under it (it is drawn where it hangs now, by its new
+      ancestor's build or its own publish). These are only excluded.
+
+    Both empty is the ordinary case, and then the build's fingerprint is what it always was.
+    """
+    docs: list[tuple[str, str]] = []
+    if _carries_hierarchy(manifest):
+        docs.append((manifest.subject, revision))
+    if manifest.subject != collection:
+        index_revision = await _latest_complete_revision(ctx, scope_obj, collection, collection)
+        if index_revision is not None:
+            docs.append((collection, index_revision))
+
+    spine = view = None
+    used_subject = collection
+    base: list[str] = []
+    now: list[str] = []
+    for doc_subject, doc_revision in docs:
+        used_subject = doc_subject
+        key = asset_key(collection, doc_subject, doc_revision, HIERARCHY_FILENAME)
+        try:
+            spine = await _spine_cached(ctx, scope_obj, key, doc_subject)
+        except HTTPException:
+            continue  # no spine at that revision (or one core cannot read): try the next tree
+        view = await _overlaid_spine(ctx, scope_obj, collection, key, doc_subject, doc_revision, spine)
+        base = hp.base_descendants(spine, node)
+        now = view.descendants(node) if view is not None else base
+        if base or now:
+            break
+    if not base and not now:
+        return [], []
+
+    now_set = set(now)
+    gone = {d for d in base if d not in now_set}
+
+    overrides: dict[str, dict] = {}
+    if now:
+        subjects = await _collection_subjects(ctx, scope_obj, collection)
+        gate = asyncio.Semaphore(_MANIFEST_READ_CONCURRENCY)
+
+        async def newer_content(d: str) -> dict | None:
+            entry = subjects.get(d)
+            if entry is None or d == manifest.subject:
+                return None
+            for rev in entry.revisions:  # newest first
+                if rev.revision <= revision:
+                    return None
+                if not rev.has_manifest:
+                    continue
+                try:
+                    async with gate:
+                        own = await _read_manifest(ctx, scope_obj, collection, d, rev.revision)
+                except HTTPException:
+                    continue
+                if own.delivery in ("mesh", "build"):
+                    return {"node": d, "subject": d, "revision": rev.revision, "provider": own.provider}
+            return None
+
+        candidates = [d for d in now if d in subjects and subjects[d].revisions[0].revision > revision]
+        for found in await asyncio.gather(*(newer_content(d) for d in candidates)):
+            if found is not None:
+                overrides[found["node"]] = found
+
+    excluded = gone | set(overrides)
+    if not excluded:
+        return [], []
+    base_parent = hp.base_parent_map(spine, used_subject)
+
+    def up(d: str):
+        if d in gone or view is None:
+            return base_parent.get(d)
+        p = view.effective_parent(d)
+        return p if isinstance(p, str) else None
+
+    def topmost(d: str) -> bool:
+        seen = {d}
+        cur = up(d)
+        while cur is not None and cur != node and cur not in seen:
+            if cur in excluded:
+                return False
+            seen.add(cur)
+            cur = up(cur)
+        return True
+
+    roots = sorted(d for d in excluded if topmost(d))
+    return roots, [overrides[d] for d in roots if d in overrides]
 
 
 @router.post("/scopes/{scope}/assets/publish")
@@ -1213,11 +1423,22 @@ def _classify_asset_file(key: str) -> dict | None:
       staged     ``assets/_staging/<id>/<file>`` -- yes: nothing references staging.
       derived    ``_derived/assets/<provider>/<collection>/<subject>/<revision>/<node>/<fp>/<file>``
                  -- yes: a cached build, made again on the next load that asks for it.
+      patch      ``assets/<collection>/_patches/<kind>/<seq>.json`` -- NOT on its own: the tree is
+                 read through every patch in order, and one missing silently undoes a change. A
+                 newer full publish supersedes it, and the prune drops it then.
     """
     if key.startswith(f"{ASSET_PREFIX}/{STAGING_SEGMENT}/"):
         staging_id, _, filename = key[len(f"{ASSET_PREFIX}/{STAGING_SEGMENT}/") :].partition("/")
         if staging_id and filename:
             return {"area": "staged", "staging_id": staging_id, "file": filename}
+        return None
+    if hp.is_patch_key(key):
+        # A collection's hierarchy patch: state the tree is read through, not a file of any one
+        # revision. It goes when a newer full publish supersedes it (``prune_superseded_...``).
+        collection, _, rest = key[len(ASSET_PREFIX) + 1 :].partition("/")
+        kind, _, filename = rest[len(hp.PATCHES_SEGMENT) + 1 :].partition("/")
+        if collection and kind and filename:
+            return {"area": "patch", "kind": f"{kind}-patch", "collection": collection, "file": filename}
         return None
     if key.startswith(f"{ASSET_PREFIX}/"):
         parts = key[len(ASSET_PREFIX) + 1 :].split("/", 3)
@@ -1314,6 +1535,18 @@ async def api_asset_file_delete(
                 "reason": (
                     f"{key} belongs to the published revision {kind['collection']}/{kind['subject']}@"
                     f"{kind['revision']}; a published file goes with its revision -- unpublish that"
+                ),
+                **kind,
+            },
+            status_code=409,
+        )
+    if kind["area"] == "patch":
+        return JSONResponse(
+            {
+                "ok": False,
+                "reason": (
+                    f"{key} is a {kind['kind']} of collection {kind['collection']}: the tree is read through every "
+                    f"patch in order, so one goes only when a newer full publish supersedes it"
                 ),
                 **kind,
             },
@@ -1576,7 +1809,12 @@ async def api_asset_unpublish(
     resolves and badges like a working one and fails only at load.
 
     Answers ``{deleted, kept, reason}``: a refusal is a 409 whose reason names who is holding it.
+
+    A subject must be a subject: ``_patches`` (core's, in the subject position) is refused, or
+    ``DELETE .../_patches/hierarchy`` would wipe the collection's hierarchy patches as a "revision".
     """
+    if not is_valid_segment(collection) or not is_valid_segment(subject):
+        raise HTTPException(status_code=400, detail=f"invalid collection or subject {collection!r}/{subject!r}")
     try:
         keys = await _list_asset_keys(ctx, scope_obj, f"{ASSET_PREFIX}/{collection}/")
     except (FileNotFoundError, KeyError):

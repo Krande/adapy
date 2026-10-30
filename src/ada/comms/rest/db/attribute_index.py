@@ -412,7 +412,9 @@ async def ingest_attribute_index(
         )
     collection = str(header["collection"])
     revision = _str_or_none(header.get("revision"))
-    dedup = dedup_enabled() and revision is not None
+    # The provider store keeps its OWN partitions: it is what grants read and what apply-changes
+    # patches, so it is never deduplicated into (or folded toward) the shared scope.
+    dedup = dedup_enabled() and revision is not None and scope != PROVIDER_STORE_SCOPE
 
     if dedup and scope != SHARED_SCOPE:
         deduped = await _share_instead_of_copy(
@@ -636,6 +638,312 @@ async def _drop_in_tx(conn, *, scope: str, provider: str, collection: str) -> bo
     return status.split()[-1] != "0"
 
 
+# --- patches: element-level changes into an existing set (docs/design/apply-changes.md) --------------
+#
+# A provider that answers "what changed since a cursor" stages, beside its geometry, a PATCH of each
+# core-held set: ``<kind>-patch.ndjson.gz``, a header line
+#
+#     {"schema": "ada.assets/<kind>-patch@1", "provider", "collection", "since", "next_cursor"}
+#
+# then one line per row in the set's own row format, or ``{"node": "<id>", "deleted": true}``. A
+# node's lines REPLACE every row of that node in the set; a deletion removes them. Lines apply in
+# file order, so a node deleted and then listed again ends with the rows listed after the deletion.
+#
+# A patch is applied in ONE transaction into the set the full ingest built for (scope, provider,
+# collection) -- never into a set it creates: a patch is a delta, and a delta of nothing is not a
+# collection. With no set the patch is REFUSED with a warning and the other roles of the publish go
+# on (:func:`patch_refused`). The rows are COPYed into temp tables first (the file streams, as the
+# ingests do), and the set is changed by three statements over them: delete the touched nodes' rows,
+# insert the surviving lines, adjust the set's catalogue.
+
+#: The staged role and schema of an attribute-index patch.
+ATTRIBUTE_INDEX_PATCH_ROLE = "attribute-index-patch.ndjson.gz"
+ATTRIBUTE_INDEX_PATCH_SCHEMA = "ada.assets/attribute-index-patch@1"
+
+
+def parse_patch_header(line: bytes, schema: str, error: type[ValueError] = ValueError) -> dict:
+    """A patch file's header line, checked: ``schema`` exactly, a ``collection`` (lower-cased, as
+    every set keys it), ``since`` / ``next_cursor`` as strings or None. Raises ``error``."""
+    what = schema.split("/", 1)[-1].split("@", 1)[0]
+    try:
+        header = json.loads(line)
+    except ValueError as exc:
+        raise error(f"the first line of the {what} is not JSON: {exc}") from exc
+    if not isinstance(header, dict) or header.get("schema") != schema:
+        got = header.get("schema") if isinstance(header, dict) else type(header).__name__
+        raise error(f"the {what} header names schema {got!r}, not {schema!r}")
+    collection = header.get("collection")
+    if not isinstance(collection, str) or not collection.strip():
+        raise error(f"the {what} header names no 'collection'")
+    header["collection"] = collection.strip().lower()
+    for name in ("since", "next_cursor"):
+        header[name] = _str_or_none(header.get(name))
+    return header
+
+
+@dataclass
+class PatchBatch:
+    """One batch of patch lines, classified. ``records`` are the set's COPY records with the line's
+    sequence number appended; ``deleted`` is ``(node_id, seq)`` per deletion line."""
+
+    records: list[tuple] = field(default_factory=list)
+    deleted: list[tuple[str, int]] = field(default_factory=list)
+    skipped: int = 0
+
+
+def plan_patch_batch(lines: list[bytes], parse, start_seq: int) -> PatchBatch:
+    """Classify ``lines`` (the ``start_seq``-th line of the file first): a deletion marker, or a row
+    ``parse`` -- the set's own batch parser, ``lines -> (records, skipped)`` -- turns into a record.
+    A line that is neither is counted, not fatal, as in the ingests. Runs on a thread."""
+    out = PatchBatch()
+    for i, line in enumerate(lines):
+        seq = start_seq + i
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            out.skipped += 1
+            continue
+        if isinstance(obj, dict) and obj.get("deleted") is True:
+            node = _clean_text(obj.get("node"))
+            if node and node.strip():
+                out.deleted.append((node, seq))
+            else:
+                out.skipped += 1
+            continue
+        records, bad = parse([line])
+        out.skipped += bad
+        out.records.extend((*r, seq) for r in records)
+    return out
+
+
+def patch_refused(*, provider: str, collection: str, header: Optional[dict] = None, t0: Optional[float] = None) -> dict:
+    """The answer of a patch for a set that does not exist: nothing written, a warning saying why."""
+    return {
+        "provider": provider,
+        "collection": collection,
+        "since": (header or {}).get("since"),
+        "next_cursor": (header or {}).get("next_cursor"),
+        "applied": False,
+        "refused": True,
+        "upserted": 0,
+        "deleted": 0,
+        "removed_rows": 0,
+        "skipped": 0,
+        "warnings": [f"no baseline for {provider}/{collection}; run a full export first"],
+        "timings": {"patch_ms": round((time.perf_counter() - t0) * 1000) if t0 is not None else 0},
+    }
+
+
+async def load_patch(
+    conn,
+    lines: AsyncIterator[bytes],
+    *,
+    load_table: str,
+    columns: Iterable[str],
+    parse,
+    batch_rows: int,
+) -> dict:
+    """Stream the body of a patch into ``load_table`` (``columns`` + ``seq``, created by the caller)
+    and the deletions into a temp ``patch_deletes (node_id, seq)`` this creates. Inside the caller's
+    transaction. Returns ``{lines, rows, deletions, skipped}``."""
+    await conn.execute(
+        'CREATE TEMP TABLE patch_deletes (node_id TEXT COLLATE "C" NOT NULL, seq INT NOT NULL) ON COMMIT DROP'
+    )
+    loop = asyncio.get_running_loop()
+    cols = [*columns, "seq"]
+    counts = {"lines": 0, "rows": 0, "deletions": 0, "skipped": 0}
+
+    async def flush(batch: list[bytes]) -> None:
+        plan = await loop.run_in_executor(None, plan_patch_batch, batch, parse, counts["lines"])
+        counts["lines"] += len(batch)
+        counts["skipped"] += plan.skipped
+        if plan.records:
+            await conn.copy_records_to_table(load_table, records=plan.records, columns=cols)
+            counts["rows"] += len(plan.records)
+        if plan.deleted:
+            await conn.copy_records_to_table("patch_deletes", records=plan.deleted, columns=["node_id", "seq"])
+            counts["deletions"] += len(plan.deleted)
+
+    batch: list[bytes] = []
+    async for line in lines:
+        batch.append(line)
+        if len(batch) >= batch_rows:
+            await flush(batch)
+            batch = []
+    if batch:
+        await flush(batch)
+    return counts
+
+
+#: The rows a patch leaves standing: of each node, its first line after its last deletion. Over a
+#: load table aliased ``l`` with a ``node_id`` column (the caller names it ``{node}``).
+_SURVIVES = "NOT EXISTS (SELECT 1 FROM patch_deletes d WHERE d.node_id = l.{node} AND d.seq > l.seq)"
+
+
+async def patch_attribute_index(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: str,
+    chunks: AsyncIterable[bytes],
+    batch_rows: int = INGEST_BATCH_ROWS,
+) -> dict:
+    """Apply one ``attribute-index-patch.ndjson.gz`` to the partition the full ingest built for
+    (scope, provider, collection), in one transaction. Refused (:func:`patch_refused`) when there is
+    no such partition.
+
+    The partition's catalogue stays consistent with its rows: ``attr_values`` (the value histogram
+    the search's autocomplete reads) loses the touched nodes' old values and gains their new ones --
+    except for the ``high_card_keys`` the full ingest found too varied to histogram -- a key no row
+    carried before joins ``keys``, ``rows`` follows the delta, and ``ingested_at`` moves (anything
+    cached on it is stale now). ``revision`` stays: it names the full export the patches build on.
+    Serialised with a full ingest of the same partition by the same advisory lock key."""
+    t0 = time.perf_counter()
+    lines = ndjson_lines(chunks)
+    try:
+        first = await lines.__anext__()
+    except StopAsyncIteration:
+        raise AttributeIndexError("the attribute index patch is empty") from None
+    header = parse_patch_header(first, ATTRIBUTE_INDEX_PATCH_SCHEMA, AttributeIndexError)
+    warnings: list[str] = []
+    if header.get("provider") and header["provider"] != provider:
+        warnings.append(
+            f"the attribute index patch header names provider {header['provider']!r}; applied under the "
+            f"publishing provider {provider!r}"
+        )
+    collection = str(header["collection"])
+    excluded = _exclusion(header.get("index_exclude") or [])
+    part_key = part_key_for(scope, provider, collection)
+
+    def parse(batch: list[bytes]) -> tuple[list[tuple], int]:
+        return _parse_batch(batch, excluded, _ValueStats())
+
+    async with pool.acquire() as conn, conn.transaction():
+        # Waits for a full ingest of this partition (session lock, same key) to finish its swap.
+        await conn.execute("SELECT pg_advisory_xact_lock($1)", _lock_id(part_key))
+        held = await conn.fetchrow(
+            "SELECT part_key, keys, high_card_keys FROM attr_collections "
+            "WHERE scope = $1 AND provider = $2 AND collection = $3 FOR UPDATE",
+            scope,
+            provider,
+            collection,
+        )
+        if held is None:
+            await lines.aclose()
+            return patch_refused(provider=provider, collection=collection, header=header, t0=t0)
+        part_key = held["part_key"]
+        high = list(held["high_card_keys"] or [])
+        await conn.execute(
+            """
+            CREATE TEMP TABLE attr_patch_load (
+                node_id TEXT COLLATE "C" NOT NULL, parent_id TEXT COLLATE "C", full_name TEXT COLLATE "C",
+                source_ref TEXT, kind TEXT, depth INT, attrs JSONB NOT NULL DEFAULT '{}'::jsonb, seq INT NOT NULL
+            ) ON COMMIT DROP
+            """
+        )
+        loaded = await load_patch(
+            conn, lines, load_table="attr_patch_load", columns=_NODE_COLUMNS, parse=parse, batch_rows=batch_rows
+        )
+        t1 = time.perf_counter()
+        await conn.execute(
+            """
+            CREATE TEMP TABLE patch_touched ON COMMIT DROP AS
+                SELECT node_id FROM attr_patch_load UNION SELECT node_id FROM patch_deletes
+            """
+        )
+        await conn.execute(
+            f"""
+            CREATE TEMP TABLE patch_rows ON COMMIT DROP AS
+                SELECT DISTINCT ON (l.node_id) l.* FROM attr_patch_load l
+                WHERE {_SURVIVES.format(node="node_id")}
+                ORDER BY l.node_id, l.seq
+            """
+        )
+        # The histogram first, while the old rows are still there to say what they held.
+        await conn.execute(
+            """
+            WITH old AS (
+                SELECT e.key COLLATE "C" AS key, e.value COLLATE "C" AS value, count(*) AS n
+                FROM attr_nodes a JOIN patch_touched t ON t.node_id = a.node_id
+                CROSS JOIN LATERAL jsonb_each_text(a.attrs) e
+                WHERE a.part_key = $1 AND e.value IS NOT NULL AND NOT (e.key = ANY($2::text[]))
+                GROUP BY 1, 2
+            )
+            UPDATE attr_values v SET n = v.n - old.n FROM old
+            WHERE v.part_key = $1 AND v.key = old.key AND v.value = old.value
+            """,
+            part_key,
+            high,
+        )
+        await conn.execute("DELETE FROM attr_values WHERE part_key = $1 AND n <= 0", part_key)
+        removed = await conn.execute(
+            "DELETE FROM attr_nodes a USING patch_touched t WHERE a.part_key = $1 AND a.node_id = t.node_id",
+            part_key,
+        )
+        inserted = await conn.execute(
+            """
+            INSERT INTO attr_nodes (part_key, node_id, parent_id, full_name, source_ref, kind, depth, attrs)
+            SELECT $1, node_id, parent_id, full_name, source_ref, kind, depth, attrs FROM patch_rows
+            """,
+            part_key,
+        )
+        await conn.execute(
+            """
+            INSERT INTO attr_values (part_key, key, value, n)
+            SELECT $1, e.key COLLATE "C", e.value COLLATE "C", count(*)
+            FROM patch_rows r CROSS JOIN LATERAL jsonb_each_text(r.attrs) e
+            WHERE e.value IS NOT NULL AND length(e.value) <= $3 AND NOT (e.key = ANY($2::text[]))
+            GROUP BY 2, 3
+            ON CONFLICT (part_key, key, value) DO UPDATE SET n = attr_values.n + EXCLUDED.n
+            """,
+            part_key,
+            high,
+            VALUE_STATS_MAX_LEN,
+        )
+        new_keys = [
+            r["k"] for r in await conn.fetch("SELECT DISTINCT k FROM patch_rows r, jsonb_object_keys(r.attrs) k")
+        ]
+        deleted = await conn.fetchval(
+            "SELECT count(DISTINCT d.node_id) FROM patch_deletes d "
+            "WHERE NOT EXISTS (SELECT 1 FROM patch_rows r WHERE r.node_id = d.node_id)"
+        )
+        n_removed, n_inserted = int(removed.split()[-1]), int(inserted.split()[-1])
+        keys = sorted(set(held["keys"] or []) | set(new_keys))
+        await conn.execute(
+            """
+            UPDATE attr_collections SET rows = GREATEST(rows - $4 + $5, 0), keys = $6, ingested_at = NOW()
+            WHERE scope = $1 AND provider = $2 AND collection = $3
+            """,
+            scope,
+            provider,
+            collection,
+            n_removed,
+            n_inserted,
+            keys,
+        )
+    if loaded["skipped"]:
+        warnings.append(f"{loaded['skipped']} patch line(s) that were neither a row nor a deletion skipped")
+    return {
+        "provider": provider,
+        "collection": collection,
+        "since": header.get("since"),
+        "next_cursor": header.get("next_cursor"),
+        "applied": True,
+        "refused": False,
+        "upserted": n_inserted,
+        "deleted": int(deleted or 0),
+        "removed_rows": n_removed,
+        "skipped": loaded["skipped"],
+        "new_keys": len(keys) - len(set(held["keys"] or [])),
+        "warnings": warnings,
+        "timings": {
+            "load_ms": round((t1 - t0) * 1000),
+            "apply_ms": round((time.perf_counter() - t1) * 1000),
+            "patch_ms": round((time.perf_counter() - t0) * 1000),
+        },
+    }
+
+
 # --- one copy per (provider, collection, revision) ----------------------------------------------
 
 
@@ -758,11 +1066,12 @@ async def _fold_same_revision_into_shared(
     another revision is left alone. One failure is logged and skipped: the ingest itself landed."""
     others = await pool.fetch(
         "SELECT scope FROM attr_collections WHERE provider = $1 AND collection = $2 AND scope <> $3 AND revision = $4 "
-        "ORDER BY scope",
+        "AND scope <> $5 ORDER BY scope",
         provider,
         collection,
         SHARED_SCOPE,
         revision,
+        PROVIDER_STORE_SCOPE,
     )
     folded: list[dict] = []
     for r in others:
@@ -1979,6 +2288,7 @@ async def admin_search_origins(pool: asyncpg.Pool, *, scope: str) -> list[str]:
         SELECT DISTINCT c.scope FROM attr_collections c
         WHERE c.scope <> $1
           AND (c.scope = 'shared'
+               OR c.scope = 'providers'
                OR c.scope LIKE 'corpus/%'
                OR (c.scope LIKE 'projects/%' AND EXISTS (
                    SELECT 1 FROM projects p WHERE p.archived_at IS NULL AND 'projects/' || p.id::text = c.scope)))

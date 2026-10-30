@@ -26,6 +26,12 @@ schedule therefore has no scope to choose -- ``scope`` is accepted and ignored, 
 ``providers``, and a row from before (still naming ``shared`` or a project) fires into the store
 all the same. One live schedule per (provider, collection, job).
 
+An ``apply-changes`` entry (docs/design/apply-changes.md) is scheduled here like any other -- its
+targets a MULTI choice (``"multiple": true`` on the ``job_options`` declaration, a list of declared
+choices, never empty) -- and may name no collection: then it runs for every collection the provider
+offers. It fires as a sweep run does (``routes/asset_apply_changes.py``), and its rows in the
+listing carry core's cursor per collection (``cursors``).
+
 Every change check, from either, gets an ``asset_change_runs`` row, keyed under the store. Its job
 answers with the provider-neutral ``asset_changes`` block (``ada.assets/changes@1``), which this
 module copies in once the job is done. Report only: nothing is published as a consequence. A scope
@@ -74,7 +80,14 @@ admin_router = APIRouter()
 CHANGE_CHECK = "change-check"
 #: Every collection the provider offers, one job each, each published -- see routes/asset_sweeps.py.
 SWEEP = "sweep"
-KINDS = (CHANGE_CHECK, "job", SWEEP)
+#: Only what changed since core's cursor, per collection, applied as element-level patches --
+#: driven like a sweep. See routes/asset_apply_changes.py and docs/design/apply-changes.md.
+APPLY_CHANGES = "apply-changes"
+KINDS = (CHANGE_CHECK, "job", SWEEP, APPLY_CHANGES)
+#: Kinds whose row may name no collection: the driver supplies each one in turn.
+COLLECTIONLESS_KINDS = (SWEEP, APPLY_CHANGES)
+#: The multi-choice setting of an apply-changes entry: which targets to patch. Never empty.
+APPLY_TARGETS = "apply_targets"
 #: A setting's ``choices`` value asking core to offer the users earlier change checks reported.
 CHOICES_CHANGE_USERS = "change_users"
 CHANGES_SCHEMA = "ada.assets/changes@1"
@@ -110,7 +123,7 @@ def schedule_entries(spec: dict) -> list[dict]:
         if not sid or sid in seen or kind not in KINDS or not isinstance(options, dict):
             logger.warning("asset_schedules: ignoring a malformed entry on %s: %r", spec.get("slug"), entry)
             continue
-        if kind in (CHANGE_CHECK, SWEEP) and not entry.get("collection_option"):
+        if kind in (CHANGE_CHECK, SWEEP, APPLY_CHANGES) and not entry.get("collection_option"):
             logger.warning("asset_schedules: %s %r on %s names no collection_option", kind, sid, spec.get("slug"))
             continue
         seen.add(sid)
@@ -196,7 +209,10 @@ def typed_choice(value: Any, choices: list[dict]) -> tuple[bool, Any]:
 def entry_settings(spec: dict, entry: dict) -> list[dict]:
     """The settings an admin may choose for ``entry``, each merged with the spec's ``job_options``
     declaration. ``source`` says where the choices come from: ``enum`` (declared), ``spec``
-    (``enum_from``: a spec list) or ``change_users`` (earlier runs)."""
+    (``enum_from``: a spec list) or ``change_users`` (earlier runs).
+
+    A declaration with ``"multiple": true`` is a MULTI choice (checkboxes): the setting says
+    ``"multiple": true``, its value is a list of declared choices, and its ``default`` is a list."""
     out = []
     for raw in entry.get("settings") or ():
         item = {"name": raw} if isinstance(raw, str) else dict(raw) if isinstance(raw, dict) else None
@@ -209,7 +225,10 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
             "title": item.get("title") or decl.get("title") or str(item["name"]),
             "description": item.get("description") or decl.get("description"),
             "default": decl.get("default"),
+            "multiple": decl.get("multiple") is True,
         }
+        if setting["multiple"] and setting["default"] is not None and not isinstance(setting["default"], list):
+            setting["default"] = [setting["default"]]
         if item.get("choices") == CHOICES_CHANGE_USERS:
             setting["source"] = CHOICES_CHANGE_USERS
         elif isinstance(decl.get("enum"), list):
@@ -249,11 +268,16 @@ async def build_options(
 ) -> dict:
     """The job options for one entry: its fixed options, the collection, and the chosen settings.
     Every chosen value must be one of its setting's choices -- checked here, server side, so a
-    hand-made request cannot smuggle free text past the dropdowns."""
+    hand-made request cannot smuggle free text past the dropdowns.
+
+    A MULTI setting (``multiple``) is always a list: a single value is wrapped, an unset one takes
+    the declared default list, and :data:`APPLY_TARGETS` refuses an empty list -- an apply-changes
+    run that patches nothing would still advance its cursor past every change."""
     options = dict(entry["options"])
     collection_option = entry.get("collection_option")
-    if collection_option and not collection and entry.get("kind") == SWEEP:
-        # A sweep's row names no collection: the driver supplies each one in turn.
+    if collection_option and not collection and entry.get("kind") in COLLECTIONLESS_KINDS:
+        # A sweep's (or an apply-changes of every collection's) row names no collection: the
+        # driver supplies each one in turn.
         collection_option = None
     if collection_option:
         if not collection:
@@ -273,9 +297,13 @@ async def build_options(
             if validate:
                 raise HTTPException(status_code=400, detail=f"{name!r} is not a setting of {entry['id']!r}")
             continue
+        if setting.get("multiple") and isinstance(value, list) and not value and name == APPLY_TARGETS and validate:
+            raise HTTPException(status_code=400, detail=f"{name}: tick at least one")
         if value is None or (isinstance(value, (list, str)) and len(value) == 0):
             # Unset. Note `False` is a choice, not "unset": a bool setting's off is a value.
             continue
+        if setting.get("multiple") and not isinstance(value, list):
+            value = [value]
         if validate:
             choices = await setting_choices(pool, setting, scope=scope, provider=provider, collection=collection or "")
         else:
@@ -292,6 +320,10 @@ async def build_options(
         if validate and bad:
             raise HTTPException(status_code=400, detail=f"{name}: {bad!r} not among its choices")
         options[name] = typed if isinstance(value, list) else typed[0]
+    for name, setting in declared.items():
+        # A multi choice left unset takes its declared default list (a copy: never the spec's own).
+        if setting.get("multiple") and name not in options and isinstance(setting.get("default"), list):
+            options[name] = list(setting["default"])
     return options
 
 
@@ -623,6 +655,8 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
                         "label": e.get("label") or e["id"],
                         "description": e.get("description"),
                         "settings": entry_settings(spec, e),
+                        # What the provider calls its collections, plural ("projects"), when it says.
+                        "collections_label": e.get("collections_label") or spec.get("asset_collections_label"),
                     }
                     for e in schedule_entries(spec)
                 ],
@@ -630,6 +664,19 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
         )
     rows = await db_module.list_plugin_job_schedules(pool)
     asset_rows = [r for r in rows if r.get("asset_provider")]
+    # Core's apply-changes cursors, for the rows of that kind: where each collection's next run
+    # asks "since" from (no entry: the next run is a baseline).
+    cursors_by_provider: dict[str, dict[str, dict]] = {}
+    if any(r.get("schedule_kind") == APPLY_CHANGES for r in asset_rows):
+        try:
+            for c in await db_module.list_asset_apply_cursors(pool):
+                cursors_by_provider.setdefault(c["provider"], {})[c["collection"]] = {
+                    "cursor": c["cursor"],
+                    "applied_at": c["applied_at"],
+                    "run_id": c["run_id"],
+                }
+        except Exception:  # noqa: BLE001 - a listing without cursors beats no listing
+            logger.exception("asset schedules: could not read the apply-changes cursors")
     latest = await db_module.latest_asset_change_runs_for_schedules(pool, [r["id"] for r in asset_rows])
     by_cron = {v["cron"]: k for k, v in FREQUENCIES.items()}
     schedules = []
@@ -641,8 +688,17 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
             # run's job wrote (the store, or the scope of a run from before it).
             [run] = await finish_pending_runs(ctx, pool, PROVIDER_STORE, [run])
         found = find_entry(specs.get(row["asset_provider"], []), row["schedule_job"])
+        extra: dict = {}
+        if row["schedule_kind"] == APPLY_CHANGES:
+            held = cursors_by_provider.get(row["asset_provider"], {})
+            if row["collection"]:
+                one = held.get(str(row["collection"]).lower())
+                extra["cursors"] = {str(row["collection"]).lower(): one} if one else {}
+            else:
+                extra["cursors"] = dict(held)
         schedules.append(
             {
+                **extra,
                 **{k: row[k] for k in ("id", "collection", "enabled", "last_fired_at", "next_fire_at")},
                 # Where it fires, whatever an older row still names: every provider job runs in
                 # the store.

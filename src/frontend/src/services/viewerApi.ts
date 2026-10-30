@@ -69,6 +69,7 @@ export const viewerApi = {
 export type { TargetFormat, ConvertStatus, ScopeUrl } from "./api/client";
 export type { ProviderGrant, ProviderGrantInput } from "@/assets/providerGrants";
 export type {
+  ApplyCursor,
   AssetSchedulesListing,
   ChangeItem,
   ChangeRun,

@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useState} from "react";
 
 import {changedCount} from "@/assets/changeRuns";
 import type {
+    ApplyCursor,
     AssetSchedulesListing,
     ProviderSchedule,
     ProviderScheduleJob,
@@ -14,7 +15,18 @@ import {sortProjects} from "@/utils/sortProjects";
 
 import AdminSection from "./AdminSection";
 import ProviderSweepRuns from "./ProviderSweepRuns";
-import {choiceKey, choiceLabel, selectedKey, valueOfKey} from "./scheduleSettings";
+import {
+    choiceKey,
+    choiceLabel,
+    isMultiSetting,
+    multiSettingError,
+    multiValue,
+    sameChoice,
+    selectedKey,
+    toggleChoice,
+    valueOfKey,
+    withMultiDefaults,
+} from "./scheduleSettings";
 import SweepDefaults from "./SweepDefaults";
 
 // Admin → Providers → Scheduled jobs: the jobs each asset provider declares on its plugin spec
@@ -42,7 +54,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—
 function lastRunText(s: ProviderSchedule): {text: string; tone: string} {
     const run = s.last_run;
     if (s.last_skipped_reason) return {text: `skipped: ${s.last_skipped_reason}`, tone: "text-amber-300"};
-    if (s.kind === "sweep") {
+    if (s.kind === "sweep" || s.kind === "apply-changes") {
         return s.last_fired_at || s.last_job_id
             ? {text: `swept ${fmt(s.last_fired_at)}; see Sweeps below`, tone: "text-gray-300"}
             : {text: "not run yet", tone: "text-gray-500"};
@@ -59,9 +71,10 @@ function lastRunText(s: ProviderSchedule): {text: string; tone: string} {
 }
 
 function settingSummary(job: ProviderScheduleJob | undefined, settings: Record<string, unknown>): string {
+    const held = withMultiDefaults(job?.settings ?? [], settings);
     const parts = (job?.settings ?? [])
         .map((s) => {
-            const v = settings[s.name];
+            const v = held[s.name];
             if (v == null || v === "" || (Array.isArray(v) && !v.length)) return null;
             const label = (x: unknown) => choiceLabel(x, s.choices);
             return `${s.title}: ${Array.isArray(v) ? v.map(label).join(", ") : label(v)}`;
@@ -78,6 +91,28 @@ const SettingField: React.FC<{
     onChange: (v: unknown) => void;
 }> = ({setting, choices, value, onChange}) => {
     const multi = setting.type === "string_list";
+    if (isMultiSetting({...setting, choices})) {
+        // A list of the setting's own choices: one checkbox each, all ticked until the form says otherwise.
+        const withChoices = {...setting, choices};
+        const held = multiValue(withChoices, value);
+        return (
+            <fieldset className="flex flex-col text-[11px] text-gray-400" title={setting.description ?? undefined}>
+                <legend className="mb-0.5">{setting.title}</legend>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-100">
+                    {choices.map((c) => (
+                        <label key={choiceKey(c.value)} className="inline-flex items-center gap-1">
+                            <input
+                                type="checkbox"
+                                checked={held.some((v) => sameChoice(v, c.value))}
+                                onChange={(e) => onChange(toggleChoice(withChoices, value, c.value, e.target.checked))}
+                            />
+                            {c.label}
+                        </label>
+                    ))}
+                </div>
+            </fieldset>
+        );
+    }
     if (!choices.length) {
         return (
             <span className="text-[11px] text-gray-500" title={setting.description ?? undefined}>
@@ -170,19 +205,36 @@ const AddSchedule: React.FC<{
 }> = ({provider, frequencies, onAdded, onSwept}) => {
     const [jobId, setJobId] = useState(provider.jobs[0]?.id ?? "");
     const collections = useMemo(() => sortProjects(provider.collections), [provider.collections]);
-    const [collection, setCollection] = useState(collections[0] ?? "");
+    const [collection, setCollection] = useState(provider.jobs[0]?.kind === "apply-changes" ? "" : (collections[0] ?? ""));
     const [frequency, setFrequency] = useState("daily");
     const [settings, setSettings] = useState<Record<string, unknown>>({});
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const job = provider.jobs.find((j) => j.id === jobId);
     const sweep = job?.kind === "sweep";
+    const apply = job?.kind === "apply-changes";
+    const driven = sweep || apply;
+
+    const pickJob = (id: string) => {
+        setJobId(id);
+        // Apply-changes defaults to every collection; any other job needs one named.
+        const next = provider.jobs.find((j) => j.id === id);
+        if (next?.kind === "apply-changes") setCollection("");
+        else if (!collection) setCollection(collections[0] ?? "");
+    };
 
     const runOnce = async () => {
+        const refusal = multiSettingError(job?.settings ?? [], settings);
+        if (refusal) return setError(refusal);
         setBusy(true);
         setError(null);
         try {
-            await viewerApi.adminStartAssetSweep({provider: provider.provider, job: jobId, settings});
+            await viewerApi.adminStartAssetSweep({
+                provider: provider.provider,
+                job: jobId,
+                settings: withMultiDefaults(job?.settings ?? [], settings),
+                ...(apply && collection ? {collection} : {}),
+            });
             onSwept();
         } catch (e) {
             setError(errText(e));
@@ -192,6 +244,8 @@ const AddSchedule: React.FC<{
     };
 
     const add = async () => {
+        const refusal = multiSettingError(job?.settings ?? [], settings);
+        if (refusal) return setError(refusal);
         setBusy(true);
         setError(null);
         try {
@@ -200,7 +254,7 @@ const AddSchedule: React.FC<{
                 job: jobId,
                 collection: sweep ? null : collection || null,
                 frequency,
-                settings,
+                settings: withMultiDefaults(job?.settings ?? [], settings),
             });
             setSettings({});
             onAdded();
@@ -215,7 +269,7 @@ const AddSchedule: React.FC<{
     return (
         <div className="rounded-sm border border-gray-800 bg-gray-900/40 p-2 space-y-1.5">
             <div className="flex flex-wrap items-end gap-2 text-xs">
-                <select className={select} value={jobId} onChange={(e) => setJobId(e.target.value)} aria-label="Job">
+                <select className={select} value={jobId} onChange={(e) => pickJob(e.target.value)} aria-label="Job">
                     {provider.jobs.map((j) => (
                         <option key={j.id} value={j.id}>
                             {j.label}
@@ -231,6 +285,7 @@ const AddSchedule: React.FC<{
                         onChange={(e) => setCollection(e.target.value)}
                         aria-label="Collection"
                     >
+                        {apply && <option value="">All {job?.collections_label ?? "projects"}</option>}
                         {collections.map((c) => (
                             <option key={c} value={c}>
                                 {c}
@@ -253,18 +308,22 @@ const AddSchedule: React.FC<{
                 <button
                     type="button"
                     className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
-                    disabled={busy || !jobId || (!sweep && !!provider.collections.length && !collection)}
+                    disabled={busy || !jobId || (!sweep && !apply && !!provider.collections.length && !collection)}
                     onClick={() => void add()}
                 >
                     {busy ? "…" : "Add schedule"}
                 </button>
-                {sweep && (
+                {driven && (
                     <button
                         type="button"
                         className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-2 py-0.5 rounded-sm"
                         disabled={busy || !jobId}
                         onClick={() => void runOnce()}
-                        title="Sweep every collection once, now, with these settings; no schedule is saved"
+                        title={
+                            sweep
+                                ? "Sweep every collection once, now, with these settings; no schedule is saved"
+                                : "Apply the changes once, now, with these settings; no schedule is saved"
+                        }
                     >
                         Run once now
                     </button>
@@ -279,6 +338,64 @@ const AddSchedule: React.FC<{
                 onChange={setSettings}
             />
             {error && <div className="text-xs text-red-300">{error}</div>}
+        </div>
+    );
+};
+
+/** An apply-changes row's cursors, one per collection, folded away behind a count (a long list
+ *  for "All"), each with a "Reset cursor": forgetting it makes that collection's next run a
+ *  baseline, which only records where "since" starts. */
+const ApplyCursors: React.FC<{
+    provider: string;
+    cursors: Record<string, ApplyCursor> | undefined;
+    collection: string | null;
+    onChanged: () => void;
+}> = ({provider, cursors, collection, onChanged}) => {
+    const [open, setOpen] = useState(false);
+    const [busy, setBusy] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const rows = Object.entries(cursors ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    if (!rows.length) {
+        return <div className="text-[11px] text-gray-500 font-sans">no cursor yet; the first run is a baseline</div>;
+    }
+    const reset = async (c: string) => {
+        if (!confirm(`Reset the cursor of "${c}"? Its next run is a baseline: it records where changes start from and applies nothing.`)) return;
+        setBusy(c);
+        setError(null);
+        try {
+            await viewerApi.adminResetAssetApplyCursor(provider, c);
+            onChanged();
+        } catch (e) {
+            setError(errText(e));
+        } finally {
+            setBusy(null);
+        }
+    };
+    return (
+        <div className="font-sans text-[11px] text-gray-400">
+            <button type="button" className="text-blue-300 hover:text-blue-200" aria-expanded={open} onClick={() => setOpen(!open)}>
+                {open ? "▾" : "▸"} {rows.length === 1 && collection ? "cursor" : `${rows.length} cursors`}
+            </button>
+            {open && (
+                <ul className="mt-0.5 space-y-0.5">
+                    {rows.map(([c, cur]) => (
+                        <li key={c} className="flex flex-wrap items-center gap-1.5" title={cur.applied_at ? `applied ${fmt(cur.applied_at)}` : undefined}>
+                            <span className="font-mono text-gray-300">{c}</span>
+                            <span className="font-mono">{cur.cursor ?? "—"}</span>
+                            <span className="text-gray-500">{cur.applied_at ? `applied ${fmt(cur.applied_at)}` : ""}</span>
+                            <button
+                                type="button"
+                                className="border border-gray-700 hover:bg-gray-800 disabled:opacity-50 px-1 rounded-sm text-gray-200"
+                                disabled={busy !== null}
+                                onClick={() => void reset(c)}
+                            >
+                                {busy === c ? "…" : "Reset cursor"}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {error && <div className="text-red-300">{error}</div>}
         </div>
     );
 };
@@ -315,7 +432,17 @@ const ScheduleRow: React.FC<{
                 <div className="text-gray-100">{job?.label ?? s.job}</div>
                 {!s.declared && <div className="text-[11px] text-amber-300">the provider no longer declares this job</div>}
             </td>
-            <td className="px-2 py-1.5 font-mono">{s.kind === "sweep" ? "(every)" : (s.collection ?? "—")}</td>
+            <td className="px-2 py-1.5 font-mono">
+                {s.kind === "sweep" ? "(every)" : s.kind === "apply-changes" && !s.collection ? "All" : (s.collection ?? "—")}
+                {s.kind === "apply-changes" && (
+                    <ApplyCursors
+                        provider={s.provider}
+                        cursors={s.cursors}
+                        collection={s.collection}
+                        onChanged={onChanged}
+                    />
+                )}
+            </td>
             <td className="px-2 py-1.5">
                 <select
                     className="bg-gray-800 border border-gray-700 rounded-sm px-1 py-0.5 text-xs"
@@ -347,12 +474,16 @@ const ScheduleRow: React.FC<{
                             <button
                                 type="button"
                                 className="bg-blue-700 hover:bg-blue-600 text-white px-2 py-0.5 rounded-sm text-xs"
-                                onClick={() =>
+                                onClick={() => {
+                                    const refusal = multiSettingError(job?.settings ?? [], settings);
+                                    if (refusal) return setError(refusal);
                                     void act("settings", async () => {
-                                        await viewerApi.adminUpdateAssetSchedule(s.id, {settings});
+                                        await viewerApi.adminUpdateAssetSchedule(s.id, {
+                                            settings: withMultiDefaults(job?.settings ?? [], settings),
+                                        });
                                         setEditing(false);
-                                    })
-                                }
+                                    });
+                                }}
                             >
                                 Save
                             </button>
@@ -400,7 +531,19 @@ const ScheduleRow: React.FC<{
                     type="button"
                     className="border border-gray-700 hover:bg-gray-800 px-1.5 py-0.5 rounded-sm mr-1 disabled:opacity-50"
                     disabled={busy !== null}
-                    onClick={() => void act("run", () => viewerApi.adminPluginJobScheduleRunNow(s.id))}
+                    onClick={() =>
+                        void act("run", () =>
+                            // An apply-changes run is started like a sweep's: one run, an item per collection.
+                            s.kind === "apply-changes"
+                                ? viewerApi.adminStartAssetSweep({
+                                      provider: s.provider,
+                                      job: s.job,
+                                      settings: withMultiDefaults(job?.settings ?? [], s.settings),
+                                      ...(s.collection ? {collection: s.collection} : {}),
+                                  })
+                                : viewerApi.adminPluginJobScheduleRunNow(s.id),
+                        )
+                    }
                     title="Run once now; the timetable is unchanged"
                 >
                     {busy === "run" ? "…" : "Run now"}
@@ -519,11 +662,9 @@ const ProviderSchedulesSection: React.FC = () => {
                         onAdded={() => void load()}
                         onSwept={() => void load()}
                     />
-                    {p.jobs.some((j) => j.kind === "sweep") && (
-                        <>
-                            <SweepDefaults provider={p.provider} />
-                            <ProviderSweepRuns provider={p.provider} refreshKey={refreshKey} />
-                        </>
+                    {p.jobs.some((j) => j.kind === "sweep") && <SweepDefaults provider={p.provider} />}
+                    {p.jobs.some((j) => j.kind === "sweep" || j.kind === "apply-changes") && (
+                        <ProviderSweepRuns provider={p.provider} refreshKey={refreshKey} />
                     )}
                 </div>
             ))}
