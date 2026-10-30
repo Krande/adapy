@@ -96,6 +96,10 @@ class _Spine:
     manifest: Any
     #: ``(id, label)`` per row, in published order.
     rows: tuple[tuple[str, str], ...]
+    #: The row ids that are LEAVES of the spine: the hierarchy's ``leaf`` column where it publishes
+    #: one, else every row no other row names as its parent. A hit below the tree (a component row
+    #: of the attribute index) resolves to its nearest leaf ancestor's geometry, never a branch's.
+    leaves: frozenset[str] = frozenset()
 
     @property
     def readable(self) -> bool:
@@ -150,6 +154,8 @@ class GeometrySourceIndex:
         self._parents: dict[tuple[str, str, str], dict[str, str | None]] = {}
         #: Row id -> full name, per spine, for the rows that publish one.
         self._full_names: dict[tuple[str, str, str], dict[str, str]] = {}
+        #: Leaf row ids, per spine.
+        self._leaves: dict[tuple[str, str, str], frozenset[str]] = {}
         self._catalogs: dict[tuple[str, str], _ProviderCatalog] = {}
         #: Blobs fetched ahead by ``get_many``, each consumed by the one parse that wanted it
         #: (None: the batch found nothing there).
@@ -241,11 +247,18 @@ class GeometrySourceIndex:
                 rows = tuple((str(r["id"]), str(r.get("label") or ""), str(r.get("provider") or "")) for r in records)
                 parents = {str(r["id"]): (str(r["parent"]) if r.get("parent") is not None else None) for r in records}
                 full_names = {str(r["id"]): str(r["full_name"]) for r in records if r.get("full_name")}
+                if any("leaf" in r for r in records):
+                    leaves = frozenset(str(r["id"]) for r in records if r.get("leaf") is True or r.get("leaf") == 1)
+                else:
+                    named = {p for p in parents.values() if p is not None}
+                    leaves = frozenset(i for i in parents if i not in named)
             except (FileNotFoundError, KeyError, ValueError, HierarchyError):
                 rows = None
+                leaves = frozenset()
             self._spines[key] = rows
             self._parents[key] = parents
             self._full_names[key] = full_names
+            self._leaves[key] = leaves
         return self._spines[key]
 
     def ancestor_names(self, member: Mapping[str, Any]) -> list[str]:
@@ -354,7 +367,10 @@ class GeometrySourceIndex:
             # provider's branches) also names the OTHER provider's node under the same label, and
             # counting that would make every match ambiguous.
             rows = tuple((i, lab) for i, lab, prov in (self.spine(manifest) or ()) if prov in ("", provider))
-            spines.append(_Spine(subject=subject, revision=manifest.revision, manifest=manifest, rows=rows))
+            leaves = self._leaves.get((manifest.collection, manifest.subject, manifest.revision), frozenset())
+            spines.append(
+                _Spine(subject=subject, revision=manifest.revision, manifest=manifest, rows=rows, leaves=leaves)
+            )
         labels: dict[str, str] = {}
         full_names: dict[str, str] = {}
         branches: set[str] = set()

@@ -568,13 +568,16 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
             try:
                 t = time.perf_counter()
                 try:
-                    manifest, node = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
+                    resolved = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
                 except NoGeometry as exc:
                     timings["resolve_ms"] += _ms(t)
                     row.update(status="no_geometry", error=str(exc))
                     files.append(row)
                     continue
                 timings["resolve_ms"] += _ms(t)
+                manifest, node = resolved
+                if getattr(resolved, "via", None):
+                    row["resolved_via"] = resolved.via  # a component hit: its leaf ancestor's geometry
 
                 t = time.perf_counter()
                 from ada.assets.concepts import part_for_manifest
@@ -863,12 +866,15 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
             rows_out.append(row)
             t = time.perf_counter()
             try:
-                manifest, node = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
+                resolved = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
             except NoGeometry as exc:
                 timings["resolve_ms"] += _ms(t)
                 row.update(status="no_geometry", error=str(exc))
                 continue
             timings["resolve_ms"] += _ms(t)
+            manifest, node = resolved
+            if getattr(resolved, "via", None):
+                row["resolved_via"] = resolved.via  # a component hit: its leaf ancestor's geometry
             t = time.perf_counter()
             try:
                 part = await loop.run_in_executor(

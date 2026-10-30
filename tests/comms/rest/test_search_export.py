@@ -2007,3 +2007,47 @@ def test_requesting_trees_is_for_mesh_exports_and_gated_like_the_providers_job(m
             )
         )
     assert err.value.status == 403 and "administrators" in err.value.detail
+
+
+def test_a_component_hit_resolves_to_its_nearest_leaf_ancestor():
+    # A component row of the attribute index (a primitive below an equipment): no spine lists it,
+    # its `path` (root first) does. Its geometry is the equipment's -- a LEAF of the spine.
+    spine = _spine("alpha", "alpha", [("fn-site", "/SITE-A"), ("fn-equi", "/EQUI-1")])
+    spine.leaves = frozenset({"fn-equi"})
+    component = {
+        "node_id": "cmp-1",
+        "full_name": "/EQUI-1/PRIM-3",
+        "path": [{"node_id": "fn-site", "full_name": "/SITE-A"}, {"node_id": "fn-equi", "full_name": "/EQUI-1"}],
+    }
+    index = SimpleNamespace(catalog=lambda c, p: _catalog([spine]))
+    got = se.resolve_geometry(index, "alpha", component)
+    manifest, node = got
+    assert manifest.subject == "alpha" and node == "fn-equi" and got.via == "fn-equi"
+    # The nearest listed ancestor is a BRANCH: its geometry is more than the component -- no geometry.
+    spine.leaves = frozenset()
+    with pytest.raises(se.NoGeometry):
+        se.resolve_geometry(index, "alpha", component)
+    # A hit the spine lists itself is not resolved through an ancestor.
+    spine.leaves = frozenset({"fn-equi"})
+    assert se.resolve_geometry(index, "alpha", {"node_id": "fn-equi", "full_name": "/EQUI-1"}).via is None
+
+
+def test_spine_leaves_come_from_the_leaf_column_or_from_who_is_a_parent(monkeypatch):
+    import ada.assets.projection as proj
+    from ada.clash.geometry_source import GeometrySourceIndex
+
+    published = {
+        # The hierarchy's own `leaf` column: only `b` is a leaf.
+        "r1": [
+            {"id": "a", "parent": None, "label": "A", "leaf": False},
+            {"id": "b", "parent": "a", "label": "B", "leaf": True},
+        ],
+        # No column: a row nobody names as its parent is a leaf.
+        "r2": [{"id": "a", "parent": None, "label": "A"}, {"id": "b", "parent": "a", "label": "B"}],
+    }
+    gsi = GeometrySourceIndex(storage=SimpleNamespace(get_bytes=lambda key: key.encode(), list_keys=lambda p: []))
+    monkeypatch.setattr(gsi, "_spine_key", lambda m: m.revision)
+    monkeypatch.setattr(proj, "parse_hierarchy", lambda raw: SimpleNamespace(records=lambda: published[raw.decode()]))
+    for rev in ("r1", "r2"):
+        assert gsi.spine(SimpleNamespace(collection="alpha", subject="alpha", revision=rev)) is not None
+        assert gsi._leaves[("alpha", "alpha", rev)] == frozenset({"b"})
