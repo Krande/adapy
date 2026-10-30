@@ -59,14 +59,20 @@ function floats(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, siz
     return out;
 }
 
-/** Vertex colours as packed linear RGBA8 (three.js treats vertex colours as linear). */
-function packedColors(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): Uint32Array {
-    const out = new Uint32Array(a.count);
+/** Vertex colours as packed linear RGBA8 (three.js treats vertex colours as linear), into `out` from
+ *  `offset` (a wasm heap view, so a colour update allocates nothing on the JS side). */
+function packColorsInto(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, out: Uint32Array, offset = 0): void {
     const q = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
     const hasAlpha = a.itemSize >= 4;
     for (let i = 0; i < a.count; i++) {
-        out[i] = (q(a.getX(i)) | (q(a.getY(i)) << 8) | (q(a.getZ(i)) << 16) | (q(hasAlpha ? a.getW(i) : 1) << 24)) >>> 0;
+        out[offset + i] =
+            (q(a.getX(i)) | (q(a.getY(i)) << 8) | (q(a.getZ(i)) << 16) | (q(hasAlpha ? a.getW(i) : 1) << 24)) >>> 0;
     }
+}
+
+function packedColors(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): Uint32Array {
+    const out = new Uint32Array(a.count);
+    packColorsInto(a, out);
     return out;
 }
 
@@ -276,7 +282,15 @@ export class SceneSync {
         if (colorAttr && !fatLines && (colorAttr !== e.colorAttr || attrVersion(colorAttr) !== e.colorVersion)) {
             e.colorAttr = colorAttr;
             e.colorVersion = attrVersion(colorAttr);
-            this.withU32(packedColors(colorAttr), (p, n) => this.r.updateColors(e!.geometry, p, n));
+            // Every FEA repaint swaps in fresh colours: pack them straight into the wasm heap.
+            const n = colorAttr.count;
+            const p = this.module._malloc(n * 4);
+            try {
+                packColorsInto(colorAttr, this.module.HEAPU32, p >> 2);
+                this.r.updateColors(e.geometry, p, n);
+            } finally {
+                this.module._free(p);
+            }
         }
         const morphAttr = fatLines ? undefined : geometry.morphAttributes.position?.[0];
         if (morphAttr && (morphAttr !== e.morphAttr || attrVersion(morphAttr) !== e.morphVersion)) {
@@ -525,16 +539,6 @@ export class SceneSync {
         this.module.HEAPU32.set(packed, p >> 2);
         try {
             for (const id of e.instances) this.r.setSegmentStates(id, p, packed.length / 2);
-        } finally {
-            this.module._free(p);
-        }
-    }
-
-    private withU32(a: Uint32Array, fn: (ptr: number, count: number) => void): void {
-        const p = this.module._malloc(a.byteLength);
-        this.module.HEAPU32.set(a, p >> 2);
-        try {
-            fn(p, a.length);
         } finally {
             this.module._free(p);
         }

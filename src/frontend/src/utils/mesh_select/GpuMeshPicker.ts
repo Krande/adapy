@@ -582,14 +582,12 @@ class GpuMeshPicker {
             return;
         }
 
-        // Note: we deliberately do NOT check ``hasAncestor(mesh, scene)``
-        // here. Eager registration calls ``registerMesh`` from the
-        // factory, before the mesh is attached anywhere — the guard
-        // would discard every eager build. If the mesh truly got
-        // dropped mid-flight, the picker attaches to a detached parent,
-        // never renders (picker layer only enables during pickAt, and
-        // the parent's matrixWorld never propagates), and the cleanup
-        // in ``sweepOrphaned`` collects it on the next pick.
+        // Unregistered while the worker built it (its model was unloaded):
+        // ``unregisterMeshes`` already dropped its id rows, so discard the
+        // build. Not ``hasAncestor(mesh, scene)``: eager registration
+        // calls ``registerMesh`` from the factory, before the mesh is
+        // attached anywhere, and that guard would discard every eager build.
+        if (!this.pending.has(mesh)) return;
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.BufferAttribute(out.positions, 3));
@@ -702,10 +700,39 @@ class GpuMeshPicker {
         return dup;
     }
 
+    /** Forget `meshes` -- their model is being unloaded: their picker geometry and materials,
+     *  and the id rows that would otherwise keep every unloaded model alive. A build still in
+     *  flight for one is discarded when it returns. One pass over the id rows for all of them,
+     *  so unloading a model of many meshes stays linear. */
+    unregisterMeshes(meshes: ReadonlySet<CustomBatchedMesh>): void {
+        if (meshes.size === 0) return;
+        for (const mesh of meshes) {
+            this.pending.delete(mesh);
+            const reg = this.registered.get(mesh);
+            if (reg) this.disposePickerMesh(reg);
+            this.registered.delete(mesh);
+        }
+        for (const [id, entry] of this.idToEntry) {
+            if (meshes.has(entry.mesh)) this.idToEntry.delete(id);
+        }
+    }
+
     /** Tear down a registered picker mesh and reclaim its GPU buffers
      *  + idToEntry slots. Used by sweepOrphaned and by the morph-count
      *  rebuild path. Doesn't touch the source mesh otherwise. */
     private disposePicker(mesh: CustomBatchedMesh, reg: RegisteredMesh): void {
+        this.disposePickerMesh(reg);
+        this.registered.delete(mesh);
+        // Drop the idToEntry rows for this mesh — a re-registration
+        // re-allocates ids from the global counter. Old ids would
+        // never decode again anyway (no picker geometry writes them).
+        for (const [id, entry] of this.idToEntry) {
+            if (entry.mesh === mesh) this.idToEntry.delete(id);
+        }
+    }
+
+    /** The picker mesh's own resources: detach it, free its geometry and its shader material. */
+    private disposePickerMesh(reg: RegisteredMesh): void {
         const pm = reg.pickerMesh;
         if (pm.parent) pm.parent.remove(pm);
         (pm.geometry as THREE.BufferGeometry).dispose();
@@ -717,13 +744,6 @@ class GpuMeshPicker {
             for (const x of m) if (x !== this.invisibleMaterial) x.dispose();
         } else if (m !== this.invisibleMaterial) {
             m.dispose();
-        }
-        this.registered.delete(mesh);
-        // Drop the idToEntry rows for this mesh — a re-registration
-        // re-allocates ids from the global counter. Old ids would
-        // never decode again anyway (no picker geometry writes them).
-        for (const [id, entry] of this.idToEntry) {
-            if (entry.mesh === mesh) this.idToEntry.delete(id);
         }
     }
 
