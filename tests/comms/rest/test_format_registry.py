@@ -227,7 +227,8 @@ async def test_other_kinds_short_circuit_on_a_cached_blob(storage):
 )
 async def test_source_backed_kinds_get_the_downloaded_source(monkeypatch, storage, kind, module, fn):
     """The shared pre-steps stream the source to a worker-local tempfile, hand the handler its
-    path + progress callback, and unlink it afterwards."""
+    path + progress callback, and remove it afterwards -- with whatever a reader wrote beside it
+    (an ODB's export .sqlite and upgraded copy are GBs each)."""
     scope = Scope.shared()
     await storage.put_bytes(scope, "a.glb", b"glb-bytes")
     seen: dict = {}
@@ -235,6 +236,8 @@ async def test_source_backed_kinds_get_the_downloaded_source(monkeypatch, storag
     async def _record(**kw):
         seen.update(kw)
         seen["bytes_on_disk"] = kw["src_path"].read_bytes()
+        seen["sidecar"] = kw["src_path"].with_suffix(".sqlite")
+        seen["sidecar"].write_bytes(b"export")
         await kw["_on_progress"]("probing", 0.5)
 
     monkeypatch.setattr(f"ada.comms.rest.formats.{module}.{fn}", _record)
@@ -244,6 +247,7 @@ async def test_source_backed_kinds_get_the_downloaded_source(monkeypatch, storag
     assert seen["job"] is job
     assert seen["bytes_on_disk"] == b"glb-bytes"
     assert seen["src_path"].suffix == ".glb" and not seen["src_path"].exists()
+    assert not seen["sidecar"].exists() and not seen["src_path"].parent.exists()
     assert seen["started_at"] > 0 and seen["db_pool"] is None and seen["storage"] is storage
     if kind == "parity":
         assert "timeout_s" in seen and seen["timeout_s"] is None

@@ -4,8 +4,8 @@ guards, cached-blob short-circuit, source download, conversion settings, progres
 
 from __future__ import annotations
 
-import os
 import pathlib
+import shutil
 import tempfile
 import time
 from concurrent.futures import (  # noqa: F401 — kept for the legacy _process_one signature
@@ -164,10 +164,13 @@ async def _process_one(
     # the whole payload in RAM. Big result decks (Sesam SIF can be
     # 950 MB+) blow up the worker pod otherwise; smaller sources still
     # benefit from skipping the bytes/path round-trip.
+    #
+    # In a directory of its own, removed whole afterwards: readers write beside the source (an Abaqus
+    # ODB leaves its export ``.sqlite`` and aba-cpp's ``.upgraded.odb`` copy there, GBs each), and
+    # deleting only the source left those in /tmp after every bake.
     src_suffix = pathlib.PurePosixPath(job.source_key).suffix or ""
-    src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
-    os.close(src_fd)
-    src_path = pathlib.Path(src_name)
+    src_dir = pathlib.Path(tempfile.mkdtemp(prefix="ada-src-"))
+    src_path = src_dir / f"source{src_suffix}"
     try:
         try:
             ctx.fetch = await fetch_source(storage, scope, job, src_path)
@@ -182,10 +185,7 @@ async def _process_one(
         ctx.src_path = src_path
         await handler.run(job, ctx)
     finally:
-        try:
-            src_path.unlink()
-        except OSError:
-            pass
+        shutil.rmtree(src_dir, ignore_errors=True)
 
 
 def _progress_callback(queue: JobQueue, job_id: str) -> Callable[[str, float], Awaitable[None]]:
