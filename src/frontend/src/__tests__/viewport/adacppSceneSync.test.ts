@@ -15,6 +15,7 @@ interface Recorded {
     removed: number[];
     colorUpdates: number;
     morphUpdates: Map<number, number[]>; // geometry -> first morph component of each update
+    influences: Map<number, number>; // geometry -> morph influence of its latest setInstance
 }
 
 function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Recorded} {
@@ -32,7 +33,7 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         _free: () => {},
     } as unknown as AdacppModule;
     const u32 = (p: number, n: number) => (p ? Array.from(module.HEAPU32.subarray(p >> 2, (p >> 2) + n)) : []);
-    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map()};
+    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map(), influences: new Map()};
     const f32 = (p: number, n: number) => (p ? Array.from(module.HEAPF32.subarray(p >> 2, (p >> 2) + n)) : []);
     let nextGeom = 0;
     let nextInst = 0;
@@ -54,7 +55,10 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         },
         removeGeometry: (g: number) => rec.removed.push(g),
         updateColors: () => rec.colorUpdates++,
-        setInstance: () => {},
+        setInstance: (instance: number, _m: number, _r: number, _g: number, _b: number, _a: number, _f: number,
+                      influence: number) => {
+            rec.influences.set(geomOfInst.get(instance)!, influence);
+        },
         removeInstance: () => {},
         updateMorph: (g: number, p: number) => {
             rec.morphUpdates.set(g, [...(rec.morphUpdates.get(g) ?? []), f32(p, 1)[0]]);
@@ -191,4 +195,33 @@ test("a warp swapped in as a new buffer reaches a wireframe that shares it (FEA 
     step(2);
     const lineGeomId = [...rec.geometries.entries()].find(([, g]) => g.topology === Topology.Lines)![0];
     assert.deepEqual(rec.morphUpdates.get(lineGeomId), [1, 2]);
+});
+
+test("onBeforeRender hooks run before mirroring: an overlay that copies the influence there follows the warp", () => {
+    // setSourceMorph gives the element wireframe its own morph and mirrors the mesh's influence in
+    // onBeforeRender -- a hook three.js only calls when it draws, which in WebGPU mode it does not.
+    const {module, renderer, rec} = fakeModule();
+    const meshGeom = new THREE.BufferGeometry();
+    meshGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    meshGeom.morphAttributes.position = [new THREE.BufferAttribute(new Float32Array(9).fill(1), 3)];
+    meshGeom.morphTargetsRelative = true;
+    const mesh = new THREE.Mesh(meshGeom, new THREE.MeshBasicMaterial());
+    mesh.updateMorphTargets();
+    const lineGeom = new THREE.BufferGeometry();
+    lineGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    lineGeom.morphAttributes.position = [new THREE.BufferAttribute(new Float32Array(9).fill(1), 3)];
+    lineGeom.morphTargetsRelative = true;
+    lineGeom.setIndex([0, 1, 1, 2]);
+    const lines = new THREE.LineSegments(lineGeom, new THREE.LineBasicMaterial());
+    lines.updateMorphTargets();
+    lines.onBeforeRender = () => {
+        lines.morphTargetInfluences![0] = mesh.morphTargetInfluences![0];
+    };
+    mesh.add(lines);
+    const {scene, camera} = cameraAndScene(mesh);
+    const sync = new SceneSync(module, renderer);
+    mesh.morphTargetInfluences![0] = 0.75;
+    sync.sync(scene, camera);
+    const lineGeomId = [...rec.geometries.entries()].find(([, g]) => g.topology === Topology.Lines)![0];
+    assert.equal(rec.influences.get(lineGeomId), 0.75);
 });

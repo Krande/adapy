@@ -106,6 +106,19 @@ export class SceneSync {
     private readonly viewPtr: number;
     private readonly projPtr: number;
     private readonly bg = new THREE.Color();
+    // The parts of WebGLRenderer that onBeforeRender hooks use (LineMaterial reads the size).
+    private readonly hookRenderer = {
+        width: 1,
+        height: 1,
+        getSize(target: THREE.Vector2) {
+            return target.set(this.width, this.height);
+        },
+        getDrawingBufferSize(target: THREE.Vector2) {
+            return target.set(this.width, this.height);
+        },
+        getPixelRatio: () => 1,
+        clearStencil: () => {},
+    };
     lastSyncMs = 0;
 
     constructor(private readonly module: AdacppModule, private readonly r: WebRendererApi) {
@@ -122,7 +135,8 @@ export class SceneSync {
         this.module._free(this.projPtr);
     }
 
-    sync(scene: THREE.Scene, camera: THREE.Camera): void {
+    /** `width` x `height`: the drawing-buffer size, reported to onBeforeRender hooks that ask the renderer. */
+    sync(scene: THREE.Scene, camera: THREE.Camera, width = 1, height = 1): void {
         const t0 = performance.now();
         this.frame++;
         scene.updateMatrixWorld();
@@ -138,7 +152,17 @@ export class SceneSync {
             if (obj.parent instanceof CustomBatchedMesh && obj.parent.isHighlightOverlay(obj)) return;
             const o = obj as unknown as Record<string, boolean>;
             if (o.isSprite) return;
-            if (o.isMesh || o.isLineSegments || o.isLine || o.isPoints) this.syncObject(obj);
+            if (!(o.isMesh || o.isLineSegments || o.isLine || o.isPoints)) return;
+            // three.js calls onBeforeRender only on objects it draws, and here it draws nothing. Scene
+            // code relies on the hook for per-frame state: FEA overlays (element wireframe, beam lines,
+            // result points) copy the mesh's morph influence there, the selection overlay follows the
+            // morph, handles scale with the camera. Run it as three would, then mirror the result.
+            this.hookRenderer.width = width;
+            this.hookRenderer.height = height;
+            const mesh = obj as THREE.Mesh;
+            obj.onBeforeRender(this.hookRenderer as unknown as THREE.WebGLRenderer, scene, camera, mesh.geometry,
+                baseMaterial(obj) as THREE.Material, null as unknown as THREE.Group);
+            this.syncObject(obj);
         });
 
         for (const [key, e] of this.entries) {

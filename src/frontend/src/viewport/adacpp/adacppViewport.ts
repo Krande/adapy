@@ -138,7 +138,7 @@ export class AdacppViewport {
         try {
             this.renderer.resize(w, h);
             this.renderer.setCulling(culling.frustum, culling.cone);
-            this.sync.sync(scene, camera);
+            this.sync.sync(scene, camera, w, h);
             this.renderer.render();
         } catch (err) {
             this.alive_ = false;
