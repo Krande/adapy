@@ -134,6 +134,7 @@ export type {
   SceneColor,
   SceneColorFieldProvider,
   SceneColorFieldResult,
+  SceneElementOutline,
   SceneElementPaint,
   SceneHandle,
   SceneLabel,

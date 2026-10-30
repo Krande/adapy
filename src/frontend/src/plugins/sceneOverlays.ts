@@ -17,10 +17,11 @@ import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometr
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
-import {getActiveFeaMesh} from "@/utils/scene/handlers/load_fea_streaming";
+import {feaSession} from "@/utils/scene/fea/streaming/session";
 import {clipWithModel} from "@/utils/scene/section_clipping";
 import type {
     SceneColor,
+    SceneElementOutline,
     SceneElementPaint,
     SceneLabel,
     SceneLabelOptions,
@@ -37,8 +38,78 @@ interface FeaMesh extends THREE.Mesh {
     getHiddenRanges?: () => ReadonlySet<string>;
 }
 
-const feaMesh = () => getActiveFeaMesh() as FeaMesh | null;
+const feaMesh = () => (feaSession.active?.mesh ?? null) as FeaMesh | null;
 const rangeId = (element: number) => `E${element}`;
+
+/** The FEA model's beam-solid mesh while it is shown (same `E<label>` draw ranges as the FEA mesh); null otherwise. */
+function beamSolidMesh(): FeaMesh | null {
+    const solids = feaSession.active?.beamSolidMesh as FeaMesh | undefined;
+    return solids?.visible ? solids : null;
+}
+
+/** Where a vertex of `mesh` is drawn now: its position plus the morph (warp) at the current weights. */
+function warpedVertex(mesh: THREE.Mesh, v: number, out: THREE.Vector3): THREE.Vector3 {
+    const geom = mesh.geometry;
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
+    out.fromBufferAttribute(pos, v);
+    const morphs = geom.morphAttributes.position as THREE.BufferAttribute[] | undefined;
+    const weights = mesh.morphTargetInfluences;
+    if (!morphs?.length || !weights) return out;
+    let sum = 0;
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    for (let m = 0; m < morphs.length; m++) {
+        const w = weights[m] ?? 0;
+        if (!w) continue;
+        sum += w;
+        x += w * morphs[m].getX(v);
+        y += w * morphs[m].getY(v);
+        z += w * morphs[m].getZ(v);
+    }
+    if (geom.morphTargetsRelative) return out.set(out.x + x, out.y + y, out.z + z);
+    return sum ? out.set(out.x * (1 - sum) + x, out.y * (1 - sum) + y, out.z * (1 - sum) + z) : out;
+}
+
+const warpKey = (mesh: THREE.Mesh) => (mesh.morphTargetInfluences ?? []).map((w) => w.toFixed(5)).join(",");
+
+/** The index-buffer vertices of `elements`' faces, three per triangle. */
+function elementVertices(mesh: FeaMesh, elements: Iterable<number>): number[] {
+    const idx = mesh.geometry.getIndex()?.array;
+    if (!idx || !mesh.drawRanges) return [];
+    const out: number[] = [];
+    for (const element of new Set(elements)) {
+        const range = mesh.drawRanges.get(rangeId(element));
+        if (!range) continue;
+        const [start, count] = range;
+        for (let i = start; i < start + count && i < idx.length; i++) out.push(idx[i]);
+    }
+    return out;
+}
+
+/** The edges of a triangle list that only one of its triangles has: its outline. Vertices are
+ *  matched by position (a mesh splits them per element), so two elements' shared edge drops out. */
+export function boundaryEdges(pos: THREE.BufferAttribute, tris: readonly number[], tolerance = 1e-5): number[] {
+    const q = (v: number) => Math.round(v / tolerance);
+    const key = (v: number) => `${q(pos.getX(v))},${q(pos.getY(v))},${q(pos.getZ(v))}`;
+    const edges = new Map<string, {count: number; a: number; b: number}>();
+    for (let t = 0; t + 2 < tris.length; t += 3) {
+        for (let e = 0; e < 3; e++) {
+            const a = tris[t + e];
+            const b = tris[t + ((e + 1) % 3)];
+            const ka = key(a);
+            const kb = key(b);
+            if (ka === kb) continue; // a collapsed triangle
+            const k = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+            const hit = edges.get(k);
+            if (hit) hit.count++;
+            else edges.set(k, {count: 1, a, b});
+        }
+    }
+    const out: number[] = [];
+    for (const {count, a, b} of edges.values()) if (count === 1) out.push(a, b);
+    return out;
+}
 
 const owned = new Map<string, Set<THREE.Object3D>>();
 
@@ -47,9 +118,9 @@ function linear(c: SceneColor, out = new THREE.Color()): THREE.Color {
 }
 
 /** Put `obj` where the plugin's coordinates mean what it says, and keep it in step with the model. */
-function attach(owner: string, obj: THREE.Object3D): SceneOverlay {
+function attach(owner: string, obj: THREE.Object3D, under?: THREE.Object3D): SceneOverlay {
     const mesh = feaMesh();
-    const parent: THREE.Object3D | null = mesh ?? getViewerRuntime().scene.current;
+    const parent: THREE.Object3D | null = under ?? mesh ?? getViewerRuntime().scene.current;
     obj.userData.__pluginOwner = owner;
     obj.traverse((o) => {
         o.raycast = () => undefined; // never stands in front of the object a click is meant for
@@ -84,18 +155,18 @@ export function removeOwnerOverlays(owner: string): void {
     for (const obj of [...(owned.get(owner) ?? [])]) dispose(owner, obj);
 }
 
-export function addLines(owner: string, spec: SceneLines): SceneOverlay {
-    const positions = Float32Array.from(spec.segments);
+type LineLook = Pick<SceneLines, "color" | "colors" | "widthPx" | "dashed" | "opacity" | "throughModel">;
+
+// Lines drawn through the model stack in the order they were added.
+let throughModelSeq = 0;
+
+function makeLines(positions: Float32Array, look: LineLook): LineSegments2 {
     const segments = positions.length / 6;
-    if (!Number.isInteger(segments)) throw new Error(`addLines: segments needs 6 numbers per segment, got ${positions.length}`);
-    if (spec.colors && spec.colors.length !== segments * 3) {
-        throw new Error(`addLines: colors needs 3 numbers per segment (${segments * 3}), got ${spec.colors.length}`);
-    }
     const geom = new LineSegmentsGeometry();
     geom.setPositions(positions);
-    if (spec.colors) {
+    if (look.colors) {
         // Per segment in, per endpoint out.
-        const src = Array.from(spec.colors);
+        const src = Array.from(look.colors);
         const out = new Float32Array(segments * 6);
         const c = new THREE.Color();
         for (let i = 0; i < segments; i++) {
@@ -104,41 +175,105 @@ export function addLines(owner: string, spec: SceneLines): SceneOverlay {
         }
         geom.setColors(out);
     }
+    const opacity = look.opacity ?? 1;
     const material = new LineMaterial({
-        vertexColors: !!spec.colors,
-        linewidth: spec.widthPx ?? 2,
-        dashed: !!spec.dashed,
-        dashSize: spec.dashed?.dash ?? 1,
-        gapSize: spec.dashed?.gap ?? 1,
+        vertexColors: !!look.colors,
+        linewidth: look.widthPx ?? 2,
+        dashed: !!look.dashed,
+        dashSize: look.dashed?.dash ?? 1,
+        gapSize: look.dashed?.gap ?? 1,
+        opacity,
+        transparent: opacity < 1 || !!look.throughModel,
+        depthTest: !look.throughModel,
         depthWrite: false,
         // In front of the faces they run along (a stiffener on its plate), not hidden in them.
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -2,
     });
-    if (!spec.colors) linear(spec.color ?? "#ffffff", material.color);
+    if (!look.colors) linear(look.color ?? "#ffffff", material.color);
     const lines = new LineSegments2(geom, material);
-    if (spec.dashed) lines.computeLineDistances();
+    if (look.dashed) lines.computeLineDistances();
     lines.renderOrder = 7;
-    // LineMaterial turns linewidth into pixels from the drawing-buffer size.
-    lines.onBeforeRender = (renderer) => renderer.getSize(material.resolution);
+    if (look.throughModel) {
+        lines.renderOrder = 20 + (throughModelSeq++ % 100000) * 1e-5;
+        // The WebGPU viewport draws these with three.js over its image (its sprite pass): nothing of
+        // the model can then hide them, which is what they ask for.
+        lines.userData.__overlayPass = true;
+    }
+    // LineMaterial turns linewidth into pixels from the viewport size: CSS pixels, as `widthPx`.
+    lines.onBeforeRender = (renderer) => {
+        const el = renderer.domElement as HTMLCanvasElement | undefined;
+        if (el?.clientWidth) material.resolution.set(el.clientWidth, el.clientHeight);
+        else renderer.getSize(material.resolution);
+    };
+    return lines;
+}
+
+export function addLines(owner: string, spec: SceneLines): SceneOverlay {
+    const positions = Float32Array.from(spec.segments);
+    const segments = positions.length / 6;
+    if (!Number.isInteger(segments)) throw new Error(`addLines: segments needs 6 numbers per segment, got ${positions.length}`);
+    if (spec.colors && spec.colors.length !== segments * 3) {
+        throw new Error(`addLines: colors needs 3 numbers per segment (${segments * 3}), got ${spec.colors.length}`);
+    }
+    return attach(owner, makeLines(positions, spec));
+}
+
+/** The outline of `outline.elements`' faces on the active FEA mesh, kept on the warped surface. */
+export function addElementOutlines(owner: string, outline: SceneElementOutline): SceneOverlay | null {
+    const mesh = feaMesh();
+    const pos = mesh?.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!mesh || !pos) return null;
+    // The edges are found once, on the mesh's own vertices; a warp moves them, it does not change them.
+    const edges = boundaryEdges(pos, elementVertices(mesh, outline.elements));
+    if (!edges.length) return null;
+    const v = new THREE.Vector3();
+    const place = (out: Float32Array) => {
+        for (let i = 0; i < edges.length; i++) warpedVertex(mesh, edges[i], v).toArray(out, i * 3);
+        return out;
+    };
+    const lines = makeLines(place(new Float32Array(edges.length * 3)), {...outline, colors: undefined});
+    let placedAt = warpKey(mesh);
+    const ownHook = lines.onBeforeRender;
+    lines.onBeforeRender = (...args) => {
+        ownHook.apply(lines, args);
+        const now = warpKey(mesh);
+        if (now === placedAt) return;
+        placedAt = now;
+        // In place: the instance buffer keeps its identity, and its version tells both renderers.
+        const start = lines.geometry.attributes.instanceStart as THREE.InterleavedBufferAttribute;
+        place(start.data.array as Float32Array);
+        start.data.needsUpdate = true;
+        lines.geometry.computeBoundingSphere();
+        if (outline.dashed) lines.computeLineDistances();
+    };
     return attach(owner, lines);
 }
 
-function labelTexture(label: SceneLabel): {texture: THREE.CanvasTexture; aspect: number} {
-    const h = 64;
+const LABEL_LINE_PX = 64; // canvas pixels per text line
+
+function labelTexture(label: SceneLabel): {texture: THREE.CanvasTexture; aspect: number; lines: number} {
+    const h = LABEL_LINE_PX;
+    const lines = typeof label.text === "string" ? [label.text] : [...label.text];
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
-    const font = `bold ${Math.round(h * 0.6)}px sans-serif`;
-    ctx.font = font;
-    const circle = label.shape === "circle";
-    canvas.width = circle ? h : Math.max(h, Math.ceil(ctx.measureText(label.text).width + h * 0.5));
-    canvas.height = h;
+    const font = (i: number) => `${lines.length > 1 && i > 0 ? 500 : "bold"} ${Math.round(h * 0.6)}px sans-serif`;
+    const circle = label.shape === "circle" && lines.length === 1;
+    let textW = 0;
+    lines.forEach((line, i) => {
+        ctx.font = font(i);
+        textW = Math.max(textW, ctx.measureText(line).width);
+    });
+    canvas.width = circle ? h : Math.max(h, Math.ceil(textW + h * 0.5));
+    canvas.height = h * lines.length;
     if (label.background || label.border) {
         const inset = label.border ? 5 : 2;
+        const [w, ht] = [canvas.width - inset, canvas.height - inset];
         ctx.beginPath();
         if (circle) ctx.arc(h / 2, h / 2, h / 2 - inset, 0, Math.PI * 2);
-        else ctx.rect(inset / 2, inset / 2, canvas.width - inset, h - inset);
+        else if (label.shape === "rounded") ctx.roundRect(inset / 2, inset / 2, w, ht, h * 0.25);
+        else ctx.rect(inset / 2, inset / 2, w, ht);
         if (label.background) {
             ctx.fillStyle = label.background;
             ctx.fill();
@@ -149,34 +284,60 @@ function labelTexture(label: SceneLabel): {texture: THREE.CanvasTexture; aspect:
             ctx.stroke();
         }
     }
-    ctx.font = font; // resizing the canvas reset it
     ctx.fillStyle = label.color ?? "#0f172a";
-    ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(label.text, canvas.width / 2, h / 2 + 2);
+    // One line centred; several left-aligned, as a little table reads.
+    ctx.textAlign = lines.length > 1 ? "left" : "center";
+    lines.forEach((line, i) => {
+        ctx.font = font(i); // resizing the canvas reset it
+        ctx.fillText(line, lines.length > 1 ? h * 0.25 : canvas.width / 2, h * i + h / 2 + 2);
+    });
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
-    return {texture, aspect: canvas.width / h};
+    return {texture, aspect: canvas.width / canvas.height, lines: lines.length};
+}
+
+/** The centre of `elements`' faces as drawn now, or null when none is on the mesh. */
+function elementsCenter(mesh: FeaMesh, vertices: readonly number[], out: THREE.Vector3): THREE.Vector3 | null {
+    if (!vertices.length) return null;
+    const v = new THREE.Vector3();
+    out.set(0, 0, 0);
+    for (const i of vertices) out.add(warpedVertex(mesh, i, v));
+    return out.divideScalar(vertices.length);
 }
 
 export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabelOptions): SceneOverlay {
     const group = new THREE.Group();
     group.name = `${owner}-labels`;
     const heightPx = opts?.heightPx ?? 18;
+    const mesh = feaMesh();
     for (const label of labels) {
-        const {texture, aspect} = labelTexture(label);
-        const sprite = new THREE.Sprite(
-            new THREE.SpriteMaterial({map: texture, sizeAttenuation: false, depthTest: false, transparent: true}),
-        );
-        sprite.position.set(label.position[0], label.position[1], label.position[2]);
+        const pinned = label.atElements && mesh ? elementVertices(mesh, label.atElements) : null;
+        const sprite = new THREE.Sprite();
+        if (pinned) {
+            if (!elementsCenter(mesh!, pinned, sprite.position)) continue;
+        } else if (label.position) {
+            sprite.position.set(label.position[0], label.position[1], label.position[2]);
+        } else {
+            continue;
+        }
+        const {texture, aspect, lines} = labelTexture(label);
+        sprite.material = new THREE.SpriteMaterial({map: texture, sizeAttenuation: false, depthTest: false, transparent: true});
+        if (label.anchor === "above-right") sprite.center.set(0, -0.15);
         sprite.renderOrder = 12;
+        let placedAt = pinned ? warpKey(mesh!) : "";
         // A constant on-screen size: without size attenuation a sprite's scale is a fraction of the view
         // height (times the projection's focal term), so set it from the canvas' CSS height every frame.
         sprite.onBeforeRender = (renderer, _scene, camera) => {
             const cssHeight = Math.max(1, renderer.domElement.clientHeight);
-            const s = (2 * heightPx) / (cssHeight * camera.projectionMatrix.elements[5]);
+            const s = (2 * heightPx * lines) / (cssHeight * camera.projectionMatrix.elements[5]);
             sprite.scale.set(s * aspect, s, 1);
+            if (pinned && warpKey(mesh!) !== placedAt) {
+                placedAt = warpKey(mesh!);
+                elementsCenter(mesh!, pinned, sprite.position);
+                sprite.updateMatrixWorld();
+            }
         };
         group.add(sprite);
     }
@@ -187,7 +348,7 @@ export const hasFeaModel = (): boolean => feaMesh() !== null;
 
 /** Colour elements of the active FEA mesh, over the model; null when no FEA model is loaded. */
 export function paintFeaElements(owner: string, paint: SceneElementPaint): SceneOverlay | null {
-    const mesh = feaMesh();
+    const mesh = paint.on === "beamSolids" ? beamSolidMesh() : feaMesh();
     const index = mesh?.geometry.getIndex();
     const pos = mesh?.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
     if (!mesh || !index || !pos || !mesh.drawRanges) return null;
@@ -255,7 +416,8 @@ export function paintFeaElements(owner: string, paint: SceneElementPaint): Scene
     // Shared, not copied: the warp slider writes the mesh's influences and the paint moves with them.
     overlay.morphTargetInfluences = mesh.morphTargetInfluences;
     overlay.morphTargetDictionary = mesh.morphTargetDictionary;
-    return attach(owner, overlay);
+    // On the mesh it paints: the beam solids hang under the FEA mesh in their own frame.
+    return attach(owner, overlay, mesh);
 }
 
 /** Show only `elements` of the active FEA mesh (null: show all). */

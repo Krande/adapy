@@ -85,6 +85,9 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          builds it, so it draws the same under three.js and the WebGPU renderer and moves
 //          and clips with the model. `add` (a raw Object3D) and `getActiveFeaMesh` stay, now
 //          deprecated: they tie a plugin to one renderer and to the FEA mesh's internals.
+//          Also `addElementOutlines` (an element set's outline, following the warp),
+//          `paintFeaElements` `on: "beamSolids"`, lines `opacity` / `throughModel`, and labels
+//          with several lines, `atElements` (pinned to a warping element set) and an `anchor`.
 //          Additive, so a minor bump.
 export const PLUGIN_API_VERSION = "1.9.0";
 
@@ -217,16 +220,37 @@ export interface SceneLines {
   colors?: Float32Array | readonly number[];
   widthPx?: number; // default 2
   dashed?: { dash: number; gap: number }; // in model units
+  opacity?: number; // 0..1; default 1
+  // Drawn over the model instead of hidden behind it (a selection behind a deck is still where
+  // it is). Of several, the one added last draws on top.
+  throughModel?: boolean;
+}
+
+/** The outline of FEA elements' faces: the edges no two of them share, following the warp. */
+export interface SceneElementOutline {
+  elements: Iterable<number>; // element labels of the active FEA mesh
+  color?: SceneColor; // default white
+  widthPx?: number; // default 2
+  dashed?: { dash: number; gap: number }; // in model units
+  opacity?: number; // 0..1; default 1
+  throughModel?: boolean; // as on `SceneLines`
 }
 
 /** A screen-space label pinned to a point (FEA model coordinates, as `SceneLines`). */
 export interface SceneLabel {
-  position: readonly [number, number, number];
-  text: string;
+  // Where it is pinned: a point, or `atElements`, the centre of those FEA elements' faces, which
+  // moves with the warp. One of the two.
+  position?: readonly [number, number, number];
+  atElements?: Iterable<number>;
+  // Several: a line each, the first bold.
+  text: string | readonly string[];
   color?: string; // text, CSS; default dark slate
   background?: string; // CSS; none by default
   border?: string; // CSS outline around the background; none by default
-  shape?: "rect" | "circle";
+  shape?: "rect" | "rounded" | "circle";
+  // "center" (default) centres it on the point; "above-right" puts its lower-left corner just
+  // above it, so it does not cover what it names.
+  anchor?: "center" | "above-right";
 }
 
 export interface SceneLabelOptions {
@@ -240,6 +264,9 @@ export interface SceneElementPaint {
   // omitted / null: those are not drawn.
   neutral?: SceneColor | null;
   only?: Iterable<number>;
+  // Which of the FEA model's meshes: "model" (default), its shells and lines as drawn, or
+  // "beamSolids", the swept beam sections when they are shown (same element labels).
+  on?: "model" | "beamSolids";
 }
 
 /** A manifest-relative byte/JSON fetcher handed to sidecar loaders. */
@@ -331,8 +358,10 @@ export interface SceneHandle {
   addLabels: (owner: string, labels: SceneLabel[], opts?: SceneLabelOptions) => SceneOverlay;
   // Whether an FEA model is loaded (the frame the coordinates above are in).
   hasFeaModel: () => boolean;
-  // Null when no FEA model is loaded.
+  // Null when no FEA model is loaded (or, `on: "beamSolids"`, its beam solids are not shown).
   paintFeaElements: (owner: string, paint: SceneElementPaint) => SceneOverlay | null;
+  // Null when no FEA model is loaded or none of `elements` is in it.
+  addElementOutlines: (owner: string, outline: SceneElementOutline) => SceneOverlay | null;
   // Show only these elements of the active FEA model; null shows all again.
   isolateFeaElements: (elements: Iterable<number> | null) => void;
   hideFeaElements: (elements: Iterable<number>) => void;

@@ -189,7 +189,9 @@ export class SceneSync {
             if (!camera.layers.test(obj.layers)) return;
             if (obj.parent instanceof CustomBatchedMesh && obj.parent.isHighlightOverlay(obj)) return;
             const o = obj as unknown as Record<string, boolean>;
-            if (o.isSprite) {
+            // Sprites, and what asks to be drawn over the model (a plugin's lines `throughModel`), go to
+            // the three.js pass over the WebGPU image.
+            if (o.isSprite || obj.userData.__overlayPass) {
                 obj.layers.enable(SPRITE_LAYER);
                 this.spriteCount++;
                 return;

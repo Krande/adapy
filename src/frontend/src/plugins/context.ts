@@ -20,6 +20,7 @@ import { noteOwnerPainted } from "@/utils/scene/fea/modeSceneColor";
 import { effectivePluginTheme, useThemeStore } from "@/state/themeStore";
 import type { PluginTheme } from "./registry";
 import {
+  addElementOutlines,
   addLabels,
   addLines,
   hasFeaModel,
@@ -158,6 +159,7 @@ function makeSceneHandle(): SceneHandle {
     addLabels,
     hasFeaModel,
     paintFeaElements,
+    addElementOutlines,
     isolateFeaElements,
     hideFeaElements,
     hiddenFeaElements,
