@@ -2,6 +2,15 @@
 
 
 
+## v0.123.0 (2026-10-30)
+
+### Feature
+
+* feat: WebGPU renderer in Ada Studio, renderer-neutral plugin scene verbs, FEA viewer and worker fixes (#473)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`1cdbfe0`](https://github.com/Krande/adapy/commit/1cdbfe0902b1a273853814cfdb1ea33cfda13128))
+
+
 ## v0.122.1 (2026-10-30)
 
 ### Fix
