@@ -44,6 +44,17 @@ export const adminStorageApi = {
     return jsonOrThrow(r, "adminDeleteBlob");
   },
 
+  /** Admin: delete every derived product in the scope (or of one `source`), server-side in batched
+   * deletes. Returns how many went and the keys that could not be deleted. */
+  async adminPurgeDerived(scope: ScopeUrl, source?: string): Promise<{ deleted: number; errors: string[] }> {
+    const query = source ? `?source=${encodeURIComponent(source)}` : "";
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(scope)}/derived${query}`,
+      { method: "DELETE" },
+    );
+    return jsonOrThrow(r, "adminPurgeDerived");
+  },
+
   /** Admin: batch-move source keys into a destination folder
    * (key prefix). Each source is renamed to ``<folder>/<basename>``;
    * derived blobs under ``_derived/<src>.*`` follow so the convert
