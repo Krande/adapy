@@ -18,9 +18,6 @@ import time
 import uuid
 
 import pytest
-
-from .test_fea_manifest import _settings, _upload  # noqa: F401  (env shim runs on import)
-
 from fastapi.testclient import TestClient  # noqa: E402
 
 from ada.comms.rest.app import create_app  # noqa: E402
@@ -30,6 +27,11 @@ from ada.comms.rest.converter import (  # noqa: E402
     fea_stamp_is_current,
 )
 from ada.comms.rest.routes import fea as fea_routes  # noqa: E402
+
+from .test_fea_manifest import (  # noqa: F401  (env shim runs on import)
+    _settings,
+    _upload,
+)
 
 
 @pytest.fixture

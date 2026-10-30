@@ -106,6 +106,7 @@ from .history import (
     HistoryVariable,
     build_history_payload,
 )
+from .manifest import STAMP_NAME
 from .manifest import _default_view_for as _default_view_for  # noqa: F401
 from .manifest import _format_step_label as _format_step_label  # noqa: F401
 from .manifest import (  # noqa: F401
@@ -116,7 +117,6 @@ from .manifest import _presentation_payload as _presentation_payload  # noqa: F4
 from .manifest import _step_entry as _step_entry  # noqa: F401
 from .manifest import _value_label_key as _value_label_key  # noqa: F401
 from .manifest import (
-    STAMP_NAME,
     analysis_kind_from_result_cases,
     build_manifest,
     inline_manifest,
