@@ -281,9 +281,10 @@ async def resume_asset_sweep_run(pool: asyncpg.Pool, run_id: str) -> Optional[li
         rows = await conn.fetch(
             """
             UPDATE asset_sweep_items i SET status = 'pending', message = $2, error = NULL,
-                started_at = NULL, finished_at = NULL
+                started_at = NULL, finished_at = NULL, worker_slot = FALSE
             FROM (SELECT position, fetch_job_id, publish_job_id FROM asset_sweep_items
-                  WHERE run_id = $1 AND status IN ('fetching', 'publishing') FOR UPDATE) old
+                  WHERE run_id = $1 AND (status IN ('fetching', 'publishing', 'waiting') OR worker_slot)
+                  FOR UPDATE) old
             WHERE i.run_id = $1 AND i.position = old.position
             RETURNING i.position, i.collection, old.fetch_job_id, old.publish_job_id
             """,
@@ -322,10 +323,115 @@ async def update_asset_sweep_item(pool: asyncpg.Pool, run_id: str, position: int
 async def skip_pending_asset_sweep_items(pool: asyncpg.Pool, run_id: str, reason: str) -> None:
     # `excluded` items stay `excluded`: they were never going to run, and saying "cancelled"
     # over them would lose who left them out.
+    # A `waiting` item (another run held its collection) had not started either.
     await pool.execute(
-        "UPDATE asset_sweep_items SET status = 'skipped', message = $2 WHERE run_id = $1 AND status = 'pending'",
+        "UPDATE asset_sweep_items SET status = 'skipped', message = $2, worker_slot = FALSE "
+        "WHERE run_id = $1 AND status IN ('pending', 'waiting')",
         run_id,
         reason,
+    )
+
+
+# --- several runs of one provider at once (migration 048) -----------------------------------------
+
+#: Item states in which a run is working on its collection: no other run may claim it meanwhile.
+IN_FLIGHT = ("fetching", "publishing")
+
+
+def _live_runs(alias: str = "r") -> str:
+    """SQL: the run is being driven (``running`` with a fresh heartbeat). A dead driver holds nothing."""
+    return f"{alias}.status = 'running' AND {alias}.heartbeat_at >= NOW() - INTERVAL '{HEARTBEAT_STALE_S} seconds'"
+
+
+async def claim_asset_sweep_item(
+    pool: asyncpg.Pool, run_id: str, position: int, *, provider: str, collection: str
+) -> dict:
+    """Claim the item's collection for this run: move the item to ``fetching`` unless another live
+    run of ``provider`` is working on the same collection (case-insensitive). Serialised per
+    (provider, collection) by a transaction-scoped advisory lock, so two runs -- on two API replicas
+    too -- can never both claim it. Returns ``{"claimed": bool, "status": the item's status,
+    "holder": {run_id, job, created_at} | None}``; an item no longer ``pending`` / ``waiting`` (ticked
+    off meanwhile) is not claimed and has no holder."""
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", f"asset_sweep:{provider}/{collection.lower()}"
+        )
+        status = await conn.fetchval(
+            "SELECT status FROM asset_sweep_items WHERE run_id = $1 AND position = $2 FOR UPDATE", run_id, position
+        )
+        if status not in ("pending", "waiting"):
+            return {"claimed": False, "status": status, "holder": None}
+        holder = await conn.fetchrow(
+            f"""
+            SELECT r.id, r.job, r.created_at FROM asset_sweep_items i JOIN asset_sweep_runs r ON r.id = i.run_id
+            WHERE r.provider = $1 AND r.id <> $2 AND lower(i.collection) = lower($3)
+              AND i.status = ANY($4::text[]) AND {_live_runs()}
+            ORDER BY r.created_at LIMIT 1
+            """,
+            provider,
+            run_id,
+            collection,
+            list(IN_FLIGHT),
+        )
+        if holder is not None:
+            return {
+                "claimed": False,
+                "status": status,
+                "holder": {"run_id": str(holder["id"]), "job": holder["job"], "created_at": _iso(holder["created_at"])},
+            }
+        await conn.execute(
+            "UPDATE asset_sweep_items SET status = 'fetching', message = NULL, started_at = NOW() "
+            "WHERE run_id = $1 AND position = $2",
+            run_id,
+            position,
+        )
+    return {"claimed": True, "status": "fetching", "holder": None}
+
+
+async def acquire_asset_worker_slot(pool: asyncpg.Pool, run_id: str, position: int, *, provider: str, cap: int) -> bool:
+    """Take one of ``provider``'s worker slots for the item -- only while fewer than ``cap`` items of
+    the provider's LIVE runs hold one. Serialised per provider by a transaction-scoped advisory lock,
+    so the budget holds across runs and API replicas. True when taken (or already held)."""
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", f"asset_worker_slots:{provider}")
+        row = await conn.fetchrow(
+            f"""
+            SELECT count(*) FILTER (WHERE NOT (i.run_id = $2 AND i.position = $3)) AS others,
+                   COALESCE(bool_or(i.run_id = $2 AND i.position = $3), FALSE) AS mine
+            FROM asset_sweep_items i JOIN asset_sweep_runs r ON r.id = i.run_id
+            WHERE r.provider = $1 AND i.worker_slot AND {_live_runs()}
+            """,
+            provider,
+            run_id,
+            position,
+        )
+        if row["mine"]:
+            return True
+        if row["others"] >= cap:
+            return False
+        await conn.execute(
+            "UPDATE asset_sweep_items SET worker_slot = TRUE WHERE run_id = $1 AND position = $2", run_id, position
+        )
+    return True
+
+
+async def release_asset_worker_slot(pool: asyncpg.Pool, run_id: str, position: int) -> None:
+    await pool.execute(
+        "UPDATE asset_sweep_items SET worker_slot = FALSE WHERE run_id = $1 AND position = $2", run_id, position
+    )
+
+
+async def asset_worker_slots_in_use(pool: asyncpg.Pool, *, provider: str) -> int:
+    """How many of ``provider``'s worker slots its live runs hold now -- for the admin view."""
+    return int(
+        await pool.fetchval(
+            f"""
+            SELECT count(*) FROM asset_sweep_items i JOIN asset_sweep_runs r ON r.id = i.run_id
+            WHERE r.provider = $1 AND i.worker_slot AND {_live_runs()}
+            """,
+            provider,
+        )
+        or 0
     )
 
 

@@ -16,7 +16,8 @@ DRIVEN AS A SWEEP. Firing it -- its schedule, "Run now", or a one-off start from
 collection: the schedule's one collection, or every collection the provider offers. The sweep
 driver (``routes/asset_sweeps.py``) runs the lanes (``parallel``, capped at the live workers), the
 heartbeat, cancel, skip and resume, and hands each collection to :func:`apply_one` instead of the
-sweep's fetch-and-publish. One run per provider at a time, sweeps included: they share the guard.
+sweep's fetch-and-publish. It runs beside the provider's other runs, sweeps included: one collection
+is worked on by one run at a time, and all of them share the provider's worker slots.
 
 PER COLLECTION, CORE OWNS THE CURSOR (``asset_apply_cursors``, migration 046):
 
@@ -352,20 +353,22 @@ async def apply_one(
         }
         timings["apply_changes"] = {"since_sent": since, "targets_sent": options[APPLY_TARGETS], "advanced": False}
         derived_key, _ = job_keys(plugin_id, options)
-        fetch_job = await enqueue_plugin_job(
-            ctx,
-            plugin_id=plugin_id,
-            options=options,
-            scope_obj=scope_obj,
-            user=user,
-            pool=pool,
-            derived_key=derived_key,
-            plugin_spec=spec,
-        )
-        await item(fetch_job_id=fetch_job)
-        timings["queued_ms"], timings["fetch_ms"] = await sweeps._wait(
-            ctx, pool, run_id, fetch_job, sweeps.fetch_timeout(entry), position=position
-        )
+        # One of the provider's worker slots, shared by all its runs, while the job runs.
+        async with sweeps.worker_slot(ctx, pool, run, position, spec, item):
+            fetch_job = await enqueue_plugin_job(
+                ctx,
+                plugin_id=plugin_id,
+                options=options,
+                scope_obj=scope_obj,
+                user=user,
+                pool=pool,
+                derived_key=derived_key,
+                plugin_spec=spec,
+            )
+            await item(fetch_job_id=fetch_job)
+            timings["queued_ms"], timings["fetch_ms"] = await sweeps._wait(
+                ctx, pool, run_id, fetch_job, sweeps.fetch_timeout(entry), position=position
+            )
         summary = json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
         answer = read_answer(summary)
         timings["apply_changes"] = {**timings["apply_changes"], **answer}
@@ -449,8 +452,23 @@ async def apply_one(
     return False
 
 
+async def _queued_elsewhere(pool, provider: str) -> set[str]:
+    """Collections (lower-case) a RUNNING full-export follow-up of ``provider`` has not finished."""
+    from .asset_sweeps import COLLECTION_REQUEST
+
+    out: set[str] = set()
+    for r in await db_module.list_asset_sweep_runs(pool, provider=provider, limit=50):
+        if r["status"] != "running" or r.get("requested_via") != VIA_APPLY_CHANGES or r["job"] != COLLECTION_REQUEST:
+            continue
+        full = await db_module.get_asset_sweep_run(pool, r["id"])
+        for i in (full or {}).get("items") or ():
+            if i["status"] in ("pending", "waiting", "fetching", "publishing"):
+                out.add(str(i["collection"]).lower())
+    return out
+
+
 async def after_apply_run(ctx, pool, run: dict, state: ApplyRunState, *, user) -> dict | None:
-    """Once the run has FINISHED (and so released the one-run-per-provider guard): with
+    """Once the run has FINISHED: with
     ``missing_full_export: export``, start a full export of exactly the collections it left out --
     the provider's own collection request (``asset_collection_request``, as the Sources tab's
     "Request"), driven as a sweep in the provider store, ``requested_via`` ``apply-changes``, its
@@ -476,6 +494,17 @@ async def after_apply_run(ctx, pool, run: dict, state: ApplyRunState, *, user) -
     except Exception:  # noqa: BLE001 - this driver's own list still answers
         logger.exception("apply changes %s: could not read the run's items", run["id"])
     if not missing or _mode(run) != MISSING_FULL_EXPORT_EXPORT:
+        return None
+    # Runs of a provider no longer exclude each other, so "never twice" is checked here: a
+    # collection an earlier follow-up of this provider still has to do is not queued again.
+    pending = await _queued_elsewhere(pool, run["provider"])
+    again = [c for c in missing if c.lower() in pending]
+    missing = [c for c in missing if c.lower() not in pending]
+    if again:
+        await db_module.add_asset_sweep_run_warnings(
+            pool, run["id"], [f"a full project export of {', '.join(again)} is already queued by an earlier run"]
+        )
+    if not missing:
         return None
     try:
         follow = await start_sweep(

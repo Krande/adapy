@@ -148,11 +148,45 @@ class _World:
         for item in self.items.values():
             item.setdefault("status", "skipped")
 
+    # Another run holding a collection: collection -> holder, or a callable answering one per try.
+    holders: dict = {}
+    slots_held: int = 0
+    max_slots_seen: int = 0
+
+    async def claim(self, pool, run_id, position, *, provider, collection):
+        status = await self.item_status(pool, run_id, position)
+        if status not in ("pending", "waiting"):
+            return {"claimed": False, "status": status, "holder": None}
+        holder = self.holders.get(collection)
+        holder = holder() if callable(holder) else holder
+        if holder:
+            return {"claimed": False, "status": status, "holder": holder}
+        self.items.setdefault(position, {})["status"] = "fetching"
+        return {"claimed": True, "status": "fetching", "holder": None}
+
+    async def acquire_slot(self, pool, run_id, position, *, provider, cap):
+        if self.slots_held >= cap:
+            return False
+        self.slots_held += 1
+        self.max_slots_seen = max(self.max_slots_seen, self.slots_held)
+        return True
+
+    async def release_slot(self, pool, run_id, position):
+        self.slots_held -= 1
+
+
+def install_run_fakes(monkeypatch, w) -> None:
+    """The run tables' claim and worker-slot calls, answered by ``w``."""
+    monkeypatch.setattr(dbm, "claim_asset_sweep_item", w.claim)
+    monkeypatch.setattr(dbm, "acquire_asset_worker_slot", w.acquire_slot)
+    monkeypatch.setattr(dbm, "release_asset_worker_slot", w.release_slot)
+
 
 @pytest.fixture
 def world(monkeypatch):
     def make(**kw) -> _World:
         w = _World(**kw)
+        install_run_fakes(monkeypatch, w)
         monkeypatch.setattr(sweeps, "enqueue_plugin_job", w.enqueue)
         monkeypatch.setattr(sweeps, "submit_asset_publish", w.publish)
         monkeypatch.setattr(dbm, "update_asset_sweep_item", w.update_item)
@@ -366,7 +400,7 @@ async def test_new_sweeps_start_with_the_default_list_ticked_off(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_start_refuses_an_offline_provider_or_a_second_running_sweep(monkeypatch):
+async def test_start_refuses_an_offline_provider_but_not_a_second_run(monkeypatch):
     async def no_specs(ctx):
         return {}
 
@@ -379,12 +413,20 @@ async def test_start_refuses_an_offline_provider_or_a_second_running_sweep(monke
         return {"vendor": [SPEC]}
 
     async def busy(pool, provider):
-        return {"created_at": "earlier"}
+        raise AssertionError("a running run of the provider is no longer a reason to refuse")
+
+    async def setting(pool, key):
+        return None
+
+    async def insert(pool, **kw):
+        return {"id": "r2", **kw}
 
     monkeypatch.setattr(sweeps, "provider_specs", specs)
+    monkeypatch.setattr(sweeps, "spawn", lambda coro, name: coro.close())
     monkeypatch.setattr(dbm, "running_asset_sweep", busy)
-    with pytest.raises(sweeps.SweepRefused, match="already running"):
-        await sweeps.start_sweep(None, None, via="user", **kw)
+    monkeypatch.setattr(dbm, "get_setting", setting)
+    monkeypatch.setattr(dbm, "insert_asset_sweep_run", insert)
+    assert (await sweeps.start_sweep(None, None, via="user", **kw))["id"] == "r2"
     with pytest.raises(sweeps.SweepRefused, match="declares no sweep"):
         await sweeps.start_sweep(None, None, via="user", **{**kw, "job": "nope"})
 
@@ -599,9 +641,10 @@ async def test_resume_refuses_what_is_not_interrupted_or_cannot_run(monkeypatch)
     ctx, _ = _resume_world(monkeypatch, specs={})
     with pytest.raises(sweeps.SweepRefused, match="no online worker"):
         await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
-    ctx, _ = _resume_world(monkeypatch, busy={"id": "other", "created_at": "earlier"})
-    with pytest.raises(sweeps.SweepRefused, match="already running"):
-        await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+    # Another run of the provider no longer refuses a resume: runs go side by side.
+    ctx, seen = _resume_world(monkeypatch, busy={"id": "other", "created_at": "earlier"})
+    await sweeps.resume_sweep(ctx, object(), "run-1", user=None)
+    assert seen["spawned"] is not None
 
 
 @pytest.mark.asyncio
@@ -819,6 +862,7 @@ class _TargetWorld(_World):
 def target_world(monkeypatch):
     def make(**kw) -> _TargetWorld:
         w = _TargetWorld(**kw)
+        install_run_fakes(monkeypatch, w)
         monkeypatch.setattr(sweeps, "enqueue_plugin_job", w.enqueue)
         monkeypatch.setattr(sweeps, "submit_asset_publish", w.publish)
         monkeypatch.setattr(dbm, "update_asset_sweep_item", w.update_item)
@@ -910,3 +954,249 @@ async def test_a_single_target_sweep_is_unchanged(world):
         w.ctx, None, RUN, 0, "ALPHA", scope_obj=Scope.shared(), spec=SPEC, entry=MULTI_ENTRY, user=None
     )
     assert w.enqueued[0]["options"]["sweep_target"] == "tree" and "targets" not in w.items[0]["timings"]
+
+
+# --- several runs of one provider at once --------------------------------------------------------
+
+
+class _Fleet:
+    """Several runs' tables and one provider's jobs, faked with the database's rules: a collection is
+    claimed by one live run at a time, and worker slots are capped across runs. A job runs for
+    ``polls`` status reads, so runs overlap in time."""
+
+    def __init__(self, *, polls: int = 3):
+        self.polls = polls
+        self.items: dict[tuple[str, int], dict] = {}
+        self.jobs: dict[str, dict] = {}
+        self.blobs: dict[str, bytes] = {}
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.in_flight_by_collection: dict[str, int] = {}
+        self.max_same_collection = 0
+        self.slots: set[tuple[str, int]] = set()
+        self.statuses_seen: dict[tuple[str, int], list[str]] = {}
+        self.waiting_messages: list = []
+        self.ctx = SimpleNamespace(
+            jobs=SimpleNamespace(status=self.status, cancel=self.cancel),
+            storage=SimpleNamespace(get_bytes=self.get, list_prefix=self.list),
+        )
+
+    def add_run(self, run_id: str, collections: list[str]) -> dict:
+        for i, c in enumerate(collections):
+            self.items[(run_id, i)] = {"collection": c, "status": "pending"}
+        return {"id": run_id, "provider": "vendor", "plugin_id": "vendor-plugin", "settings": {"sweep_target": "tree"}}
+
+    async def status(self, job_id):
+        job = self.jobs[job_id]
+        job["reads"] += 1
+        if job["reads"] >= self.polls and not job["done"]:
+            job["done"] = True
+            self.in_flight -= 1
+            self.in_flight_by_collection[job["collection"]] -= 1
+        return SimpleNamespace(status="done" if job["done"] else "running", payload={})
+
+    async def cancel(self, job_id):
+        return True
+
+    async def get(self, scope, key):
+        return self.blobs[key]
+
+    async def list(self, scope, prefix):
+        return [SimpleNamespace(key=k) for k in self.blobs if k.startswith(prefix)]
+
+    async def enqueue(self, ctx, **kw):
+        c = kw["options"]["project"]
+        job_id = f"job-{len(self.jobs) + 1}"
+        self.jobs[job_id] = {"reads": 0, "done": False, "collection": c}
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        self.in_flight_by_collection[c] = self.in_flight_by_collection.get(c, 0) + 1
+        self.max_same_collection = max(self.max_same_collection, self.in_flight_by_collection[c])
+        self.blobs[kw["derived_key"]] = json.dumps({"asset_unchanged": True, "revision": "r0"}).encode()
+        return job_id
+
+    async def update_item(self, pool, run_id, position, **fields):
+        self.items[(run_id, position)].update(fields)
+        if "status" in fields:
+            self.statuses_seen.setdefault((run_id, position), []).append(fields["status"])
+        if fields.get("status") == "waiting":
+            self.waiting_messages.append(fields.get("message"))
+
+    async def heartbeat(self, pool, run_id):
+        return "running"
+
+    async def finish(self, pool, run_id, *, status, error=None):
+        self.items[(run_id, "finished")] = {"status": status, "error": error}
+
+    async def skip(self, pool, run_id, reason):
+        pass
+
+    async def claim(self, pool, run_id, position, *, provider, collection):
+        mine = self.items[(run_id, position)]
+        if mine["status"] not in ("pending", "waiting"):
+            return {"claimed": False, "status": mine["status"], "holder": None}
+        for (rid, pos), it in self.items.items():
+            if rid != run_id and isinstance(pos, int) and it["collection"].lower() == collection.lower():
+                if it["status"] in ("fetching", "publishing"):
+                    return {"claimed": False, "status": mine["status"],
+                            "holder": {"run_id": rid, "job": "project-sweep", "created_at": "earlier"}}  # fmt: skip
+        mine["status"] = "fetching"
+        return {"claimed": True, "status": "fetching", "holder": None}
+
+    async def acquire(self, pool, run_id, position, *, provider, cap):
+        if (run_id, position) in self.slots:
+            return True
+        if len(self.slots) >= cap:
+            return False
+        self.slots.add((run_id, position))
+        return True
+
+    async def release(self, pool, run_id, position):
+        self.slots.discard((run_id, position))
+
+
+@pytest.fixture
+def fleet(monkeypatch):
+    def make(*, cap: int = 4, polls: int = 3) -> _Fleet:
+        f = _Fleet(polls=polls)
+        monkeypatch.setattr(sweeps, "enqueue_plugin_job", f.enqueue)
+        monkeypatch.setattr(dbm, "update_asset_sweep_item", f.update_item)
+        monkeypatch.setattr(dbm, "heartbeat_asset_sweep_run", f.heartbeat)
+        monkeypatch.setattr(dbm, "finish_asset_sweep_run", f.finish)
+        monkeypatch.setattr(dbm, "skip_pending_asset_sweep_items", f.skip)
+        monkeypatch.setattr(dbm, "claim_asset_sweep_item", f.claim)
+        monkeypatch.setattr(dbm, "acquire_asset_worker_slot", f.acquire)
+        monkeypatch.setattr(dbm, "release_asset_worker_slot", f.release)
+        monkeypatch.setattr(sweeps, "POLL_INTERVAL_S", 0)
+
+        async def budget(ctx, pool, provider, spec, *, fresh=False):
+            return {"cap": cap, "live_workers": cap, "declared": cap, "max_parallel": None}
+
+        monkeypatch.setattr(sweeps, "provider_budget", budget)
+        return f
+
+    return make
+
+
+async def _drive_runs(f: _Fleet, runs: list[tuple[dict, list[str]]], entry=SWEEP_ENTRY):
+    import asyncio
+
+    await asyncio.gather(
+        *(
+            sweeps._drive(f.ctx, None, run, scope_obj=Scope.shared(), spec=SPEC, entry=entry, collections=cs, user=None)
+            for run, cs in runs
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_two_runs_of_different_collections_both_proceed_at_once(fleet):
+    f = fleet(cap=4)
+    a, b = f.add_run("A", ["ALPHA"]), f.add_run("B", ["BETA"])
+    await _drive_runs(f, [(a, ["ALPHA"]), (b, ["BETA"])])
+    assert f.items[("A", 0)]["status"] == "unchanged" and f.items[("B", 0)]["status"] == "unchanged"
+    assert f.max_in_flight == 2  # side by side, not one after the other
+
+
+@pytest.mark.asyncio
+async def test_one_collection_is_worked_on_by_one_run_at_a_time(fleet):
+    f = fleet(cap=4)
+    a, b = f.add_run("A", ["ALPHA"]), f.add_run("B", ["alpha", "BETA"])
+    await _drive_runs(f, [(a, ["ALPHA"]), (b, ["alpha", "BETA"])])
+    assert f.max_same_collection == 1
+    # B waited for A's ALPHA, did BETA meanwhile, then ALPHA itself.
+    assert "waiting" in f.statuses_seen[("B", 0)]
+    assert f.waiting_messages == ["waiting: alpha is being processed by run A (project-sweep, started earlier)"]
+    assert [f.items[k]["status"] for k in (("A", 0), ("B", 0), ("B", 1))] == ["unchanged"] * 3
+    assert len(f.jobs) == 3
+
+
+@pytest.mark.asyncio
+async def test_the_worker_budget_caps_jobs_across_runs(fleet):
+    f = fleet(cap=1)
+    runs = [(f.add_run(r, [c]), [c]) for r, c in (("A", "ALPHA"), ("B", "BETA"), ("C", "GAMMA"))]
+    await _drive_runs(f, runs)
+    assert f.max_in_flight == 1 and len(f.jobs) == 3
+    assert all(f.items[(r, 0)]["status"] == "unchanged" for r in "ABC")
+
+
+@pytest.mark.asyncio
+async def test_a_collection_held_too_long_ends_busy_naming_the_other_run(fleet, monkeypatch):
+    f = fleet(cap=4)
+    monkeypatch.setattr(sweeps, "PUBLISH_TIMEOUT_S", 0)
+    f.items[("OTHER", 0)] = {"collection": "ALPHA", "status": "fetching"}  # never lets go
+    run = f.add_run("A", ["ALPHA"])
+    entry = {**SWEEP_ENTRY, "fetch_timeout_s": 0.001}
+    await _drive_runs(f, [(run, ["ALPHA"])], entry=entry)
+    item = f.items[("A", 0)]
+    assert item["status"] == "busy" and "run OTHER" in item["message"] and f.jobs == {}
+
+
+@pytest.mark.asyncio
+async def test_the_budget_is_recomputed_and_an_admin_may_lower_it(monkeypatch):
+    workers = {"n": 1}
+
+    async def caps():
+        return [{"capabilities": ["vendor"]}] * workers["n"]
+
+    admin = {"v": None}
+
+    async def setting(pool, key):
+        assert key == "asset_runs.max_parallel.vendor"
+        return admin["v"]
+
+    monkeypatch.setattr(dbm, "get_setting", setting)
+    sweeps._CAPS.clear()
+    ctx = SimpleNamespace(jobs=SimpleNamespace(capabilities=caps))
+    spec = {**SPEC, "asset_schedules": [{**SWEEP_ENTRY, "parallel": 5}]}
+    assert (await sweeps.provider_budget(ctx, None, "vendor", spec))["cap"] == 1
+    workers["n"] = 3
+    assert (await sweeps.provider_budget(ctx, None, "vendor", spec))["cap"] == 1  # cached
+    monkeypatch.setattr(sweeps, "CAP_TTL_S", 0)
+    assert (await sweeps.provider_budget(ctx, None, "vendor", spec))["cap"] == 3  # recomputed
+    admin["v"] = "2"
+    got = await sweeps.provider_budget(ctx, None, "vendor", spec)
+    assert got == {"cap": 2, "live_workers": 3, "declared": 5, "max_parallel": 2}
+    workers["n"] = 9
+    assert (await sweeps.provider_budget(ctx, None, "vendor", spec))["cap"] == 2
+    # A single-seat provider (no `parallel` anywhere) stays at one, whatever the fleet.
+    assert (await sweeps.provider_budget(ctx, None, "vendor", SPEC, fresh=True))["cap"] == 1
+    sweeps._CAPS.clear()
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_claims_and_worker_slots_hold_across_runs_against_postgres():
+    import asyncio
+
+    pool = await dbm.init_pool(POSTGRES_URL)
+    provider = f"test-{uuid.uuid4().hex[:8]}"
+    try:
+        kw = dict(scope="providers", provider=provider, plugin_id="p", job="project-sweep", settings={},
+                  requested_by=None, requested_via="user")  # fmt: skip
+        a = await dbm.insert_asset_sweep_run(pool, collections=["ALPHA", "BETA"], **kw)
+        b = await dbm.insert_asset_sweep_run(pool, collections=["alpha"], **kw)
+        # Both runs try ALPHA at once (as two replicas would): exactly one gets it.
+        got = await asyncio.gather(
+            dbm.claim_asset_sweep_item(pool, a["id"], 0, provider=provider, collection="ALPHA"),
+            dbm.claim_asset_sweep_item(pool, b["id"], 0, provider=provider, collection="alpha"),
+        )
+        assert sorted(g["claimed"] for g in got) == [False, True]
+        loser = got[0] if not got[0]["claimed"] else got[1]
+        assert loser["holder"]["job"] == "project-sweep"
+        # Another collection is free.
+        assert (await dbm.claim_asset_sweep_item(pool, a["id"], 1, provider=provider, collection="BETA"))["claimed"]
+        # Worker slots: a cap of one across both runs.
+        assert await dbm.acquire_asset_worker_slot(pool, a["id"], 0, provider=provider, cap=1)
+        assert not await dbm.acquire_asset_worker_slot(pool, b["id"], 0, provider=provider, cap=1)
+        assert await dbm.asset_worker_slots_in_use(pool, provider=provider) == 1
+        await dbm.release_asset_worker_slot(pool, a["id"], 0)
+        assert await dbm.acquire_asset_worker_slot(pool, b["id"], 0, provider=provider, cap=1)
+        # A run whose driver died holds nothing.
+        await pool.execute(
+            "UPDATE asset_sweep_runs SET heartbeat_at = NOW() - INTERVAL '1 hour' WHERE id = $1", b["id"]
+        )
+        assert await dbm.asset_worker_slots_in_use(pool, provider=provider) == 0
+    finally:
+        await pool.execute("DELETE FROM asset_sweep_runs WHERE provider = $1", provider)
+        await dbm.close_pool(pool)

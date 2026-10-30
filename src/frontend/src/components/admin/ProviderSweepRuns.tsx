@@ -80,6 +80,9 @@ const STATUS_TONE: Record<string, string> = {
     cancelled: "text-gray-400",
     interrupted: "text-amber-300",
     [NO_FULL_EXPORT]: "text-amber-300",
+    // Another run of the provider holds the collection: waiting for it, or gave up waiting.
+    waiting: "text-sky-300",
+    busy: "text-amber-300",
 };
 
 const countsText = sweepCountsText;

@@ -49,8 +49,12 @@ from .asset_exports import (
     update_asset_export_item,
 )
 from .asset_sweeps import (
+    acquire_asset_worker_slot,
     add_asset_sweep_run_warnings,
     asset_sweep_item_status,
+    asset_worker_slots_in_use,
+    claim_asset_sweep_item,
+    release_asset_worker_slot,
     merge_asset_sweep_run_summary,
     cancel_asset_sweep_run,
     clear_asset_sweep_skip,
@@ -344,6 +348,10 @@ __all__ = [
     "resume_asset_sweep_run",
     "add_asset_sweep_run_warnings",
     "merge_asset_sweep_run_summary",
+    "claim_asset_sweep_item",
+    "acquire_asset_worker_slot",
+    "release_asset_worker_slot",
+    "asset_worker_slots_in_use",
     "get_asset_apply_cursor",
     "set_asset_apply_cursor",
     "list_asset_apply_cursors",

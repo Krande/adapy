@@ -948,9 +948,10 @@ def test_item_outcomes():
 
 def test_a_sweep_skip_mid_fetch_cancels_the_job_and_runs_the_next_collection(monkeypatch):
     from tests.comms.rest.test_asset_sweeps import RUN as SWEEP_RUN
-    from tests.comms.rest.test_asset_sweeps import SPEC, SWEEP_ENTRY, _World
+    from tests.comms.rest.test_asset_sweeps import SPEC, SWEEP_ENTRY, _World, install_run_fakes
 
     w = _World(fetch_summaries={"ALPHA": {"asset_staging_id": "s-a"}, "BETA": {"asset_staging_id": "s-b"}})
+    install_run_fakes(monkeypatch, w)  # the collection claim and the worker slots
     original_enqueue = w.enqueue
 
     async def enqueue(ctx, **kw):

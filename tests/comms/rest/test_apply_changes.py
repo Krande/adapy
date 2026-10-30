@@ -304,6 +304,24 @@ def world(monkeypatch):
         monkeypatch.setattr(dbm, "add_asset_sweep_run_warnings", w.add_warnings)
         monkeypatch.setattr(dbm, "merge_asset_sweep_run_summary", w.merge_summary)
         monkeypatch.setattr(dbm, "get_asset_sweep_run", w.get_run)
+
+        async def claim(pool, run_id, position, *, provider, collection):
+            status = await w.item_status(pool, run_id, position)
+            return {"claimed": status in ("pending", "waiting"), "status": status, "holder": None}
+
+        async def acquire(pool, run_id, position, *, provider, cap):
+            return True
+
+        async def release(pool, run_id, position):
+            return None
+
+        async def no_runs(pool, **kw):
+            return []
+
+        monkeypatch.setattr(dbm, "claim_asset_sweep_item", claim)
+        monkeypatch.setattr(dbm, "acquire_asset_worker_slot", acquire)
+        monkeypatch.setattr(dbm, "release_asset_worker_slot", release)
+        monkeypatch.setattr(dbm, "list_asset_sweep_runs", no_runs)
         monkeypatch.setattr(sweeps, "POLL_INTERVAL_S", 0)
         return w
 

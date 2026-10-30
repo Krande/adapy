@@ -103,6 +103,8 @@ const EXPECTED_METHODS = [
   "adminProviderGrants", "adminRevokeProviderGrant", "adminSetProviderGrant", "scopeProviderGrants",
   // Apply changes: reset a collection's cursor (assetSchedules).
   "adminResetAssetApplyCursor",
+  // A provider's shared worker budget across its runs (assetSchedules).
+  "adminAssetRunsMaxParallel", "adminSetAssetRunsMaxParallel",
 ].sort();
 
 test("viewerApi exposes exactly the pinned method set", () => {

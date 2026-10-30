@@ -28,6 +28,7 @@ import {
     valueOfKey,
     withMultiDefaults,
 } from "./scheduleSettings";
+import ProviderMaxParallel from "./ProviderMaxParallel";
 import SweepDefaults from "./SweepDefaults";
 
 // Admin → Providers → Scheduled jobs: the jobs each asset provider declares on its plugin spec
@@ -665,7 +666,11 @@ const ProviderSchedulesSection: React.FC = () => {
                     />
                     {p.jobs.some((j) => j.kind === "sweep") && <SweepDefaults provider={p.provider} />}
                     {p.jobs.some((j) => j.kind === "sweep" || j.kind === "apply-changes") && (
-                        <ProviderSweepRuns provider={p.provider} refreshKey={refreshKey} />
+                        <>
+                            {/* The jobs its runs -- side by side -- may have in flight together. */}
+                            <ProviderMaxParallel provider={p.provider} />
+                            <ProviderSweepRuns provider={p.provider} refreshKey={refreshKey} />
+                        </>
                     )}
                 </div>
             ))}

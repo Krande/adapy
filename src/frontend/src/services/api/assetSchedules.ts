@@ -164,7 +164,11 @@ export interface SweepItem {
     | "nothing"
     | "error"
     | "skipped"
-    | "no_full_export";
+    | "no_full_export"
+    // Another run of the provider is working on this collection: `waiting` until it is free (the
+    // message names that run), `busy` when it was still held after the wait.
+    | "waiting"
+    | "busy";
   fetch_job_id: string | null;
   publish_job_id: string | null;
   revision: string | null;
@@ -387,7 +391,35 @@ export const assetSchedulesApi = {
     );
     return jsonOrThrow(r, "adminSetAssetSweepDefaults");
   },
+
+  /** How many provider jobs all of a provider's runs may have in flight together, and why. */
+  async adminAssetRunsMaxParallel(provider: string): Promise<RunBudget> {
+    const q = new URLSearchParams({ provider });
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-runs/max-parallel?${q}`);
+    return jsonOrThrow(r, "adminAssetRunsMaxParallel");
+  },
+
+  /** Lower a provider's shared cap to `maxParallel`, or `null` for "all live workers". */
+  async adminSetAssetRunsMaxParallel(provider: string, maxParallel: number | null): Promise<RunBudget> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-runs/max-parallel`,
+      json("PUT", { provider, max_parallel: maxParallel }),
+    );
+    return jsonOrThrow(r, "adminSetAssetRunsMaxParallel");
+  },
 };
+
+/** A provider's shared worker budget (`/admin/asset-runs/max-parallel`): `cap` provider jobs across
+ *  ALL its runs at once -- its declared `parallel` capped at its `live_workers`, lowered by an
+ *  admin's `max_parallel` when set -- and how many slots are `in_use` now. */
+export interface RunBudget {
+  provider: string;
+  cap: number | null;
+  live_workers: number | null;
+  declared: number | null;
+  max_parallel: number | null;
+  in_use?: number;
+}
 
 export interface SweepDefaults {
   provider: string;

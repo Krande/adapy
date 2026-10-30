@@ -144,17 +144,26 @@ export function sweepTargetsOf(item: unknown): TargetOutcome[] {
 }
 
 /** A run row's progress line from its item counts: "finished/to run · n failed · ...". A collection
- *  left out for want of a full export is finished (nothing more will happen to it this run). */
+ *  left out for want of a full export is finished (nothing more will happen to it this run), and so is
+ *  one that ended `busy` (another run held it the whole time); one `waiting` for another run is not. */
 export function sweepCountsText(run: {total: number; counts?: Partial<Record<string, number>>}): string {
     const c = run.counts ?? {};
     const finished =
-        (c.done ?? 0) + (c.unchanged ?? 0) + (c.nothing ?? 0) + (c.error ?? 0) + (c.skipped ?? 0) + (c[NO_FULL_EXPORT] ?? 0);
+        (c.done ?? 0) +
+        (c.unchanged ?? 0) +
+        (c.nothing ?? 0) +
+        (c.error ?? 0) +
+        (c.skipped ?? 0) +
+        (c[NO_FULL_EXPORT] ?? 0) +
+        (c.busy ?? 0);
     // Out of the collections that will run: ticked-off ones are not "left to do".
     const parts = [`${finished}/${run.total - (c.excluded ?? 0)}`];
     if (c.error) parts.push(`${c.error} failed`);
     if (c.excluded) parts.push(`${c.excluded} not run`);
     if (c.unchanged) parts.push(`${c.unchanged} unchanged`);
     if (c[NO_FULL_EXPORT]) parts.push(`${c[NO_FULL_EXPORT]} without a full export`);
+    if (c.waiting) parts.push(`${c.waiting} waiting for another run`);
+    if (c.busy) parts.push(`${c.busy} busy in another run`);
     return parts.join(" · ");
 }
 
