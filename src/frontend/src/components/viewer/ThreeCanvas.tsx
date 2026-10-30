@@ -272,6 +272,7 @@ const ThreeCanvas: React.FC = () => {
                 adacpp.render(scene, camera, renderer.getPixelRatio(), {
                     frustum: perfNow.adacppFrustumCull,
                     cone: perfNow.adacppConeCull,
+                    occlusion: perfNow.adacppOcclusionCull,
                 });
                 const st = adacpp.lastStats;
                 if (st && callsPanel) callsPanel.update(st.drawCalls, 200);

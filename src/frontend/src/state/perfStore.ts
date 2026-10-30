@@ -23,6 +23,8 @@ export interface PerfState {
     // Cluster culling levers of the adacpp renderer (no effect on three.js).
     adacppFrustumCull: boolean;
     adacppConeCull: boolean;
+    // GPU two-pass occlusion culling; the renderer applies it to large scenes (2M+ triangles) only.
+    adacppOcclusionCull: boolean;
 
     // FEA material gating ----------------------------------------------------
     materialMode: MaterialMode;
@@ -76,6 +78,7 @@ export interface PerfState {
     setRenderBackend: (v: RenderBackend) => void;
     setAdacppFrustumCull: (v: boolean) => void;
     setAdacppConeCull: (v: boolean) => void;
+    setAdacppOcclusionCull: (v: boolean) => void;
     setMaterialMode: (v: MaterialMode) => void;
     setSolidsBackfaceCull: (v: boolean) => void;
     setSolidsSmoothShading: (v: boolean) => void;
@@ -97,6 +100,7 @@ export const usePerfStore = create<PerfState>()(
             renderBackend: "three",
             adacppFrustumCull: true,
             adacppConeCull: true,
+            adacppOcclusionCull: true,
 
             materialMode: "standard",
             solidsBackfaceCull: false,
@@ -119,6 +123,7 @@ export const usePerfStore = create<PerfState>()(
             setRenderBackend: (v) => set({renderBackend: v}),
             setAdacppFrustumCull: (v) => set({adacppFrustumCull: v}),
             setAdacppConeCull: (v) => set({adacppConeCull: v}),
+            setAdacppOcclusionCull: (v) => set({adacppOcclusionCull: v}),
             setMaterialMode: (v) => set({materialMode: v}),
             setSolidsBackfaceCull: (v) => set({solidsBackfaceCull: v}),
             setSolidsSmoothShading: (v) => set({solidsSmoothShading: v}),

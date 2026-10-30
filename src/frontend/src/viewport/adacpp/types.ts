@@ -8,6 +8,11 @@ export interface AdacppStats {
     clustersDrawn: number;
     trianglesTotal: number;
     trianglesDrawn: number;
+    /** Clusters dropped by the occlusion test (GPU culling only). */
+    clustersOccluded: number;
+    /** Culled on the GPU (two-pass occlusion, large scenes): drawn / occluded counts are read back
+     *  asynchronously via readCullStats; stats() has them as zero. */
+    gpuCulled: boolean;
     drawCalls: number;
     cullMs: number;
     /** Time spent mirroring the three.js scene into the renderer this frame (JS side). */
@@ -53,9 +58,10 @@ export interface WebRendererApi {
     setCamera(view: number, proj: number, orthographic: boolean): void;
     setBackground(r: number, g: number, b: number): void;
     setLighting(ambient: number, diffuse: number): void;
-    setCulling(frustum: boolean, cone: boolean): void;
+    setCulling(frustum: boolean, cone: boolean, occlusion: boolean): void;
     pick(x: number, y: number, width: number, height: number, callback: (r: RawPick) => void): void;
     stats(): AdacppStats;
+    readCullStats(callback: (s: AdacppStats) => void): void;
     delete(): void;
 }
 

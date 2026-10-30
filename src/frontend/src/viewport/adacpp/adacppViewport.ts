@@ -127,7 +127,12 @@ export class AdacppViewport {
         return useAdacppRenderStatus.getState().stats;
     }
 
-    render(scene: THREE.Scene, camera: THREE.Camera, pixelRatio: number, culling: {frustum: boolean; cone: boolean}) {
+    render(
+        scene: THREE.Scene,
+        camera: THREE.Camera,
+        pixelRatio: number,
+        culling: {frustum: boolean; cone: boolean; occlusion: boolean},
+    ) {
         if (!this.alive_) return;
         const w = Math.max(1, Math.floor(this.cssWidth * pixelRatio));
         const h = Math.max(1, Math.floor(this.cssHeight * pixelRatio));
@@ -137,7 +142,7 @@ export class AdacppViewport {
         }
         try {
             this.renderer.resize(w, h);
-            this.renderer.setCulling(culling.frustum, culling.cone);
+            this.renderer.setCulling(culling.frustum, culling.cone, culling.occlusion);
             this.sync.sync(scene, camera, w, h);
             this.renderer.render();
         } catch (err) {
@@ -150,7 +155,16 @@ export class AdacppViewport {
         const now = performance.now();
         if (now - this.lastStatsPush > 250) {
             this.lastStatsPush = now;
-            useAdacppRenderStatus.setState({stats: {...this.renderer.stats(), syncMs: this.sync.lastSyncMs}});
+            const syncMs = this.sync.lastSyncMs;
+            const st = this.renderer.stats();
+            if (st.gpuCulled) {
+                // The drawn / occluded counts are on the GPU: read them back (they land a frame or so later).
+                this.renderer.readCullStats((full) => {
+                    if (this.alive_) useAdacppRenderStatus.setState({stats: {...full, syncMs}});
+                });
+            } else {
+                useAdacppRenderStatus.setState({stats: {...st, syncMs}});
+            }
         }
     }
 

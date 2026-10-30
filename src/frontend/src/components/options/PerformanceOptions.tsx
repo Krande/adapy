@@ -44,6 +44,8 @@ const RendererBackendOptions: React.FC = () => {
     const setAdacppFrustumCull = usePerfStore((s) => s.setAdacppFrustumCull);
     const adacppConeCull = usePerfStore((s) => s.adacppConeCull);
     const setAdacppConeCull = usePerfStore((s) => s.setAdacppConeCull);
+    const adacppOcclusionCull = usePerfStore((s) => s.adacppOcclusionCull);
+    const setAdacppOcclusionCull = usePerfStore((s) => s.setAdacppOcclusionCull);
     const status = useAdacppRenderStatus();
     const st = status.stats;
 
@@ -74,6 +76,7 @@ const RendererBackendOptions: React.FC = () => {
                                 <div className="font-mono leading-tight">
                                     clusters {fmt(st.clustersDrawn)} / {fmt(st.clustersTotal)}<br/>
                                     triangles {fmt(st.trianglesDrawn)} / {fmt(st.trianglesTotal)}<br/>
+                                    {st.gpuCulled && <>occluded {fmt(st.clustersOccluded)} clusters (GPU culled)<br/></>}
                                     draws {st.drawCalls} · cull {st.cullMs.toFixed(2)} ms · sync {(st.syncMs ?? 0).toFixed(2)} ms
                                 </div>
                             )}
@@ -87,6 +90,12 @@ const RendererBackendOptions: React.FC = () => {
                                 onChange={() => { setAdacppConeCull(!adacppConeCull); requestRender(); }}
                                 title="Cluster back-face cone culling"
                                 blurb="Single-sided materials only; double-sided shells are never cone-culled."
+                            />
+                            <Row
+                                checked={adacppOcclusionCull}
+                                onChange={() => { setAdacppOcclusionCull(!adacppOcclusionCull); requestRender(); }}
+                                title="Occlusion culling (GPU)"
+                                blurb="Skips clusters hidden behind others. Used on models of 2M+ triangles; smaller ones cull on the CPU."
                             />
                             <div>
                                 Not drawn by this renderer yet: section planes, icons, transform gizmos,
