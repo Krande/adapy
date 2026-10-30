@@ -111,8 +111,14 @@ class OdbExporter(object):
         del nodes
 
         by_type = {}
+        # An ASSEMBLY element (a connector between parts) joins nodes of the part instances: its
+        # instanceNames say which, per node, and the labels are only unique within them.
+        node_insts = {}
         for e in obj.elements:
             by_type.setdefault(str(e.type), []).append((int(e.label), [int(c) for c in e.connectivity]))
+            names = getattr(e, "instanceNames", None) or ()
+            if inst_id == 0 and any(names):
+                node_insts[int(e.label)] = [self.instance_map.get(n) if n else None for n in names]
         self.elem_labels[inst_id] = {}
         self.elem_conn[inst_id] = {}
         self.elem_ips[inst_id] = {}
@@ -128,8 +134,12 @@ class OdbExporter(object):
             )
             self.insert_many(
                 "ElementConnectivity",
-                ("InstanceID", "ElemID", "PointID", "Seq"),
-                ((inst_id, label, node, seq) for label, conn in elems for seq, node in enumerate(conn)),
+                ("InstanceID", "ElemID", "PointID", "Seq", "PointInstanceID"),
+                (
+                    (inst_id, label, node, seq, (node_insts.get(label) or [None] * len(conn))[seq])
+                    for label, conn in elems
+                    for seq, node in enumerate(conn)
+                ),
             )
             self.elem_labels[inst_id][el_type] = np.array([label for label, _ in elems], dtype=np.int64)
             self.elem_conn[inst_id][el_type] = np.array(
@@ -408,14 +418,15 @@ class OdbExporter(object):
         )
         ips = self.integration_points()
         assembly = self.odb.rootAssembly
+        # IDs first: the ASSEMBLY's elements name the part instances their nodes are in.
+        instances = list(_items(assembly.instances))
+        for inst_id, (name, inst) in enumerate(instances, start=1):
+            self.instance_map[inst.name] = inst_id
         self.insert("ModelInstances", ID=0, Name=ASSEMBLY)
         self.write_instance(0, ASSEMBLY, assembly, ips)
-        inst_id = 1
-        for name, inst in _items(assembly.instances):
-            self.instance_map[inst.name] = inst_id
+        for inst_id, (name, inst) in enumerate(instances, start=1):
             self.insert("ModelInstances", ID=inst_id, Name=name)
             self.write_instance(inst_id, inst.name, inst, ips)
-            inst_id += 1
         self.write_properties()
         self.conn.commit()
         logger.info("exported the mesh of %d instance(s)", inst_id - 1)

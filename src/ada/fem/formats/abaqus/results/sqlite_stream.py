@@ -426,6 +426,11 @@ class ResultsSqliteStreamReader:
             self._conn.execute(stmt)
         self._conn.commit()
 
+    def _has_point_instance_column(self) -> bool:
+        """Schema v3 records the instance of an ASSEMBLY element's nodes; older files do not."""
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(ElementConnectivity)")}
+        return "PointInstanceID" in cols
+
     # ----- protocol -------------------------------------------------------
 
     def read_mesh_geometry(self) -> MeshGeometry:
@@ -499,6 +504,7 @@ class ResultsSqliteStreamReader:
 
             point_index = self._inst_point_index[inst_id]
             inst_offset = self._inst_point_offset[inst_id]
+            point_inst = "ec.PointInstanceID" if self._has_point_instance_column() else "NULL"
 
             for abq_type, n_elements in type_rows:
                 if abq_type in _SKIP_RENDER_TYPES:
@@ -515,7 +521,7 @@ class ResultsSqliteStreamReader:
                 # idx_einfo_inst_type_elem covers the ei.Type predicate;
                 # idx_conn_inst_elem_seq orders the connectivity rows.
                 conn_rows = self._conn.execute(
-                    "SELECT ec.ElemID, ec.PointID "
+                    f"SELECT ec.ElemID, ec.PointID, {point_inst} "
                     "FROM ElementConnectivity ec "
                     "JOIN ElementInfo ei "
                     " ON ec.InstanceID = ei.InstanceID "
@@ -540,12 +546,26 @@ class ResultsSqliteStreamReader:
                 # numpy gather would need a label→row contiguous lookup
                 # table whose size is unbounded in pathological label
                 # sparsity. The list-comp keeps allocation costs flat.
-                point_ids_iter = (r[1] for r in conn_rows)
-                data_flat = np.fromiter(
-                    (point_index[pid] + inst_offset for pid in point_ids_iter),
-                    dtype=np.int64,
-                    count=total,
-                )
+                #
+                # An ASSEMBLY element's nodes are in the part instances (schema v3
+                # PointInstanceID): the instance's own points, which carry its
+                # displacements, not the label-keyed copies the ASSEMBLY lists.
+                if any(r[2] is not None for r in conn_rows):
+                    data_flat = np.fromiter(
+                        (
+                            self._inst_point_index[inst_id if r[2] is None else r[2]][r[1]]
+                            + self._inst_point_offset[inst_id if r[2] is None else r[2]]
+                            for r in conn_rows
+                        ),
+                        dtype=np.int64,
+                        count=total,
+                    )
+                else:
+                    data_flat = np.fromiter(
+                        (point_index[r[1]] + inst_offset for r in conn_rows),
+                        dtype=np.int64,
+                        count=total,
+                    )
                 data = data_flat.reshape((n_elements, nodes_per))
 
                 # ElemIDs of unique elements are every nodes_per'th row

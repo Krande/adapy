@@ -14,8 +14,9 @@
 --     it. Needs SQLite >= 3.37 to write and to read.
 --   * Writers insert by column name, so columns may be added; removing or renaming one, or
 --     changing its type, breaks writers -- bump the version and say so.
---   * Bump `user_version` (last line) on any change. v1: untyped; v2: STRICT, same columns.
---     Readers read v0 (pre-versioning, same as v1) to the current version.
+--   * Bump `user_version` (last line) on any change. v1: untyped; v2: STRICT, same columns;
+--     v3: ElementConnectivity.PointInstanceID. Readers read v0 (pre-versioning, same as v1) to
+--     the current version.
 --   * Every statement is idempotent (IF NOT EXISTS), so a writer can re-open a partly written
 --     file, e.g. to resume an export that crashed mid-step.
 --   * No indexes here: they would slow the bulk insert. Readers add the ones they need.
@@ -31,7 +32,13 @@ CREATE TABLE IF NOT EXISTS "ModelInstances" (ID INTEGER, Name TEXT) STRICT;
 
 CREATE TABLE IF NOT EXISTS "Points" (InstanceID INTEGER, ID INTEGER, X REAL, Y REAL, Z REAL) STRICT;
 
-CREATE TABLE IF NOT EXISTS "ElementConnectivity" (InstanceID INTEGER, ElemID INTEGER, PointID INTEGER, Seq INTEGER) STRICT;
+-- PointInstanceID: the instance whose Points the PointID is in, where that is not the element's
+-- own. An element of the root ASSEMBLY (a connector, a spring between parts) joins nodes of the
+-- part instances, and a node label is unique only within its instance. NULL (and absent before
+-- v3) = the element's own instance.
+CREATE TABLE IF NOT EXISTS "ElementConnectivity" (
+    InstanceID INTEGER, ElemID INTEGER, PointID INTEGER, Seq INTEGER, PointInstanceID INTEGER
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS "ElementInfo" (InstanceID INTEGER, ElemID INTEGER, Type TEXT, IntPoints INTEGER) STRICT;
 
@@ -109,4 +116,4 @@ CREATE TABLE IF NOT EXISTS "FieldElem" (
     Frame REAL, IsImaginary INTEGER, Data BLOB
 ) STRICT;
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
