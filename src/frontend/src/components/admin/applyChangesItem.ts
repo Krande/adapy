@@ -111,6 +111,38 @@ export function applyChangesOf(item: unknown): ApplyChangesView | null {
  *  export of it, so it was not asked for changes and got no cursor. */
 export const NO_FULL_EXPORT = "no_full_export";
 
+export interface TargetOutcome {
+    target: string;
+    status: string;
+    revision: string | null;
+    /** The error of a failed target, the reason a skipped one did not run, or the provider's note. */
+    note: string | null;
+    totalMs: number | null;
+}
+
+/** A multi-target sweep item's outcome per target (`targets`: one provider job per ticked
+ *  `sweep_target`, in order), or [] for an item that ran one job. */
+export function sweepTargetsOf(item: unknown): TargetOutcome[] {
+    if (!isRecord(item)) return [];
+    const timings = isRecord(item.timings) ? item.timings : {};
+    const raw = isRecord(item.targets) ? item.targets : isRecord(timings.targets) ? timings.targets : null;
+    if (!raw) return [];
+    const out: TargetOutcome[] = [];
+    for (const [target, v] of Object.entries(raw)) {
+        if (!isRecord(v)) continue;
+        const t = isRecord(v.timings) ? v.timings : {};
+        const parts = ["queued_ms", "fetch_ms", "publish_ms"].map((k) => Number(t[k])).filter((n) => Number.isFinite(n));
+        out.push({
+            target,
+            status: text(v.status) ?? "unknown",
+            revision: text(v.revision),
+            note: text(v.error) ?? text(v.message),
+            totalMs: parts.length ? parts.reduce((a, b) => a + b, 0) : null,
+        });
+    }
+    return out;
+}
+
 /** A run row's progress line from its item counts: "finished/to run · n failed · ...". A collection
  *  left out for want of a full export is finished (nothing more will happen to it this run). */
 export function sweepCountsText(run: {total: number; counts?: Partial<Record<string, number>>}): string {

@@ -78,9 +78,11 @@ export function isMultiSetting(s: MultiSettingLike): boolean {
     return s.multiple === true && (s.choices?.length ?? 0) > 0;
 }
 
-/** The choices `value` names, in the choices' own order; anything that is not a choice is dropped. */
+/** The choices `value` names, in the choices' own order; anything that is not a choice is dropped.
+ *  A single value -- a schedule saved while the setting was still a single choice (a sweep's
+ *  `sweep_target` before it became checkboxes) -- is a list of one. */
 export function ticked(value: unknown, choices: ScheduleChoice[]): unknown[] {
-    const list = Array.isArray(value) ? value : [];
+    const list = Array.isArray(value) ? value : value === undefined || value === null || value === "" ? [] : [value];
     return choices.filter((c) => list.some((v) => sameChoice(v, c.value))).map((c) => c.value);
 }
 

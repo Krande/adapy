@@ -180,6 +180,10 @@ export interface SweepItem {
   apply_changes?: Record<string, unknown> | null;
   /** An apply-changes item's publish outcome per staging role, beside `apply_changes`. */
   roles?: Record<string, unknown> | null;
+  /** A multi-target sweep item (`targets_setting`): each ticked target's outcome -- `{status,
+   *  revision?, message?, error?, subjects?, timings}` -- in the order they ran. Read through
+   *  `sweepTargetsOf`. */
+  targets?: Record<string, unknown> | null;
   started_at: string | null;
   finished_at: string | null;
 }

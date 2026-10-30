@@ -250,6 +250,54 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
     return out
 
 
+def targets_setting(spec: dict, entry: dict) -> str | None:
+    """The name of a sweep's TARGETS setting -- ``"targets_setting": "sweep_target"`` on the entry,
+    naming one of its settings that is a ``multiple`` enum -- or None: a sweep without one (or whose
+    named setting is still a single choice) runs one job per collection, as it always has."""
+    if (entry.get("kind") or "job") != SWEEP:
+        return None
+    name = entry.get("targets_setting")
+    if not isinstance(name, str) or not name:
+        return None
+    for s in entry_settings(spec, entry):
+        if s["name"] == name and s.get("multiple") and s.get("choices"):
+            return name
+    return None
+
+
+def sweep_targets(spec: dict, entry: dict, settings: dict | None) -> list | None:
+    """The targets one collection of a sweep runs, in the ENUM's declared order (the provider lists
+    the tree first: what comes after reads the published tree), one provider job each. The chosen
+    list -- a single stored value (a schedule from before the setting was multiple) is a list of one
+    -- else the declared default, else every choice. None when the sweep has no targets setting."""
+    name = targets_setting(spec, entry)
+    if name is None:
+        return None
+    setting = next(s for s in entry_settings(spec, entry) if s["name"] == name)
+    choices = [c["value"] for c in setting.get("choices") or ()]
+    raw = (settings or {}).get(name)
+    if raw in (None, "", []):
+        raw = setting.get("default") if setting.get("default") not in (None, []) else choices
+    chosen = raw if isinstance(raw, list) else [raw]
+    ordered = [c for c in choices if any(same_choice(v, c) for v in chosen)]
+    # A value the declaration no longer names still runs, after the declared ones: the provider
+    # answers for it (as a stored single value always did).
+    return ordered + [v for v in chosen if not any(same_choice(v, c) for c in choices)]
+
+
+#: Targets that read what an earlier target PUBLISHES, so they cannot run once it failed in the same
+#: collection: node bounds read the published tree. An entry may declare its own
+#: ``"target_requires": {target: [targets]}``; this is the default for the asset vocabulary.
+DEFAULT_TARGET_REQUIRES: dict[str, list[str]] = {"bounds": ["tree"]}
+
+
+def target_requires(entry: dict) -> dict[str, list[str]]:
+    declared = entry.get("target_requires")
+    if isinstance(declared, dict):
+        return {str(k): [str(x) for x in v] for k, v in declared.items() if isinstance(v, list)}
+    return DEFAULT_TARGET_REQUIRES
+
+
 #: CORE's own setting of every apply-changes entry -- no provider declares it, and it is never sent
 #: to the provider's job: what to do about a collection the provider store holds no full export of
 #: (such a collection is never asked for its changes; routes/asset_apply_changes.py).
@@ -299,8 +347,10 @@ async def build_options(
 
     A MULTI setting (``multiple``) is always a list: a single value is wrapped, an unset one takes
     the declared default list, and :data:`APPLY_TARGETS` refuses an empty list -- an apply-changes
-    run that patches nothing would still advance its cursor past every change."""
+    run that patches nothing would still advance its cursor past every change. So does a sweep's
+    ``targets_setting`` (:func:`targets_setting`): a full export of nothing is not an export."""
     options = dict(entry["options"])
+    required_lists = {APPLY_TARGETS, targets_setting(spec, entry)} - {None}
     collection_option = entry.get("collection_option")
     if collection_option and not collection and entry.get("kind") in COLLECTIONLESS_KINDS:
         # A sweep's (or an apply-changes of every collection's) row names no collection: the
@@ -324,7 +374,7 @@ async def build_options(
             if validate:
                 raise HTTPException(status_code=400, detail=f"{name!r} is not a setting of {entry['id']!r}")
             continue
-        if setting.get("multiple") and isinstance(value, list) and not value and name == APPLY_TARGETS and validate:
+        if setting.get("multiple") and isinstance(value, list) and not value and name in required_lists and validate:
             raise HTTPException(status_code=400, detail=f"{name}: tick at least one")
         if value is None or (isinstance(value, (list, str)) and len(value) == 0):
             # Unset. Note `False` is a choice, not "unset": a bool setting's off is a value.

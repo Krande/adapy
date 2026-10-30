@@ -18,6 +18,7 @@ os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
 os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
 
 import pytest
+from fastapi import HTTPException
 
 from ada.comms.rest import db as dbm
 from ada.comms.rest.routes import asset_schedules as sched
@@ -777,3 +778,135 @@ async def test_a_collection_request_item_asks_the_provider_with_the_requests_own
     options = w.enqueued[0]["options"]
     assert options["action"] == "stage-tree" and options["project"] == "BETA" and "sweep_target" not in options
     assert w.published[0]["provider"] == "vendor"
+
+
+# --- several targets per collection (a multiple `sweep_target`) ------------------------------------
+
+MULTI_ENTRY = {**SWEEP_ENTRY, "targets_setting": "sweep_target"}
+MULTI_SPEC = {
+    **SPEC,
+    "job_options": [
+        {
+            "name": "sweep_target",
+            "type": "enum",
+            "multiple": True,
+            "enum": ["tree", "geom", "attributes", "bounds"],
+            "default": ["tree", "geom", "attributes", "bounds"],
+        }
+    ],
+    "asset_schedules": [MULTI_ENTRY],
+}
+
+
+class _TargetWorld(_World):
+    """Answers per (collection, target): ``fetch_summaries["ALPHA/tree"]``."""
+
+    async def enqueue(self, ctx, **kw):
+        opts = kw["options"]
+        assert isinstance(opts["sweep_target"], str), "each job asks for ONE target"
+        key = f"{opts['project']}/{opts['sweep_target']}"
+        self.enqueued.append(kw)
+        job_id = f"fetch-{len(self.enqueued)}"
+        summary = self.fetch_summaries[key]
+        self.blobs[kw["derived_key"]] = gzip.compress(json.dumps(summary).encode())
+        if summary.get("asset_staging_id"):
+            self.blobs[f"assets/_staging/{summary['asset_staging_id']}/csg.db"] = b"x"
+        self.jobs_status[job_id] = "error" if summary.get("fail") else "done"
+        return job_id
+
+
+@pytest.fixture
+def target_world(monkeypatch):
+    def make(**kw) -> _TargetWorld:
+        w = _TargetWorld(**kw)
+        monkeypatch.setattr(sweeps, "enqueue_plugin_job", w.enqueue)
+        monkeypatch.setattr(sweeps, "submit_asset_publish", w.publish)
+        monkeypatch.setattr(dbm, "update_asset_sweep_item", w.update_item)
+        monkeypatch.setattr(dbm, "heartbeat_asset_sweep_run", w.heartbeat)
+        monkeypatch.setattr(dbm, "finish_asset_sweep_run", w.finish)
+        monkeypatch.setattr(dbm, "skip_pending_asset_sweep_items", w.skip)
+        monkeypatch.setattr(dbm, "asset_sweep_item_status", w.item_status)
+        monkeypatch.setattr(sweeps, "POLL_INTERVAL_S", 0)
+        return w
+
+    return make
+
+
+@pytest.mark.asyncio
+async def test_build_options_keeps_the_targets_a_list_defaults_them_and_refuses_none():
+    kw = dict(scope="providers", provider="vendor", collection=None)
+    row = await sched.build_options(None, MULTI_SPEC, MULTI_ENTRY, settings={"sweep_target": ["bounds", "tree"]}, **kw)
+    assert row["sweep_target"] == ["bounds", "tree"]
+    unset = await sched.build_options(None, MULTI_SPEC, MULTI_ENTRY, settings={}, **kw)
+    assert unset["sweep_target"] == ["tree", "geom", "attributes", "bounds"]
+    with pytest.raises(HTTPException) as exc:
+        await sched.build_options(None, MULTI_SPEC, MULTI_ENTRY, settings={"sweep_target": []}, **kw)
+    assert exc.value.status_code == 400 and "tick at least one" in exc.value.detail
+
+
+def test_targets_run_in_the_declared_order_and_a_stored_single_value_is_a_list_of_one():
+    assert sched.sweep_targets(MULTI_SPEC, MULTI_ENTRY, {"sweep_target": ["bounds", "tree"]}) == ["tree", "bounds"]
+    assert sched.sweep_targets(MULTI_SPEC, MULTI_ENTRY, {"sweep_target": "geom"}) == ["geom"]
+    assert sched.sweep_targets(MULTI_SPEC, MULTI_ENTRY, {}) == ["tree", "geom", "attributes", "bounds"]
+    # Still a single choice, or no targets_setting: one job per collection, as before.
+    assert sched.sweep_targets(SPEC, MULTI_ENTRY, {"sweep_target": "tree"}) is None
+    assert sched.sweep_targets(MULTI_SPEC, SWEEP_ENTRY, {"sweep_target": ["tree"]}) is None
+
+
+@pytest.mark.asyncio
+async def test_one_job_per_ticked_target_each_published_before_the_next(target_world):
+    w = target_world(
+        fetch_summaries={
+            "ALPHA/tree": {"asset_staging_id": "s-tree", "timings": {"export_ms": 5}},
+            "ALPHA/geom": {"asset_unchanged": True, "revision": "r0"},
+            "ALPHA/bounds": {"asset_staging_id": "s-bounds"},
+        }
+    )
+    run = {**RUN, "settings": {"sweep_target": ["bounds", "geom", "tree"]}}
+    ok = await sweeps._sweep_one(
+        w.ctx, None, run, 0, "ALPHA", scope_obj=Scope.shared(), spec=MULTI_SPEC, entry=MULTI_ENTRY, user=None
+    )
+    assert ok
+    assert [e["options"]["sweep_target"] for e in w.enqueued] == ["tree", "geom", "bounds"]
+    assert [p["staged"]["csg.db"] for p in w.published] == [
+        "assets/_staging/s-tree/csg.db",
+        "assets/_staging/s-bounds/csg.db",
+    ]
+    item = w.items[0]
+    targets = item["timings"]["targets"]
+    assert list(targets) == ["tree", "geom", "bounds"]
+    assert targets["tree"]["status"] == "done" and targets["tree"]["timings"]["provider"] == {"export_ms": 5}
+    assert targets["tree"]["subjects"] == 0 and targets["geom"]["status"] == "unchanged"
+    assert item["status"] == "done" and item["message"] == "tree: done · geom: unchanged · bounds: done"
+    assert {"queued_ms", "fetch_ms", "publish_ms", "total_ms"} <= set(item["timings"])
+
+
+@pytest.mark.asyncio
+async def test_a_failed_tree_skips_what_reads_it_and_the_rest_still_run(target_world):
+    w = target_world(
+        fetch_summaries={
+            "ALPHA/tree": {"fail": True},
+            "ALPHA/geom": {"asset_staging_id": "s-geom"},
+            "ALPHA/bounds": {"asset_staging_id": "s-bounds"},
+        }
+    )
+    run = {**RUN, "settings": {"sweep_target": ["tree", "geom", "bounds"]}}
+    ok = await sweeps._sweep_one(
+        w.ctx, None, run, 0, "ALPHA", scope_obj=Scope.shared(), spec=MULTI_SPEC, entry=MULTI_ENTRY, user=None
+    )
+    assert not ok
+    assert [e["options"]["sweep_target"] for e in w.enqueued] == ["tree", "geom"]
+    t = w.items[0]["timings"]["targets"]
+    assert t["tree"]["status"] == "error" and t["tree"]["error"] == "boom"
+    assert t["geom"]["status"] == "done"
+    assert t["bounds"]["status"] == "skipped" and "tree" in t["bounds"]["message"]
+    assert w.items[0]["status"] == "error" and w.items[0]["error"] == "1 of 3 target(s) failed: tree: boom"
+
+
+@pytest.mark.asyncio
+async def test_a_single_target_sweep_is_unchanged(world):
+    w = world(fetch_summaries={"ALPHA": {"asset_staging_id": "s-a"}})
+    await sweeps._sweep_one(
+        w.ctx, None, RUN, 0, "ALPHA", scope_obj=Scope.shared(), spec=SPEC, entry=MULTI_ENTRY, user=None
+    )
+    assert w.enqueued[0]["options"]["sweep_target"] == "tree" and "targets" not in w.items[0]["timings"]

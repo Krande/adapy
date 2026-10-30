@@ -14,6 +14,7 @@ import {
     queuedFullExportOf,
     runWarningsOf,
     sweepCountsText,
+    sweepTargetsOf,
 } from "./applyChangesItem";
 
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
@@ -171,6 +172,35 @@ const ApplyChangesResult: React.FC<{item: SweepItem}> = ({item}) => {
     );
 };
 
+const TARGET_TONE: Record<string, string> = {
+    done: "text-emerald-300",
+    unchanged: "text-emerald-300",
+    nothing: "text-gray-400",
+    error: "text-red-300",
+    skipped: "text-amber-300",
+    fetching: "text-blue-300",
+};
+
+/** A multi-target sweep item's outcome per target (tree, geometry, attributes, node bounds -- one
+ *  provider job each, in order): its status, how long it took, its revision, and why it failed or
+ *  was skipped. Nothing for an item that ran one job. */
+const SweepTargets: React.FC<{item: SweepItem}> = ({item}) => {
+    const targets = sweepTargetsOf(item);
+    if (!targets.length) return null;
+    return (
+        <ul className="mt-0.5" data-testid="sweep-item-targets">
+            {targets.map((t) => (
+                <li key={t.target} className={TARGET_TONE[t.status] ?? "text-gray-400"}>
+                    <span className="font-mono">{t.target}</span>: {t.status}
+                    {t.totalMs != null && <span className="text-gray-500"> · {duration(t.totalMs)}</span>}
+                    {t.revision && <span className="text-gray-500"> · {t.revision}</span>}
+                    {t.note && <span className="text-gray-400 break-words"> — {t.note}</span>}
+                </li>
+            ))}
+        </ul>
+    );
+};
+
 const SweepItems: React.FC<{
     run: SweepRun;
     onSkip: (position: number) => void;
@@ -264,6 +294,7 @@ const SweepItems: React.FC<{
                                     </span>
                                 )}
                                 <ApplyChangesResult item={i} />
+                                <SweepTargets item={i} />
                             </td>
                         </tr>
                     ))}

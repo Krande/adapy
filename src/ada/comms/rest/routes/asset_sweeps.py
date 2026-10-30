@@ -26,6 +26,15 @@ each published in turn (a provider that exports a collection a piece at a time, 
 small). And an entry may declare ``"fetch_timeout_s"`` when one collection's job runs longer than
 :data:`FETCH_TIMEOUT_S`.
 
+SEVERAL TARGETS PER COLLECTION. An entry may declare ``"targets_setting": "sweep_target"``, naming a
+``multiple`` enum setting (checkboxes: tree, geometry, attributes, node bounds, ...). Each collection
+then runs one provider job PER TICKED TARGET, in the enum's declared order, each answer published
+before the next job starts -- one item, one lane. A target that fails fails only itself; one that
+reads what it publishes (``target_requires``, by default node bounds after the tree) is skipped
+with the reason, and the others still run. The item keeps each target's outcome under
+``timings.targets`` (read as the item's ``targets``). A stored single value is a list of one; a
+provider whose setting is still a single choice runs one job per collection, as before.
+
 EVERY PHASE IS TIMED, AND NOTHING IS AGGREGATED. An item records the provider's phases as its
 summary reports them (``timings`` -- e.g. login / export / stage), core's derive and write as the
 publish summary reports them, and the wall-clock seen from here: how long the fetch job waited
@@ -73,6 +82,7 @@ import asyncio
 import json
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -101,6 +111,9 @@ from .asset_schedules import (
     job_keys,
     provider_specs,
     settings_of,
+    sweep_targets,
+    target_requires,
+    targets_setting,
 )
 from .assets import staged_by_role, submit_asset_publish
 from .deps import (
@@ -470,8 +483,12 @@ async def _sweep_one(
     entry: dict,
     user,
 ) -> bool:
-    """Fetch and publish one collection. Returns False when it failed; raises only _Cancelled."""
-    run_id, provider, plugin_id = run["id"], run["provider"], run["plugin_id"]
+    """Fetch and publish one collection. Returns False when it failed; raises only _Cancelled.
+
+    A sweep with a TARGETS setting (``targets_setting``: a ``multiple`` enum, e.g. ``sweep_target``)
+    runs one provider job per ticked target, in the enum's declared order, each published before the
+    next starts, all in this item (:func:`_sweep_targets`)."""
+    run_id = run["id"]
     t_item = time.monotonic()
     timings: dict = {}
 
@@ -483,102 +500,18 @@ async def _sweep_one(
         await item(status=status, timings=timings, finished_at=datetime.now(timezone.utc), **fields)
 
     await item(status="fetching", started_at=datetime.now(timezone.utc))
+    kw = dict(scope_obj=scope_obj, spec=spec, entry=entry, user=user, item=item)
     try:
-        options = await build_options(
-            pool,
-            spec,
-            entry,
-            scope=scope_obj.prefix(),
-            provider=provider,
-            collection=collection,
-            settings=run["settings"],
-            validate=False,
-        )
-        # The collection's provider options UNDER the entry's: they add to a request and never
-        # change which job it is or which collection. `requested_at` makes it a new job, not a
-        # cache hit on the last sweep's.
-        options = {
-            **await _provider_options(ctx, scope_obj, provider, collection),
-            **options,
-            "requested_at": datetime.now(timezone.utc).isoformat(),
-        }
-        # The summary's key, so it can be read back -- but NO derived_prefix, exactly as the
-        # Sources tab's request sends none: a provider stages under `assets/_staging/` on its own,
-        # and a prefix outside it is refused (by the E3D provider after the whole export ran).
-        derived_key, _ = job_keys(plugin_id, options)
-        fetch_job = await enqueue_plugin_job(
-            ctx,
-            plugin_id=plugin_id,
-            options=options,
-            scope_obj=scope_obj,
-            user=user,
-            pool=pool,
-            derived_key=derived_key,
-            plugin_spec=spec,
-        )
-        await item(fetch_job_id=fetch_job)
-        timings["queued_ms"], timings["fetch_ms"] = await _wait(
-            ctx, pool, run_id, fetch_job, fetch_timeout(entry), position=position
-        )
-        summary = _json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
-        if not isinstance(summary, dict):
-            raise RuntimeError("the provider's job answered without a summary")
-        if isinstance(summary.get("timings"), dict):
-            timings["provider"] = summary["timings"]
-        if isinstance(summary.get("login"), dict):
-            timings["login"] = summary["login"]
-
-        if summary.get("asset_unchanged") is True:
-            await finish("unchanged", revision=summary.get("revision"), message=summary.get("message"))
-            return True
-        if summary.get("asset_nothing") is True:
-            await finish("nothing", message=summary.get("message"))
-            return True
-        staging_ids = staging_ids_of(summary)
-        if not staging_ids:
-            raise RuntimeError(
-                "the provider's job finished without an asset_staging_id, so there is nothing to publish"
+        targets = sweep_targets(spec, entry, run["settings"])
+        if targets is None:
+            status, fields = await _fetch_and_publish(
+                ctx, pool, run, position, collection, settings=run["settings"], timings=timings, **kw
             )
-
-        # Several staged parts (a provider that stages a collection in pieces) are published one
-        # after another; one that fails is counted and the rest still publish.
-        await item(status="publishing")
-        t_pub = time.monotonic()
-        revision = None
-        publish_failed: list[str] = []
-        for staging_id in staging_ids:
-            try:
-                staged = await staged_by_role(ctx, scope_obj, staging_id)
-                publish_job, publish_key = await submit_asset_publish(
-                    ctx, scope_obj, provider=provider, staged=staged, user=user
-                )
-                await item(publish_job_id=publish_job)
-                await _wait(ctx, pool, run_id, publish_job, PUBLISH_TIMEOUT_S, position=position)
-            except (_Cancelled, ItemSkipped):
-                raise
-            except Exception as exc:  # noqa: BLE001 - one part's failure is counted, not fatal
-                if len(staging_ids) == 1:
-                    raise
-                publish_failed.append(f"{staging_id}: {exc}")
-                continue
-            outcome = _json_of(await ctx.storage.get_bytes(scope_obj, publish_key))
-            outcome = outcome if isinstance(outcome, dict) else {}
-            if isinstance(outcome.get("timings"), dict) and len(staging_ids) == 1:
-                timings["publish"] = outcome["timings"]
-            revision = outcome.get("revision") or revision
-        timings["publish_ms"] = _ms(time.monotonic() - t_pub)
-        if len(staging_ids) > 1:
-            timings["published_parts"] = len(staging_ids) - len(publish_failed)
-        if publish_failed:
-            await finish(
-                "error",
-                revision=revision,
-                error=f"{len(publish_failed)} of {len(staging_ids)} staged part(s) failed to publish: "
-                + "; ".join(publish_failed[:3]),
-            )
-            return False
-        await finish("done", revision=revision)
-        return True
+            await finish(status, **fields)
+            return status != "error"
+        status, fields = await _sweep_targets(ctx, pool, run, position, collection, targets, timings=timings, **kw)
+        await finish(status, **fields)
+        return status != "error"
     except _Cancelled:
         await finish("skipped", message="the sweep was cancelled")
         raise
@@ -595,6 +528,209 @@ async def _sweep_one(
         logger.warning("asset sweep %s: %s failed: %s", run_id, collection, exc)
         await finish("error", error=str(exc))
     return False
+
+
+async def _sweep_targets(
+    ctx: RestContext,
+    pool,
+    run: dict,
+    position: int,
+    collection: str,
+    targets: list,
+    *,
+    timings: dict,
+    scope_obj: Scope,
+    spec: dict,
+    entry: dict,
+    user,
+    item,
+) -> tuple[str, dict]:
+    """One collection, one provider job per target, in order, each published before the next.
+    Returns the item's ``(status, fields)``; raises only a cancel or a skip of the item.
+
+    A target that fails is that target's failure, not the collection's end: the rest still run --
+    except those that read what it publishes (:func:`target_requires`: node bounds read the
+    published tree), which are skipped with the reason. Each target's status, revision, message or
+    error, timings and publish outcome go under ``timings.targets.<target>``; the item's own
+    ``queued_ms`` / ``fetch_ms`` / ``publish_ms`` are the sums, so the phase columns still add up."""
+    name = targets_setting(spec, entry)
+    requires = target_requires(entry)
+    per: dict[str, dict] = {}
+    timings["targets"] = per
+    failed: list[str] = []
+    blocked: set[str] = set()
+    revision = None
+    for target in targets:
+        key = str(target)
+        missing = [r for r in requires.get(key, ()) if r in blocked]
+        if missing:
+            per[key] = {"status": "skipped", "message": f"not run: {', '.join(missing)} did not publish in this run"}
+            blocked.add(key)
+            await item(timings=timings)
+            continue
+        own: dict = {}
+        per[key] = {"status": "fetching"}
+        await item(status="fetching", timings=timings)
+        try:
+            status, fields = await _fetch_and_publish(
+                ctx,
+                pool,
+                run,
+                position,
+                collection,
+                settings={**(run.get("settings") or {}), name: target},
+                timings=own,
+                scope_obj=scope_obj,
+                spec=spec,
+                entry=entry,
+                user=user,
+                item=item,
+                target=(name, target),
+            )
+        except (_Cancelled, ItemSkipped):
+            per[key] = {"status": "skipped", "message": "the collection was stopped", "timings": own}
+            raise
+        except HTTPException as exc:
+            status, fields = "error", {"error": f"{exc.status_code}: {exc.detail}"}
+        except Exception as exc:  # noqa: BLE001 - this target's failure; the others still run
+            logger.warning("asset sweep %s: %s %s failed: %s", run["id"], collection, key, exc)
+            status, fields = "error", {"error": str(exc)}
+        per[key] = {"status": status, **{k: v for k, v in fields.items() if v is not None}, "timings": own}
+        for phase in ("queued_ms", "fetch_ms", "publish_ms"):
+            if phase in own:
+                timings[phase] = timings.get(phase, 0) + own[phase]
+        if status == "error":
+            failed.append(key)
+            blocked.add(key)
+        revision = fields.get("revision") or revision
+        await item(timings=timings)
+    line = " · ".join(f"{k}: {v['status']}" for k, v in per.items())
+    if failed:
+        errors = "; ".join(f"{k}: {per[k].get('error')}" for k in failed)
+        return "error", {
+            "revision": revision,
+            "message": line,
+            "error": f"{len(failed)} of {len(targets)} target(s) failed: {errors}",
+        }
+    statuses = {v["status"] for v in per.values()}
+    status = "unchanged" if statuses == {"unchanged"} else "nothing" if statuses == {"nothing"} else "done"
+    return status, {"revision": revision, "message": line}
+
+
+async def _fetch_and_publish(
+    ctx: RestContext,
+    pool,
+    run: dict,
+    position: int,
+    collection: str,
+    *,
+    settings: dict,
+    timings: dict,
+    scope_obj: Scope,
+    spec: dict,
+    entry: dict,
+    user,
+    item,
+    target: tuple[str, Any] | None = None,
+) -> tuple[str, dict]:
+    """One provider job for one collection and what it staged, published. Returns ``(status,
+    fields)`` -- ``done`` / ``unchanged`` / ``nothing``, or ``error`` when a staged part failed to
+    publish -- and raises when the job or the only publish failed. ``target`` sends the targets
+    setting as that ONE value (the provider's job does one target)."""
+    run_id, provider, plugin_id = run["id"], run["provider"], run["plugin_id"]
+    options = await build_options(
+        pool,
+        spec,
+        entry,
+        scope=scope_obj.prefix(),
+        provider=provider,
+        collection=collection,
+        settings=settings,
+        validate=False,
+    )
+    if target is not None:
+        options[target[0]] = target[1]
+    # The collection's provider options UNDER the entry's: they add to a request and never
+    # change which job it is or which collection. `requested_at` makes it a new job, not a
+    # cache hit on the last sweep's.
+    options = {
+        **await _provider_options(ctx, scope_obj, provider, collection),
+        **options,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # The summary's key, so it can be read back -- but NO derived_prefix, exactly as the
+    # Sources tab's request sends none: a provider stages under `assets/_staging/` on its own,
+    # and a prefix outside it is refused (by the E3D provider after the whole export ran).
+    derived_key, _ = job_keys(plugin_id, options)
+    fetch_job = await enqueue_plugin_job(
+        ctx,
+        plugin_id=plugin_id,
+        options=options,
+        scope_obj=scope_obj,
+        user=user,
+        pool=pool,
+        derived_key=derived_key,
+        plugin_spec=spec,
+    )
+    await item(fetch_job_id=fetch_job)
+    timings["queued_ms"], timings["fetch_ms"] = await _wait(
+        ctx, pool, run_id, fetch_job, fetch_timeout(entry), position=position
+    )
+    summary = _json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
+    if not isinstance(summary, dict):
+        raise RuntimeError("the provider's job answered without a summary")
+    if isinstance(summary.get("timings"), dict):
+        timings["provider"] = summary["timings"]
+    if isinstance(summary.get("login"), dict):
+        timings["login"] = summary["login"]
+
+    if summary.get("asset_unchanged") is True:
+        return "unchanged", {"revision": summary.get("revision"), "message": summary.get("message")}
+    if summary.get("asset_nothing") is True:
+        return "nothing", {"message": summary.get("message")}
+    staging_ids = staging_ids_of(summary)
+    if not staging_ids:
+        raise RuntimeError("the provider's job finished without an asset_staging_id, so there is nothing to publish")
+
+    # Several staged parts (a provider that stages a collection in pieces) are published one
+    # after another; one that fails is counted and the rest still publish.
+    await item(status="publishing")
+    t_pub = time.monotonic()
+    revision = None
+    subjects = 0
+    publish_failed: list[str] = []
+    for staging_id in staging_ids:
+        try:
+            staged = await staged_by_role(ctx, scope_obj, staging_id)
+            publish_job, publish_key = await submit_asset_publish(
+                ctx, scope_obj, provider=provider, staged=staged, user=user
+            )
+            await item(publish_job_id=publish_job)
+            await _wait(ctx, pool, run_id, publish_job, PUBLISH_TIMEOUT_S, position=position)
+        except (_Cancelled, ItemSkipped):
+            raise
+        except Exception as exc:  # noqa: BLE001 - one part's failure is counted, not fatal
+            if len(staging_ids) == 1:
+                raise
+            publish_failed.append(f"{staging_id}: {exc}")
+            continue
+        outcome = _json_of(await ctx.storage.get_bytes(scope_obj, publish_key))
+        outcome = outcome if isinstance(outcome, dict) else {}
+        if isinstance(outcome.get("timings"), dict) and len(staging_ids) == 1:
+            timings["publish"] = outcome["timings"]
+        revision = outcome.get("revision") or revision
+        subjects += len(outcome.get("subjects") or ())
+    timings["publish_ms"] = _ms(time.monotonic() - t_pub)
+    if len(staging_ids) > 1:
+        timings["published_parts"] = len(staging_ids) - len(publish_failed)
+    if publish_failed:
+        return "error", {
+            "revision": revision,
+            "error": f"{len(publish_failed)} of {len(staging_ids)} staged part(s) failed to publish: "
+            + "; ".join(publish_failed[:3]),
+        }
+    # `subjects` is recorded per target only (a sweep item's columns are fixed).
+    return "done", {"revision": revision, **({"subjects": subjects} if target is not None else {})}
 
 
 #: ``app_settings`` key of a provider's default sweep list: ``{"excluded": [collection, ...]}``.
@@ -754,9 +890,10 @@ async def sweep_with_progress(ctx: RestContext, pool, run_id: str) -> dict | Non
         return None
     for item in run["items"]:
         # An apply-changes item keeps its answer beside its timings (the sweep tables have no other
-        # free column); it is read as the item's own: `apply_changes` and `roles`.
+        # free column); it is read as the item's own: `apply_changes` and `roles`. So does a
+        # multi-target sweep item its per-target outcome: `targets`.
         timings = item.get("timings") or {}
-        for name in ("apply_changes", "roles"):
+        for name in ("apply_changes", "roles", "targets"):
             if name in timings:
                 item[name] = timings[name]
         job_id = {"fetching": item["fetch_job_id"], "publishing": item["publish_job_id"]}.get(item["status"])

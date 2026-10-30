@@ -83,3 +83,22 @@ test("core's own setting names its default on the empty choice; a provider's say
     assert.equal(emptyChoiceLabel(core, choices), "(default: Warn only)");
     assert.equal(emptyChoiceLabel({...core, core: false}, choices), "(provider default)");
 });
+
+test("a multi-target sweep item's per-target outcome, in the order they ran", async () => {
+    const {sweepTargetsOf} = await import("@/components/admin/applyChangesItem");
+    const item = {
+        targets: {
+            tree: {status: "error", error: "boom", timings: {queued_ms: 10, fetch_ms: 90}},
+            geom: {status: "done", revision: "20260101T000000Z", timings: {fetch_ms: 50, publish_ms: 50}},
+            bounds: {status: "skipped", message: "not run: tree did not publish in this run"},
+        },
+    };
+    assert.deepEqual(sweepTargetsOf(item), [
+        {target: "tree", status: "error", revision: null, note: "boom", totalMs: 100},
+        {target: "geom", status: "done", revision: "20260101T000000Z", note: null, totalMs: 100},
+        {target: "bounds", status: "skipped", revision: null, note: "not run: tree did not publish in this run", totalMs: null},
+    ]);
+    // Read from the timings too (a listing that does not lift it), and nothing for a one-job item.
+    assert.equal(sweepTargetsOf({timings: {targets: {tree: {status: "done"}}}}).length, 1);
+    assert.deepEqual(sweepTargetsOf({timings: {fetch_ms: 1}}), []);
+});
