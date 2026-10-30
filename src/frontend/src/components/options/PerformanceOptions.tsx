@@ -98,8 +98,8 @@ const RendererBackendOptions: React.FC = () => {
                                 blurb="Skips clusters hidden behind others. Used on models of 2M+ triangles; smaller ones cull on the CPU."
                             />
                             <div>
-                                Not drawn by this renderer yet: section planes, icons, transform gizmos,
-                                face highlight.
+                                Not drawn by this renderer yet: section caps, transform gizmos, face
+                                highlight. Labels and icons draw on top of the model.
                             </div>
                         </>
                     )}

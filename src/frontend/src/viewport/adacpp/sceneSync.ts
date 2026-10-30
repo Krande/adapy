@@ -98,6 +98,11 @@ function isUnlit(m: AnyMaterial | undefined): boolean {
         t.isShaderMaterial || t.isLineMaterial);
 }
 
+/** The layer sprites are put on (as well as their own) for the three.js pass that draws them over the WebGPU
+ *  image: the renderer has no textures, and sprites are canvas-textured labels and markers. */
+export const SPRITE_LAYER = 31;
+const MAX_CLIP_PLANES = 6;
+
 export class SceneSync {
     private readonly entries = new Map<string, Entry>();
     private readonly byInstance = new Map<number, Entry>();
@@ -120,12 +125,19 @@ export class SceneSync {
         clearStencil: () => {},
     };
     lastSyncMs = 0;
+    /** Sprites the last sync found on the camera's layers; the caller draws them with three.js. */
+    spriteCount = 0;
     private pixelRatio = 1;
+    // Section planes: three.js clips per material; the renderer has one set, the union of this frame's.
+    private readonly framePlanes = new Set<THREE.Plane>();
+    private planesKey = "";
+    private readonly planesPtr: number;
 
     constructor(private readonly module: AdacppModule, private readonly r: WebRendererApi) {
         this.matrixPtr = module._malloc(64);
         this.viewPtr = module._malloc(64);
         this.projPtr = module._malloc(64);
+        this.planesPtr = module._malloc(MAX_CLIP_PLANES * 16);
     }
 
     dispose(): void {
@@ -134,6 +146,7 @@ export class SceneSync {
         this.module._free(this.matrixPtr);
         this.module._free(this.viewPtr);
         this.module._free(this.projPtr);
+        this.module._free(this.planesPtr);
     }
 
     /** `width` x `height`: the drawing-buffer size, reported to onBeforeRender hooks that ask the renderer. */
@@ -141,6 +154,8 @@ export class SceneSync {
         this.pixelRatio = pixelRatio;
         const t0 = performance.now();
         this.frame++;
+        this.spriteCount = 0;
+        this.framePlanes.clear();
         scene.updateMatrixWorld();
         if (camera.parent === null) camera.updateMatrixWorld();
 
@@ -153,7 +168,11 @@ export class SceneSync {
             if (!camera.layers.test(obj.layers)) return;
             if (obj.parent instanceof CustomBatchedMesh && obj.parent.isHighlightOverlay(obj)) return;
             const o = obj as unknown as Record<string, boolean>;
-            if (o.isSprite) return;
+            if (o.isSprite) {
+                obj.layers.enable(SPRITE_LAYER);
+                this.spriteCount++;
+                return;
+            }
             if (!(o.isMesh || o.isLineSegments || o.isLine || o.isPoints)) return;
             // three.js calls onBeforeRender only on objects it draws, and here it draws nothing. Scene
             // code relies on the hook for per-frame state: FEA overlays (element wireframe, beam lines,
@@ -174,11 +193,22 @@ export class SceneSync {
             }
         }
 
+        this.pushClipPlanes();
         const heap = this.module.HEAPF32;
         heap.set(camera.matrixWorldInverse.elements, this.viewPtr >> 2);
         heap.set(camera.projectionMatrix.elements, this.projPtr >> 2);
         this.r.setCamera(this.viewPtr, this.projPtr, !!(camera as THREE.OrthographicCamera).isOrthographicCamera);
         this.lastSyncMs = performance.now() - t0;
+    }
+
+    private pushClipPlanes(): void {
+        const planes = [...this.framePlanes].slice(0, MAX_CLIP_PLANES);
+        const key = planes.map((p) => `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`).join(";");
+        if (key === this.planesKey) return;
+        this.planesKey = key;
+        const heap = this.module.HEAPF32;
+        planes.forEach((p, i) => heap.set([p.normal.x, p.normal.y, p.normal.z, p.constant], (this.planesPtr >> 2) + i * 4));
+        this.r.setClipPlanes(this.planesPtr, planes.length);
     }
 
     /** The scene object an instance draws, and which of its segments' range ids is which. */
@@ -387,6 +417,15 @@ export class SceneSync {
         if (mat?.transparent && opacity < 1) flags |= InstanceFlag.Transparent;
         if (mat && !mat.visible) flags |= InstanceFlag.Hidden;
         if (geometry.morphTargetsRelative) flags |= InstanceFlag.MorphRelative;
+        const planes = mat?.clippingPlanes;
+        if (planes?.length) {
+            flags |= InstanceFlag.Clipped;
+            for (const p of planes) this.framePlanes.add(p);
+        }
+        // A negative polygonOffset pulls an overlay in front of the surface it lies on.
+        if (mat?.polygonOffset && (mat.polygonOffsetFactor < 0 || mat.polygonOffsetUnits < 0)) {
+            flags |= InstanceFlag.DepthOffset;
+        }
         // Like three.js' GpuMeshPicker, only model meshes are pickable: edges, grid, overlays and
         // helpers must never stand in front of the object a click is meant for.
         if (!(obj instanceof CustomBatchedMesh)) flags |= InstanceFlag.NoPick;

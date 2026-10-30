@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {SceneSync} from "@/viewport/adacpp/sceneSync";
-import {SegmentFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
+import {SceneSync, SPRITE_LAYER} from "@/viewport/adacpp/sceneSync";
+import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
 interface Recorded {
     geometries: Map<number, {topology: number; vertexCount: number; segments: number[]}>;
@@ -16,6 +16,8 @@ interface Recorded {
     colorUpdates: number;
     morphUpdates: Map<number, number[]>; // geometry -> first morph component of each update
     influences: Map<number, number>; // geometry -> morph influence of its latest setInstance
+    flags: Map<number, number>; // geometry -> flags of its latest setInstance
+    clipPlanes: number[][] | null; // the latest setClipPlanes, as (nx, ny, nz, constant) rows
 }
 
 function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Recorded} {
@@ -33,7 +35,7 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         _free: () => {},
     } as unknown as AdacppModule;
     const u32 = (p: number, n: number) => (p ? Array.from(module.HEAPU32.subarray(p >> 2, (p >> 2) + n)) : []);
-    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map(), influences: new Map()};
+    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map(), influences: new Map(), flags: new Map(), clipPlanes: null};
     const f32 = (p: number, n: number) => (p ? Array.from(module.HEAPF32.subarray(p >> 2, (p >> 2) + n)) : []);
     let nextGeom = 0;
     let nextInst = 0;
@@ -55,9 +57,13 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         },
         removeGeometry: (g: number) => rec.removed.push(g),
         updateColors: () => rec.colorUpdates++,
-        setInstance: (instance: number, _m: number, _r: number, _g: number, _b: number, _a: number, _f: number,
+        setInstance: (instance: number, _m: number, _r: number, _g: number, _b: number, _a: number, flags: number,
                       influence: number) => {
             rec.influences.set(geomOfInst.get(instance)!, influence);
+            rec.flags.set(geomOfInst.get(instance)!, flags);
+        },
+        setClipPlanes: (p: number, count: number) => {
+            rec.clipPlanes = Array.from({length: count}, (_, i) => f32(p + i * 16, 4));
         },
         removeInstance: () => {},
         updateMorph: (g: number, p: number) => {
@@ -224,4 +230,42 @@ test("onBeforeRender hooks run before mirroring: an overlay that copies the infl
     sync.sync(scene, camera);
     const lineGeomId = [...rec.geometries.entries()].find(([, g]) => g.topology === Topology.Lines)![0];
     assert.equal(rec.influences.get(lineGeomId), 0.75);
+});
+
+
+test("section planes, polygonOffset overlays and sprites reach the renderer", () => {
+    const {module, renderer, rec} = fakeModule();
+    const sync = new SceneSync(module, renderer);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const tri = () => {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+        return g;
+    };
+    const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), -0.5);
+    const cut = new THREE.Mesh(tri(), new THREE.MeshBasicMaterial({clippingPlanes: [plane]}));
+    const overlay = new THREE.Mesh(tri(), new THREE.MeshBasicMaterial({
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -16,
+    }));
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial());
+    scene.add(cut, overlay, sprite);
+
+    sync.sync(scene, camera);
+    const all = [...rec.flags.values()];
+    assert.equal(all.filter((f) => f & InstanceFlag.Clipped).length, 1, "only the mesh with clippingPlanes is cut");
+    assert.equal(all.filter((f) => f & InstanceFlag.DepthOffset).length, 1, "only the polygonOffset overlay");
+    assert.deepEqual(rec.clipPlanes, [[1, 0, 0, -0.5]]);
+    // Sprites are not mirrored: they go to the three.js sprite pass, on its layer.
+    assert.equal(rec.geometries.size, 2);
+    assert.equal(sync.spriteCount, 1);
+    assert.ok(sprite.layers.isEnabled(SPRITE_LAYER));
+
+    // Unchanged planes are not re-sent; a moved plane is.
+    rec.clipPlanes = null;
+    sync.sync(scene, camera);
+    assert.equal(rec.clipPlanes, null);
+    plane.constant = 0.25;
+    sync.sync(scene, camera);
+    assert.deepEqual(rec.clipPlanes, [[1, 0, 0, 0.25]]);
 });

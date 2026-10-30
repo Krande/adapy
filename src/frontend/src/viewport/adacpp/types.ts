@@ -61,6 +61,8 @@ export interface WebRendererApi {
     setBackground(r: number, g: number, b: number): void;
     setLighting(ambient: number, diffuse: number): void;
     setCulling(frustum: boolean, cone: boolean, occlusion: boolean): void;
+    /** `count` section planes as (nx, ny, nz, constant) floats at `planes` (heap pointer); at most 6. */
+    setClipPlanes(planes: number, count: number): void;
     pick(x: number, y: number, width: number, height: number, callback: (r: RawPick) => void): void;
     stats(): AdacppStats;
     readCullStats(callback: (s: AdacppStats) => void): void;
@@ -118,5 +120,7 @@ export const InstanceFlag = {
     Hidden: 1 << 4,
     MorphRelative: 1 << 5,
     NoPick: 1 << 8,
+    Clipped: 1 << 11, // cut by the section planes (setClipPlanes)
+    DepthOffset: 1 << 12, // in front of coplanar faces (a negative polygonOffset)
 } as const;
 export const SegmentFlag = {Hidden: 1 << 0} as const;

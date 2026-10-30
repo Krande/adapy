@@ -4,14 +4,15 @@
 // the WebGLRenderer into its own target), controls and the orientation gizmo are unchanged. Each frame
 // this mirrors what three.js would have drawn into the adacpp renderer (wasm, /wasm/adacpp_render.js)
 // and draws it on a WebGPU canvas layered over the hidden WebGL one. The renderer itself lives in
-// adacpp (src/render).
+// adacpp (src/render). Sprites (canvas-textured labels, markers, icons) are the exception: the renderer
+// has no textures, so a small transparent three.js renderer draws just them on a canvas above.
 //
-// Not drawn yet (three.js-only for now): clipping/section planes and caps, sprites/icons, transform
-// gizmos, face-highlight overlays, fat-line widths (LineSegments2 draws as 1px lines).
+// Not drawn yet (three.js-only for now): section caps, transform gizmos, face-highlight overlays; sprites
+// draw over everything (no depth test against the model).
 import * as THREE from "three";
 import {create} from "zustand";
 import {resolveModuleUrl} from "@/utils/wasm/emscriptenLoader";
-import {SceneSync} from "./sceneSync";
+import {SceneSync, SPRITE_LAYER} from "./sceneSync";
 import type {AdacppModule, AdacppStats, GpuDeviceLike, GpuLike, RawPick, WebRendererApi} from "./types";
 
 const MODULE_URL = "/wasm/adacpp_render.js";
@@ -43,6 +44,7 @@ export class AdacppViewport {
     private lastStatsPush = 0;
     private cssWidth = 0;
     private cssHeight = 0;
+    private spriteRenderer: THREE.WebGLRenderer | null = null;
 
     private constructor(
         private readonly module: AdacppModule,
@@ -145,6 +147,7 @@ export class AdacppViewport {
             this.renderer.setCulling(culling.frustum, culling.cone, culling.occlusion);
             this.sync.sync(scene, camera, w, h, pixelRatio);
             this.renderer.render();
+            this.renderSprites(scene, camera, w, h);
         } catch (err) {
             this.alive_ = false;
             const message = err instanceof Error ? err.message : String(err);
@@ -165,6 +168,40 @@ export class AdacppViewport {
             } else {
                 useAdacppRenderStatus.setState({stats: {...st, syncMs}});
             }
+        }
+    }
+
+    /** Draw the scene's sprites (SceneSync put them on SPRITE_LAYER) with three.js, over the WebGPU image. */
+    private renderSprites(scene: THREE.Scene, camera: THREE.Camera, w: number, h: number): void {
+        if (this.sync.spriteCount === 0) {
+            if (this.spriteRenderer) this.spriteRenderer.domElement.style.display = "none";
+            return;
+        }
+        let sr = this.spriteRenderer;
+        if (!sr) {
+            sr = this.spriteRenderer = new THREE.WebGLRenderer({alpha: true, antialias: true});
+            sr.setClearColor(0x000000, 0);
+            sr.localClippingEnabled = true; // sprites may carry the section planes (clippingPlanes)
+            Object.assign(sr.domElement.style, {
+                position: "absolute",
+                inset: "0",
+                width: "100%",
+                height: "100%",
+                pointerEvents: "none",
+            });
+            this.canvas.after(sr.domElement);
+        }
+        sr.domElement.style.display = "block";
+        if (sr.domElement.width !== w || sr.domElement.height !== h) sr.setSize(w, h, false);
+        const background = scene.background;
+        const layers = camera.layers.mask;
+        scene.background = null;
+        camera.layers.set(SPRITE_LAYER);
+        try {
+            sr.render(scene, camera);
+        } finally {
+            scene.background = background;
+            camera.layers.mask = layers;
         }
     }
 
@@ -197,6 +234,8 @@ export class AdacppViewport {
         this.sync.dispose();
         this.renderer.delete();
         this.canvas.remove();
+        this.spriteRenderer?.dispose();
+        this.spriteRenderer?.domElement.remove();
         this.device.destroy();
         useAdacppRenderStatus.setState({state: "off", stats: null});
     }
