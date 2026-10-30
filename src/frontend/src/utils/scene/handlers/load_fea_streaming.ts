@@ -40,6 +40,7 @@ import type {LoadFeaStreamingArgs} from "../fea/streaming/types";
 import {paintElemField} from "../fea/streaming/paintElemField";
 import {paintNodeField} from "../fea/streaming/paintNodeField";
 import {followShownRange, notePaintedShown} from "../fea/streaming/shownRangeRepaint";
+import {followEdgeVisibility} from "../fea/streaming/edgeVisibility";
 import {fetchBeamSolidWarpSidecar, tryLoadBeamSolids} from "../fea/streaming/beamSolids";
 import {installElementEdges} from "../fea/streaming/elementEdges";
 import {refreshUndeformedGhost, setFeaResultColorsVisible, syncFeaOverlayVisibility} from "../fea/streaming/visibility";
@@ -329,6 +330,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     } // end if (field)
     // Hiding or showing elements from here on re-measures the scale.
     followShownRange();
+    followEdgeVisibility();
     notePaintedShown(rangeFromShown);
     const legendScope = legendScopeFor({
         hasCombinations: lazy,
