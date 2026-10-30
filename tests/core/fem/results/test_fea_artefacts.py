@@ -32,6 +32,7 @@ from ada.fem.results.artefacts import (
     make_stream_reader,
     read_blob_header,
     read_blob_step,
+    read_manifest,
 )
 
 RMED_FIXTURES = [
@@ -1203,7 +1204,8 @@ def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
     result = read_sif_file(sif)
     with FEAResultStreamAdapter(result) as reader:
         bake = bake_artefacts(reader, tmp_path / "out", src=sif.stem)
-    manifest = json.loads(bake.manifest_path.read_text())
+    # Inline: the element labels live in the fields' detail sidecars.
+    manifest = read_manifest(bake.manifest_path)
 
     elem_fields = [f for f in manifest["fields"] if "per_type" in f]
     assert elem_fields, "expected at least one element field from the shell SIF"

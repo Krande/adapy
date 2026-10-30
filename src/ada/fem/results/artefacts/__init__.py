@@ -10,6 +10,10 @@ source and produces three artefact kinds:
   range-fetches by step.
 * ``fea.manifest.json`` — catalogue: mesh metadata, per-field metadata,
   pre-computed scalar ranges so the colormap stays fixed across steps.
+  A compact index since bake_version 6: the per-model tables (element
+  labels / node indices per field, sets, node ids) live in JSON sidecars
+  beside it and ``fea.stamp.json`` carries its freshness stamps (see
+  ``manifest.split_manifest``; ``read_manifest`` folds them back in).
 
 The bake consumes a streaming reader (`FEAStreamReader` protocol) so
 fields are written one step at a time — no need to hold the full
@@ -111,7 +115,16 @@ from .manifest import _infer_analysis_kind as _infer_analysis_kind  # noqa: F401
 from .manifest import _presentation_payload as _presentation_payload  # noqa: F401
 from .manifest import _step_entry as _step_entry  # noqa: F401
 from .manifest import _value_label_key as _value_label_key  # noqa: F401
-from .manifest import analysis_kind_from_result_cases, build_manifest, write_manifest
+from .manifest import (
+    STAMP_NAME,
+    analysis_kind_from_result_cases,
+    build_manifest,
+    inline_manifest,
+    read_manifest,
+    split_manifest,
+    write_manifest,
+    write_manifest_tree,
+)
 from .mesh import _compute_topology as _compute_topology  # noqa: F401
 from .mesh import (
     write_mesh_edges,
@@ -230,6 +243,11 @@ __all__ = [
     "analysis_kind_from_result_cases",
     "build_manifest",
     "write_manifest",
+    "write_manifest_tree",
+    "split_manifest",
+    "inline_manifest",
+    "read_manifest",
+    "STAMP_NAME",
     "register_stream_reader",
     "fea_artefact_extensions",
     "is_fea_artefact_source",

@@ -26,7 +26,7 @@ from .fields import (
     write_element_field_blob_streaming,
     write_field_blob_streaming,
 )
-from .manifest import _infer_analysis_kind, build_manifest, write_manifest
+from .manifest import _infer_analysis_kind, build_manifest, write_manifest_tree
 from .mesh import (
     _compute_topology,
     write_element_properties,
@@ -738,9 +738,15 @@ def bake_artefacts(
         baked_steps_hint=steps_hint if baked_steps is not None else None,
         combination_steps=_combination_steps(reader, baked_steps, step_names, result_cases),
     )
+    # The manifest goes out as a compact index plus its sidecars (per-field
+    # element tables, sets, node ids, the freshness stamp), emitted in write
+    # order: sidecars, manifest, stamp -- see write_manifest_tree. The inline
+    # dict is dropped as soon as it is written; nothing below needs it.
+    written = write_manifest_tree(manifest, out_dir)
+    del manifest
     manifest_path = out_dir / "fea.manifest.json"
-    write_manifest(manifest, manifest_path)
-    emit(manifest_path)
+    for path in written:
+        emit(path)
 
     return BakeResult(
         out_dir=out_dir,

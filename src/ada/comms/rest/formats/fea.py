@@ -40,8 +40,11 @@ async def _run_fea_artefact_bake(
     Source has already been streamed to ``src_path``. Produces:
 
     * ``_derived/<src>.fea/fea.mesh.glb``
-    * ``_derived/<src>.fea/fea.manifest.json`` (gzip)
+    * ``_derived/<src>.fea/fea.manifest.json`` (gzip) -- the compact index
     * ``_derived/<src>.fea/fea.<field>.bin`` × N (identity — HTTP-Range-able)
+    * ``_derived/<src>.fea/fea.detail.*.json``, ``fea.groups.json``,
+      ``fea.nodelabels.json`` (gzip) -- the manifest's per-model tables
+    * ``_derived/<src>.fea/fea.stamp.json`` (gzip) -- its freshness stamps
 
     Updates the queue + audit row to mirror the convert flow's
     end-of-job semantics so the existing ``/convert/{job_id}`` poll
@@ -150,9 +153,16 @@ async def _run_fea_artefact_bake(
         try:
             # Listed up front: put_path stages a gzip copy beside the manifest while it uploads,
             # and that staging file must not be picked up as an artefact of its own.
-            for produced in sorted(bake.out_dir.iterdir()):
-                if not produced.is_file():
-                    continue
+            # The manifest goes up after every file it names (it is what says the bake
+            # is complete: the API's cache check and the already-cached short-circuit
+            # both key on it), and the stamp after the manifest it vouches for -- the
+            # API ignores a stamp older than its manifest (fea_stamp_is_current).
+            tail = {"fea.manifest.json": 1, "fea.stamp.json": 2}
+            produced_files = sorted(
+                (p for p in bake.out_dir.iterdir() if p.is_file()),
+                key=lambda p: (tail.get(p.name, 0), p.name),
+            )
+            for produced in produced_files:
                 target_key = prefix + produced.name
                 # Compression policy mirrors the API-side endpoint: gzip
                 # only the manifest JSON. Field/edge/element ``.bin`` blobs
