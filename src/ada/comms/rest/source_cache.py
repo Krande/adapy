@@ -171,7 +171,9 @@ class SourceBlobCache:
                 except OSError:
                     pass
 
-    async def open_progressive(self, storage, scope, key: str, dest_path: pathlib.Path, *, chunk_bytes: int = 8 << 20):
+    async def open_progressive(
+        self, storage, scope, key: str, dest_path: pathlib.Path, *, download_cls, chunk_bytes: int = 8 << 20
+    ):
         """Start downloading ``key`` in the background and return the
         :class:`~ada.fem.formats.sesam.results.byte_source.ProgressiveDownload`
         a decoder can read from at once -- or None, and the caller does the
@@ -189,9 +191,10 @@ class SourceBlobCache:
         Must be called on the event loop the storage runs on: the download's
         threads fetch through it (``storage.get_range``, one ranged GET per chunk).
         Raises ``FileNotFoundError`` when the object does not exist.
-        """
-        from ada.fem.formats.sesam.results.byte_source import ProgressiveDownload
 
+        ``download_cls``: ``ProgressiveDownload``, passed in by the worker -- this
+        module is shared with the slim API image, which does not ship ada.fem.
+        """
         loop = asyncio.get_running_loop()
         meta = await storage.head(scope, key)
         if meta is None:
@@ -238,7 +241,7 @@ class SourceBlobCache:
             )
             return now == version and int(head.get("size") or 0) == size
 
-        return ProgressiveDownload(
+        return download_cls(
             _StorageRangeFetcher(storage, scope, key, size, loop),
             target,
             chunk_bytes=chunk_bytes,

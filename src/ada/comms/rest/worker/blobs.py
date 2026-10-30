@@ -247,7 +247,11 @@ async def fetch_source(storage: Storage, scope: Scope, job: Job, src_path: pathl
         # Decode while it downloads (see SourceFetch.progressive). None -- a cache
         # hit, a gzip-at-rest object -- falls through to the plain fetch below.
         try:
-            progressive = await source_cache.default_cache().open_progressive(storage, scope, job.source_key, src_path)
+            from ada.fem.formats.sesam.results.byte_source import ProgressiveDownload
+
+            progressive = await source_cache.default_cache().open_progressive(
+                storage, scope, job.source_key, src_path, download_cls=ProgressiveDownload
+            )
         except FileNotFoundError:
             raise
         except Exception:

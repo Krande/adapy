@@ -19,6 +19,7 @@ from obstore.store import LocalStore
 from ada.comms.rest.scope import Scope
 from ada.comms.rest.source_cache import MODE_HIT, SourceBlobCache
 from ada.comms.rest.storage import Storage
+from ada.fem.formats.sesam.results.byte_source import ProgressiveDownload
 
 
 def _storage(tmp_path: pathlib.Path) -> Storage:
@@ -37,7 +38,9 @@ def test_progressive_download_becomes_a_cache_hit_only_when_complete(tmp_path):
 
     async def run():
         await storage.put_bytes(scope, "deck.sin", PAYLOAD)
-        dl = await cache.open_progressive(storage, scope, "deck.sin", tmp_path / "job.sin", chunk_bytes=4096)
+        dl = await cache.open_progressive(
+            storage, scope, "deck.sin", tmp_path / "job.sin", chunk_bytes=4096, download_cls=ProgressiveDownload
+        )
         assert dl is not None
         meta = pathlib.Path(dl.path).with_name(pathlib.Path(dl.path).name + ".meta")
         # A read in the middle is served at once, from a ranged GET.
@@ -50,7 +53,12 @@ def test_progressive_download_becomes_a_cache_hit_only_when_complete(tmp_path):
         assert meta.exists()
         await asyncio.to_thread(dl.close)
         # The next job of the same version: a plain hit, nothing to download.
-        assert await cache.open_progressive(storage, scope, "deck.sin", tmp_path / "job2.sin") is None
+        assert (
+            await cache.open_progressive(
+                storage, scope, "deck.sin", tmp_path / "job2.sin", download_cls=ProgressiveDownload
+            )
+            is None
+        )
         assert await cache.fetch(storage, scope, "deck.sin", tmp_path / "job3.sin") == MODE_HIT
         assert (tmp_path / "job3.sin").read_bytes() == PAYLOAD
 
@@ -72,7 +80,9 @@ def test_cancelled_progressive_download_is_never_a_hit(tmp_path):
             return await real(scope_, key, start, length)
 
         storage.get_range = slow  # type: ignore[method-assign]
-        dl = await cache.open_progressive(storage, scope, "deck.sin", tmp_path / "job.sin", chunk_bytes=4096)
+        dl = await cache.open_progressive(
+            storage, scope, "deck.sin", tmp_path / "job.sin", chunk_bytes=4096, download_cls=ProgressiveDownload
+        )
         dl.cancel()
         gate.set()
         await asyncio.to_thread(dl.close)
@@ -81,7 +91,9 @@ def test_cancelled_progressive_download_is_never_a_hit(tmp_path):
         assert not entry.with_name(entry.name + ".meta").exists()
         storage.get_range = real  # type: ignore[method-assign]
         # Not a hit: the next open starts a fresh download.
-        again = await cache.open_progressive(storage, scope, "deck.sin", tmp_path / "job2.sin", chunk_bytes=4096)
+        again = await cache.open_progressive(
+            storage, scope, "deck.sin", tmp_path / "job2.sin", chunk_bytes=4096, download_cls=ProgressiveDownload
+        )
         assert again is not None
         assert await asyncio.to_thread(again.wait, 30)
         await asyncio.to_thread(again.close)
@@ -97,8 +109,15 @@ def test_gzip_at_rest_source_is_not_progressive(tmp_path):
 
     async def run():
         await storage.put_bytes(scope, "deck.sin", PAYLOAD, content_encoding="gzip")
-        assert await cache.open_progressive(storage, scope, "deck.sin", tmp_path / "job.sin") is None
+        assert (
+            await cache.open_progressive(
+                storage, scope, "deck.sin", tmp_path / "job.sin", download_cls=ProgressiveDownload
+            )
+            is None
+        )
         with pytest.raises(FileNotFoundError):
-            await cache.open_progressive(storage, scope, "missing.sin", tmp_path / "x.sin")
+            await cache.open_progressive(
+                storage, scope, "missing.sin", tmp_path / "x.sin", download_cls=ProgressiveDownload
+            )
 
     asyncio.run(run())
