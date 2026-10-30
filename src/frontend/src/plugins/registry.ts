@@ -76,7 +76,15 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          This entry was 1.7.0 on its branch; main published 1.7.0 first, for viewer-core
 //          parity, so -- as with 1.4.0 -- the number moved up rather than meaning two things.
 //          Plugin-side only, so viewer-core stays at 1.7.0, as it did through 1.6.0.
-export const PLUGIN_API_VERSION = "1.8.0";
+// 1.9.0 -- renderer-neutral scene overlays on `SceneHandle`: `addLines`, `addLabels`,
+//          `paintFeaElements` (each returns a `SceneOverlay`), FEA element isolation
+//          (`isolateFeaElements`, `hideFeaElements`, `hiddenFeaElements`) and
+//          `setFeaElementEdgesVisible`. A plugin states what to draw in plain data and core
+//          builds it, so it draws the same under three.js and the WebGPU renderer and moves
+//          and clips with the model. `add` (a raw Object3D) and `getActiveFeaMesh` stay, now
+//          deprecated: they tie a plugin to one renderer and to the FEA mesh's internals.
+//          Additive, so a minor bump.
+export const PLUGIN_API_VERSION = "1.9.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -188,6 +196,47 @@ export interface SceneColorFieldResult {
   colorFor?: (v: number) => [number, number, number];
 }
 
+/** sRGB, as CSS: "#ffaa00", or [r, g, b] in 0..1. */
+export type SceneColor = string | readonly [number, number, number];
+
+/** Something core drew for a plugin; `remove` takes it out of the scene. */
+export interface SceneOverlay {
+  remove: () => void;
+}
+
+/** Line segments in the FEA model's coordinates (world coordinates without an FEA model). */
+export interface SceneLines {
+  // 6 numbers per segment: x0, y0, z0, x1, y1, z1.
+  segments: Float32Array | readonly number[];
+  // One colour for all, or `colors`: 3 numbers (sRGB, 0..1) per segment.
+  color?: SceneColor;
+  colors?: Float32Array | readonly number[];
+  widthPx?: number; // default 2
+  dashed?: { dash: number; gap: number }; // in model units
+}
+
+/** A screen-space label pinned to a point (FEA model coordinates, as `SceneLines`). */
+export interface SceneLabel {
+  position: readonly [number, number, number];
+  text: string;
+  color?: string; // text, CSS; default dark slate
+  background?: string; // CSS; none by default
+  shape?: "rect" | "circle";
+}
+
+export interface SceneLabelOptions {
+  heightPx?: number; // on-screen height, CSS px; default 18
+}
+
+/** Colours for elements of the active FEA mesh, drawn over the model and following its warp. */
+export interface SceneElementPaint {
+  colors: ReadonlyMap<number, SceneColor>; // element label -> colour
+  // Colour for elements in `only` (or every element, without `only`) that `colors` leaves out;
+  // omitted / null: those are not drawn.
+  neutral?: SceneColor | null;
+  only?: Iterable<number>;
+}
+
 /** A manifest-relative byte/JSON fetcher handed to sidecar loaders. */
 export interface SidecarFetcher {
   json: (relKey: string) => Promise<unknown>;
@@ -200,7 +249,10 @@ export interface SidecarFetcher {
  * resources uniformly by owner. Kept structural (`unknown` object type) so this
  * module needs no `three` import. */
 export interface SceneHandle {
+  /** @deprecated A raw three.js object draws only as the renderer in use happens to treat it; use
+   *  `addLines` / `addLabels` / `paintFeaElements`, or ask core for the verb you need. */
   add: (owner: string, obj: unknown) => void;
+  // Removes `obj`, or everything `owner` added (by `add` and the overlay verbs below).
   remove: (owner: string, obj?: unknown) => void;
   requestRender: () => void;
   // Route a named color field through core's paint + legend path
@@ -210,6 +262,8 @@ export interface SceneHandle {
   // null when no FEA model is loaded. Lets a result plugin drive element-level
   // scene ops (isolate / highlight / attach overlays) off the same mesh core
   // deforms. Structural ``unknown`` — no three import in this dependency-free core.
+  /** @deprecated Reaches into the FEA mesh's internals; use `paintFeaElements`,
+   *  `isolateFeaElements`, `hideFeaElements` and the selection verbs. */
   getActiveFeaMesh: () => unknown | null;
   // Draw-range ids (per-element selection) currently highlighted on the active
   // FEA mesh, or an empty array when nothing is selected / no FEA model is
@@ -264,6 +318,19 @@ export interface SceneHandle {
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.
   unloadModel: (sourceName: string) => void;
+
+  // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
+  // the same under three.js and the WebGPU renderer, move and clip with the model, and go
+  // with `remove(owner)`. Coordinates are the FEA model's own when one is loaded. ──
+  addLines: (owner: string, lines: SceneLines) => SceneOverlay;
+  addLabels: (owner: string, labels: SceneLabel[], opts?: SceneLabelOptions) => SceneOverlay;
+  // Null when no FEA model is loaded.
+  paintFeaElements: (owner: string, paint: SceneElementPaint) => SceneOverlay | null;
+  // Show only these elements of the active FEA model; null shows all again.
+  isolateFeaElements: (elements: Iterable<number> | null) => void;
+  hideFeaElements: (elements: Iterable<number>) => void;
+  hiddenFeaElements: () => number[];
+  setFeaElementEdgesVisible: (visible: boolean) => void;
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */

@@ -19,6 +19,16 @@ import { noteOwnerPainted } from "@/utils/scene/fea/modeSceneColor";
 import { effectivePluginTheme, useThemeStore } from "@/state/themeStore";
 import type { PluginTheme } from "./registry";
 import {
+  addLabels,
+  addLines,
+  hiddenFeaElements,
+  hideFeaElements,
+  isolateFeaElements,
+  paintFeaElements,
+  removeOwnerOverlays,
+  setFeaElementEdgesVisible,
+} from "./sceneOverlays";
+import {
   getActiveFeaMesh,
   getActiveFeaSelectedRangeIds,
   setActiveFeaSelectedRangeIds,
@@ -69,10 +79,11 @@ function makeSceneHandle(): SceneHandle {
       if (obj) {
         scene.remove(obj);
       } else {
-        // Remove every top-level object this owner added.
+        // Remove every top-level object this owner added, and its overlays.
         for (const child of [...(scene.children ?? [])]) {
           if (child.userData?.__pluginOwner === owner) scene.remove(child);
         }
+        removeOwnerOverlays(owner);
       }
       requestRender();
     },
@@ -140,6 +151,13 @@ function makeSceneHandle(): SceneHandle {
     unloadModel(sourceName) {
       void import("@/utils/scene/handlers/unload_any_source").then(({ unload_any_source }) => unload_any_source(sourceName));
     },
+    addLines,
+    addLabels,
+    paintFeaElements,
+    isolateFeaElements,
+    hideFeaElements,
+    hiddenFeaElements,
+    setFeaElementEdgesVisible,
   };
 }
 

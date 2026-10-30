@@ -33,6 +33,13 @@ function fakeCtx(): AdaPluginContext {
       setSelectedFeaRanges() {},
       loadModelFromUrl: async () => {},
       unloadModel() {},
+      addLines: () => ({remove() {}}),
+      addLabels: () => ({remove() {}}),
+      paintFeaElements: () => null,
+      isolateFeaElements() {},
+      hideFeaElements() {},
+      hiddenFeaElements: () => [],
+      setFeaElementEdgesVisible() {},
     },
     scope: () => "user:me",
     // Required by AdaPluginContext since plugin API 1.3.0. A stub: these fixtures

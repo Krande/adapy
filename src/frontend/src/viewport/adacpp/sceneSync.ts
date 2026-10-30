@@ -101,6 +101,18 @@ function isUnlit(m: AnyMaterial | undefined): boolean {
 /** The layer sprites are put on (as well as their own) for the three.js pass that draws them over the WebGPU
  *  image: the renderer has no textures, and sprites are canvas-textured labels and markers. */
 export const SPRITE_LAYER = 31;
+
+/** Dash and gap lengths in line-distance units, for LineMaterial (fat lines) and LineDashedMaterial; [0, 0]
+ *  = solid. Both scale the distance (dashScale / scale), which is the same as dividing the lengths. */
+function dashOf(mat: THREE.Material | undefined): [number, number] {
+    const m = mat as unknown as {
+        dashed?: boolean; isLineDashedMaterial?: boolean; isLineMaterial?: boolean;
+        dashSize?: number; gapSize?: number; dashScale?: number; scale?: number;
+    } | undefined;
+    if (!m || !(m.isLineDashedMaterial || (m.isLineMaterial && m.dashed))) return [0, 0];
+    const scale = (m.isLineMaterial ? m.dashScale : m.scale) || 1;
+    return [(m.dashSize ?? 0) / scale, (m.gapSize ?? 0) / scale];
+}
 const MAX_CLIP_PLANES = 6;
 
 export class SceneSync {
@@ -287,12 +299,18 @@ export class SceneSync {
         let positions: Float32Array;
         let colors: Uint32Array | null = null;
         let indices: Uint32Array | null = null;
+        let distances: Float32Array | null = null; // along the line, for dashes (computeLineDistances)
         if (fatLines) {
             // LineSegments2: one instance per segment, endpoints in instanceStart / instanceEnd.
             const s = geometry.attributes.instanceStart, en = geometry.attributes.instanceEnd;
             positions = new Float32Array(s.count * 6);
             for (let i = 0; i < s.count; i++) {
                 positions.set([s.getX(i), s.getY(i), s.getZ(i), en.getX(i), en.getY(i), en.getZ(i)], i * 6);
+            }
+            const ds = geometry.attributes.instanceDistanceStart, de = geometry.attributes.instanceDistanceEnd;
+            if (ds && de) {
+                distances = new Float32Array(s.count * 2);
+                for (let i = 0; i < s.count; i++) distances.set([ds.getX(i), de.getX(i)], i * 2);
             }
             const cs = geometry.attributes.instanceColorStart, ce = geometry.attributes.instanceColorEnd;
             if (cs && ce) {
@@ -306,6 +324,9 @@ export class SceneSync {
         } else {
             positions = floats(geometry.attributes.position);
             if (geometry.attributes.color) colors = packedColors(geometry.attributes.color);
+            if (topology === Topology.Lines && geometry.attributes.lineDistance) {
+                distances = floats(geometry.attributes.lineDistance);
+            }
             if (geometry.index) {
                 const ia = geometry.index.array;
                 indices = ia instanceof Uint32Array ? ia : Uint32Array.from(ia as ArrayLike<number>);
@@ -385,12 +406,12 @@ export class SceneSync {
             (a instanceof Float32Array ? M.HEAPF32 : M.HEAPU32).set(a, p >> 2);
             return p;
         };
-        const ptrs = [positions, normals, colors, morph, indices, segments].map(alloc);
+        const ptrs = [positions, normals, colors, morph, indices, segments, distances].map(alloc);
         let geom: number;
         try {
             geom = this.r.addGeometry(
                 topology, ptrs[0], vertexCount, ptrs[1], ptrs[2], ptrs[3], ptrs[4], indices ? indices.length : 0,
-                ptrs[5], segments ? segments.length / 2 : 0,
+                ptrs[5], segments ? segments.length / 2 : 0, ptrs[6],
             );
         } finally {
             for (const p of ptrs) if (p) M._free(p);
@@ -436,6 +457,7 @@ export class SceneSync {
         const metalness = specular ? (pbr.metalness ?? 0) : 0;
         const roughness = specular ? (pbr.roughness ?? 1) : 1;
         const lineWidth = this.lineWidth(obj, mat);
+        const [dash, gap] = dashOf(mat);
 
         const heap = this.module.HEAPF32;
         const inst = obj as THREE.InstancedMesh;
@@ -449,7 +471,7 @@ export class SceneSync {
             }
             this.r.setInstance(
                 e.instances[i], this.matrixPtr, color.r, color.g, color.b, opacity, flags, influence,
-                metalness, roughness, specular, lineWidth,
+                metalness, roughness, specular, lineWidth, dash, gap,
             );
         }
     }

@@ -33,6 +33,8 @@ export interface WebRendererApi {
         indexCount: number,
         segments: number,
         segmentCount: number,
+        /** Lines: distance along the line per vertex (heap pointer, 0 = none), for dashes. */
+        distances: number,
     ): number;
     updateColors(geometry: number, colors: number, count: number): void;
     updateMorph(geometry: number, morph: number, vertexCount: number): void;
@@ -53,6 +55,9 @@ export interface WebRendererApi {
         specular: boolean,
         /** Lines: width, points: diameter, in device pixels; above 1 they draw as quads. */
         lineWidth: number,
+        /** Dashed lines: dash and gap lengths in the geometry's distance units; dash 0 = solid. */
+        dash: number,
+        gap: number,
     ): void;
     setSegmentStates(instance: number, packed: number, count: number): void;
     removeInstance(instance: number): void;
