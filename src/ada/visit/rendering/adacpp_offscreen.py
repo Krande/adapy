@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,25 @@ import numpy as np
 
 if TYPE_CHECKING:
     from PIL.Image import Image
+
+
+# One renderer per process, reused across calls: creating it (the WebGPU device and its pipelines) costs
+# ~40 ms, several times a poster's render. A WebGPU device is not thread-safe, hence the lock.
+_renderer = None
+_renderer_lock = threading.Lock()
+
+
+def _shared_renderer(width: int, height: int):
+    """The process' renderer, emptied and sized to ``width`` x ``height``. Call with ``_renderer_lock`` held."""
+    global _renderer
+    from adacpp import _render
+
+    if _renderer is None:
+        _renderer = _render.OffscreenRenderer(width, height)
+    else:
+        _renderer.clear()
+        _renderer.resize(width, height)
+    return _renderer
 
 
 def is_available() -> bool:
@@ -108,7 +128,9 @@ def glb_to_image(
     z_up: bool = True,
     size: tuple[int, int] = (640, 480),
     line_color: tuple[float, float, float, float] = (0.15, 0.15, 0.15, 1.0),
-    line_thickness: float = 1.5,
+    # 1 px, not pygfx's 1.5: pygfx feathers its lines, ours are solid (MSAA) quads, and at 1.5 px the mesh
+    # edges read twice as heavy and darken the result colours on fine meshes.
+    line_thickness: float = 1.0,
     member_thickness: float = 4.0,
     point_size: float = 4.0,
     background: tuple[float, float, float] | None = None,
@@ -124,43 +146,45 @@ def glb_to_image(
     ``{"gizmo": True, "legend": {"header": [...], "gradient": [[r, g, b], ...], "ticks": [...]}}``
     (sRGB colours; the spec in full: adacpp ``src/render/overlay_json.h``).
     """
-    from adacpp import _render
     from PIL import Image
 
     width, height = size
-    renderer = _render.OffscreenRenderer(width, height)
-    renderer.load_glb(
-        str(glb_path),
-        line_width=line_thickness,
-        member_width=member_thickness,
-        point_size=point_size,
-        line_color=(*(_srgb_to_linear(float(c)) for c in line_color[:3]), float(line_color[3])),
-        # pygfx draws both faces by default and shell posters rely on it: an FEA shell seen from behind.
-        double_sided=True,
-    )
-    if background is None:
-        renderer.set_background(0.0, 0.0, 0.0, 0.0)
-    else:
-        renderer.set_background(*background, 1.0)
-    view, proj = preset_camera(
-        renderer.bounds(),
-        width / height if height else 4.0 / 3.0,
-        azimuth_deg=azimuth_deg,
-        elevation_deg=elevation_deg,
-        fov_deg=fov_deg,
-        distance=distance,
-        margin=margin,
-        z_up=z_up,
-    )
-    renderer.set_camera(view, proj)
-    if overlay:
-        legend = overlay.get("legend")
-        if background is None and isinstance(legend, dict) and "panel_bg" not in legend:
-            # Studio's panel is 62% slate over the dark viewport; over a transparent poster on a white
-            # page that turns grey, so make it nearly opaque to read the same anywhere.
-            overlay = {**overlay, "legend": {**legend, "panel_bg": [30 / 255, 41 / 255, 59 / 255, 0.92]}}
-        renderer.set_overlay(json.dumps(overlay))
-    rgba = renderer.render()
+    with _renderer_lock:
+        renderer = _shared_renderer(width, height)
+        renderer.load_glb(
+            str(glb_path),
+            line_width=line_thickness,
+            member_width=member_thickness,
+            point_size=point_size,
+            line_color=(*(_srgb_to_linear(float(c)) for c in line_color[:3]), float(line_color[3])),
+            # pygfx draws both faces by default and shell posters rely on it: an FEA shell seen from behind.
+            double_sided=True,
+        )
+        if background is None:
+            renderer.set_background(0.0, 0.0, 0.0, 0.0)
+        else:
+            renderer.set_background(*background, 1.0)
+        view, proj = preset_camera(
+            renderer.bounds(),
+            width / height if height else 4.0 / 3.0,
+            azimuth_deg=azimuth_deg,
+            elevation_deg=elevation_deg,
+            fov_deg=fov_deg,
+            distance=distance,
+            margin=margin,
+            z_up=z_up,
+        )
+        renderer.set_camera(view, proj)
+        if overlay:
+            legend = overlay.get("legend")
+            if background is None and isinstance(legend, dict) and "panel_bg" not in legend:
+                # Studio's panel is 62% slate over the dark viewport; over a transparent poster on a white
+                # page that turns grey, so make it nearly opaque to read the same anywhere.
+                overlay = {**overlay, "legend": {**legend, "panel_bg": [30 / 255, 41 / 255, 59 / 255, 0.92]}}
+            renderer.set_overlay(json.dumps(overlay))
+        else:
+            renderer.set_overlay(None)  # the shared renderer keeps the previous call's overlay otherwise
+        rgba = renderer.render()
     if background is None:
         rgba = _unpremultiply(rgba)
     return Image.fromarray(rgba)
@@ -173,10 +197,10 @@ def _srgb_to_linear(c: float) -> float:
 def _unpremultiply(rgba: np.ndarray) -> np.ndarray:
     """Multisample resolve against a transparent background leaves edge pixels premultiplied (colour x
     coverage); a PNG stores straight alpha, so divide the coverage back out or edges darken."""
-    alpha = rgba[..., 3:4].astype(np.float32)
-    edge = (alpha > 0) & (alpha < 255)
-    rgb = rgba[..., :3].astype(np.float32)
-    rgb = np.where(edge, np.clip(rgb * 255.0 / np.maximum(alpha, 1.0), 0, 255), rgb)
+    alpha = rgba[..., 3]
+    edge = (alpha > 0) & (alpha < 255)  # only partly covered pixels need it, a small share of the image
     out = rgba.copy()
-    out[..., :3] = rgb.astype(np.uint8)
+    px = out[edge]
+    px[:, :3] = np.clip(px[:, :3].astype(np.float32) * (255.0 / px[:, 3:4]), 0, 255).astype(np.uint8)
+    out[edge] = px
     return out

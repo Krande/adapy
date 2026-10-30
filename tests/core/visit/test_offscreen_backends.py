@@ -7,6 +7,7 @@ import builtins
 import math
 
 import numpy as np
+import pytest
 
 from ada.visit.rendering import offscreen
 from ada.visit.rendering.adacpp_offscreen import preset_camera
@@ -60,3 +61,19 @@ def test_poster_legend_names_the_field_unit_and_case_and_ticks_from_the_peak_dow
     assert len(spec["ticks"]) == 7
     assert math.isclose(spec["ticks"][0], 0.3) and spec["ticks"][-1] == 0.0
     assert spec["gradient"][0] == [0.0, 0.0, 1.0] and spec["gradient"][-1] == [1.0, 0.0, 0.0]
+
+
+def test_shared_adacpp_renderer_resizes_and_drops_the_previous_overlay(tmp_path):
+    pytest.importorskip("adacpp._render")
+    import trimesh
+
+    from ada.visit.rendering.adacpp_offscreen import glb_to_image
+
+    glb = tmp_path / "box.glb"
+    trimesh.creation.box().export(glb)
+    with_gizmo = np.asarray(glb_to_image(glb, size=(200, 150), overlay={"gizmo": True}))
+    plain = np.asarray(glb_to_image(glb, size=(320, 240)))
+    assert with_gizmo.shape == (150, 200, 4) and plain.shape == (240, 320, 4)
+    # The gizmo sits in the bottom-right corner; the next call without an overlay must leave it empty.
+    assert with_gizmo[-60:, -60:, 3].any()
+    assert not plain[-60:, -60:, 3].any()
