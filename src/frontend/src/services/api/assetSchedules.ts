@@ -194,6 +194,9 @@ export interface SweepItem {
   /** The per-collection picks this item's provider job was SENT (`{option: value}`); `{}` when the
    *  worker chose itself. Absent when the provider declares no such choice. */
   collection_choices?: Record<string, unknown> | null;
+  /** "Pre-build meshes": `{subjects, cached, built, failed, skipped, ms, reason?, note?, errors?}`.
+   *  Read through `prebuildOf`. */
+  prebuild?: Record<string, unknown> | null;
   started_at: string | null;
   finished_at: string | null;
 }

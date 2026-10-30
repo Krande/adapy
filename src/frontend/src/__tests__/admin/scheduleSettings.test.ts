@@ -57,3 +57,13 @@ test("a sweep's targets as checkboxes: default all, a stored single value is a l
     assert.deepEqual(withMultiDefaults([sweepTarget], {sweep_target: "bounds"}), {sweep_target: ["bounds"]});
     assert.equal(multiSettingError([sweepTarget], {sweep_target: []}), 'Tick at least one under "Export".');
 });
+
+test("a bool setting is a checkbox: ticked when true however it travelled, unset is its default", async () => {
+    const {isBoolSetting, boolValue} = await import("@/components/admin/scheduleSettings");
+    assert.equal(isBoolSetting({type: "bool"}), true);
+    assert.equal(isBoolSetting({type: "enum"}), false);
+    assert.equal(boolValue({default: false}, undefined), false);
+    assert.equal(boolValue({default: true}, undefined), true);
+    assert.equal(boolValue({default: false}, "true"), true);
+    assert.equal(boolValue({default: true}, false), false);
+});

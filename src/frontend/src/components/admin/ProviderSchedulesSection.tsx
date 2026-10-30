@@ -17,8 +17,10 @@ import AdminSection from "./AdminSection";
 import ProviderSweepRuns from "./ProviderSweepRuns";
 import {
     choiceKey,
+    boolValue,
     choiceLabel,
     emptyChoiceLabel,
+    isBoolSetting,
     isMultiSetting,
     multiSettingError,
     multiValue,
@@ -102,6 +104,19 @@ const SettingField: React.FC<{
     onChange: (v: unknown) => void;
 }> = ({setting, choices, value, onChange}) => {
     const multi = setting.type === "string_list";
+    if (isBoolSetting(setting)) {
+        // A yes/no setting is a checkbox: ticked is `true`, unset holds its declared default.
+        return (
+            <label className="inline-flex items-center gap-1 self-end text-[11px] text-gray-400" title={setting.description ?? undefined}>
+                <input
+                    type="checkbox"
+                    checked={boolValue(setting, value)}
+                    onChange={(e) => onChange(e.target.checked)}
+                />
+                {setting.title}
+            </label>
+        );
+    }
     if (isMultiSetting({...setting, choices})) {
         // A list of the setting's own choices: one checkbox each, all ticked until the form says otherwise.
         const withChoices = {...setting, choices};

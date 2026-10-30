@@ -60,6 +60,19 @@ export function emptyChoiceLabel(setting: ScheduleSetting, choices: ScheduleChoi
     return "(provider default)";
 }
 
+/** A yes/no setting (`type: "bool"`), drawn as one checkbox -- core's "Pre-build meshes", a
+ *  provider's bool option alike. */
+export function isBoolSetting(s: {type?: string; multiple?: boolean}): boolean {
+    return s.type === "bool" && s.multiple !== true;
+}
+
+/** Whether a bool setting's checkbox is ticked: the held value however it travelled (`true`,
+ *  `"true"`), else its declared default. */
+export function boolValue(s: {default?: unknown}, value: unknown): boolean {
+    const v = value === undefined || value === null || value === "" ? s.default : value;
+    return sameChoice(v, true);
+}
+
 // A MULTIPLE setting (`"multiple": true`, an enum with choices) holds a LIST of its choices and is
 // drawn as one checkbox per choice. Generic: any provider's multiple setting, whatever its name.
 // Unset, it holds the setting's declared default (apply-changes: every target ticked), so a form

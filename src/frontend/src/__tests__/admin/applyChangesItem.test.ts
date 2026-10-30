@@ -102,3 +102,13 @@ test("a multi-target sweep item's per-target outcome, in the order they ran", as
     assert.equal(sweepTargetsOf({timings: {targets: {tree: {status: "done"}}}}).length, 1);
     assert.deepEqual(sweepTargetsOf({timings: {fetch_ms: 1}}), []);
 });
+
+test("an item's pre-build record reads back as one line, or why it was not attempted", async () => {
+    const {prebuildOf, prebuildLine} = await import("@/components/admin/applyChangesItem");
+    const p = prebuildOf({prebuild: {subjects: 6, cached: 2, built: 3, failed: 1, skipped: 0, ms: 1200, errors: ["s4: boom"]}});
+    assert.equal(p && prebuildLine(p), "Meshes: 3 built · 2 cached · 1 failed of 6");
+    assert.deepEqual(p?.errors, ["s4: boom"]);
+    const not = prebuildOf({timings: {prebuild: {subjects: 0, reason: "geom did not publish"}}});
+    assert.equal(not && prebuildLine(not), "Meshes not pre-built: geom did not publish");
+    assert.equal(prebuildOf({timings: {}}), null);
+});

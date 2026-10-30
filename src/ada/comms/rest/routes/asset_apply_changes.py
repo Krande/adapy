@@ -83,10 +83,12 @@ from .asset_schedules import (
     MISSING_FULL_EXPORT,
     MISSING_FULL_EXPORT_EXPORT,
     MISSING_FULL_EXPORT_WARN,
+    PREBUILD_MESHES,
     build_options,
     entry_settings,
     job_keys,
 )
+from .asset_prebuild import ANCESTORS_NOTE, not_attempted, prebuild, prebuild_line, prebuild_wanted
 from .assets import staged_by_role, submit_asset_publish
 from .deps import require_pool
 from .plugin_jobs import enqueue_plugin_job
@@ -340,6 +342,7 @@ async def apply_one(
         )
         # Core's own setting: decided here, never sent to the provider.
         options.pop(MISSING_FULL_EXPORT, None)
+        options.pop(PREBUILD_MESHES, None)
         # The admin's per-collection pick (a share, say), as in any sweep.
         options = await sweeps.with_collection_choices(pool, run, options, spec, collection, timings)
         # The collection's saved provider options UNDER the entry's, as a sweep sends them: they
@@ -393,6 +396,8 @@ async def apply_one(
 
         roles: dict[str, dict] = {}
         revision = None
+        published_subjects: list[str] = []
+        published_collection: str | None = None
         if staging_ids:
             await item(status="publishing")
             t_pub = time.monotonic()
@@ -409,6 +414,8 @@ async def apply_one(
                     timings["publish"] = outcome["timings"]
                 revision = outcome.get("revision") or revision
                 roles.update(role_outcomes(staged, outcome))
+                published_subjects.extend(str(s) for s in outcome.get("subjects") or ())
+                published_collection = outcome.get("collection") or published_collection
             timings["publish_ms"] = ms(time.monotonic() - t_pub)
             timings["roles"] = roles
 
@@ -432,18 +439,32 @@ async def apply_one(
         )
         timings["apply_changes"]["advanced"] = True
         refused = [r for r, o in roles.items() if o.get("status") == "refused"]
-        await finish(
-            "nothing" if answer["nothing"] and not roles else "done",
-            revision=revision,
-            message=_message(answer, advanced=True, refused=refused),
-        )
+        message = _message(answer, advanced=True, refused=refused)
+        if prebuild_wanted(run.get("settings")):
+            # "Pre-build meshes": the element subjects this publish created (small, one each). The
+            # ancestors' builds -- whose excluded descendants just changed -- rebuild on demand.
+            targets = [
+                {"collection": published_collection or collection, "subject": s, "provider": provider}
+                for s in dict.fromkeys(published_subjects)
+            ]
+            if targets:
+                await item(message="pre-building meshes")
+                timings["prebuild"] = await prebuild(
+                    ctx, pool, run, position, targets, user=user, poll_s=sweeps.POLL_INTERVAL_S
+                )
+            else:
+                timings["prebuild"] = not_attempted("no subject was published")
+            timings["prebuild"]["note"] = ANCESTORS_NOTE
+            message = f"{message} · {prebuild_line(timings['prebuild'])}"
+        await finish("nothing" if answer["nothing"] and not roles else "done", revision=revision, message=message)
         return True
     except RunCancelled:
         await finish("skipped", message="the run was cancelled")
         raise
     except ItemSkipped as exc:
         await db_module.clear_asset_sweep_skip(pool, run_id, position)
-        await finish("skipped", message=f"{exc}; cursor kept")
+        moved = (timings.get("apply_changes") or {}).get("advanced")
+        await finish("skipped", message=f"{exc}; " + ("changes applied, pre-build stopped" if moved else "cursor kept"))
         logger.info("apply changes %s: %s %s", run_id, collection, exc)
         return True
     except HTTPException as exc:

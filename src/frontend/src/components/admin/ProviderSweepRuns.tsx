@@ -16,6 +16,8 @@ import {
     runWarningsOf,
     sweepCountsText,
     sweepTargetsOf,
+    prebuildLine,
+    prebuildOf,
 } from "./applyChangesItem";
 
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
@@ -207,6 +209,21 @@ const SweepTargets: React.FC<{item: SweepItem}> = ({item}) => {
 
 /** Which per-collection choice (a share, say) the item's provider job was sent -- an admin's pick --
  *  or that the worker chose itself. Nothing when the provider declares no such choice. */
+/** What "Pre-build meshes" did for the item: built / cached / failed of how many subjects, how long
+ *  it took, or why it was not attempted; a note on what it does not cover; the first errors. */
+const PrebuildResult: React.FC<{item: SweepItem}> = ({item}) => {
+    const p = prebuildOf(item);
+    if (!p) return null;
+    return (
+        <div className="text-[11px]" data-testid="sweep-item-prebuild">
+            <span className={p.reason ? "text-amber-300" : p.failed ? "text-amber-300" : "text-emerald-300"}>{prebuildLine(p)}</span>
+            {p.ms != null && <span className="text-gray-500"> · {duration(p.ms)}</span>}
+            {p.note && <div className="text-gray-500">{p.note}</div>}
+            {p.errors.length > 0 && <div className="text-red-300 break-words">{p.errors.join("; ")}</div>}
+        </div>
+    );
+};
+
 const ItemChoices: React.FC<{item: SweepItem; decls: CollectionChoiceDecl[]}> = ({item, decls}) => {
     const lines = itemChoiceLines(decls, item.collection, item.collection_choices);
     if (!lines.length) return null;
@@ -313,6 +330,7 @@ const SweepItems: React.FC<{
                                 <ApplyChangesResult item={i} />
                                 <SweepTargets item={i} />
                                 <ItemChoices item={i} decls={choiceDecls} />
+                                <PrebuildResult item={i} />
                             </td>
                         </tr>
                     ))}

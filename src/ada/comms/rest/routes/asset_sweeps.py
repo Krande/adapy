@@ -121,6 +121,7 @@ from ..scope import Scope
 from .asset_schedules import (
     APPLY_CHANGES,
     COLLECTION_CHOICES,
+    PREBUILD_MESHES,
     SWEEP,
     build_options,
     collection_choice_decls,
@@ -134,6 +135,7 @@ from .asset_schedules import (
     target_requires,
     targets_setting,
 )
+from .asset_prebuild import not_attempted, prebuild_collection, prebuild_line, prebuild_wanted
 from .assets import staged_by_role, submit_asset_publish
 from .deps import (
     RestContext,
@@ -697,9 +699,21 @@ async def _sweep_one(
             status, fields = await _fetch_and_publish(
                 ctx, pool, run, position, collection, settings=run["settings"], timings=timings, **kw
             )
-            await finish(status, **fields)
-            return status != "error"
-        status, fields = await _sweep_targets(ctx, pool, run, position, collection, targets, timings=timings, **kw)
+            blocked = None if status in ("done", "unchanged") else f"the collection did not publish ({status})"
+        else:
+            status, fields = await _sweep_targets(ctx, pool, run, position, collection, targets, timings=timings, **kw)
+            blocked = geometry_blocked(entry, timings.get("targets") or {})
+        if prebuild_wanted(run.get("settings")):
+            # Core's "Pre-build meshes": fill the build cache now that the collection has published.
+            if blocked:
+                timings["prebuild"] = not_attempted(blocked)
+            else:
+                await item(status="publishing", message="pre-building meshes")
+                timings["prebuild"] = await prebuild_collection(
+                    ctx, pool, run, position, collection, user=user, poll_s=POLL_INTERVAL_S
+                )
+            line = prebuild_line(timings["prebuild"])
+            fields["message"] = f"{fields['message']} · {line}" if fields.get("message") else line
         await finish(status, **fields)
         return status != "error"
     except _Cancelled:
@@ -713,11 +727,35 @@ async def _sweep_one(
         logger.info("asset sweep %s: %s %s", run_id, collection, exc)
         return True
     except HTTPException as exc:
+        if prebuild_wanted(run.get("settings")):
+            timings["prebuild"] = not_attempted("the collection did not publish (error)")
         await finish("error", error=f"{exc.status_code}: {exc.detail}")
     except Exception as exc:  # noqa: BLE001 - one collection's failure is its row's, not the sweep's
         logger.warning("asset sweep %s: %s failed: %s", run_id, collection, exc)
+        if prebuild_wanted(run.get("settings")):
+            timings["prebuild"] = not_attempted("the collection did not publish (error)")
         await finish("error", error=str(exc))
     return False
+
+
+#: Targets whose publish carries a collection's GEOMETRY, unless an entry declares
+#: ``"geometry_targets": [...]``: a pre-build waits on them.
+DEFAULT_GEOMETRY_TARGETS = ("geom", "geometry")
+
+
+def geometry_blocked(entry: dict, per: dict) -> str | None:
+    """Why a multi-target collection is not pre-built, or None: a geometry target failed or was
+    skipped (with no geometry target among those run, every target failed)."""
+    declared = entry.get("geometry_targets")
+    geometry = [str(t) for t in declared] if isinstance(declared, list) else list(DEFAULT_GEOMETRY_TARGETS)
+    ran = {k: v.get("status") for k, v in per.items()}
+    relevant = [k for k in ran if k in geometry]
+    if relevant:
+        bad = [k for k in relevant if ran[k] not in ("done", "unchanged", "nothing")]
+        return f"{', '.join(bad)} did not publish" if bad else None
+    if ran and all(s not in ("done", "unchanged") for s in ran.values()):
+        return "nothing published"
+    return None
 
 
 async def _sweep_targets(
@@ -842,6 +880,7 @@ async def _fetch_and_publish(
     )
     if target is not None:
         options[target[0]] = target[1]
+    options.pop(PREBUILD_MESHES, None)  # core's own: what core does after the publish
     options = await with_collection_choices(pool, run, options, spec, collection, timings)
     # The collection's provider options UNDER the entry's: they add to a request and never
     # change which job it is or which collection. `requested_at` makes it a new job, not a
@@ -1137,7 +1176,7 @@ async def sweep_with_progress(ctx: RestContext, pool, run_id: str) -> dict | Non
         # free column); it is read as the item's own: `apply_changes` and `roles`. So does a
         # multi-target sweep item its per-target outcome: `targets`.
         timings = item.get("timings") or {}
-        for name in ("apply_changes", "roles", "targets", "collection_choices"):
+        for name in ("apply_changes", "roles", "targets", "collection_choices", "prebuild"):
             if name in timings:
                 item[name] = timings[name]
         job_id = {"fetching": item["fetch_job_id"], "publishing": item["publish_job_id"]}.get(item["status"])

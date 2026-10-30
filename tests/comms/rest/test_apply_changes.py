@@ -81,7 +81,7 @@ def test_apply_changes_is_a_kind_that_needs_a_collection_option():
 
 
 def test_a_multiple_enum_says_so_and_defaults_to_a_list():
-    [targets, users, _core] = sched.entry_settings(SPEC, ENTRY)
+    [targets, users, _missing, _prebuild] = sched.entry_settings(SPEC, ENTRY)
     assert targets["multiple"] is True and targets["default"] == TARGETS
     assert [c["value"] for c in targets["choices"]] == TARGETS and targets["choices"][2]["label"] == "Node bounds"
     assert users["multiple"] is False and users["source"] == "change_users"
@@ -445,7 +445,7 @@ async def test_the_sweep_driver_runs_apply_changes_per_collection(world):
 
 @pytest.mark.asyncio
 async def test_core_offers_and_checks_its_own_missing_full_export_setting():
-    core = sched.entry_settings(SPEC, ENTRY)[-1]
+    core = sched.entry_settings(SPEC, ENTRY)[-2]
     assert core["name"] == "missing_full_export" and core["source"] == "enum" and core["default"] == "warn"
     assert [(c["value"], c["label"]) for c in core["choices"]] == [
         ("warn", "Warn only"),
@@ -963,3 +963,22 @@ async def test_the_listing_shows_the_cursors_of_apply_changes_rows(monkeypatch):
     every, beta = body["schedules"]
     assert every["cursors"] == {"alpha": {"cursor": "c1", "applied_at": "t1", "run_id": "r"}}
     assert every["settings"] == {"apply_targets": ["bounds"]} and beta["cursors"] == {}
+
+
+@pytest.mark.asyncio
+async def test_pre_build_meshes_builds_the_published_elements_not_their_ancestors(world, monkeypatch):
+    asked = []
+
+    async def prebuild(ctx, pool, run, position, targets, *, user, poll_s):
+        asked.extend(targets)
+        return {"subjects": len(targets), "cached": 0, "built": len(targets), "failed": 0, "skipped": 0, "ms": 1}
+
+    monkeypatch.setattr(apply, "prebuild", prebuild)
+    w = world(answers={"ALPHA": {**_answer(), "asset_staging_id": "s-1"}})
+    run = {**RUN, "settings": {**RUN["settings"], "prebuild_meshes": True}}
+    assert await _one(w, run=run)
+    assert asked == [{"collection": "ALPHA", "subject": "e1", "provider": "vendor"}]
+    assert "prebuild_meshes" not in w.enqueued[0]["options"]
+    pre = w.items[0]["timings"]["prebuild"]
+    assert pre["built"] == 1 and "rebuild on demand" in pre["note"]
+    assert "meshes pre-built 1 of 1" in w.items[0]["message"]

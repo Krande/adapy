@@ -143,6 +143,48 @@ export function sweepTargetsOf(item: unknown): TargetOutcome[] {
     return out;
 }
 
+export interface PrebuildView {
+    subjects: number;
+    cached: number;
+    built: number;
+    failed: number;
+    skipped: number;
+    ms: number | null;
+    /** Why it was not attempted (the collection's geometry did not publish). */
+    reason: string | null;
+    note: string | null;
+    errors: string[];
+}
+
+/** An item's "Pre-build meshes" record (`prebuild`, on the item or its timings), or null. */
+export function prebuildOf(item: unknown): PrebuildView | null {
+    if (!isRecord(item)) return null;
+    const timings = isRecord(item.timings) ? item.timings : {};
+    const p = isRecord(item.prebuild) ? item.prebuild : isRecord(timings.prebuild) ? timings.prebuild : null;
+    if (!p) return null;
+    const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    return {
+        subjects: n(p.subjects),
+        cached: n(p.cached),
+        built: n(p.built),
+        failed: n(p.failed),
+        skipped: n(p.skipped),
+        ms: p.ms == null || !Number.isFinite(Number(p.ms)) ? null : Number(p.ms),
+        reason: text(p.reason),
+        note: text(p.note),
+        errors: Array.isArray(p.errors) ? p.errors.map(text).filter((e): e is string => !!e) : [],
+    };
+}
+
+/** "Meshes: 3 built · 2 cached · 1 failed of 6", or "Meshes not pre-built: <reason>". */
+export function prebuildLine(p: PrebuildView): string {
+    if (p.reason) return `Meshes not pre-built: ${p.reason}`;
+    const parts = [`${p.built} built`, `${p.cached} cached`];
+    if (p.failed) parts.push(`${p.failed} failed`);
+    if (p.skipped) parts.push(`${p.skipped} not a build`);
+    return `Meshes: ${parts.join(" · ")} of ${p.subjects}`;
+}
+
 /** A run row's progress line from its item counts: "finished/to run · n failed · ...". A collection
  *  left out for want of a full export is finished (nothing more will happen to it this run), and so is
  *  one that ended `busy` (another run held it the whole time); one `waiting` for another run is not. */

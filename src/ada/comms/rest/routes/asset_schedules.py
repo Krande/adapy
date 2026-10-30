@@ -380,6 +380,8 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
         out.append(setting)
     if entry.get("kind") == APPLY_CHANGES:
         out.append(dict(MISSING_FULL_EXPORT_SETTING, choices=[dict(c) for c in MISSING_FULL_EXPORT_SETTING["choices"]]))
+    if entry.get("kind") in (SWEEP, APPLY_CHANGES):
+        out.append(dict(PREBUILD_MESHES_SETTING, choices=[dict(c) for c in PREBUILD_MESHES_SETTING["choices"]]))
     return out
 
 
@@ -452,8 +454,29 @@ MISSING_FULL_EXPORT_SETTING: dict = {
         {"value": MISSING_FULL_EXPORT_EXPORT, "label": "Queue a full project export"},
     ],
 }
-#: Settings core adds to an entry of a kind, beside what the provider declares.
-CORE_SETTINGS: dict[str, tuple[str, ...]] = {APPLY_CHANGES: (MISSING_FULL_EXPORT,)}
+#: CORE's own checkbox on sweeps and apply-changes runs: fill the provider store's build cache once
+#: a collection has published (routes/asset_prebuild.py). Never sent to the provider; unset is off,
+#: and is not stored.
+PREBUILD_MESHES = "prebuild_meshes"
+PREBUILD_MESHES_SETTING: dict = {
+    "name": PREBUILD_MESHES,
+    "type": "bool",
+    "title": "Pre-build meshes",
+    "description": "Once a collection has published, build the meshes of every subject delivered by build, "
+    "so the first viewer finds them ready. Builds already in the cache cost nothing.",
+    "default": False,
+    "multiple": False,
+    "source": "enum",
+    "core": True,
+    "store_default": False,
+    "choices": [{"value": False, "label": "No"}, {"value": True, "label": "Yes"}],
+}
+#: Settings core adds to an entry of a kind, beside what the provider declares -- all taken off the
+#: options before a provider job is sent.
+CORE_SETTINGS: dict[str, tuple[str, ...]] = {
+    APPLY_CHANGES: (MISSING_FULL_EXPORT, PREBUILD_MESHES),
+    SWEEP: (PREBUILD_MESHES,),
+}
 
 
 async def setting_choices(pool, setting: dict, *, scope: str, provider: str, collection: str) -> list[dict]:
@@ -547,7 +570,12 @@ async def build_options(
         if setting.get("multiple") and name not in options and isinstance(setting.get("default"), list):
             options[name] = list(setting["default"])
         # A core setting left unset is stored as its default, so a run says what it did.
-        elif setting.get("core") and name not in options and setting.get("default") is not None:
+        elif (
+            setting.get("core")
+            and name not in options
+            and setting.get("default") is not None
+            and setting.get("store_default", True)
+        ):
             options[name] = setting["default"]
     return options
 
