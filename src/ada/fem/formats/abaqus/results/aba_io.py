@@ -9,11 +9,16 @@
 # (instance, step, component, frame[, location, element type]). Where a field has several
 # section points, the last block written fills the slot.
 #
-# Not exported (the tables stay empty): Materials, Sections, SectionAssignments,
-# MaterialOrientations, Surfaces, BoundaryConditions, Loads. ElementInfo.IntPoints is taken from
-# the integration-point field output (the Python ODB API has no numberOfIntegrationPoints); 1
-# where there is none.
+# Materials (density, E, nu), Sections (a beam section's profile as JSON, see profile_dict),
+# SectionAssignments and the beam orientations (MaterialOrientations, Kind 'beam') are exported so
+# a reader can draw the beam elements as solids. The ODB -> row translation is in plain functions
+# that take any object with the ODB API's attributes, so it is tested without Abaqus.
+#
+# Not exported (the tables stay empty): material/rebar orientations, Surfaces,
+# BoundaryConditions, Loads. ElementInfo.IntPoints is taken from the integration-point field
+# output (the Python ODB API has no numberOfIntegrationPoints); 1 where there is none.
 import getpass
+import json
 import logging
 import os
 import sqlite3
@@ -21,7 +26,12 @@ import sys
 import traceback
 
 import numpy as np
-from odbAccess import INTEGRATION_POINT, openOdb
+
+try:
+    from odbAccess import INTEGRATION_POINT, openOdb
+except ImportError:  # outside Abaqus: the translation functions below are still importable
+    INTEGRATION_POINT = "INTEGRATION_POINT"
+    openOdb = None
 
 logger = logging.getLogger("abaqus")
 
@@ -45,6 +55,7 @@ class OdbExporter(object):
         self.set_id = 0
         self.step_id = 0
         self.section_points_seen = set()
+        self.elem_set_names = {}  # inst -> names of the element sets written to ElementSets
         self._sql = {}  # (table, columns) -> INSERT statement
 
     def _insert_sql(self, table, columns):
@@ -127,14 +138,9 @@ class OdbExporter(object):
             self.elem_ips[inst_id][el_type] = n_ips
             self.label_to_type[inst_id].update((label, el_type) for label, _ in elems)
 
+        self.elem_set_names[inst_id] = set()
         for set_name, elem_set in _items(obj.elementSets):
-            labels = _labels(elem_set.elements)
-            self.insert_many(
-                "ElementSets",
-                ("SetID", "Name", "InstanceID", "ElemID"),
-                ((self.set_id + i, set_name, inst_id, label) for i, label in enumerate(labels)),
-            )
-            self.set_id += len(labels)
+            self.write_element_set(inst_id, set_name, _labels(elem_set.elements))
         for set_name, node_set in _items(obj.nodeSets):
             labels = _labels(node_set.nodes)
             self.insert_many(
@@ -143,6 +149,71 @@ class OdbExporter(object):
                 ((self.set_id + i, set_name, inst_id, label) for i, label in enumerate(labels)),
             )
             self.set_id += len(labels)
+
+    def write_element_set(self, inst_id, set_name, labels):
+        self.insert_many(
+            "ElementSets",
+            ("SetID", "Name", "InstanceID", "ElemID"),
+            ((self.set_id + i, set_name, inst_id, label) for i, label in enumerate(labels)),
+        )
+        self.set_id += len(labels)
+        self.elem_set_names.setdefault(inst_id, set()).add(set_name)
+
+    # ----- properties -----------------------------------------------------
+
+    def write_properties(self):
+        """Materials, sections and, per instance, section assignments and beam orientations.
+
+        Best effort: a property the ODB does not describe the way these expect is logged and left
+        out; the mesh and the results are exported either way.
+        """
+        for name, material in _items(getattr(self.odb, "materials", {})):
+            try:
+                self.insert("Materials", **material_row(name, material))
+            except Exception:  # noqa: BLE001 - see the docstring
+                logger.warning("material %s not exported:\n%s", name, traceback.format_exc())
+        profiles = getattr(self.odb, "profiles", {})
+        for name, section in _items(getattr(self.odb, "sections", {})):
+            try:
+                self.insert("Sections", **section_row(name, section, profiles))
+            except Exception:  # noqa: BLE001
+                logger.warning("section %s not exported:\n%s", name, traceback.format_exc())
+        for name, inst in _items(self.odb.rootAssembly.instances):
+            inst_id = self.instance_map.get(inst.name)
+            if inst_id is None:
+                continue
+            self.write_assignments(inst_id, inst)
+
+    def write_assignments(self, inst_id, inst):
+        for i, sa in enumerate(getattr(inst, "sectionAssignments", None) or ()):
+            try:
+                set_name = self.region_set(inst_id, sa.region, "_SectionAssignment-%d" % (i + 1))
+                self.insert("SectionAssignments", **assignment_row(inst_id, set_name, sa))
+            except Exception:  # noqa: BLE001 - see write_properties
+                logger.warning(
+                    "section assignment %d of instance %d not exported:\n%s", i + 1, inst_id, traceback.format_exc()
+                )
+        for i, bo in enumerate(getattr(inst, "beamOrientations", None) or ()):
+            try:
+                row = beam_orientation_row(inst_id, None, bo)
+                if row is None:
+                    logger.warning("beam orientation %d of instance %d: no n1 vector; not exported", i + 1, inst_id)
+                    continue
+                row["SetName"] = self.region_set(inst_id, bo.region, "_BeamOrientation-%d" % (i + 1))
+                self.insert("MaterialOrientations", **row)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "beam orientation %d of instance %d not exported:\n%s", i + 1, inst_id, traceback.format_exc()
+                )
+
+    def region_set(self, inst_id, region, fallback_name):
+        """The ElementSets name of ``region`` (an element set), writing its membership when no set of
+        that name was written for the instance; assignment regions are often internal sets that
+        are not in the instance's elementSets."""
+        name = region_name(region) or fallback_name
+        if name not in self.elem_set_names.get(inst_id, ()):
+            self.write_element_set(inst_id, name, _labels(region.elements))
+        return name
 
     # ----- results --------------------------------------------------------
 
@@ -345,6 +416,7 @@ class OdbExporter(object):
             self.insert("ModelInstances", ID=inst_id, Name=name)
             self.write_instance(inst_id, inst.name, inst, ips)
             inst_id += 1
+        self.write_properties()
         self.conn.commit()
         logger.info("exported the mesh of %d instance(s)", inst_id - 1)
 
@@ -427,6 +499,137 @@ def _labels(members):
         else:
             labels.extend(int(x.label) for x in m)
     return labels
+
+
+# ----- ODB objects -> rows ------------------------------------------------------
+#
+# Plain functions of the ODB API's attributes (duck-typed), so they are tested with stand-ins.
+
+#: ODB profile class -> (*Beam Section SECTION= name, the profile's dimension attributes).
+PROFILE_KINDS = {
+    "IProfile": ("I", ("l", "h", "b1", "b2", "t1", "t2", "t3")),
+    "BoxProfile": ("BOX", ("a", "b", "t1", "t2", "t3", "t4")),
+    "PipeProfile": ("PIPE", ("r", "t")),
+    "CircularProfile": ("CIRC", ("r",)),
+    "RectangularProfile": ("RECT", ("a", "b")),
+    "TProfile": ("T", ("b", "h", "l", "tf", "tw")),
+    "LProfile": ("L", ("a", "b", "t1", "t2")),
+    "TrapezoidalProfile": ("TRAPEZOID", ("a", "b", "c", "d")),
+    "HexagonalProfile": ("HEX", ("r", "t")),
+    "ArbitraryProfile": ("ARBITRARY", ()),
+    "GeneralizedProfile": ("GENERALIZED", ("area", "i11", "i12", "i22", "j", "gammaO", "gammaW")),
+}
+
+
+def _is_on(value):
+    """An ODB Boolean (the symbolic constant ON / OFF) or a Python bool."""
+    return str(value).upper() in ("ON", "TRUE", "1")
+
+
+def profile_dict(profile):
+    """An ODB beam profile as a JSON-able dict: ``type`` (the *Beam Section SECTION= name: I, BOX,
+    PIPE, CIRC, RECT, T, L, TRAPEZOID, HEX, ARBITRARY, GENERALIZED) and its dimensions under the
+    ODB API's own names.
+
+    A box of uniform thickness gets ``t1..t4`` all set to its ``t``; an arbitrary profile its
+    ``table`` (the first point ``(x, y)``, then ``(x, y, t)`` per segment). An unknown kind is
+    ``{"type": "UNKNOWN", "class": <its class name>}``.
+    """
+    cls = type(profile).__name__
+    kind = PROFILE_KINDS.get(cls)
+    if kind is None:
+        return {"type": "UNKNOWN", "class": cls, "name": getattr(profile, "name", None)}
+    type_name, attrs = kind
+    out = {"type": type_name, "name": getattr(profile, "name", None)}
+    if type_name == "BOX" and _is_on(getattr(profile, "uniformThickness", False)):
+        t = float(profile.t)
+        out.update(a=float(profile.a), b=float(profile.b), t1=t, t2=t, t3=t, t4=t)
+        return out
+    if type_name == "ARBITRARY":
+        out["table"] = [[float(v) for v in row] for row in profile.table]
+        return out
+    for attr in attrs:
+        value = getattr(profile, attr, None)
+        out[attr] = float(value) if value is not None else None
+    return out
+
+
+def _first_row(option):
+    """The first row of a material option's table (``density.table``, ``elastic.table``), or ()."""
+    table = getattr(option, "table", None) if option is not None else None
+    return tuple(table[0]) if table else ()
+
+
+def material_row(name, material):
+    """Materials row: density, and E / nu of an isotropic elastic table (None where absent)."""
+    density = _first_row(getattr(material, "density", None))
+    elastic = getattr(material, "elastic", None)
+    e_nu = _first_row(elastic)
+    if elastic is not None and str(getattr(elastic, "type", "ISOTROPIC")).upper() != "ISOTROPIC":
+        e_nu = ()  # an orthotropic table's first two values are not E and nu
+    return dict(
+        Name=name,
+        Description=getattr(material, "description", None) or None,
+        Density=float(density[0]) if density else None,
+        YoungsModulus=float(e_nu[0]) if len(e_nu) > 0 else None,
+        PoissonRatio=float(e_nu[1]) if len(e_nu) > 1 else None,
+    )
+
+
+def section_row(name, section, profiles):
+    """Sections row. A beam section (one with a ``profile``) gets its profile as JSON in Profile;
+    a shell its thickness."""
+    profile = None
+    profile_name = getattr(section, "profile", None)
+    if profile_name:
+        profile_name = str(profile_name)
+        if profile_name in profiles.keys():
+            profile = json.dumps(profile_dict(profiles[profile_name]))
+        else:
+            profile = json.dumps({"type": "MISSING", "name": profile_name})
+    thickness = getattr(section, "thickness", None)
+    material = getattr(section, "material", None)
+    return dict(
+        Name=name,
+        SubTypeId=None,
+        MaterialName=str(material) if material else None,
+        Thickness=float(thickness) if isinstance(thickness, (int, float)) else None,
+        Profile=profile,
+    )
+
+
+def region_name(region):
+    name = getattr(region, "name", None)
+    return str(name).strip() if name else None
+
+
+def assignment_row(inst_id, set_name, assignment):
+    offset = getattr(assignment, "offset", None)
+    return dict(
+        InstanceID=inst_id,
+        SetName=set_name,
+        SectionName=str(assignment.sectionName),
+        Offset=float(offset) if isinstance(offset, (int, float)) else None,
+    )
+
+
+def beam_orientation_row(inst_id, set_name, orientation):
+    """MaterialOrientations row of Kind 'beam': the approximate n1 (the section's first axis) in
+    XAxis, the definition method in CsysType; None without a 3-component vector."""
+    vector = getattr(orientation, "vector", None)
+    if vector is None or len(vector) != 3:
+        return None
+    n1 = [float(v) for v in vector]
+    return dict(
+        InstanceID=inst_id,
+        SetName=set_name,
+        Kind="beam",
+        CsysName=None,
+        CsysType=str(getattr(orientation, "method", "N1_COSINES")),
+        XAxisX=n1[0],
+        XAxisY=n1[1],
+        XAxisZ=n1[2],
+    )
 
 
 def main(odb_path, sqlite_path, schema_path):

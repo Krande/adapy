@@ -49,7 +49,11 @@ CREATE TABLE IF NOT EXISTS "Frames" (StepID INTEGER, FrameID INTEGER, Increment 
 -- Linear-elastic + density properties of the materials sections reference.
 CREATE TABLE IF NOT EXISTS "Materials" (Name TEXT, Description TEXT, Density REAL, YoungsModulus REAL, PoissonRatio REAL) STRICT;
 
--- SubTypeId: the ODB API's section-subtype enum (shell / beam / solid / ...).
+-- SubTypeId: the ODB API's section-subtype enum (shell / beam / solid / ...). Profile: a beam
+-- section's profile as JSON, {"type": <*Beam Section SECTION= name: I, BOX, PIPE, CIRC, RECT, T,
+-- L, TRAPEZOID, HEX, ARBITRARY, GENERALIZED>, "name": <profile name>, <dimension>: <value>, ...},
+-- the dimensions under the ODB API's names (I: l h b1 b2 t1 t2 t3; BOX: a b t1 t2 t3 t4; PIPE: r
+-- t; CIRC: r; RECT: a b; T: b h l tf tw; L: a b t1 t2; ARBITRARY: table). NULL for other sections.
 CREATE TABLE IF NOT EXISTS "Sections" (Name TEXT, SubTypeId INTEGER, MaterialName TEXT, Thickness REAL, Profile TEXT) STRICT;
 
 -- (instance, element set) -> section. Set membership lives in ElementSets.
@@ -61,7 +65,8 @@ CREATE TABLE IF NOT EXISTS "SectionAssignments" (InstanceID INTEGER, SetName TEX
 CREATE TABLE IF NOT EXISTS "SectionPoints" (InstanceID INTEGER, ElemType TEXT, Position TEXT, PointNumber INTEGER, Description TEXT) STRICT;
 
 -- Local coordinate systems of element sets. Kind: material / rebar / beam. Axis (1-3) + Angle
--- (deg): the optional extra rotation about that axis.
+-- (deg): the optional extra rotation about that axis. A beam row holds the section's approximate
+-- n1 direction (*Beam Section's second data line) in XAxis*, its definition method in CsysType.
 CREATE TABLE IF NOT EXISTS "MaterialOrientations" (
     InstanceID INTEGER, SetName TEXT, Kind TEXT, CsysName TEXT, CsysType TEXT,
     OriginX REAL, OriginY REAL, OriginZ REAL,

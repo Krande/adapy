@@ -286,9 +286,9 @@ class ResultsSqliteStreamReader:
     chunk. Field iteration scatters each instance's BLOB into the
     correct slab of the combined value array.
 
-    Beam-as-solid emission still needs section + axis metadata that
-    the current schema doesn't expose; ``try_solid_beams`` returns
-    ``None``.
+    Beams are drawn as solids from the section tables the ODB export
+    writes (``try_solid_beams``, via ``sqlite_sections``);
+    a database without them has no beam solids.
     """
 
     def __init__(self, sqlite_path: os.PathLike):
@@ -882,10 +882,55 @@ class ResultsSqliteStreamReader:
                 values=arr,
             )
 
-    def try_solid_beams(self):
-        # The current sqlite schema carries no section / axis metadata,
-        # so beam-as-solid tessellation isn't reachable from here yet.
-        return None
+    def try_solid_beams(self, *, method: str = "procedural", format: str = "mesh"):
+        """The line elements with an exported beam section, as solids; None without any.
+
+        Per instance: the sections, assignments and n1 directions the ODB export wrote
+        (:func:`~.sqlite_sections.read_line_section_tables`), each element extruded between its
+        end nodes. Labels are the elements' own numbers, as in the mesh artefact.
+        """
+        from ada import Beam
+        from ada.fem.results.artefacts import (
+            collect_beam_solid_instances,
+            tessellate_beams_to_solid_mesh,
+        )
+
+        from .sqlite_sections import read_line_section_tables
+
+        self.read_mesh_geometry()  # the per-instance point index + offsets
+        beams: list = []
+        extra_skip: dict[str, int] = {}
+        total = 0
+        for inst_id in self._instance_ids:
+            tables, skipped = read_line_section_tables(self._conn, inst_id)
+            for reason, n in skipped.items():
+                extra_skip[reason] = extra_skip.get(reason, 0) + n
+            total += sum(skipped.values())
+            if tables is None:
+                continue
+            index = self._inst_point_index.get(inst_id, {})
+            offset = self._inst_point_offset.get(inst_id, 0)
+            for (el_id, mat_id, sec_id, vec_id), (p0, p1), (n0, n1) in zip(
+                tables.elem_data, tables.end_points, tables.end_nodes
+            ):
+                total += 1
+                if int(n0) not in index or int(n1) not in index:
+                    extra_skip["endpoint-not-in-mesh"] = extra_skip.get("endpoint-not-in-mesh", 0) + 1
+                    continue
+                beam = Beam(
+                    f"BM{inst_id}_{el_id}",
+                    p0,
+                    p1,
+                    sec=tables.sections[int(sec_id)],
+                    mat=tables.materials[int(mat_id)],
+                    up=tables.vectors[int(vec_id)],
+                )
+                beams.append((beam, int(el_id), index[int(n0)] + offset, index[int(n1)] + offset, p0, p1))
+        if not beams:
+            return None
+        if format == "compact":
+            return collect_beam_solid_instances(beams, extra_skip_reasons=extra_skip, total_beams=total)
+        return tessellate_beams_to_solid_mesh(beams, extra_skip_reasons=extra_skip, total_beams=total, method=method)
 
     def try_history_records(self) -> HistoryRecords | None:
         """Build the manifest's history section from the HistOutput table.

@@ -278,7 +278,7 @@ def _invoke_solver(
 def _with_line_sections(res, a: ada.Assembly):
     """Carry the model's beam sections onto the result, so its bundle can draw beams as solids.
 
-    An Abaqus or Code_Aster result is points and connectivity only; the sections are in the model
+    A CalculiX or Code_Aster result is points and connectivity only; the sections are in the model
     that was solved. A result read lazily (Abaqus' SQLite dump) takes them when it is materialised.
     """
     from itertools import chain
@@ -294,7 +294,10 @@ def _with_line_sections(res, a: ada.Assembly):
     if hasattr(res, "to_fea_result"):
         res.line_sections = tables
     elif getattr(res, "mesh", None) is not None:
-        graft_line_sections(res.mesh, tables)
+        from ada.fem.formats.general import FEATypes
+
+        # CalculiX leaves its U1 beams out of the .frd; the solved model's are added back.
+        graft_line_sections(res.mesh, tables, add_missing=res.software == FEATypes.CALCULIX)
     return res
 
 

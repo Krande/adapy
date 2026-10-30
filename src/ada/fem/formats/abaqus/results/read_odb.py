@@ -223,7 +223,8 @@ def read_results_sqlite(
 
     Every nodal field, grouped back from its per-component rows, and the integration-point
     element fields. Where U and UR are both there, UR is read as U's rotational components, so U
-    is ``U1..U3, UR1..UR3``, the way the other solvers' displacements carry theirs. Result steps
+    is ``U1..U3, UR1..UR3``, the way the other solvers' displacements carry theirs. The mesh
+    carries the beam sections the export wrote (``sqlite_sections``), if any. Result steps
     are numbered by frame, skipping each step's base-state frame 0; when every step is modal the
     step numbers are the mode numbers, as with the other solvers' readers.
     """
@@ -276,6 +277,13 @@ def read_results_sqlite(
             node_refs = np.array([elem_nodes[i] for i in el_ids], dtype=int)
             blocks.append(ElementBlock(elem_info=elem_info, node_refs=node_refs, identifiers=np.array(el_ids)))
         mesh = Mesh(elements=blocks, nodes=nodes)
+        # The beam sections the ODB export wrote, so the bundle can draw beams as solids.
+        from ada.fem.formats.abaqus.results.sqlite_sections import (
+            read_line_section_tables,
+        )
+        from ada.fem.results.line_sections import graft_line_sections
+
+        graft_line_sections(mesh, read_line_section_tables(conn, inst)[0])
 
         var_rows = conn.execute("SELECT FieldID, Name, Description FROM FieldVars ORDER BY FieldID").fetchall()
         var_name = {fid: n for fid, n, _ in var_rows}
