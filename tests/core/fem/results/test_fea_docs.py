@@ -35,30 +35,19 @@ def rmed_path(fem_files):
 
 
 def _require_render_adapter():
-    """Skip when the host has no usable offscreen render adapter.
+    """Skip when the host cannot render posters offscreen.
 
-    GH Actions runners ship pygfx + trimesh but no graphics adapter
-    (no vulkan/dx12/metal/gl driver, no lavapipe). The poster render
-    then raises ``'Shared' object has no attribute '_device'`` deep in
-    wgpu and ``bake_with_posters`` swallows it as a non-fatal warning,
-    leaving an empty ``poster_paths`` — so a test that asserts on baked
-    posters fails with a misleading ``0 == N``. Probe the offscreen
-    renderer with a 1×1 canvas up front and skip instead. Mirrors the
-    guard in ``test_fea_artefacts.py``'s
-    ``test_bake_with_posters_renders_requested_modes``.
+    Without adacpp's renderer, or on a host with no graphics adapter (no vulkan/dx12/metal driver, no
+    lavapipe), the poster render fails and ``bake_with_posters`` swallows it as a non-fatal warning,
+    leaving an empty ``poster_paths`` -- so a test that asserts on baked posters fails with a
+    misleading ``0 == N``. Probe the renderer up front and skip instead. Mirrors the guard in
+    ``test_fea_artefacts.py``'s ``test_bake_with_posters_renders_requested_modes``.
     """
-    pytest.importorskip("pygfx")
     pytest.importorskip("trimesh")
-    import pygfx as gfx
-
+    render = pytest.importorskip("adacpp._render")
     try:
-        from rendercanvas.offscreen import OffscreenRenderCanvas as _ProbeCanvas
-    except ImportError:  # legacy wgpu < 0.20
-        from wgpu.gui.offscreen import WgpuCanvas as _ProbeCanvas
-    try:
-        gfx.renderers.WgpuRenderer(_ProbeCanvas(size=(1, 1)))
-    except Exception as exc:  # noqa: BLE001 — any wgpu/adapter init
-        # failure means offscreen rendering is impossible on this host.
+        render.OffscreenRenderer(1, 1)
+    except Exception as exc:  # noqa: BLE001 - any adapter/device failure means rendering is impossible here
         pytest.skip(f"no usable render adapter on this host: {exc}")
 
 
@@ -96,8 +85,7 @@ def test_assets_for_docs_from_fea_result_populates_solver(rmed_path, tmp_path):
     version off the result object so the descriptor's ``solver`` field
     is populated for downstream filter rendering."""
 
-    pytest.importorskip("pygfx")
-    pytest.importorskip("trimesh")
+    _require_render_adapter()
     from ada.fem.formats.code_aster.results.read_rmed_results import read_rmed_file
     from ada.fem.results.docs import assets_for_docs
 

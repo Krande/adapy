@@ -11,8 +11,11 @@ fails the job.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import pathlib
+import threading
+import time
 from types import SimpleNamespace
 
 from obstore.store import LocalStore
@@ -42,12 +45,13 @@ def test_bake_artefacts_are_streamed_with_the_encoding_policy(tmp_path, monkeypa
     manifest = b'{"fields": ["u"], "steps": 2}'
     prelim = b'{"preliminary": true, "fields": []}'
     mesh = b"glTF" + os.urandom(1024)
-    seen_kwargs: dict = {}
+    # The bake runs in a forked child, so what it was called with comes back through a file.
+    kwargs_file = tmp_path / "bake_kwargs.json"
 
     def _fake_bake(src_path, bake_dir, *, src_key, on_artefact, **kw):
         # Mesh first, a preliminary manifest + stamp, the field, then the final pair --
         # each shipped (on_artefact) the moment it is written, as bake_artefacts does.
-        seen_kwargs.update(kw)
+        kwargs_file.write_text(json.dumps({k: kw[k] for k in ("partial_manifests", "stamp_extra")}))
         out = pathlib.Path(bake_dir) / "out"
         out.mkdir()
 
@@ -113,6 +117,7 @@ def test_bake_artefacts_are_streamed_with_the_encoding_policy(tmp_path, monkeypa
 
     prefix = "_derived/decks/deck.SIN.fea/"
     assert queue.updates[-1]["status"] == "done", queue.updates
+    seen_kwargs = json.loads(kwargs_file.read_text())
     assert seen_kwargs["partial_manifests"] is True and seen_kwargs["stamp_extra"] == {"job_id": "job-fea"}
     # In emission order, each file once per emission.
     assert [k[len(prefix) :] for _, k in uploads] == [
@@ -182,3 +187,167 @@ def test_a_failed_upload_fails_the_bake(tmp_path, monkeypatch):
     # Nothing behind the failed blob reached storage -- no manifest naming a missing blob.
     keys = [e.key for e in asyncio.run(storage.list(Scope.shared()))]
     assert not any(k.endswith("fea.manifest.json") for k in keys)
+
+
+def test_the_bake_runs_in_a_child_process_and_its_artefacts_are_relayed(tmp_path, monkeypatch):
+    """The bake runs in a forked child: a reader holding the GIL for minutes (aba-cpp's ODB export)
+    starved the worker's event loop on the executor thread, the job lease lapsed and the job was
+    redelivered mid-bake. What the child writes is relayed to this process and uploaded here."""
+    import ada.fem.results.artefacts as artefacts
+
+    parent = os.getpid()
+
+    def _fake_bake(src_path, bake_dir, *, src_key, on_artefact, **kw):
+        out = pathlib.Path(bake_dir)
+        (out / "fea.pid.json").write_text(str(os.getpid()))
+        on_artefact(out / "fea.pid.json")
+        (out / "fea.manifest.json").write_bytes(b"{}")
+        on_artefact(out / "fea.manifest.json")
+        return SimpleNamespace(out_dir=out)
+
+    monkeypatch.setattr(artefacts, "bake_fea_artefacts_from_source", _fake_bake)
+    monkeypatch.setattr(fea, "_audit_done", _noop_audit)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    storage = Storage(LocalStore(str(store_dir)), prefix="")
+    queue = _Queue()
+    src = tmp_path / "deck.odb"
+    src.write_bytes(b"odb")
+
+    async def _progress(_stage, _frac):
+        return None
+
+    job = Job(job_id="j", source_key="d.odb", derived_key="_derived/d.odb.fea/fea.manifest.json", status="queued")
+    asyncio.run(
+        fea._run_fea_artefact_bake(
+            job=job,
+            src_path=src,
+            scope=Scope.shared(),
+            storage=storage,
+            queue=queue,
+            db_pool=None,
+            started_at=0.0,
+            _on_progress=_progress,
+        )
+    )
+    assert queue.updates[-1]["status"] == "done", queue.updates
+    pid = asyncio.run(storage.get_bytes(Scope.shared(), "_derived/d.odb.fea/fea.pid.json"))
+    assert int(pid) != parent
+
+
+def test_a_sin_still_downloading_is_read_through_the_relay(tmp_path, monkeypatch):
+    """A SIN baked while it downloads: the child maps the same file and asks this process for each
+    range it reads. With the background copy held back, every byte the bake reads arrives as an
+    on-demand fetch made here, and the bake completes."""
+    from ada.fem.formats.sesam.results.byte_source import ProgressiveDownload
+
+    monkeypatch.setattr(fea, "_audit_done", _noop_audit)
+    deck = pathlib.Path(__file__).resolve().parents[3] / (
+        "files/fem_files/cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN"
+    )
+    data = deck.read_bytes()
+
+    class _Remote:
+        """A remote whose sequential copy crawls (on-demand reads do not): the bake, decoding
+        ahead of it, has to ask for its ranges."""
+
+        def __init__(self):
+            self.on_demand = 0
+
+        def size(self):
+            return len(data)
+
+        def fetch(self, offset, length):
+            if threading.current_thread().name == "progressive-download":
+                time.sleep(0.2)
+            else:
+                self.on_demand += 1
+            return data[offset : offset + length]
+
+        def close(self):
+            pass
+
+    remote = _Remote()
+    dl = ProgressiveDownload(remote, tmp_path / "source.sin", chunk_bytes=64 << 10)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    storage = Storage(LocalStore(str(store_dir)), prefix="")
+    queue = _Queue()
+
+    async def _progress(_stage, _frac):
+        return None
+
+    try:
+        asyncio.run(
+            fea._run_fea_artefact_bake(
+                job=Job(job_id="j", source_key="d.SIN", derived_key="x", status="queued"),
+                src_path=pathlib.Path(dl.path),
+                scope=Scope.shared(),
+                storage=storage,
+                queue=queue,
+                db_pool=None,
+                started_at=0.0,
+                _on_progress=_progress,
+                progressive=dl,
+            )
+        )
+    finally:
+        dl.close()
+    assert queue.updates[-1]["status"] == "done", queue.updates
+    assert remote.on_demand > 0
+    keys = {e.key.rsplit("/", 1)[-1] for e in asyncio.run(storage.list(Scope.shared()))}
+    assert {"fea.manifest.json", "fea.mesh.glb"} <= keys
+
+
+def _bake_with_fake(tmp_path, monkeypatch, fake):
+    import ada.fem.results.artefacts as artefacts
+
+    monkeypatch.setattr(artefacts, "bake_fea_artefacts_from_source", fake)
+    monkeypatch.setattr(fea, "_audit_done", _noop_audit)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    queue = _Queue()
+
+    async def _progress(_stage, _frac):
+        return None
+
+    src = tmp_path / "deck.sin"
+    src.write_bytes(b"sin")
+    asyncio.run(
+        fea._run_fea_artefact_bake(
+            job=Job(job_id="j", source_key="d.sin", derived_key="x", status="queued"),
+            src_path=src,
+            scope=Scope.shared(),
+            storage=Storage(LocalStore(str(store_dir)), prefix=""),
+            queue=queue,
+            db_pool=None,
+            started_at=0.0,
+            _on_progress=_progress,
+        )
+    )
+    return queue.updates[-1]
+
+
+def _hungry_bake(src_path, bake_dir, *, src_key, on_artefact, **kw):
+    """Holds ~200 MB for long enough for the watchdog to sample it, then writes a manifest."""
+    hold = bytearray(200 << 20)
+    hold[::4096] = b"x" * len(hold[::4096])
+    time.sleep(3)
+    out = pathlib.Path(bake_dir)
+    (out / "fea.manifest.json").write_bytes(b"{}")
+    on_artefact(out / "fea.manifest.json")
+    return SimpleNamespace(out_dir=out)
+
+
+def test_the_bake_is_not_held_to_the_conversion_memory_ceiling(tmp_path, monkeypatch):
+    """A large deck's bake peaks past the conversion ceiling (a 2.7 GB SIN: about 5 GB against
+    ~3 GB): the bake has its own, ADA_FEA_BAKE_MEM_LIMIT_MB, else the pod's limit."""
+    monkeypatch.setenv("ADA_CONVERT_MEM_LIMIT_MB", "50")
+    monkeypatch.setenv("ADA_FEA_BAKE_MEM_LIMIT_MB", "4000")
+    assert _bake_with_fake(tmp_path, monkeypatch, _hungry_bake)["status"] == "done"
+
+
+def test_a_bake_over_its_own_memory_ceiling_fails_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADA_FEA_BAKE_MEM_LIMIT_MB", "50")
+    last = _bake_with_fake(tmp_path, monkeypatch, _hungry_bake)
+    assert last["status"] == "error" and "memory" in last["error"].lower(), last

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import warnings
 from typing import TYPE_CHECKING, Literal
 
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC, MeshDC
@@ -18,10 +19,26 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
 
+Renderer = Literal["react", "trimesh"]
+
+
+def resolve_renderer(renderer: str) -> Renderer:
+    """``renderer`` with the removed ``"pygfx"`` desktop viewer mapped to ``"react"`` (with a warning)."""
+    if renderer == "pygfx":
+        warnings.warn(
+            'The "pygfx" renderer is removed; showing with "react" (Ada Studio). For a PNG, use '
+            "Part.render_offscreen() or ada.visit.rendering.offscreen.glb_to_image().",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return "react"
+    return renderer
+
+
 class RendererManager:
     def __init__(
         self,
-        renderer: Literal["react", "pygfx", "trimesh"] = "react",
+        renderer: Renderer = "react",
         host: str = "localhost",
         ws_port: int = 8765,
         server_exe: pathlib.Path = None,
@@ -30,7 +47,7 @@ class RendererManager:
         ping_timeout=1,
         embed_glb: bool = False,
     ):
-        self.renderer = renderer
+        self.renderer = resolve_renderer(renderer)
         self.host = host
         self.ws_port = ws_port
         self.server_exe = server_exe
@@ -47,11 +64,6 @@ class RendererManager:
     def _start_websocket_server(self):
         """Starts the WebSocket server if needed."""
         from ada.comms.wsock.utils import is_port_open, start_ws_async_server
-
-        if self.renderer == "pygfx":
-            from ada.visit.rendering.render_pygfx import PYGFX_RENDERER_EXE_PY
-
-            self.server_exe = PYGFX_RENDERER_EXE_PY
 
         # If a server is already listening on the configured port, don't start another one
         try:
@@ -130,13 +142,6 @@ class RendererManager:
         if self.renderer == "trimesh":
             scene = converter.build_processed_scene()
             return scene.show()
-
-        if self.renderer == "pygfx":
-            from ada.visit.rendering.render_pygfx import start_pygfx_viewer
-
-            scene = converter.build_processed_scene()
-
-            return start_pygfx_viewer(port=params.serve_ws_port, scene=scene)
 
         if (
             self.is_in_notebook() and auto_embed_glb_in_notebook and always_use_external_viewer is False

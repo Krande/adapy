@@ -406,6 +406,9 @@ def build_manifest(
     node_labels = getattr(mesh_geom, "node_labels", None)
     if node_labels is not None:
         mesh_meta["node_labels"] = [int(x) for x in node_labels]
+    element_instances = getattr(mesh_geom, "element_instances", None)
+    if element_instances:
+        mesh_meta["element_instances"] = list(element_instances)
     if mesh_edges_filename is not None:
         mesh_meta["edges_url"] = mesh_edges_filename
         mesh_meta["n_edges"] = int(n_edges)

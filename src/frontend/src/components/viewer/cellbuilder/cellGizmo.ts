@@ -14,6 +14,7 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {boxCorners, originFromCenter, quantize, type Vec3} from "@/utils/cellbuilder/snap";
 import {HANDLE_AXIS_COLOR, SNAP_PX} from "./sceneConstants";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
+import {viewportInputElement} from "@/viewport/input";
 
 
 // --- Blender-style axis-locked modal move ---------------------------------
@@ -175,7 +176,7 @@ export const startModalMove = (ctx: CellBuilderScene, cell: BuilderCell, axis: 0
         startBox: {origin: [...cell.origin], size: [...cell.size]},
     };
     showGuideLine(ctx, axis, centerModel);
-    ctx.renderer.domElement.style.cursor = "move";
+    viewportInputElement(ctx.renderer).style.cursor = "move";
 };
 
 export const endModalMove = (ctx: CellBuilderScene, cancel: boolean) => {
@@ -197,7 +198,7 @@ export const endModalMove = (ctx: CellBuilderScene, cancel: boolean) => {
     ctx.gizmo.enabled = true;
     ctx.guideLine.visible = false;
     ctx.snapMarker.visible = false;
-    ctx.renderer.domElement.style.cursor = "";
+    viewportInputElement(ctx.renderer).style.cursor = "";
     requestRender();
 };
 

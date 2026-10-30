@@ -1801,7 +1801,7 @@ def test_bake_with_posters_renders_requested_modes(fem_files, tmp_path):
     exporter's ``<glb>.png`` sibling lookup finds it; modes ≥ 2 use
     ``fea.mesh.mode_<N>.png``.
 
-    Skipped if the rendering toolchain (pygfx / trimesh) isn't in the
+    Skipped if the rendering toolchain (adacpp's renderer / trimesh) isn't in the
     env — the bundle-only path above still gives the bake function
     test coverage.
     """
@@ -1809,24 +1809,14 @@ def test_bake_with_posters_renders_requested_modes(fem_files, tmp_path):
     rmed = fem_files / "code_aster/Cantilever_CA_EIG_bm.rmed"
     if not rmed.exists():
         pytest.skip("RMED fixture not present")
-    pytest.importorskip("pygfx")
     pytest.importorskip("trimesh")
+    render = pytest.importorskip("adacpp._render")
 
-    # GH Actions runners have pygfx installed but no graphics adapter
-    # (no vulkan/dx12/metal/gl driver, no lavapipe). Probe the offscreen
-    # renderer with a 1×1 canvas — if wgpu can't acquire an adapter, the
-    # whole poster path is moot and the test would assert empty
-    # ``poster_paths`` against the expected ``{0, 1}``.
-    import pygfx as gfx
-
+    # A host without a graphics adapter (no vulkan/dx12/metal driver, no lavapipe) cannot create the
+    # renderer, and the poster path would leave ``poster_paths`` empty against the expected ``{0, 1}``.
     try:
-        from rendercanvas.offscreen import OffscreenRenderCanvas as _ProbeCanvas
-    except ImportError:  # legacy wgpu < 0.20
-        from wgpu.gui.offscreen import WgpuCanvas as _ProbeCanvas
-    try:
-        gfx.renderers.WgpuRenderer(_ProbeCanvas(size=(1, 1)))
-    except Exception as exc:  # noqa: BLE001 — broad on purpose; any
-        # wgpu/adapter init failure means rendering is impossible here.
+        render.OffscreenRenderer(1, 1)
+    except Exception as exc:  # noqa: BLE001 - any adapter/device failure means rendering is impossible here
         pytest.skip(f"no usable render adapter on this host: {exc}")
 
     from ada.fem.results.artefacts import bake_with_posters_from_source

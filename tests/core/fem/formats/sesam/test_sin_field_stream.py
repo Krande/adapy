@@ -321,6 +321,34 @@ def test_a_later_case_that_lists_more_elements_is_refused_by_the_streamer(monkey
         _bake(path, tmp_path / "streamed", monkeypatch, streamed=True)
 
 
+def write_uneven_assembly_sin(out):
+    """An assembly whose superelements store different result cases: the first cases 1
+    and 2, the second case 1 only -- so case 2 lists only the first's elements. A deck
+    from a run whose superelements were analysed for different load sets reads so."""
+    two_cases = write_two_case_sin(out.with_name("TWO_CASES.SIN"), card="")
+    return write_assembly_sin(out, two_cases, drop_blocks_in_second=(), second_source=SIN_PATH)
+
+
+def test_a_case_a_superelement_does_not_store_bakes_as_the_full_read(monkeypatch, tmp_path):
+    """The streamer lays every case out as the first; a later case that the second
+    superelement does not store lists fewer elements, placed by label (no value there),
+    not refused as an element order drift."""
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    path = write_uneven_assembly_sin(tmp_path / "UNEVEN.SIN")
+    with SinStreamReader(open_sin(str(path))) as reader:
+        assert reader._steps == [1, 2]
+        spec = next(s for s in reader.element_field_specs() if s.category != "property" and s.n_elements > 1)
+        first, second = (list(esv.values) for esv in reader.iter_element_field_steps(spec))
+        # Case 2 has values on the first superelement's elements only.
+        assert not np.isnan(np.asarray(first)).any()
+        lacking = np.isnan(np.asarray(second)).reshape(spec.n_elements, -1).all(axis=1)
+        assert 0 < lacking.sum() < spec.n_elements
+    full = _bake(path, tmp_path / "full", monkeypatch, streamed=False)
+    assert _bake(path, tmp_path / "streamed", monkeypatch, streamed=True) == full
+
+
 def _result_digest(result) -> str:
     h = hashlib.sha256()
     for f in result.results:

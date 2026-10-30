@@ -51,7 +51,7 @@
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.35.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.36.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -65,6 +65,21 @@ WORKDIR /repo
 COPY src/ada/ ./src/ada/
 COPY scripts/packaging/build_pyodide_adapy_wheel.py ./scripts/packaging/build_pyodide_adapy_wheel.py
 RUN python scripts/packaging/build_pyodide_adapy_wheel.py /out
+
+# Stage 0c: the experimental adacpp WebGPU renderer (Options > Performance > Renderer, or
+# `?renderer=adacpp`). It needs emscripten >= 4.0.10 for Dawn's emdawnwebgpu port, newer than the
+# pyodide toolchain the wasm base image is built with, so until it ships in that image it compiles
+# here from adacpp source at a pinned commit (about a minute: no OCCT, no pyodide). The viewer loads
+# /wasm/adacpp_render.js only when the renderer is selected and falls back to three.js without it.
+FROM emscripten/emsdk:6.0.11 AS adacpp-render
+ARG ADACPP_RENDER_REF=7ca87b4360ffd78462800aa0f6b3697ffd66b654
+ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
+RUN git init -q /src && cd /src && \
+    git remote add origin "$ADACPP_GIT_URL" && \
+    git fetch -q --depth 1 origin "$ADACPP_RENDER_REF" && \
+    git checkout -q FETCH_HEAD && \
+    bash tools/build_render_wasm.sh /out && \
+    git rev-parse HEAD > /out/adacpp_render.ref
 
 # Stage 1: build the SPA bundle.
 FROM node:20-slim AS frontend-build
@@ -129,6 +144,9 @@ RUN mkdir -p /build/dist/wasm && \
     if [ -d /build/dist/wheels/wasm ]; then \
         mv /build/dist/wheels/wasm/* /build/dist/wasm/ && rmdir /build/dist/wheels/wasm; \
     fi
+# adacpp_render.ref: the adacpp commit the wasm was built from, for a build to verify (a cached stage
+# once shipped a stale renderer under a fresh image).
+COPY --from=adacpp-render /out/adacpp_render.js /out/adacpp_render.wasm /out/adacpp_render.ref /build/dist/wasm/
 
 # ...and then fail the build if any module the frontend fetches is missing. These are loaded at
 # RUNTIME from /wasm/<name>.js and never bundled, so the SPA build above cannot notice their absence:

@@ -338,6 +338,10 @@ export interface FeaManifest {
     /** bake_version 6: ``node_labels`` as a JSON sidecar instead (read it
      *  through ``manifestNodeLabels``). */
     node_labels_url?: string;
+    /** Part instances whose element labels the bake moved to keep labels unique across
+     * instances (an Abaqus ODB numbers elements per instance): each instance's name and the
+     * offset added to its labels. Omitted when every label was unique already. */
+    element_instances?: {name: string; offset: number}[];
     /** Optional sidecar carrying deduped per-element edge index
      * pairs. When present, the frontend overlays them as a
      * THREE.LineSegments sharing the mesh's position attribute

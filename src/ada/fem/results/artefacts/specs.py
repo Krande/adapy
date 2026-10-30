@@ -24,6 +24,10 @@ class MeshGeometry:
     # number on a deck with renumbered or sparse ids. Optional: readers
     # without identifiers leave it None and the manifest omits ``node_labels``.
     node_labels: list[int] | None = None
+    # Instances whose element labels were moved to make labels unique across instances
+    # (``[{"name", "offset"}]``; an element's own label is its id minus its instance's offset).
+    # Readers whose labels are unique already leave it None and the manifest omits it.
+    element_instances: list[dict] | None = None
 
 
 @dataclass

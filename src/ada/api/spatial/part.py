@@ -1696,7 +1696,7 @@ class Part(BackendGeom):
         self,
         camera: Camera | None = None,
         *,
-        backend: Literal["pygfx", "chromium"] = "pygfx",
+        backend: Literal["auto", "adacpp", "chromium"] = "auto",
         preset: dict | None = None,
         size: tuple[int, int] = (640, 480),
     ) -> Image:
@@ -1705,74 +1705,43 @@ class Part(BackendGeom):
         Parameters
         ----------
         camera
-            Legacy pygfx camera. When supplied with ``backend="pygfx"``,
-            the trimesh-scene render path is used (kept for callers that
-            already pass a hand-built ``Camera``). When ``None``, both
-            backends route through the embed's ``applyCameraPreset``
-            math so pygfx, chromium, and the live 3D viewer all use
-            identical camera setup.
+            Deprecated and ignored: it drove the removed pygfx renderer. Every backend frames the
+            model with the embed's ``applyCameraPreset``; pass ``preset`` to change the view.
         backend
-            ``"pygfx"`` (default) — fast offscreen render via wgpu.
-            ``"chromium"`` drives the production adapy embed in headless
-            Chromium via Playwright. ``camera`` is ignored by chromium;
-            pass ``preset`` to override the embed's ``CameraPreset``.
+            ``"auto"`` (default) or ``"adacpp"`` — adacpp's WebGPU renderer, headless: the renderer
+            Ada Studio's WebGPU mode draws with.
+            ``"chromium"`` drives the production adapy embed in headless Chromium via Playwright.
         preset
             Camera preset dict (azimuth_deg, elevation_deg, fov_deg,
-            distance, margin, …). Honored by *both* backends when
-            ``camera`` is None — same field names as
-            ``paradoc.camera.presets.CameraPreset`` so the three
-            render paths read from a single source of truth.
+            distance, margin, …), honored by every backend — same field names as
+            ``paradoc.camera.presets.CameraPreset`` so the render paths
+            read from a single source of truth.
         size
             Viewport size (also the output PNG size at DPR=1).
         """
-        # Both default-path branches roundtrip via a temp GLB then call
-        # one of the two glb_to_image* helpers. That keeps the pygfx
-        # and chromium framing identical (same math, same defaults).
-        # Custom camera arg keeps the legacy trimesh path so existing
-        # callers don't have to re-rig.
-        if backend == "chromium" or (backend == "pygfx" and camera is None):
-            import tempfile
+        if camera is not None:
+            import warnings
 
-            with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
-                tmp_path = pathlib.Path(tmp.name)
-            try:
-                self.to_gltf(tmp_path)
-                preset_kwargs: dict = dict(preset or {})
-                if backend == "chromium":
-                    from ada.visit.rendering.chromium_offscreen_utils import (
-                        glb_to_image_via_browser,
-                    )
+            warnings.warn(
+                "Part.render_offscreen(camera=...) drove the removed pygfx renderer and is ignored; "
+                "pass preset=... (azimuth_deg, elevation_deg, fov_deg, distance, margin) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
-                    return glb_to_image_via_browser(
-                        tmp_path,
-                        preset=preset,
-                        size=size,
-                    )
-                # backend == "pygfx" and no Camera arg → embed-port path.
-                from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+        # Every preset-driven backend roundtrips via a temp GLB, so they all
+        # frame the model identically (same math, same defaults).
+        import tempfile
 
-                # Translate paradoc-style preset keys into glb_to_image kwargs
-                # (it takes the same fields, no nesting). Fall through to
-                # function defaults for any key the caller didn't supply.
-                allowed = {
-                    "azimuth_deg",
-                    "elevation_deg",
-                    "fov_deg",
-                    "distance",
-                    "margin",
-                    "z_up",
-                }
-                kwargs = {k: v for k, v in preset_kwargs.items() if k in allowed}
-                return glb_to_image(tmp_path, size=size, **kwargs)
-            finally:
-                tmp_path.unlink(missing_ok=True)
+        from ada.visit.rendering.offscreen import glb_to_image
 
-        # Legacy pygfx path: trimesh scene + hand-built Camera. Kept for
-        # callers that already supply a Camera; new code should drop the
-        # arg and use the preset-driven path above.
-        from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
-
-        return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
+        with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
+            tmp_path = pathlib.Path(tmp.name)
+        try:
+            self.to_gltf(tmp_path)
+            return glb_to_image(tmp_path, backend=backend, preset=preset, size=size)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def to_stp(
         self,

@@ -663,7 +663,7 @@ def _cmd_view(args: argparse.Namespace) -> None:
     # A result file shows its results, unless --from asks for it to be read as a model.
     if from_format is None and infer_result_format(args.input) is not None:
         if args.renderer == "trimesh":
-            raise CliUsageError("results are shown with --renderer react or pygfx, not trimesh")
+            raise CliUsageError("results are shown with --renderer react, not trimesh")
         result = _load_results(args.input, super_element)
         if getattr(args, "stats", False):
             print(result.stats(), flush=True)

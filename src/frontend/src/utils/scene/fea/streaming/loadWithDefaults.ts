@@ -155,12 +155,20 @@ export async function loadFeaWithDefaults(
             try {
                 const {fetcher, rangeFetcher} = fea.fieldFetchers(scope, sourceName);
                 const feaPrefix = `_derived/${sourceName.replace(/^\/+/, "")}.fea/`;
+                // A query on a relative key (`withCacheBust`'s `?v=`) is a URL's, not part of the blob's
+                // name: it stays on `url` and is dropped from the key the blob is read by.
+                const keyOf = (rel: string) => rel.split("?")[0];
+                const queryOf = (rel: string) => (rel.includes("?") ? rel.slice(rel.indexOf("?") + 1) : "");
                 const sidecar: SidecarFetcher = {
-                    url: (rel) => capabilities.files.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),
+                    url: (rel) => {
+                        const url = capabilities.files.blobUrl(scope, feaPrefix + keyOf(rel).replace(/^\/+/, ""));
+                        const query = queryOf(rel);
+                        return query ? `${url}${url.includes("?") ? "&" : "?"}${query}` : url;
+                    },
                     json: async (rel) =>
-                        JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
+                        JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(keyOf(rel))))),
                     bytes: async (rel, range) =>
-                        range ? (await rangeFetcher(rel, range.start, range.end)).buf : fetcher(rel),
+                        range ? (await rangeFetcher(keyOf(rel), range.start, range.end)).buf : fetcher(keyOf(rel)),
                 };
                 void runResultSidecarLoaders({manifest, fetcher: sidecar, scope, sourceName});
             } catch (err) {

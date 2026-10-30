@@ -286,9 +286,9 @@ class ResultsSqliteStreamReader:
     chunk. Field iteration scatters each instance's BLOB into the
     correct slab of the combined value array.
 
-    Beam-as-solid emission still needs section + axis metadata that
-    the current schema doesn't expose; ``try_solid_beams`` returns
-    ``None``.
+    Beams are drawn as solids from the section tables the ODB export
+    writes (``try_solid_beams``, via ``sqlite_sections``);
+    a database without them has no beam solids.
     """
 
     def __init__(self, sqlite_path: os.PathLike):
@@ -360,6 +360,51 @@ class ResultsSqliteStreamReader:
             )
         return [int(r[0]) for r in rows]
 
+    def _elem_id_offsets(self) -> dict[int, int]:
+        """What to add to each instance's element labels so labels are unique across instances.
+
+        Abaqus numbers elements per part instance, so a multi-instance ODB repeats labels (two
+        parts can both have an element 57). Downstream every element is keyed by its label (the
+        mesh's per-element draw ranges, element fields, beam solids), and a repeated label made
+        the later instance overwrite the earlier one: those elements could not be selected.
+
+        An instance whose labels do not collide with those taken before it keeps them; one that
+        collides moves into its own block above every label (block = the next power of ten past
+        the largest label), so ``1000057`` reads as instance block 1, element 57.
+        """
+        cached = getattr(self, "_elem_offsets_cache", None)
+        if cached is not None:
+            return cached
+        labels_by_inst: dict[int, np.ndarray] = {}
+        for inst_id in self._instance_ids:
+            rows = self._conn.execute("SELECT ElemID FROM ElementInfo WHERE InstanceID = ?", (inst_id,)).fetchall()
+            labels_by_inst[inst_id] = np.fromiter((r[0] for r in rows), dtype=np.int64, count=len(rows))
+        top = max((int(a.max()) for a in labels_by_inst.values() if a.size), default=0)
+        block = 10 ** len(str(top)) if top > 0 else 1
+        offsets: dict[int, int] = {}
+        taken: set[int] = set()
+        next_block = 1
+        for inst_id in self._instance_ids:
+            labels = labels_by_inst[inst_id]
+            if labels.size and not taken.isdisjoint(labels.tolist()):
+                offsets[inst_id] = next_block * block
+                next_block += 1
+            else:
+                offsets[inst_id] = 0
+            taken.update((labels + offsets[inst_id]).tolist())
+        self._elem_offsets_cache = offsets
+        return offsets
+
+    def _element_instances(self) -> list[dict] | None:
+        """The instances whose labels were moved (name + offset), for the manifest; None when none were."""
+        offsets = self._elem_id_offsets()
+        if not any(offsets.values()):
+            return None
+        names = dict(self._conn.execute("SELECT ID, Name FROM ModelInstances").fetchall())
+        return [
+            {"name": str(names.get(inst_id, inst_id)), "offset": int(offset)} for inst_id, offset in offsets.items()
+        ]
+
     def _ensure_indexes(self) -> None:
         # The schema ships no indexes. Add the ones the streaming
         # protocol needs so per-step queries don't scan the whole
@@ -380,6 +425,11 @@ class ResultsSqliteStreamReader:
         ):
             self._conn.execute(stmt)
         self._conn.commit()
+
+    def _has_point_instance_column(self) -> bool:
+        """Schema v3 records the instance of an ASSEMBLY element's nodes; older files do not."""
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(ElementConnectivity)")}
+        return "PointInstanceID" in cols
 
     # ----- protocol -------------------------------------------------------
 
@@ -454,6 +504,7 @@ class ResultsSqliteStreamReader:
 
             point_index = self._inst_point_index[inst_id]
             inst_offset = self._inst_point_offset[inst_id]
+            point_inst = "ec.PointInstanceID" if self._has_point_instance_column() else "NULL"
 
             for abq_type, n_elements in type_rows:
                 if abq_type in _SKIP_RENDER_TYPES:
@@ -470,7 +521,7 @@ class ResultsSqliteStreamReader:
                 # idx_einfo_inst_type_elem covers the ei.Type predicate;
                 # idx_conn_inst_elem_seq orders the connectivity rows.
                 conn_rows = self._conn.execute(
-                    "SELECT ec.ElemID, ec.PointID "
+                    f"SELECT ec.ElemID, ec.PointID, {point_inst} "
                     "FROM ElementConnectivity ec "
                     "JOIN ElementInfo ei "
                     " ON ec.InstanceID = ei.InstanceID "
@@ -495,21 +546,38 @@ class ResultsSqliteStreamReader:
                 # numpy gather would need a label→row contiguous lookup
                 # table whose size is unbounded in pathological label
                 # sparsity. The list-comp keeps allocation costs flat.
-                point_ids_iter = (r[1] for r in conn_rows)
-                data_flat = np.fromiter(
-                    (point_index[pid] + inst_offset for pid in point_ids_iter),
-                    dtype=np.int64,
-                    count=total,
-                )
+                #
+                # An ASSEMBLY element's nodes are in the part instances (schema v3
+                # PointInstanceID): the instance's own points, which carry its
+                # displacements, not the label-keyed copies the ASSEMBLY lists.
+                if any(r[2] is not None for r in conn_rows):
+                    data_flat = np.fromiter(
+                        (
+                            self._inst_point_index[inst_id if r[2] is None else r[2]][r[1]]
+                            + self._inst_point_offset[inst_id if r[2] is None else r[2]]
+                            for r in conn_rows
+                        ),
+                        dtype=np.int64,
+                        count=total,
+                    )
+                else:
+                    data_flat = np.fromiter(
+                        (point_index[r[1]] + inst_offset for r in conn_rows),
+                        dtype=np.int64,
+                        count=total,
+                    )
                 data = data_flat.reshape((n_elements, nodes_per))
 
                 # ElemIDs of unique elements are every nodes_per'th row
                 # — the ORDER BY ElemID, Seq guarantee makes them
                 # contiguous.
-                elem_ids = np.fromiter(
-                    (conn_rows[i][0] for i in range(0, total, nodes_per)),
-                    dtype=np.int64,
-                    count=n_elements,
+                elem_ids = (
+                    np.fromiter(
+                        (conn_rows[i][0] for i in range(0, total, nodes_per)),
+                        dtype=np.int64,
+                        count=n_elements,
+                    )
+                    + self._elem_id_offsets()[inst_id]
                 )
 
                 cell_blocks.append(
@@ -520,7 +588,7 @@ class ResultsSqliteStreamReader:
                     )
                 )
 
-        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
+        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks, element_instances=self._element_instances())
         return self._geom
 
     def _steps_kind(self, step_ids) -> str | None:
@@ -733,7 +801,8 @@ class ResultsSqliteStreamReader:
                 if ok_row is None:
                     continue
 
-                inst_labels = [int(r[0]) for r in elem_rows]
+                elem_offset = self._elem_id_offsets()[inst_id]
+                inst_labels = [int(r[0]) + elem_offset for r in elem_rows]
                 offset = len(combined_labels)
                 combined_labels.extend(inst_labels)
                 inst_buckets.append((inst_id, abq_type, location, list(field_var_ids), offset, len(inst_labels)))
@@ -882,10 +951,56 @@ class ResultsSqliteStreamReader:
                 values=arr,
             )
 
-    def try_solid_beams(self):
-        # The current sqlite schema carries no section / axis metadata,
-        # so beam-as-solid tessellation isn't reachable from here yet.
-        return None
+    def try_solid_beams(self, *, method: str = "procedural", format: str = "mesh"):
+        """The line elements with an exported beam section, as solids; None without any.
+
+        Per instance: the sections, assignments and n1 directions the ODB export wrote
+        (:func:`~.sqlite_sections.read_line_section_tables`), each element extruded between its
+        end nodes. Labels are the elements' own numbers, as in the mesh artefact.
+        """
+        from ada import Beam
+        from ada.fem.results.artefacts import (
+            collect_beam_solid_instances,
+            tessellate_beams_to_solid_mesh,
+        )
+
+        from .sqlite_sections import read_line_section_tables
+
+        self.read_mesh_geometry()  # the per-instance point index + offsets
+        beams: list = []
+        extra_skip: dict[str, int] = {}
+        total = 0
+        for inst_id in self._instance_ids:
+            tables, skipped = read_line_section_tables(self._conn, inst_id)
+            for reason, n in skipped.items():
+                extra_skip[reason] = extra_skip.get(reason, 0) + n
+            total += sum(skipped.values())
+            if tables is None:
+                continue
+            index = self._inst_point_index.get(inst_id, {})
+            offset = self._inst_point_offset.get(inst_id, 0)
+            for (el_id, mat_id, sec_id, vec_id), (p0, p1), (n0, n1) in zip(
+                tables.elem_data, tables.end_points, tables.end_nodes
+            ):
+                total += 1
+                if int(n0) not in index or int(n1) not in index:
+                    extra_skip["endpoint-not-in-mesh"] = extra_skip.get("endpoint-not-in-mesh", 0) + 1
+                    continue
+                beam = Beam(
+                    f"BM{inst_id}_{el_id}",
+                    p0,
+                    p1,
+                    sec=tables.sections[int(sec_id)],
+                    mat=tables.materials[int(mat_id)],
+                    up=tables.vectors[int(vec_id)],
+                )
+                label = int(el_id) + self._elem_id_offsets()[inst_id]
+                beams.append((beam, label, index[int(n0)] + offset, index[int(n1)] + offset, p0, p1))
+        if not beams:
+            return None
+        if format == "compact":
+            return collect_beam_solid_instances(beams, extra_skip_reasons=extra_skip, total_beams=total)
+        return tessellate_beams_to_solid_mesh(beams, extra_skip_reasons=extra_skip, total_beams=total, method=method)
 
     def try_history_records(self) -> HistoryRecords | None:
         """Build the manifest's history section from the HistOutput table.

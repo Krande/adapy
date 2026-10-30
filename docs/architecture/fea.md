@@ -357,7 +357,7 @@ flowchart TB
   expand them.
 - Extras: `mode_normalization` (mode-shape scale factors), `step_subset`
   (`restrict_to_steps`), `history` (time-history records), `posters` (offscreen PNG posters
-  via pygfx, `bake_with_posters`).
+  via adacpp's WebGPU renderer, `bake_with_posters`).
 - On the platform, the `fea_artefacts` job runs `bake_fea_artefacts_from_source` and writes to
   `_derived/<source>.fea/`. The REST routes in `routes/fea.py` serve the artefacts and the
   manifest (see [Viewer platform](platform.md)).

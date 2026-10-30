@@ -93,7 +93,15 @@
 //          on purpose: PLUGIN_API_VERSION already is 1.6.0 for a different
 //          capability, and a shell's `coreApiRange` is checked against THAT
 //          number, so this entry takes the next one both can share.
-export const VIEWER_CORE_API_VERSION = "1.7.0";
+//   1.8.0  Shared helpers a result plugin used to copy, on `@/viewer-core/app`:
+//          `formatNumber`, the banded `ColorScale` (`scaleColor`, `cssScaleColor`),
+//          `readSidecarElementFieldStep` / `readSidecarElementFieldEnvelope` (AFEL
+//          blobs in a plugin's own sidecar, through core's reader),
+//          `withCacheBust`, `registerJobFinisher`, the cross-window simulation
+//          sync (`postSim`, `subscribeSim`, `followerParams`, `followerUrl`) and
+//          `CollapsibleSection`. Ships with PLUGIN_API_VERSION
+//          1.9.0 (the renderer-neutral scene overlays and `showColorScale`).
+export const VIEWER_CORE_API_VERSION = "1.8.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -123,9 +131,16 @@ export type {
   RegisteredPlugin,
   RenderableFileProvider,
   ResultSidecarLoader,
+  SceneColor,
   SceneColorFieldProvider,
   SceneColorFieldResult,
+  SceneElementOutline,
+  SceneElementPaint,
   SceneHandle,
+  SceneLabel,
+  SceneLabelOptions,
+  SceneLines,
+  SceneOverlay,
   SidecarFetcher,
   TopBarButtonSpec,
   UrlParamHandler,

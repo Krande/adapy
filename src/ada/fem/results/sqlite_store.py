@@ -49,9 +49,13 @@ class SQLiteFEAStore:
             logger.warning("No data to insert")
             return
 
+        # By column name, as the schema asks of writers: a column added later (always at the end)
+        # stays NULL for rows that do not carry it.
         num_columns = len(data[0])
+        columns = [r[1] for r in self.cursor.execute(f'PRAGMA table_info("{table_name}")')][:num_columns]
         placeholders = ", ".join(["?" for _ in range(num_columns)])
-        sql_query = f"INSERT INTO {table_name} VALUES ({placeholders})"
+        quoted = ", ".join(f'"{c}"' for c in columns)
+        sql_query = f'INSERT INTO "{table_name}" ({quoted}) VALUES ({placeholders})'
 
         self.cursor.executemany(sql_query, data)
         self.conn.commit()

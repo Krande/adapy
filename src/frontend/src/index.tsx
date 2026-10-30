@@ -14,6 +14,20 @@ import { runtime } from "@/runtime/config";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 import { UiShellHost, loadPlugins } from "@/plugins";
 
+// A page loaded before a deploy asks for lazy chunks the deploy removed. Reload once to pick up the
+// new build rather than leaving a broken panel; the guard stops a loop if the chunk is really broken.
+window.addEventListener("vite:preloadError", (event) => {
+  const key = "ada:preloadReloadAt";
+  try {
+    if (Date.now() - Number(sessionStorage.getItem(key) ?? 0) < 30_000) return;
+    sessionStorage.setItem(key, String(Date.now()));
+  } catch {
+    return; // no sessionStorage to guard a reload loop with: leave the error to the page
+  }
+  event.preventDefault();
+  window.location.reload();
+});
+
 // Register built-in (build-time) plugins into the core registry before the UI
 // mounts, so the slot hosts see a populated registry on first render. Plugins
 // ship dormant (activation-gated), so this is a no-op for existing users.

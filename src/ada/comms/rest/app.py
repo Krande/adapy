@@ -2788,13 +2788,22 @@ def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
 
     1. ``/api/*`` misses → 404 (don't disguise API bugs as SPA pages).
     2. Path matches a file on disk → serve it (assets, favicon, etc.).
-    3. Anything else → return ``index.html`` and let the SPA router
+    3. A missing static asset (``assets/``, ``wasm/``, a script, style, wasm or
+       source map) → 404. Answering it with the SPA shell was how a tab opened
+       before a deploy broke: its lazy chunks are gone after the deploy, the
+       shell came back as ``text/html``, and the browser refused it as a module
+       ("Failed to load module script").
+    4. Anything else → return ``index.html`` and let the SPA router
        consume the URL.
+
+    Caching: ``index.html`` is ``no-cache`` (always revalidated, so a deploy is
+    picked up), and the content-hashed files under ``assets/`` are immutable.
 
     Must register *after* every explicit route the API exposes; the
     path-converter pattern matches anything that didn't already match.
     """
     static_root = static_dir.resolve()
+    asset_suffixes = {".js", ".mjs", ".css", ".wasm", ".map"}
 
     def _index_response() -> FileResponse:
         # Grant the JS Self-Profiling API on the SPA document. This is an
@@ -2807,7 +2816,7 @@ def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
         # Must be on the HTML *document* response, not the assets.
         return FileResponse(
             static_dir / "index.html",
-            headers={"Document-Policy": "js-profiling"},
+            headers={"Document-Policy": "js-profiling", "Cache-Control": "no-cache"},
         )
 
     @app.get("/{full_path:path}", include_in_schema=False)
@@ -2828,7 +2837,12 @@ def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
                 # the profiling permission on it too.
                 if candidate.name == "index.html":
                     return _index_response()
+                if full_path.startswith("assets/"):
+                    # Vite names these by content hash: a name never changes meaning.
+                    return FileResponse(candidate, headers={"Cache-Control": "public, max-age=31536000, immutable"})
                 return FileResponse(candidate)
+            if full_path.startswith(("assets/", "wasm/")) or pathlib.PurePosixPath(full_path).suffix in asset_suffixes:
+                raise HTTPException(status_code=404)
         return _index_response()
 
 

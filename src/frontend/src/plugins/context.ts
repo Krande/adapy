@@ -15,9 +15,22 @@ import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useColorStore } from "@/state/colorLegendStore";
+import { usePluginColorScaleStore } from "@/state/pluginColorScaleStore";
 import { noteOwnerPainted } from "@/utils/scene/fea/modeSceneColor";
 import { effectivePluginTheme, useThemeStore } from "@/state/themeStore";
 import type { PluginTheme } from "./registry";
+import {
+  addElementOutlines,
+  addLabels,
+  addLines,
+  hasFeaModel,
+  hiddenFeaElements,
+  hideFeaElements,
+  isolateFeaElements,
+  paintFeaElements,
+  removeOwnerOverlays,
+  setFeaElementEdgesVisible,
+} from "./sceneOverlays";
 import {
   getActiveFeaMesh,
   getActiveFeaSelectedRangeIds,
@@ -69,10 +82,12 @@ function makeSceneHandle(): SceneHandle {
       if (obj) {
         scene.remove(obj);
       } else {
-        // Remove every top-level object this owner added.
+        // Remove every top-level object this owner added, and its overlays.
         for (const child of [...(scene.children ?? [])]) {
           if (child.userData?.__pluginOwner === owner) scene.remove(child);
         }
+        removeOwnerOverlays(owner);
+        usePluginColorScaleStore.getState().show(owner, null);
       }
       requestRender();
     },
@@ -139,6 +154,20 @@ function makeSceneHandle(): SceneHandle {
     },
     unloadModel(sourceName) {
       void import("@/utils/scene/handlers/unload_any_source").then(({ unload_any_source }) => unload_any_source(sourceName));
+    },
+    addLines,
+    addLabels,
+    hasFeaModel,
+    paintFeaElements,
+    addElementOutlines,
+    isolateFeaElements,
+    hideFeaElements,
+    hiddenFeaElements,
+    setFeaElementEdgesVisible,
+    showColorScale(owner, scale) {
+      usePluginColorScaleStore.getState().show(owner, scale);
+      if (scale) useColorStore.getState().setShowLegend(true);
+      requestRender();
     },
   };
 }

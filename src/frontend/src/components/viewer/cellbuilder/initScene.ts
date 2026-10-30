@@ -27,6 +27,7 @@ import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointer
 import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
 import {onKeyDown} from "./keyboard";
+import {viewportInputElement} from "@/viewport/input";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -46,7 +47,7 @@ export function initCellBuilderScene(
     const hContextMenu = (ev: MouseEvent) => onContextMenu(ctx, ev);
     const hKeyDown = (ev: KeyboardEvent) => onKeyDown(ctx, ev);
 
-    const el = ctx.renderer.domElement;
+    const el = viewportInputElement(ctx.renderer);
     // Capture phase so a grab on a builder face wins over the scene's own
     // click-selection/orbit-pivot handlers.
     el.addEventListener("pointerdown", hPointerDown, true);

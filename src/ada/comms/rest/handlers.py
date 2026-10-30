@@ -39,7 +39,12 @@ from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.comms.msg_handling.reply_to import reply_to
 from ada.config import logger
 
-from .converter import derived_key_for, is_hidden_key, is_supported_source
+from .converter import (
+    HIDDEN_PREFIXES,
+    derived_key_for,
+    is_hidden_key,
+    is_supported_source,
+)
 from .scope import Scope
 from .storage import Storage
 
@@ -127,7 +132,10 @@ async def _handle_list_file_objects(
     scope: Scope,
     extra_source_exts: frozenset[str] | None = None,
 ) -> bytes:
-    files = await storage.list(scope)
+    # Skip the hidden namespaces in the STORAGE layer, as GET /files does: a scope can hold far more
+    # derived blobs than files, and listing them only to drop them made the storage panel's load time
+    # grow with the conversion history instead of with the files.
+    files = await storage.list(scope, skip_prefixes=HIDDEN_PREFIXES)
     file_objects: list[FileObjectDC] = []
     for entry in files:
         # Hide internal blobs (derived cache + auto-disposed overlays) from the file list.

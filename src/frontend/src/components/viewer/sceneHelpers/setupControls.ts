@@ -1,6 +1,7 @@
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import * as THREE from "three";
 import CameraControls from "camera-controls";
+import {ensureViewportInput} from "@/viewport/input";
 
 CameraControls.install({THREE: THREE});
 
@@ -11,8 +12,9 @@ export function setupControls(
     defaultOrbitController: boolean
 ): CameraControls | OrbitControls {
 
-    const canvas = container.querySelector("canvas");
-    if (!canvas) throw new Error("Renderer canvas not found");
+    // Controls bind to the viewport's input surface, not to a renderer canvas: the same input then
+    // drives the camera whether three.js or the adacpp WebGPU renderer draws.
+    const canvas = ensureViewportInput(container);
 
     let controls: CameraControls | OrbitControls;
     if (defaultOrbitController) {

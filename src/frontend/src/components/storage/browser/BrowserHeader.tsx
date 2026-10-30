@@ -1,4 +1,4 @@
-import React from "react";
+import React, {useRef, useState} from "react";
 import type {ProceduralModelSummary, ProceduralTemplate} from "@/services/viewerApi";
 import type {ScopeOption} from "@/state/scopeStore";
 import type {ServerFileEntry} from "@/state/serverInfoStore";
@@ -7,6 +7,7 @@ import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu"
 import ReloadIcon from "../../icons/ReloadIcon";
 import PlusIcon from "../../icons/PlusIcon";
 import ExpandIcon from "../../icons/ExpandIcon";
+import GearIcon from "../../icons/GearIcon";
 import {uploadAcceptAttr} from "@/utils/scene/handlers/upload_source_file";
 import {Spinner} from "./helpers";
 import type {useProceduralModels} from "./useProceduralModels";
@@ -37,6 +38,9 @@ export interface BrowserHeaderProps {
     setNewFolderAt: (at: string | null) => void;
     onRefresh: () => void;
     refreshing: boolean;
+    /** Null when this user may not clear the scope's temp files. */
+    onClearTemp: (() => void) | null;
+    clearingTemp: boolean;
     anyLoaded: boolean;
     bulkBusy: string | null;
     onHideAll: () => Promise<void>;
@@ -66,12 +70,30 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
     setNewFolderAt,
     onRefresh,
     refreshing,
+    onClearTemp,
+    clearingTemp,
     anyLoaded,
     bulkBusy,
     onHideAll,
     maximized,
     setMaximized,
-}) => (
+}) => {
+    // Gear menu: settings and maintenance for the scope. The + menu only adds to storage.
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const settingsBtnRef = useRef<HTMLButtonElement>(null);
+    const settingsItems: KebabMenuItem[] = [
+        ...(onClearTemp
+            ? [{
+                key: "clear-temp",
+                label: clearingTemp ? "Clearing temp files…" : "Clear temp files…",
+                onClick: () => {
+                    setSettingsOpen(false);
+                    onClearTemp();
+                },
+            }]
+            : []),
+    ];
+    return (
             <div className="flex justify-between items-center gap-2 mb-2">
                 <div className="min-w-0 flex-1">
                     <h2 className="font-bold truncate">Storage</h2>
@@ -271,6 +293,40 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                             <ReloadIcon/>
                         </span>
                     </button>
+                    {/* Hidden when this user has no settings here: a gear that opens an empty
+                        menu reads as broken. */}
+                    {settingsItems.length > 0 && (
+                        <button
+                            ref={settingsBtnRef}
+                            type="button"
+                            className={
+                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm cursor-pointer " +
+                                "flex items-center justify-center " +
+                                "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
+                                "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                            }
+                            onClick={() => setSettingsOpen((v) => !v)}
+                            title="Storage settings"
+                            aria-label="Storage settings"
+                            aria-haspopup="menu"
+                            aria-expanded={settingsOpen}
+                        >
+                            <span className="inline-flex h-6 w-6 items-center justify-center">
+                                <GearIcon width="20px" height="20px" className={clearingTemp ? "animate-spin" : ""}/>
+                            </span>
+                        </button>
+                    )}
+                    {settingsOpen && (
+                        <PositionedMenu
+                            items={settingsItems}
+                            onClose={() => setSettingsOpen(false)}
+                            ignoreOutsideRef={settingsBtnRef}
+                            anchor={{
+                                kind: "rect",
+                                getRect: () => settingsBtnRef.current?.getBoundingClientRect(),
+                            }}
+                        />
+                    )}
                     {/* Clear: unload every loaded source. This is a
                         teardown action (drops the meshes from the
                         scene), distinct from per-element visibility
@@ -314,6 +370,7 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                     </button>
                 </div>
             </div>
-);
+    );
+};
 
 export default BrowserHeader;
