@@ -127,6 +127,8 @@ export const InstanceFlag = {
     NoPick: 1 << 8,
     Clipped: 1 << 11, // cut by the section planes (setClipPlanes)
     DepthOffset: 1 << 12, // in front of coplanar faces (a negative polygonOffset)
+    DepthBack: 1 << 14, // behind coplanar lines, so edges drawn on it win (a positive polygonOffset)
+    Underlay: 1 << 15, // lines drawn before the faces, so a coplanar face hides them (a ground grid)
 } as const;
 export const SegmentFlag = {
     Hidden: 1 << 0,

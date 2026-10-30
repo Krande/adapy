@@ -22,7 +22,7 @@ import {withoutEdges} from "../edgeSplit";
 // Zoomed out, a dense element grid draws a line every few pixels and washes the result colours
 // out to the edge colour. Fade the shell grid by how far apart its edges are on screen: full
 // strength from EDGE_FULL_PX apart, gone at EDGE_GONE_PX.
-const EDGE_FULL_PX = 12;
+const EDGE_FULL_PX = 8;
 const EDGE_GONE_PX = 3;
 
 /** Median length of a sample of `edges` (index pairs into `position`), in model units. */
@@ -41,14 +41,18 @@ function typicalEdgeLength(position: THREE.BufferAttribute, edges: Uint32Array):
     return lengths[Math.floor(lengths.length / 2)] ?? 0;
 }
 
-/** Fade `segments` (an element grid on `mesh`) by its on-screen density, every frame it draws. */
+/** Fade `segments` (an element grid on `mesh`) by its on-screen density, every frame it draws.
+ *
+ *  On the MATERIAL's onBeforeRender: the overlay's own hook belongs to the warp (sourceMorph replaces it
+ *  whenever a field is painted), and a fade installed there was dropped, frozen at whatever opacity the
+ *  first frames computed -- 0 while the camera was still fitting, which hid the edges for good. */
 export function fadeWithDensity(segments: THREE.LineSegments, mesh: THREE.Mesh, edges: Uint32Array): void {
     const length = typicalEdgeLength(mesh.geometry.attributes.position as THREE.BufferAttribute, edges);
     if (!(length > 0)) return;
     const material = segments.material as THREE.LineBasicMaterial;
     const size = new THREE.Vector2();
     const centre = new THREE.Vector3();
-    segments.onBeforeRender = (renderer, _scene, camera) => {
+    material.onBeforeRender = (renderer, _scene, camera) => {
         const geometry = mesh.geometry;
         if (!geometry.boundingSphere) geometry.computeBoundingSphere();
         centre.copy(geometry.boundingSphere!.center).applyMatrix4(mesh.matrixWorld);

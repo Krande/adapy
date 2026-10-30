@@ -203,8 +203,12 @@ export class SceneSync {
             this.hookRenderer.height = height;
             this.hookRenderer.pixelRatio = pixelRatio;
             const mesh = obj as THREE.Mesh;
+            const hookMaterial = baseMaterial(obj) as THREE.Material;
             obj.onBeforeRender(this.hookRenderer as unknown as THREE.WebGLRenderer, scene, camera, mesh.geometry,
-                baseMaterial(obj) as THREE.Material, null as unknown as THREE.Group);
+                hookMaterial, null as unknown as THREE.Group);
+            // three.js also calls the material's hook, right after the object's.
+            hookMaterial?.onBeforeRender?.(this.hookRenderer as unknown as THREE.WebGLRenderer, scene, camera,
+                mesh.geometry, obj, null as unknown as THREE.Group);
             this.syncObject(obj);
         });
 
@@ -461,10 +465,16 @@ export class SceneSync {
             flags |= InstanceFlag.Clipped;
             for (const p of planes) this.framePlanes.add(p);
         }
-        // A negative polygonOffset pulls an overlay in front of the surface it lies on.
+        // three.js' polygonOffset: negative pulls an overlay in front of the surface it lies on, positive
+        // pushes a surface behind the edges drawn on it (FEA meshes). Without it, no bias, as in three.js.
         if (mat?.polygonOffset && (mat.polygonOffsetFactor < 0 || mat.polygonOffsetUnits < 0)) {
             flags |= InstanceFlag.DepthOffset;
+        } else if (mat?.polygonOffset && (mat.polygonOffsetFactor > 0 || mat.polygonOffsetUnits > 0)) {
+            flags |= InstanceFlag.DepthBack;
         }
+        // A grid lies under the model: three.js draws it before the meshes, so a face on its plane
+        // hides it. Edges of a model, drawn after its faces, still win.
+        if ((obj as THREE.GridHelper).type === "GridHelper") flags |= InstanceFlag.Underlay;
         // Like three.js' GpuMeshPicker, only model meshes are pickable: edges, grid, overlays and
         // helpers must never stand in front of the object a click is meant for.
         if (!(obj instanceof CustomBatchedMesh)) flags |= InstanceFlag.NoPick;
