@@ -1,4 +1,4 @@
--- 042_provider_grants.sql -- which scope may read which provider dataset.
+-- 045_provider_grants.sql -- which scope may read which provider dataset.
 --
 -- Provider data (a provider's published assets, its attribute-index partitions, its change feed)
 -- is kept ONCE, in the provider store (the `providers` scope), whichever scope a job was started

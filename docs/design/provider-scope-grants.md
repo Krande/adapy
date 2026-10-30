@@ -1,6 +1,6 @@
 # Provider data is global; scopes get grants
 
-Status: design, plus phase-1 scaffolding (migration 042, `Scope.providers()`, `db/provider_grants.py`, `/api/admin/provider-grants`).
+Status: design, plus phase-1 scaffolding (migration 045, `Scope.providers()`, `db/provider_grants.py`, `/api/admin/provider-grants`).
 
 ## Goal
 
@@ -49,7 +49,7 @@ The store is a single namespace rather than `providers/<provider>/...` because p
 
 **Postgres.** There is no new data table. Provider data uses the existing tables with `scope = 'providers'`: `attr_collections`, `attr_values`, `source_nodes`, `asset_change_runs`, `asset_sweep_runs` and `plugin_job_schedules`. Global uniqueness then comes from the existing keys `(scope, provider, collection)` and `(scope, source, node_ref)`. New tables:
 
-- `provider_grants` (migration 042, **done**): `(target_scope, provider, collection NULL = all)` is unique. It has `attributes`, `geometry` and `request` booleans, plus `granted_by`, `granted_at` and `note`. CHECK constraints keep the store and corpora from being targets. Indexes cover both directions.
+- `provider_grants` (migration 045, **done**): `(target_scope, provider, collection NULL = all)` is unique. It has `attributes`, `geometry` and `request` booleans, plus `granted_by`, `granted_at` and `note`. CHECK constraints keep the store and corpora from being targets. Indexes cover both directions.
 - `provider_store_migration` (phase 4): one row per moved dataset `(provider, collection, from_scope, revision, blobs, partition, grants_created, state)`. The rollback is driven from it.
 
 **What counts as provider data.** A publish whose `provider` is advertised as `asset_provider_id` by a live plugin spec, or is listed in `ADA_STORE_PROVIDERS`. User uploads published under the built-in `published` provider stay in the user's scope.
@@ -144,7 +144,7 @@ Plugin-side changes, to be made in those repos and not here:
 
 ## 9. Phases (each shippable alone)
 
-1. **Grants and the store scope.** This commit: migration 042, `Scope.providers()` (admin-only, `parse_scope("providers")`, worker reconstruction), `db/provider_grants.py`, `/api/admin/provider-grants`, tests. Next in this phase: the Admin → Providers → Access UI. No read or write changes yet.
+1. **Grants and the store scope.** This commit: migration 045, `Scope.providers()` (admin-only, `parse_scope("providers")`, worker reconstruction), `db/provider_grants.py`, `/api/admin/provider-grants`, tests. Next in this phase: the Admin → Providers → Access UI. No read or write changes yet.
 2. **Read through grants.** `resolve_dataset`, search `granted`, export origin `providers` and the geometry-grant rule, the blob route, and `GET /scopes/{s}/provider-grants`. With the store empty, behaviour is unchanged.
 3. **Writes go to the store.** `job_scope()`, sweeps and schedules without scope, provider options in the store, the change feed in the store, member requests via `request`, transitional auto-grant. Frontend: drop the scope dropdowns, read job summaries from the returned scope, fix the `providerRescan` hard-coded `shared`. Behind `ADA_PROVIDER_STORE_WRITES` (default on once tested). New extractions land once, and old copies stay readable through the fallback.
 4. **Migrate and dedup** the legacy copies (§7), with rollback. Ship the web3d mirror change in this phase.

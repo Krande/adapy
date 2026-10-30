@@ -1,4 +1,4 @@
-"""Provider grants (migration 042): which scope may read which provider dataset.
+"""Provider grants (migration 045): which scope may read which provider dataset.
 
 Provider data lives once, in the provider store (``Scope.providers()``). A grant maps a TARGET scope
 (a storage prefix: ``shared``, ``projects/<uuid>``, ``users/<sub>``) to a dataset -- a provider and

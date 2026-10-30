@@ -1,4 +1,4 @@
-"""Admin -> Providers -> Access: which scope may read which provider dataset (migration 042).
+"""Admin -> Providers -> Access: which scope may read which provider dataset (migration 045).
 
 ``GET    /api/admin/provider-grants?target_scope=&provider=&collection=``
                                   the grants, each filter optional; ``collection`` also lists the

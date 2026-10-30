@@ -1,4 +1,4 @@
-"""Provider grants (migration 042) and the provider-store scope -- phase 1 scaffolding of
+"""Provider grants (migration 045) and the provider-store scope -- phase 1 scaffolding of
 docs/design/provider-scope-grants.md. Nothing reads through a grant yet; these pin the shapes the
 read path will build on."""
 
