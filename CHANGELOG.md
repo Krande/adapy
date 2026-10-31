@@ -2,6 +2,15 @@
 
 
 
+## v0.128.0 (2026-10-31)
+
+### Feature
+
+* feat(dev): wdev serves current adacpp wasm, the WebGPU renderer included (#479)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`ddb5e06`](https://github.com/Krande/adapy/commit/ddb5e066598edd7d6d6833269e1668c9e1515330))
+
+
 ## v0.127.0 (2026-10-31)
 
 ### Feature
