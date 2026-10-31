@@ -122,6 +122,87 @@ async def upsert_provider_grant(
     return _row(row)
 
 
+async def merge_provider_grant(
+    conn,
+    *,
+    target_scope: str,
+    provider: str,
+    collection: Optional[str] = None,
+    attributes: bool = True,
+    geometry: bool = True,
+    granted_by: Optional[str] = None,
+    note: Optional[str] = None,
+) -> bool:
+    """Add permissions to the grant of (target, provider, collection), creating it when missing --
+    never taking one away (the union, as :func:`merge_access` reads two grants). What a migration of
+    older access rules writes, so running it twice, or over grants an admin already set, narrows
+    nothing. True when a row was created or gained a permission."""
+    if not (attributes or geometry):
+        return False
+    status = await conn.execute(
+        """
+        INSERT INTO provider_grants (target_scope, provider, collection, attributes, geometry, request, granted_by, note)
+        VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7)
+        ON CONFLICT (target_scope, provider, COALESCE(collection, '')) DO UPDATE SET
+            attributes = provider_grants.attributes OR EXCLUDED.attributes,
+            geometry = provider_grants.geometry OR EXCLUDED.geometry
+        WHERE (EXCLUDED.attributes AND NOT provider_grants.attributes)
+           OR (EXCLUDED.geometry AND NOT provider_grants.geometry)
+        """,
+        target_scope,
+        provider,
+        _norm_collection(collection),
+        bool(attributes),
+        bool(geometry),
+        granted_by,
+        note,
+    )
+    return status.split()[-1] != "0"
+
+
+async def set_collection_grants(
+    pool: asyncpg.Pool,
+    *,
+    target_scope: str,
+    provider: str,
+    grant: Iterable[str] = (),
+    revoke: Iterable[str] = (),
+    granted_by: Optional[str] = None,
+) -> dict:
+    """The Access tab's checkboxes, in one transaction: each collection in ``grant`` becomes READABLE
+    by ``target_scope`` (attributes and geometry; a narrower grant is widened), each in ``revoke``
+    loses its collection grant. Provider-wide grants are left alone either way -- they are their own
+    checkbox. A collection in both lists is granted. ``{granted, revoked}``: what changed."""
+    wanted = sorted({c for c in (_norm_collection(x) for x in grant) if c})
+    dropped = sorted({c for c in (_norm_collection(x) for x in revoke) if c} - set(wanted))
+    granted = revoked = 0
+    async with pool.acquire() as conn, conn.transaction():
+        for collection in wanted:
+            status = await conn.execute(
+                """
+                INSERT INTO provider_grants (target_scope, provider, collection, attributes, geometry, request, granted_by)
+                VALUES ($1, $2, $3, TRUE, TRUE, FALSE, $4)
+                ON CONFLICT (target_scope, provider, COALESCE(collection, '')) DO UPDATE SET
+                    attributes = TRUE, geometry = TRUE, granted_at = NOW(), granted_by = EXCLUDED.granted_by
+                WHERE NOT (provider_grants.attributes AND provider_grants.geometry)
+                """,
+                target_scope,
+                provider,
+                collection,
+                granted_by,
+            )
+            granted += status.split()[-1] != "0"
+        if dropped:
+            status = await conn.execute(
+                "DELETE FROM provider_grants WHERE target_scope = $1 AND provider = $2 AND collection = ANY($3::text[])",
+                target_scope,
+                provider,
+                dropped,
+            )
+            revoked = int(status.split()[-1])
+    return {"granted": granted, "revoked": revoked}
+
+
 async def revoke_provider_grant(
     pool: asyncpg.Pool, *, target_scope: str, provider: str, collection: Optional[str] = None
 ) -> bool:

@@ -3,41 +3,53 @@ import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {
     SHARED_TARGET,
     collectionLabel,
+    grantChoices,
+    grantDelta,
     grantInput,
     projectTarget,
+    scopeProviderAccess,
     targetLabel,
+    userTarget,
+    type GrantChoice,
     type ProviderGrant,
 } from "@/assets/providerGrants";
+import {fuzzyFilter} from "@/services/fuzzy";
 import type {AdminProject, AssetSchedulesListing} from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
+import {useMeStore} from "@/state/meStore";
 import {useProviderName} from "@/state/providerNamesStore";
 import {sortProjects, sortProjectsBy} from "@/utils/sortProjects";
 
 import AdminSection from "./AdminSection";
 
-// Admin → Providers → Access: which scopes may read which of the provider store's datasets.
+// Admin → Providers → Access: which projects (a provider's collections) each scope may read. THE
+// only control of it -- the older per-scope collection matrix is migrated into these grants at
+// startup and no longer read.
 //
-// Provider data is stored once, in the provider store, and no scope holds a copy. A GRANT maps a
-// scope -- Shared, or a project -- to a dataset, a provider's collection or all of the provider's
-// collections, and says what the scope may read of it: its ATTRIBUTES (search, values, export) and/or
-// its GEOMETRY (tree, delivery, builds, design geometry in an export). Members read through the
-// grant; nothing is copied into their scope, and revoking takes effect on their next request.
+// Provider data is stored once, in the provider store, and no scope holds a copy. Per SCOPE -- Shared,
+// your own personal scope, each project -- and per provider, one checkbox per collection: ticked, the
+// scope reads that collection (its attributes and its geometry); a scope may read many. "All
+// collections" is a provider-wide grant that also covers collections published later. Members read
+// through the grant; nothing is copied into their scope, and a revoke applies on their next request.
 //
 // There is no "request" permission here, on purpose: asking a provider for data runs a job in the
-// store, and every such job is an admin operation. Rows saved from this tab always send it off.
+// store, and every such job is an admin operation.
 //
-// The providers and their collections are what the schedules endpoint reports -- the live workers'
-// declarations -- but every stored grant is listed whether or not a worker advertises it now:
-// offline is not revocation.
+// The collections are what the live workers declare (the schedules endpoint), plus every granted one
+// no worker advertises right now -- offline is not revocation. "Every grant" below lists the stored
+// rows themselves, for the rare grant of only attributes or only geometry, and for notes.
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e));
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
-const ALL = "";
-const select = "bg-gray-800 border border-gray-700 rounded-sm px-1.5 py-0.5 text-xs";
-
 const rowKey = (g: Pick<ProviderGrant, "target_scope" | "provider" | "collection">) =>
     `${g.target_scope}\u0000${g.provider}\u0000${g.collection ?? ""}`;
+
+interface ScopeTarget {
+    target: string;
+    label: string;
+    hint: string;
+}
 
 /** The note, saved on Enter or leaving the field; Escape puts it back. */
 const NoteField: React.FC<{value: string; disabled: boolean; onSave: (next: string) => void}> = ({value, disabled, onSave}) => {
@@ -147,102 +159,127 @@ const GrantRow: React.FC<{
     );
 };
 
-const AddGrant: React.FC<{
-    providers: AssetSchedulesListing["providers"];
-    projects: readonly AdminProject[];
-    onAdded: () => void;
-}> = ({providers, projects, onAdded}) => {
+/** One scope's checkboxes for one provider. */
+const ProviderGrants: React.FC<{
+    scope: ScopeTarget;
+    provider: string;
+    advertised: readonly string[];
+    grants: readonly ProviderGrant[];
+    onGrants: (target: string, provider: string, next: ProviderGrant[] | null) => void;
+}> = ({scope, provider, advertised, grants, onGrants}) => {
     const pn = useProviderName();
-    const live = useMemo(() => projects.filter((p) => !p.archived_at), [projects]);
-    const targets = useMemo(
-        () => [
-            {value: SHARED_TARGET, label: "Shared"},
-            ...sortProjectsBy(live, (p) => p.name).map((p) => ({value: projectTarget(p.id), label: `Project · ${p.name}`})),
-        ],
-        [live],
-    );
-    const [target, setTarget] = useState(SHARED_TARGET);
-    const [providerId, setProviderId] = useState(providers[0]?.provider ?? "");
-    const [collection, setCollection] = useState(ALL);
-    const [attributes, setAttributes] = useState(true);
-    const [geometry, setGeometry] = useState(true);
+    const [filter, setFilter] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    useEffect(() => {
-        if (!providerId && providers[0]) setProviderId(providers[0].provider);
-    }, [providers, providerId]);
+    const access = useMemo(() => scopeProviderAccess(grants, scope.target, provider), [grants, scope.target, provider]);
+    const choices = useMemo(() => {
+        const all = grantChoices(advertised, access);
+        const order = sortProjects(all.map((c) => c.collection));
+        const at = new Map(order.map((c, i) => [c, i]));
+        return [...all].sort((a, b) => (at.get(a.collection) ?? 0) - (at.get(b.collection) ?? 0));
+    }, [advertised, access]);
+    const shown = fuzzyFilter(choices, filter, (c: GrantChoice) => c.collection);
+    const granted = choices.filter((c) => c.granted).length;
 
-    const collections = useMemo(
-        () => sortProjects(providers.find((p) => p.provider === providerId)?.collections ?? []),
-        [providers, providerId],
-    );
-
-    const add = async () => {
+    const run = async (fn: () => Promise<ProviderGrant[] | null>) => {
         setBusy(true);
         setError(null);
         try {
-            await viewerApi.adminSetProviderGrant(
-                grantInput({target_scope: target, provider: providerId, collection: collection || null, attributes, geometry}),
-            );
-            setCollection(ALL);
-            onAdded();
+            onGrants(scope.target, provider, await fn());
         } catch (e) {
             setError(errText(e));
         } finally {
             setBusy(false);
         }
     };
+    const setTicks = (collections: readonly string[], on: boolean) => {
+        const body = grantDelta(choices, collections, on);
+        if (!body.grant.length && !body.revoke.length) return;
+        void run(async () => {
+            const out = await viewerApi.adminSetProviderGrantCollections({target_scope: scope.target, provider, ...body});
+            return out.grants;
+        });
+    };
+    const setAll = (on: boolean) =>
+        void run(async () => {
+            if (on) {
+                await viewerApi.adminSetProviderGrant(grantInput({target_scope: scope.target, provider, collection: null}));
+            } else if (confirm(`Revoke ${scope.label}'s access to every ${pn(provider)} collection?`)) {
+                await viewerApi.adminRevokeProviderGrant({target_scope: scope.target, provider, collection: null});
+            } else {
+                return grants.filter((g) => g.target_scope === scope.target && g.provider === provider);
+            }
+            return null; // re-read: the provider-wide row is not in a batch answer
+        });
+    const filtered = filter.trim() ? " shown" : "";
 
     return (
-        <div className="mx-3 my-2 rounded-sm border border-gray-800 bg-gray-900/40 p-2 space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-                <select className={select} value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Scope">
-                    {targets.map((t) => (
-                        <option key={t.value} value={t.value}>
-                            {t.label}
-                        </option>
-                    ))}
-                </select>
-                <select
-                    className={select}
-                    value={providerId}
-                    onChange={(e) => {
-                        setProviderId(e.target.value);
-                        setCollection(ALL);
-                    }}
-                    aria-label="Provider"
-                >
-                    {providers.map((p) => (
-                        <option key={p.provider} value={p.provider} title={p.provider}>
-                            {pn(p.provider)}
-                        </option>
-                    ))}
-                </select>
-                <select className={select} value={collection} onChange={(e) => setCollection(e.target.value)} aria-label="Collection">
-                    <option value={ALL}>All collections</option>
-                    {collections.map((c) => (
-                        <option key={c} value={c}>
-                            {c}
-                        </option>
-                    ))}
-                </select>
-                <label className="inline-flex items-center gap-1">
-                    <input type="checkbox" checked={attributes} onChange={(e) => setAttributes(e.target.checked)} />
-                    attributes
+        <div className="rounded-sm border border-gray-800 bg-gray-900/40 p-2 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+                <span className="font-medium text-gray-200" title={provider}>
+                    {pn(provider)}
+                </span>
+                <span className="text-gray-500">
+                    {access.all ? "every collection" : `${granted} of ${choices.length}`}
+                </span>
+                <label className="inline-flex items-center gap-1" title="A provider-wide grant: every collection, the ones published later included">
+                    <input type="checkbox" checked={access.all} disabled={busy} onChange={(e) => setAll(e.target.checked)} />
+                    All collections
                 </label>
-                <label className="inline-flex items-center gap-1">
-                    <input type="checkbox" checked={geometry} onChange={(e) => setGeometry(e.target.checked)} />
-                    geometry
-                </label>
-                <button
-                    type="button"
-                    className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
-                    disabled={busy || !providerId || (!attributes && !geometry)}
-                    onClick={() => void add()}
-                >
-                    {busy ? "…" : "Add grant"}
-                </button>
             </div>
+            {!access.all && (
+                <>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <input
+                            type="search"
+                            value={filter}
+                            onChange={(e) => setFilter(e.target.value)}
+                            placeholder={`Filter ${choices.length} collections…`}
+                            aria-label={`Filter ${pn(provider)} collections for ${scope.label}`}
+                            className="w-56 rounded-sm border border-gray-700 bg-gray-800 px-2 py-0.5 text-xs text-gray-100 placeholder:text-gray-500"
+                        />
+                        <button
+                            type="button"
+                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                            disabled={busy || shown.every((c) => c.granted)}
+                            onClick={() => setTicks(shown.map((c) => c.collection), true)}
+                        >
+                            Select all{filtered}
+                        </button>
+                        <button
+                            type="button"
+                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                            disabled={busy || shown.every((c) => !c.granted)}
+                            onClick={() => setTicks(shown.map((c) => c.collection), false)}
+                        >
+                            Deselect all{filtered}
+                        </button>
+                    </div>
+                    {choices.length === 0 && (
+                        <div className="text-[11px] text-gray-500">Nothing is advertised and nothing is granted.</div>
+                    )}
+                    <ul className="max-h-64 overflow-auto grid grid-cols-2 sm:grid-cols-4 gap-x-2">
+                        {shown.map((c) => (
+                            <li key={c.collection}>
+                                <label
+                                    className="flex items-center gap-2 py-0.5 px-1 text-xs rounded-sm cursor-pointer hover:bg-gray-800/60"
+                                    title={c.advertised ? c.collection : "Granted, but no online worker advertises it right now. Kept until unticked."}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={c.granted}
+                                        disabled={busy}
+                                        aria-label={`${scope.label} reads ${c.collection}`}
+                                        onChange={(e) => setTicks([c.collection], e.target.checked)}
+                                    />
+                                    <span className="truncate text-gray-200">{c.collection}</span>
+                                    {!c.advertised && <span className="text-[10px] text-amber-400">offline</span>}
+                                </label>
+                            </li>
+                        ))}
+                    </ul>
+                </>
+            )}
             {error && <div className="text-xs text-red-300">{error}</div>}
         </div>
     );
@@ -252,12 +289,16 @@ const ProviderAccessSection: React.FC<{projects: readonly AdminProject[]}> = ({p
     const [grants, setGrants] = useState<ProviderGrant[] | null>(null);
     const [providers, setProviders] = useState<AssetSchedulesListing["providers"]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [scopeFilter, setScopeFilter] = useState("");
+    const mySub = useMeStore((s) => s.sub);
+    const myName = useMeStore((s) => s.displayName || s.email);
+    const pn = useProviderName();
 
     const load = useCallback(async () => {
         try {
             const [list, schedules] = await Promise.all([
                 viewerApi.adminProviderGrants(),
-                // Only for the providers and their collections; a failure leaves the list of grants usable.
+                // Only for the providers and their collections; a failure leaves the grants usable.
                 viewerApi.adminAssetSchedules().catch(() => null),
             ]);
             setGrants(list);
@@ -271,7 +312,37 @@ const ProviderAccessSection: React.FC<{projects: readonly AdminProject[]}> = ({p
         void load();
     }, [load]);
 
+    /** Replace one scope's grants of one provider with `next` (null: read everything again). */
+    const onGrants = useCallback(
+        (target: string, provider: string, next: ProviderGrant[] | null) => {
+            if (next === null) {
+                void load();
+                return;
+            }
+            setGrants((cur) => [...(cur ?? []).filter((g) => !(g.target_scope === target && g.provider === provider)), ...next]);
+        },
+        [load],
+    );
+
     const projectNames = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+    const scopes: ScopeTarget[] = useMemo(() => {
+        const out: ScopeTarget[] = [{target: SHARED_TARGET, label: "Shared", hint: "everyone with access to this viewer"}];
+        if (mySub) out.push({target: userTarget(mySub), label: "Your personal scope", hint: `${myName || mySub} only`});
+        for (const p of sortProjectsBy(
+            projects.filter((x) => !x.archived_at),
+            (x) => x.name,
+        )) {
+            out.push({target: projectTarget(p.id), label: p.name, hint: p.slug});
+        }
+        return out;
+    }, [projects, mySub, myName]);
+    // Every provider a worker declares, plus any a stored grant names that none declares now.
+    const providerIds = useMemo(() => {
+        const ids = new Set([...providers.map((p) => p.provider), ...(grants ?? []).map((g) => g.provider)]);
+        return [...ids].sort();
+    }, [providers, grants]);
+    const advertisedOf = useMemo(() => new Map(providers.map((p) => [p.provider, p.collections ?? []])), [providers]);
+    const shownScopes = fuzzyFilter(scopes, scopeFilter, (s) => `${s.label} ${s.hint}`);
     const sorted = useMemo(
         () =>
             [...(grants ?? [])].sort(
@@ -282,6 +353,16 @@ const ProviderAccessSection: React.FC<{projects: readonly AdminProject[]}> = ({p
             ),
         [grants, projectNames],
     );
+
+    const summary = (target: string) =>
+        providerIds
+            .map((p) => {
+                const a = scopeProviderAccess(grants ?? [], target, p);
+                if (a.all) return `${pn(p)}: all`;
+                return a.collections.size ? `${pn(p)}: ${a.collections.size}` : null;
+            })
+            .filter(Boolean)
+            .join(" · ") || "nothing granted";
 
     return (
         <AdminSection
@@ -299,41 +380,83 @@ const ProviderAccessSection: React.FC<{projects: readonly AdminProject[]}> = ({p
                 </button>
             }
         >
-            <div className="px-3 pt-2 pb-1 text-xs text-gray-400">
-                Provider data is stored once, in the provider store. A grant lets a scope read a provider's collection (or
-                all of its collections) from there: its attributes, its geometry, or both. Nothing is copied into the scope,
-                and a revoke applies on its next request. Asking a provider for data is always an admin operation.
+            <div className="px-3 pt-2 pb-1 text-xs text-gray-400 space-y-1">
+                <p>
+                    Which projects each scope may read, per provider. Ticked, the scope reads that collection's attributes and
+                    geometry from the provider store; a scope may read many. “All collections” also covers ones published later.
+                </p>
+                <p>
+                    Nothing is copied into the scope, and a revoke applies on its next request. Keeping provider data current is
+                    the scheduled jobs' work, always an admin's.
+                </p>
             </div>
             {error && <div className="px-3 py-1 text-xs text-red-300">{error}</div>}
-            {grants && grants.length === 0 && <div className="px-3 py-2 text-xs text-gray-500">No scope has a grant.</div>}
-            {sorted.length > 0 && (
-                <div className="overflow-x-auto px-3">
-                    <table className="w-full text-xs">
-                        <thead className="text-left text-gray-500">
-                            <tr>
-                                <th className="px-2 py-1 font-normal">Scope</th>
-                                <th className="px-2 py-1 font-normal">Provider</th>
-                                <th className="px-2 py-1 font-normal">Collection</th>
-                                <th className="px-2 py-1 font-normal">Attributes</th>
-                                <th className="px-2 py-1 font-normal">Geometry</th>
-                                <th className="px-2 py-1 font-normal">Note</th>
-                                <th className="px-2 py-1 font-normal" />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sorted.map((g) => (
-                                <GrantRow key={rowKey(g)} grant={g} projectNames={projectNames} onChanged={() => void load()} />
-                            ))}
-                        </tbody>
-                    </table>
+            {grants !== null && providerIds.length === 0 && (
+                <div className="px-3 py-2 text-xs text-gray-500">
+                    No online provider is advertised right now and nothing is granted.
                 </div>
             )}
-            {providers.length > 0 ? (
-                <AddGrant providers={providers} projects={projects} onAdded={() => void load()} />
-            ) : (
-                <div className="px-3 py-2 text-xs text-gray-500">
-                    No online provider is advertised right now, so a grant cannot be added; the ones above stay in force.
+            {grants !== null && providerIds.length > 0 && (
+                <div className="px-3 py-1 space-y-1.5">
+                    {scopes.length > 6 && (
+                        <input
+                            type="search"
+                            value={scopeFilter}
+                            onChange={(e) => setScopeFilter(e.target.value)}
+                            placeholder={`Filter ${scopes.length} scopes…`}
+                            aria-label="Filter scopes"
+                            className="w-64 rounded-sm border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500"
+                        />
+                    )}
+                    {shownScopes.map((scope) => (
+                        <details key={scope.target} className="rounded-sm border border-gray-800" data-testid={`access-scope-${scope.target}`}>
+                            <summary className="cursor-pointer select-none px-2 py-1.5 text-xs flex flex-wrap items-baseline gap-2">
+                                <span className="font-medium text-gray-100">{scope.label}</span>
+                                <span className="text-gray-500">{scope.hint}</span>
+                                <span className="ml-auto text-gray-400">{summary(scope.target)}</span>
+                            </summary>
+                            <div className="px-2 pb-2 space-y-1.5">
+                                {providerIds.map((provider) => (
+                                    <ProviderGrants
+                                        key={provider}
+                                        scope={scope}
+                                        provider={provider}
+                                        advertised={advertisedOf.get(provider) ?? []}
+                                        grants={grants}
+                                        onGrants={onGrants}
+                                    />
+                                ))}
+                            </div>
+                        </details>
+                    ))}
                 </div>
+            )}
+            {sorted.length > 0 && (
+                <details className="px-3 py-2">
+                    <summary className="cursor-pointer select-none text-xs text-gray-400">
+                        Every grant ({sorted.length}) — attributes or geometry only, notes
+                    </summary>
+                    <div className="overflow-x-auto mt-1">
+                        <table className="w-full text-xs">
+                            <thead className="text-left text-gray-500">
+                                <tr>
+                                    <th className="px-2 py-1 font-normal">Scope</th>
+                                    <th className="px-2 py-1 font-normal">Provider</th>
+                                    <th className="px-2 py-1 font-normal">Collection</th>
+                                    <th className="px-2 py-1 font-normal">Attributes</th>
+                                    <th className="px-2 py-1 font-normal">Geometry</th>
+                                    <th className="px-2 py-1 font-normal">Note</th>
+                                    <th className="px-2 py-1 font-normal" />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sorted.map((g) => (
+                                    <GrantRow key={rowKey(g)} grant={g} projectNames={projectNames} onChanged={() => void load()} />
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
             )}
         </AdminSection>
     );

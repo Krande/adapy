@@ -1,5 +1,12 @@
 // Which of an asset provider's collections may be REQUESTED in each scope.
 //
+// THE MATRIX PART IS DEPRECATED: which scope uses which provider collection is the provider grants
+// (`@/assets/providerGrants`, Admin ▸ Providers ▸ Access). Core migrates the setting into grants at
+// startup, deletes it, refuses to store it again, and no core code reads it. Its readers stay for
+// plugins built against API 1.8.0. The plugin-spec readers below (`assetProviderCollections` and
+// the request/node-request declarations) are NOT deprecated: they are how core learns a provider's
+// collections and jobs.
+//
 // Pure, on purpose: the API client reaches `auth/oidc.ts`, which touches
 // `sessionStorage` at module scope, so anything importing it needs a DOM.
 // Nothing here imports it. That

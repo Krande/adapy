@@ -50,6 +50,24 @@ test("set is a PUT and revoke a DELETE, each with a JSON body", async () => {
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { target_scope: "shared", provider: "vendor", collection: null });
 });
 
+test("the checkboxes are one POST of what to grant and what to revoke", async () => {
+  calls.length = 0;
+  await providerGrantsApi.adminSetProviderGrantCollections({
+    target_scope: "projects/p1",
+    provider: "vendor",
+    grant: ["ALPHA"],
+    revoke: ["beta"],
+  });
+  assert.match(calls[0].url, /\/admin\/provider-grants\/collections$/);
+  assert.equal(calls[0].init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+    target_scope: "projects/p1",
+    provider: "vendor",
+    grant: ["ALPHA"],
+    revoke: ["beta"],
+  });
+});
+
 test("a scope's own grants are read from the scope route", async () => {
   calls.length = 0;
   await providerGrantsApi.scopeProviderGrants("project:p1");

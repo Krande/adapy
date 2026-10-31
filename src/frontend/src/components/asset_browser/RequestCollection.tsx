@@ -1,11 +1,11 @@
 // "Request from a provider": ask a provider for one of its collections, and
-// publish it into this scope, from the Assets tab.
+// publish it into the provider store, from the Assets tab.
 //
-// WHAT IS OFFERED is what the live workers advertise, narrowed by the scope's
-// grants (Admin ▸ Providers, `public.assets.scope_collections`): only a provider
-// whose spec declares `asset_collection_request` appears, and only the
-// collections this scope may ask for. A grant is a picker filter, and this is
-// the picker.
+// AN ADMIN'S OPERATION. Every provider job runs in the provider store, and keeping provider data
+// current is the scheduled jobs' work: an admin is offered every collection the live workers
+// advertise (only a provider whose spec declares `asset_collection_request` appears). A member is
+// told so instead -- which collections their scope READS is an admin's grant (Admin ▸ Providers ▸
+// Access), not something a request can change.
 //
 // THE FLOW is `@/assets/collectionRequest`: the provider's job stages, core
 // publishes. Both jobs go to the toast, so a request can outlive this panel;
@@ -25,15 +25,7 @@ import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
 import type { ScopeUrl } from "@/services/api/client";
 import { conversionApi } from "@/services/api/conversion";
-import {
-    ASSET_SCOPE_COLLECTIONS_KEY,
-    assetProviderCollections,
-    enabledForScope,
-    isCollectionEnabled,
-    parseScopeCollections,
-    type AssetProviderCollections,
-    type ScopeCollectionsMap,
-} from "@/services/assetScopeCollections";
+import { assetProviderCollections, type AssetProviderCollections } from "@/services/assetScopeCollections";
 import { viewerApi } from "@/services/viewerApi";
 import { useMeStore } from "@/state/meStore";
 import { useProviderName } from "@/state/providerNamesStore";
@@ -103,10 +95,8 @@ const RequestCollection: React.FC<{
     belowRequest?: React.ReactNode;
 }> = ({ scope, onPublished, onChanged, belowRequest }) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const mySub = useMeStore((s) => s.sub);
     const pn = useProviderName();
     const [providers, setProviders] = useState<AssetProviderCollections[] | null>(null);
-    const [grants, setGrants] = useState<ScopeCollectionsMap>({});
     const [staged, setStaged] = useState<Staged[]>([]);
     const [providerId, setProviderId] = useState("");
     const [collection, setCollection] = useState("");
@@ -122,15 +112,13 @@ const RequestCollection: React.FC<{
         // unpublished requests are listed from there as well; a member has none to see.
         const stagedIn = async (s: string): Promise<Staged[]> =>
             (await assetsApi.listStaging(s as ScopeUrl).catch(() => ({ staged: [] }))).staged.map((x) => ({ ...x, scope: s }));
-        const [plugins, raw, ownStaged, storeStaged] = await Promise.all([
+        const [plugins, ownStaged, storeStaged] = await Promise.all([
             viewerApi.listBackendPlugins().catch(() => ({ plugins: [] })),
-            viewerApi.getPublicSetting(ASSET_SCOPE_COLLECTIONS_KEY).catch(() => null),
             stagedIn(scope),
             isAdmin && scope !== PROVIDER_STORE_SCOPE ? stagedIn(PROVIDER_STORE_SCOPE) : Promise.resolve([] as Staged[]),
         ]);
         const requestable = assetProviderCollections(plugins.plugins ?? []).filter((p) => p.request);
         setProviders(requestable);
-        setGrants(parseScopeCollections(raw));
         setStaged([...ownStaged, ...storeStaged]);
         setProviderId((cur) => (requestable.some((p) => p.providerId === cur) ? cur : requestable[0]?.providerId ?? ""));
     }, [scope, isAdmin]);
@@ -141,13 +129,7 @@ const RequestCollection: React.FC<{
     }, [load]);
 
     const provider = providers?.find((p) => p.providerId === providerId) ?? null;
-    // As the signed-in user: `user:me` reads their own `user:<sub>` entry, and offers nothing until
-    // an admin ticked something there.
-    const enabled = provider ? enabledForScope(grants, scope, provider.providerId, mySub) : null;
-    const offered = useMemo(
-        () => (provider ? provider.collections.filter((c) => isCollectionEnabled(enabled, c)) : []),
-        [provider, enabled],
-    );
+    const offered = useMemo(() => (provider ? [...provider.collections] : []), [provider]);
     useEffect(() => {
         if (!offered.includes(collection)) setCollection(offered[0] ?? "");
     }, [offered, collection]);
@@ -189,7 +171,13 @@ const RequestCollection: React.FC<{
 
     return (
         <div className="px-2 py-2 space-y-1.5 border-b border-gray-700/70 text-xs">
-            {provider && request && (
+            {provider && request && blockedForUser && (
+                <div className="text-gray-500" data-testid="request-admin-only">
+                    Provider data is kept current by an admin. To read another of {pn(provider.providerId)}'s collections
+                    here, ask an admin to grant it to this scope (Admin ▸ Providers ▸ Access).
+                </div>
+            )}
+            {provider && request && !blockedForUser && (
                 // Folded by default, as Files is: a request is made now and then, the tree is used
                 // all the time. What a request is doing (stage, error, result) shows outside it.
                 <details>
@@ -268,13 +256,6 @@ const RequestCollection: React.FC<{
                             onChange={setPicks}
                             disabled={busy}
                         />
-                    )}
-                    {enabled !== null && (
-                        <div className="text-gray-500">
-                            {offered.length === 0
-                                ? "Nothing from this provider is enabled for this scope. An admin enables collections under Admin ▸ Providers."
-                                : `${offered.length} of ${provider.collections.length} advertised enabled for this scope.`}
-                        </div>
                     )}
                     {provider.collections.length === 0 && (
                         <div className="text-gray-500">No online worker advertises this provider's collections right now.</div>

@@ -1,6 +1,6 @@
 # Provider data is global; scopes get grants
 
-Status: design, plus phase-1 scaffolding (migration 045, `Scope.providers()`, `db/provider_grants.py`, `/api/admin/provider-grants`).
+Status: phases 1-3 implemented; from phase 5, grants are the only scope access control (the matrix and the share seeding are migrated, see §9). Phase 4 (moving the legacy copies into the store) and the purge are open.
 
 ## Goal
 
@@ -138,7 +138,7 @@ There is no signature change. `job_entrypoint(options, *, storage, scope, on_pro
 
 Plugin-side changes, to be made in those repos and not here:
 
-- **web3d** `mirror.py:1266,1345-1404`: read the projects to mirror from `GET /api/provider-grants/datasets?provider=<id>`, or from the store's dataset list, instead of `public.assets.scope_collections`. Core keeps writing that setting from grants during phases 2-4, so nothing breaks before the switch.
+- **web3d** `mirror.py` (done): the projects to mirror are no longer read from `public.assets.scope_collections`. Without the mirror setting's own `projects`, they are every project the provider offers minus the admin's sweep exclusions (`asset_sweeps.defaults.web3d`) -- the list an "Export every project" sweep runs over. Which scope may read a project is a grant and does not decide what is kept current.
 - **E3D** CLI publish (`assets/publish.py:392-478`, `viewer_staging.py:122-143`): target `ADAPY_API_SCOPE=providers` with an admin token. The comments at `adapy_job.py:3510` and `:2192-2198` ("one state per scope") become "one state".
 - Both specs: nothing to add. `requires_admin` keeps meaning "who may ask", and the new `request` grant is checked as well as it, never instead of it.
 
@@ -147,8 +147,10 @@ Plugin-side changes, to be made in those repos and not here:
 1. **Grants and the store scope.** This commit: migration 045, `Scope.providers()` (admin-only, `parse_scope("providers")`, worker reconstruction), `db/provider_grants.py`, `/api/admin/provider-grants`, tests. Next in this phase: the Admin → Providers → Access UI. No read or write changes yet.
 2. **Read through grants.** `resolve_dataset`, search `granted`, export origin `providers` and the geometry-grant rule, the blob route, and `GET /scopes/{s}/provider-grants`. With the store empty, behaviour is unchanged.
 3. **Writes go to the store.** `job_scope()`, sweeps and schedules without scope, provider options in the store, the change feed in the store, member requests via `request`, transitional auto-grant. Frontend: drop the scope dropdowns, read job summaries from the returned scope, fix the `providerRescan` hard-coded `shared`. Behind `ADA_PROVIDER_STORE_WRITES` (default on once tested). New extractions land once, and old copies stay readable through the fallback.
-4. **Migrate and dedup** the legacy copies (§7), with rollback. Ship the web3d mirror change in this phase.
-5. **Clean up.** Purge shadowed copies; retire `scope_collections`, provider-data attr shares and the fold-to-shared dedup; drop the per-scope provider aliases (or keep them as overrides); make `scope` columns of the run tables nullable and documented as "requested from".
+4. **Migrate and dedup** the legacy copies (§7), with rollback. *Open.* Until it lands, a granted scope reads its own legacy copy until the store holds the dataset.
+5. **Clean up.**
+   - *Done:* grants are the only scope access control. The Access section is per scope, per provider, one checkbox per collection (read: attributes and geometry), with "All collections" for a provider-wide grant and the raw grant rows kept under "Every grant"; `POST /api/admin/provider-grants/collections` applies a batch of ticks in one transaction. `scope_collections` is retired: at startup `provider_grant_migration.py` turns explicit entries into read grants, Shared and live projects without an entry ("unrestricted") into read grants for every collection the store's attribute catalogue or their own copy holds, personal scopes' entries into grants, and attr shares into attributes grants (per collection, or provider-wide for 040); grants are only ever added, the setting is deleted (its last value kept in `provider_grants.legacy_migrated`), and storing it again is refused (410). The request picker offers an admin every advertised collection; a member is pointed to an admin. The web3d mirror no longer reads the matrix (§8). The per-scope provider display names stay where they are, in the Providers tab.
+   - *Open:* purge the shadowed copies; stop reading attr shares and drop the fold-to-shared dedup (both still serve legacy copies until phase 4 moves them); drop the 1.8.0 matrix readers from the plugin API (deprecated, kept so plugins built against it load); make `scope` columns of the run tables nullable and documented as "requested from".
 
 ## 10. Open questions
 
@@ -158,5 +160,5 @@ Plugin-side changes, to be made in those repos and not here:
 4. **Divergent per-scope provider options.** If two scopes extract one project with different options (or different credentials), is one configuration per `(provider, project)` acceptable, with an admin resolving the conflicts?
 5. **Shared derived cache.** Builds triggered by members write core-composed caches into the store. Is that acceptable?
 6. **Grants to personal scopes and to `shared`.** Allow both, as now?
-7. **Seeding grants from `scope_collections`.** For `shared` and projects, "missing" there means unrestricted. Should migration grant everything such scopes could request, or only what they actually held?
+7. **Seeding grants from `scope_collections`.** *Decided:* explicit per-collection grants for everything such a scope could reach -- every collection the store holds of the provider, plus each one the scope held a copy of -- rather than a provider-wide grant, so the Access checkboxes show exactly what was given and nothing later is granted by default.
 8. **Revision history.** Copy all revisions (safe, temporarily larger) or only the latest plus the spines it references?

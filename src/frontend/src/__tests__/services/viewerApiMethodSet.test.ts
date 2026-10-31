@@ -100,7 +100,8 @@ const EXPECTED_METHODS = [
   "adminDbShareAttrCollection", "adminDbShareAttrProvider", "adminDbStorage", "adminDbTableRows",
   "adminDbUnshareAttrCollection", "adminDbUnshareAttrProvider",
   // Provider grants (providerGrants): which scopes read which of the provider store's datasets.
-  "adminProviderGrants", "adminRevokeProviderGrant", "adminSetProviderGrant", "scopeProviderGrants",
+  "adminProviderGrants", "adminRevokeProviderGrant", "adminSetProviderGrant", "adminSetProviderGrantCollections",
+  "scopeProviderGrants",
   // Apply changes: reset a collection's cursor (assetSchedules).
   "adminResetAssetApplyCursor",
   // A provider's shared worker budget across its runs (assetSchedules).

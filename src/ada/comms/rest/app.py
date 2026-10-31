@@ -210,6 +210,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.exception("db: pool init failed; running shared-only")
             app.state.db_pool = None
 
+        # Grants are the only scope -> provider-collection control: once, the per-scope collection
+        # matrix and the attribute shares become grants (`provider_grant_migration`). A failure is
+        # logged and retried on the next start; the API serves meanwhile.
+        if app.state.db_pool is not None:
+            from .provider_grant_migration import migrate_legacy_access
+
+            try:
+                await migrate_legacy_access(app.state.db_pool)
+            except Exception:
+                logger.exception("provider grants: could not migrate the legacy access rules; retried on next start")
+
         # Reconcile the capability requirements from the database into KV. The
         # admin write publishes directly, but best-effort; doing it again here
         # means a restart repairs a publish that failed, rather than leaving
@@ -2753,8 +2764,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = (
             'window.COMMS_MODE = "rest";\n'
             'window.API_BASE = "/api";\n'
-            f'window.CONVERT_ENABLED = {"true" if queue.enabled else "false"};\n'
-            f'window.AUTH_ENABLED = {"true" if a.enabled else "false"};\n'
+            f"window.CONVERT_ENABLED = {'true' if queue.enabled else 'false'};\n"
+            f"window.AUTH_ENABLED = {'true' if a.enabled else 'false'};\n"
             f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
             f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"
             f"window.AUTH_AUDIENCE = {_json.dumps(a.audience)};\n"
