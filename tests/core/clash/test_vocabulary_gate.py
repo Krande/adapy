@@ -98,6 +98,23 @@ def test_asset_vocabulary_gate_is_empty():
     )
 
 
+#: ``ada.geom_compare`` compares two sources' tessellations and must not know whose either is: the
+#: core list plus the vendor and provider names a comparison was first built against.
+GEOM_COMPARE_FORBIDDEN = (*FORBIDDEN, "web3d", "aveva", "rvm")
+
+
+def test_geometry_comparison_names_no_source():
+    import ada.geom_compare
+
+    pkg = Path(ada.geom_compare.__file__).resolve().parent
+    hits = _grep_package(r"\b(" + "|".join(GEOM_COMPARE_FORBIDDEN) + r")\b", pkg)
+    assert not hits, (
+        f"ada.geom_compare names a source ({GEOM_COMPARE_FORBIDDEN}):\n  "
+        + "\n  ".join(hits)
+        + "\n\nTwo geometry sources of the same elements; never whose they are."
+    )
+
+
 def test_clash_names_no_vendor_system_or_detailing_package():
     pattern = "|".join(FORBIDDEN)
     hits = _grep_package(pattern, CLASH_PKG)

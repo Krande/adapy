@@ -84,9 +84,14 @@ SWEEP = "sweep"
 #: Only what changed since core's cursor, per collection, applied as element-level patches --
 #: driven like a sweep. See routes/asset_apply_changes.py and docs/design/apply-changes.md.
 APPLY_CHANGES = "apply-changes"
-KINDS = (CHANGE_CHECK, "job", SWEEP, APPLY_CHANGES)
+#: Two providers' tessellations of each collection compared element by element -- driven like a
+#: sweep. See routes/geometry_compare.py and docs/design/geometry-compare.md.
+GEOMETRY_COMPARE = "geometry-compare"
+KINDS = (CHANGE_CHECK, "job", SWEEP, APPLY_CHANGES, GEOMETRY_COMPARE)
 #: Kinds whose row may name no collection: the driver supplies each one in turn.
-COLLECTIONLESS_KINDS = (SWEEP, APPLY_CHANGES)
+COLLECTIONLESS_KINDS = (SWEEP, APPLY_CHANGES, GEOMETRY_COMPARE)
+#: Kinds the sweep driver runs (``asset_sweeps._drive``), one collection at a time.
+DRIVEN_KINDS = COLLECTIONLESS_KINDS
 #: The multi-choice setting of an apply-changes entry: which targets to patch. Never empty.
 APPLY_TARGETS = "apply_targets"
 #: A setting's ``choices`` value asking core to offer the users earlier change checks reported.
@@ -384,7 +389,8 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
         out.append(setting)
     if entry.get("kind") == APPLY_CHANGES:
         out.append(dict(MISSING_FULL_EXPORT_SETTING, choices=[dict(c) for c in MISSING_FULL_EXPORT_SETTING["choices"]]))
-    if entry.get("kind") in (SWEEP, APPLY_CHANGES):
+    # A comparison builds both sides itself: "pre-build meshes" would add nothing to it.
+    if entry.get("kind") in DRIVEN_KINDS and entry.get("kind") != GEOMETRY_COMPARE:
         out.append(dict(PREBUILD_MESHES_SETTING, choices=[dict(c) for c in PREBUILD_MESHES_SETTING["choices"]]))
     return out
 
@@ -533,7 +539,7 @@ async def build_options(
     if picks not in (None, {}):
         # Core's per-collection overrides (see collection_choice_decls): only on runs that ask a
         # provider per collection. Stored with the options; the driver takes them off again.
-        if (entry.get("kind") or "job") not in (SWEEP, APPLY_CHANGES):
+        if (entry.get("kind") or "job") not in DRIVEN_KINDS:
             if validate:
                 raise HTTPException(status_code=400, detail=f"{COLLECTION_CHOICES} is not a setting of {entry['id']!r}")
         else:
@@ -589,7 +595,7 @@ def settings_of(entry: dict, options: dict) -> dict:
     entry's kind (:data:`CORE_SETTINGS`) included."""
     names = [s if isinstance(s, str) else (s or {}).get("name") for s in entry.get("settings") or ()]
     names += list(CORE_SETTINGS.get(entry.get("kind") or "", ()))
-    if (entry.get("kind") or "job") in (SWEEP, APPLY_CHANGES):
+    if (entry.get("kind") or "job") in DRIVEN_KINDS:
         names.append(COLLECTION_CHOICES)
     return {n: options[n] for n in names if n and n in options}
 

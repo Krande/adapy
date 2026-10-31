@@ -128,6 +128,8 @@ from .asset_prebuild import (
 from .asset_schedules import (
     APPLY_CHANGES,
     COLLECTION_CHOICES,
+    DRIVEN_KINDS,
+    GEOMETRY_COMPARE,
     PREBUILD_MESHES,
     SWEEP,
     build_options,
@@ -212,7 +214,7 @@ async def sweep_entry(ctx: RestContext, provider: str, job: str) -> tuple[list[d
         return specs, None
     specs = (await provider_specs(ctx)).get(provider) or []
     found = find_entry(specs, job)
-    return specs, found if found is not None and found[1].get("kind") in (SWEEP, APPLY_CHANGES) else None
+    return specs, found if found is not None and found[1].get("kind") in DRIVEN_KINDS else None
 
 
 def offered_names(offered: list[str], wanted: list[str]) -> tuple[list[str], list[str]]:
@@ -576,6 +578,11 @@ async def _drive(
 
         async def one(*args, **kw) -> bool:
             return await apply_one(*args, run_state=apply_state, **kw)
+
+    elif entry.get("kind") == GEOMETRY_COMPARE:
+        # Builds both providers' tessellations of the collection and compares them on a worker
+        # (routes/geometry_compare.py): no provider job, so no provider worker slot either.
+        from .geometry_compare import compare_one as one  # noqa: F811
 
     # Collections another live run is working on wait here (`waiting`) and are tried again once the
     # lanes have nothing else to start; one still held after BUSY_WAIT_S ends `busy`.

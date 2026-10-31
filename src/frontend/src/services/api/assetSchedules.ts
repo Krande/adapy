@@ -75,7 +75,7 @@ export interface ProviderScheduleJob {
    *  (`routes/asset_sweeps.py`). Its schedule names no collection.
    *  `apply-changes`: one collection, or ALL (an empty collection, driven like a sweep), keeping
    *  the provider store current with what changed since a per-collection cursor. */
-  kind: "change-check" | "job" | "sweep" | "apply-changes";
+  kind: "change-check" | "job" | "sweep" | "apply-changes" | "geometry-compare";
   label: string;
   description: string | null;
   settings: ScheduleSetting[];

@@ -64,10 +64,16 @@ import SweepDefaults from "./SweepDefaults";
 const errText = (e: unknown) => (e instanceof ApiError ? e.detail || e.message : e instanceof Error ? e.message : String(e));
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—");
 
+/** Kinds a run covers "all projects" or one, started like a sweep (one run, an item per collection):
+ *  apply-changes and the geometry comparison. */
+function allOrOne(kind: string | null | undefined): boolean {
+    return kind === "apply-changes" || kind === "geometry-compare";
+}
+
 function lastRunText(s: ProviderSchedule): {text: string; tone: string} {
     const run = s.last_run;
     if (s.last_skipped_reason) return {text: `skipped: ${s.last_skipped_reason}`, tone: "text-amber-300"};
-    if (s.kind === "sweep" || s.kind === "apply-changes") {
+    if (s.kind === "sweep" || allOrOne(s.kind)) {
         return s.last_fired_at || s.last_job_id
             ? {text: `swept ${fmt(s.last_fired_at)}; see Sweeps below`, tone: "text-gray-300"}
             : {text: "not run yet", tone: "text-gray-500"};
@@ -231,14 +237,14 @@ const AddSchedule: React.FC<{
 }> = ({provider, frequencies, onAdded, onSwept}) => {
     const [jobId, setJobId] = useState(provider.jobs[0]?.id ?? "");
     const collections = useMemo(() => sortProjects(provider.collections), [provider.collections]);
-    const [collection, setCollection] = useState(provider.jobs[0]?.kind === "apply-changes" ? "" : (collections[0] ?? ""));
+    const [collection, setCollection] = useState(allOrOne(provider.jobs[0]?.kind) ? "" : (collections[0] ?? ""));
     const [frequency, setFrequency] = useState("daily");
     const [settings, setSettings] = useState<Record<string, unknown>>({});
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const job = provider.jobs.find((j) => j.id === jobId);
     const sweep = job?.kind === "sweep";
-    const apply = job?.kind === "apply-changes";
+    const apply = allOrOne(job?.kind);
     const driven = sweep || apply;
     const choiceDecls = useMemo(() => parseCollectionChoiceDecls(provider.collection_choices), [provider.collection_choices]);
 
@@ -246,7 +252,7 @@ const AddSchedule: React.FC<{
         setJobId(id);
         // Apply-changes defaults to every collection; any other job needs one named.
         const next = provider.jobs.find((j) => j.id === id);
-        if (next?.kind === "apply-changes") setCollection("");
+        if (allOrOne(next?.kind)) setCollection("");
         else if (!collection) setCollection(collections[0] ?? "");
     };
 
@@ -470,7 +476,7 @@ const ScheduleRow: React.FC<{
                 {!s.declared && <div className="text-[11px] text-amber-300">the provider no longer declares this job</div>}
             </td>
             <td className="px-2 py-1.5 font-mono">
-                {s.kind === "sweep" ? "(every)" : s.kind === "apply-changes" && !s.collection ? "All" : (s.collection ?? "—")}
+                {s.kind === "sweep" ? "(every)" : allOrOne(s.kind) && !s.collection ? "All" : (s.collection ?? "—")}
                 {s.kind === "apply-changes" && (
                     <ApplyCursors
                         provider={s.provider}
@@ -507,7 +513,7 @@ const ScheduleRow: React.FC<{
                             value={settings}
                             onChange={setSettings}
                         />
-                        {(s.kind === "sweep" || s.kind === "apply-changes") && (
+                        {(s.kind === "sweep" || allOrOne(s.kind)) && (
                             <CollectionChoicesEditor
                                 decls={choiceDecls}
                                 collections={s.collection ? [s.collection] : null}
@@ -587,7 +593,7 @@ const ScheduleRow: React.FC<{
                     onClick={() =>
                         void act("run", () =>
                             // An apply-changes run is started like a sweep's: one run, an item per collection.
-                            s.kind === "apply-changes"
+                            allOrOne(s.kind)
                                 ? viewerApi.adminStartAssetSweep({
                                       provider: s.provider,
                                       job: s.job,
@@ -716,7 +722,7 @@ const ProviderSchedulesSection: React.FC = () => {
                         onSwept={() => void load()}
                     />
                     {p.jobs.some((j) => j.kind === "sweep") && <SweepDefaults provider={p.provider} />}
-                    {p.jobs.some((j) => j.kind === "sweep" || j.kind === "apply-changes") && (
+                    {p.jobs.some((j) => j.kind === "sweep" || allOrOne(j.kind)) && (
                         <>
                             {/* The jobs its runs -- side by side -- may have in flight together. */}
                             <ProviderMaxParallel provider={p.provider} />

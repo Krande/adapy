@@ -179,6 +179,11 @@ from .corpora import (
     list_corpora,
     update_corpus,
 )
+from .geometry_compare import (
+    geometry_compare_previous,
+    list_geometry_compare,
+    replace_geometry_compare,
+)
 from .issue_bot import (
     PgIssueClaims,
     audit_log_history_for_cell,
@@ -365,6 +370,9 @@ __all__ = [
     "get_asset_apply_cursor",
     "set_asset_apply_cursor",
     "list_asset_apply_cursors",
+    "geometry_compare_previous",
+    "list_geometry_compare",
+    "replace_geometry_compare",
     "delete_asset_apply_cursor",
     "insert_asset_export_run",
     "heartbeat_asset_export_run",

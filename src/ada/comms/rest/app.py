@@ -2424,6 +2424,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_asset_schedules_router)
     admin.include_router(admin_asset_sweeps_router)
     admin.include_router(admin_asset_apply_changes_router)
+    # Two providers' tessellations compared: the gallery and its pictures (routes/geometry_compare.py).
+    from .routes.geometry_compare import admin_router as admin_geometry_compare_router
+
+    admin.include_router(admin_geometry_compare_router)
 
     async def _plugin_schedule_loop(pool) -> None:
         """Tick every 30 s, claim due schedules, enqueue them as plugin jobs.

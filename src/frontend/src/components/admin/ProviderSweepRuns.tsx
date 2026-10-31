@@ -19,6 +19,7 @@ import {
     prebuildLine,
     prebuildOf,
 } from "./applyChangesItem";
+import GeometryCompareGallery from "./GeometryCompareGallery";
 
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
 // what every phase of each took. See `routes/asset_sweeps.py`.
@@ -376,6 +377,33 @@ const ToastToggle: React.FC<{run: SweepRun}> = ({run}) => {
     );
 };
 
+/** The provider a geometry-compare run compared against (its `compare_with` setting), or null. */
+export function comparedWith(run: SweepRun): string | null {
+    const v = (run.settings ?? {})["compare_with"];
+    return typeof v === "string" && v ? v : null;
+}
+
+/** A geometry-compare run's gallery of what did not pass, folded until asked for. */
+const CompareGalleryToggle: React.FC<{run: SweepRun}> = ({run}) => {
+    const [show, setShow] = useState(false);
+    const other = comparedWith(run);
+    const collections = (run.items ?? []).map((i) => String(i.collection).toLowerCase());
+    if (!other) return null;
+    return (
+        <div className="space-y-1">
+            <button
+                type="button"
+                className="border border-gray-700 hover:bg-gray-800 px-1.5 rounded-sm"
+                aria-expanded={show}
+                onClick={() => setShow((s) => !s)}
+            >
+                {show ? "▾" : "▸"} Gallery: {run.provider} vs {other}
+            </button>
+            {show && <GeometryCompareGallery providerA={run.provider} providerB={other} collections={collections} />}
+        </div>
+    );
+};
+
 const ProviderSweepRuns: React.FC<{
     provider: string;
     refreshKey: number;
@@ -632,6 +660,7 @@ const ProviderSweepRuns: React.FC<{
                                 onToggleRun={(position, on) => void toggleRun(r.id, position, on)}
                             />
                         )}
+                        {open?.id === r.id && comparedWith(open) && <CompareGalleryToggle run={open} />}
                     </li>
                 ))}
             </ul>
