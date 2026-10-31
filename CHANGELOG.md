@@ -2,6 +2,15 @@
 
 
 
+## v0.126.0 (2026-10-31)
+
+### Feature
+
+* feat: plugin API 1.11: the unpainted FEA model&#39;s colour; labels cut whole at section planes (#478)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`fe79dd1`](https://github.com/Krande/adapy/commit/fe79dd1b9cb5dd171cda73dca3a2740a47f0ed24))
+
+
 ## v0.125.0 (2026-10-31)
 
 ### Feature
