@@ -1,0 +1,384 @@
+{
+  "docId": "report",
+  "sections": [
+    {
+      "id": "open-source-fea-using-adapy",
+      "title": "Open Source FEA using adapy",
+      "level": 1,
+      "index": 0,
+      "isAppendix": false
+    },
+    {
+      "id": "introduction",
+      "title": "Introduction",
+      "level": 2,
+      "index": 1,
+      "isAppendix": false
+    },
+    {
+      "id": "fea-solvers",
+      "title": "FEA Solvers",
+      "level": 2,
+      "index": 2,
+      "isAppendix": false
+    },
+    {
+      "id": "python-packages",
+      "title": "Python packages",
+      "level": 2,
+      "index": 3,
+      "isAppendix": false
+    },
+    {
+      "id": "adapy",
+      "title": "Adapy",
+      "level": 3,
+      "index": 4,
+      "isAppendix": false
+    },
+    {
+      "id": "paradoc",
+      "title": "Paradoc",
+      "level": 3,
+      "index": 5,
+      "isAppendix": false
+    },
+    {
+      "id": "summary",
+      "title": "Summary",
+      "level": 1,
+      "index": 6,
+      "isAppendix": false
+    },
+    {
+      "id": "analyses",
+      "title": "Analyses",
+      "level": 1,
+      "index": 7,
+      "isAppendix": false
+    },
+    {
+      "id": "eigenvalue-analysis",
+      "title": "Eigenvalue Analysis",
+      "level": 2,
+      "index": 8,
+      "isAppendix": false
+    },
+    {
+      "id": "model-description",
+      "title": "Model Description",
+      "level": 3,
+      "index": 9,
+      "isAppendix": false
+    },
+    {
+      "id": "summary-1",
+      "title": "Summary",
+      "level": 3,
+      "index": 10,
+      "isAppendix": false
+    },
+    {
+      "id": "eigenfrequency-vs.-mode-number",
+      "title": "Eigenfrequency vs. mode number",
+      "level": 4,
+      "index": 11,
+      "isAppendix": false
+    },
+    {
+      "id": "comparison-tables",
+      "title": "Comparison tables",
+      "level": 4,
+      "index": 12,
+      "isAppendix": false
+    },
+    {
+      "id": "effective-modal-mass",
+      "title": "Effective modal mass",
+      "level": 4,
+      "index": 13,
+      "isAppendix": false
+    },
+    {
+      "id": "nonlinear-analysis",
+      "title": "Nonlinear Analysis",
+      "level": 2,
+      "index": 14,
+      "isAppendix": false
+    },
+    {
+      "id": "model-description-1",
+      "title": "Model Description",
+      "level": 3,
+      "index": 15,
+      "isAppendix": false
+    },
+    {
+      "id": "summary-2",
+      "title": "Summary",
+      "level": 3,
+      "index": 16,
+      "isAppendix": false
+    },
+    {
+      "id": "plate-analysis",
+      "title": "Plate Analysis",
+      "level": 2,
+      "index": 17,
+      "isAppendix": false
+    },
+    {
+      "id": "model-description-2",
+      "title": "Model Description",
+      "level": 3,
+      "index": 18,
+      "isAppendix": false
+    },
+    {
+      "id": "static-analysis-under-pressure",
+      "title": "Static analysis under pressure",
+      "level": 3,
+      "index": 19,
+      "isAppendix": false
+    },
+    {
+      "id": "sign-convention",
+      "title": "Sign convention",
+      "level": 4,
+      "index": 20,
+      "isAppendix": false
+    },
+    {
+      "id": "eigenvalue-analysis-1",
+      "title": "Eigenvalue analysis",
+      "level": 3,
+      "index": 21,
+      "isAppendix": false
+    },
+    {
+      "id": "detailed-results",
+      "title": "Detailed results",
+      "level": 1,
+      "index": 22,
+      "isAppendix": true
+    },
+    {
+      "id": "cantilever-modal-participation",
+      "title": "Cantilever modal participation",
+      "level": 2,
+      "index": 23,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-1st-order",
+      "title": "Solid, 1st order",
+      "level": 3,
+      "index": 24,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-2nd-order",
+      "title": "Solid, 2nd order",
+      "level": 3,
+      "index": 25,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order",
+      "title": "Shell, 1st order",
+      "level": 3,
+      "index": 26,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-2nd-order",
+      "title": "Shell, 2nd order",
+      "level": 3,
+      "index": 27,
+      "isAppendix": true
+    },
+    {
+      "id": "line-1st-order",
+      "title": "Line, 1st order",
+      "level": 3,
+      "index": 28,
+      "isAppendix": true
+    },
+    {
+      "id": "line-2nd-order",
+      "title": "Line, 2nd order",
+      "level": 3,
+      "index": 29,
+      "isAppendix": true
+    },
+    {
+      "id": "cantilever-eigenvalue-analysis",
+      "title": "Cantilever eigenvalue analysis",
+      "level": 2,
+      "index": 30,
+      "isAppendix": true
+    },
+    {
+      "id": "line-1st-order-1",
+      "title": "Line, 1st order",
+      "level": 3,
+      "index": 31,
+      "isAppendix": true
+    },
+    {
+      "id": "line-1st-order-reduced-integration",
+      "title": "Line, 1st order, reduced integration",
+      "level": 3,
+      "index": 32,
+      "isAppendix": true
+    },
+    {
+      "id": "line-2nd-order-1",
+      "title": "Line, 2nd order",
+      "level": 3,
+      "index": 33,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order-tri",
+      "title": "Shell, 1st order, TRI",
+      "level": 3,
+      "index": 34,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order-quad",
+      "title": "Shell, 1st order, QUAD",
+      "level": 3,
+      "index": 35,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order-quad-reduced-integration",
+      "title": "Shell, 1st order, QUAD, reduced integration",
+      "level": 3,
+      "index": 36,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-2nd-order-tri",
+      "title": "Shell, 2nd order, TRI",
+      "level": 3,
+      "index": 37,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-2nd-order-quad",
+      "title": "Shell, 2nd order, QUAD",
+      "level": 3,
+      "index": 38,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-2nd-order-quad-reduced-integration",
+      "title": "Shell, 2nd order, QUAD, reduced integration",
+      "level": 3,
+      "index": 39,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-1st-order-tet",
+      "title": "Solid, 1st order, TET",
+      "level": 3,
+      "index": 40,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-1st-order-hex",
+      "title": "Solid, 1st order, HEX",
+      "level": 3,
+      "index": 41,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-1st-order-hex-reduced-integration",
+      "title": "Solid, 1st order, HEX, reduced integration",
+      "level": 3,
+      "index": 42,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-2nd-order-tet",
+      "title": "Solid, 2nd order, TET",
+      "level": 3,
+      "index": 43,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-2nd-order-hex",
+      "title": "Solid, 2nd order, HEX",
+      "level": 3,
+      "index": 44,
+      "isAppendix": true
+    },
+    {
+      "id": "solid-2nd-order-hex-reduced-integration",
+      "title": "Solid, 2nd order, HEX, reduced integration",
+      "level": 3,
+      "index": 45,
+      "isAppendix": true
+    },
+    {
+      "id": "plate-eigenvalue-analysis",
+      "title": "Plate eigenvalue analysis",
+      "level": 2,
+      "index": 46,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order-plain",
+      "title": "Shell, 1st order, plain",
+      "level": 3,
+      "index": 47,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order-stiffened",
+      "title": "Shell, 1st order, stiffened",
+      "level": 3,
+      "index": 48,
+      "isAppendix": true
+    },
+    {
+      "id": "plate-static-analysis",
+      "title": "Plate static analysis",
+      "level": 2,
+      "index": 49,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order-plain-seed-0.0625-m",
+      "title": "Shell, 1st order, plain, seed 0.0625 m",
+      "level": 3,
+      "index": 50,
+      "isAppendix": true
+    },
+    {
+      "id": "shell-1st-order-stiffened-seed-0.0625-m",
+      "title": "Shell, 1st order, stiffened, seed 0.0625 m",
+      "level": 3,
+      "index": 51,
+      "isAppendix": true
+    }
+  ],
+  "published_at": "2026-10-31T17:42:24.930753+00:00",
+  "paradoc_version": "0.9.0",
+  "git": {
+    "commit": "6013e7026cb4dac0f1b74b869fa6b28e415e8103",
+    "short_commit": "6013e7026",
+    "parents": [
+      "ddb5e066598edd7d6d6833269e1668c9e1515330"
+    ],
+    "branch": "v0.128.0",
+    "author_email": "semantic-release",
+    "author_name": "semantic-release",
+    "timestamp": "2026-10-31T17:36:41Z",
+    "remote_url": "https://github.com/Krande/adapy",
+    "is_dirty": false
+  }
+}

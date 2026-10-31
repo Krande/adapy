@@ -1,0 +1,3170 @@
+{
+  "doc_id": "report",
+  "files": [
+    {
+      "rel_path": ".gitignore",
+      "size": 1,
+      "content_type": ""
+    },
+    {
+      "rel_path": "assets/3d/beam_geom.glb",
+      "size": 6064,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.U.bin",
+      "size": 12640,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.beam_solids.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.beam_solids.glb",
+      "size": 35856,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.beam_solids.warp.bin",
+      "size": 12400,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 2325,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse/fea.mesh.line_edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o1_hqFalse_riFalse.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.U.bin",
+      "size": 23992,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.beam_solids.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.beam_solids.glb",
+      "size": 35856,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.beam_solids.warp.bin",
+      "size": 12400,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 2447,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 1648,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse/fea.mesh.line_edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_line_o2_hqFalse_riFalse.glb",
+      "size": 1648,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riFalse/fea.U.bin",
+      "size": 179224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 4526,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riFalse.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riTrue/fea.U.bin",
+      "size": 179224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riTrue/fea.manifest.json",
+      "size": 4520,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riTrue/fea.mesh.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o1_hqTrue_riTrue.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqFalse_riFalse/fea.U.bin",
+      "size": 723064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 14519,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 16192,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 15736,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 49300,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqFalse_riFalse.glb",
+      "size": 49300,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riFalse/fea.U.bin",
+      "size": 519784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 10660,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 39124,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riFalse.glb",
+      "size": 39124,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riTrue/fea.U.bin",
+      "size": 519784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riTrue/fea.manifest.json",
+      "size": 10659,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riTrue/fea.mesh.glb",
+      "size": 39124,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_shell_o2_hqTrue_riTrue.glb",
+      "size": 39124,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqFalse_riFalse/fea.U.bin",
+      "size": 180940,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 7488,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 52016,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 45340,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 198416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqFalse_riFalse.glb",
+      "size": 198416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riFalse/fea.U.bin",
+      "size": 202984,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 8321,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riFalse.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riTrue/fea.U.bin",
+      "size": 202984,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riTrue/fea.manifest.json",
+      "size": 8333,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riTrue/fea.mesh.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o1_hqTrue_riTrue.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqFalse_riFalse/fea.U.bin",
+      "size": 1038940,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 39988,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 52016,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 45340,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 276416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqFalse_riFalse.glb",
+      "size": 276416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riFalse/fea.U.bin",
+      "size": 691516,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 26834,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riFalse.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riTrue/fea.U.bin",
+      "size": 691516,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riTrue/fea.manifest.json",
+      "size": 26834,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riTrue/fea.mesh.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_aba_solid_o2_hqTrue_riTrue.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.beam_solids.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.beam_solids.glb",
+      "size": 35856,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.beam_solids.warp.bin",
+      "size": 12400,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 12148,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.mesh.element_props.bin",
+      "size": 876,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.mesh.line_edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[0] - 12.2454.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[10] - 185.976.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[1] - 12.9793.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[2] - 36.7525.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[3] - 52.9559.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[4] - 61.3087.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[5] - 81.3401.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[6] - 85.9466.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[7] - 110.699.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[8] - 135.6.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.modes___DEPL[9] - 160.681.bin",
+      "size": 2080,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 124,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_line_o1_hqFalse_riFalse.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 11790,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 16192,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 15736,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 25032,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[0] - 13.642.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[10] - 257.409.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[1] - 20.4181.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[2] - 52.1927.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[3] - 79.6596.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[4] - 102.01.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[5] - 125.459.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[6] - 144.895.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[7] - 168.951.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[8] - 195.184.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.modes___DEPL[9] - 235.115.bin",
+      "size": 18136,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 2745,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqFalse_riFalse.glb",
+      "size": 25032,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 11768,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[0] - 13.1463.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[10] - 257.105.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[1] - 19.9719.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[2] - 52.0595.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[3] - 77.2361.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[4] - 98.7619.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[5] - 125.442.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[6] - 143.864.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[7] - 167.974.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[8] - 193.96.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.modes___DEPL[9] - 233.817.bin",
+      "size": 17224,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 2593,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o1_hqTrue_riFalse.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 11771,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 16192,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 15736,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 65020,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[0] - 12.7566.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[10] - 250.175.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[1] - 19.4509.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[2] - 51.97.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[3] - 75.1443.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[4] - 95.8707.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[5] - 125.087.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[6] - 142.359.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[7] - 165.79.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[8] - 192.406.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.modes___DEPL[9] - 233.389.bin",
+      "size": 98104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 19119,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqFalse_riFalse.glb",
+      "size": 65020,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 11791,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 46516,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[0] - 12.7561.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[10] - 250.096.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[1] - 19.4736.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[2] - 51.97.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[3] - 75.1252.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[4] - 95.8893.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[5] - 124.987.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[6] - 142.233.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[7] - 165.719.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[8] - 191.998.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.modes___DEPL[9] - 232.628.bin",
+      "size": 62968,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 11799,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_shell_o2_hqTrue_riFalse.glb",
+      "size": 46516,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 9997,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 53032,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 46312,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 202580,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[0] - 15.9277.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[10] - 616.155.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[1] - 51.5872.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[2] - 102.41.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[3] - 116.512.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[4] - 261.806.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[5] - 284.465.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[6] - 356.306.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[7] - 432.35.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[8] - 528.489.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.modes___DEPL[9] - 601.586.bin",
+      "size": 17656,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 5824,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqFalse_riFalse.glb",
+      "size": 202580,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 10018,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[0] - 13.6205.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[10] - 500.931.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[1] - 21.0685.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[2] - 50.8252.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[3] - 84.066.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[4] - 102.334.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[5] - 227.25.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[6] - 255.872.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[7] - 266.519.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[8] - 407.869.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.modes___DEPL[9] - 432.207.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 6544,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riFalse.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.manifest.json",
+      "size": 10022,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.mesh.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[0] - 13.5291.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[10] - 305.247.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[1] - 34.7401.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[2] - 50.7365.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[3] - 82.2962.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[4] - 123.303.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[5] - 147.139.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[6] - 205.267.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[7] - 243.985.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[8] - 254.838.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.modes___DEPL[9] - 282.888.bin",
+      "size": 19384,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.nodelabels.json",
+      "size": 6544,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o1_hqTrue_riTrue.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 10020,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 53032,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 46312,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 282104,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[0] - 12.9542.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[10] - 254.684.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[1] - 20.2877.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[2] - 50.5402.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[3] - 77.2297.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[4] - 97.8505.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[5] - 133.014.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[6] - 154.802.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[7] - 181.026.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[8] - 219.497.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.modes___DEPL[9] - 253.193.bin",
+      "size": 97180,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 38959,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqFalse_riFalse.glb",
+      "size": 282104,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 10031,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[0] - 12.9551.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[10] - 252.917.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[1] - 20.1503.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[2] - 50.5412.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[3] - 76.8903.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[4] - 97.5939.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[5] - 131.365.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[6] - 149.958.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[7] - 173.925.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[8] - 205.292.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.modes___DEPL[9] - 251.347.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 25049,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riFalse.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.manifest.json",
+      "size": 10030,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.mesh.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[0] - 12.9427.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[10] - 252.573.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[1] - 20.0288.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[2] - 50.4977.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[3] - 76.6875.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[4] - 97.3912.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[5] - 130.809.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[6] - 148.474.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[7] - 172.171.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[8] - 201.839.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.modes___DEPL[9] - 246.165.bin",
+      "size": 63796,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.nodelabels.json",
+      "size": 25049,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ca_solid_o2_hqTrue_riTrue.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.DISP.bin",
+      "size": 12640,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.beam_solids.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.beam_solids.glb",
+      "size": 35856,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.beam_solids.warp.bin",
+      "size": 12400,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 2444,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.mesh.element_props.bin",
+      "size": 876,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.mesh.line_edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 124,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riFalse.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.DISP.bin",
+      "size": 12640,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.beam_solids.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.beam_solids.glb",
+      "size": 35856,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.beam_solids.warp.bin",
+      "size": 12400,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.manifest.json",
+      "size": 2443,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.mesh.edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.mesh.element_props.bin",
+      "size": 876,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.mesh.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.mesh.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.mesh.line_edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.nodelabels.json",
+      "size": 124,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_line_o1_hqFalse_riTrue.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse/fea.DISP.bin",
+      "size": 212488,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 1769,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 40152,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 15736,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 114308,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 7869,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqFalse_riFalse.glb",
+      "size": 114308,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse/fea.DISP.bin",
+      "size": 202984,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 1763,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 28184,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 107828,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 7499,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riFalse.glb",
+      "size": 107828,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue/fea.DISP.bin",
+      "size": 202984,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue/fea.manifest.json",
+      "size": 1752,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 28184,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue/fea.mesh.glb",
+      "size": 107828,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue/fea.nodelabels.json",
+      "size": 7499,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o1_hqTrue_riTrue.glb",
+      "size": 107828,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse/fea.DISP.bin",
+      "size": 874732,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 1734,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 40152,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 15736,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 174512,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 35085,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqFalse_riFalse.glb",
+      "size": 174512,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse/fea.DISP.bin",
+      "size": 667756,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 1732,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 28184,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 150096,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 25256,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riFalse.glb",
+      "size": 150096,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue/fea.DISP.bin",
+      "size": 667756,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue/fea.manifest.json",
+      "size": 1730,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 28184,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue/fea.mesh.glb",
+      "size": 150096,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue/fea.nodelabels.json",
+      "size": 25256,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_shell_o2_hqTrue_riTrue.glb",
+      "size": 150096,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse/fea.DISP.bin",
+      "size": 183976,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 1742,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 53032,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 46312,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 202580,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 5824,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqFalse_riFalse.glb",
+      "size": 202580,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse/fea.DISP.bin",
+      "size": 202984,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 1736,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 6544,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riFalse.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue/fea.DISP.bin",
+      "size": 202984,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue/fea.manifest.json",
+      "size": 1738,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue/fea.mesh.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue/fea.nodelabels.json",
+      "size": 6544,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o1_hqTrue_riTrue.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse/fea.DISP.bin",
+      "size": 1058740,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 1740,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 53032,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 46312,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 282104,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse/fea.nodelabels.json",
+      "size": 38959,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse/fea.stamp.json",
+      "size": 95,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqFalse_riFalse.glb",
+      "size": 282104,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse/fea.DISP.bin",
+      "size": 691516,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 1730,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse/fea.nodelabels.json",
+      "size": 25049,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse/fea.stamp.json",
+      "size": 94,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riFalse.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue/fea.DISP.bin",
+      "size": 691516,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue/fea.manifest.json",
+      "size": 1729,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue/fea.mesh.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue/fea.nodelabels.json",
+      "size": 25049,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ccx_solid_o2_hqTrue_riTrue.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.beam_solids.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.beam_solids.glb",
+      "size": 35856,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.beam_solids.warp.bin",
+      "size": 12400,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 2622,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.mesh.line_edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 14576,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o1_hqFalse_riFalse.glb",
+      "size": 1132,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.beam_solids.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.beam_solids.glb",
+      "size": 35856,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.beam_solids.warp.bin",
+      "size": 12400,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 2758,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 532,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 1648,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.mesh.line_edges.bin",
+      "size": 360,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 27820,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_line_o2_hqFalse_riFalse.glb",
+      "size": 1648,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 4978,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 16192,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 15736,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 25032,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqFalse_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 220628,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqFalse_riFalse.glb",
+      "size": 25032,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 4833,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqTrue_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 208924,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o1_hqTrue_riFalse.glb",
+      "size": 23640,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 14814,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 16192,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 15736,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 49300,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqFalse_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 843404,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqFalse_riFalse.glb",
+      "size": 49300,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 10960,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 10336,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 7408,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 39124,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqTrue_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 606244,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_shell_o2_hqTrue_riFalse.glb",
+      "size": 39124,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqFalse_riFalse/fea.manifest.json",
+      "size": 7856,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 52016,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 45340,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqFalse_riFalse/fea.mesh.glb",
+      "size": 198416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqFalse_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 420828,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqFalse_riFalse.glb",
+      "size": 198416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqTrue_riFalse/fea.manifest.json",
+      "size": 8688,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqTrue_riFalse/fea.mesh.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqTrue_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 472264,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o1_hqTrue_riFalse.glb",
+      "size": 120500,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqFalse_riFalse/fea.manifest.json",
+      "size": 40362,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqFalse_riFalse/fea.mesh.edges.bin",
+      "size": 52016,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqFalse_riFalse/fea.mesh.elements.bin",
+      "size": 45340,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqFalse_riFalse/fea.mesh.glb",
+      "size": 276416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqFalse_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 2422828,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqFalse_riFalse.glb",
+      "size": 276416,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqTrue_riFalse/fea.manifest.json",
+      "size": 27197,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqTrue_riFalse/fea.mesh.edges.bin",
+      "size": 29624,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqTrue_riFalse/fea.mesh.elements.bin",
+      "size": 8464,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqTrue_riFalse/fea.mesh.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqTrue_riFalse/fea.sesam.nodes.displacement.bin",
+      "size": 1612172,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/cantilever_EIG_ses_solid_o2_hqTrue_riFalse.glb",
+      "size": 164912,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stFalse/fea.U.bin",
+      "size": 85264,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stFalse/fea.manifest.json",
+      "size": 3782,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stFalse/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stFalse/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stFalse/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stFalse.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.U.bin",
+      "size": 85264,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.beam_solids.elements.bin",
+      "size": 784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.beam_solids.glb",
+      "size": 34564,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.beam_solids.warp.bin",
+      "size": 12304,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.manifest.json",
+      "size": 4068,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.mesh.elements.bin",
+      "size": 6928,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue/fea.mesh.line_edges.bin",
+      "size": 528,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_aba_shell_o1_stTrue.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.manifest.json",
+      "size": 6350,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.modes___DEPL[0] - 1.53661.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.modes___DEPL[1] - 6.14644.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.modes___DEPL[2] - 13.8295.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.modes___DEPL[3] - 24.5858.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.modes___DEPL[4] - 38.4153.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.modes___DEPL[5] - 55.3181.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.nodelabels.json",
+      "size": 2233,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse/fea.stamp.json",
+      "size": 81,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stFalse.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.beam_solids.elements.bin",
+      "size": 784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.beam_solids.glb",
+      "size": 34564,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.beam_solids.warp.bin",
+      "size": 12304,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.manifest.json",
+      "size": 7117,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.mesh.element_props.bin",
+      "size": 11536,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.mesh.elements.bin",
+      "size": 6928,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.mesh.line_edges.bin",
+      "size": 528,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.modes___DEPL[0] - 19.298.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.modes___DEPL[1] - 75.2606.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.modes___DEPL[2] - 92.4936.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.modes___DEPL[3] - 100.176.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.modes___DEPL[4] - 112.038.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.modes___DEPL[5] - 127.23.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.nodelabels.json",
+      "size": 2233,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue/fea.stamp.json",
+      "size": 80,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ca_shell_o1_stTrue.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse/fea.DISP.bin",
+      "size": 85264,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse/fea.manifest.json",
+      "size": 1409,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse/fea.mesh.edges.bin",
+      "size": 22232,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse/fea.mesh.glb",
+      "size": 88504,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse/fea.nodelabels.json",
+      "size": 5575,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse/fea.stamp.json",
+      "size": 82,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ccx_shell_o1_stFalse.glb",
+      "size": 88504,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stFalse/fea.manifest.json",
+      "size": 4137,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stFalse/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stFalse/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stFalse/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stFalse/fea.sesam.nodes.displacement.bin",
+      "size": 99304,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stFalse.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.beam_solids.elements.bin",
+      "size": 784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.beam_solids.glb",
+      "size": 43780,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.beam_solids.warp.bin",
+      "size": 15376,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.manifest.json",
+      "size": 4416,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.mesh.elements.bin",
+      "size": 6928,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.mesh.line_edges.bin",
+      "size": 528,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue/fea.sesam.nodes.displacement.bin",
+      "size": 99304,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_EIG_ses_shell_o1_stTrue.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_geom.glb",
+      "size": 3944,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stFalse_h0p0625/fea.U.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stFalse_h0p0625/fea.manifest.json",
+      "size": 3212,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stFalse_h0p0625/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stFalse_h0p0625/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stFalse_h0p0625/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stFalse_h0p0625.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.U.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.beam_solids.elements.bin",
+      "size": 784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.beam_solids.glb",
+      "size": 34564,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.beam_solids.warp.bin",
+      "size": 12304,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.manifest.json",
+      "size": 3529,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.mesh.elements.bin",
+      "size": 6928,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625/fea.mesh.line_edges.bin",
+      "size": 528,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_aba_shell_o1_stTrue_h0p0625.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.manifest.json",
+      "size": 2446,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.nodelabels.json",
+      "size": 2233,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.result__DEPL.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.result__EFGE_NOEU.bin",
+      "size": 19744,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.result__REAC_NODA.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625/fea.stamp.json",
+      "size": 92,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stFalse_h0p0625.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.beam_solids.elements.bin",
+      "size": 784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.beam_solids.glb",
+      "size": 34564,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.beam_solids.warp.bin",
+      "size": 12304,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.manifest.json",
+      "size": 3291,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.mesh.element_props.bin",
+      "size": 11536,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.mesh.elements.bin",
+      "size": 6928,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.mesh.line_edges.bin",
+      "size": 528,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.nodelabels.json",
+      "size": 2233,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.result__DEPL.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.result__EFGE_NOEU.bin",
+      "size": 33784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.result__REAC_NODA.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625/fea.stamp.json",
+      "size": 91,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ca_shell_o1_stTrue_h0p0625.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.DISP.bin",
+      "size": 15064,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.ERROR.bin",
+      "size": 5704,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.STRESS.bin",
+      "size": 29104,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.manifest.json",
+      "size": 2148,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.mesh.edges.bin",
+      "size": 22232,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.mesh.glb",
+      "size": 88504,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.nodelabels.json",
+      "size": 5575,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625/fea.stamp.json",
+      "size": 93,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ccx_shell_o1_stFalse_h0p0625.glb",
+      "size": 88504,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stFalse_h0p0625/fea.manifest.json",
+      "size": 3567,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stFalse_h0p0625/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stFalse_h0p0625/fea.mesh.elements.bin",
+      "size": 6160,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stFalse_h0p0625/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stFalse_h0p0625/fea.sesam.nodes.displacement.bin",
+      "size": 17404,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stFalse_h0p0625.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.beam_solids.elements.bin",
+      "size": 784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.beam_solids.glb",
+      "size": 43780,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.beam_solids.warp.bin",
+      "size": 15376,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.manifest.json",
+      "size": 3943,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.mesh.edges.bin",
+      "size": 8784,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.mesh.elements.bin",
+      "size": 6928,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.mesh.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.mesh.line_edges.bin",
+      "size": 528,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625/fea.sesam.nodes.displacement.bin",
+      "size": 17404,
+      "content_type": "application/octet-stream"
+    },
+    {
+      "rel_path": "assets/3d/plate_static_ses_shell_o1_stTrue_h0p0625.glb",
+      "size": 20004,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/3d/plate_stiffened_geom.glb",
+      "size": 6420,
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "rel_path": "assets/presets.json",
+      "size": 1829,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "favicon.svg",
+      "size": 641,
+      "content_type": "image/svg+xml"
+    },
+    {
+      "rel_path": "images/eig_freq_vs_mode.png",
+      "size": 115434,
+      "content_type": "image/png"
+    },
+    {
+      "rel_path": "index.html",
+      "size": 9547998,
+      "content_type": "text/html"
+    },
+    {
+      "rel_path": "manifest.json",
+      "size": 8409,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "plots.json",
+      "size": 66585,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "sections/0.json",
+      "size": 47273,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "sections/1.json",
+      "size": 4523,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "sections/2.json",
+      "size": 914974,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "sections/3.json",
+      "size": 2935277,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "tables.json",
+      "size": 645333,
+      "content_type": "application/json"
+    },
+    {
+      "rel_path": "three_d.json",
+      "size": 36074,
+      "content_type": "application/json"
+    }
+  ]
+}
