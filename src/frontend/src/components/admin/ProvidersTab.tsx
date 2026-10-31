@@ -41,6 +41,7 @@ import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
 import ProviderAccessSection from "./ProviderAccessSection";
 import ProviderSchedulesSection from "./ProviderSchedulesSection";
+import ReferenceDataSection from "./ReferenceDataSection";
 
 // Admin tab — which of an asset provider's collections may be REQUESTED in each
 // scope.
@@ -665,6 +666,9 @@ const ProvidersTab: React.FC = () => {
 
             {/* Which scopes read the provider store, and what of it (attributes, geometry). */}
             <ProviderAccessSection projects={projects} />
+
+            {/* What each collection offers for a new element to point at (specs, SPRE, MATR). */}
+            <ReferenceDataSection />
         </div>
     );
 };

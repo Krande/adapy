@@ -1469,6 +1469,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Attribute search over the index the publish job ingests (routes/attribute_search.py). Fixed
     # `assets/search...` paths, registered before the asset store's routes all the same.
     api.include_router(attribute_search_router)
+    # What a collection offers for a new element to point at (routes/reference_data.py). Fixed
+    # `assets/reference...` paths, before the asset store's routes for the same reason.
+    from .routes.reference_data import router as reference_data_router
+
+    api.include_router(reference_data_router)
     # Search hits exported as IFC into a chosen folder (routes/asset_exports.py), and per-file
     # provenance (`/scopes/{scope}/files/meta`). Fixed paths, no parameterised sibling to collide with.
     api.include_router(asset_exports_router)

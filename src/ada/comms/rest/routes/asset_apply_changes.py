@@ -77,6 +77,7 @@ from .. import db as db_module
 from ..db.attribute_index import ATTRIBUTE_INDEX_PATCH_ROLE, ATTRIBUTE_INDEX_ROLE
 from ..db.node_bounds import NODE_BOUNDS_PATCH_ROLE, NODE_BOUNDS_ROLE
 from ..db.node_relations import NODE_RELATIONS_PATCH_ROLE, NODE_RELATIONS_ROLE
+from ..db.reference_data import REFERENCE_DATA_ROLE
 from ..run_driver import ItemSkipped, RunCancelled, json_of, ms
 from .asset_schedules import (
     APPLY_TARGETS,
@@ -100,7 +101,7 @@ APPLY_CHANGES_SCHEMA = "ada.assets/apply-changes@1"
 #: spelled out here because the API image does not ship the publish handler (a test keeps the two
 #: in step).
 PATCH_ROLES = ("hierarchy-patch.json", NODE_RELATIONS_PATCH_ROLE, ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_PATCH_ROLE)
-CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, *PATCH_ROLES})
+CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, REFERENCE_DATA_ROLE, *PATCH_ROLES})
 #: The element counts an answer reports (each at its own level, never its level or SITE).
 COUNT_KEYS = ("changed", "inserted", "deleted", "unplaceable")
 #: The item status of a collection left out because the store holds no full export of it.
