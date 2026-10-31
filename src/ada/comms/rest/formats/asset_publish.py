@@ -19,6 +19,10 @@ Postgres after the plan is written (``db/attribute_index.py``), which is what ma
 ``POST /assets/search`` provider-neutral. A staging holding only that file publishes without any
 provider publisher at all.
 
+So are the node bounds, the node relations and the REFERENCE DATA (``reference-data.ndjson.gz``,
+``db/reference_data.py``: what a collection offers for a new element to point at), each ingested
+after the plan the same way.
+
 SO ARE THE PATCHES of an apply-changes answer (docs/design/apply-changes.md): the three
 ``*-patch.ndjson.gz`` sets are applied into the sets the full ingests built, one transaction per
 file, and ``hierarchy-patch.json`` is stored as an overlay over the published spines. A patch for a
@@ -67,6 +71,11 @@ from ..db.node_relations import (
     patch_node_relations,
     read_node_relations_header,
 )
+from ..db.reference_data import (
+    REFERENCE_DATA_ROLE,
+    ingest_reference_data,
+    read_reference_header,
+)
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
 from ..worker.audit import _audit_done
@@ -86,7 +95,9 @@ HIERARCHY_PATCH_ROLE = "hierarchy-patch.json"
 PATCH_ROLES = (HIERARCHY_PATCH_ROLE, NODE_RELATIONS_PATCH_ROLE, ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_PATCH_ROLE)
 
 #: Staged roles core ingests itself; a provider's ``derive()`` never sees them.
-_CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, *PATCH_ROLES})
+_CORE_ROLES = frozenset(
+    {ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, REFERENCE_DATA_ROLE, *PATCH_ROLES}
+)
 
 _NDJSON_PATCHES = {
     ATTRIBUTE_INDEX_PATCH_ROLE: patch_attribute_index,
@@ -236,6 +247,8 @@ async def _run_asset_publish(
     bounds_key = staged.get(NODE_BOUNDS_ROLE)
     # Node relations likewise (``db/node_relations.py``).
     relations_key = staged.get(NODE_RELATIONS_ROLE)
+    # The reference data likewise (``db/reference_data.py``).
+    reference_key = staged.get(REFERENCE_DATA_ROLE)
     plan_staged = {role: key for role, key in staged.items() if role not in _CORE_ROLES}
 
     dry_run = bool(opts.get("dry_run"))
@@ -480,6 +493,48 @@ async def _run_asset_publish(
             relations = {"ingested": False, "error": str(exc)}
             warnings.append(f"the node relations were not ingested: {exc}")
 
+    # The reference data, the same way (``db/reference_data.py``).
+    reference: dict | None = None
+    reference_consumed = False
+    if reference_key:
+        await queue.update(job_id, stage="ingest", progress=0.91)
+        try:
+            if dry_run or db_pool is None:
+                header = await read_reference_header((await storage.open_stream(scope, reference_key)).stream)
+                reference = {
+                    "provider": provider_id,
+                    "collection": header["collection"],
+                    "revision": header.get("revision"),
+                    "ingested": False,
+                }
+                if db_pool is None and not dry_run:
+                    warnings.append(
+                        "this worker has no database pool (DATABASE_URL unset): the reference data was NOT "
+                        "ingested and stays staged -- publish it again from a worker with a database"
+                    )
+            else:
+                ingested_reference = await ingest_reference_data(
+                    db_pool,
+                    scope=scope.prefix(),
+                    provider=str(provider_id),
+                    chunks=(await storage.open_stream(scope, reference_key)).stream,
+                )
+                phase = ingested_reference.pop("timings")
+                timings["reference_ms"] = phase.get("ingest_ms", 0) + phase.get("swap_ms", 0)
+                timings["reference_rows"] = ingested_reference["rows"]
+                warnings.extend(ingested_reference.pop("warnings"))
+                reference = {**ingested_reference, "ingested": True}
+                reference_consumed = True
+        except Exception as exc:
+            if summary is None and attributes is None and bounds is None and relations is None:
+                logger.exception("worker: asset_publish reference data ingest failed for job %s", job_id)
+                await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ingest", error=str(exc))
+                await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+                return
+            logger.exception("worker: asset_publish %s published, but its reference data failed", job_id)
+            reference = {"ingested": False, "error": str(exc)}
+            warnings.append(f"the reference data was not ingested: {exc}")
+
     # The element-level patches of an apply-changes answer, last: after the geometry of the changed
     # elements and any full set above. Each role is reported on its own (``patches``) and never fails
     # the job -- the apply-changes run reads the outcomes and keeps its cursor unless every one of
@@ -503,7 +558,7 @@ async def _run_asset_publish(
     if summary is None:
         # Attributes-, bounds-, relations- or patches-only: the outcome a caller (and a sweep) reads
         # names the collection and revision the header gave.
-        head = attributes if attributes is not None else bounds if bounds is not None else relations
+        head = next((h for h in (attributes, bounds, relations, reference) if h is not None), None)
         if head is None:
             first = next(iter(patches.values()), {})
             head = {"collection": first.get("collection"), "revision": None}
@@ -514,6 +569,8 @@ async def _run_asset_publish(
             counts["bounds_rows"] = bounds.get("rows", 0)
         if relations is not None:
             counts["relation_rows"] = relations.get("rows", 0)
+        if reference is not None:
+            counts["reference_rows"] = reference.get("rows", 0)
         summary = {
             "collection": head.get("collection"),
             "revision": head.get("revision"),
@@ -529,6 +586,8 @@ async def _run_asset_publish(
         summary["bounds"] = bounds
     if relations is not None:
         summary["relations"] = relations
+    if reference is not None:
+        summary["reference"] = reference
     if patches:
         summary["patches"] = patches
     if warnings:
@@ -553,6 +612,8 @@ async def _run_asset_publish(
         cleared[NODE_BOUNDS_ROLE] = bounds_key
     if relations_key and relations_consumed:
         cleared[NODE_RELATIONS_ROLE] = relations_key
+    if reference_key and reference_consumed:
+        cleared[REFERENCE_DATA_ROLE] = reference_key
     for i, key in enumerate(patches_consumed):
         cleared[f"_patch_{i}"] = key
     for key in consumed_staging(cleared, dry_run=dry_run):
