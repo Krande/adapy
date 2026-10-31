@@ -43,6 +43,12 @@ function fakeCtx(): AdaPluginContext {
       hiddenFeaElements: () => [],
       setFeaElementEdgesVisible() {},
       showColorScale() {},
+      setFeaDeformationShown() {},
+      frameFeaElements: () => false,
+      frameBox: () => false,
+      frameAll: () => false,
+      findFaces: async () => [],
+      focusFace: () => false,
     },
     scope: () => "user:me",
     // Required by AdaPluginContext since plugin API 1.3.0. A stub: these fixtures

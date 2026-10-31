@@ -101,7 +101,9 @@
 //          sync (`postSim`, `subscribeSim`, `followerParams`, `followerUrl`) and
 //          `CollapsibleSection`. Ships with PLUGIN_API_VERSION
 //          1.9.0 (the renderer-neutral scene overlays and `showColorScale`).
-export const VIEWER_CORE_API_VERSION = "1.8.0";
+//   1.9.0  The `SceneBox` and `SceneFace` types of plugin API 1.10.0's view verbs
+//          (`frameBox`, `findFaces` / `focusFace`).
+export const VIEWER_CORE_API_VERSION = "1.9.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -131,11 +133,13 @@ export type {
   RegisteredPlugin,
   RenderableFileProvider,
   ResultSidecarLoader,
+  SceneBox,
   SceneColor,
   SceneColorFieldProvider,
   SceneColorFieldResult,
   SceneElementOutline,
   SceneElementPaint,
+  SceneFace,
   SceneHandle,
   SceneLabel,
   SceneLabelOptions,
