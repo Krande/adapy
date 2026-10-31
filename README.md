@@ -61,6 +61,7 @@ ada --help
 | `ada files` | List, download, upload and delete blobs in a viewer scope (`list`, `download`, `upload`, `delete`). |
 | `ada audit` | Query, fetch and locally re-run viewer audit conversions (`runs`, `run`, `log`, `perf`, `profile`, `fetch`, `logfile`, `repro`, `wasm-sweep`, `parity`). |
 | `ada serve` | Run the REST API or the conversion worker (`api`, `worker`). |
+| `ada viewers` | List the installed viewer bundles: adapy's viewer built with plugins, which a package installs and `--viewer` / `ADA_VIEWER_BUNDLE` picks. |
 
 The `build`, `files` and `audit` groups talk to a hosted viewer and read their base URL and token
 from the environment (a `.env` in the working directory is picked up too; real environment variables
