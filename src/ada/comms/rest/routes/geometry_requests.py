@@ -49,6 +49,7 @@ from fastapi import HTTPException
 
 from ada.config import logger
 
+from ..collection_splits import copy_names
 from ..run_driver import ItemSkipped, RunCancelled, json_of, ms
 from ..search_export import (
     GEOMETRY_PROVIDER,
@@ -108,7 +109,8 @@ class NodeRequest:
         for name in offered if isinstance(offered, list) else ():
             if isinstance(name, str) and name.lower() == collection.lower():
                 return name
-        return collection
+        # A split collection's copy (``collection_splits``) is not in the offered list itself.
+        return copy_names(self.spec).get(collection.lower(), collection)
 
 
 def node_request_of(spec: Mapping[str, Any]) -> NodeRequest | None:

@@ -34,6 +34,7 @@ import {
     type AssetProviderCollections,
     type ScopeCollectionsMap,
 } from "@/services/assetScopeCollections";
+import { COLLECTION_SPLITS_KEY, parseCollectionSplits } from "@/services/collectionSplits";
 import { viewerApi } from "@/services/viewerApi";
 import { useMeStore } from "@/state/meStore";
 import { useProviderName } from "@/state/providerNamesStore";
@@ -122,13 +123,17 @@ const RequestCollection: React.FC<{
         // unpublished requests are listed from there as well; a member has none to see.
         const stagedIn = async (s: string): Promise<Staged[]> =>
             (await assetsApi.listStaging(s as ScopeUrl).catch(() => ({ staged: [] }))).staged.map((x) => ({ ...x, scope: s }));
-        const [plugins, raw, ownStaged, storeStaged] = await Promise.all([
+        const [plugins, raw, rawSplits, ownStaged, storeStaged] = await Promise.all([
             viewerApi.listBackendPlugins().catch(() => ({ plugins: [] })),
             viewerApi.getPublicSetting(ASSET_SCOPE_COLLECTIONS_KEY).catch(() => null),
+            viewerApi.getPublicSetting(COLLECTION_SPLITS_KEY).catch(() => null),
             stagedIn(scope),
             isAdmin && scope !== PROVIDER_STORE_SCOPE ? stagedIn(PROVIDER_STORE_SCOPE) : Promise.resolve([] as Staged[]),
         ]);
-        const requestable = assetProviderCollections(plugins.plugins ?? []).filter((p) => p.request);
+        // A split collection is requested as one of its copies, as the server offers it.
+        const requestable = assetProviderCollections(plugins.plugins ?? [], parseCollectionSplits(rawSplits)).filter(
+            (p) => p.request,
+        );
         setProviders(requestable);
         setGrants(parseScopeCollections(raw));
         setStaged([...ownStaged, ...storeStaged]);

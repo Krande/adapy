@@ -108,6 +108,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..collection_splits import load_splits
 from ..run_driver import (
     ItemSkipped,
     RunCancelled,
@@ -231,13 +232,14 @@ _json_of = json_of
 _Cancelled = RunCancelled
 
 
-def _all_collections(specs: list[dict]) -> list[str]:
-    """Every collection any of the provider's workers offers, in first-seen order. Not the first
-    spec's alone: one worker may serve a subset (one pool per collection), and a sweep of
-    "every collection" that silently skipped another worker's would be worse than none."""
+def _all_collections(specs: list[dict], splits: dict[str, list[str]] | None = None) -> list[str]:
+    """Every collection any of the provider's workers offers, in first-seen order -- a split one as
+    its chosen copies (``splits``, see ``collection_splits``). Not the first spec's alone: one worker
+    may serve a subset (one pool per collection), and a sweep of "every collection" that silently
+    skipped another worker's would be worse than none."""
     seen: dict[str, None] = {}
     for spec in specs:
-        for c in collections_of(spec):
+        for c in collections_of(spec, splits):
             seen.setdefault(c, None)
     return list(seen)
 
@@ -306,12 +308,13 @@ async def start_sweep(
     # No one-run-per-provider guard any more: runs of one provider go side by side, a collection
     # claimed by one run at a time and the provider's workers shared (module docstring).
     chosen = collections is not None
+    offered = _all_collections(specs, await load_splits(pool, provider))
     if chosen:
-        collections, unknown = offered_names(_all_collections(specs), collections)
+        collections, unknown = offered_names(offered, collections)
         if unknown:
             raise SweepRefused(f"provider {provider!r} does not offer {', '.join(unknown)}")
     else:
-        collections = _all_collections(specs)
+        collections = offered
     if not collections:
         raise SweepRefused(f"provider {provider!r} offers no collections to sweep")
     plugin_id = str(spec.get("slug") or spec.get("id") or "")
@@ -1055,7 +1058,7 @@ async def admin_asset_sweep_defaults(
     """A provider's default sweep list: every collection it offers now, and which are ticked off.
     A collection ticked off that the provider no longer offers is listed too, so it can be cleared."""
     pool = require_pool(request)
-    offered = _all_collections((await provider_specs(ctx)).get(provider) or [])
+    offered = _all_collections((await provider_specs(ctx)).get(provider) or [], await load_splits(pool, provider))
     excluded = await default_excluded(pool, provider)
     return JSONResponse(
         {"provider": provider, "collections": offered + [c for c in excluded if c not in offered], "excluded": excluded}
