@@ -35,6 +35,7 @@ import {
   setFeaElementEdgesVisible,
 } from "./sceneOverlays";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
+import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
 import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
 import {
   getActiveFeaMesh,
@@ -93,6 +94,7 @@ function makeSceneHandle(): SceneHandle {
         }
         removeOwnerOverlays(owner);
         releaseFeaDeformation(owner);
+        releaseFeaUnpaintedColor(owner);
         usePluginColorScaleStore.getState().show(owner, null);
       }
       requestRender();
@@ -176,6 +178,7 @@ function makeSceneHandle(): SceneHandle {
       requestRender();
     },
     setFeaDeformationShown,
+    setFeaUnpaintedColor,
     frameFeaElements,
     frameBox: frameSceneBox,
     frameAll,
