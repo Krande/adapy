@@ -6,7 +6,14 @@ import pathlib
 
 import pytest
 
-_SCRIPT = pathlib.Path(__file__).resolve().parents[3] / "scripts" / "packaging" / "fetch_adacpp_wasm.py"
+_REPO = pathlib.Path(__file__).resolve().parents[3]
+_SCRIPT = _REPO / "scripts" / "packaging" / "fetch_adacpp_wasm.py"
+
+# A repo-checkout test: the conda package's test files carry tests/ but not scripts/ or deploy/.
+pytestmark = pytest.mark.skipif(
+    not (_SCRIPT.is_file() and (_REPO / "deploy" / "Dockerfile.viewer").is_file()),
+    reason="scripts/ and deploy/ are only in a repo checkout",
+)
 
 
 @pytest.fixture(scope="module")
