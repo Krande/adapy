@@ -457,6 +457,7 @@ async def query_reference_items(pool: asyncpg.Pool, *, scope: str, query: Refere
             )
             items = [_item_wire(r) for r in rows]
             usage = await _usage(conn, key, items) if query.usage else None
+            await _merge_material_overrides(conn, query, items)
         finally:
             await conn.execute("RESET statement_timeout")
 
@@ -490,6 +491,22 @@ def _item_wire(r) -> dict:
         "use": r["use"],
         "attrs": attrs or {},
     }
+
+
+async def _merge_material_overrides(conn, query: ReferenceQuery, items: list[dict]) -> None:
+    """Every material item gets ``material: {provider, override, effective, source}`` -- the
+    provider's values with an admin's override merged over them (``db/catalogue.py``)."""
+    from .catalogue import merge_material, overrides_by_ref, provider_material
+
+    refs = [i["ref"] for i in items if i["kind"] == "material"]
+    if not refs:
+        return
+    held = await overrides_by_ref(
+        conn, provider=query.provider, collection=query.collection, kind="material", refs=refs
+    )
+    for item in items:
+        if item["kind"] == "material":
+            item["material"] = merge_material(provider_material(item["attrs"]), held.get(item["ref"]))
 
 
 async def _usage(conn, key: tuple[str, str, str], items: list[dict]) -> dict:

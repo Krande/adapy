@@ -2158,6 +2158,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_storage_compression_router)
     admin.include_router(admin_db_router)
     admin.include_router(admin_provider_grants_router)
+    # Material overrides of the reference data (routes/reference_data.py).
+    from .routes.reference_data import admin_router as admin_reference_router
+
+    admin.include_router(admin_reference_router)
 
     admin.include_router(admin_workers_router)
 
