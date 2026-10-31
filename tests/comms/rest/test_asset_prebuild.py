@@ -175,13 +175,9 @@ async def test_builds_fan_out_no_wider_than_the_build_workers(builds):
 
 # --- in a sweep ------------------------------------------------------------------------------------
 
-from tests.comms.rest.test_asset_sweeps import (  # noqa: E402
-    MULTI_ENTRY,
-    MULTI_SPEC,
-    SPEC,
-    SWEEP_ENTRY,
-)
+from tests.comms.rest.test_asset_sweeps import MULTI_ENTRY, MULTI_SPEC  # noqa: E402
 from tests.comms.rest.test_asset_sweeps import RUN as SWEEP_RUN  # noqa: E402
+from tests.comms.rest.test_asset_sweeps import SPEC, SWEEP_ENTRY  # noqa: E402
 
 
 @pytest.fixture
@@ -197,7 +193,9 @@ def prebuilt(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_sweep_pre_builds_after_the_collection_published_and_never_tells_the_provider(world, prebuilt):  # noqa: F811
+async def test_a_sweep_pre_builds_after_the_collection_published_and_never_tells_the_provider(
+    world, prebuilt  # noqa: F811
+):
     w = world(fetch_summaries={"ALPHA": {"asset_staging_id": "s-a"}, "BETA": {"fail": True}})
     run = {**SWEEP_RUN, "settings": {"sweep_target": "tree", "prebuild_meshes": True}}
     await sweeps._drive(w.ctx, None, run, scope_obj=Scope.shared(), spec=SPEC, entry=SWEEP_ENTRY,

@@ -30,7 +30,12 @@ from .. import db as db_module
 from ..auth import User
 from ..scope import Scope
 from .deps import scope_from_path
-from .provider_store import PROVIDER_STORE, PROVIDER_STORE_WIRE, granted_covers, readable_store_datasets
+from .provider_store import (
+    PROVIDER_STORE,
+    PROVIDER_STORE_WIRE,
+    granted_covers,
+    readable_store_datasets,
+)
 
 router = APIRouter()
 

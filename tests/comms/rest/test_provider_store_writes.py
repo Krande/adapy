@@ -153,9 +153,7 @@ def test_enqueue_forces_the_store_for_an_asset_provider_whatever_the_caller_pass
 
     ctx = SimpleNamespace(jobs=SimpleNamespace(submit=submit, advertised_specs=advertised), audit=audit)
     for scope in (Scope.shared(), Scope.project("p-1"), Scope.user("u-1")):
-        asyncio.run(
-            pj.enqueue_plugin_job(ctx, plugin_id="vendor-plugin", options={}, scope_obj=scope, user=None)
-        )
+        asyncio.run(pj.enqueue_plugin_job(ctx, plugin_id="vendor-plugin", options={}, scope_obj=scope, user=None))
         assert submitted[-1].scope == STORE
     # A plain plugin keeps the scope it was given.
     asyncio.run(
@@ -344,7 +342,8 @@ def runs_client(tmp_path, monkeypatch, as_member):
         return [
             r
             for r in state["runs"]
-            if r["scope"] == scope and (provider is None or r["provider"] == provider)
+            if r["scope"] == scope
+            and (provider is None or r["provider"] == provider)
             and (collection is None or r["collection"] == collection)
         ]
 

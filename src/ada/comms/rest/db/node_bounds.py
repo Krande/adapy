@@ -338,7 +338,12 @@ async def patch_node_bounds(
 
     ``ingested_at`` and ``rows`` of the set follow; its ``revision`` and ``frame`` stay those of the
     full export."""
-    from .attribute_index import expand_subtree_deletes, load_patch, parse_patch_header, patch_refused
+    from .attribute_index import (
+        expand_subtree_deletes,
+        load_patch,
+        parse_patch_header,
+        patch_refused,
+    )
 
     t0 = time.perf_counter()
     lines = ndjson_lines(chunks)

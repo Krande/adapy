@@ -119,6 +119,12 @@ from ..run_driver import (
     wait_for_job,
 )
 from ..scope import Scope
+from .asset_prebuild import (
+    not_attempted,
+    prebuild_collection,
+    prebuild_line,
+    prebuild_wanted,
+)
 from .asset_schedules import (
     APPLY_CHANGES,
     COLLECTION_CHOICES,
@@ -136,7 +142,6 @@ from .asset_schedules import (
     target_requires,
     targets_setting,
 )
-from .asset_prebuild import not_attempted, prebuild_collection, prebuild_line, prebuild_wanted
 from .assets import staged_by_role, submit_asset_publish
 from .deps import (
     RestContext,

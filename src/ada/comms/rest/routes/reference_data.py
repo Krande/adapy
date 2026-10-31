@@ -107,7 +107,11 @@ async def api_reference_items(
 
 
 async def _catalogue(request: Request, scope_obj: Scope, user: User, what: str) -> JSONResponse:
-    from ..db.catalogue import CatalogueQueryError, parse_catalogue_query, query_catalogue
+    from ..db.catalogue import (
+        CatalogueQueryError,
+        parse_catalogue_query,
+        query_catalogue,
+    )
 
     try:
         query = parse_catalogue_query(dict(request.query_params))
