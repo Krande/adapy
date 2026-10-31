@@ -38,6 +38,25 @@ export interface ReferenceItem {
   readonly attrs: Readonly<Record<string, unknown>>;
   /** With `usage`: who uses it; null for a kind no attribute names. Absent without `usage`. */
   readonly used?: ReferenceUsage | null;
+  /** A material entry's properties, provider and override merged. */
+  readonly material?: MaterialValues;
+}
+
+/** What a material entry's properties are: the provider's, an admin's override, and the two merged. */
+export interface MaterialValues {
+  readonly provider: Readonly<Record<string, unknown>>;
+  readonly override: Readonly<Record<string, unknown>> | null;
+  readonly effective: Readonly<Record<string, unknown>>;
+  readonly source: Readonly<Record<string, "provider" | "override">>;
+}
+
+export interface ReferenceOverrideInput {
+  readonly provider: string;
+  readonly collection: string;
+  readonly kind: string;
+  readonly ref: string;
+  readonly props: Readonly<Record<string, string | number | null>>;
+  readonly note?: string;
 }
 
 export interface ReferenceQuery {
@@ -74,6 +93,26 @@ export const referenceDataApi = {
   async sets(scope: ScopeUrl): Promise<ReferenceSet[]> {
     const r = await authedFetch(referenceBase(scope));
     return (await jsonOrThrow<{ sets: ReferenceSet[] }>(r, "referenceSets")).sets;
+  },
+
+  /** An admin's material values for one entry (`/api/admin/reference/overrides`), kept apart from the
+   *  provider's so a re-export never loses them. */
+  async putOverride(body: ReferenceOverrideInput): Promise<void> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/reference/overrides`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    await jsonOrThrow(r, "referenceOverridePut");
+  },
+
+  async deleteOverride(key: Omit<ReferenceOverrideInput, "props" | "note">): Promise<void> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/reference/overrides`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(key),
+    });
+    await jsonOrThrow(r, "referenceOverrideDelete");
   },
 
   async items(scope: ScopeUrl, query: ReferenceQuery, signal?: AbortSignal): Promise<ReferencePage> {
