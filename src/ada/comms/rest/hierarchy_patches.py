@@ -48,6 +48,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from ada.assets.index import fold_listing
 from ada.assets.keys import ASSET_PREFIX, is_valid_segment, revision_from_instant
 from ada.assets.manifest import HIERARCHY_FILENAME
+from ada.assets.projection import _as_leaf as as_leaf
 from ada.config import logger
 
 __all__ = [
@@ -170,6 +171,9 @@ def validate_hierarchy_patch(doc: Any, *, collection: str) -> tuple[tuple[str, .
         if required not in cols:
             raise HierarchyPatchError(f"'cols' must contain {required!r}: a row is placed by its id and its parent")
     id_at, parent_at = cols.index("id"), cols.index("parent")
+    # ``leaf`` as a spine carries it (1/0), whatever the provider wrote: an overlaid row and a
+    # spine row of the same level must read the same. Also run on read, so stored patches comply.
+    leaf_at = cols.index("leaf") if "leaf" in cols else None
     upsert = doc.get("upsert") or []
     delete = doc.get("delete") or []
     if not isinstance(upsert, (list, tuple)):
@@ -190,7 +194,10 @@ def validate_hierarchy_patch(doc: Any, *, collection: str) -> tuple[tuple[str, .
             raise HierarchyPatchError(f"upsert row {i} ({node}): 'parent' must be a node id or null, got {up!r}")
         if up == node:
             raise HierarchyPatchError(f"upsert row {i}: {node!r} cannot be its own parent")
-        rows.append(list(row))
+        row = list(row)
+        if leaf_at is not None:
+            row[leaf_at] = 1 if as_leaf(row[leaf_at]) else 0
+        rows.append(row)
     ids: list[str] = []
     for i, node in enumerate(delete):
         if not isinstance(node, str) or not node:

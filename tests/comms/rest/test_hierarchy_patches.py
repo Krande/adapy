@@ -233,6 +233,18 @@ def _counts(body) -> dict:
 # -- storing -------------------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("given, stored", [(True, 1), (False, 0), ("true", 1), (0, 0), (None, 0)])
+def test_leaf_is_stored_as_a_spine_carries_it(given, stored):
+    doc = {
+        "schema": hp.HIERARCHY_PATCH_SCHEMA,
+        "collection": COLLECTION,
+        "cols": ["id", "parent", "leaf"],
+        "upsert": [["n-1", None, given]],
+    }
+    _, rows, _ = hp.validate_hierarchy_patch(doc, collection=COLLECTION)
+    assert rows[0][2] == stored and type(rows[0][2]) is int
+
+
 def test_a_patch_is_validated_and_stored_in_order_under_the_reserved_segment(tmp_path):
     scope = _Scope(tmp_path)
     _seed(scope)

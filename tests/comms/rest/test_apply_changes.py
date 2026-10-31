@@ -384,6 +384,11 @@ async def test_a_refused_patch_warns_and_still_advances(world):
     w = world(answers={"ALPHA": {**_answer(), "asset_staging_id": "s-1"}}, publish_patches=patches)
     assert await _one(w)
     assert w.cursors and "refused (no baseline): node-bounds-patch.ndjson.gz" in w.items[0]["message"]
+    # ...and the RUN warns, not only the item: a "done" run must not hide a set that was not patched.
+    assert w.warnings == [
+        "ALPHA: node bounds not patched -- never exported for this collection; "
+        "export that target once, which also covers these changes"
+    ]
 
 
 @pytest.mark.asyncio

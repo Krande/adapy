@@ -119,6 +119,20 @@ def no_full_export_message(collection: str) -> str:
     return f"{collection} has not had a full project export yet"
 
 
+#: The export target that gives a set-only patch role its baseline, for the run warning.
+_BASELINE_TARGET = {NODE_BOUNDS_PATCH_ROLE: "node bounds", NODE_RELATIONS_PATCH_ROLE: "relations"}
+
+
+def no_baseline_set_message(collection: str, roles: list[str]) -> str:
+    """The run warning for patches refused because their one set was never exported (the cursor
+    still moves: the next full export of that set holds these changes too)."""
+    sets = ", ".join(_BASELINE_TARGET.get(r, r) for r in roles)
+    return (
+        f"{collection}: {sets} not patched -- never exported for this collection; "
+        "export that target once, which also covers these changes"
+    )
+
+
 @dataclass
 class ApplyRunState:
     """What the collections of one apply-changes run share: the provider store's collection names
@@ -439,6 +453,14 @@ async def apply_one(
         )
         timings["apply_changes"]["advanced"] = True
         refused = [r for r, o in roles.items() if o.get("status") == "refused"]
+        if refused:
+            # Not only in the item's message: the run's warnings are what the admin sees first.
+            text = no_baseline_set_message(collection, refused)
+            logger.warning("apply changes %s: %s", run_id, text)
+            try:
+                await db_module.add_asset_sweep_run_warnings(pool, run_id, [text])
+            except Exception:  # noqa: BLE001 - the item still says it
+                logger.exception("apply changes %s: could not record the run warning", run_id)
         message = _message(answer, advanced=True, refused=refused)
         if prebuild_wanted(run.get("settings")):
             # "Pre-build meshes": the element subjects this publish created (small, one each). The
