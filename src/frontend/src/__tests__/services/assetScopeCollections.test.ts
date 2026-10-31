@@ -94,6 +94,7 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
       pluginIds: ["exporter"],
       titles: ["Exporter"],
       collections: ["A", "B"],
+      copies: {},
       refresh: null,
       request: null,
       nodeRequest: null,

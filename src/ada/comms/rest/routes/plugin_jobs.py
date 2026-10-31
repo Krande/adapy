@@ -156,7 +156,14 @@ async def enqueue_plugin_job(
         # NAKing is how non-interchangeable workers are kept apart.
         opt_name = plugin_spec.get("capability_option")
         if target_capability and isinstance(opt_name, str) and opt_name:
-            shard = capability_token(options.get(opt_name))
+            value = options.get(opt_name)
+            # `capability_routes` maps a value onto the shard that serves it (a split collection's
+            # copy onto its collection's pool, see ``collection_splits``); unmapped, the value is it.
+            routes = plugin_spec.get("capability_routes")
+            if isinstance(routes, dict) and isinstance(value, str):
+                routed = {str(k).lower(): v for k, v in routes.items() if isinstance(v, str)}.get(value.lower())
+                value = routed or value
+            shard = capability_token(value)
             if shard:
                 target_capability = f"{target_capability}-{shard}"
 

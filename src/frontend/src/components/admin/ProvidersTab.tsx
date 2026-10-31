@@ -9,6 +9,7 @@ import {
     isPersonalKey,
     personalKey,
 } from "@/services/assetScopeCollections";
+import {COLLECTION_SPLITS_KEY, type CollectionSplitsMap, parseCollectionSplits} from "@/services/collectionSplits";
 import {
     MAX_PROVIDER_LABEL_LENGTH,
     PROVIDER_LABELS_KEY,
@@ -29,6 +30,7 @@ import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
 import ProviderAccessSection from "./ProviderAccessSection";
 import ProviderSchedulesSection from "./ProviderSchedulesSection";
+import ProviderSplitsSection from "./ProviderSplitsSection";
 import ReferenceDataSection from "./ReferenceDataSection";
 
 // Admin tab — the asset providers: what each advertises (and a rescan of it), the display name it
@@ -137,6 +139,8 @@ function rescanStateOf(entry: {status: string; progress: number; stage: string; 
 
 const ProvidersTab: React.FC = () => {
     const [live, setLive] = useState<AssetProviderCollections[]>([]);
+    // Core's collection splits, so the lists here offer a split collection as its copies.
+    const [splits, setSplits] = useState<CollectionSplitsMap>({});
     const [projects, setProjects] = useState<AdminProject[]>([]);
     const [aliases, setAliases] = useState<ProviderAliasesMap>({});
     const [loading, setLoading] = useState(true);
@@ -171,12 +175,15 @@ const ProvidersTab: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const [plugins, projs, rawAliases] = await Promise.all([
+            const [plugins, projs, rawAliases, rawSplits] = await Promise.all([
                 viewerApi.listBackendPlugins().catch(() => ({plugins: []})),
                 viewerApi.adminListProjects().catch(() => [] as AdminProject[]),
                 viewerApi.getPublicSetting(PROVIDER_LABELS_KEY).catch(() => null),
+                viewerApi.getPublicSetting(COLLECTION_SPLITS_KEY).catch(() => null),
             ]);
-            setLive(assetProviderCollections(plugins.plugins ?? []));
+            const parsedSplits = parseCollectionSplits(rawSplits);
+            setSplits(parsedSplits);
+            setLive(assetProviderCollections(plugins.plugins ?? [], parsedSplits));
             setProjects(projs.filter((p) => !p.archived_at));
             setAliases(parseProviderAliases(rawAliases));
         } catch (e) {
@@ -201,9 +208,9 @@ const ProvidersTab: React.FC = () => {
         if (!finishedRescans) return;
         void viewerApi
             .listBackendPlugins()
-            .then((plugins) => setLive(assetProviderCollections(plugins.plugins ?? [])))
+            .then((plugins) => setLive(assetProviderCollections(plugins.plugins ?? [], splits)))
             .catch(() => {});
-    }, [finishedRescans]);
+    }, [finishedRescans, splits]);
 
     // Live providers, plus any a stored display name names that no worker declares now.
     const sections: ProviderSection[] = useMemo(() => {
@@ -401,6 +408,8 @@ const ProvidersTab: React.FC = () => {
             {/* Which scopes read the provider store, and what of it (attributes, geometry). */}
             <ProviderAccessSection projects={projects} />
 
+            {/* A collection found in several places, offered as one collection per copy. */}
+            <ProviderSplitsSection />
             {/* What each collection offers for a new element to point at (specs, SPRE, MATR). */}
             <ReferenceDataSection />
         </div>

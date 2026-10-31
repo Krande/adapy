@@ -53,6 +53,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..collection_splits import apply_splits, load_splits
 from ..scope import Scope
 from .deps import (
     RestContext,
@@ -155,10 +156,13 @@ def find_entry(specs: list[dict], job: str | None = None, *, kind: str | None = 
     return None
 
 
-def collections_of(spec: dict) -> list[str]:
+def collections_of(spec: dict, splits: dict[str, list[str]] | None = None) -> list[str]:
+    """The collections ``spec`` offers; with ``splits`` (the provider's, ``collection_splits``), each
+    split collection replaced by its chosen copies."""
     field = spec.get("asset_collections_field")
     values = spec.get(field) if isinstance(field, str) else None
-    return [str(v) for v in values] if isinstance(values, list) else []
+    offered = [str(v) for v in values] if isinstance(values, list) else []
+    return apply_splits(offered, spec, splits)
 
 
 # --- per-collection choices an admin may override ------------------------------------------------
@@ -516,7 +520,7 @@ async def build_options(
         if not collection:
             raise HTTPException(status_code=400, detail=f"{entry['id']!r} needs a collection")
         if validate:
-            offered = collections_of(spec)
+            offered = collections_of(spec, await load_splits(pool, provider))
             if offered and collection not in offered:
                 raise HTTPException(
                     status_code=400,
@@ -904,7 +908,7 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
             {
                 "provider": provider,
                 "plugin_id": _plugin_id(spec),
-                "collections": collections_of(spec),
+                "collections": collections_of(spec, await load_splits(pool, provider)),
                 # What an admin may pin per collection (worker-found choices, the worker's default).
                 "collection_choices": collection_choice_decls(group),
                 "jobs": [

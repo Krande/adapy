@@ -1384,6 +1384,7 @@ async def request_collection_tree(
     The same two jobs a sweep runs for one collection (``asset_sweeps._sweep_one``), driven here so
     the export that needs the tree is the run the user watches: "request trees, then export" is one
     run in the toast, not a request to wait for and an export to remember to start."""
+    from ..collection_splits import load_splits
     from .asset_schedules import build_options, job_keys
     from .asset_sweeps import (
         COLLECTION_REQUEST,
@@ -1405,7 +1406,7 @@ async def request_collection_tree(
     # An asset provider's job runs in the provider store whatever scope asks (``job_scope``): its
     # summary, its staging and the publish of its answer are all read and written there.
     scope_obj = job_scope(spec, scope_obj)
-    names, _ = offered_names(_all_collections(specs), [collection])
+    names, _ = offered_names(_all_collections(specs, await load_splits(pool, provider)), [collection])
     name = names[0] if names else collection
     t0 = time.monotonic()
     await db_module.update_asset_export_item(
