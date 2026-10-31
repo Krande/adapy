@@ -86,6 +86,9 @@ def test_show_opens_the_selected_bundles_single_file_build(installed, tmp_path, 
 
 
 def test_cli_viewer_selects_the_bundle_and_a_typo_fails_before_anything_starts(installed, monkeypatch):
+    # --viewer sets ADA_VIEWER_BUNDLE for the rest of the process. Set through monkeypatch first, so
+    # it is put back after this test and does not follow later tests into their viewers.
+    monkeypatch.setenv(ENV_BUNDLE, "builtin")
     started = []
     # A stand-in for the server module: the real one imports uvicorn, which a core test env has not.
     server = types.ModuleType("ada.comms.rest.__main__")
