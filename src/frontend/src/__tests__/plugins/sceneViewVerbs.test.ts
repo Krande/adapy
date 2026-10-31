@@ -115,3 +115,40 @@ test("framing a box aims at its centre; without a viewer nothing is framed", () 
     assert.equal(frameSceneBox({min: [0, 0, 0], max: [2, 4, 6]}), true);
     assert.deepEqual(controls.target.toArray(), [1, 2, 3]);
 });
+
+// ----- 1.11.0 --------------------------------------------------------------
+
+test("the unpainted model takes the asked colour, and its own back after", async () => {
+    const {applyFeaUnpaintedColor, setFeaUnpaintedColor, _resetFeaUnpaintedColor} = await import(
+        "@/utils/scene/fea/unpaintedColor"
+    );
+    const mesh = feaMesh();
+    const mat = new THREE.MeshStandardMaterial({color: 0x808080});
+    mesh.material = mat;
+    open(mesh);
+    const own = mat.color.clone();
+
+    setFeaUnpaintedColor("shell", "#ff0000");
+    applyFeaUnpaintedColor();
+    assert.ok(mat.color.equals(new THREE.Color("#ff0000")));
+
+    // A paint (per-vertex colours) draws over it: the base colour is given back while it shows.
+    mat.vertexColors = true;
+    applyFeaUnpaintedColor();
+    assert.ok(mat.color.equals(own));
+    mat.vertexColors = false;
+    applyFeaUnpaintedColor();
+    assert.ok(mat.color.equals(new THREE.Color("#ff0000")));
+
+    setFeaUnpaintedColor("shell", null);
+    applyFeaUnpaintedColor();
+    assert.ok(mat.color.equals(own));
+    _resetFeaUnpaintedColor();
+});
+
+test("a label is cut at its anchor, whole, not per pixel", async () => {
+    const {anchorClipVertexShader} = await import("@/plugins/sceneOverlays");
+    const patched = anchorClipVertexShader(THREE.ShaderLib.sprite.vertexShader);
+    assert.ok(!patched.includes("#include <clipping_planes_vertex>"));
+    assert.ok(patched.includes("vClipPosition = - modelViewMatrix[ 3 ].xyz;"));
+});

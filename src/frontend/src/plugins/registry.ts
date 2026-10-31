@@ -93,7 +93,10 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          model undeformed, beside the user's warp settings), `frameFeaElements` / `frameBox` /
 //          `frameAll` (the camera), `findFaces` / `focusFace` (a CAD model's faces by source face
 //          id). Additive, so a minor bump.
-export const PLUGIN_API_VERSION = "1.10.0";
+// 1.11.0 — `setFeaUnpaintedColor` (the plain FEA model's colour where nothing paints it), and
+//          `addLabels` labels cut whole at their anchor under section planes (they lost part of
+//          their text at the cut). Additive, so a minor bump.
+export const PLUGIN_API_VERSION = "1.11.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -382,6 +385,10 @@ export interface SceneHandle {
   // this owner says `true`, whatever the user's warp settings; `remove(owner)` lets go too. The
   // user's settings are left alone and apply again once no owner holds it.
   setFeaDeformationShown: (owner: string, shown: boolean) => void;
+  // (1.11.0) The colour of the FEA model (and its beam solids) wherever nothing paints it: its own
+  // base colour, so a result, a property or a colour field still draws over it as before. null
+  // gives the model its own colour back; `remove(owner)` does too. The latest ask wins.
+  setFeaUnpaintedColor: (owner: string, color: SceneColor | null) => void;
   // Frame the camera on elements of the FEA model where they are drawn now; false when none is in it.
   frameFeaElements: (elements: Iterable<number>) => boolean;
   // Frame the camera on a world-space box; false before the viewer has a camera.

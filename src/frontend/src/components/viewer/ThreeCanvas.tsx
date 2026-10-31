@@ -21,6 +21,7 @@ import {AnimationController} from "@/utils/scene/animations/AnimationController"
 import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {applyFeaDeformationGate} from "@/utils/scene/fea/deformationGate";
+import {applyFeaUnpaintedColor} from "@/utils/scene/fea/unpaintedColor";
 import {consumeDirty, isRenderSuspended, requestRender, usePerfStore} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
@@ -240,6 +241,7 @@ const ThreeCanvas: React.FC = () => {
             tickFeaAnimation(frameDelta);
             // After the tick, before either renderer draws: a plugin holding the model undeformed wins.
             applyFeaDeformationGate();
+            applyFeaUnpaintedColor();
             const feaPlaying = useFeaAnimationStore.getState().isPlaying;
 
             // 3D-mouse motion moves the pose the controls own, so it goes in

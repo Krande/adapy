@@ -44,6 +44,7 @@ function fakeCtx(): AdaPluginContext {
       setFeaElementEdgesVisible() {},
       showColorScale() {},
       setFeaDeformationShown() {},
+      setFeaUnpaintedColor() {},
       frameFeaElements: () => false,
       frameBox: () => false,
       frameAll: () => false,
