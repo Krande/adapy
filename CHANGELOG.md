@@ -2,6 +2,15 @@
 
 
 
+## v0.124.0 (2026-10-31)
+
+### Feature
+
+* feat: view verbs for plugins: undeformed shape, camera framing, face search (#476)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`b967c9a`](https://github.com/Krande/adapy/commit/b967c9ac894359e17274f572c80bec1c6c83fd89))
+
+
 ## v0.123.0 (2026-10-30)
 
 ### Feature

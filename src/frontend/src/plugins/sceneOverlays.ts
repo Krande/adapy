@@ -19,7 +19,9 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {feaSession} from "@/utils/scene/fea/streaming/session";
 import {clipWithModel} from "@/utils/scene/section_clipping";
+import {frameBox as frameBoxOnCamera, zoomToAll} from "@/components/viewer/sceneHelpers/cameraFit";
 import type {
+    SceneBox,
     SceneColor,
     SceneElementOutline,
     SceneElementPaint,
@@ -449,4 +451,44 @@ export function hiddenFeaElements(): number[] {
 export function setFeaElementEdgesVisible(visible: boolean): void {
     useFeaAnimationStore.getState().setElementEdgesVisible(visible);
     requestRender();
+}
+
+// ----- camera ---------------------------------------------------------------
+
+function frame(box: THREE.Box3): boolean {
+    const {camera, controls} = getViewerRuntime();
+    if (box.isEmpty() || !camera.current || !controls.current) return false;
+    frameBoxOnCamera(box, camera.current, controls.current);
+    getViewerRuntime().updateLight.current?.();
+    requestRender();
+    return true;
+}
+
+/** Frame the camera on `elements` of the FEA model, where they are drawn now (warp included; beams
+ *  drawn as solids count with their solids). False when none of them is in the model. */
+export function frameFeaElements(elements: Iterable<number>): boolean {
+    const wanted = [...elements];
+    const box = new THREE.Box3();
+    const v = new THREE.Vector3();
+    for (const mesh of [feaMesh(), beamSolidMesh()]) {
+        if (!mesh) continue;
+        mesh.updateWorldMatrix(true, false);
+        for (const vi of elementVertices(mesh, wanted)) box.expandByPoint(warpedVertex(mesh, vi, v).applyMatrix4(mesh.matrixWorld));
+    }
+    return frame(box);
+}
+
+/** Frame the camera on a world-space box. */
+export function frameSceneBox(box: SceneBox): boolean {
+    return frame(new THREE.Box3(new THREE.Vector3(...box.min), new THREE.Vector3(...box.max)));
+}
+
+/** Frame the camera on everything loaded, as the toolbar's zoom-to-all does. */
+export function frameAll(): boolean {
+    const {scene, camera, controls} = getViewerRuntime();
+    if (!scene.current || !camera.current || !controls.current) return false;
+    zoomToAll(scene.current, camera.current, controls.current);
+    getViewerRuntime().updateLight.current?.();
+    requestRender();
+    return true;
 }

@@ -89,7 +89,11 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          `paintFeaElements` `on: "beamSolids"`, lines `opacity` / `throughModel`, and labels
 //          with several lines, `atElements` (pinned to a warping element set) and an `anchor`.
 //          Additive, so a minor bump.
-export const PLUGIN_API_VERSION = "1.9.0";
+// 1.10.0 — the view, for a UI shell's modes and searches: `setFeaDeformationShown` (hold the FEA
+//          model undeformed, beside the user's warp settings), `frameFeaElements` / `frameBox` /
+//          `frameAll` (the camera), `findFaces` / `focusFace` (a CAD model's faces by source face
+//          id). Additive, so a minor bump.
+export const PLUGIN_API_VERSION = "1.10.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -371,6 +375,40 @@ export interface SceneHandle {
   // in place of the result colormap, while the plugin paints with it; null takes it away.
   // `remove(owner)` takes it away too.
   showColorScale: (owner: string, scale: ColorScale | null) => void;
+
+  // ── View (1.10.0): what a UI shell's modes and searches ask of the view, without the camera,
+  // the scene or the FEA mesh's morph weights. ──
+  // `false` holds the FEA model at its undeformed shape (beam solids and overlays with it) until
+  // this owner says `true`, whatever the user's warp settings; `remove(owner)` lets go too. The
+  // user's settings are left alone and apply again once no owner holds it.
+  setFeaDeformationShown: (owner: string, shown: boolean) => void;
+  // Frame the camera on elements of the FEA model where they are drawn now; false when none is in it.
+  frameFeaElements: (elements: Iterable<number>) => boolean;
+  // Frame the camera on a world-space box; false before the viewer has a camera.
+  frameBox: (box: SceneBox) => boolean;
+  // Frame everything loaded (the toolbar's zoom-to-all).
+  frameAll: () => boolean;
+  // The loaded CAD models' faces, by source face id then occurrence (empty without face regions).
+  findFaces: () => Promise<SceneFace[]>;
+  // Highlight `face`, name it in the info box and frame it (unless `frame: false`); null clears
+  // the highlight. False when its model is no longer loaded.
+  focusFace: (face: SceneFace | null, opts?: { frame?: boolean }) => boolean;
+}
+
+/** An axis-aligned world-space box. */
+export interface SceneBox {
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+/** A face of a loaded CAD model: its source face id and occurrence. Pass it back to `focusFace` as
+ *  it came from `findFaces`; the rest of it says where it is drawn and is not for reading. */
+export interface SceneFace {
+  faceId: number;
+  seq: number;
+  model: string;
+  start: number;
+  length: number;
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */

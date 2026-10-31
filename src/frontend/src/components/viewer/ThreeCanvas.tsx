@@ -20,6 +20,7 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
+import {applyFeaDeformationGate} from "@/utils/scene/fea/deformationGate";
 import {consumeDirty, isRenderSuspended, requestRender, usePerfStore} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
@@ -237,6 +238,8 @@ const ThreeCanvas: React.FC = () => {
             // Streaming-FEA mode-shape oscillation. No-op when no
             // session is active or play isn't pressed.
             tickFeaAnimation(frameDelta);
+            // After the tick, before either renderer draws: a plugin holding the model undeformed wins.
+            applyFeaDeformationGate();
             const feaPlaying = useFeaAnimationStore.getState().isPlaying;
 
             // 3D-mouse motion moves the pose the controls own, so it goes in
