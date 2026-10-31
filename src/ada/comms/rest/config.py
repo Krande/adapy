@@ -182,6 +182,16 @@ def load_settings() -> Settings:
     host = os.environ.get("ADA_VIEWER_HOST", "0.0.0.0")
     port = int(os.environ.get("ADA_VIEWER_PORT", "8080"))
     static_path = os.environ.get("ADA_VIEWER_STATIC_PATH", "").strip()
+    if not static_path:
+        # An installed viewer bundle (ADA_VIEWER_BUNDLE), plugins built in; an explicit
+        # ADA_VIEWER_STATIC_PATH still wins.
+        from ada.comms.viewer_bundles import resolve_viewer_bundle
+
+        bundle = resolve_viewer_bundle()
+        if bundle is not None:
+            if bundle.dist is None:
+                raise ValueError(f'viewer bundle "{bundle.name}" has no hosted build ({bundle.root / "dist"})')
+            static_path = str(bundle.dist)
 
     nats_url = os.environ.get("ADA_VIEWER_NATS_URL", "").strip() or None
     queue = QueueConfig(

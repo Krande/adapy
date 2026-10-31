@@ -2,6 +2,33 @@
 
 
 
+## v0.126.0 (2026-10-31)
+
+### Feature
+
+* feat: plugin API 1.11: the unpainted FEA model&#39;s colour; labels cut whole at section planes (#478)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`fe79dd1`](https://github.com/Krande/adapy/commit/fe79dd1b9cb5dd171cda73dca3a2740a47f0ed24))
+
+
+## v0.125.0 (2026-10-31)
+
+### Feature
+
+* feat: installed viewer bundles, selectable with --viewer / ADA_VIEWER_BUNDLE (#477)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`ef8952f`](https://github.com/Krande/adapy/commit/ef8952fe972925b6ec9fe40f810bc9a3dd416e02))
+
+
+## v0.124.0 (2026-10-31)
+
+### Feature
+
+* feat: view verbs for plugins: undeformed shape, camera framing, face search (#476)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`b967c9a`](https://github.com/Krande/adapy/commit/b967c9ac894359e17274f572c80bec1c6c83fd89))
+
+
 ## v0.123.0 (2026-10-30)
 
 ### Feature
