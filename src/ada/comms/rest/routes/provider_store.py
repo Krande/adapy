@@ -43,8 +43,10 @@ _HOLDS: dict[tuple, tuple[float, bool]] = {}
 
 def is_asset_provider_spec(spec: Optional[dict]) -> bool:
     """Whether a plugin spec is an asset provider's: its jobs write the provider store."""
-    return isinstance(spec, dict) and isinstance(spec.get("asset_provider_id"), str) and bool(
-        spec["asset_provider_id"].strip()
+    return (
+        isinstance(spec, dict)
+        and isinstance(spec.get("asset_provider_id"), str)
+        and bool(spec["asset_provider_id"].strip())
     )
 
 
@@ -140,7 +142,9 @@ async def resolve_dataset(ctx, pool, scope_obj: Scope, provider: str, collection
     The caller has already checked the reader may open ``scope_obj``."""
     if scope_obj.kind == "providers" or pool is None or not provider or not collection:
         return scope_obj
-    access = await db_module.grant_access(pool, target_scope=scope_obj.prefix(), provider=provider, collection=collection)
+    access = await db_module.grant_access(
+        pool, target_scope=scope_obj.prefix(), provider=provider, collection=collection
+    )
     if not access.allows(permission):
         return scope_obj
     if permission == "attributes":
@@ -180,7 +184,9 @@ async def granted_store_collections(ctx, pool, scope_obj: Scope, permission: str
     picker lists beside its own. A provider-wide grant covers every collection the store holds."""
     if pool is None or scope_obj.kind == "providers":
         return []
-    grants = [g for g in await db_module.list_provider_grants(pool, target_scope=scope_obj.prefix()) if g.get(permission)]
+    grants = [
+        g for g in await db_module.list_provider_grants(pool, target_scope=scope_obj.prefix()) if g.get(permission)
+    ]
     if not grants:
         return []
     try:

@@ -31,13 +31,21 @@ from ada.comms.rest import auth as auth_module  # noqa: E402
 from ada.comms.rest import db as dbm  # noqa: E402
 from ada.comms.rest.app import create_app  # noqa: E402
 from ada.comms.rest.auth import User  # noqa: E402
-from ada.comms.rest.config import AuthConfig, LocalConfig, QueueConfig, Settings  # noqa: E402
+from ada.comms.rest.config import (  # noqa: E402
+    AuthConfig,
+    LocalConfig,
+    QueueConfig,
+    Settings,
+)
 from ada.comms.rest.db import attribute_index as ai  # noqa: E402
 from ada.comms.rest.db.provider_grants import merge_access  # noqa: E402
 from ada.comms.rest.routes import asset_exports as ex  # noqa: E402
 from ada.comms.rest.routes import provider_grants as member_grants  # noqa: E402
 from ada.comms.rest.routes import provider_store as ps  # noqa: E402
-from ada.comms.rest.routes.attribute_search import SearchOrigins, search_origins  # noqa: E402
+from ada.comms.rest.routes.attribute_search import (  # noqa: E402
+    SearchOrigins,
+    search_origins,
+)
 from ada.comms.rest.scope import Scope  # noqa: E402
 
 COLLECTION = "fixture-a"
@@ -464,7 +472,10 @@ def test_design_geometry_is_the_stores_with_a_geometry_grant_else_not_granted(mo
 
 
 def test_a_not_granted_batch_writes_no_file_and_says_why():
-    from ada.comms.rest.formats.export_search import ExportSearchAssetHandler, _geometry_of
+    from ada.comms.rest.formats.export_search import (
+        ExportSearchAssetHandler,
+        _geometry_of,
+    )
 
     opts = {
         "origin_scope": "providers",

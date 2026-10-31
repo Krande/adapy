@@ -23,6 +23,9 @@ import {
   addElementOutlines,
   addLabels,
   addLines,
+  frameAll,
+  frameFeaElements,
+  frameSceneBox,
   hasFeaModel,
   hiddenFeaElements,
   hideFeaElements,
@@ -31,6 +34,9 @@ import {
   removeOwnerOverlays,
   setFeaElementEdgesVisible,
 } from "./sceneOverlays";
+import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
+import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
+import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
 import {
   getActiveFeaMesh,
   getActiveFeaSelectedRangeIds,
@@ -87,6 +93,8 @@ function makeSceneHandle(): SceneHandle {
           if (child.userData?.__pluginOwner === owner) scene.remove(child);
         }
         removeOwnerOverlays(owner);
+        releaseFeaDeformation(owner);
+        releaseFeaUnpaintedColor(owner);
         usePluginColorScaleStore.getState().show(owner, null);
       }
       requestRender();
@@ -169,6 +177,13 @@ function makeSceneHandle(): SceneHandle {
       if (scale) useColorStore.getState().setShowLegend(true);
       requestRender();
     },
+    setFeaDeformationShown,
+    setFeaUnpaintedColor,
+    frameFeaElements,
+    frameBox: frameSceneBox,
+    frameAll,
+    findFaces,
+    focusFace: (face, opts) => focusFace(face, { frame: opts?.frame }),
   };
 }
 

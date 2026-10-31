@@ -24,7 +24,9 @@ os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from tests.core.assets.fixture_provider.builder import register_fixture_builder  # noqa: E402
+from tests.core.assets.fixture_provider.builder import (  # noqa: E402
+    register_fixture_builder,
+)
 
 from ada.assets.build import (  # noqa: E402
     BuildProvenance,

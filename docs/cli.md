@@ -314,6 +314,10 @@ ada view run.rmed --from code_aster              # the mesh alone
 :   Result files only: print the overview `ada results stats` prints before
     showing the result.
 
+`--viewer`
+:   Open an installed viewer bundle instead of the built-in viewer (see
+    `ada viewers`). Default: `$ADA_VIEWER_BUNDLE`, else the built-in viewer.
+
 ## `ada results`
 
 Read FEA result files -- the extensions `ada view` shows as results -- without
@@ -474,11 +478,37 @@ ada audit loads-summary --since-days 7
 
 ## `ada serve`
 
-Run one of the long-lived server processes. Neither subcommand takes options —
-both are configured entirely through the environment.
+Run one of the long-lived server processes. Both are configured through the
+environment; `api` also takes `--viewer`.
 
 `ada serve api`
-:   Run the REST API under uvicorn.
+:   Run the REST API under uvicorn. `--viewer NAME` serves an installed viewer
+    bundle instead of the built-in viewer (see `ada viewers`); an explicit
+    `ADA_VIEWER_STATIC_PATH` still wins.
 
 `ada serve worker`
 :   Run the conversion worker (a NATS JetStream consumer).
+
+## `ada viewers`
+
+List the installed viewer bundles. adapy's own viewer carries no plugins; they
+join its frontend at build time. A package that ships plugins can build the
+viewer with them and install the result as a bundle, so a local viewer can use
+it without building anything:
+
+```
+<prefix>/share/ada/viewers/<name>/
+    bundle.json   name, title, adapy_version, plugins, default_ui
+    dist/         the hosted build, served by `ada serve api`
+    index.zip     optional: the single-file build `ada view` and show() open
+```
+
+`--viewer NAME` on `ada view` and `ada serve api` (or `ADA_VIEWER_BUNDLE=NAME`)
+picks one; unset, or `builtin`, is the built-in viewer. `ADA_VIEWER_BUNDLE_PATH`
+adds directories to look in. An unknown name is an error naming what is
+installed.
+
+```bash
+ada viewers
+ada serve api --viewer asa
+```
