@@ -4,8 +4,8 @@
 // AN ADMIN'S OPERATION. Every provider job runs in the provider store, and keeping provider data
 // current is the scheduled jobs' work: an admin is offered every collection the live workers
 // advertise (only a provider whose spec declares `asset_collection_request` appears). A member is
-// told so instead -- which collections their scope READS is an admin's grant (Admin ▸ Providers ▸
-// Access), not something a request can change.
+// offered no request at all: they read what the sweeps keep current, as their scope's grants
+// (Admin ▸ Providers ▸ Access) allow.
 //
 // THE FLOW is `@/assets/collectionRequest`: the provider's job stages, core
 // publishes. Both jobs go to the toast, so a request can outlive this panel;
@@ -171,17 +171,12 @@ const RequestCollection: React.FC<{
     }
 
     const request = provider?.request ?? null;
-    // Every provider job runs in the provider store, so `requiresAdmin` is always set for these.
-    const blockedForUser = !!request?.requiresAdmin && !isAdmin;
+    // Provider jobs are an admin's: a member reads what the scheduled sweeps keep current, through
+    // their scope's grants, and is offered nothing to request here.
+    const blockedForUser = !isAdmin;
 
     return (
         <div className="px-2 py-2 space-y-1.5 border-b border-gray-700/70 text-xs">
-            {provider && request && blockedForUser && (
-                <div className="text-gray-500" data-testid="request-admin-only">
-                    Provider data is kept current by an admin. To read another of {pn(provider.providerId)}'s collections
-                    here, ask an admin to grant it to this scope (Admin ▸ Providers ▸ Access).
-                </div>
-            )}
             {provider && request && !blockedForUser && (
                 // Folded by default, as Files is: a request is made now and then, the tree is used
                 // all the time. What a request is doing (stage, error, result) shows outside it.

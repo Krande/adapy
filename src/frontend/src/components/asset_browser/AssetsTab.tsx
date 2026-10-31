@@ -2143,7 +2143,8 @@ const AssetsTab: React.FC = () => {
     // declared `maxNodes`, one job each, all started together. The state stays per (node,
     // provider), so each row still shows its own request; the control sums them.
     const nodeRequestsFor = (ids: readonly string[]): NodeRequestControl[] => {
-        if (!view) return [];
+        // Asking a provider's workers is an admin's: a member reads what the sweeps keep current.
+        if (!view || !isAdmin) return [];
         const targets: NodeTarget[] = [];
         for (const id of ids) {
             const node = view.hierarchy.byId.get(id)?.data;
