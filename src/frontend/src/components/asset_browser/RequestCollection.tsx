@@ -4,8 +4,8 @@
 // AN ADMIN'S OPERATION. Every provider job runs in the provider store, and keeping provider data
 // current is the scheduled jobs' work: an admin is offered every collection the live workers
 // advertise (only a provider whose spec declares `asset_collection_request` appears). A member is
-// offered no request at all: they read what the sweeps keep current, as their scope's grants
-// (Admin ▸ Providers ▸ Access) allow.
+// offered no request, no staging and no raw files (`@/assets/sourcesTabAccess`): they read what
+// the sweeps keep current, as their scope's grants (Admin ▸ Providers ▸ Access) allow.
 //
 // THE FLOW is `@/assets/collectionRequest`: the provider's job stages, core
 // publishes. Both jobs go to the toast, so a request can outlive this panel;
@@ -20,6 +20,7 @@ import CollectionChoicesEditor from "@/components/admin/CollectionChoicesEditor"
 import { providerIdTitle } from "@/assets/providerNames";
 import { requestValues } from "@/assets/providerOptions";
 import { PROVIDER_STORE_SCOPE } from "@/assets/providerStore";
+import { sourcesTabAccess } from "@/assets/sourcesTabAccess";
 import { readProviderOptions } from "@/services/providerOptions";
 import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
@@ -116,7 +117,7 @@ const RequestCollection: React.FC<{
         const [plugins, rawSplits, ownStaged, storeStaged] = await Promise.all([
             viewerApi.listBackendPlugins().catch(() => ({ plugins: [] })),
             viewerApi.getPublicSetting(COLLECTION_SPLITS_KEY).catch(() => null),
-            stagedIn(scope),
+            isAdmin ? stagedIn(scope) : Promise.resolve([] as Staged[]),
             isAdmin && scope !== PROVIDER_STORE_SCOPE ? stagedIn(PROVIDER_STORE_SCOPE) : Promise.resolve([] as Staged[]),
         ]);
         // A split collection is requested as one of its copies, as the server offers it.
@@ -171,9 +172,10 @@ const RequestCollection: React.FC<{
     }
 
     const request = provider?.request ?? null;
-    // Provider jobs are an admin's: a member reads what the scheduled sweeps keep current, through
-    // their scope's grants, and is offered nothing to request here.
-    const blockedForUser = !isAdmin;
+    // Provider jobs, staging and the scope's raw files are an admin's: a member reads what the
+    // scheduled sweeps keep current, through their scope's grants (`sourcesTabAccess`).
+    const access = sourcesTabAccess(isAdmin);
+    const blockedForUser = !access.requests;
 
     return (
         <div className="px-2 py-2 space-y-1.5 border-b border-gray-700/70 text-xs">
@@ -268,7 +270,7 @@ const RequestCollection: React.FC<{
             {done && <div className="text-green-300">{done}</div>}
             {belowRequest}
 
-            {staged.length > 0 && (
+            {access.staging && staged.length > 0 && (
                 <details>
                     <summary className="cursor-pointer text-gray-400">
                         Staged, not published ({staged.length} · {formatSize(staged.reduce((n, s) => n + s.size, 0))})
@@ -355,7 +357,7 @@ const RequestCollection: React.FC<{
                     </ul>
                 </details>
             )}
-            <AssetFiles scope={scope} onChanged={onChanged ?? (() => {})} />
+            {access.files && <AssetFiles scope={scope} onChanged={onChanged ?? (() => {})} />}
         </div>
     );
 };

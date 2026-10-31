@@ -19,6 +19,7 @@ import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useMeStore } from "@/state/meStore";
 import { useProviderName } from "@/state/providerNamesStore";
 import { providerIdTitle } from "@/assets/providerNames";
+import { sourcesTabAccess } from "@/assets/sourcesTabAccess";
 import { useSavedGroupsStore } from "@/state/savedGroupsStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
@@ -341,7 +342,7 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
   const [note, setNote] = useState<{ tone: "info" | "warn"; text: string } | null>(null);
   const hasNodes = group.members.some((m) => m.target.kind === "node");
   // Asking a provider's workers is an admin's: a member loads what the sweeps keep current.
-  const isAdmin = useMeStore((s) => s.isAdmin);
+  const canRequest = sourcesTabAccess(useMeStore((s) => s.isAdmin)).requests;
 
   const select = () => {
     const out = selectSavedGroup(group);
@@ -446,7 +447,7 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
         >
           Clash check
         </button>
-        {isAdmin && (
+        {canRequest && (
           <button
             type="button"
             className={BTN}
@@ -491,7 +492,7 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
       {note && (
         <div className={`mt-0.5 text-[11px] ${note.tone === "warn" ? "text-amber-200" : "text-gray-400"}`}>{note.text}</div>
       )}
-      {requesting && isAdmin && <RequestGeometryForm scope={scope} group={group} onClose={() => setRequesting(false)} />}
+      {requesting && canRequest && <RequestGeometryForm scope={scope} group={group} onClose={() => setRequesting(false)} />}
     </div>
   );
 };

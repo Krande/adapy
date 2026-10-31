@@ -32,6 +32,7 @@ import {
 } from "@/assets/treeView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
 import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionRequest";
+import { sourcesTabAccess } from "@/assets/sourcesTabAccess";
 import {
     assetSourceName,
     loadPrepared,
@@ -2144,7 +2145,7 @@ const AssetsTab: React.FC = () => {
     // provider), so each row still shows its own request; the control sums them.
     const nodeRequestsFor = (ids: readonly string[]): NodeRequestControl[] => {
         // Asking a provider's workers is an admin's: a member reads what the sweeps keep current.
-        if (!view || !isAdmin) return [];
+        if (!view || !sourcesTabAccess(isAdmin).requests) return [];
         const targets: NodeTarget[] = [];
         for (const id of ids) {
             const node = view.hierarchy.byId.get(id)?.data;
@@ -2358,7 +2359,7 @@ const AssetsTab: React.FC = () => {
                                     />
                                 ),
                             },
-                            ...(collection && collectionOptionProviders.size > 0
+                            ...(collection && collectionOptionProviders.size > 0 && sourcesTabAccess(isAdmin).providerOptions
                                 ? [
                                       {
                                           id: "provider-options",
