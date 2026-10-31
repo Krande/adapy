@@ -10,8 +10,8 @@ into it. Two reads of those grants live here:
   may ask, through the same access check every ``/scopes/{scope}/...`` route makes; ``request`` is
   not shown -- provider jobs are an admin's. Who granted it and why stays in the admin view.
 * ``GET /provider-grants/datasets?provider=`` -- every collection granted for one provider, with
-  the scopes it is granted to: what a provider's mirror reads to know which projects to keep
-  (the web3d mirror's replacement for ``public.assets.scope_collections``). Admin (and admin-minted
+  the scopes it is granted to: who reads what of a provider, for tooling. (Not what a provider
+  keeps current -- that is the admin's sweep list, whoever is granted it.) Admin (and admin-minted
   worker) tokens only: the answer names every granted scope.
 
 See ``docs/design/provider-scope-grants.md`` section 3.

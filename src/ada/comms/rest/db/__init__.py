@@ -97,7 +97,9 @@ from .provider_grants import (
     grant_access,
     granted_datasets,
     list_provider_grants,
+    merge_provider_grant,
     revoke_provider_grant,
+    set_collection_grants,
     upsert_provider_grant,
 )
 from .audit_log import _bump_audit_run_counter as _bump_audit_run_counter  # noqa: F401
@@ -347,6 +349,14 @@ __all__ = [
     "asset_sweep_item_status",
     "resume_asset_sweep_run",
     "add_asset_sweep_run_warnings",
+    # provider grants (migration 045)
+    "grant_access",
+    "granted_datasets",
+    "list_provider_grants",
+    "merge_provider_grant",
+    "revoke_provider_grant",
+    "set_collection_grants",
+    "upsert_provider_grant",
     "merge_asset_sweep_run_summary",
     "claim_asset_sweep_item",
     "acquire_asset_worker_slot",

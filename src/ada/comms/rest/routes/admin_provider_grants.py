@@ -7,6 +7,8 @@
                                   request?, note?}`` -- create the grant or replace its permissions
                                   (defaults: attributes and geometry on, request off)
 ``DELETE /api/admin/provider-grants``  ``{target_scope, provider, collection?}`` -- revoke one grant
+``POST   /api/admin/provider-grants/collections``  ``{target_scope, provider, grant: [..], revoke: [..]}``
+                                  -- the Access tab's per-collection checkboxes, in one transaction
 
 ``target_scope`` is a storage prefix (``shared``, ``projects/<uuid>``, ``users/<sub>``), as the
 database reports scopes; a project must exist. ``collection`` absent or null is every collection of
@@ -121,6 +123,50 @@ async def admin_provider_grant_put(request: Request, user: User = Depends(auth_m
         ",".join(p for p in PERMISSIONS if perms[p]),
     )
     return JSONResponse({"grant": grant})
+
+
+def _collection_list(body: dict, name: str) -> list[str]:
+    raw = body.get(name, [])
+    if not isinstance(raw, list) or not all(isinstance(c, str) for c in raw):
+        raise HTTPException(status_code=400, detail=f"{name!r} must be a list of collection names")
+    return [c.strip() for c in raw if c.strip()]
+
+
+@router.post("/provider-grants/collections")
+async def admin_provider_grant_collections(
+    request: Request, user: User = Depends(auth_module.current_user)
+) -> JSONResponse:
+    """The Access tab's checkboxes: ``{target_scope, provider, grant: [collection], revoke:
+    [collection]}`` -- each collection in ``grant`` becomes readable by the scope (attributes and
+    geometry), each in ``revoke`` loses its collection grant, in one transaction. A provider-wide
+    grant is not touched (it is ``PUT`` / ``DELETE`` with no collection). ``{granted, revoked,
+    grants}``: the counts, and the scope's grants of the provider afterwards."""
+    pool = require_pool(request)
+    body = await _body(request)
+    ref = parse_grant_ref({**body, "collection": None})
+    grant, revoke = _collection_list(body, "grant"), _collection_list(body, "revoke")
+    target = Scope.from_prefix(ref["target_scope"])
+    if target.kind == "project" and not await db_module.project_exists(pool, target.id):
+        raise HTTPException(status_code=404, detail=f"no project {target.id!r}")
+    changed = await db_module.set_collection_grants(
+        pool,
+        target_scope=ref["target_scope"],
+        provider=ref["provider"],
+        grant=grant,
+        revoke=revoke,
+        granted_by=user.sub,
+    )
+    if changed["granted"] or changed["revoked"]:
+        logger.info(
+            "provider grants by %s: %s -> %s, +%d -%d collection(s)",
+            user.sub,
+            ref["provider"],
+            ref["target_scope"],
+            changed["granted"],
+            changed["revoked"],
+        )
+    grants = await db_module.list_provider_grants(pool, target_scope=ref["target_scope"], provider=ref["provider"])
+    return JSONResponse({**changed, "grants": grants})
 
 
 @router.delete("/provider-grants")

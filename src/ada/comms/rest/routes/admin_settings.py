@@ -23,6 +23,7 @@ from ada.assets.provider_labels import (
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..provider_grant_migration import SCOPE_COLLECTIONS_SETTING
 from .deps import (
     CAPABILITY_REQUIREMENTS_SETTING,
     RestContext,
@@ -62,6 +63,13 @@ async def admin_set_setting(
     if "value" not in body:
         raise HTTPException(status_code=400, detail="value required")
     value = "" if body["value"] is None else str(body["value"])
+    if key == SCOPE_COLLECTIONS_SETTING:
+        # Replaced by provider grants (Admin -> Providers -> Access) and migrated into them at startup;
+        # refused so a browser still holding the old tab cannot bring the matrix back.
+        raise HTTPException(
+            status_code=410,
+            detail=f"{key} is replaced by provider grants: give a scope its collections under Admin > Providers > Access",
+        )
     if key == PROVIDER_LABELS_SETTING:
         # Validated and normalised here, the one place it is written: a display name the read path
         # would silently drop is refused with the reason instead.

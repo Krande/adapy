@@ -31,6 +31,18 @@ export const providerGrantsApi = {
     return jsonOrThrow(r, "adminSetProviderGrant");
   },
 
+  /** Admin: the Access tab's checkboxes -- each collection in `grant` becomes readable by the scope
+   *  (attributes and geometry), each in `revoke` loses its collection grant, in one transaction. */
+  async adminSetProviderGrantCollections(body: {
+    target_scope: string;
+    provider: string;
+    grant: readonly string[];
+    revoke: readonly string[];
+  }): Promise<{ granted: number; revoked: number; grants: ProviderGrant[] }> {
+    const r = await authedFetch(`${runtime.apiBase()}/admin/provider-grants/collections`, json("POST", body));
+    return jsonOrThrow(r, "adminSetProviderGrantCollections");
+  },
+
   /** Admin: revoke. Immediate: access is checked on every request. */
   async adminRevokeProviderGrant(body: {
     target_scope: string;

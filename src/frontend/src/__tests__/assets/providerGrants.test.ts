@@ -4,8 +4,11 @@ import { test } from "node:test";
 import {
   SHARED_TARGET,
   collectionLabel,
+  grantChoices,
+  grantDelta,
   grantInput,
   projectTarget,
+  scopeProviderAccess,
   targetLabel,
   userTarget,
   type ProviderGrant,
@@ -57,4 +60,45 @@ test("targets are named in words, falling back to the id", () => {
   assert.equal(targetLabel(userTarget("u1"), names), "User · u1");
   assert.equal(collectionLabel(null), "All collections");
   assert.equal(collectionLabel("alpha"), "alpha");
+});
+
+const g = (target_scope: string, provider: string, collection: string | null, attributes = true, geometry = true): ProviderGrant => ({
+  ...grant,
+  id: `${target_scope}/${provider}/${collection}`,
+  target_scope,
+  provider,
+  collection,
+  attributes,
+  geometry,
+  request: false,
+});
+
+test("a scope's access to a provider is its read grants: provider-wide and per collection", () => {
+  const grants = [
+    g("projects/p1", "vendor", "alpha"),
+    g("projects/p1", "vendor", "beta", true, false), // attributes only still reads
+    g("projects/p1", "vendor", null),
+    g("projects/p1", "other", "gamma"),
+    g("shared", "vendor", "delta"),
+    { ...g("projects/p1", "vendor", "zeta"), attributes: false, geometry: false, request: true }, // reads nothing
+  ];
+  const access = scopeProviderAccess(grants, "projects/p1", "vendor");
+  assert.equal(access.all, true);
+  assert.deepEqual([...access.collections].sort(), ["alpha", "beta"]);
+  assert.deepEqual(scopeProviderAccess(grants, "shared", "vendor"), { all: false, collections: new Set(["delta"]) });
+});
+
+test("the checkboxes are every advertised collection plus every granted one gone offline", () => {
+  const choices = grantChoices(["ALPHA", "BETA", "alpha"], { all: false, collections: new Set(["alpha", "gone"]) });
+  assert.deepEqual(choices, [
+    { collection: "ALPHA", granted: true, advertised: true },
+    { collection: "BETA", granted: false, advertised: true },
+    { collection: "gone", granted: true, advertised: false },
+  ]);
+});
+
+test("select all and untick send only what changes", () => {
+  const choices = grantChoices(["ALPHA", "BETA", "GAMMA"], { all: false, collections: new Set(["alpha"]) });
+  assert.deepEqual(grantDelta(choices, ["ALPHA", "BETA", "GAMMA"], true), { grant: ["BETA", "GAMMA"], revoke: [] });
+  assert.deepEqual(grantDelta(choices, ["alpha", "beta"], false), { grant: [], revoke: ["ALPHA"] });
 });
