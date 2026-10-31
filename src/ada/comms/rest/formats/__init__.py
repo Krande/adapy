@@ -21,6 +21,7 @@ from . import (
     export_search,
     export_selection,
     fea,
+    geometry_compare,
     parity,
     plugin,
     procedural_build,
@@ -71,6 +72,8 @@ register(export_selection.ExportSelectionGroupHandler())
 # Synthetic as well: attribute-search hits, each read through the geometry provider's concepts
 # and written as IFC into the user's target scope.
 register(export_search.ExportSearchAssetHandler())
+# Synthetic: two providers' built GLBs of one collection, compared element by element.
+register(geometry_compare.GeometryCompareHandler())
 # Source-backed kinds that are not registry conversions.
 register(utility.UtilityHandler())
 register(fea.FeaArtefactsHandler())

@@ -53,16 +53,16 @@ from .asset_sweeps import (
     add_asset_sweep_run_warnings,
     asset_sweep_item_status,
     asset_worker_slots_in_use,
-    claim_asset_sweep_item,
-    release_asset_worker_slot,
-    merge_asset_sweep_run_summary,
     cancel_asset_sweep_run,
+    claim_asset_sweep_item,
     clear_asset_sweep_skip,
     finish_asset_sweep_run,
     get_asset_sweep_run,
     heartbeat_asset_sweep_run,
     insert_asset_sweep_run,
     list_asset_sweep_runs,
+    merge_asset_sweep_run_summary,
+    release_asset_worker_slot,
     request_asset_sweep_skip,
     resume_asset_sweep_run,
     running_asset_sweep,
@@ -92,15 +92,6 @@ from .attribute_index import (
 )
 from .audit_log import (  # noqa: F401
     _AUDIT_RUN_COUNTER_FOR_STATUS as _AUDIT_RUN_COUNTER_FOR_STATUS,
-)
-from .provider_grants import (
-    grant_access,
-    granted_datasets,
-    list_provider_grants,
-    merge_provider_grant,
-    revoke_provider_grant,
-    set_collection_grants,
-    upsert_provider_grant,
 )
 from .audit_log import _bump_audit_run_counter as _bump_audit_run_counter  # noqa: F401
 from .audit_log import (
@@ -188,6 +179,11 @@ from .corpora import (
     list_corpora,
     update_corpus,
 )
+from .geometry_compare import (
+    geometry_compare_previous,
+    list_geometry_compare,
+    replace_geometry_compare,
+)
 from .issue_bot import (
     PgIssueClaims,
     audit_log_history_for_cell,
@@ -273,6 +269,15 @@ from .projects import (
     project_id_from_slug,
     remove_project_member,
     upsert_user,
+)
+from .provider_grants import (
+    grant_access,
+    granted_datasets,
+    list_provider_grants,
+    merge_provider_grant,
+    revoke_provider_grant,
+    set_collection_grants,
+    upsert_provider_grant,
 )
 from .settings import get_setting, set_setting
 from .source_nodes import SourceNode
@@ -365,6 +370,9 @@ __all__ = [
     "get_asset_apply_cursor",
     "set_asset_apply_cursor",
     "list_asset_apply_cursors",
+    "geometry_compare_previous",
+    "list_geometry_compare",
+    "replace_geometry_compare",
     "delete_asset_apply_cursor",
     "insert_asset_export_run",
     "heartbeat_asset_export_run",

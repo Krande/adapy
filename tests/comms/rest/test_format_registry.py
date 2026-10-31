@@ -52,6 +52,8 @@ CHAIN_KINDS = [
     # And a group's members, read like a group clash check's.
     ("export_selection_group", True),
     ("export_search_asset", True),
+    # Synthetic: two providers' built GLBs of one collection, compared element by element.
+    ("geometry_compare", True),
     ("utility", False),
     ("fea_artefacts", False),
     ("fea_meta", False),
