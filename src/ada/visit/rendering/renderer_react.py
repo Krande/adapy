@@ -33,35 +33,47 @@ def _strip_absolute_asset_tags(html_content: str) -> str:
     return html_content
 
 
+def _viewer_zip(viewer: str | None) -> tuple[pathlib.Path, pathlib.Path]:
+    """The single-file viewer to open and the directory it is extracted to: the built-in one, or an
+    installed bundle's (``viewer``, else ``ADA_VIEWER_BUNDLE``; see ``ada.visit.viewer_bundles``)."""
+    from ada.visit.viewer_bundles import resolve_viewer_bundle
+
+    bundle = resolve_viewer_bundle(viewer)
+    if bundle is None:
+        return ZIP_VIEWER, THIS_DIR / "resources"
+    if bundle.embed_zip is None:
+        raise ValueError(f'viewer bundle "{bundle.name}" has no single-file build ({bundle.root / "index.zip"})')
+    return bundle.embed_zip, THIS_DIR / "resources" / "bundles" / bundle.name
+
+
 class RendererReact:
-    def __init__(self, render_backend=SqLiteBackend(), local_html_path=THIS_DIR / "resources" / "index.html"):
+    def __init__(self, render_backend=SqLiteBackend(), local_html_path=None, viewer: str | None = None):
         self.backend = render_backend
-        self.local_html_path = local_html_path
+        self.viewer_zip, self.extract_dir = _viewer_zip(viewer)
+        self.local_html_path = local_html_path or self.extract_dir / "index.html"
 
         self._extract_html()
 
     def _extract_html(self):
         from ada.core.utils import get_md5_hash_for_file
 
-        hash_content = get_md5_hash_for_file(ZIP_VIEWER).hexdigest()
-        if self.local_html_path.exists() and HASH_FILE.exists():
-            with open(HASH_FILE, "r") as f:
-                hash_stored = f.read()
-            if hash_content == hash_stored:
+        hash_file = self.extract_dir / HASH_FILE.name
+        hash_content = get_md5_hash_for_file(self.viewer_zip).hexdigest()
+        if self.local_html_path.exists() and hash_file.exists():
+            if hash_file.read_text() == hash_content:
                 return
 
-        logger.info("Extracting HTML viewer")
-        archive = zipfile.ZipFile(ZIP_VIEWER)
-        archive.extractall(THIS_DIR / "resources")
+        logger.info(f"Extracting HTML viewer {self.viewer_zip}")
+        self.extract_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(self.viewer_zip) as archive:
+            archive.extractall(self.extract_dir)
 
         # Strip the absolute-path asset tags on disk so plain show() (which opens
         # this file directly) doesn't 404 on them, same as the REST-embedded path.
         html_content = self.local_html_path.read_text(encoding="utf-8")
         self.local_html_path.write_text(_strip_absolute_asset_tags(html_content), encoding="utf-8")
 
-        # Update HASH file
-        with open(HASH_FILE, "w") as f:
-            f.write(hash_content)
+        hash_file.write_text(hash_content)
 
     def show(self, target_id=None) -> None | HTML:
         import webbrowser

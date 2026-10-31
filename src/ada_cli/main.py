@@ -33,6 +33,7 @@ invocation must not look like success to a script.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from ada_cli.formats import (
@@ -55,6 +56,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
 def _cmd_view(args: argparse.Namespace) -> int:
     from ada.api.cli import _cmd_view as impl
 
+    _use_viewer_bundle(args.viewer)
     impl(args)
     return 0
 
@@ -113,10 +115,36 @@ def _cmd_files_delete(args: argparse.Namespace) -> int:
     return cmd_delete(args)
 
 
-def _cmd_serve_api(_args: argparse.Namespace) -> int:
+def _use_viewer_bundle(name: str | None) -> None:
+    """``--viewer``: the installed viewer bundle every viewer this process opens or serves uses.
+    Checked here, so a typo fails before anything starts."""
+    if name is None:
+        return
+    from ada.visit.viewer_bundles import ENV_BUNDLE, resolve_viewer_bundle
+
+    resolve_viewer_bundle(name)
+    os.environ[ENV_BUNDLE] = name
+
+
+def _cmd_serve_api(args: argparse.Namespace) -> int:
     from ada.comms.rest.__main__ import run
 
+    _use_viewer_bundle(args.viewer)
     run()
+    return 0
+
+
+def _cmd_viewers(_args: argparse.Namespace) -> int:
+    from ada.visit.viewer_bundles import bundle_dirs, list_viewer_bundles
+
+    bundles = list_viewer_bundles()
+    print("builtin  adapy's own viewer, no plugins (the default)")
+    for name, b in sorted(bundles.items()):
+        forms = ", ".join(f for f, ok in (("served", b.dist), ("single-file", b.embed_zip)) if ok)
+        plugins = ", ".join(b.plugins) or "no plugins listed"
+        print(f"{name}  {b.title or name} [{forms}] adapy {b.adapy_version or '?'}; {plugins}")
+    if not bundles:
+        print("(no viewer bundles installed; looked in " + ", ".join(str(d) for d in bundle_dirs()) + ")")
     return 0
 
 
@@ -379,6 +407,21 @@ def _add_super_element(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_viewer_bundle_opt(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--viewer",
+        default=None,
+        metavar="NAME",
+        help="An installed viewer bundle (adapy's viewer built with plugins; see `ada viewers`). "
+        "Default: $ADA_VIEWER_BUNDLE, else the built-in viewer.",
+    )
+
+
+def _add_viewers(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("viewers", help="List the installed viewer bundles (`--viewer`, $ADA_VIEWER_BUNDLE).")
+    p.set_defaults(func=_cmd_viewers)
+
+
 def _add_viewer_opts(p: argparse.ArgumentParser, renderers: tuple[str, ...]) -> None:
     p.add_argument("--renderer", default="react", choices=renderers)
     p.add_argument("--host", default="localhost")
@@ -407,6 +450,7 @@ def _add_view(sub: argparse._SubParsersAction) -> None:
         ),
     )
     _add_viewer_opts(p, ("react", "trimesh"))
+    _add_viewer_bundle_opt(p)
     p.add_argument("--split", action="store_true")
     p.add_argument("--limit", type=int, default=None)
     _add_super_element(p)
@@ -578,6 +622,7 @@ def _add_serve(sub: argparse._SubParsersAction) -> None:
     serve_sub = serve.add_subparsers(dest="serve_command", required=True)
 
     api = serve_sub.add_parser("api", help="Run the REST API (uvicorn).")
+    _add_viewer_bundle_opt(api)
     api.set_defaults(func=_cmd_serve_api)
 
     worker = serve_sub.add_parser("worker", help="Run the conversion worker (NATS JetStream consumer).")
@@ -603,6 +648,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_files(sub)
     _add_audit(sub)
     _add_serve(sub)
+    _add_viewers(sub)
 
     return parser
 
