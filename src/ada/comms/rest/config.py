@@ -185,7 +185,7 @@ def load_settings() -> Settings:
     if not static_path:
         # An installed viewer bundle (ADA_VIEWER_BUNDLE), plugins built in; an explicit
         # ADA_VIEWER_STATIC_PATH still wins.
-        from ada.visit.viewer_bundles import resolve_viewer_bundle
+        from ada.comms.viewer_bundles import resolve_viewer_bundle
 
         bundle = resolve_viewer_bundle()
         if bundle is not None:

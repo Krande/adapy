@@ -35,8 +35,8 @@ def _strip_absolute_asset_tags(html_content: str) -> str:
 
 def _viewer_zip(viewer: str | None) -> tuple[pathlib.Path, pathlib.Path]:
     """The single-file viewer to open and the directory it is extracted to: the built-in one, or an
-    installed bundle's (``viewer``, else ``ADA_VIEWER_BUNDLE``; see ``ada.visit.viewer_bundles``)."""
-    from ada.visit.viewer_bundles import resolve_viewer_bundle
+    installed bundle's (``viewer``, else ``ADA_VIEWER_BUNDLE``; see ``ada.comms.viewer_bundles``)."""
+    from ada.comms.viewer_bundles import resolve_viewer_bundle
 
     bundle = resolve_viewer_bundle(viewer)
     if bundle is None:

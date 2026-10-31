@@ -6,13 +6,15 @@ ADA_VIEWER_BUNDLE or --viewer picks it, for the REST app's static files and for 
 from __future__ import annotations
 
 import json
+import sys
+import types
 import zipfile
 
 import pytest
 
 import ada_cli.main
-from ada.visit import viewer_bundles
-from ada.visit.viewer_bundles import (
+from ada.comms import viewer_bundles
+from ada.comms.viewer_bundles import (
     ENV_BUNDLE,
     ENV_BUNDLE_PATH,
     list_viewer_bundles,
@@ -85,7 +87,10 @@ def test_show_opens_the_selected_bundles_single_file_build(installed, tmp_path, 
 
 def test_cli_viewer_selects_the_bundle_and_a_typo_fails_before_anything_starts(installed, monkeypatch):
     started = []
-    monkeypatch.setattr("ada.comms.rest.__main__.run", lambda: started.append(viewer_bundles.os.environ[ENV_BUNDLE]))
+    # A stand-in for the server module: the real one imports uvicorn, which a core test env has not.
+    server = types.ModuleType("ada.comms.rest.__main__")
+    server.run = lambda: started.append(viewer_bundles.os.environ[ENV_BUNDLE])
+    monkeypatch.setitem(sys.modules, "ada.comms.rest.__main__", server)
     assert ada_cli.main.main(["serve", "api", "--viewer", "company"]) == 0
     assert started == ["company"]
     with pytest.raises(ValueError, match="no viewer bundle"):

@@ -121,7 +121,7 @@ def _use_viewer_bundle(name: str | None) -> None:
     Checked here, so a typo fails before anything starts."""
     if name is None:
         return
-    from ada.visit.viewer_bundles import ENV_BUNDLE, resolve_viewer_bundle
+    from ada.comms.viewer_bundles import ENV_BUNDLE, resolve_viewer_bundle
 
     resolve_viewer_bundle(name)
     os.environ[ENV_BUNDLE] = name
@@ -136,7 +136,7 @@ def _cmd_serve_api(args: argparse.Namespace) -> int:
 
 
 def _cmd_viewers(_args: argparse.Namespace) -> int:
-    from ada.visit.viewer_bundles import bundle_dirs, list_viewer_bundles
+    from ada.comms.viewer_bundles import bundle_dirs, list_viewer_bundles
 
     bundles = list_viewer_bundles()
     print("builtin  adapy's own viewer, no plugins (the default)")
