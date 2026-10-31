@@ -2,6 +2,15 @@
 
 
 
+## v0.125.0 (2026-10-31)
+
+### Feature
+
+* feat: installed viewer bundles, selectable with --viewer / ADA_VIEWER_BUNDLE (#477)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`ef8952f`](https://github.com/Krande/adapy/commit/ef8952fe972925b6ec9fe40f810bc9a3dd416e02))
+
+
 ## v0.124.0 (2026-10-31)
 
 ### Feature
