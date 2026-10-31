@@ -376,7 +376,7 @@ export interface SelectionExportDeps {
     jobStatus(jobId: string): Promise<{ status: string; error: string | null }>;
   };
   readonly download: (scope: string, key: string, filename: string) => Promise<void>;
-  readonly trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void;
+  readonly trackJob?: (opts: { jobId: string; label: string; derivedKey?: string; scope?: string }) => void;
   /** Poll backoff. Defaults to a real 1.5 s timer; tests inject an instant no-op. */
   readonly wait?: (ms: number) => Promise<void>;
   readonly now?: () => number;

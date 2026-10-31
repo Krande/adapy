@@ -1,4 +1,4 @@
-import type {ScheduleChoice} from "@/services/api/assetSchedules";
+import type {ScheduleChoice, ScheduleSetting} from "@/services/api/assetSchedules";
 
 // A schedule setting's choices carry their DECLARED type: an enum of strings, of numbers, or a
 // `bool` setting's `[false, true]`. An HTML <option> value is always text, so the select keys each
@@ -50,4 +50,86 @@ export function valueOfKey(key: string, choices: ScheduleChoice[]): unknown {
 export function choiceLabel(value: unknown, choices: ScheduleChoice[] | undefined): string {
     const hit = (choices ?? []).find((c) => sameChoice(value, c.value));
     return hit ? hit.label : String(value);
+}
+
+/** The label of a single-choice setting's EMPTY option: what leaving it unset means. A provider's
+ *  setting falls to the provider's default; core's own (`core`, e.g. `missing_full_export`) to core's
+ *  declared default, named. */
+export function emptyChoiceLabel(setting: ScheduleSetting, choices: ScheduleChoice[] | undefined): string {
+    if (setting.core && setting.default != null) return `(default: ${choiceLabel(setting.default, choices ?? setting.choices)})`;
+    return "(provider default)";
+}
+
+/** A yes/no setting (`type: "bool"`), drawn as one checkbox -- core's "Pre-build meshes", a
+ *  provider's bool option alike. */
+export function isBoolSetting(s: {type?: string; multiple?: boolean}): boolean {
+    return s.type === "bool" && s.multiple !== true;
+}
+
+/** Whether a bool setting's checkbox is ticked: the held value however it travelled (`true`,
+ *  `"true"`), else its declared default. */
+export function boolValue(s: {default?: unknown}, value: unknown): boolean {
+    const v = value === undefined || value === null || value === "" ? s.default : value;
+    return sameChoice(v, true);
+}
+
+// A MULTIPLE setting (`"multiple": true`, an enum with choices) holds a LIST of its choices and is
+// drawn as one checkbox per choice. Generic: any provider's multiple setting, whatever its name.
+// Unset, it holds the setting's declared default (apply-changes: every target ticked), so a form
+// that never touched it still sends the full list -- and ticking none is refused before sending.
+
+/** The subset of a setting these helpers read (a `ScheduleSetting` fits). */
+export interface MultiSettingLike {
+    name: string;
+    title?: string;
+    multiple?: boolean;
+    default?: unknown;
+    choices?: ScheduleChoice[];
+}
+
+export function isMultiSetting(s: MultiSettingLike): boolean {
+    return s.multiple === true && (s.choices?.length ?? 0) > 0;
+}
+
+/** The choices `value` names, in the choices' own order; anything that is not a choice is dropped.
+ *  A single value -- a schedule saved while the setting was still a single choice (a sweep's
+ *  `sweep_target` before it became checkboxes) -- is a list of one. */
+export function ticked(value: unknown, choices: ScheduleChoice[]): unknown[] {
+    const list = Array.isArray(value) ? value : value === undefined || value === null || value === "" ? [] : [value];
+    return choices.filter((c) => list.some((v) => sameChoice(v, c.value))).map((c) => c.value);
+}
+
+/** What a multiple setting holds while the form has not set it: its declared default, else every choice. */
+export function multiDefault(s: MultiSettingLike): unknown[] {
+    const choices = s.choices ?? [];
+    return Array.isArray(s.default) ? ticked(s.default, choices) : choices.map((c) => c.value);
+}
+
+/** The ticked values to show for a multiple setting: the held list, or the default when unset. */
+export function multiValue(s: MultiSettingLike, value: unknown): unknown[] {
+    return value === undefined || value === null ? multiDefault(s) : ticked(value, s.choices ?? []);
+}
+
+/** `value` with `choice` ticked or unticked. */
+export function toggleChoice(s: MultiSettingLike, value: unknown, choice: unknown, on: boolean): unknown[] {
+    const choices = s.choices ?? [];
+    const now = multiValue(s, value).filter((v) => !sameChoice(v, choice));
+    return ticked(on ? [...now, choice] : now, choices);
+}
+
+/** `settings` with every multiple setting spelled out (an unset one as its default): what is sent. */
+export function withMultiDefaults(settingList: MultiSettingLike[], settings: Record<string, unknown>): Record<string, unknown> {
+    const out = {...settings};
+    for (const s of settingList) if (isMultiSetting(s)) out[s.name] = multiValue(s, settings[s.name]);
+    return out;
+}
+
+/** The inline refusal when a multiple setting has nothing ticked, else null. */
+export function multiSettingError(settingList: MultiSettingLike[], settings: Record<string, unknown>): string | null {
+    for (const s of settingList) {
+        if (isMultiSetting(s) && multiValue(s, settings[s.name]).length === 0) {
+            return `Tick at least one under "${s.title ?? s.name}".`;
+        }
+    }
+    return null;
 }

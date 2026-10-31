@@ -276,3 +276,47 @@ test("a choices request runs the job and hands back its summary, publishing noth
   assert.equal(sent.action, "list-choices");
   assert.equal(sent.project, "ALPHA");
 });
+
+test("a provider job's summary is read from the scope the answer names, not the one that asked", async () => {
+  const reads: string[] = [];
+  const tracked: (string | undefined)[] = [];
+  const { api } = fakeApi();
+  const base = api;
+  const api2: CollectionRequestApi = {
+    ...base,
+    async pluginJob() {
+      return { job_id: "j-fetch", derived_key: "fetch.json", scope: "providers" };
+    },
+    async publish() {
+      return { job_id: "j-publish", derived_key: "publish.json", scope: "providers" };
+    },
+    async readJson(scope, key) {
+      reads.push(`${scope}:${key}`);
+      return base.readJson(scope, key);
+    },
+  };
+  const out = await requestCollection(
+    { api: api2, wait: noWait, trackJob: (o) => void tracked.push(o.scope) },
+    "shared",
+    "vendor",
+    REQ,
+    "alpha",
+  );
+  assert.equal(out.revision, "r1");
+  assert.deepEqual(reads, ["providers:fetch.json", "providers:publish.json"]);
+  assert.deepEqual(tracked, ["providers", "providers"]);
+});
+
+test("an older server that names no scope is read from the scope that asked", async () => {
+  const reads: string[] = [];
+  const { api } = fakeApi();
+  const wrapped: CollectionRequestApi = {
+    ...api,
+    async readJson(scope, key) {
+      reads.push(`${scope}:${key}`);
+      return api.readJson(scope, key);
+    },
+  };
+  await requestCollection({ api: wrapped, wait: noWait }, "project:p1", "vendor", REQ, "alpha");
+  assert.deepEqual(reads, ["project:p1:fetch.json", "project:p1:publish.json"]);
+});

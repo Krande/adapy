@@ -767,7 +767,7 @@ export interface ClashFlowApi {
 
 export interface ClashFlowDeps {
   api: ClashFlowApi;
-  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void;
+  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string; scope?: string }) => void;
   /** Poll backoff. Defaults to a real 1.5s timer; tests inject an instant no-op. */
   wait?: (ms: number) => Promise<void>;
   now?: () => number;

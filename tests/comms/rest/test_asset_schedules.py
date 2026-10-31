@@ -309,7 +309,9 @@ def test_check_now_enqueues_the_change_check_and_records_a_run(client):
     assert enq["derived_prefix"] and enq["derived_key"] == enq["derived_prefix"] + ".json"
     [run] = calls["runs"]
     assert run["requested_via"] == "user" and run["provider"] == "vendor" and run["collection"] == "ALPHA"
-    assert run["derived_key"] == enq["derived_key"] and run["scope"] == Scope.shared().prefix()
+    # Asked from `shared`, run in -- and recorded under -- the provider store.
+    assert run["derived_key"] == enq["derived_key"] and run["scope"] == Scope.providers().prefix()
+    assert enq["scope_obj"] == Scope.providers()
 
 
 def test_check_now_uses_the_scheduled_checks_settings(client):

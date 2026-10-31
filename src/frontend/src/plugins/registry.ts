@@ -471,12 +471,16 @@ export interface AdaPluginContext {
    * finisher for that kind at module load (`registerJobFinisher` on @/viewer-core/app,
    * 1.9.0): it runs as the entry's last stage, with `data`. With `persist` the entry is
    * remembered in this browser, so the toast -- and the finisher -- resume after a reload.
+   *
+   * `scope` is the scope the job RAN in, when that is not the open one: a provider job runs in
+   * the provider store, and `POST /plugins/{id}/jobs` answers which (`scope` in its response).
    */
   trackJob: (opts: {
     jobId: string;
     label: string;
     derivedKey?: string;
     storeKey?: string;
+    scope?: string;
     kind?: string;
     data?: unknown;
     persist?: boolean;

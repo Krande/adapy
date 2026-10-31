@@ -21,6 +21,8 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ada.config import logger
+
 from .. import auth as auth_module
 from .. import db as db_module
 from .. import pending_uploads
@@ -40,6 +42,13 @@ from .deps import (
     scope_from_path,
 )
 from .plugins import plugin_ids_gated_by_config
+from .provider_store import (
+    PROVIDER_STORE,
+    is_asset_provider_spec,
+    job_scope,
+    require_admin_for_provider_job,
+    wire_of,
+)
 
 router = APIRouter()
 
@@ -63,6 +72,17 @@ async def plugin_job_requires_admin(plugin_id: str, pool, advertised: dict | Non
     if gated is None:  # unreadable setting -> gate everything
         return True
     return plugin_id in gated
+
+
+def provider_spec_of(plugin_id: str, advertised: dict | None) -> dict | None:
+    """The spec that makes ``plugin_id`` an asset provider, or None: the advertised one when it
+    declares ``asset_provider_id``, else the one THIS process registered (a queue-less viewer runs
+    plugin jobs in-process, and no worker advertises them). Either is enough -- like the admin
+    gate, a source can only send a job to the store, never away from it."""
+    if is_asset_provider_spec(advertised):
+        return advertised
+    local = locally_registered_spec(plugin_id)
+    return local if is_asset_provider_spec(local) else None
 
 
 async def enqueue_plugin_job(
@@ -108,6 +128,19 @@ async def enqueue_plugin_job(
                 plugin_spec = _spec
                 break
 
+    # DEFENCE IN DEPTH. Every caller already asks ``job_scope`` (and reads the
+    # summary back from the same scope); forcing it again here means a caller
+    # that forgot cannot land provider data in a user's or project's scope --
+    # the job runs in the provider store whatever it was handed.
+    forced = job_scope(provider_spec_of(plugin_id, plugin_spec), scope_obj)
+    if forced != scope_obj:
+        logger.warning(
+            "plugin job %s: asset-provider job asked for scope %s; running it in the provider store",
+            plugin_id,
+            wire_of(scope_obj),
+        )
+        scope_obj = forced
+
     # Route to the pool advertising this plugin's worker_capability. An
     # explicit override wins; otherwise read it off the live spec.
     target_capability = None
@@ -123,7 +156,14 @@ async def enqueue_plugin_job(
         # NAKing is how non-interchangeable workers are kept apart.
         opt_name = plugin_spec.get("capability_option")
         if target_capability and isinstance(opt_name, str) and opt_name:
-            shard = capability_token(options.get(opt_name))
+            value = options.get(opt_name)
+            # `capability_routes` maps a value onto the shard that serves it (a split collection's
+            # copy onto its collection's pool, see ``collection_splits``); unmapped, the value is it.
+            routes = plugin_spec.get("capability_routes")
+            if isinstance(routes, dict) and isinstance(value, str):
+                routed = {str(k).lower(): v for k, v in routes.items() if isinstance(v, str)}.get(value.lower())
+                value = routed or value
+            shard = capability_token(value)
             if shard:
                 target_capability = f"{target_capability}-{shard}"
 
@@ -420,16 +460,40 @@ async def api_plugin_job(
     the plugin's ``job_entrypoint``; the returned summary lands as JSON at
     ``derived_key`` and the plugin writes its sidecar bundle under its reserved
     prefix (``derived_prefix``). Poll via ``GET /api/convert/{job_id}``.
+
+    AN ASSET PROVIDER'S JOB (its spec declares ``asset_provider_id``) is an
+    admin operation and runs in the provider store, whatever ``?scope=`` says:
+    provider data is kept current by admins and read by members through the
+    grants on their scope, so where a job is started from never changes where
+    its data lands. A member gets 403 even when the plugin itself does not set
+    ``requires_admin``. The response's ``scope`` names the scope the job ran
+    in -- the one ``derived_key`` (and the staging it reports) is read from.
     """
     body = await request.json()
     options = body.get("options") or {}
     if not isinstance(options, dict):
         raise HTTPException(status_code=400, detail="options must be a dict")
 
-    scope_obj = parse_scope(scope, user)
-    scope_obj = await resolve_project_scope(getattr(request.app.state, "db_pool", None), scope_obj)
-    if not await scope_can_access(user, scope_obj, getattr(request.app.state, "db_pool", None)):
-        raise HTTPException(status_code=403, detail="forbidden")
+    # Read the advertised spec ONCE, before the scope: it decides where the
+    # job runs, whether this request needs an admin and which pool it routes to.
+    plugin_spec: dict | None = None
+    for _spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
+        if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
+            plugin_spec = _spec
+            break
+
+    provider_spec = provider_spec_of(plugin_id, plugin_spec)
+    if provider_spec is not None:
+        # Checked before anything about the named scope, so a member learns the
+        # rule rather than a scope error, and the store is never "opened" by a
+        # scope a member happens to hold.
+        require_admin_for_provider_job(user, provider_spec)
+        scope_obj = PROVIDER_STORE
+    else:
+        scope_obj = parse_scope(scope, user)
+        scope_obj = await resolve_project_scope(getattr(request.app.state, "db_pool", None), scope_obj)
+        if not await scope_can_access(user, scope_obj, getattr(request.app.state, "db_pool", None)):
+            raise HTTPException(status_code=403, detail="forbidden")
 
     # This route is generic ("core names no plugin"), so there is no single
     # field in ``options`` that reliably names the source file — one plugin
@@ -444,14 +508,6 @@ async def api_plugin_job(
         pending = pending_uploads.get(scope_obj, opt_value)
         if pending is not None:
             raise HTTPException(status_code=409, detail=pending_upload_detail(opt_value, pending))
-
-    # Read the advertised spec ONCE: it decides both whether this request
-    # needs an admin and which pool it routes to.
-    plugin_spec: dict | None = None
-    for _spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
-        if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
-            plugin_spec = _spec
-            break
 
     # Scope access is not the same question as who may RUN this. A plugin
     # job can drive a licensed workstation for minutes; some are for admins
@@ -482,4 +538,4 @@ async def api_plugin_job(
         derived_key=derived_key,
         plugin_spec=plugin_spec,
     )
-    return JSONResponse({"job_id": job_id, "derived_key": derived_key})
+    return JSONResponse({"job_id": job_id, "derived_key": derived_key, "scope": wire_of(scope_obj)})

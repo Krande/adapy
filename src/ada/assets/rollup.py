@@ -26,6 +26,9 @@ The rules mirror the browser's, and each has its counterpart there:
   OTHER parentless row of a spine sits under the spine's subject (the tree route's ``_Spine``).
 * PLACED -- a subject is placed when its row is reachable from a top of the collection index. A
   subject only its own spine mentions floats; it is reported under ``unplaced`` rather than guessed.
+* PATCHED -- the collection's hierarchy patches overlay the documents exactly as the tree route
+  overlays them (``TreePlacement.apply_patches``): a moved node is placed under its new parent, and
+  a deleted one -- with everything under it -- does not count.
 """
 
 from __future__ import annotations
@@ -166,9 +169,21 @@ def plan_rollup(
 _Rank = tuple
 
 
+#: The overlay's word for a node a hierarchy patch deleted.
+_DELETED = object()
+
+
 @dataclass
 class TreePlacement:
-    """The merged tree's parent links, accumulated one document at a time (in any order)."""
+    """The merged tree's parent links, accumulated one document at a time (in any order).
+
+    Plus the collection's HIERARCHY PATCHES (:meth:`apply_patches`, docs/design/apply-changes.md
+    section 4), read as the tree route reads them: per node, the last patch's word -- a new parent
+    (moved or inserted) or deleted -- wins over the documents, unless the document that placed the
+    node was published after that patch (then the document already says it, or something newer).
+    A node whose chain reaches a deleted one is REMOVED: it is not placed, and it does not count
+    (:meth:`removed`).
+    """
 
     collection: str
     parent: dict[str, str | None] = field(default_factory=dict)
@@ -179,6 +194,50 @@ class TreePlacement:
     read: set[str] = field(default_factory=set)
     rows: int = 0
     documents: int = 0
+    #: node -> (patch, new parent | _DELETED): the final word of the patches, in order.
+    _patched: dict = field(default_factory=dict)
+
+    def apply_patches(self, patches: Iterable) -> None:
+        """Fold hierarchy patches in, oldest first. A patch is any object with ``edges()`` (its
+        upserted ``(id, parent)``), ``delete`` (ids) and ``threshold(subject)`` (the newest revision
+        of that subject's spine it still applies over) -- ``hierarchy_patches.HierarchyPatch``."""
+        for patch in patches:
+            for node, up in patch.edges():
+                self._patched[node] = (patch, up)
+                if up is None:
+                    self.tops.add(node)
+            for node in patch.delete:
+                self._patched[node] = (patch, _DELETED)
+
+    def _up(self, node: str):
+        """``(known, parent, via_patch)`` -- the overlay's parent when it is in force, else the
+        documents'. ``parent`` may be ``_DELETED``."""
+        hit = self._patched.get(node)
+        if hit is not None:
+            patch, up = hit
+            rank = self._rank.get(node)
+            doc_subject = self.collection if rank is None or rank[0] <= 0 else rank[2]
+            if rank is None or rank[1] <= patch.threshold(doc_subject or self.collection):
+                return True, up, True
+        if node in self.parent:
+            return True, self.parent[node], False
+        return False, None, False
+
+    def removed(self, node: str) -> bool:
+        """Whether ``node`` or an ancestor of it was deleted by a patch in force."""
+        if not self._patched:
+            return False
+        seen: set[str] = set()
+        cur = node
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            known, up, _ = self._up(cur)
+            if up is _DELETED:
+                return True
+            if not known:
+                return False
+            cur = up
+        return False
 
     def add(self, doc: TreeDocument, edges: Iterable[tuple[str, str | None]]) -> None:
         """Merge one document's ``(id, parent)`` rows."""
@@ -211,6 +270,8 @@ class TreePlacement:
     def ancestors(self, node: str) -> list[str] | None:
         """``node``'s ancestors, nearest first -- or None when its chain does not reach a top of
         the collection index (not placed)."""
+        if self._patched:
+            return self._patched_ancestors(node)
         parent = self.parent
         if node not in parent:
             return None
@@ -229,6 +290,26 @@ class TreePlacement:
             out.append(cur)
             below, cur = cur, parent[cur]
         # Ran off the top: a top of the collection index, or a spine's own top nothing places.
+        return out if below in self.tops else None
+
+    def _patched_ancestors(self, node: str) -> list[str] | None:
+        """:meth:`ancestors` through the patch overlay: same rules, with a link a patch made
+        counting as the collection index's (a patch is the collection's own word on the tree)."""
+        known, cur, via_patch = self._up(node)
+        if not known or cur is _DELETED:
+            return None
+        out: list[str] = []
+        seen = {node}
+        below, below_patched = node, via_patch
+        while cur is not None:
+            known, nxt, nxt_patched = self._up(cur)
+            if not known:
+                return out if below_patched or self._rank.get(below, (1,))[0] <= 0 else None
+            if nxt is _DELETED or cur in seen:
+                return None
+            seen.add(cur)
+            out.append(cur)
+            below, below_patched, cur = cur, nxt_patched, nxt
         return out if below in self.tops else None
 
     def placed(self, node: str) -> bool:
@@ -252,6 +333,9 @@ def rollup_body(plan: RollupPlan, placement: TreePlacement, *, index_token: str)
     def section(subjects: Sequence[str] | frozenset[str]) -> dict:
         below: set[str] = set()
         unplaced: list[str] = []
+        # A subject a hierarchy patch deleted (or that hangs under one) is not in the tree: its
+        # geometry counts nowhere, not even as unplaced.
+        subjects = sorted(s for s in subjects if not placement.removed(s))
         for s in subjects:
             if s == plan.collection:
                 continue  # the collection itself is above every row, not a row

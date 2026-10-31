@@ -69,6 +69,7 @@ TransportFeature = Literal[
     "conversion",
     "export_search",
     "export_selection",
+    "geometry_compare",
     "job_status_report",
     "plugin_jobs",
     "procedural_build",
@@ -96,6 +97,7 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "clash_detail": "clash detail disabled (no NATS configured)",
     "export_search": "search-result export disabled (no NATS configured)",
     "export_selection": "selection export disabled (no NATS configured)",
+    "geometry_compare": "geometry comparison disabled (no NATS configured)",
     "plugin_jobs": "plugin jobs disabled (no NATS configured)",
     "procedural_build": "procedural build disabled (no NATS configured)",
     "procedural_export": "procedural export disabled (no NATS configured)",
@@ -450,6 +452,7 @@ class LocalJobTransport(_BaseTransport):
                 derived_key=req.derived_key or "",
                 storage=self._storage,
                 scope=req.scope,
+                exclude_nodes=opts.get("exclude_nodes") or (),
             )
         except LookupError as exc:
             # No builder HERE for that capability: 501 (this process cannot), not 503 (this

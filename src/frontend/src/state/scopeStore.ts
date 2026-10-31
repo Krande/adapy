@@ -1,13 +1,14 @@
 import {create} from "zustand";
 import {persist} from "zustand/middleware";
 
+import {PROVIDER_STORE_LABEL, PROVIDER_STORE_SCOPE} from "@/assets/providerStore";
 import {sortProjectsAmong} from "@/utils/sortProjects";
 
 // One scope the user is browsing right now. Mirrors the backend's
 // /api/me response.
 export interface ScopeOption {
-    kind: "shared" | "user" | "project" | "corpus";
-    // 'me' for user-scope; null for shared; the corpus slug for corpus.
+    kind: "shared" | "user" | "project" | "corpus" | "providers";
+    // 'me' for user-scope; null for shared and the provider store; the corpus slug for corpus.
     id: string | null;
     name: string;
 }
@@ -22,6 +23,18 @@ export function sortScopeOptions<T extends Pick<ScopeOption, "kind" | "name">>(s
         (s) => s.kind === "corpus",
         byName,
     );
+}
+
+/** `/api/me`'s scopes for `isAdmin`, with the provider store (admin-only) listed last for an admin --
+ *  the server may or may not list it itself -- and never for anyone else. */
+export function withProviderStore<T extends Pick<ScopeOption, "kind" | "id" | "name">>(
+    scopes: readonly T[],
+    isAdmin: boolean,
+): (T | ScopeOption)[] {
+    const rest = scopes.filter((s) => s.kind !== "providers");
+    if (!isAdmin) return rest;
+    const listed = scopes.find((s) => s.kind === "providers");
+    return [...rest, listed ?? {kind: "providers", id: null, name: PROVIDER_STORE_LABEL}];
 }
 
 interface ScopeState {
@@ -87,6 +100,7 @@ export function scopeUrlPart(s: ScopeOption | null): string {
     if (s.kind === "shared") return "shared";
     if (s.kind === "user") return "user:me"; // server resolves 'me' to the caller's sub
     if (s.kind === "corpus") return `corpus:${s.id}`; // admin-only, gated server-side
+    if (s.kind === "providers") return PROVIDER_STORE_SCOPE; // admin-only, gated server-side
     return `project:${s.id}`;
 }
 
@@ -98,6 +112,7 @@ export function scopeFromUrlPart(part: string): ScopeOption {
     const [kind, id] = part.split(":");
     if (kind === "user") return {kind: "user", id: "me", name: "My files"};
     if (kind === "corpus") return {kind: "corpus", id: id ?? null, name: id ?? "corpus"};
+    if (part === PROVIDER_STORE_SCOPE) return {kind: "providers", id: null, name: PROVIDER_STORE_LABEL};
     if (kind === "project") return {kind: "project", id: id ?? null, name: id ?? "project"};
     return {kind: "shared", id: null, name: "Shared"};
 }

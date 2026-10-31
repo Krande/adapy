@@ -50,11 +50,13 @@ from .routes.admin_db import router as admin_db_router
 from .routes.admin_plugin_jobs import plugin_schedule_fire
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_projects import router as admin_projects_router
+from .routes.admin_provider_grants import router as admin_provider_grants_router
 from .routes.admin_settings import router as admin_settings_router
 from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
+from .routes.asset_apply_changes import admin_router as admin_asset_apply_changes_router
 from .routes.asset_exports import router as asset_exports_router
 from .routes.asset_schedules import admin_router as admin_asset_schedules_router
 from .routes.asset_schedules import router as asset_schedules_router
@@ -207,6 +209,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("db: pool init failed; running shared-only")
             app.state.db_pool = None
+
+        # Grants are the only scope -> provider-collection control: once, the per-scope collection
+        # matrix and the attribute shares become grants (`provider_grant_migration`). A failure is
+        # logged and retried on the next start; the API serves meanwhile.
+        if app.state.db_pool is not None:
+            from .provider_grant_migration import migrate_legacy_access
+
+            try:
+                await migrate_legacy_access(app.state.db_pool)
+            except Exception:
+                logger.exception("provider grants: could not migrate the legacy access rules; retried on next start")
 
         # Reconcile the capability requirements from the database into KV. The
         # admin write publishes directly, but best-effort; doing it again here
@@ -1184,24 +1197,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # and their ids are namespaced so they can never collide with a queued
         # job's. Checking them before the `queue.enabled` gate is what lets one
         # polling loop in the frontend serve both paths.
+        #
+        # THE PROVIDER STORE. A job in the ``providers`` scope is an admin's --
+        # every provider job is -- EXCEPT a build: a member opening a dataset
+        # granted to their scope has core build it as a store job on their
+        # behalf (one shared cache for every granted scope), and must be able to
+        # poll it. Builds only, never a provider job, and the id is unguessable;
+        # what the poll returns is a status and a derived key, not the data.
+        def _readable_store_build(kind: str, target_format: str | None, derived_key: str | None) -> bool:
+            if kind != "providers":
+                return False
+            if target_format == "asset_build":
+                return True
+            # An in-process job records no target format; a build's summary is
+            # the only one composed under `_derived/assets/` (a plugin job's is
+            # under `_derived/plugin_jobs/`).
+            return target_format is None and str(derived_key or "").startswith("_derived/assets/")
+
+        def _job_scope_of(kind: str, ident: str | None) -> Scope:
+            # `shared` and `providers` carry no id; a record may hold "" or None.
+            if kind in ("shared", "providers"):
+                return Scope(kind=kind)  # type: ignore[arg-type]
+            return Scope(kind=kind, id=ident)  # type: ignore[arg-type]
+
         local = local_jobs.registry.get(job_id)
         if local is not None:
-            local_scope = Scope(kind=local.scope_kind, id=local.scope_id)
-            if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
-                raise HTTPException(status_code=403, detail="forbidden")
+            if not _readable_store_build(local.scope_kind, getattr(local, "target_format", None), local.derived_key):
+                local_scope = _job_scope_of(local.scope_kind, local.scope_id)
+                if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
+                    raise HTTPException(status_code=403, detail="forbidden")
             return JSONResponse(local.as_json())
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
         job = await queue.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail=f"job {job_id} not found")
-        job_scope = (
-            Scope.shared()
-            if job.scope_kind == "shared"
-            else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
-        )
-        if not await scope_can_access(user, job_scope, getattr(request.app.state, "db_pool", None)):
-            raise HTTPException(status_code=403, detail="forbidden")
+        if not _readable_store_build(job.scope_kind, job.target_format or "", job.derived_key):
+            job_scope = _job_scope_of(job.scope_kind, job.scope_id)
+            if not await scope_can_access(user, job_scope, getattr(request.app.state, "db_pool", None)):
+                raise HTTPException(status_code=403, detail="forbidden")
         return JSONResponse(asdict(job))
 
     # ── /api/components/* ────────────────────────────────────────────
@@ -1446,9 +1480,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Attribute search over the index the publish job ingests (routes/attribute_search.py). Fixed
     # `assets/search...` paths, registered before the asset store's routes all the same.
     api.include_router(attribute_search_router)
+    # What a collection offers for a new element to point at (routes/reference_data.py). Fixed
+    # `assets/reference...` paths, before the asset store's routes for the same reason.
+    from .routes.reference_data import router as reference_data_router
+
+    api.include_router(reference_data_router)
     # Search hits exported as IFC into a chosen folder (routes/asset_exports.py), and per-file
     # provenance (`/scopes/{scope}/files/meta`). Fixed paths, no parameterised sibling to collide with.
     api.include_router(asset_exports_router)
+    # What a scope may read of the provider store (routes/provider_grants.py): the member-facing
+    # `/scopes/{scope}/provider-grants` and the workers' `/provider-grants/datasets`. Fixed paths.
+    from .routes.provider_grants import router as provider_grants_router
+
+    api.include_router(provider_grants_router)
 
     # Core asset store (routes/assets.py). Every path is
     # ``/scopes/{scope}/assets/...`` with a fixed first segment after
@@ -2124,6 +2168,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_settings_router)
     admin.include_router(admin_storage_compression_router)
     admin.include_router(admin_db_router)
+    admin.include_router(admin_provider_grants_router)
+    # Material overrides of the reference data (routes/reference_data.py).
+    from .routes.reference_data import admin_router as admin_reference_router
+
+    admin.include_router(admin_reference_router)
 
     admin.include_router(admin_workers_router)
 
@@ -2374,6 +2423,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_plugin_jobs_router)
     admin.include_router(admin_asset_schedules_router)
     admin.include_router(admin_asset_sweeps_router)
+    admin.include_router(admin_asset_apply_changes_router)
+    # Two providers' tessellations compared: the gallery and its pictures (routes/geometry_compare.py).
+    from .routes.geometry_compare import admin_router as admin_geometry_compare_router
+
+    admin.include_router(admin_geometry_compare_router)
 
     async def _plugin_schedule_loop(pool) -> None:
         """Tick every 30 s, claim due schedules, enqueue them as plugin jobs.
@@ -2723,8 +2777,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = (
             'window.COMMS_MODE = "rest";\n'
             'window.API_BASE = "/api";\n'
-            f'window.CONVERT_ENABLED = {"true" if queue.enabled else "false"};\n'
-            f'window.AUTH_ENABLED = {"true" if a.enabled else "false"};\n'
+            f"window.CONVERT_ENABLED = {'true' if queue.enabled else 'false'};\n"
+            f"window.AUTH_ENABLED = {'true' if a.enabled else 'false'};\n"
             f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
             f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"
             f"window.AUTH_AUDIENCE = {_json.dumps(a.audience)};\n"

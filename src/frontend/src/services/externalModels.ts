@@ -140,7 +140,7 @@ async function runAction<T>(
   // The enqueue returns only {job_id, derived_key} — no status — so the first
   // real status has to come from a poll. A cache-hit job is already `done` on
   // that first read and costs no extra wait.
-  const { job_id, derived_key } = await viewerApi.pluginJob(
+  const { job_id, derived_key, scope: ranIn } = await viewerApi.pluginJob(
     EXTERNAL_MODELS_PLUGIN_ID,
     { options: options as unknown as Record<string, unknown> },
     { scope },
@@ -167,7 +167,7 @@ async function runAction<T>(
   // Read the summary from the key the ENQUEUE named. The status row echoes a
   // derived_key too, but the enqueue's is the one core wrote the options hash
   // into, so it is the authoritative one for a cache-hit.
-  const buf = await viewerApi.getBlob(scope, derived_key);
+  const buf = await viewerApi.getBlob((ranIn as ScopeUrl | undefined) ?? scope, derived_key);
   const text = await decodeSummary(buf);
   try {
     return JSON.parse(text) as T;

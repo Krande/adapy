@@ -31,6 +31,8 @@ interface RescanData {
     providerId: string;
     /** The advertised collections before the rescan: what "changed" is measured against. */
     before: string[];
+    /** Where the job ran, so the finisher reads its summary there. */
+    scope?: string;
 }
 
 function isRescanData(v: unknown): v is RescanData {
@@ -47,17 +49,19 @@ export async function startProviderRescan(
     before: readonly string[],
     label: string,
 ): Promise<string> {
-    const {job_id, derived_key} = await viewerApi.pluginJob(refresh.pluginId, {
+    const {job_id, derived_key, scope} = await viewerApi.pluginJob(refresh.pluginId, {
         options: {...refresh.options, requested_at: new Date().toISOString()},
     });
+    // A provider job runs in the provider store; an older server answers no scope and ran it in Shared.
+    const ranIn = scope ?? "shared";
     return trackJob({
         jobId: job_id,
-        scopeUrl: "shared",
+        scopeUrl: ranIn,
         label: `Rescan ${label}`,
         derivedKey: derived_key,
         storeKey: rescanStoreKey(providerId),
         kind: RESCAN_KIND,
-        data: {providerId, before: [...before]} satisfies RescanData,
+        data: {providerId, before: [...before], scope: ranIn} satisfies RescanData,
         persist: true,
     });
 }
@@ -67,7 +71,7 @@ registerJobFinisher(RESCAN_KIND, async ({derivedKey, data, setStage}) => {
     let message = "";
     if (derivedKey) {
         try {
-            const doc = JSON.parse(new TextDecoder().decode(await viewerApi.getBlob("shared", derivedKey)));
+            const doc = JSON.parse(new TextDecoder().decode(await viewerApi.getBlob(data.scope ?? "shared", derivedKey)));
             if (doc && typeof doc.message === "string") message = doc.message;
         } catch {
             // The summary is a courtesy; the list below is the answer.

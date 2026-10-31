@@ -27,7 +27,7 @@ export interface Operation {
     /** The parent entry's store key (`op:<id>`). */
     readonly key: string;
     /** Track a job as one step of this operation: a row under it. */
-    trackJob(opts: {jobId: string; label: string; derivedKey?: string}): void;
+    trackJob(opts: {jobId: string; label: string; derivedKey?: string; scope?: string}): void;
     /** Keep the operation up until the returned release is called (once; later calls do nothing). */
     hold(): () => void;
     /** What the operation is doing, shown in place of the running step's stage; null to clear. */

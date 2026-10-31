@@ -1,5 +1,12 @@
 // Which of an asset provider's collections may be REQUESTED in each scope.
 //
+// THE MATRIX PART IS DEPRECATED: which scope uses which provider collection is the provider grants
+// (`@/assets/providerGrants`, Admin ▸ Providers ▸ Access). Core migrates the setting into grants at
+// startup, deletes it, refuses to store it again, and no core code reads it. Its readers stay for
+// plugins built against API 1.8.0. The plugin-spec readers below (`assetProviderCollections` and
+// the request/node-request declarations) are NOT deprecated: they are how core learns a provider's
+// collections and jobs.
+//
 // Pure, on purpose: the API client reaches `auth/oidc.ts`, which touches
 // `sessionStorage` at module scope, so anything importing it needs a DOM.
 // Nothing here imports it. That
@@ -36,8 +43,10 @@
 // collection.
 
 // React-free and import-free, so this module stays DOM-free.
+import { collectionChoiceDeclsOfSpec, type CollectionChoiceDecl } from "@/assets/collectionChoices";
 import { declaredOptions, type PluginJobOption } from "@/components/admin/pluginOptionFields";
 import { compareProjects as compare } from "@/utils/sortProjects";
+import { applySplits, declaredCopies, type CollectionCopy, type CollectionSplitsMap } from "@/services/collectionSplits";
 
 /** The public setting holding the per-scope enabled collections. */
 export const ASSET_SCOPE_COLLECTIONS_KEY = "public.assets.scope_collections";
@@ -211,8 +220,11 @@ export interface AssetProviderCollections {
   pluginIds: readonly string[];
   /** Human titles of those plugins, where they gave one. */
   titles: readonly string[];
-  /** The advertised collections, as spelled by the provider, sorted. */
+  /** The advertised collections, as spelled by the provider, sorted -- a split one (`splits`, see
+   *  `collectionSplits`) as its chosen copies, in its place. */
   collections: readonly string[];
+  /** What each multi-copy collection would split into, as the provider declares it. */
+  copies: Readonly<Record<string, readonly CollectionCopy[]>>;
   /** How to ask for a fresh list, when a spec declares one: the plugin to run a
    *  job on and the options to send. `null` when nobody declares it. */
   refresh: AssetCollectionsRefresh | null;
@@ -265,10 +277,19 @@ function parseChangeCheck(pluginId: string, spec: Record<string, unknown>): Asse
       id: entry.id.trim(),
       label: typeof entry.label === "string" && entry.label.trim() ? entry.label.trim() : "Check for changes",
       description: typeof entry.description === "string" && entry.description.trim() ? entry.description.trim() : null,
-      requiresAdmin: spec.requires_admin === true,
+      requiresAdmin: requiresAdminOf(spec),
     };
   }
   return null;
+}
+
+/** Whether running this spec's jobs takes an admin: its own `requires_admin`, and ALWAYS for an asset
+ *  provider (`asset_provider_id`). Provider data lives once in the provider store and every job of a
+ *  provider writes there, so members never start one -- the server answers 403 -- and the browser
+ *  offers them no button for it. Scheduled jobs keep the data current. */
+export function requiresAdminOf(spec: Record<string, unknown>): boolean {
+  if (spec.requires_admin === true) return true;
+  return typeof spec.asset_provider_id === "string" && spec.asset_provider_id.trim().length > 0;
 }
 
 /** A declared `asset_request_options`: `{options: [names], choices?: request}`.
@@ -291,7 +312,7 @@ function parseRequestOptions(pluginId: string, spec: Record<string, unknown>): A
   const byName = new Map(declaredOptions(spec).map((d) => [d.name, d]));
   const decls = names.map((n) => byName.get(n)).filter((d): d is PluginJobOption => !!d);
   if (!decls.length) return null;
-  return { pluginId, decls, choices: parseRequest(pluginId, raw.choices, spec.requires_admin === true) };
+  return { pluginId, decls, choices: parseRequest(pluginId, raw.choices, requiresAdminOf(spec)) };
 }
 
 /** A declared request: `asset_collection_request` on a plugin spec.
@@ -306,9 +327,12 @@ export interface AssetCollectionRequest {
   options: Readonly<Record<string, unknown>>;
   collectionOption: string;
   label: string;
-  /** The plugin's job needs an admin (its spec's EFFECTIVE `requires_admin`), so
-   *  anyone else is told why rather than offered a button the server refuses. */
+  /** The plugin's job needs an admin (`requiresAdminOf`: its spec's `requires_admin`, or any asset
+   *  provider's), so anyone else is told why rather than offered a button the server refuses. */
   requiresAdmin: boolean;
+  /** Per-collection choices the worker found and an admin may pin for this request (a share, say:
+   *  `@/assets/collectionChoices`). Present only when the spec declares some. */
+  collectionChoices?: CollectionChoiceDecl[];
 }
 
 function parseRequest(pluginId: string, raw: unknown, requiresAdmin: boolean): AssetCollectionRequest | null {
@@ -377,9 +401,13 @@ export interface AssetCollectionsRefresh {
  *  A spec whose named field is missing or not a list of strings is still
  *  listed, with no collections: the provider exists and says it has none right
  *  now, which is different from not being declared at all. Specs naming the
- *  same provider are merged. */
+ *  same provider are merged.
+ *
+ *  `splits` (core's `collection_splits` setting, parsed) offers each split collection as its chosen
+ *  copies instead; without it every collection is listed unsplit. */
 export function assetProviderCollections(
   specs: readonly unknown[],
+  splits?: CollectionSplitsMap,
 ): AssetProviderCollections[] {
   const byProvider = new Map<
     string,
@@ -388,6 +416,7 @@ export function assetProviderCollections(
       titles: string[];
       label: string | null;
       collections: Set<string>;
+      copies: Record<string, CollectionCopy[]>;
       refresh: AssetCollectionsRefresh | null;
       request: AssetCollectionRequest | null;
       nodeRequest: AssetNodeRequest | null;
@@ -406,6 +435,7 @@ export function assetProviderCollections(
       titles: [],
       label: null,
       collections: new Set<string>(),
+      copies: {},
       refresh: null,
       request: null,
       nodeRequest: null,
@@ -421,10 +451,12 @@ export function assetProviderCollections(
       entry.refresh = { pluginId, options: { ...spec.asset_collections_refresh } };
     }
     if (!entry.request) {
-      entry.request = parseRequest(pluginId, spec.asset_collection_request, spec.requires_admin === true);
+      entry.request = parseRequest(pluginId, spec.asset_collection_request, requiresAdminOf(spec));
+      const choices = entry.request ? collectionChoiceDeclsOfSpec(spec) : [];
+      if (entry.request && choices.length) entry.request = { ...entry.request, collectionChoices: choices };
     }
     if (!entry.nodeRequest) {
-      entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, spec.requires_admin === true);
+      entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, requiresAdminOf(spec));
     }
     if (!entry.requestOptions) entry.requestOptions = parseRequestOptions(pluginId, spec);
     if (!entry.changeCheck) entry.changeCheck = parseChangeCheck(pluginId, spec);
@@ -439,6 +471,8 @@ export function assetProviderCollections(
     if (Array.isArray(listed)) {
       for (const c of listed) if (typeof c === "string" && c.trim()) entry.collections.add(c);
     }
+    // Every worker's copies, the first worker's list for a collection two declare (as the server merges).
+    for (const [c, copies] of Object.entries(declaredCopies(spec))) entry.copies[c] ??= copies;
     byProvider.set(providerId, entry);
   }
   return [...byProvider.entries()]
@@ -447,7 +481,8 @@ export function assetProviderCollections(
       label: e.label,
       pluginIds: e.pluginIds,
       titles: e.titles,
-      collections: [...e.collections].sort(compare),
+      collections: applySplits([...e.collections].sort(compare), e.copies, splits?.[providerId]),
+      copies: e.copies,
       refresh: e.refresh,
       request: e.request,
       nodeRequest: e.nodeRequest,

@@ -146,6 +146,26 @@ def test_the_shard_value_is_normalised_into_a_subject_token(monkeypatch, tmp_pat
     assert "." not in cap and " " not in cap
 
 
+@pytest.mark.parametrize("value", ["alpha-x", "ALPHA-X"])
+def test_a_declared_route_sends_a_value_to_the_shard_serving_it(monkeypatch, tmp_path, value):
+    # A split collection's copy is served by its collection's pool, not a pool of its own.
+    spec = _spec(capability_option="project", capability_routes={"alpha-x": "alpha"})
+    app, enqueued = _build(monkeypatch, tmp_path, [_worker("w1", spec)])
+
+    assert _post(app, {"project": value}).status_code == 200
+
+    assert enqueued[0].target_capability == "cad-alpha"
+
+
+def test_a_value_without_a_route_is_its_own_shard(monkeypatch, tmp_path):
+    spec = _spec(capability_option="project", capability_routes={"alpha-x": "alpha"})
+    app, enqueued = _build(monkeypatch, tmp_path, [_worker("w1", spec)])
+
+    assert _post(app, {"project": "beta"}).status_code == 200
+
+    assert enqueued[0].target_capability == "cad-beta"
+
+
 @pytest.mark.parametrize("value", ["", "   ", None])
 def test_an_empty_shard_value_falls_back_to_the_bare_pool(monkeypatch, tmp_path, value):
     # Falling back rather than erroring is what lets one worker subscribe to

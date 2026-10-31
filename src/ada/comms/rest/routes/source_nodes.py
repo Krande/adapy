@@ -30,6 +30,12 @@ from .. import db as db_module
 from ..auth import User
 from ..scope import Scope
 from .deps import scope_from_path
+from .provider_store import (
+    PROVIDER_STORE,
+    PROVIDER_STORE_WIRE,
+    granted_covers,
+    readable_store_datasets,
+)
 
 router = APIRouter()
 
@@ -69,14 +75,60 @@ def _source_node_json(n) -> dict:
     }
 
 
+def source_dataset(source: str, provider: str | None = None) -> tuple[str | None, str | None]:
+    """``(provider, collection)`` a change-feed source names, for the grant check.
+
+    A provider records its feed as ``<provider>:<collection>`` (one source per project, its
+    cursor with it). A reader may name the provider itself (``?provider=``) when the source's
+    prefix is not the provider id; the collection is still the part after the first ``:``. A
+    source without one names no dataset, and is never read through a grant."""
+    prefix, sep, collection = (source or "").partition(":")
+    if not sep or not collection.strip():
+        return None, None
+    return (provider or prefix).strip() or None, collection.strip()
+
+
+def _source_row_json(row, *, read_from: str | None = None) -> dict:
+    out = {
+        "source": row["source"],
+        "nodes": row["nodes"],
+        "last_changed_at": row["last_changed_at"].isoformat() if row["last_changed_at"] else None,
+        "observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
+    }
+    if read_from is not None:
+        out["read_from"] = read_from
+    return out
+
+
+async def _feed_scope(scope: str, request: Request, user: User = Depends(auth_module.current_user)) -> Scope:
+    """``scope_from_path``, with the provider store's refusal spelled out.
+
+    A provider job runs in the store, so its change feed is recorded under ``providers``: by the
+    worker's pool facade (no HTTP at all) or, for a worker with no pool, through this route with
+    the worker's bearer token. The store is an admin's, so that token must be an admin's (a CLI
+    token minted by an admin, as for a CLI publish into the store). Nothing here opens the store to
+    anyone else: a member reads the store's feed only through a grant on their own scope (GET)."""
+    if scope == PROVIDER_STORE_WIRE and not getattr(user, "is_admin", False):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "the provider store's change feed is recorded by provider jobs: a worker without a database "
+                "records it through this API with an ADMIN token (ADA_VIEWER_TOKEN minted by an admin). "
+                "Members read it through the grants on their own scope"
+            ),
+        )
+    return await scope_from_path(scope, request, user)
+
+
 @router.get("/scopes/{scope}/source-nodes")
 async def api_source_nodes(
     request: Request,
-    scope_obj: Scope = Depends(scope_from_path),
+    scope_obj: Scope = Depends(_feed_scope),
     source: str | None = None,
     since: str | None = None,
     refs: str | None = None,
     limit: int = 1000,
+    provider: str | None = None,
 ) -> JSONResponse:
     """Change state for one scope's external-source nodes.
 
@@ -90,6 +142,16 @@ async def api_source_nodes(
       than N times over a slow link.
     * ``since=<iso8601>`` -- what has moved since a cursor the caller keeps.
       The polling shape.
+
+    THROUGH GRANTS. Provider jobs record their feed in the provider store,
+    once. A scope granted a dataset (attributes or geometry) reads the
+    store's rows of that dataset's source -- ``<provider>:<collection>``, or
+    name the provider with ``?provider=`` -- and its own rows otherwise,
+    including its own copy from before the store until the store has rows of
+    that source. The listing (no ``source``) adds the granted store sources
+    beside the scope's own, each marked ``read_from: "providers"``; a source
+    in both answers from the store. ``read_from`` on a node answer says which
+    one answered.
     """
     pool = _source_nodes_pool(request)
     # prefix(), not str(). `Scope` is a dataclass, so str() is its REPR --
@@ -98,22 +160,33 @@ async def api_source_nodes(
     # keyed by the old spelling is orphaned without anything reporting it.
     # prefix() is the canonical scope key the storage layer already uses.
     scope_str = scope_obj.prefix()
+    granted = await readable_store_datasets(pool, scope_obj)
 
     if not source:
+        own = await db_module.list_source_node_sources(pool, scope=scope_str)
+        if not granted:
+            return JSONResponse({"scope": scope_str, "sources": [_source_row_json(row) for row in own]})
+        store_rows = [
+            row
+            for row in await db_module.list_source_node_sources(pool, scope=PROVIDER_STORE.prefix())
+            if granted_covers(granted, *source_dataset(row["source"], provider))
+        ]
+        from_store = {row["source"] for row in store_rows}
         return JSONResponse(
             {
                 "scope": scope_str,
-                "sources": [
-                    {
-                        "source": row["source"],
-                        "nodes": row["nodes"],
-                        "last_changed_at": row["last_changed_at"].isoformat() if row["last_changed_at"] else None,
-                        "observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
-                    }
-                    for row in await db_module.list_source_node_sources(pool, scope=scope_str)
-                ],
+                "sources": [_source_row_json(row) for row in own if row["source"] not in from_store]
+                + [_source_row_json(row, read_from=PROVIDER_STORE_WIRE) for row in store_rows],
             }
         )
+
+    # Which rows answer: the store's for a granted dataset it has rows of, else the scope's own.
+    read_key = scope_str
+    if granted and granted_covers(granted, *source_dataset(source, provider)):
+        store_sources = await db_module.list_source_node_sources(pool, scope=PROVIDER_STORE.prefix())
+        if any(row["source"] == source for row in store_sources):
+            read_key = PROVIDER_STORE.prefix()
+    read_from = PROVIDER_STORE_WIRE if read_key != scope_str else None
 
     limit = max(1, min(int(limit or 1000), 10000))
 
@@ -121,12 +194,13 @@ async def api_source_nodes(
         wanted = [r.strip() for r in refs.split(",") if r.strip()]
         if len(wanted) > limit:
             raise HTTPException(status_code=400, detail=f"at most {limit} refs per request, got {len(wanted)}")
-        found = await db_module.get_source_nodes(pool, scope=scope_str, source=source, node_refs=wanted)
+        found = await db_module.get_source_nodes(pool, scope=read_key, source=source, node_refs=wanted)
         by_ref = {n.node_ref: n for n in found}
         return JSONResponse(
             {
                 "scope": scope_str,
                 "source": source,
+                "read_from": read_from,
                 "nodes": [_source_node_json(by_ref[r]) for r in wanted if r in by_ref],
                 # Named rather than merely absent: a ref nobody has recorded
                 # is not a ref that has not changed, and a caller must be
@@ -143,12 +217,13 @@ async def api_source_nodes(
             raise HTTPException(status_code=400, detail=f"since is not an ISO-8601 timestamp: {since!r}")
 
     nodes = await db_module.list_source_nodes_changed_since(
-        pool, scope=scope_str, source=source, since=parsed_since, limit=limit
+        pool, scope=read_key, source=source, since=parsed_since, limit=limit
     )
     return JSONResponse(
         {
             "scope": scope_str,
             "source": source,
+            "read_from": read_from,
             "since": parsed_since.isoformat() if parsed_since else None,
             "nodes": [_source_node_json(n) for n in nodes],
             "truncated": len(nodes) >= limit,
@@ -224,7 +299,7 @@ def _parse_source_node(raw, index: int) -> dict:
 @router.post("/scopes/{scope}/source-nodes")
 async def api_source_nodes_record(
     request: Request,
-    scope_obj: Scope = Depends(scope_from_path),
+    scope_obj: Scope = Depends(_feed_scope),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Record observed source nodes. Body: ``{source, nodes: [...]}``.
@@ -244,7 +319,9 @@ async def api_source_nodes_record(
 
     Authorisation is the scope's own: ``scope_from_path`` has already
     rejected a caller who is not a member of a project scope, which is the
-    same gate that decides who may write that scope's blobs.
+    same gate that decides who may write that scope's blobs. The provider
+    store's feed (``providers`` -- where every provider job records) is
+    written with an admin's token only; see ``_feed_scope``.
 
     Nodes are capped per request; the writer chunks. A roll-up stamps every
     node ABOVE a changed leaf (the writer's job -- see

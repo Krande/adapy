@@ -107,6 +107,9 @@ export interface TrackJobOptions {
     jobId: string;
     /** The scope the job runs in, as a URL part (`shared`, `project:<id>`). */
     scopeUrl: string;
+    /** Where the job REALLY ran, when that is not `scopeUrl`: a provider job runs in the provider store
+     * (`providers`) whatever scope asked, and the server says so in its answer. Wins over `scopeUrl`. */
+    scope?: string;
     /** What the toast calls this work. Shown where a conversion shows its source. */
     label: string;
     /** Where the result will land, when the caller knows it up front. */
@@ -290,7 +293,7 @@ export function trackJob(opts: TrackJobOptions): string {
     });
     const entry: Remembered = {
         jobId: opts.jobId,
-        scopeUrl: opts.scopeUrl,
+        scopeUrl: opts.scope ?? opts.scopeUrl,
         label: opts.label,
         ...(opts.kind ? {kind: opts.kind} : {}),
         ...(opts.data !== undefined ? {data: opts.data} : {}),

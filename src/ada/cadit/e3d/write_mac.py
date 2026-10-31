@@ -150,61 +150,79 @@ def _geometry_children(node: Part):
         yield plate
 
 
+def _catalogue(obj) -> dict:
+    """The ``metadata["catalogue"]`` an object built from a scope catalogue carries (``ada.catalogue``),
+    or an empty dict."""
+    meta = getattr(obj, "metadata", None) or {}
+    entry = meta.get("catalogue") if isinstance(meta, dict) else None
+    return entry if isinstance(entry, dict) else {}
+
+
+def _lookup(mapping, key: str, obj, what: str) -> str | None:
+    """A map's answer for ``obj``: a dict's entry for ``key`` (None when it has none), a callable's
+    result, or None for no map."""
+    if mapping is None:
+        return None
+    if isinstance(mapping, dict):
+        return mapping.get(key)
+    if callable(mapping):
+        return mapping(obj)
+    raise ValueError(f"{what} must be a dict or callable")
+
+
 @dataclass
 class E3DWriter:
-    beam_spec_map: dict[str, str] | Callable[[Beam], str]
-    panel_spec_map: dict[str, str] | Callable[[Plate], str]
-    beam_material_map: dict[str, str] | Callable[[Beam], str]
-    panel_material_map: dict[str, str] | Callable[[Plate], str]
+    """Writes beams and plates as an E3D macro.
+
+    SPREF / MATREF / GTYPE come, in this order, from the maps (a dict entry or a callable), from the
+    catalogue ref an object built from a scope catalogue remembers (``ada.catalogue``: the exact
+    reference and the profile's own GTYPE), and last from the object's name (a GTYPE guessed from
+    the section name's leading letters). With every section and material from the catalogue, no map
+    is needed."""
+
+    beam_spec_map: dict[str, str] | Callable[[Beam], str] | None = None
+    panel_spec_map: dict[str, str] | Callable[[Plate], str] | None = None
+    beam_material_map: dict[str, str] | Callable[[Beam], str] | None = None
+    panel_material_map: dict[str, str] | Callable[[Plate], str] | None = None
 
     e3d_level_by_depth: ClassVar[dict[int, str]] = {1: "SITE", 2: "ZONE", 3: "STRU", 4: "FRMW", 5: "SBFR", 6: "PART"}
 
     def _get_beam_spec(self, beam: Beam) -> str:
-        """Get the beam specification from the map or use the key itself."""
-        if isinstance(self.beam_spec_map, dict):
-            sec_key = beam.section.name
-            return self.beam_spec_map.get(sec_key, sec_key)
-        elif callable(self.beam_spec_map):
-            return self.beam_spec_map(beam)
-        else:
-            raise ValueError("beam_spec_map must be a dict or callable")
+        """The beam's SPREF: the map's, else its section's catalogue ref, else the section name."""
+        sec_key = beam.section.name
+        mapped = _lookup(self.beam_spec_map, sec_key, beam, "beam_spec_map")
+        return mapped or _catalogue(beam.section).get("ref") or sec_key
 
     def _get_panel_spec(self, plate: Plate) -> str:
-        """Get the panel specification from the map or use the key itself."""
-        if isinstance(self.panel_spec_map, dict):
-            pl_thick_mm = int(plate.t * _MM) if plate.units == Units.M else int(plate.t)
-            sec_key = f"PL{pl_thick_mm:02d}"
-            return self.panel_spec_map.get(sec_key, sec_key)
-        elif callable(self.panel_spec_map):
-            return self.panel_spec_map(plate)
-        else:
-            raise ValueError("panel_spec_map must be a dict or callable")
+        """The panel's SPREF: the map's (keyed ``PL<thickness mm>``), else the plate's catalogue ref,
+        else that key."""
+        pl_thick_mm = int(plate.t * _MM) if plate.units == Units.M else int(plate.t)
+        sec_key = f"PL{pl_thick_mm:02d}"
+        mapped = _lookup(self.panel_spec_map, sec_key, plate, "panel_spec_map")
+        return mapped or _catalogue(plate).get("ref") or sec_key
 
     def _get_beam_material(self, beam: Beam) -> str:
-        """Get the beam material from the map or use the key itself."""
-        if isinstance(self.beam_material_map, dict):
-            mat_key = beam.material.name
-            return self.beam_material_map.get(mat_key, mat_key)
-        elif callable(self.beam_material_map):
-            return self.beam_material_map(beam)
-        else:
-            raise ValueError("beam_material_map must be a dict or callable")
+        """The beam's MATREF: the map's, else its material's catalogue ref, else the material name."""
+        mat_key = beam.material.name
+        mapped = _lookup(self.beam_material_map, mat_key, beam, "beam_material_map")
+        return mapped or _catalogue(beam.material).get("ref") or mat_key
 
     def _get_panel_material(self, plate: Plate) -> str:
-        """Get the panel material from the map or use the key itself."""
-        if isinstance(self.panel_material_map, dict):
-            mat_key = plate.material.name
-            return self.panel_material_map.get(mat_key, mat_key)
-        elif callable(self.panel_material_map):
-            return self.panel_material_map(plate)
-        else:
-            raise ValueError("panel_material_map must be a dict or callable")
+        """The panel's MATREF: the map's, else its material's catalogue ref, else the material name."""
+        mat_key = plate.material.name
+        mapped = _lookup(self.panel_material_map, mat_key, plate, "panel_material_map")
+        return mapped or _catalogue(plate.material).get("ref") or mat_key
+
+    @staticmethod
+    def _get_beam_gtype(beam: Beam) -> str:
+        """The profile's GTYPE as its catalogue states it (a square hollow section may well be RHS),
+        else guessed from the section name's leading letters."""
+        return _catalogue(beam.section).get("gtype") or _gtype_from_section(beam.section.name)
 
     def create_beam_pml(self, beam: Beam) -> str:
         from ada import Point
 
-        sec_key = beam.section.name  # "HEA220"
-        gtype = _gtype_from_section(sec_key)  # "HEA"
+        gtype = self._get_beam_gtype(beam)
 
         matref = self._get_beam_material(beam)
         spref = self._get_beam_spec(beam)

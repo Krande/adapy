@@ -19,6 +19,7 @@ redundant, and the message names the disagreeing field either way.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import threading
 import time
@@ -35,7 +36,13 @@ from ada.assets.build import (
     parse_build_summary,
     validate_build_summary,
 )
-from ada.assets.builders import AssetBuilderError, BuildRequest, asset_builder
+from ada.assets.builders import (
+    AssetBuilderError,
+    BuildRequest,
+    asset_builder,
+    invoke_builder,
+    unhonoured_exclusions_warning,
+)
 from ada.config import logger
 
 from .. import db as db_module
@@ -116,9 +123,16 @@ async def _run_asset_build(
 
     poller = asyncio.create_task(_cancel_poller()) if db_pool is not None else None
 
+    # The descendants core decided this build must skip (apply-changes.md section 4). Handed over
+    # only when there are some and only to a builder that declares the parameter, so a provider
+    # older than it keeps working (``ada.assets.builders.invoke_builder``).
+    exclude_nodes = sorted({str(n) for n in opts.get("exclude_nodes") or ()})
+
     def _invoke():
-        return builder.build(
+        return invoke_builder(
+            builder,
             opts.get("options") or {},
+            exclude_nodes=exclude_nodes,
             request=request,
             storage=sync_storage,
             scope=scope,
@@ -129,7 +143,7 @@ async def _run_asset_build(
 
     try:
         await queue.update(job_id, stage="build", progress=0.10)
-        result = await loop.run_in_executor(None, _invoke)
+        result, honoured = await loop.run_in_executor(None, _invoke)
     except NothingToBuild as exc:
         # An answer, not a failure: stored where the GLB would have gone, so a repeat reads it
         # instead of building again, and recorded as skipped -- never as an error a bot files.
@@ -164,6 +178,10 @@ async def _run_asset_build(
             fingerprint=request.fingerprint,
             derived_prefix=derived_prefix,
         )
+        if not honoured:
+            summary = dataclasses.replace(
+                summary, warnings=(*summary.warnings, unhonoured_exclusions_warning(exclude_nodes))
+            )
     except BuildError as exc:
         logger.error("worker: asset_build %s produced a summary core refused: %s", job_id, exc)
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="validate", error=str(exc))

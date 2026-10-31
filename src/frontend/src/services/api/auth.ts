@@ -10,7 +10,7 @@ export interface MeResponse {
   displayName: string;
   isAdmin: boolean;
   scopes: Array<{
-    kind: "shared" | "user" | "project" | "corpus";
+    kind: "shared" | "user" | "project" | "corpus" | "providers";
     id: string | null;
     name: string;
   }>;

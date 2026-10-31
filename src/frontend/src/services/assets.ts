@@ -194,13 +194,13 @@ function isNotFound(e: unknown): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Which of a provider's collections may be requested per scope -- plugin API 1.8.0.
+// Which of a provider's collections may be requested per scope -- plugin API 1.8.0. DEPRECATED.
 //
-// The reader a provider's request dialog narrows its picker with. Lives in its own pure module
-// (`services/assetScopeCollections.ts`) so it can be imported without the API client; re-exported
-// here so a plugin finds the whole asset surface in one place. The admin Providers tab writes it.
-// A picker for the scope the viewer is in asks `enabledForScope` with the signed-in user's sub:
-// a personal scope is keyed by its owner, and offers nothing until an admin ticks something.
+// The per-scope collection matrix is replaced by provider grants (Admin ▸ Providers ▸ Access): core
+// migrates it into grants at startup, deletes the setting and refuses to store it again, and reads
+// it nowhere. Kept exported so a plugin built against 1.8.0 still loads; with no setting stored it
+// reads every Shared / project scope as unrestricted and every personal scope as nothing. A scope's
+// readable datasets are `GET /scopes/{scope}/provider-grants`.
 // ---------------------------------------------------------------------------------------------
 export {
   ASSET_SCOPE_COLLECTIONS_KEY,

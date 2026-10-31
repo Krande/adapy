@@ -1,11 +1,11 @@
 // "Request from a provider": ask a provider for one of its collections, and
-// publish it into this scope, from the Assets tab.
+// publish it into the provider store, from the Assets tab.
 //
-// WHAT IS OFFERED is what the live workers advertise, narrowed by the scope's
-// grants (Admin ▸ Providers, `public.assets.scope_collections`): only a provider
-// whose spec declares `asset_collection_request` appears, and only the
-// collections this scope may ask for. A grant is a picker filter, and this is
-// the picker.
+// AN ADMIN'S OPERATION. Every provider job runs in the provider store, and keeping provider data
+// current is the scheduled jobs' work: an admin is offered every collection the live workers
+// advertise (only a provider whose spec declares `asset_collection_request` appears). A member is
+// offered no request, no staging and no raw files (`@/assets/sourcesTabAccess`): they read what
+// the sweeps keep current, as their scope's grants (Admin ▸ Providers ▸ Access) allow.
 //
 // THE FLOW is `@/assets/collectionRequest`: the provider's job stages, core
 // publishes. Both jobs go to the toast, so a request can outlive this panel;
@@ -14,23 +14,20 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
+import { pickOptions, type CollectionPicks } from "@/assets/collectionChoices";
 import { requestCollection, type CollectionRequestDeps } from "@/assets/collectionRequest";
+import CollectionChoicesEditor from "@/components/admin/CollectionChoicesEditor";
 import { providerIdTitle } from "@/assets/providerNames";
 import { requestValues } from "@/assets/providerOptions";
+import { PROVIDER_STORE_SCOPE } from "@/assets/providerStore";
+import { sourcesTabAccess } from "@/assets/sourcesTabAccess";
 import { readProviderOptions } from "@/services/providerOptions";
 import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
 import type { ScopeUrl } from "@/services/api/client";
 import { conversionApi } from "@/services/api/conversion";
-import {
-    ASSET_SCOPE_COLLECTIONS_KEY,
-    assetProviderCollections,
-    enabledForScope,
-    isCollectionEnabled,
-    parseScopeCollections,
-    type AssetProviderCollections,
-    type ScopeCollectionsMap,
-} from "@/services/assetScopeCollections";
+import { assetProviderCollections, type AssetProviderCollections } from "@/services/assetScopeCollections";
+import { COLLECTION_SPLITS_KEY, parseCollectionSplits } from "@/services/collectionSplits";
 import { viewerApi } from "@/services/viewerApi";
 import { useMeStore } from "@/state/meStore";
 import { useProviderName } from "@/state/providerNamesStore";
@@ -39,7 +36,10 @@ import AssetFiles, { DeleteButton, formatSize } from "./AssetFiles";
 
 const OWNER = "assets";
 
-type Staged = Awaited<ReturnType<typeof assetsApi.listStaging>>["staged"][number];
+type Staged = Awaited<ReturnType<typeof assetsApi.listStaging>>["staged"][number] & {
+    /** Where it is staged: the open scope's, or -- for an admin -- the provider store's. */
+    scope: string;
+};
 
 /** The live api for `@/assets/collectionRequest`, jobs tracked in the toast -- as their own entries,
  *  or as steps of an operation (`trackJob`, an `Operation`'s). Shared with the tree's per-node
@@ -66,10 +66,24 @@ export function requestDeps(
         onStage,
         // Read fresh per request, so a value someone just changed is the one sent. Only what the
         // panel stored, which only ever stores the options the provider declares.
-        providerOptions: async (scope, providerId, collection) => {
-            const doc = await readProviderOptions(scope, collection);
+        providerOptions: async (_scope, providerId, collection) => {
+            const doc = await readProviderOptions(collection);
             return requestValues(doc, providerId, Object.keys(doc.providers[providerId] ?? {}));
         },
+    };
+}
+
+/** `deps` whose provider options also carry the admin's per-collection picks (`{option: value}`),
+ *  so the request's job reads the chosen source instead of the worker's own choice. */
+export function withChoices(deps: CollectionRequestDeps, picked: Record<string, unknown>): CollectionRequestDeps {
+    if (!Object.keys(picked).length) return deps;
+    const base = deps.providerOptions;
+    return {
+        ...deps,
+        providerOptions: async (scope, providerId, collection) => ({
+            ...(base ? await base(scope, providerId, collection) : {}),
+            ...picked,
+        }),
     };
 }
 
@@ -83,10 +97,8 @@ const RequestCollection: React.FC<{
     belowRequest?: React.ReactNode;
 }> = ({ scope, onPublished, onChanged, belowRequest }) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const mySub = useMeStore((s) => s.sub);
     const pn = useProviderName();
     const [providers, setProviders] = useState<AssetProviderCollections[] | null>(null);
-    const [grants, setGrants] = useState<ScopeCollectionsMap>({});
     const [staged, setStaged] = useState<Staged[]>([]);
     const [providerId, setProviderId] = useState("");
     const [collection, setCollection] = useState("");
@@ -94,19 +106,28 @@ const RequestCollection: React.FC<{
     const [stage, setStage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [done, setDone] = useState<string | null>(null);
+    // The admin's per-collection picks for this request (a share, say); none: the worker decides.
+    const [picks, setPicks] = useState<CollectionPicks>({});
 
     const load = useCallback(async () => {
-        const [plugins, raw, stagedList] = await Promise.all([
+        // A provider job stages into the provider store, whichever scope asked, so an admin's
+        // unpublished requests are listed from there as well; a member has none to see.
+        const stagedIn = async (s: string): Promise<Staged[]> =>
+            (await assetsApi.listStaging(s as ScopeUrl).catch(() => ({ staged: [] }))).staged.map((x) => ({ ...x, scope: s }));
+        const [plugins, rawSplits, ownStaged, storeStaged] = await Promise.all([
             viewerApi.listBackendPlugins().catch(() => ({ plugins: [] })),
-            viewerApi.getPublicSetting(ASSET_SCOPE_COLLECTIONS_KEY).catch(() => null),
-            assetsApi.listStaging(scope as ScopeUrl).catch(() => ({ staged: [] })),
+            viewerApi.getPublicSetting(COLLECTION_SPLITS_KEY).catch(() => null),
+            isAdmin ? stagedIn(scope) : Promise.resolve([] as Staged[]),
+            isAdmin && scope !== PROVIDER_STORE_SCOPE ? stagedIn(PROVIDER_STORE_SCOPE) : Promise.resolve([] as Staged[]),
         ]);
-        const requestable = assetProviderCollections(plugins.plugins ?? []).filter((p) => p.request);
+        // A split collection is requested as one of its copies, as the server offers it.
+        const requestable = assetProviderCollections(plugins.plugins ?? [], parseCollectionSplits(rawSplits)).filter(
+            (p) => p.request,
+        );
         setProviders(requestable);
-        setGrants(parseScopeCollections(raw));
-        setStaged(stagedList.staged ?? []);
+        setStaged([...ownStaged, ...storeStaged]);
         setProviderId((cur) => (requestable.some((p) => p.providerId === cur) ? cur : requestable[0]?.providerId ?? ""));
-    }, [scope]);
+    }, [scope, isAdmin]);
 
     useEffect(() => {
         setProviders(null);
@@ -114,13 +135,7 @@ const RequestCollection: React.FC<{
     }, [load]);
 
     const provider = providers?.find((p) => p.providerId === providerId) ?? null;
-    // As the signed-in user: `user:me` reads their own `user:<sub>` entry, and offers nothing until
-    // an admin ticked something there.
-    const enabled = provider ? enabledForScope(grants, scope, provider.providerId, mySub) : null;
-    const offered = useMemo(
-        () => (provider ? provider.collections.filter((c) => isCollectionEnabled(enabled, c)) : []),
-        [provider, enabled],
-    );
+    const offered = useMemo(() => (provider ? [...provider.collections] : []), [provider]);
     useEffect(() => {
         if (!offered.includes(collection)) setCollection(offered[0] ?? "");
     }, [offered, collection]);
@@ -157,11 +172,14 @@ const RequestCollection: React.FC<{
     }
 
     const request = provider?.request ?? null;
-    const blockedForUser = !!request?.requiresAdmin && !isAdmin;
+    // Provider jobs, staging and the scope's raw files are an admin's: a member reads what the
+    // scheduled sweeps keep current, through their scope's grants (`sourcesTabAccess`).
+    const access = sourcesTabAccess(isAdmin);
+    const blockedForUser = !access.requests;
 
     return (
         <div className="px-2 py-2 space-y-1.5 border-b border-gray-700/70 text-xs">
-            {provider && request && (
+            {provider && request && !blockedForUser && (
                 // Folded by default, as Files is: a request is made now and then, the tree is used
                 // all the time. What a request is doing (stage, error, result) shows outside it.
                 <details>
@@ -217,7 +235,7 @@ const RequestCollection: React.FC<{
                             onClick={() =>
                                 void run(async () => {
                                     const out = await requestCollection(
-                                        requestDeps(setStage),
+                                        withChoices(requestDeps(setStage), pickOptions(request.collectionChoices ?? [], picks, collection)),
                                         scope,
                                         provider.providerId,
                                         request,
@@ -232,12 +250,14 @@ const RequestCollection: React.FC<{
                             {busy ? "Working…" : request.label}
                         </button>
                     </div>
-                    {enabled !== null && (
-                        <div className="text-gray-500">
-                            {offered.length === 0
-                                ? "Nothing from this provider is enabled for this scope. An admin enables collections under Admin ▸ Providers."
-                                : `${offered.length} of ${provider.collections.length} advertised enabled for this scope.`}
-                        </div>
+                    {!!collection && !!request.collectionChoices?.length && (
+                        <CollectionChoicesEditor
+                            decls={request.collectionChoices}
+                            collections={[collection]}
+                            picks={picks}
+                            onChange={setPicks}
+                            disabled={busy}
+                        />
                     )}
                     {provider.collections.length === 0 && (
                         <div className="text-gray-500">No online worker advertises this provider's collections right now.</div>
@@ -250,14 +270,14 @@ const RequestCollection: React.FC<{
             {done && <div className="text-green-300">{done}</div>}
             {belowRequest}
 
-            {staged.length > 0 && (
+            {access.staging && staged.length > 0 && (
                 <details>
                     <summary className="cursor-pointer text-gray-400">
                         Staged, not published ({staged.length} · {formatSize(staged.reduce((n, s) => n + s.size, 0))})
                     </summary>
                     <ul className="mt-1 space-y-1">
                         {staged.map((s) => (
-                            <li key={s.staging_id}>
+                            <li key={`${s.scope}/${s.staging_id}`}>
                             <details>
                             <summary className="flex items-center gap-2 cursor-pointer rounded px-1 hover:bg-white/5">
                                 <code className="truncate text-gray-300" title={s.files.map((f) => f.key).join("\n")}>
@@ -266,7 +286,7 @@ const RequestCollection: React.FC<{
                                 <span className="text-gray-500 truncate">
                                     {s.files.length} file{s.files.length === 1 ? "" : "s"} · {formatSize(s.size)}
                                 </span>
-                                {providers.length > 0 && (
+                                {providers.length > 0 && isAdmin && (
                                     <button
                                         type="button"
                                         className="ml-auto h-6 px-2 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50"
@@ -275,14 +295,16 @@ const RequestCollection: React.FC<{
                                         onClick={() =>
                                             void run(async () => {
                                                 setStage(`publishing ${s.staging_id}`);
-                                                const job = await assetsApi.publishStaged(scope as ScopeUrl, {
+                                                const job = await assetsApi.publishStaged(s.scope as ScopeUrl, {
                                                     provider: providerId,
                                                     staging_id: s.staging_id,
                                                 });
+                                                const ranIn = job.scope ?? s.scope;
                                                 makePluginContextStandalone(OWNER).trackJob({
                                                     jobId: job.job_id,
                                                     label: `Publish ${s.staging_id}`,
                                                     derivedKey: job.derived_key,
+                                                    scope: ranIn,
                                                 });
                                                 for (;;) {
                                                     const st = await conversionApi.convertStatus(job.job_id);
@@ -293,7 +315,7 @@ const RequestCollection: React.FC<{
                                                     await new Promise((r) => setTimeout(r, 2000));
                                                 }
                                                 const out = (await assetsApi.getBuildSummary(
-                                                    scope as ScopeUrl,
+                                                    ranIn as ScopeUrl,
                                                     job.derived_key,
                                                 )) as { collection?: string } | null;
                                                 return out?.collection ?? s.staging_id;
@@ -318,7 +340,7 @@ const RequestCollection: React.FC<{
                                                 if (!window.confirm(`Delete ${f.key}?\n\nIt is staged, not published: nothing references it.`)) return;
                                                 void (async () => {
                                                     try {
-                                                        await assetsApi.deleteFile(scope as ScopeUrl, f.key);
+                                                        await assetsApi.deleteFile(s.scope as ScopeUrl, f.key);
                                                     } catch (e) {
                                                         setError(e instanceof Error ? e.message : String(e));
                                                     }
@@ -335,7 +357,7 @@ const RequestCollection: React.FC<{
                     </ul>
                 </details>
             )}
-            <AssetFiles scope={scope} onChanged={onChanged ?? (() => {})} />
+            {access.files && <AssetFiles scope={scope} onChanged={onChanged ?? (() => {})} />}
         </div>
     );
 };

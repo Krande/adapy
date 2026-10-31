@@ -318,6 +318,129 @@ async def ingest_node_bounds(
     }
 
 
+#: The staged role and schema of a node-bounds patch (``db/attribute_index.py``, "patches").
+NODE_BOUNDS_PATCH_ROLE = "node-bounds-patch.ndjson.gz"
+NODE_BOUNDS_PATCH_SCHEMA = "ada.assets/node-bounds-patch@1"
+
+
+async def patch_node_bounds(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: str,
+    chunks: AsyncIterable[bytes],
+    batch_rows: int = INGEST_BATCH_ROWS,
+) -> dict:
+    """Apply one ``node-bounds-patch.ndjson.gz`` to the (scope, provider, collection) set the full
+    ingest built, in one transaction: each listed node's row is replaced, each deleted node's row
+    removed. Refused (``patch_refused``) when there is no such set. A parent's box is NOT widened
+    here: the provider re-sends an ancestor whose box changed, as a row of its own.
+
+    ``ingested_at`` and ``rows`` of the set follow; its ``revision`` and ``frame`` stay those of the
+    full export."""
+    from .attribute_index import (
+        expand_subtree_deletes,
+        load_patch,
+        parse_patch_header,
+        patch_refused,
+    )
+
+    t0 = time.perf_counter()
+    lines = ndjson_lines(chunks)
+    try:
+        first = await lines.__anext__()
+    except StopAsyncIteration:
+        raise NodeBoundsError("the node bounds patch is empty") from None
+    header = parse_patch_header(first, NODE_BOUNDS_PATCH_SCHEMA, NodeBoundsError)
+    warnings: list[str] = []
+    if header.get("provider") and header["provider"] != provider:
+        warnings.append(
+            f"the node bounds patch header names provider {header['provider']!r}; applied under the publishing "
+            f"provider {provider!r}"
+        )
+    collection = str(header["collection"])
+    key = (scope, provider, collection)
+
+    def parse(batch: list[bytes]) -> tuple[list[tuple], int]:
+        return parse_bounds_batch(batch, scope=scope, provider=provider, collection=collection)
+
+    async with pool.acquire() as conn, conn.transaction():
+        held = await conn.fetchval(
+            "SELECT rows FROM node_bounds_sets WHERE scope = $1 AND provider = $2 AND collection = $3 FOR UPDATE",
+            *key,
+        )
+        if held is None:
+            await lines.aclose()
+            return patch_refused(provider=provider, collection=collection, header=header, t0=t0)
+        await conn.execute("CREATE TEMP TABLE node_bounds_patch_load (LIKE node_bounds) ON COMMIT DROP")
+        await conn.execute("ALTER TABLE node_bounds_patch_load ADD COLUMN seq INT NOT NULL")
+        loaded = await load_patch(
+            conn, lines, load_table="node_bounds_patch_load", columns=_COLUMNS, parse=parse, batch_rows=batch_rows
+        )
+        t1 = time.perf_counter()
+        if loaded["subtrees"]:
+            # A re-exported unit: the bounds of every node below it go too, walked through the set's
+            # own parent_id (indexed: node_bounds_parent_idx).
+            await expand_subtree_deletes(
+                conn, "node_bounds", "n.scope = $1 AND n.provider = $2 AND n.collection = $3", *key
+            )
+        cols = ", ".join(_COLUMNS)
+        removed = await conn.execute(
+            """
+            DELETE FROM node_bounds b
+            USING (SELECT node_id FROM node_bounds_patch_load UNION SELECT node_id FROM patch_deletes) t
+            WHERE b.scope = $1 AND b.provider = $2 AND b.collection = $3 AND b.node_id = t.node_id
+            """,
+            *key,
+        )
+        inserted = await conn.execute(
+            f"""
+            INSERT INTO node_bounds ({cols})
+            SELECT DISTINCT ON (l.node_id) {", ".join("l." + c for c in _COLUMNS)} FROM node_bounds_patch_load l
+            WHERE NOT EXISTS (SELECT 1 FROM patch_deletes d WHERE d.node_id = l.node_id AND d.seq > l.seq)
+            ORDER BY l.node_id, l.seq
+            """
+        )
+        deleted = await conn.fetchval(
+            """
+            SELECT count(DISTINCT d.node_id) FROM patch_deletes d
+            WHERE NOT EXISTS (SELECT 1 FROM node_bounds b
+                              WHERE b.scope = $1 AND b.provider = $2 AND b.collection = $3 AND b.node_id = d.node_id)
+            """,
+            *key,
+        )
+        n_removed, n_inserted = int(removed.split()[-1]), int(inserted.split()[-1])
+        await conn.execute(
+            """
+            UPDATE node_bounds_sets SET rows = GREATEST(rows - $4 + $5, 0), ingested_at = NOW()
+            WHERE scope = $1 AND provider = $2 AND collection = $3
+            """,
+            *key,
+            n_removed,
+            n_inserted,
+        )
+    if loaded["skipped"]:
+        warnings.append(f"{loaded['skipped']} patch line(s) without a node_id or a usable bbox skipped")
+    return {
+        "provider": provider,
+        "collection": collection,
+        "since": header.get("since"),
+        "next_cursor": header.get("next_cursor"),
+        "applied": True,
+        "refused": False,
+        "upserted": n_inserted,
+        "deleted": int(deleted or 0),
+        "removed_rows": n_removed,
+        "skipped": loaded["skipped"],
+        "warnings": warnings,
+        "timings": {
+            "load_ms": round((t1 - t0) * 1000),
+            "apply_ms": round((time.perf_counter() - t1) * 1000),
+            "patch_ms": round((time.perf_counter() - t0) * 1000),
+        },
+    }
+
+
 async def drop_node_bounds(pool: asyncpg.Pool, *, scope: str, provider: str, collection: str) -> bool:
     status = await pool.execute(
         "DELETE FROM node_bounds_sets WHERE scope = $1 AND provider = $2 AND collection = $3",

@@ -27,16 +27,22 @@ import type { AssetCollectionRequest, AssetNodeRequest } from "@/services/assetS
 
 export class CollectionRequestError extends Error {}
 
+/** What enqueueing a job answers. `scope` is where the job ran -- the provider store for a provider
+ *  job, whatever scope asked -- and so where its summary is read; absent on an older server, where it
+ *  is the scope that asked. */
+export interface JobHandle {
+  job_id: string;
+  derived_key: string;
+  scope?: string;
+}
+
 export interface CollectionRequestApi {
   pluginJob(
     pluginId: string,
     body: { options: Record<string, unknown> },
     opts: { scope: string },
-  ): Promise<{ job_id: string; derived_key: string }>;
-  publish(
-    scope: string,
-    body: { provider: string; staging_id: string },
-  ): Promise<{ job_id: string; derived_key: string }>;
+  ): Promise<JobHandle>;
+  publish(scope: string, body: { provider: string; staging_id: string }): Promise<JobHandle>;
   jobStatus(jobId: string): Promise<{ status: string; stage?: string; error: string | null }>;
   /** A job's JSON summary at `key` (gzip-at-rest, decompressed by the blob route). */
   readJson(scope: string, key: string): Promise<unknown>;
@@ -44,7 +50,7 @@ export interface CollectionRequestApi {
 
 export interface CollectionRequestDeps {
   api: CollectionRequestApi;
-  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void;
+  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string; scope?: string }) => void;
   onStage?: (stage: string) => void;
   wait?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -240,9 +246,10 @@ async function stageAndPublish(
 
   stage(`asking ${req.pluginId} for ${what}`);
   const fetchJob = await deps.api.pluginJob(req.pluginId, { options }, { scope });
-  deps.trackJob?.({ jobId: fetchJob.job_id, label: `${req.label}: ${what}`, derivedKey: fetchJob.derived_key });
+  const fetchScope = fetchJob.scope ?? scope;
+  deps.trackJob?.({ jobId: fetchJob.job_id, label: `${req.label}: ${what}`, derivedKey: fetchJob.derived_key, scope: fetchScope });
   await pollToTerminal(deps, fetchJob.job_id, FETCH_TIMEOUT_MS, `the request for ${what}`, stage);
-  const summary = await deps.api.readJson(scope, fetchJob.derived_key);
+  const summary = await deps.api.readJson(fetchScope, fetchJob.derived_key);
   // Nothing changed at the source since the provider last published it: no staging, no publish.
   const same = unchangedOf(summary);
   if (same) {
@@ -271,10 +278,11 @@ async function stageAndPublish(
 
   stage(`publishing ${what}`);
   const publishJob = await deps.api.publish(scope, { provider: providerId, staging_id: stagingId });
-  deps.trackJob?.({ jobId: publishJob.job_id, label: `Publish ${what}`, derivedKey: publishJob.derived_key });
+  const publishScope = publishJob.scope ?? scope;
+  deps.trackJob?.({ jobId: publishJob.job_id, label: `Publish ${what}`, derivedKey: publishJob.derived_key, scope: publishScope });
   await pollToTerminal(deps, publishJob.job_id, PUBLISH_TIMEOUT_MS, `the publish of ${what}`, stage);
 
-  const outcome = (await deps.api.readJson(scope, publishJob.derived_key)) as Record<string, unknown> | null;
+  const outcome = (await deps.api.readJson(publishScope, publishJob.derived_key)) as Record<string, unknown> | null;
   return {
     stagingId,
     collection: typeof outcome?.collection === "string" ? outcome.collection : collection,
@@ -297,9 +305,10 @@ export async function requestOptionChoices(
   const stage = (s: string) => deps.onStage?.(s);
   stage(`asking ${req.pluginId} for the choices for ${collection}`);
   const job = await deps.api.pluginJob(req.pluginId, { options }, { scope });
-  deps.trackJob?.({ jobId: job.job_id, label: `${req.label}: ${collection}`, derivedKey: job.derived_key });
+  const jobScope = job.scope ?? scope;
+  deps.trackJob?.({ jobId: job.job_id, label: `${req.label}: ${collection}`, derivedKey: job.derived_key, scope: jobScope });
   await pollToTerminal(deps, job.job_id, PUBLISH_TIMEOUT_MS, `the choices for ${collection}`, stage);
-  return deps.api.readJson(scope, job.derived_key);
+  return deps.api.readJson(jobScope, job.derived_key);
 }
 
 async function pollToTerminal(

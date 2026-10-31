@@ -1,10 +1,25 @@
 import React, {useCallback, useEffect, useRef, useState} from "react";
 
+import {itemChoiceLines, type CollectionChoiceDecl} from "@/assets/collectionChoices";
 import type {SweepItem, SweepRun} from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 import {sweepSkipTarget, trackSweep, untrackSweep} from "@/services/sweepTracking";
 import {useRunFocusStore} from "@/state/runFocusStore";
 import {useConversionStore} from "@/state/conversionStore";
+
+import {
+    NO_FULL_EXPORT,
+    applyChangesOf,
+    countsLine,
+    queuedByApplyRunOf,
+    queuedFullExportOf,
+    runWarningsOf,
+    sweepCountsText,
+    sweepTargetsOf,
+    prebuildLine,
+    prebuildOf,
+} from "./applyChangesItem";
+import GeometryCompareGallery from "./GeometryCompareGallery";
 
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
 // what every phase of each took. See `routes/asset_sweeps.py`.
@@ -68,29 +83,164 @@ const STATUS_TONE: Record<string, string> = {
     running: "text-blue-300",
     cancelled: "text-gray-400",
     interrupted: "text-amber-300",
+    [NO_FULL_EXPORT]: "text-amber-300",
+    // Another run of the provider holds the collection: waiting for it, or gave up waiting.
+    waiting: "text-sky-300",
+    busy: "text-amber-300",
 };
 
-function countsText(run: SweepRun): string {
-    const c = run.counts ?? {};
-    const finished = (c.done ?? 0) + (c.unchanged ?? 0) + (c.nothing ?? 0) + (c.error ?? 0) + (c.skipped ?? 0);
-    // Out of the collections that will run: ticked-off ones are not "left to do".
-    const parts = [`${finished}/${run.total - (c.excluded ?? 0)}`];
-    if (c.error) parts.push(`${c.error} failed`);
-    if (c.excluded) parts.push(`${c.excluded} not run`);
-    if (c.unchanged) parts.push(`${c.unchanged} unchanged`);
-    return parts.join(" · ");
-}
+const countsText = sweepCountsText;
+
+/** An apply-changes run's run-level notes and its link to the full export it queued -- or, on that
+ *  queued export, the link back. `onOpen` opens a linked run. */
+export const RunNotes: React.FC<{run: SweepRun; onOpen: (id: string) => void}> = ({run, onOpen}) => {
+    const warnings = runWarningsOf(run);
+    const queued = queuedFullExportOf(run);
+    const queuedBy = queuedByApplyRunOf(run);
+    if (!warnings.length && !queued && !queuedBy) return null;
+    const link = "underline decoration-dotted hover:text-white";
+    return (
+        <div className="space-y-0.5" data-testid="sweep-run-notes">
+            {warnings.length > 0 && (
+                <ul className="text-amber-300" data-testid="sweep-run-warnings">
+                    {warnings.map((w) => (
+                        <li key={w}>⚠ {w}</li>
+                    ))}
+                </ul>
+            )}
+            {queued && (
+                <div className="text-blue-300" data-testid="sweep-run-follow-up">
+                    Full project export queued for {queued.collections.join(", ") || "the collections left out"}:{" "}
+                    <button type="button" className={link} onClick={() => onOpen(queued.runId)}>
+                        open that run
+                    </button>
+                </div>
+            )}
+            {queuedBy && (
+                <div className="text-gray-400" data-testid="sweep-run-queued-by">
+                    Queued by an apply-changes run for collections without a full export:{" "}
+                    <button type="button" className={link} onClick={() => onOpen(queuedBy)}>
+                        open that run
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
 
 /** Whether an item's "run" box can still be changed: the sweep is running and has not reached it. */
 export function canToggleRun(run: SweepRun, item: SweepItem): boolean {
     return run.status === "running" && (item.status === "pending" || item.status === "excluded");
 }
 
+/** An apply-changes item's own answer under its message: the element counts, `baseline` /
+ *  `nothing`, the cursor moved (since → next), and each staging role's outcome. Nothing for a
+ *  sweep's item, which carries no such block. */
+const ApplyChangesResult: React.FC<{item: SweepItem}> = ({item}) => {
+    const a = applyChangesOf(item);
+    if (!a) return null;
+    const badge = "px-1 rounded-sm border text-[10px] uppercase tracking-wide";
+    return (
+        <div className="mt-0.5 space-y-0.5" data-testid="apply-changes-result">
+            <div className="flex flex-wrap items-center gap-1.5">
+                {a.baseline && (
+                    <span className={`${badge} border-blue-700 text-blue-300`} title="First run: only records where changes start from; nothing was applied">
+                        baseline
+                    </span>
+                )}
+                {a.nothing && (
+                    <span className={`${badge} border-gray-700 text-gray-400`} title="Nothing changed since the last cursor">
+                        nothing
+                    </span>
+                )}
+                {a.counts && !a.baseline && <span className="text-gray-300">{countsLine(a.counts)}</span>}
+                {!!a.counts?.unplaceable && (
+                    <span className="text-amber-300" title="Elements the provider could not place in the tree">
+                        {a.counts.unplaceable} unplaceable
+                    </span>
+                )}
+            </div>
+            {(a.since || a.nextCursor) && (
+                <div className="font-mono text-gray-500" title="The cursor this run asked from, and the one it leaves for the next">
+                    {a.since ?? "(none)"} → {a.nextCursor ?? "—"}
+                </div>
+            )}
+            {a.roles.length > 0 && (
+                <ul>
+                    {a.roles.map((r) => (
+                        <li key={r.role} className={r.applied ? "text-emerald-300" : r.status === "failed" ? "text-red-300" : "text-amber-300"}>
+                            {r.role}: {r.status}
+                            {r.warning && <span className="text-gray-400"> — {r.warning}</span>}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+};
+
+const TARGET_TONE: Record<string, string> = {
+    done: "text-emerald-300",
+    unchanged: "text-emerald-300",
+    nothing: "text-gray-400",
+    error: "text-red-300",
+    skipped: "text-amber-300",
+    fetching: "text-blue-300",
+};
+
+/** A multi-target sweep item's outcome per target (tree, geometry, attributes, node bounds -- one
+ *  provider job each, in order): its status, how long it took, its revision, and why it failed or
+ *  was skipped. Nothing for an item that ran one job. */
+const SweepTargets: React.FC<{item: SweepItem}> = ({item}) => {
+    const targets = sweepTargetsOf(item);
+    if (!targets.length) return null;
+    return (
+        <ul className="mt-0.5" data-testid="sweep-item-targets">
+            {targets.map((t) => (
+                <li key={t.target} className={TARGET_TONE[t.status] ?? "text-gray-400"}>
+                    <span className="font-mono">{t.target}</span>: {t.status}
+                    {t.totalMs != null && <span className="text-gray-500"> · {duration(t.totalMs)}</span>}
+                    {t.revision && <span className="text-gray-500"> · {t.revision}</span>}
+                    {t.note && <span className="text-gray-400 break-words"> — {t.note}</span>}
+                </li>
+            ))}
+        </ul>
+    );
+};
+
+/** Which per-collection choice (a share, say) the item's provider job was sent -- an admin's pick --
+ *  or that the worker chose itself. Nothing when the provider declares no such choice. */
+/** What "Pre-build meshes" did for the item: built / cached / failed of how many subjects, how long
+ *  it took, or why it was not attempted; a note on what it does not cover; the first errors. */
+const PrebuildResult: React.FC<{item: SweepItem}> = ({item}) => {
+    const p = prebuildOf(item);
+    if (!p) return null;
+    return (
+        <div className="text-[11px]" data-testid="sweep-item-prebuild">
+            <span className={p.reason ? "text-amber-300" : p.failed ? "text-amber-300" : "text-emerald-300"}>{prebuildLine(p)}</span>
+            {p.ms != null && <span className="text-gray-500"> · {duration(p.ms)}</span>}
+            {p.note && <div className="text-gray-500">{p.note}</div>}
+            {p.errors.length > 0 && <div className="text-red-300 break-words">{p.errors.join("; ")}</div>}
+        </div>
+    );
+};
+
+const ItemChoices: React.FC<{item: SweepItem; decls: CollectionChoiceDecl[]}> = ({item, decls}) => {
+    const lines = itemChoiceLines(decls, item.collection, item.collection_choices);
+    if (!lines.length) return null;
+    return (
+        <div className="text-[11px] text-sky-300" data-testid="sweep-item-choices">
+            {lines.join(" · ")}
+        </div>
+    );
+};
+
 const SweepItems: React.FC<{
     run: SweepRun;
+    choiceDecls: CollectionChoiceDecl[];
     onSkip: (position: number) => void;
     onToggleRun: (position: number, on: boolean) => void;
-}> = ({run, onSkip, onToggleRun}) => {
+}> = ({run, choiceDecls, onSkip, onToggleRun}) => {
     // Only the item in flight can be skipped, and only once: a pending skip shows as "skipping…"
     // until the sweep carries it out (the item then ends `skipped`, "skipped by <user>").
     const skipAt = sweepSkipTarget(run);
@@ -131,7 +281,17 @@ const SweepItems: React.FC<{
                             </td>
                             <td className="px-1.5 py-1 font-mono">{i.collection}</td>
                             <td className={`px-1.5 py-1 ${STATUS_TONE[i.status] ?? ""}`}>
-                                {i.status}
+                                {i.status === NO_FULL_EXPORT ? (
+                                    <span
+                                        className="px-1 rounded-sm border border-amber-600 text-amber-300 text-[10px] uppercase tracking-wide"
+                                        title={i.message ?? "This collection has not had a full project export yet; it was not asked for changes"}
+                                        data-testid="no-full-export-badge"
+                                    >
+                                        no full export
+                                    </span>
+                                ) : (
+                                    i.status
+                                )}
                                 {i.timings.login?.mode && <span className="text-gray-500"> ({i.timings.login.mode})</span>}
                                 {run.skip_position === i.position && <span className="text-amber-300"> skipping…</span>}
                                 {skipAt === i.position && (
@@ -160,12 +320,18 @@ const SweepItems: React.FC<{
                                     </span>
                                 ) : i.error ? (
                                     <span className="text-red-300 break-words">{i.error}</span>
+                                ) : i.status === NO_FULL_EXPORT ? (
+                                    <span className="text-amber-300 break-words">{i.message}</span>
                                 ) : (
                                     <span className="text-gray-400 break-words">
                                         {i.revision ?? ""}
                                         {i.message ? `${i.revision ? " — " : ""}${i.message}` : ""}
                                     </span>
                                 )}
+                                <ApplyChangesResult item={i} />
+                                <SweepTargets item={i} />
+                                <ItemChoices item={i} decls={choiceDecls} />
+                                <PrebuildResult item={i} />
                             </td>
                         </tr>
                     ))}
@@ -211,7 +377,39 @@ const ToastToggle: React.FC<{run: SweepRun}> = ({run}) => {
     );
 };
 
-const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({provider, refreshKey}) => {
+/** The provider a geometry-compare run compared against (its `compare_with` setting), or null. */
+export function comparedWith(run: SweepRun): string | null {
+    const v = (run.settings ?? {})["compare_with"];
+    return typeof v === "string" && v ? v : null;
+}
+
+/** A geometry-compare run's gallery of what did not pass, folded until asked for. */
+const CompareGalleryToggle: React.FC<{run: SweepRun}> = ({run}) => {
+    const [show, setShow] = useState(false);
+    const other = comparedWith(run);
+    const collections = (run.items ?? []).map((i) => String(i.collection).toLowerCase());
+    if (!other) return null;
+    return (
+        <div className="space-y-1">
+            <button
+                type="button"
+                className="border border-gray-700 hover:bg-gray-800 px-1.5 rounded-sm"
+                aria-expanded={show}
+                onClick={() => setShow((s) => !s)}
+            >
+                {show ? "▾" : "▸"} Gallery: {run.provider} vs {other}
+            </button>
+            {show && <GeometryCompareGallery providerA={run.provider} providerB={other} collections={collections} />}
+        </div>
+    );
+};
+
+const ProviderSweepRuns: React.FC<{
+    provider: string;
+    refreshKey: number;
+    /** The provider's per-collection choices, to label what each item was sent. */
+    choiceDecls?: CollectionChoiceDecl[];
+}> = ({provider, refreshKey, choiceDecls = []}) => {
     const [runs, setRuns] = useState<SweepRun[]>([]);
     const [open, setOpen] = useState<SweepRun | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -384,7 +582,12 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
                                           .map(([k, v]) => `${k}=${String(v)}`)
                                           .join(", ")}`
                                     : ""}{" "}
-                                · {r.scope} · {r.requested_via === "schedule" ? "scheduled" : (r.requested_by ?? "user")}
+                                · {r.scope} ·{" "}
+                                {r.requested_via === "schedule"
+                                    ? "scheduled"
+                                    : r.requested_via === "apply-changes"
+                                      ? "queued by apply-changes"
+                                      : (r.requested_by ?? "user")}
                             </span>
                             {r.finished_at && r.created_at && (
                                 <span className="text-gray-500">
@@ -439,13 +642,25 @@ const ProviderSweepRuns: React.FC<{provider: string; refreshKey: number}> = ({pr
                             )}
                             {r.error && <span className="text-red-300">{r.error}</span>}
                         </div>
+                        {/* At the top of the run: what it left out and the export it queued. */}
+                        <RunNotes
+                            run={open?.id === r.id ? open : r}
+                            onOpen={(id) =>
+                                // Re-list first: a follow-up queued a moment ago may not be listed yet.
+                                void load()
+                                    .then(() => openRun(id))
+                                    .then(() => rowRefs.current.get(id)?.scrollIntoView({block: "center", behavior: "smooth"}))
+                            }
+                        />
                         {open?.id === r.id && (
                             <SweepItems
                                 run={open}
+                                choiceDecls={choiceDecls}
                                 onSkip={(position) => void skip(r.id, position)}
                                 onToggleRun={(position, on) => void toggleRun(r.id, position, on)}
                             />
                         )}
+                        {open?.id === r.id && comparedWith(open) && <CompareGalleryToggle run={open} />}
                     </li>
                 ))}
             </ul>

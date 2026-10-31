@@ -12,17 +12,30 @@ jobs it offers for scheduling::
 
 Two surfaces read it:
 
-* **Admin → Providers → Scheduled jobs** (``admin_router``): job × scope × collection ×
-  frequency × settings, every one a choice -- nothing here accepts free-text options. A row is
-  stored in ``plugin_job_schedules`` (the scheduler that already runs those fires it) with the
-  provider, collection and entry id beside it, so its options are rebuilt from the LIVE
-  declaration at every firing rather than frozen at creation.
+* **Admin → Providers → Scheduled jobs** (``admin_router``): job × collection × frequency ×
+  settings, every one a choice -- nothing here accepts free-text options. A row is stored in
+  ``plugin_job_schedules`` (the scheduler that already runs those fires it) with the provider,
+  collection and entry id beside it, so its options are rebuilt from the LIVE declaration at every
+  firing rather than frozen at creation.
 * **Sources tab → Check for changes** (``router``): runs the provider's ``change-check`` entry
-  now.
+  now. An admin operation, like every provider job.
 
-Every change check, from either, gets an ``asset_change_runs`` row. Its job answers with the
-provider-neutral ``asset_changes`` block (``ada.assets/changes@1``), which this module copies in
-once the job is done. Report only: nothing is published as a consequence.
+NO SCOPE. Every job of an asset provider runs in the provider store (``Scope.providers()``,
+``routes/provider_store.py``): provider data is kept once and read by scopes through grants. A
+schedule therefore has no scope to choose -- ``scope`` is accepted and ignored, new rows store
+``providers``, and a row from before (still naming ``shared`` or a project) fires into the store
+all the same. One live schedule per (provider, collection, job).
+
+An ``apply-changes`` entry (docs/design/apply-changes.md) is scheduled here like any other -- its
+targets a MULTI choice (``"multiple": true`` on the ``job_options`` declaration, a list of declared
+choices, never empty) -- and may name no collection: then it runs for every collection the provider
+offers. It fires as a sweep run does (``routes/asset_apply_changes.py``), and its rows in the
+listing carry core's cursor per collection (``cursors``).
+
+Every change check, from either, gets an ``asset_change_runs`` row, keyed under the store. Its job
+answers with the provider-neutral ``asset_changes`` block (``ada.assets/changes@1``), which this
+module copies in once the job is done. Report only: nothing is published as a consequence. A scope
+lists the store's runs of the datasets granted to it, beside its own rows from before the store.
 """
 
 from __future__ import annotations
@@ -40,6 +53,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..collection_splits import apply_splits, load_splits
 from ..scope import Scope
 from .deps import (
     RestContext,
@@ -51,7 +65,15 @@ from .deps import (
     rest_context,
     scope_from_path,
 )
-from .plugin_jobs import enqueue_plugin_job, plugin_job_requires_admin
+from .plugin_jobs import enqueue_plugin_job
+from .provider_store import (
+    PROVIDER_STORE,
+    PROVIDER_STORE_WIRE,
+    granted_covers,
+    job_scope,
+    readable_store_datasets,
+    require_admin_for_provider_job,
+)
 
 router = APIRouter()
 admin_router = APIRouter()
@@ -59,7 +81,19 @@ admin_router = APIRouter()
 CHANGE_CHECK = "change-check"
 #: Every collection the provider offers, one job each, each published -- see routes/asset_sweeps.py.
 SWEEP = "sweep"
-KINDS = (CHANGE_CHECK, "job", SWEEP)
+#: Only what changed since core's cursor, per collection, applied as element-level patches --
+#: driven like a sweep. See routes/asset_apply_changes.py and docs/design/apply-changes.md.
+APPLY_CHANGES = "apply-changes"
+#: Two providers' tessellations of each collection compared element by element -- driven like a
+#: sweep. See routes/geometry_compare.py and docs/design/geometry-compare.md.
+GEOMETRY_COMPARE = "geometry-compare"
+KINDS = (CHANGE_CHECK, "job", SWEEP, APPLY_CHANGES, GEOMETRY_COMPARE)
+#: Kinds whose row may name no collection: the driver supplies each one in turn.
+COLLECTIONLESS_KINDS = (SWEEP, APPLY_CHANGES, GEOMETRY_COMPARE)
+#: Kinds the sweep driver runs (``asset_sweeps._drive``), one collection at a time.
+DRIVEN_KINDS = COLLECTIONLESS_KINDS
+#: The multi-choice setting of an apply-changes entry: which targets to patch. Never empty.
+APPLY_TARGETS = "apply_targets"
 #: A setting's ``choices`` value asking core to offer the users earlier change checks reported.
 CHOICES_CHANGE_USERS = "change_users"
 CHANGES_SCHEMA = "ada.assets/changes@1"
@@ -95,7 +129,7 @@ def schedule_entries(spec: dict) -> list[dict]:
         if not sid or sid in seen or kind not in KINDS or not isinstance(options, dict):
             logger.warning("asset_schedules: ignoring a malformed entry on %s: %r", spec.get("slug"), entry)
             continue
-        if kind in (CHANGE_CHECK, SWEEP) and not entry.get("collection_option"):
+        if kind in (CHANGE_CHECK, SWEEP, APPLY_CHANGES) and not entry.get("collection_option"):
             logger.warning("asset_schedules: %s %r on %s names no collection_option", kind, sid, spec.get("slug"))
             continue
         seen.add(sid)
@@ -127,10 +161,146 @@ def find_entry(specs: list[dict], job: str | None = None, *, kind: str | None = 
     return None
 
 
-def collections_of(spec: dict) -> list[str]:
+def collections_of(spec: dict, splits: dict[str, list[str]] | None = None) -> list[str]:
+    """The collections ``spec`` offers; with ``splits`` (the provider's, ``collection_splits``), each
+    split collection replaced by its chosen copies."""
     field = spec.get("asset_collections_field")
     values = spec.get(field) if isinstance(field, str) else None
-    return [str(v) for v in values] if isinstance(values, list) else []
+    offered = [str(v) for v in values] if isinstance(values, list) else []
+    return apply_splits(offered, spec, splits)
+
+
+# --- per-collection choices an admin may override ------------------------------------------------
+#
+# A provider may find, per collection, several sources it could read it from -- several copies of a
+# project, say -- and pick one itself. It declares
+#
+#     asset_collection_choices=[{"option": "project_root", "label": "Share", "field": "project_locations"}]
+#
+# and in the spec field named there, a dict keyed by collection, listing only collections with two
+# or more choices: ``{"ABC": {"default": v, "choices": [{"value": v, "label": "..."}, ...]}}`` (a
+# ``union_fields`` key, merged across workers by ``deps._merge_keyed``). An admin may pin one per
+# collection on any sweep / apply-changes / collection-request run or schedule -- core's own setting
+# ``collection_choices: {option: {collection: value}}``, holding ONLY picks that differ from the
+# worker's default. The driver sends ``options[option] = pick`` for the collection; without a pick
+# the worker decides. Core never names a provider here, and never sends an option a provider does
+# not declare.
+
+#: Core's setting holding the admin's per-collection picks.
+COLLECTION_CHOICES = "collection_choices"
+
+
+def collection_choice_decls(specs: list[dict] | dict) -> list[dict]:
+    """``[{option, label, collections: {collection: {default, choices: [{value, label}]}}}]`` -- what
+    the provider declares, its choices merged over all of its specs (first spec's default wins)."""
+    from .deps import _merge_keyed
+
+    out: dict[str, dict] = {}
+    for spec in [specs] if isinstance(specs, dict) else specs:
+        for decl in spec.get("asset_collection_choices") or ():
+            if not isinstance(decl, dict):
+                continue
+            option, field = decl.get("option"), decl.get("field")
+            if not (isinstance(option, str) and option and isinstance(field, str) and field):
+                continue
+            values = spec.get(field) if isinstance(spec.get(field), dict) else {}
+            clean = {
+                str(c): {
+                    "default": v.get("default"),
+                    "choices": [x for x in v.get("choices") or () if isinstance(x, dict) and "value" in x],
+                }
+                for c, v in values.items()
+                if isinstance(v, dict)
+            }
+            have = out.setdefault(
+                option, {"option": option, "label": str(decl.get("label") or option), "collections": {}}
+            )
+            have["collections"] = _merge_keyed(have["collections"], clean)
+    for d in out.values():
+        d["collections"] = {c: v for c, v in d["collections"].items() if len(v.get("choices") or ()) >= 2}
+    return list(out.values())
+
+
+def _advertised(decl: dict, collection: str) -> dict | None:
+    """The declaration's entry for ``collection`` (matched case-insensitively), or None."""
+    want = collection.lower()
+    for c, v in decl["collections"].items():
+        if c.lower() == want:
+            return v
+    return None
+
+
+def clean_collection_choices(decls: list[dict], raw) -> dict:
+    """An admin's ``{option: {collection: value}}`` checked against what the provider advertises:
+    a pick of the worker's default is dropped (no override), a value that is not one of the
+    collection's choices is refused (400, naming the valid ones), an option the provider does not
+    declare is refused. A pick for a collection the provider does not advertise (any more) is kept
+    as it is -- the run reports it and does not send it (:func:`collection_choice_options`)."""
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail=f"{COLLECTION_CHOICES} must be {{option: {{collection: value}}}}")
+    by_option = {d["option"]: d for d in decls}
+    out: dict[str, dict] = {}
+    for option, picks in raw.items():
+        decl = by_option.get(option)
+        if decl is None:
+            raise HTTPException(
+                status_code=400, detail=f"{option!r} is not a per-collection choice the provider declares"
+            )
+        if not isinstance(picks, dict):
+            raise HTTPException(status_code=400, detail=f"{COLLECTION_CHOICES}.{option} must be {{collection: value}}")
+        kept: dict[str, Any] = {}
+        for collection, value in picks.items():
+            if value in (None, ""):
+                continue
+            entry = _advertised(decl, str(collection))
+            if entry is None:
+                kept[str(collection)] = value  # no longer advertised: kept, reported at run time
+                continue
+            if same_choice(value, entry.get("default")):
+                continue
+            valid = [c.get("value") for c in entry.get("choices") or ()]
+            if not any(same_choice(value, v) for v in valid):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{decl['label']} for {collection}: {value!r} is not one of {', '.join(map(repr, valid))}",
+                )
+            kept[str(collection)] = value
+        if kept:
+            out[option] = kept
+    return out
+
+
+def collection_choice_options(decls: list[dict], picks, collection: str) -> tuple[dict, list[str]]:
+    """``(options to add, warnings)`` for one collection's provider job: ``{option: pick}`` for each
+    pick the provider still advertises for it; a pick for a collection (or a value) it no longer
+    advertises is not sent, and said."""
+    options: dict = {}
+    warnings: list[str] = []
+    if not isinstance(picks, dict):
+        return options, warnings
+    by_option = {d["option"]: d for d in decls}
+    for option, per in picks.items():
+        if not isinstance(per, dict):
+            continue
+        value = next((v for c, v in per.items() if str(c).lower() == collection.lower()), None)
+        if value in (None, ""):
+            continue
+        decl = by_option.get(option)
+        entry = _advertised(decl, collection) if decl else None
+        label = decl["label"] if decl else option
+        if entry is None:
+            warnings.append(
+                f"{label} {value!r} was chosen for {collection}, which the provider no longer offers a choice "
+                "for; not sent (the worker decides)"
+            )
+            continue
+        if not any(same_choice(value, c.get("value")) for c in entry.get("choices") or ()):
+            warnings.append(f"{label} {value!r} for {collection} is no longer offered; not sent (the worker decides)")
+            continue
+        options[option] = value
+    return options, warnings
 
 
 def _declared_option(spec: dict, name: str) -> dict:
@@ -181,7 +351,10 @@ def typed_choice(value: Any, choices: list[dict]) -> tuple[bool, Any]:
 def entry_settings(spec: dict, entry: dict) -> list[dict]:
     """The settings an admin may choose for ``entry``, each merged with the spec's ``job_options``
     declaration. ``source`` says where the choices come from: ``enum`` (declared), ``spec``
-    (``enum_from``: a spec list) or ``change_users`` (earlier runs)."""
+    (``enum_from``: a spec list) or ``change_users`` (earlier runs).
+
+    A declaration with ``"multiple": true`` is a MULTI choice (checkboxes): the setting says
+    ``"multiple": true``, its value is a list of declared choices, and its ``default`` is a list."""
     out = []
     for raw in entry.get("settings") or ():
         item = {"name": raw} if isinstance(raw, str) else dict(raw) if isinstance(raw, dict) else None
@@ -194,7 +367,10 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
             "title": item.get("title") or decl.get("title") or str(item["name"]),
             "description": item.get("description") or decl.get("description"),
             "default": decl.get("default"),
+            "multiple": decl.get("multiple") is True,
         }
+        if setting["multiple"] and setting["default"] is not None and not isinstance(setting["default"], list):
+            setting["default"] = [setting["default"]]
         if item.get("choices") == CHOICES_CHANGE_USERS:
             setting["source"] = CHOICES_CHANGE_USERS
         elif isinstance(decl.get("enum"), list):
@@ -211,7 +387,106 @@ def entry_settings(spec: dict, entry: dict) -> list[dict]:
             )
             continue
         out.append(setting)
+    if entry.get("kind") == APPLY_CHANGES:
+        out.append(dict(MISSING_FULL_EXPORT_SETTING, choices=[dict(c) for c in MISSING_FULL_EXPORT_SETTING["choices"]]))
+    # A comparison builds both sides itself: "pre-build meshes" would add nothing to it.
+    if entry.get("kind") in DRIVEN_KINDS and entry.get("kind") != GEOMETRY_COMPARE:
+        out.append(dict(PREBUILD_MESHES_SETTING, choices=[dict(c) for c in PREBUILD_MESHES_SETTING["choices"]]))
     return out
+
+
+def targets_setting(spec: dict, entry: dict) -> str | None:
+    """The name of a sweep's TARGETS setting -- ``"targets_setting": "sweep_target"`` on the entry,
+    naming one of its settings that is a ``multiple`` enum -- or None: a sweep without one (or whose
+    named setting is still a single choice) runs one job per collection, as it always has."""
+    if (entry.get("kind") or "job") != SWEEP:
+        return None
+    name = entry.get("targets_setting")
+    if not isinstance(name, str) or not name:
+        return None
+    for s in entry_settings(spec, entry):
+        if s["name"] == name and s.get("multiple") and s.get("choices"):
+            return name
+    return None
+
+
+def sweep_targets(spec: dict, entry: dict, settings: dict | None) -> list | None:
+    """The targets one collection of a sweep runs, in the ENUM's declared order (the provider lists
+    the tree first: what comes after reads the published tree), one provider job each. The chosen
+    list -- a single stored value (a schedule from before the setting was multiple) is a list of one
+    -- else the declared default, else every choice. None when the sweep has no targets setting."""
+    name = targets_setting(spec, entry)
+    if name is None:
+        return None
+    setting = next(s for s in entry_settings(spec, entry) if s["name"] == name)
+    choices = [c["value"] for c in setting.get("choices") or ()]
+    raw = (settings or {}).get(name)
+    if raw in (None, "", []):
+        raw = setting.get("default") if setting.get("default") not in (None, []) else choices
+    chosen = raw if isinstance(raw, list) else [raw]
+    ordered = [c for c in choices if any(same_choice(v, c) for v in chosen)]
+    # A value the declaration no longer names still runs, after the declared ones: the provider
+    # answers for it (as a stored single value always did).
+    return ordered + [v for v in chosen if not any(same_choice(v, c) for c in choices)]
+
+
+#: Targets that read what an earlier target PUBLISHES, so they cannot run once it failed in the same
+#: collection: node bounds read the published tree. An entry may declare its own
+#: ``"target_requires": {target: [targets]}``; this is the default for the asset vocabulary.
+DEFAULT_TARGET_REQUIRES: dict[str, list[str]] = {"bounds": ["tree"]}
+
+
+def target_requires(entry: dict) -> dict[str, list[str]]:
+    declared = entry.get("target_requires")
+    if isinstance(declared, dict):
+        return {str(k): [str(x) for x in v] for k, v in declared.items() if isinstance(v, list)}
+    return DEFAULT_TARGET_REQUIRES
+
+
+#: CORE's own setting of every apply-changes entry -- no provider declares it, and it is never sent
+#: to the provider's job: what to do about a collection the provider store holds no full export of
+#: (such a collection is never asked for its changes; routes/asset_apply_changes.py).
+MISSING_FULL_EXPORT = "missing_full_export"
+MISSING_FULL_EXPORT_WARN = "warn"
+MISSING_FULL_EXPORT_EXPORT = "export"
+MISSING_FULL_EXPORT_SETTING: dict = {
+    "name": MISSING_FULL_EXPORT,
+    "type": "enum",
+    "title": "Collections without a full export",
+    "description": "A collection the provider store holds no full export of is left out of the run. Warn "
+    "about it, or also queue a full export of it once the run has finished.",
+    "default": MISSING_FULL_EXPORT_WARN,
+    "multiple": False,
+    "source": "enum",
+    "core": True,
+    "choices": [
+        {"value": MISSING_FULL_EXPORT_WARN, "label": "Warn only"},
+        {"value": MISSING_FULL_EXPORT_EXPORT, "label": "Queue a full project export"},
+    ],
+}
+#: CORE's own checkbox on sweeps and apply-changes runs: fill the provider store's build cache once
+#: a collection has published (routes/asset_prebuild.py). Never sent to the provider; unset is off,
+#: and is not stored.
+PREBUILD_MESHES = "prebuild_meshes"
+PREBUILD_MESHES_SETTING: dict = {
+    "name": PREBUILD_MESHES,
+    "type": "bool",
+    "title": "Pre-build meshes",
+    "description": "Once a collection has published, build the meshes of every subject delivered by build, "
+    "so the first viewer finds them ready. Builds already in the cache cost nothing.",
+    "default": False,
+    "multiple": False,
+    "source": "enum",
+    "core": True,
+    "store_default": False,
+    "choices": [{"value": False, "label": "No"}, {"value": True, "label": "Yes"}],
+}
+#: Settings core adds to an entry of a kind, beside what the provider declares -- all taken off the
+#: options before a provider job is sent.
+CORE_SETTINGS: dict[str, tuple[str, ...]] = {
+    APPLY_CHANGES: (MISSING_FULL_EXPORT, PREBUILD_MESHES),
+    SWEEP: (PREBUILD_MESHES,),
+}
 
 
 async def setting_choices(pool, setting: dict, *, scope: str, provider: str, collection: str) -> list[dict]:
@@ -234,17 +509,24 @@ async def build_options(
 ) -> dict:
     """The job options for one entry: its fixed options, the collection, and the chosen settings.
     Every chosen value must be one of its setting's choices -- checked here, server side, so a
-    hand-made request cannot smuggle free text past the dropdowns."""
+    hand-made request cannot smuggle free text past the dropdowns.
+
+    A MULTI setting (``multiple``) is always a list: a single value is wrapped, an unset one takes
+    the declared default list, and :data:`APPLY_TARGETS` refuses an empty list -- an apply-changes
+    run that patches nothing would still advance its cursor past every change. So does a sweep's
+    ``targets_setting`` (:func:`targets_setting`): a full export of nothing is not an export."""
     options = dict(entry["options"])
+    required_lists = {APPLY_TARGETS, targets_setting(spec, entry)} - {None}
     collection_option = entry.get("collection_option")
-    if collection_option and not collection and entry.get("kind") == SWEEP:
-        # A sweep's row names no collection: the driver supplies each one in turn.
+    if collection_option and not collection and entry.get("kind") in COLLECTIONLESS_KINDS:
+        # A sweep's (or an apply-changes of every collection's) row names no collection: the
+        # driver supplies each one in turn.
         collection_option = None
     if collection_option:
         if not collection:
             raise HTTPException(status_code=400, detail=f"{entry['id']!r} needs a collection")
         if validate:
-            offered = collections_of(spec)
+            offered = collections_of(spec, await load_splits(pool, provider))
             if offered and collection not in offered:
                 raise HTTPException(
                     status_code=400,
@@ -252,15 +534,31 @@ async def build_options(
                 )
         options[str(collection_option)] = collection
     declared = {s["name"]: s for s in entry_settings(spec, entry)}
-    for name, value in (settings or {}).items():
+    settings = dict(settings or {})
+    picks = settings.pop(COLLECTION_CHOICES, None)
+    if picks not in (None, {}):
+        # Core's per-collection overrides (see collection_choice_decls): only on runs that ask a
+        # provider per collection. Stored with the options; the driver takes them off again.
+        if (entry.get("kind") or "job") not in DRIVEN_KINDS:
+            if validate:
+                raise HTTPException(status_code=400, detail=f"{COLLECTION_CHOICES} is not a setting of {entry['id']!r}")
+        else:
+            cleaned = clean_collection_choices(collection_choice_decls(spec), picks) if validate else picks
+            if cleaned:
+                options[COLLECTION_CHOICES] = cleaned
+    for name, value in settings.items():
         setting = declared.get(name)
         if setting is None:
             if validate:
                 raise HTTPException(status_code=400, detail=f"{name!r} is not a setting of {entry['id']!r}")
             continue
+        if setting.get("multiple") and isinstance(value, list) and not value and name in required_lists and validate:
+            raise HTTPException(status_code=400, detail=f"{name}: tick at least one")
         if value is None or (isinstance(value, (list, str)) and len(value) == 0):
             # Unset. Note `False` is a choice, not "unset": a bool setting's off is a value.
             continue
+        if setting.get("multiple") and not isinstance(value, list):
+            value = [value]
         if validate:
             choices = await setting_choices(pool, setting, scope=scope, provider=provider, collection=collection or "")
         else:
@@ -277,12 +575,28 @@ async def build_options(
         if validate and bad:
             raise HTTPException(status_code=400, detail=f"{name}: {bad!r} not among its choices")
         options[name] = typed if isinstance(value, list) else typed[0]
+    for name, setting in declared.items():
+        # A multi choice left unset takes its declared default list (a copy: never the spec's own).
+        if setting.get("multiple") and name not in options and isinstance(setting.get("default"), list):
+            options[name] = list(setting["default"])
+        # A core setting left unset is stored as its default, so a run says what it did.
+        elif (
+            setting.get("core")
+            and name not in options
+            and setting.get("default") is not None
+            and setting.get("store_default", True)
+        ):
+            options[name] = setting["default"]
     return options
 
 
 def settings_of(entry: dict, options: dict) -> dict:
-    """The chosen settings, read back out of stored job options."""
+    """The chosen settings, read back out of stored job options -- the core settings of the
+    entry's kind (:data:`CORE_SETTINGS`) included."""
     names = [s if isinstance(s, str) else (s or {}).get("name") for s in entry.get("settings") or ()]
+    names += list(CORE_SETTINGS.get(entry.get("kind") or "", ()))
+    if (entry.get("kind") or "job") in DRIVEN_KINDS:
+        names.append(COLLECTION_CHOICES)
     return {n: options[n] for n in names if n and n in options}
 
 
@@ -311,8 +625,15 @@ async def start_change_check(
     schedule_id: str | None = None,
     request: Request | None = None,
 ) -> dict:
-    """Enqueue one change check and record its run. ``options`` are final (built and stamped)."""
+    """Enqueue one change check and record its run. ``options`` are final (built and stamped).
+
+    The check runs in the provider store and its run is keyed there, whatever ``scope_obj`` /
+    ``scope`` the caller passed (``job_scope``): the summary it is finished from is then read from
+    the same scope the job wrote it in, and every scope granted the dataset sees the one run."""
     plugin_id = _plugin_id(spec)
+    scope_obj = job_scope(spec, scope_obj)
+    if scope_obj == PROVIDER_STORE:
+        scope = PROVIDER_STORE.prefix()
     derived_key, derived_prefix = job_keys(plugin_id, options)
     job_id = await enqueue_plugin_job(
         ctx,
@@ -345,9 +666,25 @@ def _block_of(summary: Any) -> dict | None:
     return block if isinstance(block, dict) else None
 
 
-async def finish_pending_runs(ctx: RestContext, pool, scope_obj: Scope, runs: list[dict]) -> list[dict]:
+def run_scope(run: dict, fallback: Scope | None = None) -> Scope:
+    """The scope a run's job wrote in -- its summary and item list are read there. A run row keys
+    the scope by storage prefix (``providers`` for every run since the store, the launching scope's
+    prefix before); ``fallback`` answers for a row whose key does not parse."""
+    try:
+        return Scope.from_prefix(str(run.get("scope") or ""))
+    except ValueError:
+        if fallback is None:
+            raise
+        return fallback
+
+
+async def finish_pending_runs(ctx: RestContext, pool, scope_obj: Scope | None, runs: list[dict]) -> list[dict]:
     """Copy the result of every finished job into its run. Best-effort per run: one unreadable
-    summary must not fail the listing."""
+    summary must not fail the listing.
+
+    Each summary is read from the scope the RUN belongs to (:func:`run_scope`), not the reader's:
+    a scope lists the store's runs of its granted datasets beside its own, and an admin's table
+    lists rows of both ages. ``scope_obj`` is only the fallback for a row that names no scope."""
     out = []
     for run in runs:
         if run["status"] != "queued" or not run.get("job_id"):
@@ -359,7 +696,7 @@ async def finish_pending_runs(ctx: RestContext, pool, scope_obj: Scope, runs: li
             finished = None
             if state == "done":
                 try:
-                    summary = json.loads(await ctx.storage.get_bytes(scope_obj, run["derived_key"]))
+                    summary = json.loads(await ctx.storage.get_bytes(run_scope(run, scope_obj), run["derived_key"]))
                 except Exception as exc:  # noqa: BLE001 - reported on the run
                     finished = await db_module.finish_asset_change_run(
                         pool, run["id"], status="error", error=f"the job's summary could not be read: {exc}"
@@ -410,18 +747,45 @@ async def _specs_or_404(ctx: RestContext, provider: str) -> list[dict]:
     return specs
 
 
-async def _saved_settings(pool, *, key: str, provider: str, collection: str, entry: dict) -> dict:
-    """A manual check uses the settings of this scope's scheduled check for the same collection,
-    if there is one -- so excluding a batch account applies to both."""
-    for row in await db_module.list_plugin_job_schedules(pool, asset_provider=provider):
-        if row["collection"] != collection or row["schedule_job"] != entry["id"]:
-            continue
-        try:
-            if await scope_key(pool, row["scope"]) == key:
-                return settings_of(entry, row["options"])
-        except HTTPException:
-            continue
-    return {}
+async def _saved_settings(pool, *, provider: str, collection: str, entry: dict) -> dict:
+    """A manual check uses the settings of the scheduled check for the same collection, if there
+    is one -- so excluding a batch account applies to both. One live schedule per collection since
+    the store; of rows from before it (one per scope), a ``providers`` row wins, else the first."""
+    rows = [
+        row
+        for row in await db_module.list_plugin_job_schedules(pool, asset_provider=provider)
+        if row["collection"] == collection and row["schedule_job"] == entry["id"]
+    ]
+    rows.sort(key=lambda row: row.get("scope") != PROVIDER_STORE_WIRE)
+    return settings_of(entry, rows[0]["options"]) if rows else {}
+
+
+async def _store_runs_for(pool, scope_obj: Scope, *, provider: str | None, collection: str | None, limit: int):
+    """The provider store's runs ``scope_obj`` may read: those of datasets granted to it with
+    attributes or geometry. Filtered here rather than in SQL -- a scope holds a handful of grants --
+    so the store is read a little wider than ``limit`` to leave room for what the filter drops."""
+    datasets = await readable_store_datasets(pool, scope_obj)
+    if provider:
+        datasets = [d for d in datasets if d[0] == provider]
+    if not datasets:
+        return []
+    runs = await db_module.list_asset_change_runs(
+        pool,
+        scope=PROVIDER_STORE.prefix(),
+        provider=provider or None,
+        collection=collection or None,
+        limit=min(max(limit * 4, 50), 400),
+    )
+    return [r for r in runs if granted_covers(datasets, r["provider"], r["collection"])]
+
+
+async def _may_read_run(pool, scope_obj: Scope, run: dict) -> bool:
+    """Whether ``scope_obj`` may read ``run``: its own row, or a store run of a dataset granted to it."""
+    if run["scope"] == scope_obj.prefix():
+        return True
+    if run["scope"] != PROVIDER_STORE.prefix():
+        return False
+    return granted_covers(await readable_store_datasets(pool, scope_obj), run["provider"], run["collection"])
 
 
 # --- Sources tab: check now, list runs, read a run's items ---------------------------------
@@ -434,7 +798,11 @@ async def api_asset_changes_check(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Run a provider's change check for one collection now. Body: ``{provider, collection}``."""
+    """Run a provider's change check for one collection now. Body: ``{provider, collection}``.
+
+    ADMIN ONLY, and it runs in the provider store whichever scope it is asked from: a change check
+    is a provider job, and provider data is kept current by admins. The run is the store's, so
+    every scope granted the dataset lists it."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
@@ -445,10 +813,13 @@ async def api_asset_changes_check(
     if found is None:
         raise HTTPException(status_code=404, detail=f"{provider!r} declares no change check")
     spec, entry = found
-    if not user.is_admin and await plugin_job_requires_admin(_plugin_id(spec), pool, spec):
-        raise HTTPException(status_code=403, detail=f"{provider!r} change checks are restricted to admins")
-    key = scope_obj.prefix()
-    settings = await _saved_settings(pool, key=key, provider=provider, collection=collection, entry=entry)
+    require_admin_for_provider_job(user, spec)
+    if not getattr(user, "is_admin", False):
+        # A spec without `asset_provider_id` cannot reach here (provider_specs groups by it), but a
+        # change check is never a member's to run either way.
+        raise HTTPException(status_code=403, detail=f"{provider!r} change checks are admin operations")
+    key = PROVIDER_STORE.prefix()
+    settings = await _saved_settings(pool, provider=provider, collection=collection, entry=entry)
     options = await build_options(
         pool, spec, entry, scope=key, provider=provider, collection=collection, settings=settings, validate=False
     )
@@ -458,7 +829,7 @@ async def api_asset_changes_check(
     run = await start_change_check(
         ctx,
         pool,
-        scope_obj=scope_obj,
+        scope_obj=PROVIDER_STORE,
         scope=key,
         provider=provider,
         collection=collection,
@@ -481,15 +852,21 @@ async def api_asset_changes_runs(
     collection: str | None = None,
     limit: int = 50,
 ) -> JSONResponse:
-    """This scope's change-check runs, newest first, finishing any whose job has completed."""
+    """The change-check runs this scope may read, newest first, finishing any whose job has
+    completed: the provider store's runs of every dataset granted to it (attributes or geometry),
+    plus its own rows from before the store. The store itself (an admin) reads the store's."""
     pool = require_pool(request)
+    limit = max(1, min(int(limit), 200))
     runs = await db_module.list_asset_change_runs(
         pool,
         scope=scope_obj.prefix(),
         provider=provider or None,
         collection=collection or None,
-        limit=max(1, min(int(limit), 200)),
+        limit=limit,
     )
+    store_runs = await _store_runs_for(pool, scope_obj, provider=provider, collection=collection, limit=limit)
+    if store_runs:
+        runs = sorted(runs + store_runs, key=lambda r: r.get("created_at") or "", reverse=True)[:limit]
     runs = await finish_pending_runs(ctx, pool, scope_obj, runs)
     return JSONResponse({"runs": [_public_run(r) for r in runs]})
 
@@ -501,16 +878,17 @@ async def api_asset_changes_items(
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """One run's changed nodes (``ada.assets/change-items@1``)."""
+    """One run's changed nodes (``ada.assets/change-items@1``): one of this scope's own runs, or a
+    store run of a dataset granted to it. The item list is read where the RUN's job wrote it."""
     pool = require_pool(request)
     run = await db_module.get_asset_change_run(pool, run_id)
-    if run is None or run["scope"] != scope_obj.prefix():
+    if run is None or not await _may_read_run(pool, scope_obj, run):
         raise HTTPException(status_code=404, detail="run not found")
     [run] = await finish_pending_runs(ctx, pool, scope_obj, [run])
     items = run.get("items")
     if items is None and run.get("items_key"):
         try:
-            doc = json.loads(await ctx.storage.get_bytes(scope_obj, run["items_key"]))
+            doc = json.loads(await ctx.storage.get_bytes(run_scope(run, scope_obj), run["items_key"]))
         except Exception as exc:  # noqa: BLE001 - the run outlived its item file
             raise HTTPException(status_code=410, detail=f"this run's item list is no longer stored: {exc}") from exc
         items = doc.get("items") if isinstance(doc, dict) else doc
@@ -536,7 +914,9 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
             {
                 "provider": provider,
                 "plugin_id": _plugin_id(spec),
-                "collections": collections_of(spec),
+                "collections": collections_of(spec, await load_splits(pool, provider)),
+                # What an admin may pin per collection (worker-found choices, the worker's default).
+                "collection_choices": collection_choice_decls(group),
                 "jobs": [
                     {
                         "id": e["id"],
@@ -544,6 +924,8 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
                         "label": e.get("label") or e["id"],
                         "description": e.get("description"),
                         "settings": entry_settings(spec, e),
+                        # What the provider calls its collections, plural ("projects"), when it says.
+                        "collections_label": e.get("collections_label") or spec.get("asset_collections_label"),
                     }
                     for e in schedule_entries(spec)
                 ],
@@ -551,6 +933,19 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
         )
     rows = await db_module.list_plugin_job_schedules(pool)
     asset_rows = [r for r in rows if r.get("asset_provider")]
+    # Core's apply-changes cursors, for the rows of that kind: where each collection's next run
+    # asks "since" from (no entry: the next run is a baseline).
+    cursors_by_provider: dict[str, dict[str, dict]] = {}
+    if any(r.get("schedule_kind") == APPLY_CHANGES for r in asset_rows):
+        try:
+            for c in await db_module.list_asset_apply_cursors(pool):
+                cursors_by_provider.setdefault(c["provider"], {})[c["collection"]] = {
+                    "cursor": c["cursor"],
+                    "applied_at": c["applied_at"],
+                    "run_id": c["run_id"],
+                }
+        except Exception:  # noqa: BLE001 - a listing without cursors beats no listing
+            logger.exception("asset schedules: could not read the apply-changes cursors")
     latest = await db_module.latest_asset_change_runs_for_schedules(pool, [r["id"] for r in asset_rows])
     by_cron = {v["cron"]: k for k, v in FREQUENCIES.items()}
     schedules = []
@@ -558,16 +953,25 @@ async def admin_asset_schedules(request: Request, ctx: RestContext = Depends(res
         run = latest.get(row["id"])
         if run is not None and run["status"] == "queued":
             # Finished here too, not only by the Sources tab's listing: an admin watching this
-            # table after "Run now" must see the result without opening the scope.
-            try:
-                scope_obj = await resolve_project_scope(pool, parse_scope(row["scope"], SystemUser()))
-                [run] = await finish_pending_runs(ctx, pool, scope_obj, [run])
-            except HTTPException:
-                pass
+            # table after "Run now" must see the result without opening a scope. Read where the
+            # run's job wrote (the store, or the scope of a run from before it).
+            [run] = await finish_pending_runs(ctx, pool, PROVIDER_STORE, [run])
         found = find_entry(specs.get(row["asset_provider"], []), row["schedule_job"])
+        extra: dict = {}
+        if row["schedule_kind"] == APPLY_CHANGES:
+            held = cursors_by_provider.get(row["asset_provider"], {})
+            if row["collection"]:
+                one = held.get(str(row["collection"]).lower())
+                extra["cursors"] = {str(row["collection"]).lower(): one} if one else {}
+            else:
+                extra["cursors"] = dict(held)
         schedules.append(
             {
-                **{k: row[k] for k in ("id", "scope", "collection", "enabled", "last_fired_at", "next_fire_at")},
+                **extra,
+                **{k: row[k] for k in ("id", "collection", "enabled", "last_fired_at", "next_fire_at")},
+                # Where it fires, whatever an older row still names: every provider job runs in
+                # the store.
+                "scope": PROVIDER_STORE_WIRE,
                 "provider": row["asset_provider"],
                 "job": row["schedule_job"],
                 "kind": row["schedule_kind"],
@@ -599,18 +1003,19 @@ async def admin_asset_schedule_choices(
     request: Request,
     provider: str,
     job: str,
-    scope: str,
+    scope: str | None = None,
     collection: str = "",
-    user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Each setting's choices for one job, scope and collection (``change_users`` depends on both)."""
+    """Each setting's choices for one job and collection (``change_users`` comes from the store's
+    earlier change checks of that collection). ``scope`` is accepted and ignored: provider jobs
+    run in the provider store."""
     pool = require_pool(request)
     found = find_entry(await _specs_or_404(ctx, provider), job)
     if found is None:
         raise HTTPException(status_code=404, detail=f"{provider!r} declares no job {job!r}")
     spec, entry = found
-    key = await scope_key(pool, scope, user)
+    key = PROVIDER_STORE.prefix()
     return JSONResponse(
         {
             "settings": {
@@ -634,16 +1039,18 @@ async def admin_asset_schedules_create(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Body: ``{provider, job, scope, collection, frequency, settings, enabled}`` -- all choices."""
+    """Body: ``{provider, job, collection, frequency, settings, enabled}`` -- all choices.
+
+    ``scope`` (from before the provider store) is accepted and ignored: the row stores
+    ``providers``, where every provider job runs. One live schedule per (provider, collection,
+    job) -- a second, or one beside a row from before the store, is refused (409)."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
     job = str(body.get("job") or "").strip()
-    scope = str(body.get("scope") or "").strip()
     collection = str(body.get("collection") or "").strip() or None
-    if not provider or not job or not scope:
-        raise HTTPException(status_code=400, detail="provider, job and scope are required")
-    _ = parse_scope(scope, user)
+    if not provider or not job:
+        raise HTTPException(status_code=400, detail="provider and job are required")
     found = find_entry(await _specs_or_404(ctx, provider), job)
     if found is None:
         raise HTTPException(status_code=404, detail=f"{provider!r} declares no job {job!r}")
@@ -656,18 +1063,24 @@ async def admin_asset_schedules_create(
         pool,
         spec,
         entry,
-        scope=await scope_key(pool, scope, user),
+        scope=PROVIDER_STORE.prefix(),
         provider=provider,
         collection=collection,
         settings=settings,
     )
-    name = f"{provider}: {entry.get('label') or job} -- {scope}{' / ' + collection if collection else ''}"
+    taken = "that job is already scheduled for this collection"
+    for live in await db_module.list_plugin_job_schedules(pool, asset_provider=provider):
+        # Rows from before the store carry their scope in the name, so the name's uniqueness
+        # alone would let a second schedule of the same job sit beside one of them.
+        if live["schedule_job"] == job and (live["collection"] or None) == collection:
+            raise HTTPException(status_code=409, detail=taken)
+    name = f"{provider}: {entry.get('label') or job}{' -- ' + collection if collection else ''}"
     try:
         row = await db_module.create_plugin_job_schedule(
             pool,
             name=name,
             cron_expr=cron,
-            scope=scope,
+            scope=PROVIDER_STORE_WIRE,
             plugin_id=_plugin_id(spec),
             options=options,
             enabled=bool(body.get("enabled", True)),
@@ -680,9 +1093,7 @@ async def admin_asset_schedules_create(
         )
     except Exception as exc:
         if exc.__class__.__name__ == "UniqueViolationError":
-            raise HTTPException(
-                status_code=409, detail="that job is already scheduled for this scope and collection"
-            ) from exc
+            raise HTTPException(status_code=409, detail=taken) from exc
         raise
     return JSONResponse(row, status_code=201)
 
@@ -712,7 +1123,7 @@ async def admin_asset_schedules_update(
             pool,
             spec,
             entry,
-            scope=await scope_key(pool, row["scope"]),
+            scope=PROVIDER_STORE.prefix(),
             provider=row["asset_provider"],
             collection=row["collection"],
             settings=body["settings"] if isinstance(body["settings"], dict) else {},
@@ -753,7 +1164,8 @@ async def asset_schedule_dispatch(ctx: RestContext, pool, schedule_row: dict, op
         pool,
         spec,
         entry,
-        scope=schedule_row["scope"],
+        # The store, whatever an older row still names: the job fires there.
+        scope=PROVIDER_STORE.prefix(),
         provider=provider,
         collection=schedule_row["collection"],
         settings=settings_of(entry, schedule_row["options"] or {}),
@@ -772,11 +1184,16 @@ async def record_scheduled_run(
     pool, schedule_row: dict, *, scope_obj: Scope, job_id: str, derived_key: str | None
 ) -> None:
     """The run row for a change check the scheduler just fired. Best-effort: the job is already
-    queued, and failing to record it must not turn a fired slot into a skipped one."""
+    queued, and failing to record it must not turn a fired slot into a skipped one.
+
+    Keyed under the provider store -- where ``plugin_schedule_fire`` ran the job, for a row of any
+    age -- so its summary is read back from the scope it was written in. ``scope_obj`` is kept for
+    callers and ignored for a provider schedule."""
+    scope = PROVIDER_STORE.prefix() if schedule_row.get("asset_provider") else scope_obj.prefix()
     try:
         await db_module.insert_asset_change_run(
             pool,
-            scope=scope_obj.prefix(),
+            scope=scope,
             provider=schedule_row["asset_provider"],
             collection=schedule_row["collection"] or "",
             plugin_id=schedule_row["plugin_id"],

@@ -32,6 +32,7 @@ import {
 } from "@/assets/treeView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
 import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionRequest";
+import { sourcesTabAccess } from "@/assets/sourcesTabAccess";
 import {
     assetSourceName,
     loadPrepared,
@@ -122,6 +123,8 @@ export function realDeliveryDeps(
                 const status = await conversionApi.convertStatus(jobId);
                 return { status: status.status, error: status.error };
             },
+            getAssetDelivery: (scope, provider, collection, subject, opts) =>
+                assetsApi.getAssetDelivery(scope as ScopeUrl, provider, collection, subject, opts),
         },
         loadModelFromUrl: (owner, url, opts) => makePluginContextStandalone(OWNER).scene.loadModelFromUrl(owner, url, opts),
         isLoaded,
@@ -429,7 +432,16 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
     // loaded here on the very next render, not linger until some unrelated
     // asset-browser action happens to touch the store.
     useEffect(() => {
-        useAssetBrowserStore.getState().reconcileLoaded(liveSourceNames);
+        const store = useAssetBrowserStore.getState();
+        // A build's override models go with it: when the build left the scene by any route (the
+        // Files tab, the Scene tree), the ones loaded beside it are taken out too.
+        for (const a of store.loaded) {
+            if (liveSourceNames.has(a.sourceName)) continue;
+            for (const name of a.overrides ?? []) {
+                if (liveSourceNames.has(name)) makePluginContextStandalone(OWNER).scene.unloadModel(name);
+            }
+        }
+        store.reconcileLoaded(liveSourceNames);
     }, [liveSourceNames, useAssetBrowserStore]);
 
     const out: AssetLoadControl[] = [];
@@ -500,11 +512,15 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
                 })();
             },
             unload: () => {
-                makePluginContextStandalone(OWNER).scene.unloadModel(sourceName);
+                const scene = makePluginContextStandalone(OWNER).scene;
+                scene.unloadModel(sourceName);
+                // The build's override models were loaded with it and go with it.
+                const gone = new Set([sourceName, ...(asset?.overrides ?? [])]);
+                for (const name of gone) if (name !== sourceName) scene.unloadModel(name);
                 requestRender();
                 // Optimistic: the effect above will re-confirm against
                 // `loadedSourceNames` on the next render regardless.
-                useAssetBrowserStore.getState().reconcileLoaded(new Set([...liveSourceNames].filter((n) => n !== sourceName)));
+                useAssetBrowserStore.getState().reconcileLoaded(new Set([...liveSourceNames].filter((n) => !gone.has(n))));
             },
             reveal: () => {
                 if (root) void selectTreeNode(root);
@@ -2128,7 +2144,8 @@ const AssetsTab: React.FC = () => {
     // declared `maxNodes`, one job each, all started together. The state stays per (node,
     // provider), so each row still shows its own request; the control sums them.
     const nodeRequestsFor = (ids: readonly string[]): NodeRequestControl[] => {
-        if (!view) return [];
+        // Asking a provider's workers is an admin's: a member reads what the sweeps keep current.
+        if (!view || !sourcesTabAccess(isAdmin).requests) return [];
         const targets: NodeTarget[] = [];
         for (const id of ids) {
             const node = view.hierarchy.byId.get(id)?.data;
@@ -2342,7 +2359,7 @@ const AssetsTab: React.FC = () => {
                                     />
                                 ),
                             },
-                            ...(collection && collectionOptionProviders.size > 0
+                            ...(collection && collectionOptionProviders.size > 0 && sourcesTabAccess(isAdmin).providerOptions
                                 ? [
                                       {
                                           id: "provider-options",

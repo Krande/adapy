@@ -196,6 +196,23 @@ async def api_scope_overlays(
     return JSONResponse({"overlays": overlays})
 
 
+async def _read_scope(ctx: RestContext, request: Request, scope_obj: Scope, key: str) -> Scope:
+    """Where a READ of ``key`` through ``scope_obj``'s blob routes is served from: the provider
+    store for a granted dataset's blob the store holds, else the scope (see
+    ``provider_store.resolve_blob``). Writes never resolve: nobody writes provider data through a
+    scope."""
+    from .provider_store import resolve_blob
+
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        return scope_obj
+    try:
+        return await resolve_blob(ctx, pool, scope_obj, key.lstrip("/"))
+    except Exception as exc:  # noqa: BLE001 - an unanswerable grant reads the scope's own copy, never more
+        logger.warning("blob read %s: could not resolve the provider grants of %s: %s", key, scope_obj.prefix(), exc)
+        return scope_obj
+
+
 async def _serve_blob_range(
     storage: Storage, request: Request, scope_obj: Scope, key: str, range_header: str
 ) -> Response | None:
@@ -269,6 +286,11 @@ async def api_scope_blob_get(
     from ..converter import is_derived_key
 
     storage = ctx.storage
+    # A granted provider dataset's blob -- a delivery's mesh ``url``, a build's derived key -- is
+    # read from the provider store through THIS scope's route, so the viewer never names the store
+    # (``provider_store.resolve_blob``: the grant AND the store's copy, else the scope's own). The
+    # audit row stays the reader's scope: it records who read, not where the bytes lay.
+    read_scope = await _read_scope(ctx, request, scope_obj, key)
 
     # Range support — lets the FEA viewer pull a single step out of a
     # multi-step field blob instead of downloading the whole stack of
@@ -289,7 +311,7 @@ async def api_scope_blob_get(
         if rs:
             range_header = f"bytes={rs}-{re_}"
     if range_header:
-        served = await _serve_blob_range(storage, request, scope_obj, key, range_header)
+        served = await _serve_blob_range(storage, request, read_scope, key, range_header)
         if served is not None:
             if not is_derived_key(key):
                 await ctx.audit(request, user, scope_obj, "download", key=key, status="ok")
@@ -297,7 +319,7 @@ async def api_scope_blob_get(
         # else: fall through to whole-object stream (gzipped/un-rangeable)
 
     try:
-        result = await storage.open_stream(scope_obj, key)
+        result = await storage.open_stream(read_scope, key)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -884,12 +906,14 @@ async def api_scope_download_url(
     key = (body.get("key") or "").strip().lstrip("/")
     if not key:
         raise HTTPException(status_code=400, detail="key required")
-    meta = await storage.head(scope_obj, key)
+    # A read like GET /blobs: a granted dataset's blob is presigned where it lies, the store.
+    read_scope = await _read_scope(ctx, request, scope_obj, key)
+    meta = await storage.head(read_scope, key)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"object not found at {key}")
     ttl = 15 * 60
     try:
-        url = await storage.presigned_get_url(scope_obj, key, expires_in_seconds=ttl)
+        url = await storage.presigned_get_url(read_scope, key, expires_in_seconds=ttl)
     except Exception as exc:
         logger.exception("presign GET failed for %s", key)
         raise HTTPException(status_code=500, detail=f"presign failed: {exc}") from exc

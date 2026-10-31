@@ -266,7 +266,9 @@ def resolve_geometry(index: Any, collection: str, hit: Mapping[str, Any], *, pro
     ``index`` is an ``ada.clash.geometry_source.GeometrySourceIndex`` over the scope's storage. The
     node is looked up by the hit's id first (the providers share name-derived ids), then by the
     id its full name derives, then by label; the subject the node is its own subject of wins over
-    the narrowest readable subject whose spine holds it. Raises :class:`NoGeometry` saying why.
+    the narrowest readable subject whose spine holds it. A hit no spine lists -- a COMPONENT row
+    below the tree -- resolves to its nearest listed ancestor when that one is a leaf of its spine
+    (the answer's ``via`` names it). Raises :class:`NoGeometry` saying why.
     """
     from ada.clash.geometry_source import normalise_label
 
@@ -298,11 +300,11 @@ def resolve_geometry(index: Any, collection: str, hit: Mapping[str, Any], *, pro
         seen.add(node_id)
         own = next((s for s in catalog.spines if s.node == node_id and s.readable), None)
         if own is not None:
-            return own.manifest, node_id
+            return Resolved(own.manifest, node_id)
         covers = [s for s in catalog.spines if s.readable and any(i == node_id for i, _ in s.rows)]
         if covers:
             cover = min(covers, key=lambda s: (len(s.rows), s.subject))
-            return cover.manifest, node_id
+            return Resolved(cover.manifest, node_id)
     listed = next((i for s in catalog.spines for i, _ in s.rows if i in seen), None)
     if listed is not None:
         raise NoGeometry(
@@ -311,6 +313,13 @@ def resolve_geometry(index: Any, collection: str, hit: Mapping[str, Any], *, pro
             reason="listed",
             node_id=listed,
         )
+    # A COMPONENT row of the attribute index (a primitive, a sub-equipment, a branch component) sits
+    # below the tree's deepest nodes: no spine lists it, but its ancestry (`path`, root first) does.
+    # Its geometry is its nearest listed ancestor's -- if that ancestor is a LEAF of the spine
+    # listing it. A branch ancestor's geometry is a whole subtree, not this component: stop there.
+    via = _leaf_ancestor(catalog, hit)
+    if via is not None:
+        return via
     if not any(s.subject == collection for s in catalog.spines):
         # Node publishes without the collection's own tree say nothing about the nodes they leave out.
         raise NoGeometry(
@@ -324,6 +333,41 @@ def resolve_geometry(index: Any, collection: str, hit: Mapping[str, Any], *, pro
         f"its geometry has not been exported from the design system",
         reason="unknown",
     )
+
+
+class Resolved(tuple):
+    """``(manifest, node_id)`` as :func:`resolve_geometry` answers it -- unpacks like the pair --
+    with ``via``: the ancestor whose geometry stands for a component hit, else None."""
+
+    via: str | None = None
+
+    def __new__(cls, manifest: Any, node_id: str, via: str | None = None) -> "Resolved":
+        out = super().__new__(cls, (manifest, node_id))
+        out.via = via
+        return out
+
+
+def _leaf_ancestor(catalog: Any, hit: Mapping[str, Any]) -> Resolved | None:
+    """The nearest ancestor of ``hit`` (its ``path``, nearest last) that a readable spine lists, as a
+    :class:`Resolved` with ``via`` -- when that ancestor is a leaf of the spine; None when it is a
+    branch, or no ancestor is listed."""
+    for anc in reversed([a for a in hit.get("path") or () if isinstance(a, Mapping)]):
+        ids = [str(anc["node_id"])] if anc.get("node_id") else []
+        if str(anc.get("full_name") or "").strip():
+            ids.append(_node_id_for_full_name(str(anc["full_name"])))
+        for node_id in dict.fromkeys(ids):
+            holding = [
+                s for s in catalog.spines if s.readable and (s.node == node_id or any(i == node_id for i, _ in s.rows))
+            ]
+            if not holding:
+                continue
+            spine = next((s for s in holding if s.node == node_id), None) or min(
+                holding, key=lambda s: (len(s.rows), s.subject)
+            )
+            if node_id in getattr(spine, "leaves", ()):
+                return Resolved(spine.manifest, node_id, via=node_id)
+            return None  # a branch: its geometry is more than this component
+    return None
 
 
 def _node_id_for_full_name(full_name: str) -> str:

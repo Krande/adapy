@@ -117,8 +117,9 @@ def build_fingerprint(
     node: str | None,
     hierarchy_source: str,
     provider_version: str | None = None,
+    exclude_nodes: Sequence[str] = (),
 ) -> str:
-    """Hash of the NAMED inputs, the node, and the hierarchy that placed it.
+    """Hash of the NAMED inputs, the node, the hierarchy that placed it, and what it leaves out.
 
     ``fingerprint_inputs`` names which option keys matter; core reads those values and ignores
     every other option, so a provider adding an option that nobody sets does not re-key existing
@@ -129,13 +130,20 @@ def build_fingerprint(
     ``hierarchy_source`` is in the hash because two builds resolved through different hierarchies
     are two builds: the same node id can sit under a different parent after a re-publish, and a
     cached GLB from the old placement would be wrong in a way nothing else would catch.
+
+    ``exclude_nodes`` are the descendants the build must skip (an element with its own newer
+    publish, one a hierarchy patch deleted -- docs/design/apply-changes.md section 4): the same node
+    built with and without them is two GLBs. Hashed ONLY when non-empty, so every build cached
+    before exclusions existed keeps its key.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "inputs": {name: options[name] for name in sorted(set(fingerprint_inputs)) if name in options},
         "node": node,
         "hierarchy_source": hierarchy_source,
         "provider_version": provider_version,
     }
+    if exclude_nodes:
+        payload["exclude_nodes"] = sorted(set(exclude_nodes))
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:16]
 

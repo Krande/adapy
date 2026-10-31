@@ -168,11 +168,12 @@ export const assetsApi = {
 
   /** Publish what is staged under `assets/_staging/<staging_id>/` as `provider`'s
    *  format: the provider derives, core writes (`POST /assets/publish`). A job:
-   *  poll it, then read `derived_key` for the outcome. */
+   *  poll it, then read `derived_key` for the outcome -- in `scope`, the one the answer names: a
+   *  provider's publish runs in the provider store (`providers`), whichever scope asked. */
   async publishStaged(
     scope: ScopeUrl,
     body: { provider: string; staging_id: string; dry_run?: boolean; replace?: boolean },
-  ): Promise<{ job_id: string; derived_key: string; dry_run: boolean }> {
+  ): Promise<{ job_id: string; derived_key: string; dry_run: boolean; scope?: string }> {
     const r = await authedFetch(`${base(scope)}/publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

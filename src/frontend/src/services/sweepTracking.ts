@@ -27,7 +27,9 @@ import {useViewerPanelStore} from "@/state/viewerPanelStore";
 const POLL_MS = 5000;
 const STORAGE_KEY = "ada.sweeps.toast";
 const EXPORT_STORAGE_KEY = "ada.exports.toast";
-const FINISHED = new Set(["done", "unchanged", "nothing", "error", "skipped"]);
+// `no_full_export`: an apply-changes collection left out (no full export in the store yet) -- done with.
+// `busy`: another run of the provider held the collection for the whole wait -- done with, too.
+const FINISHED = new Set(["done", "unchanged", "nothing", "error", "skipped", "no_full_export", "busy"]);
 const EXPORT_FINISHED = new Set(["done", "partial", "error", "skipped"]);
 
 const storeKey = (runId: string) => `sweep:${runId}`;
@@ -351,6 +353,9 @@ export function sweepItemToastState(item: SweepItem): ToastState {
     switch (item.status) {
         case "pending":
             return {status: "queued", progress: 0, stage: "waiting", error: null};
+        case "waiting":
+            // Another run of the provider is working on this collection; the message names it.
+            return {status: "queued", progress: 0, stage: item.message ?? "waiting for another run", error: null};
         case "fetching":
             return {status: "running", progress, stage: item.stage ?? "fetching", error: null};
         case "publishing":

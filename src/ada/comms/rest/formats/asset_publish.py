@@ -18,6 +18,16 @@ THE ATTRIBUTE INDEX IS CORE'S TOO. A staged ``attribute-index.ndjson.gz``
 Postgres after the plan is written (``db/attribute_index.py``), which is what makes
 ``POST /assets/search`` provider-neutral. A staging holding only that file publishes without any
 provider publisher at all.
+
+So are the node bounds, the node relations and the REFERENCE DATA (``reference-data.ndjson.gz``,
+``db/reference_data.py``: what a collection offers for a new element to point at), each ingested
+after the plan the same way.
+
+SO ARE THE PATCHES of an apply-changes answer (docs/design/apply-changes.md): the three
+``*-patch.ndjson.gz`` sets are applied into the sets the full ingests built, one transaction per
+file, and ``hierarchy-patch.json`` is stored as an overlay over the published spines. A patch for a
+set that does not exist yet is refused with a warning and does not block the other roles; every
+role's outcome is in the summary's ``patches`` (:func:`apply_patch_roles`).
 """
 
 from __future__ import annotations
@@ -41,19 +51,30 @@ from ada.assets.publishers import AssetPublisherError, asset_publisher
 from ada.config import logger
 
 from ..db.attribute_index import (
+    ATTRIBUTE_INDEX_PATCH_ROLE,
     ATTRIBUTE_INDEX_ROLE,
     ingest_attribute_index,
+    patch_attribute_index,
     read_attribute_index_header,
 )
 from ..db.node_bounds import (
+    NODE_BOUNDS_PATCH_ROLE,
     NODE_BOUNDS_ROLE,
     ingest_node_bounds,
+    patch_node_bounds,
     read_node_bounds_header,
 )
 from ..db.node_relations import (
+    NODE_RELATIONS_PATCH_ROLE,
     NODE_RELATIONS_ROLE,
     ingest_node_relations,
+    patch_node_relations,
     read_node_relations_header,
+)
+from ..db.reference_data import (
+    REFERENCE_DATA_ROLE,
+    ingest_reference_data,
+    read_reference_header,
 )
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job, JobQueue
 from ..storage import Storage
@@ -63,8 +84,125 @@ from .registry import JobContext, SyntheticFormatHandler
 
 ASSET_PUBLISH_KIND = "asset_publish"
 
+#: The hierarchy patch of an apply-changes answer (docs/design/apply-changes.md): stored by core as
+#: an overlay over the published spines (``hierarchy_patches.py``), never rewritten into one.
+HIERARCHY_PATCH_ROLE = "hierarchy-patch.json"
+
+#: The element-level patches of an apply-changes answer, in the order they are applied: the tree
+#: first, so every other set's rows hang off nodes the tree has; the relations BEFORE the attribute
+#: index, because a relations patch's subtree deletion finds the rows below a unit in the attribute
+#: partition -- as it stands before the attribute patch rewrites that unit.
+PATCH_ROLES = (HIERARCHY_PATCH_ROLE, NODE_RELATIONS_PATCH_ROLE, ATTRIBUTE_INDEX_PATCH_ROLE, NODE_BOUNDS_PATCH_ROLE)
+
 #: Staged roles core ingests itself; a provider's ``derive()`` never sees them.
-_CORE_ROLES = frozenset({ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE})
+_CORE_ROLES = frozenset(
+    {ATTRIBUTE_INDEX_ROLE, NODE_BOUNDS_ROLE, NODE_RELATIONS_ROLE, REFERENCE_DATA_ROLE, *PATCH_ROLES}
+)
+
+_NDJSON_PATCHES = {
+    ATTRIBUTE_INDEX_PATCH_ROLE: patch_attribute_index,
+    NODE_BOUNDS_PATCH_ROLE: patch_node_bounds,
+    NODE_RELATIONS_PATCH_ROLE: patch_node_relations,
+}
+
+
+async def apply_patch_roles(
+    *, staged: dict, scope, storage, db_pool, provider: str, dry_run: bool
+) -> tuple[dict[str, dict], list[str]]:
+    """Apply every patch role ``staged`` holds. Returns ``({role: outcome}, consumed keys)``.
+
+    Each outcome carries ``status``: ``applied`` (written; with ``upserted`` / ``deleted`` rows and
+    the role's ``timings``), ``refused`` (no baseline to patch -- a ``warning`` says so, nothing was
+    written, and the patch is consumed: it can never apply to a set that does not exist, and a full
+    export carries the change anyway), ``failed`` (an ``error``; nothing of THAT role was written,
+    its transaction rolled back, and the patch stays staged), or ``skipped`` (a dry run, or a worker
+    with no database). One role's failure never stops the next: the caller -- an apply-changes run
+    -- decides from the outcomes whether the collection's cursor may advance."""
+    outcomes: dict[str, dict] = {}
+    consumed: list[str] = []
+    for role in PATCH_ROLES:
+        key = staged.get(role)
+        if not key:
+            continue
+        if dry_run:
+            outcomes[role] = {"status": "skipped", "warning": "a dry run applies no patch"}
+            continue
+        t0 = time.perf_counter()
+        try:
+            if role == HIERARCHY_PATCH_ROLE:
+                outcome = await _apply_hierarchy_patch(storage, scope, key, provider=provider)
+            else:
+                if db_pool is None:
+                    outcomes[role] = {
+                        "status": "skipped",
+                        "warning": "this worker has no database pool (DATABASE_URL unset): the patch was NOT "
+                        "applied and stays staged",
+                    }
+                    continue
+                answer = await _NDJSON_PATCHES[role](
+                    db_pool,
+                    scope=scope.prefix(),
+                    provider=provider,
+                    chunks=(await storage.open_stream(scope, key)).stream,
+                )
+                warnings = list(answer.get("warnings") or [])
+                outcome = {
+                    "status": "refused" if answer.get("refused") else "applied",
+                    "collection": answer.get("collection"),
+                    "upserted": answer.get("upserted", 0),
+                    "deleted": answer.get("deleted", 0),
+                    "removed_rows": answer.get("removed_rows", 0),
+                    "skipped": answer.get("skipped", 0),
+                    "timings": answer.get("timings") or {},
+                }
+                if warnings:
+                    outcome["warning"] = "; ".join(warnings)
+        except Exception as exc:  # noqa: BLE001 - reported per role; the other roles go on
+            logger.exception("worker: asset_publish patch %s failed", role)
+            outcomes[role] = {
+                "status": "failed",
+                "error": str(exc),
+                "timings": {"patch_ms": round((time.perf_counter() - t0) * 1000)},
+            }
+            continue
+        outcome.setdefault("timings", {}).setdefault("patch_ms", round((time.perf_counter() - t0) * 1000))
+        outcomes[role] = outcome
+        consumed.append(key)
+    return outcomes, consumed
+
+
+async def _apply_hierarchy_patch(storage, scope, key: str, *, provider: str) -> dict:
+    """``hierarchy-patch.json`` -> ``hierarchy_patches.store_hierarchy_patch``, which keeps it as an
+    ordered overlay over the collection's published spines. Imported here, at call time: the module
+    is the tree route's, and a test replaces it."""
+    from .. import hierarchy_patches
+
+    raw = await storage.get_bytes(scope, key)
+    if raw[:2] == b"\x1f\x8b":
+        import gzip
+
+        raw = gzip.decompress(raw)
+    doc = json.loads(raw)
+    if not isinstance(doc, dict) or doc.get("schema") != "ada.assets/hierarchy-patch@1":
+        got = doc.get("schema") if isinstance(doc, dict) else type(doc).__name__
+        raise ValueError(f"the hierarchy patch names schema {got!r}, not 'ada.assets/hierarchy-patch@1'")
+    collection = doc.get("collection")
+    if not isinstance(collection, str) or not collection.strip():
+        raise ValueError("the hierarchy patch names no 'collection'")
+    answer = await hierarchy_patches.store_hierarchy_patch(
+        storage, scope, provider=provider, collection=collection.strip().lower(), doc=doc
+    )
+    answer = dict(answer or {})
+    outcome = {
+        "status": "refused" if answer.get("refused") else "applied",
+        "collection": collection.strip().lower(),
+        "upserted": len(doc.get("upsert") or []),
+        "deleted": len(doc.get("delete") or []),
+        "stored": answer,
+    }
+    if answer.get("warning"):
+        outcome["warning"] = str(answer["warning"])
+    return outcome
 
 
 def consumed_staging(staged: dict, *, dry_run: bool) -> list[str]:
@@ -109,6 +247,8 @@ async def _run_asset_publish(
     bounds_key = staged.get(NODE_BOUNDS_ROLE)
     # Node relations likewise (``db/node_relations.py``).
     relations_key = staged.get(NODE_RELATIONS_ROLE)
+    # The reference data likewise (``db/reference_data.py``).
+    reference_key = staged.get(REFERENCE_DATA_ROLE)
     plan_staged = {role: key for role, key in staged.items() if role not in _CORE_ROLES}
 
     dry_run = bool(opts.get("dry_run"))
@@ -353,11 +493,75 @@ async def _run_asset_publish(
             relations = {"ingested": False, "error": str(exc)}
             warnings.append(f"the node relations were not ingested: {exc}")
 
+    # The reference data, the same way (``db/reference_data.py``).
+    reference: dict | None = None
+    reference_consumed = False
+    if reference_key:
+        await queue.update(job_id, stage="ingest", progress=0.91)
+        try:
+            if dry_run or db_pool is None:
+                header = await read_reference_header((await storage.open_stream(scope, reference_key)).stream)
+                reference = {
+                    "provider": provider_id,
+                    "collection": header["collection"],
+                    "revision": header.get("revision"),
+                    "ingested": False,
+                }
+                if db_pool is None and not dry_run:
+                    warnings.append(
+                        "this worker has no database pool (DATABASE_URL unset): the reference data was NOT "
+                        "ingested and stays staged -- publish it again from a worker with a database"
+                    )
+            else:
+                ingested_reference = await ingest_reference_data(
+                    db_pool,
+                    scope=scope.prefix(),
+                    provider=str(provider_id),
+                    chunks=(await storage.open_stream(scope, reference_key)).stream,
+                )
+                phase = ingested_reference.pop("timings")
+                timings["reference_ms"] = phase.get("ingest_ms", 0) + phase.get("swap_ms", 0)
+                timings["reference_rows"] = ingested_reference["rows"]
+                warnings.extend(ingested_reference.pop("warnings"))
+                reference = {**ingested_reference, "ingested": True}
+                reference_consumed = True
+        except Exception as exc:
+            if summary is None and attributes is None and bounds is None and relations is None:
+                logger.exception("worker: asset_publish reference data ingest failed for job %s", job_id)
+                await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ingest", error=str(exc))
+                await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+                return
+            logger.exception("worker: asset_publish %s published, but its reference data failed", job_id)
+            reference = {"ingested": False, "error": str(exc)}
+            warnings.append(f"the reference data was not ingested: {exc}")
+
+    # The element-level patches of an apply-changes answer, last: after the geometry of the changed
+    # elements and any full set above. Each role is reported on its own (``patches``) and never fails
+    # the job -- the apply-changes run reads the outcomes and keeps its cursor unless every one of
+    # them was written (or refused for want of a baseline).
+    patches: dict[str, dict] = {}
+    patches_consumed: list[str] = []
+    if any(staged.get(role) for role in PATCH_ROLES):
+        await queue.update(job_id, stage="patch", progress=0.92)
+        patches, patches_consumed = await apply_patch_roles(
+            staged=staged, scope=scope, storage=storage, db_pool=db_pool, provider=str(provider_id), dry_run=dry_run
+        )
+        for role, outcome in patches.items():
+            if outcome.get("warning"):
+                warnings.append(f"{role}: {outcome['warning']}")
+            if outcome.get("error"):
+                warnings.append(f"{role} was not applied: {outcome['error']}")
+            timings[f"patch_{role.split('.', 1)[0].replace('-', '_')}_ms"] = (outcome.get("timings") or {}).get(
+                "patch_ms", 0
+            )
+
     if summary is None:
-        # Attributes-, bounds- or relations-only: the outcome a caller (and a sweep) reads names the
-        # collection and revision the header gave.
-        head = attributes if attributes is not None else bounds if bounds is not None else relations
-        assert head is not None
+        # Attributes-, bounds-, relations- or patches-only: the outcome a caller (and a sweep) reads
+        # names the collection and revision the header gave.
+        head = next((h for h in (attributes, bounds, relations, reference) if h is not None), None)
+        if head is None:
+            first = next(iter(patches.values()), {})
+            head = {"collection": first.get("collection"), "revision": None}
         counts = {}
         if attributes is not None:
             counts["attribute_rows"] = attributes.get("rows", 0)
@@ -365,6 +569,8 @@ async def _run_asset_publish(
             counts["bounds_rows"] = bounds.get("rows", 0)
         if relations is not None:
             counts["relation_rows"] = relations.get("rows", 0)
+        if reference is not None:
+            counts["reference_rows"] = reference.get("rows", 0)
         summary = {
             "collection": head.get("collection"),
             "revision": head.get("revision"),
@@ -380,6 +586,10 @@ async def _run_asset_publish(
         summary["bounds"] = bounds
     if relations is not None:
         summary["relations"] = relations
+    if reference is not None:
+        summary["reference"] = reference
+    if patches:
+        summary["patches"] = patches
     if warnings:
         summary["warnings"] = warnings
 
@@ -402,6 +612,10 @@ async def _run_asset_publish(
         cleared[NODE_BOUNDS_ROLE] = bounds_key
     if relations_key and relations_consumed:
         cleared[NODE_RELATIONS_ROLE] = relations_key
+    if reference_key and reference_consumed:
+        cleared[REFERENCE_DATA_ROLE] = reference_key
+    for i, key in enumerate(patches_consumed):
+        cleared[f"_patch_{i}"] = key
     for key in consumed_staging(cleared, dry_run=dry_run):
         try:
             await storage.delete(scope, key)

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
@@ -32,10 +33,13 @@ __all__ = [
     "AssetBuilderError",
     "asset_builder",
     "available_build_capabilities",
+    "builder_accepts_exclude_nodes",
     "clear_asset_builders",
     "ensure_core_builders",
+    "invoke_builder",
     "register_asset_builder",
     "registered_build_capabilities",
+    "unhonoured_exclusions_warning",
 ]
 
 
@@ -49,6 +53,17 @@ class AssetBuilder(Protocol):
 
     ``options`` is the provider's own dict, forwarded verbatim; ``derived_prefix`` is the prefix
     CORE composed, and the builder writes its GLB under it and returns a summary naming that key.
+
+    ``exclude_nodes`` (OPTIONAL, keyword): node ids whose whole subtrees the build must SKIP -- the
+    descendants of the requested node that have their own newer publish, or that a hierarchy patch
+    deleted or moved out since the covering revision (docs/design/apply-changes.md section 4). So
+    an ancestor's mesh never shows an element's old geometry beside its new one, nor a deleted
+    element. Core passes it ONLY when it is non-empty and ONLY to a builder that declares it: a
+    ``build`` with an ``exclude_nodes`` parameter (or ``**kwargs``), or a builder with
+    ``accepts_exclude_nodes = True``. An older builder is called exactly as before -- its output
+    then still draws the excluded subtrees, and the stored summary says so in ``warnings``. The
+    list is part of the build's fingerprint, so an excluding build never shares a key with a full
+    one.
     """
 
     def build(
@@ -62,6 +77,45 @@ class AssetBuilder(Protocol):
         on_progress: Callable[[str, float], None] | None = None,
         cancel_event: Any | None = None,
     ) -> Any: ...
+
+
+def builder_accepts_exclude_nodes(builder: Any) -> bool:
+    """Whether ``builder`` takes ``exclude_nodes`` (see :class:`AssetBuilder`): an explicit
+    ``accepts_exclude_nodes`` attribute wins, else its ``build`` signature is read."""
+    flag = getattr(builder, "accepts_exclude_nodes", None)
+    if flag is not None:
+        return bool(flag)
+    try:
+        params = inspect.signature(builder.build).parameters.values()
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return any(p.name == "exclude_nodes" or p.kind is inspect.Parameter.VAR_KEYWORD for p in params)
+
+
+def invoke_builder(builder: Any, options: Mapping[str, Any], *, exclude_nodes=(), **kwargs) -> tuple[Any, bool]:
+    """Call ``builder.build`` the way its contract allows; ``(result, honoured)``.
+
+    ``exclude_nodes`` travels only when non-empty and only to a builder that declares it, so a
+    provider written before the parameter existed keeps working. ``honoured`` is False when there
+    was something to exclude and the builder could not be told -- the caller records that."""
+    excluded = sorted({str(n) for n in exclude_nodes or ()})
+    if excluded and builder_accepts_exclude_nodes(builder):
+        return builder.build(options, exclude_nodes=excluded, **kwargs), True
+    if excluded:
+        logger.warning(
+            "asset builder %s does not accept exclude_nodes; %d excluded subtree(s) will be drawn anyway",
+            type(builder).__name__,
+            len(excluded),
+        )
+    return builder.build(options, **kwargs), not excluded
+
+
+def unhonoured_exclusions_warning(exclude_nodes) -> str:
+    """The summary warning for a build whose builder could not skip ``exclude_nodes``."""
+    return (
+        f"the builder does not accept exclude_nodes: {len(exclude_nodes)} subtree(s) with a newer own publish or "
+        f"removed by a hierarchy patch are drawn as of the covering revision"
+    )
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,9 @@
 // Where provider options live: one blob per collection, `assets/_options/<collection>.json`
-// (`@/assets/providerOptions`). In the scope, shared by everyone in it.
+// (`@/assets/providerOptions`), in the PROVIDER STORE -- once, whichever scope a request comes from.
+// An admin edits them there; a member's scope never holds its own.
 
-import { ApiError, type ScopeUrl } from "@/services/api/client";
+import { PROVIDER_STORE_SCOPE } from "@/assets/providerStore";
+import { ApiError } from "@/services/api/client";
 import { filesApi } from "@/services/api/files";
 import {
   EMPTY_PROVIDER_OPTIONS,
@@ -17,10 +19,10 @@ import {
 
 /** The stored document. Nothing stored yet is nothing set; any OTHER failure throws -- a request
  *  must not go out without values that could not be read, and a save must not overwrite them. */
-export async function readProviderOptions(scope: string, collection: string): Promise<ProviderOptionsDoc> {
+export async function readProviderOptions(collection: string): Promise<ProviderOptionsDoc> {
   let bytes: ArrayBuffer;
   try {
-    bytes = await filesApi.getBlob(scope as ScopeUrl, providerOptionsKey(collection));
+    bytes = await filesApi.getBlob(PROVIDER_STORE_SCOPE, providerOptionsKey(collection));
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return EMPTY_PROVIDER_OPTIONS;
     throw e;
@@ -30,14 +32,13 @@ export async function readProviderOptions(scope: string, collection: string): Pr
 
 /** Remember what one provider's choices job answered, in the LATEST stored document. */
 export async function saveListedChoices(
-  scope: string,
   collection: string,
   providerId: string,
   options: Readonly<Record<string, readonly OptionChoice[]>>,
 ): Promise<ProviderOptionsDoc> {
-  const next = withListedChoices(await readProviderOptions(scope, collection), providerId, options, new Date().toISOString());
+  const next = withListedChoices(await readProviderOptions(collection), providerId, options, new Date().toISOString());
   await filesApi.putBlob(
-    scope as ScopeUrl,
+    PROVIDER_STORE_SCOPE,
     providerOptionsKey(collection),
     new Blob([serialiseProviderOptionsDoc(next)], { type: "application/json" }),
   );
@@ -46,14 +47,13 @@ export async function saveListedChoices(
 
 /** Replace one provider's values in the LATEST stored document; returns what was written. */
 export async function saveProviderOptions(
-  scope: string,
   collection: string,
   providerId: string,
   values: ProviderOptionValues,
 ): Promise<ProviderOptionsDoc> {
-  const next = withProviderValues(await readProviderOptions(scope, collection), providerId, values, new Date().toISOString());
+  const next = withProviderValues(await readProviderOptions(collection), providerId, values, new Date().toISOString());
   await filesApi.putBlob(
-    scope as ScopeUrl,
+    PROVIDER_STORE_SCOPE,
     providerOptionsKey(collection),
     new Blob([serialiseProviderOptionsDoc(next)], { type: "application/json" }),
   );

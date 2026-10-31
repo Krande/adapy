@@ -1,4 +1,4 @@
-"""Provider sweeps -- the ``sweep`` kind of ``asset_schedules``: every collection, one at a time.
+"""Provider sweeps -- the ``sweep`` kind of ``asset_schedules``: every collection, one job each.
 
 A provider declares, beside its change check::
 
@@ -21,10 +21,35 @@ such seat declares ``"parallel": n`` on its sweep entry, and the sweep then runs
 collections at once -- capped by the live workers serving it, since each runs one job at a time
 (``sweep_width``). Each lane is still one collection at a time, so timings stay per collection.
 
+SEVERAL RUNS OF ONE PROVIDER GO SIDE BY SIDE -- an apply-changes run beside a full export of another
+collection, two sweeps over different projects. Two rules, both kept in the database so they hold
+across runs and API replicas (``db/asset_sweeps.py``, migration 048):
+
+* ONE COLLECTION, ONE RUN AT A TIME. A lane CLAIMS a collection before working on it, under a lock
+  keyed by (provider, collection); while another live run's item of it is in flight the claim is
+  refused, the item says ``waiting`` and names that run, and the lane starts the next free
+  collection and comes back to it. One still held once the run has nothing else left and
+  ``fetch_timeout + PUBLISH_TIMEOUT_S`` have passed ends ``busy``. Two identical runs started back to
+  back thus do each collection one after the other (every job is idempotent), never both at once.
+* A SHARED WORKER BUDGET. Every provider job (not the publishes: those run on core's own workers)
+  holds one of the provider's worker slots while it runs (:class:`worker_slot`). The cap is
+  :func:`provider_budget`: the provider's declared ``parallel`` capped at the live workers serving it
+  (recomputed every ``CAP_TTL_S``), optionally lowered by an admin (``/asset-runs/max-parallel``).
+  A run's own lanes are still ``sweep_width`` at most.
+
 A JOB MAY STAGE A COLLECTION IN PARTS: ``asset_staging_ids`` instead of one ``asset_staging_id``,
 each published in turn (a provider that exports a collection a piece at a time, to keep each file
 small). And an entry may declare ``"fetch_timeout_s"`` when one collection's job runs longer than
 :data:`FETCH_TIMEOUT_S`.
+
+SEVERAL TARGETS PER COLLECTION. An entry may declare ``"targets_setting": "sweep_target"``, naming a
+``multiple`` enum setting (checkboxes: tree, geometry, attributes, node bounds, ...). Each collection
+then runs one provider job PER TICKED TARGET, in the enum's declared order, each answer published
+before the next job starts -- one item, one lane. A target that fails fails only itself; one that
+reads what it publishes (``target_requires``, by default node bounds after the tree) is skipped
+with the reason, and the others still run. The item keeps each target's outcome under
+``timings.targets`` (read as the item's ``targets``). A stored single value is a list of one; a
+provider whose setting is still a single choice runs one job per collection, as before.
 
 EVERY PHASE IS TIMED, AND NOTHING IS AGGREGATED. An item records the provider's phases as its
 summary reports them (``timings`` -- e.g. login / export / stage), core's derive and write as the
@@ -51,6 +76,20 @@ reads each item's state just before starting it. And a provider has a DEFAULT li
 (``/asset-sweeps/defaults``): every new sweep of it, scheduled or one-off, starts with the
 collections unticked there already ``excluded``. Some collections are too big for a routine sweep,
 and remembering to untick them every time is exactly what a default is for. Neither is a failure.
+
+NO SCOPE. A sweep keeps provider data current, and provider data lives once, in the provider store
+(``Scope.providers()``, ``routes/provider_store.py``). Every sweep -- an admin's, a scheduled one, a
+request made from a scope -- enqueues, stages and publishes there, reads each collection's provider
+options from ``providers/assets/_options/<collection>.json``, and an interrupted one resumes there
+even when it was started before the store under ``shared`` or a project. An admin's and a scheduled
+sweep are recorded under ``providers``; one requested from a scope is recorded under that scope,
+which is how the scope polls it.
+
+APPLY CHANGES RIDES ON THIS. An ``apply-changes`` entry (``routes/asset_apply_changes.py``) is
+started, scheduled, resumed, skipped and cancelled exactly as a sweep is, and recorded as one; only
+the per-collection work differs (``apply_one``: ask for the changes since core's cursor, publish the
+patches, then advance the cursor). It may name the collections it runs (a schedule's one, or a
+one-off start's ``collection``), and the provider's default sweep list does not apply to it.
 """
 
 from __future__ import annotations
@@ -59,6 +98,7 @@ import asyncio
 import json
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -68,6 +108,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..collection_splits import load_splits
 from ..run_driver import (
     ItemSkipped,
     RunCancelled,
@@ -78,14 +119,30 @@ from ..run_driver import (
     wait_for_job,
 )
 from ..scope import Scope
+from .asset_prebuild import (
+    not_attempted,
+    prebuild_collection,
+    prebuild_line,
+    prebuild_wanted,
+)
 from .asset_schedules import (
+    APPLY_CHANGES,
+    COLLECTION_CHOICES,
+    DRIVEN_KINDS,
+    GEOMETRY_COMPARE,
+    PREBUILD_MESHES,
     SWEEP,
     build_options,
+    collection_choice_decls,
+    collection_choice_options,
     collections_of,
     find_entry,
     job_keys,
     provider_specs,
     settings_of,
+    sweep_targets,
+    target_requires,
+    targets_setting,
 )
 from .assets import staged_by_role, submit_asset_publish
 from .deps import (
@@ -96,6 +153,7 @@ from .deps import (
     rest_context,
 )
 from .plugin_jobs import enqueue_plugin_job
+from .provider_store import PROVIDER_STORE, PROVIDER_STORE_WIRE, job_scope
 
 admin_router = APIRouter()
 
@@ -144,8 +202,9 @@ async def advertised_provider_specs(ctx: RestContext, provider: str) -> list[dic
 
 
 async def sweep_entry(ctx: RestContext, provider: str, job: str) -> tuple[list[dict], tuple[dict, dict] | None]:
-    """``(specs, (spec, entry) | None)`` for ``job`` of ``provider``: a declared sweep, or
-    :data:`COLLECTION_REQUEST` -- the first spec declaring a collection request."""
+    """``(specs, (spec, entry) | None)`` for ``job`` of ``provider``: a declared sweep or
+    apply-changes entry (both driven here), or :data:`COLLECTION_REQUEST` -- the first spec
+    declaring a collection request."""
     if job == COLLECTION_REQUEST:
         specs = await advertised_provider_specs(ctx, provider)
         for spec in specs:
@@ -155,7 +214,7 @@ async def sweep_entry(ctx: RestContext, provider: str, job: str) -> tuple[list[d
         return specs, None
     specs = (await provider_specs(ctx)).get(provider) or []
     found = find_entry(specs, job)
-    return specs, found if found is not None and found[1].get("kind") == SWEEP else None
+    return specs, found if found is not None and found[1].get("kind") in DRIVEN_KINDS else None
 
 
 def offered_names(offered: list[str], wanted: list[str]) -> tuple[list[str], list[str]]:
@@ -180,28 +239,40 @@ _json_of = json_of
 _Cancelled = RunCancelled
 
 
-def _all_collections(specs: list[dict]) -> list[str]:
-    """Every collection any of the provider's workers offers, in first-seen order. Not the first
-    spec's alone: one worker may serve a subset (one pool per collection), and a sweep of
-    "every collection" that silently skipped another worker's would be worse than none."""
+def _all_collections(specs: list[dict], splits: dict[str, list[str]] | None = None) -> list[str]:
+    """Every collection any of the provider's workers offers, in first-seen order -- a split one as
+    its chosen copies (``splits``, see ``collection_splits``). Not the first spec's alone: one worker
+    may serve a subset (one pool per collection), and a sweep of "every collection" that silently
+    skipped another worker's would be worse than none."""
     seen: dict[str, None] = {}
     for spec in specs:
-        for c in collections_of(spec):
+        for c in collections_of(spec, splits):
             seen.setdefault(c, None)
     return list(seen)
 
 
-async def _provider_options(ctx: RestContext, scope_obj: Scope, provider: str, collection: str) -> dict:
+async def _provider_options(ctx: RestContext, scope_obj: Scope | None, provider: str, collection: str) -> dict:
     """The collection's saved provider options (``assets/_options/<collection>.json``, as
     ``assets/providerOptions.ts`` writes it), sent with every request for it -- a sweep asks the
-    same question the Sources tab would. None saved is the ordinary case."""
+    same question the Sources tab would. None saved is the ordinary case.
+
+    Read from the PROVIDER STORE (``providers/assets/_options/<collection>.json``): one
+    configuration per (provider, collection), edited by admins, because the job runs there. Until
+    the store holds a document for the collection, the copy a scope saved before the store
+    (``scope_obj``, when it is not the store) still answers -- so a request from a scope that
+    configured its collection keeps asking what it asked."""
     key = f"assets/_options/{collection.lower()}.json"
-    try:
-        doc = _json_of(await ctx.storage.get_bytes(scope_obj, key))
-    except Exception:  # noqa: BLE001 - absent, or unreadable: nothing to add
-        return {}
-    values = ((doc or {}).get("providers") or {}).get(provider) if isinstance(doc, dict) else None
-    return dict(values) if isinstance(values, dict) else {}
+    places = [PROVIDER_STORE]
+    if scope_obj is not None and scope_obj != PROVIDER_STORE:
+        places.append(scope_obj)
+    for place in places:
+        try:
+            doc = _json_of(await ctx.storage.get_bytes(place, key))
+        except Exception:  # noqa: BLE001 - absent, or unreadable: nothing to add from here
+            continue
+        values = ((doc or {}).get("providers") or {}).get(provider) if isinstance(doc, dict) else None
+        return dict(values) if isinstance(values, dict) else {}
+    return {}
 
 
 async def start_sweep(
@@ -217,12 +288,22 @@ async def start_sweep(
     via: str,
     schedule_id: str | None = None,
     collections: list[str] | None = None,
+    summary: dict | None = None,
 ) -> dict:
     """Record a sweep and start driving it. Returns the run. Raises :class:`SweepRefused`.
 
+    ``summary`` seeds the run's run-level facts -- the full export an apply-changes run queues
+    carries ``apply_changes_run_id``.
+
     ``collections``: only these (matched to the provider's spelling, refused when it does not offer
     one), in that order -- and then the provider's default exclusions do not apply: somebody named
-    exactly what to run. ``job`` may be :data:`COLLECTION_REQUEST`."""
+    exactly what to run. ``job`` may be :data:`COLLECTION_REQUEST`.
+
+    THE SWEEP RUNS IN THE PROVIDER STORE, whatever ``scope_obj`` says: its jobs enqueue, stage and
+    publish there (``job_scope`` -- every spec reaching here declares ``asset_provider_id``).
+    ``scope`` is only what the run is RECORDED under: ``providers`` for an admin's or a scheduled
+    sweep, the requesting scope's wire for a request made from one (that scope polls its run by
+    it)."""
     specs, found = await sweep_entry(ctx, provider, job)
     if not specs:
         raise SweepRefused(f"no online worker advertises provider {provider!r}")
@@ -230,16 +311,17 @@ async def start_sweep(
         what = "no collection request" if job == COLLECTION_REQUEST else f"no sweep {job!r}"
         raise SweepRefused(f"provider {provider!r} declares {what}")
     spec, entry = found
-    busy = await db_module.running_asset_sweep(pool, provider=provider)
-    if busy is not None:
-        raise SweepRefused(f"a {provider} sweep is already running (started {busy['created_at']})")
+    scope_obj = job_scope(spec, scope_obj)
+    # No one-run-per-provider guard any more: runs of one provider go side by side, a collection
+    # claimed by one run at a time and the provider's workers shared (module docstring).
     chosen = collections is not None
+    offered = _all_collections(specs, await load_splits(pool, provider))
     if chosen:
-        collections, unknown = offered_names(_all_collections(specs), collections)
+        collections, unknown = offered_names(offered, collections)
         if unknown:
             raise SweepRefused(f"provider {provider!r} does not offer {', '.join(unknown)}")
     else:
-        collections = _all_collections(specs)
+        collections = offered
     if not collections:
         raise SweepRefused(f"provider {provider!r} offers no collections to sweep")
     plugin_id = str(spec.get("slug") or spec.get("id") or "")
@@ -254,7 +336,14 @@ async def start_sweep(
         requested_by=getattr(user, "sub", None),
         requested_via=via,
         schedule_id=schedule_id,
-        excluded=frozenset() if chosen else frozenset(await default_excluded(pool, provider)),
+        # The default list is a SWEEP's (collections too big to export whole routinely); applying
+        # changes to one is small by definition, and leaving it out would let its cursor go stale.
+        excluded=(
+            frozenset()
+            if chosen or entry.get("kind") == APPLY_CHANGES
+            else frozenset(await default_excluded(pool, provider))
+        ),
+        **({"summary": summary} if summary else {}),
     )
     spawn(
         _drive(ctx, pool, run, scope_obj=scope_obj, spec=spec, entry=entry, collections=collections, user=user),
@@ -312,6 +401,134 @@ async def sweep_width(ctx: RestContext, spec: dict, entry: dict) -> int:
     return max(1, min(declared, workers))
 
 
+# --- the provider's shared worker budget ------------------------------------------------------------
+
+#: ``app_settings`` key of an admin's cap on a provider's concurrent jobs across all its runs.
+MAX_PARALLEL_SETTING = "asset_runs.max_parallel.{provider}"
+#: How long a computed cap is trusted: workers come and go, so it is recomputed this often.
+CAP_TTL_S = 30.0
+_CAPS: dict[str, tuple[float, dict]] = {}
+
+
+async def live_workers(ctx: RestContext, spec: dict) -> int | None:
+    """How many live workers serve the provider's capability; None when the fleet is unknown."""
+    cap = str(spec.get("worker_capability") or "").strip().lower()
+    try:
+        rows = await ctx.jobs.capabilities()
+    except Exception:  # noqa: BLE001 - unknown fleet
+        return None
+    return sum(1 for r in rows if cap and cap in {str(c).lower() for c in (r.get("capabilities") or ())})
+
+
+def declared_parallel(spec: dict) -> int:
+    """The most collections any of the provider's runs may work on at once, as it declares
+    (``parallel`` on its sweep / apply-changes entries; 1 -- one licensed seat -- when none does)."""
+    from .asset_schedules import schedule_entries
+
+    best = 1
+    for e in schedule_entries(spec):
+        try:
+            best = max(best, min(int(e.get("parallel") or 1), MAX_SWEEP_WIDTH))
+        except (TypeError, ValueError):
+            continue
+    return best
+
+
+async def admin_max_parallel(pool, provider: str) -> int | None:
+    """An admin's cap on ``provider``'s concurrent jobs (``MAX_PARALLEL_SETTING``), or None."""
+    try:
+        raw = await db_module.get_setting(pool, MAX_PARALLEL_SETTING.format(provider=provider))
+        value = int(raw) if raw not in (None, "") else None
+    except Exception:  # noqa: BLE001 - unreadable: no admin cap
+        return None
+    return value if value and value > 0 else None
+
+
+async def provider_budget(ctx: RestContext, pool, provider: str, spec: dict, *, fresh: bool = False) -> dict:
+    """``{cap, live_workers, declared, max_parallel}`` -- how many provider jobs ALL of ``provider``'s
+    runs may have in flight together. The default is what ``sweep_width`` allows one run: its
+    declared ``parallel`` (1 for a single seat) capped at the live workers serving it; an admin's
+    ``max_parallel`` may lower it, never raise it. Recomputed every ``CAP_TTL_S`` (workers come and
+    go while a run lasts hours), or now with ``fresh``."""
+    now = time.monotonic()
+    hit = _CAPS.get(provider)
+    if hit is not None and not fresh and now - hit[0] < CAP_TTL_S:
+        return hit[1]
+    declared = declared_parallel(spec)
+    workers = await live_workers(ctx, spec)
+    cap = 1 if declared == 1 or workers is None else max(1, min(declared, workers))
+    admin = await admin_max_parallel(pool, provider)
+    if admin is not None:
+        cap = max(1, min(cap, admin))
+    out = {"cap": cap, "live_workers": workers, "declared": declared, "max_parallel": admin}
+    _CAPS[provider] = (now, out)
+    return out
+
+
+class worker_slot:
+    """``async with worker_slot(...)``: hold one of the provider's worker slots for one provider job.
+
+    Taken in the DATABASE (``acquire_asset_worker_slot``: a per-provider advisory lock and a count of
+    the slots the provider's live runs hold), so the budget is one budget across every run and every
+    API replica. While none is free the item says so and the lane polls -- heartbeating the run, and
+    giving up on a cancel or a skip of the item. Released when the job is done; publishes run on
+    core's own workers, not the provider's, and take no slot."""
+
+    def __init__(self, ctx: RestContext, pool, run: dict, position: int, spec: dict, item=None):
+        self.ctx, self.pool, self.run, self.position, self.spec, self.item = ctx, pool, run, position, spec, item
+
+    async def __aenter__(self) -> "worker_slot":
+        provider, run_id = self.run["provider"], self.run["id"]
+        said = False
+        while True:
+            budget = await provider_budget(self.ctx, self.pool, provider, self.spec)
+            if await db_module.acquire_asset_worker_slot(
+                self.pool, run_id, self.position, provider=provider, cap=budget["cap"]
+            ):
+                if said and self.item is not None:
+                    await self.item(message=None)
+                return self
+            if not said and self.item is not None:
+                await self.item(message=f"waiting for a free {provider} worker (all {budget['cap']} busy)")
+                said = True
+            beat = await db_module.heartbeat_asset_sweep_run(self.pool, run_id)
+            if beat != "running":
+                raise _Cancelled
+            if getattr(beat, "skip_position", None) == self.position:
+                raise ItemSkipped(getattr(beat, "skip_by", None))
+            await asyncio.sleep(POLL_INTERVAL_S)
+
+    async def __aexit__(self, *exc) -> None:
+        try:
+            await db_module.release_asset_worker_slot(self.pool, self.run["id"], self.position)
+        except Exception:  # noqa: BLE001 - a stale slot frees itself when the run stops beating
+            logger.warning("asset sweep %s: could not release a worker slot", self.run["id"], exc_info=True)
+
+
+async def with_collection_choices(pool, run: dict, options: dict, spec: dict, collection: str, timings: dict) -> dict:
+    """``options`` for ONE collection's provider job with core's ``collection_choices`` taken off and
+    the admin's pick for this collection sent instead (``options[option] = pick``) -- only for an
+    option the provider declares and a value it still advertises; otherwise the worker decides, and
+    the run says why (a run warning). What was sent is kept on the item (``collection_choices``, ``{}``
+    for "the worker's own choice"), so the run view shows which source each collection ran on."""
+    picks = options.pop(COLLECTION_CHOICES, None)
+    decls = collection_choice_decls(spec)
+    if not decls:
+        return options
+    sent, warnings = collection_choice_options(decls, picks, collection)
+    for option in (d["option"] for d in decls):
+        options.pop(option, None)  # never a stale value from elsewhere: a pick, or nothing
+    options.update(sent)
+    timings["collection_choices"] = sent
+    if warnings:
+        logger.warning("asset sweep %s: %s", run["id"], "; ".join(warnings))
+        try:
+            await db_module.add_asset_sweep_run_warnings(pool, run["id"], warnings)
+        except Exception:  # noqa: BLE001 - the item still runs, on the worker's choice
+            logger.warning("asset sweep %s: could not record a run warning", run["id"], exc_info=True)
+    return options
+
+
 async def _wait(
     ctx: RestContext, pool, run_id: str, job_id: str, timeout_s: float, position: int | None = None
 ) -> tuple[int, int]:
@@ -346,19 +563,83 @@ async def _drive(
     run_id, provider = run["id"], run["provider"]
     failed = 0
     width = await sweep_width(ctx, spec, entry)
-    queue = iter(enumerate(collections))
+    queue = iter(list(enumerate(collections)))
+    # One collection's work: a sweep fetches and publishes it whole; an apply-changes run asks for
+    # what changed since core's cursor and applies the patches (routes/asset_apply_changes.py). The
+    # lanes, heartbeat, cancel, skip and resume around it are the same.
+    one = _sweep_one
+    apply_state = None
+    if entry.get("kind") == APPLY_CHANGES:
+        from .asset_apply_changes import ApplyRunState, apply_one
+
+        # What every collection of the run shares: the store's listing of full exports (read once)
+        # and the collections left out for want of one.
+        apply_state = ApplyRunState()
+
+        async def one(*args, **kw) -> bool:
+            return await apply_one(*args, run_state=apply_state, **kw)
+
+    elif entry.get("kind") == GEOMETRY_COMPARE:
+        # Builds both providers' tessellations of the collection and compares them on a worker
+        # (routes/geometry_compare.py): no provider job, so no provider worker slot either.
+        from .geometry_compare import compare_one as one  # noqa: F811
+
+    # Collections another live run is working on wait here (`waiting`) and are tried again once the
+    # lanes have nothing else to start; one still held after BUSY_WAIT_S ends `busy`.
+    deferred: dict[int, tuple[str, float]] = {}
+    busy_wait = fetch_timeout(entry) + PUBLISH_TIMEOUT_S
+
+    def next_up() -> tuple[int, str] | None:
+        for pair in queue:
+            return pair
+        return None
 
     async def lane() -> None:
         # Lanes share one iterator, so collections still START in order; with one lane this is
         # exactly the sequential sweep.
         nonlocal failed
-        for position, collection in queue:
+        while True:
+            pair = next_up()
+            retry = pair is None
+            if retry:
+                if not deferred:
+                    return
+                # Nothing new to start: try the waiting ones again, after a poll's pause.
+                await asyncio.sleep(POLL_INTERVAL_S)
+                position = next(iter(deferred), None)
+                if position is None:
+                    continue
+                collection, since = deferred.pop(position)
+            else:
+                position, collection = pair
             if await db_module.heartbeat_asset_sweep_run(pool, run_id) != "running":
                 raise _Cancelled
-            # Read now, not at start: it may have been ticked off (or back on) since.
-            if await db_module.asset_sweep_item_status(pool, run_id, position) != "pending":
+            # Claimed under a per-(provider, collection) lock (db): read now, not at start -- the
+            # item may have been ticked off since, and another run may hold the collection.
+            claim = await db_module.claim_asset_sweep_item(
+                pool, run_id, position, provider=provider, collection=collection
+            )
+            if not claim["claimed"]:
+                holder = claim.get("holder")
+                if holder is None:
+                    continue  # ticked off (or otherwise no longer to run)
+                started = since if retry else time.monotonic()
+                text = (
+                    f"{collection} is being processed by run {holder['run_id']} ({holder['job']}, started "
+                    f"{holder['created_at']})"
+                )
+                if time.monotonic() - started > busy_wait:
+                    await db_module.update_asset_sweep_item(
+                        pool, run_id, position, status="busy", message=text, finished_at=datetime.now(timezone.utc)
+                    )
+                    continue
+                if not retry:
+                    await db_module.update_asset_sweep_item(
+                        pool, run_id, position, status="waiting", message=f"waiting: {text}"
+                    )
+                deferred[position] = (collection, started)
                 continue
-            if not await _sweep_one(
+            if not await one(
                 ctx, pool, run, position, collection, scope_obj=scope_obj, spec=spec, entry=entry, user=user
             ):
                 failed += 1
@@ -387,6 +668,14 @@ async def _drive(
     error = f"{failed} of {len(collections)} collection(s) failed" if failed else None
     await db_module.finish_asset_sweep_run(pool, run_id, status="error" if failed else "done", error=error)
     logger.info("asset sweep %s: %s finished (%s)", run_id, provider, error or "all ok")
+    if apply_state is not None:
+        # After the finish: a follow-up full export of the collections it left out.
+        from .asset_apply_changes import after_apply_run
+
+        try:
+            await after_apply_run(ctx, pool, run, apply_state, user=user)
+        except Exception:  # noqa: BLE001 - the run itself is finished and recorded
+            logger.exception("apply changes %s: the follow-up after the run failed", run_id)
 
 
 async def _sweep_one(
@@ -401,8 +690,12 @@ async def _sweep_one(
     entry: dict,
     user,
 ) -> bool:
-    """Fetch and publish one collection. Returns False when it failed; raises only _Cancelled."""
-    run_id, provider, plugin_id = run["id"], run["provider"], run["plugin_id"]
+    """Fetch and publish one collection. Returns False when it failed; raises only _Cancelled.
+
+    A sweep with a TARGETS setting (``targets_setting``: a ``multiple`` enum, e.g. ``sweep_target``)
+    runs one provider job per ticked target, in the enum's declared order, each published before the
+    next starts, all in this item (:func:`_sweep_targets`)."""
+    run_id = run["id"]
     t_item = time.monotonic()
     timings: dict = {}
 
@@ -414,29 +707,210 @@ async def _sweep_one(
         await item(status=status, timings=timings, finished_at=datetime.now(timezone.utc), **fields)
 
     await item(status="fetching", started_at=datetime.now(timezone.utc))
+    kw = dict(scope_obj=scope_obj, spec=spec, entry=entry, user=user, item=item)
     try:
-        options = await build_options(
-            pool,
-            spec,
-            entry,
-            scope=scope_obj.prefix(),
-            provider=provider,
-            collection=collection,
-            settings=run["settings"],
-            validate=False,
-        )
-        # The collection's provider options UNDER the entry's: they add to a request and never
-        # change which job it is or which collection. `requested_at` makes it a new job, not a
-        # cache hit on the last sweep's.
-        options = {
-            **await _provider_options(ctx, scope_obj, provider, collection),
-            **options,
-            "requested_at": datetime.now(timezone.utc).isoformat(),
+        targets = sweep_targets(spec, entry, run["settings"])
+        if targets is None:
+            status, fields = await _fetch_and_publish(
+                ctx, pool, run, position, collection, settings=run["settings"], timings=timings, **kw
+            )
+            blocked = None if status in ("done", "unchanged") else f"the collection did not publish ({status})"
+        else:
+            status, fields = await _sweep_targets(ctx, pool, run, position, collection, targets, timings=timings, **kw)
+            blocked = geometry_blocked(entry, timings.get("targets") or {})
+        if prebuild_wanted(run.get("settings")):
+            # Core's "Pre-build meshes": fill the build cache now that the collection has published.
+            if blocked:
+                timings["prebuild"] = not_attempted(blocked)
+            else:
+                await item(status="publishing", message="pre-building meshes")
+                timings["prebuild"] = await prebuild_collection(
+                    ctx, pool, run, position, collection, user=user, poll_s=POLL_INTERVAL_S
+                )
+            line = prebuild_line(timings["prebuild"])
+            fields["message"] = f"{fields['message']} · {line}" if fields.get("message") else line
+        await finish(status, **fields)
+        return status != "error"
+    except _Cancelled:
+        await finish("skipped", message="the sweep was cancelled")
+        raise
+    except ItemSkipped as exc:
+        # Skipped on request: this collection stops here (its timings so far are kept) and the
+        # sweep goes on. Not a failure -- whoever skipped it knows why.
+        await db_module.clear_asset_sweep_skip(pool, run_id, position)
+        await finish("skipped", message=str(exc))
+        logger.info("asset sweep %s: %s %s", run_id, collection, exc)
+        return True
+    except HTTPException as exc:
+        if prebuild_wanted(run.get("settings")):
+            timings["prebuild"] = not_attempted("the collection did not publish (error)")
+        await finish("error", error=f"{exc.status_code}: {exc.detail}")
+    except Exception as exc:  # noqa: BLE001 - one collection's failure is its row's, not the sweep's
+        logger.warning("asset sweep %s: %s failed: %s", run_id, collection, exc)
+        if prebuild_wanted(run.get("settings")):
+            timings["prebuild"] = not_attempted("the collection did not publish (error)")
+        await finish("error", error=str(exc))
+    return False
+
+
+#: Targets whose publish carries a collection's GEOMETRY, unless an entry declares
+#: ``"geometry_targets": [...]``: a pre-build waits on them.
+DEFAULT_GEOMETRY_TARGETS = ("geom", "geometry")
+
+
+def geometry_blocked(entry: dict, per: dict) -> str | None:
+    """Why a multi-target collection is not pre-built, or None: a geometry target failed or was
+    skipped (with no geometry target among those run, every target failed)."""
+    declared = entry.get("geometry_targets")
+    geometry = [str(t) for t in declared] if isinstance(declared, list) else list(DEFAULT_GEOMETRY_TARGETS)
+    ran = {k: v.get("status") for k, v in per.items()}
+    relevant = [k for k in ran if k in geometry]
+    if relevant:
+        bad = [k for k in relevant if ran[k] not in ("done", "unchanged", "nothing")]
+        return f"{', '.join(bad)} did not publish" if bad else None
+    if ran and all(s not in ("done", "unchanged") for s in ran.values()):
+        return "nothing published"
+    return None
+
+
+async def _sweep_targets(
+    ctx: RestContext,
+    pool,
+    run: dict,
+    position: int,
+    collection: str,
+    targets: list,
+    *,
+    timings: dict,
+    scope_obj: Scope,
+    spec: dict,
+    entry: dict,
+    user,
+    item,
+) -> tuple[str, dict]:
+    """One collection, one provider job per target, in order, each published before the next.
+    Returns the item's ``(status, fields)``; raises only a cancel or a skip of the item.
+
+    A target that fails is that target's failure, not the collection's end: the rest still run --
+    except those that read what it publishes (:func:`target_requires`: node bounds read the
+    published tree), which are skipped with the reason. Each target's status, revision, message or
+    error, timings and publish outcome go under ``timings.targets.<target>``; the item's own
+    ``queued_ms`` / ``fetch_ms`` / ``publish_ms`` are the sums, so the phase columns still add up."""
+    name = targets_setting(spec, entry)
+    requires = target_requires(entry)
+    per: dict[str, dict] = {}
+    timings["targets"] = per
+    failed: list[str] = []
+    blocked: set[str] = set()
+    revision = None
+    for target in targets:
+        key = str(target)
+        missing = [r for r in requires.get(key, ()) if r in blocked]
+        if missing:
+            per[key] = {"status": "skipped", "message": f"not run: {', '.join(missing)} did not publish in this run"}
+            blocked.add(key)
+            await item(timings=timings)
+            continue
+        own: dict = {}
+        per[key] = {"status": "fetching"}
+        await item(status="fetching", timings=timings)
+        try:
+            status, fields = await _fetch_and_publish(
+                ctx,
+                pool,
+                run,
+                position,
+                collection,
+                settings={**(run.get("settings") or {}), name: target},
+                timings=own,
+                scope_obj=scope_obj,
+                spec=spec,
+                entry=entry,
+                user=user,
+                item=item,
+                target=(name, target),
+            )
+        except (_Cancelled, ItemSkipped):
+            per[key] = {"status": "skipped", "message": "the collection was stopped", "timings": own}
+            raise
+        except HTTPException as exc:
+            status, fields = "error", {"error": f"{exc.status_code}: {exc.detail}"}
+        except Exception as exc:  # noqa: BLE001 - this target's failure; the others still run
+            logger.warning("asset sweep %s: %s %s failed: %s", run["id"], collection, key, exc)
+            status, fields = "error", {"error": str(exc)}
+        per[key] = {"status": status, **{k: v for k, v in fields.items() if v is not None}, "timings": own}
+        for phase in ("queued_ms", "fetch_ms", "publish_ms"):
+            if phase in own:
+                timings[phase] = timings.get(phase, 0) + own[phase]
+        if "collection_choices" in own:
+            timings["collection_choices"] = own["collection_choices"]  # the same for every target
+        if status == "error":
+            failed.append(key)
+            blocked.add(key)
+        revision = fields.get("revision") or revision
+        await item(timings=timings)
+    line = " · ".join(f"{k}: {v['status']}" for k, v in per.items())
+    if failed:
+        errors = "; ".join(f"{k}: {per[k].get('error')}" for k in failed)
+        return "error", {
+            "revision": revision,
+            "message": line,
+            "error": f"{len(failed)} of {len(targets)} target(s) failed: {errors}",
         }
-        # The summary's key, so it can be read back -- but NO derived_prefix, exactly as the
-        # Sources tab's request sends none: a provider stages under `assets/_staging/` on its own,
-        # and a prefix outside it is refused (by the E3D provider after the whole export ran).
-        derived_key, _ = job_keys(plugin_id, options)
+    statuses = {v["status"] for v in per.values()}
+    status = "unchanged" if statuses == {"unchanged"} else "nothing" if statuses == {"nothing"} else "done"
+    return status, {"revision": revision, "message": line}
+
+
+async def _fetch_and_publish(
+    ctx: RestContext,
+    pool,
+    run: dict,
+    position: int,
+    collection: str,
+    *,
+    settings: dict,
+    timings: dict,
+    scope_obj: Scope,
+    spec: dict,
+    entry: dict,
+    user,
+    item,
+    target: tuple[str, Any] | None = None,
+) -> tuple[str, dict]:
+    """One provider job for one collection and what it staged, published. Returns ``(status,
+    fields)`` -- ``done`` / ``unchanged`` / ``nothing``, or ``error`` when a staged part failed to
+    publish -- and raises when the job or the only publish failed. ``target`` sends the targets
+    setting as that ONE value (the provider's job does one target)."""
+    run_id, provider, plugin_id = run["id"], run["provider"], run["plugin_id"]
+    options = await build_options(
+        pool,
+        spec,
+        entry,
+        scope=scope_obj.prefix(),
+        provider=provider,
+        collection=collection,
+        settings=settings,
+        validate=False,
+    )
+    if target is not None:
+        options[target[0]] = target[1]
+    options.pop(PREBUILD_MESHES, None)  # core's own: what core does after the publish
+    options = await with_collection_choices(pool, run, options, spec, collection, timings)
+    # The collection's provider options UNDER the entry's: they add to a request and never
+    # change which job it is or which collection. `requested_at` makes it a new job, not a
+    # cache hit on the last sweep's.
+    options = {
+        **await _provider_options(ctx, scope_obj, provider, collection),
+        **options,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # The summary's key, so it can be read back -- but NO derived_prefix, exactly as the
+    # Sources tab's request sends none: a provider stages under `assets/_staging/` on its own,
+    # and a prefix outside it is refused (by the E3D provider after the whole export ran).
+    derived_key, _ = job_keys(plugin_id, options)
+    # One of the provider's worker slots, shared by all its runs, for as long as its job runs.
+    async with worker_slot(ctx, pool, run, position, spec, item):
         fetch_job = await enqueue_plugin_job(
             ctx,
             plugin_id=plugin_id,
@@ -451,81 +925,61 @@ async def _sweep_one(
         timings["queued_ms"], timings["fetch_ms"] = await _wait(
             ctx, pool, run_id, fetch_job, fetch_timeout(entry), position=position
         )
-        summary = _json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
-        if not isinstance(summary, dict):
-            raise RuntimeError("the provider's job answered without a summary")
-        if isinstance(summary.get("timings"), dict):
-            timings["provider"] = summary["timings"]
-        if isinstance(summary.get("login"), dict):
-            timings["login"] = summary["login"]
+    summary = _json_of(await ctx.storage.get_bytes(scope_obj, derived_key))
+    if not isinstance(summary, dict):
+        raise RuntimeError("the provider's job answered without a summary")
+    if isinstance(summary.get("timings"), dict):
+        timings["provider"] = summary["timings"]
+    if isinstance(summary.get("login"), dict):
+        timings["login"] = summary["login"]
 
-        if summary.get("asset_unchanged") is True:
-            await finish("unchanged", revision=summary.get("revision"), message=summary.get("message"))
-            return True
-        if summary.get("asset_nothing") is True:
-            await finish("nothing", message=summary.get("message"))
-            return True
-        staging_ids = staging_ids_of(summary)
-        if not staging_ids:
-            raise RuntimeError(
-                "the provider's job finished without an asset_staging_id, so there is nothing to publish"
+    if summary.get("asset_unchanged") is True:
+        return "unchanged", {"revision": summary.get("revision"), "message": summary.get("message")}
+    if summary.get("asset_nothing") is True:
+        return "nothing", {"message": summary.get("message")}
+    staging_ids = staging_ids_of(summary)
+    if not staging_ids:
+        raise RuntimeError("the provider's job finished without an asset_staging_id, so there is nothing to publish")
+
+    # Several staged parts (a provider that stages a collection in pieces) are published one
+    # after another; one that fails is counted and the rest still publish.
+    await item(status="publishing")
+    t_pub = time.monotonic()
+    revision = None
+    subjects = 0
+    publish_failed: list[str] = []
+    for staging_id in staging_ids:
+        try:
+            staged = await staged_by_role(ctx, scope_obj, staging_id)
+            publish_job, publish_key = await submit_asset_publish(
+                ctx, scope_obj, provider=provider, staged=staged, user=user
             )
-
-        # Several staged parts (a provider that stages a collection in pieces) are published one
-        # after another; one that fails is counted and the rest still publish.
-        await item(status="publishing")
-        t_pub = time.monotonic()
-        revision = None
-        publish_failed: list[str] = []
-        for staging_id in staging_ids:
-            try:
-                staged = await staged_by_role(ctx, scope_obj, staging_id)
-                publish_job, publish_key = await submit_asset_publish(
-                    ctx, scope_obj, provider=provider, staged=staged, user=user
-                )
-                await item(publish_job_id=publish_job)
-                await _wait(ctx, pool, run_id, publish_job, PUBLISH_TIMEOUT_S, position=position)
-            except (_Cancelled, ItemSkipped):
+            await item(publish_job_id=publish_job)
+            await _wait(ctx, pool, run_id, publish_job, PUBLISH_TIMEOUT_S, position=position)
+        except (_Cancelled, ItemSkipped):
+            raise
+        except Exception as exc:  # noqa: BLE001 - one part's failure is counted, not fatal
+            if len(staging_ids) == 1:
                 raise
-            except Exception as exc:  # noqa: BLE001 - one part's failure is counted, not fatal
-                if len(staging_ids) == 1:
-                    raise
-                publish_failed.append(f"{staging_id}: {exc}")
-                continue
-            outcome = _json_of(await ctx.storage.get_bytes(scope_obj, publish_key))
-            outcome = outcome if isinstance(outcome, dict) else {}
-            if isinstance(outcome.get("timings"), dict) and len(staging_ids) == 1:
-                timings["publish"] = outcome["timings"]
-            revision = outcome.get("revision") or revision
-        timings["publish_ms"] = _ms(time.monotonic() - t_pub)
-        if len(staging_ids) > 1:
-            timings["published_parts"] = len(staging_ids) - len(publish_failed)
-        if publish_failed:
-            await finish(
-                "error",
-                revision=revision,
-                error=f"{len(publish_failed)} of {len(staging_ids)} staged part(s) failed to publish: "
-                + "; ".join(publish_failed[:3]),
-            )
-            return False
-        await finish("done", revision=revision)
-        return True
-    except _Cancelled:
-        await finish("skipped", message="the sweep was cancelled")
-        raise
-    except ItemSkipped as exc:
-        # Skipped on request: this collection stops here (its timings so far are kept) and the
-        # sweep goes on. Not a failure -- whoever skipped it knows why.
-        await db_module.clear_asset_sweep_skip(pool, run_id, position)
-        await finish("skipped", message=str(exc))
-        logger.info("asset sweep %s: %s %s", run_id, collection, exc)
-        return True
-    except HTTPException as exc:
-        await finish("error", error=f"{exc.status_code}: {exc.detail}")
-    except Exception as exc:  # noqa: BLE001 - one collection's failure is its row's, not the sweep's
-        logger.warning("asset sweep %s: %s failed: %s", run_id, collection, exc)
-        await finish("error", error=str(exc))
-    return False
+            publish_failed.append(f"{staging_id}: {exc}")
+            continue
+        outcome = _json_of(await ctx.storage.get_bytes(scope_obj, publish_key))
+        outcome = outcome if isinstance(outcome, dict) else {}
+        if isinstance(outcome.get("timings"), dict) and len(staging_ids) == 1:
+            timings["publish"] = outcome["timings"]
+        revision = outcome.get("revision") or revision
+        subjects += len(outcome.get("subjects") or ())
+    timings["publish_ms"] = _ms(time.monotonic() - t_pub)
+    if len(staging_ids) > 1:
+        timings["published_parts"] = len(staging_ids) - len(publish_failed)
+    if publish_failed:
+        return "error", {
+            "revision": revision,
+            "error": f"{len(publish_failed)} of {len(staging_ids)} staged part(s) failed to publish: "
+            + "; ".join(publish_failed[:3]),
+        }
+    # `subjects` is recorded per target only (a sweep item's columns are fixed).
+    return "done", {"revision": revision, **({"subjects": subjects} if target is not None else {})}
 
 
 #: ``app_settings`` key of a provider's default sweep list: ``{"excluded": [collection, ...]}``.
@@ -558,17 +1012,21 @@ async def admin_asset_sweep_start(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Run a provider's sweep once, now. Body: ``{provider, job, scope, settings}`` -- the same
-    choices a schedule of it is made from, and checked the same way."""
+    """Run a provider's sweep -- or its apply-changes entry -- once, now. Body: ``{provider, job,
+    settings, collection?}`` -- the same choices a schedule of it is made from, and checked the same
+    way. ``collection`` (or a ``collections`` list) runs only those; absent or empty, every
+    collection the provider offers. ``scope`` (from before the provider store) is accepted and
+    ignored: the run is driven in, and recorded under, the store."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
     job = str(body.get("job") or "").strip()
-    scope = str(body.get("scope") or "").strip()
-    if not provider or not job or not scope:
-        raise HTTPException(status_code=400, detail="provider, job and scope are required")
+    if not provider or not job:
+        raise HTTPException(status_code=400, detail="provider and job are required")
     settings = body.get("settings") if isinstance(body.get("settings"), dict) else {}
-    scope_obj = await _scope_of(pool, scope, user)
+    named = body.get("collections") if isinstance(body.get("collections"), list) else [body.get("collection")]
+    chosen = [str(c).strip() for c in named if isinstance(c, str) and c.strip()] or None
+    scope_obj = PROVIDER_STORE
     specs = (await provider_specs(ctx)).get(provider) or []
     found = find_entry(specs, job)
     if found is not None:
@@ -591,13 +1049,14 @@ async def admin_asset_sweep_start(
         run = await start_sweep(
             ctx,
             pool,
-            scope=scope,
+            scope=PROVIDER_STORE_WIRE,
             scope_obj=scope_obj,
             provider=provider,
             job=job,
             settings=settings,
             user=user,
             via="user",
+            collections=chosen,
         )
     except SweepRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -611,7 +1070,7 @@ async def admin_asset_sweep_defaults(
     """A provider's default sweep list: every collection it offers now, and which are ticked off.
     A collection ticked off that the provider no longer offers is listed too, so it can be cleared."""
     pool = require_pool(request)
-    offered = _all_collections((await provider_specs(ctx)).get(provider) or [])
+    offered = _all_collections((await provider_specs(ctx)).get(provider) or [], await load_splits(pool, provider))
     excluded = await default_excluded(pool, provider)
     return JSONResponse(
         {"provider": provider, "collections": offered + [c for c in excluded if c not in offered], "excluded": excluded}
@@ -634,6 +1093,55 @@ async def admin_asset_sweep_defaults_set(
         pool, DEFAULTS_SETTING.format(provider=provider), json.dumps({"excluded": clean}), updated_by=user_label(user)
     )
     return JSONResponse({"provider": provider, "excluded": clean})
+
+
+@admin_router.get("/asset-runs/max-parallel")
+async def admin_asset_runs_max_parallel(
+    request: Request, provider: str, ctx: RestContext = Depends(rest_context)
+) -> JSONResponse:
+    """``{provider, max_parallel, cap, live_workers, declared, in_use}``: how many provider jobs all of
+    ``provider``'s runs may have in flight together (``cap``), what it is made of -- the live workers
+    serving it, the most it declares, an admin's ``max_parallel`` (null: none) -- and how many slots
+    are taken now."""
+    pool = require_pool(request)
+    specs = await advertised_provider_specs(ctx, provider)
+    if specs:
+        budget = await provider_budget(ctx, pool, provider, specs[0], fresh=True)
+    else:
+        budget = {
+            "cap": None,
+            "live_workers": 0,
+            "declared": None,
+            "max_parallel": await admin_max_parallel(pool, provider),
+        }
+    return JSONResponse(
+        {"provider": provider, **budget, "in_use": await db_module.asset_worker_slots_in_use(pool, provider=provider)}
+    )
+
+
+@admin_router.put("/asset-runs/max-parallel")
+async def admin_asset_runs_max_parallel_set(
+    request: Request, user: User = Depends(auth_module.current_user), ctx: RestContext = Depends(rest_context)
+) -> JSONResponse:
+    """Body: ``{provider, max_parallel: n | null}`` -- lower the provider's shared cap to ``n`` (never
+    above what its live workers allow), or ``null`` for "all live workers". Applies within ``CAP_TTL_S``
+    to runs in flight too."""
+    pool = require_pool(request)
+    body = await request.json() if await request.body() else {}
+    provider = str(body.get("provider") or "").strip()
+    value = body.get("max_parallel")
+    if not provider or not (value is None or (isinstance(value, int) and not isinstance(value, bool) and value >= 1)):
+        raise HTTPException(
+            status_code=400, detail="provider and max_parallel (a whole number >= 1, or null) are required"
+        )
+    await db_module.set_setting(
+        pool,
+        MAX_PARALLEL_SETTING.format(provider=provider),
+        "" if value is None else str(min(value, MAX_SWEEP_WIDTH * 4)),
+        updated_by=user_label(user),
+    )
+    _CAPS.pop(provider, None)
+    return await admin_asset_runs_max_parallel(request, provider, ctx)
 
 
 @admin_router.patch("/asset-sweeps/{run_id}/items/{position}")
@@ -679,6 +1187,13 @@ async def sweep_with_progress(ctx: RestContext, pool, run_id: str) -> dict | Non
     if run is None:
         return None
     for item in run["items"]:
+        # An apply-changes item keeps its answer beside its timings (the sweep tables have no other
+        # free column); it is read as the item's own: `apply_changes` and `roles`. So does a
+        # multi-target sweep item its per-target outcome: `targets`.
+        timings = item.get("timings") or {}
+        for name in ("apply_changes", "roles", "targets", "collection_choices", "prebuild"):
+            if name in timings:
+                item[name] = timings[name]
         job_id = {"fetching": item["fetch_job_id"], "publishing": item["publish_job_id"]}.get(item["status"])
         if not job_id:
             continue
@@ -738,8 +1253,8 @@ async def resume_sweep(ctx: RestContext, pool, run_id: str, *, user) -> dict:
     jobs' answers were never recorded. Those jobs are cancelled first, as a cancel of the sweep
     would: one still queued would otherwise run for nobody, holding the provider's worker.
 
-    The provider must be online and declare the sweep still, and no other sweep of it may be
-    running -- the same guards a new sweep has."""
+    The provider must be online and declare the sweep still -- the guards a new sweep has. Other
+    runs of the provider may be running: a collection one of them holds waits, as in any run."""
     run = await db_module.get_asset_sweep_run(pool, run_id)
     if run is None:
         raise LookupError(run_id)
@@ -752,10 +1267,9 @@ async def resume_sweep(ctx: RestContext, pool, run_id: str, *, user) -> dict:
     if found is None:
         raise SweepRefused(f"provider {provider!r} no longer declares the sweep {run['job']!r}")
     spec, entry = found
-    busy = await db_module.running_asset_sweep(pool, provider=provider)
-    if busy is not None and busy["id"] != run_id:
-        raise SweepRefused(f"a {provider} sweep is already running (started {busy['created_at']})")
-    scope_obj = await _scope_of(pool, run["scope"], user)
+    # The store, whatever the run is recorded under: a run from before the store (recorded under
+    # `shared` or a project) goes on where every provider job runs now.
+    scope_obj = PROVIDER_STORE
     rearmed = await db_module.resume_asset_sweep_run(pool, run_id)
     if rearmed is None:
         # Between the read and here: someone else resumed it, or it was cancelled.

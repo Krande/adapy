@@ -19,6 +19,12 @@ via the :func:`get_pool` accessor.
 from __future__ import annotations
 
 from ._common import _loads_jsonb as _loads_jsonb  # noqa: F401
+from .asset_apply_cursors import (
+    delete_asset_apply_cursor,
+    get_asset_apply_cursor,
+    list_asset_apply_cursors,
+    set_asset_apply_cursor,
+)
 from .asset_changes import (
     asset_change_users,
     finish_asset_change_run,
@@ -43,14 +49,20 @@ from .asset_exports import (
     update_asset_export_item,
 )
 from .asset_sweeps import (
+    acquire_asset_worker_slot,
+    add_asset_sweep_run_warnings,
     asset_sweep_item_status,
+    asset_worker_slots_in_use,
     cancel_asset_sweep_run,
+    claim_asset_sweep_item,
     clear_asset_sweep_skip,
     finish_asset_sweep_run,
     get_asset_sweep_run,
     heartbeat_asset_sweep_run,
     insert_asset_sweep_run,
     list_asset_sweep_runs,
+    merge_asset_sweep_run_summary,
+    release_asset_worker_slot,
     request_asset_sweep_skip,
     resume_asset_sweep_run,
     running_asset_sweep,
@@ -167,6 +179,11 @@ from .corpora import (
     list_corpora,
     update_corpus,
 )
+from .geometry_compare import (
+    geometry_compare_previous,
+    list_geometry_compare,
+    replace_geometry_compare,
+)
 from .issue_bot import (
     PgIssueClaims,
     audit_log_history_for_cell,
@@ -253,6 +270,15 @@ from .projects import (
     remove_project_member,
     upsert_user,
 )
+from .provider_grants import (
+    grant_access,
+    granted_datasets,
+    list_provider_grants,
+    merge_provider_grant,
+    revoke_provider_grant,
+    set_collection_grants,
+    upsert_provider_grant,
+)
 from .settings import get_setting, set_setting
 from .source_nodes import SourceNode
 from .source_nodes import _source_node_row as _source_node_row  # noqa: F401
@@ -327,6 +353,27 @@ __all__ = [
     "set_asset_sweep_item_run",
     "asset_sweep_item_status",
     "resume_asset_sweep_run",
+    "add_asset_sweep_run_warnings",
+    # provider grants (migration 045)
+    "grant_access",
+    "granted_datasets",
+    "list_provider_grants",
+    "merge_provider_grant",
+    "revoke_provider_grant",
+    "set_collection_grants",
+    "upsert_provider_grant",
+    "merge_asset_sweep_run_summary",
+    "claim_asset_sweep_item",
+    "acquire_asset_worker_slot",
+    "release_asset_worker_slot",
+    "asset_worker_slots_in_use",
+    "get_asset_apply_cursor",
+    "set_asset_apply_cursor",
+    "list_asset_apply_cursors",
+    "geometry_compare_previous",
+    "list_geometry_compare",
+    "replace_geometry_compare",
+    "delete_asset_apply_cursor",
     "insert_asset_export_run",
     "heartbeat_asset_export_run",
     "finish_asset_export_run",

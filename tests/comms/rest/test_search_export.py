@@ -948,9 +948,15 @@ def test_item_outcomes():
 
 def test_a_sweep_skip_mid_fetch_cancels_the_job_and_runs_the_next_collection(monkeypatch):
     from tests.comms.rest.test_asset_sweeps import RUN as SWEEP_RUN
-    from tests.comms.rest.test_asset_sweeps import SPEC, SWEEP_ENTRY, _World
+    from tests.comms.rest.test_asset_sweeps import (
+        SPEC,
+        SWEEP_ENTRY,
+        _World,
+        install_run_fakes,
+    )
 
     w = _World(fetch_summaries={"ALPHA": {"asset_staging_id": "s-a"}, "BETA": {"asset_staging_id": "s-b"}})
+    install_run_fakes(monkeypatch, w)  # the collection claim and the worker slots
     original_enqueue = w.enqueue
 
     async def enqueue(ctx, **kw):
@@ -1734,12 +1740,16 @@ def _mesh_preflight_world(monkeypatch, *, admin_only=False, sweep=None, missing=
     return SimpleNamespace(storage=None, jobs=SimpleNamespace(advertised_specs=advertised))
 
 
+#: An administrator: an asset provider's jobs (tree and geometry requests) are theirs alone.
+ADMIN = SimpleNamespace(sub="admin-1", is_admin=True)
+
+
 def test_the_mesh_preflight_names_the_collections_without_a_tree_and_offers_their_request(monkeypatch):
     ctx = _mesh_preflight_world(monkeypatch)
     hits = [HIT, HIT_2, {**HIT, "collection": "beta", "node_id": "fn-b"}]
     pre = asyncio.run(
         ex.export_preflight(
-            ctx, None, scope_obj=Scope.shared(), body={"query": QUERY, "hits": hits, "geometry": "mesh"}, user=None
+            ctx, None, scope_obj=Scope.shared(), body={"query": QUERY, "hits": hits, "geometry": "mesh"}, user=ADMIN
         )
     )
     assert pre["geometry"] == "mesh"
@@ -1751,6 +1761,19 @@ def test_the_mesh_preflight_names_the_collections_without_a_tree_and_offers_thei
     [req] = pre["tree_requests"]
     assert req["provider"] == "vendor-a" and req["collections"] == ["beta"]
     assert req["available"] and req["allowed"] and req["label"] == "Tree" and req["sweep_running"] is None
+
+
+def test_the_mesh_preflight_tells_a_member_that_provider_trees_are_an_admins(monkeypatch):
+    """An asset provider's tree request writes provider data: a member is told so up front."""
+    ctx = _mesh_preflight_world(monkeypatch)
+    hits = [{**HIT, "collection": "beta", "node_id": "fn-b"}]
+    pre = asyncio.run(
+        ex.export_preflight(
+            ctx, None, scope_obj=Scope.shared(), body={"query": QUERY, "hits": hits, "geometry": "mesh"}, user=None
+        )
+    )
+    [req] = pre["tree_requests"]
+    assert req["available"] and req["allowed"] is False and "administrators" in req["reason"]
 
 
 def test_the_mesh_preflight_offers_a_fresh_tree_for_hits_outside_the_published_one(monkeypatch):
@@ -1779,7 +1802,7 @@ def test_the_mesh_preflight_says_when_the_tree_request_is_not_this_users(monkeyp
     assert req["sweep_running"] == {"id": "s1", "created_at": "earlier"}
 
 
-def _request_trees(monkeypatch, body, *, admin_only=False, refuse=None):
+def _request_trees(monkeypatch, body, *, admin_only=False, refuse=None, user=ADMIN):
     from fastapi import HTTPException
 
     from ada.comms.rest.routes import asset_sweeps as sweeps
@@ -1796,7 +1819,7 @@ def _request_trees(monkeypatch, body, *, admin_only=False, refuse=None):
     monkeypatch.setattr(sweeps, "start_sweep", start)
     try:
         out = asyncio.run(
-            ex.api_search_export_request_trees("shared", _Request(body), scope_obj=Scope.shared(), user=None, ctx=ctx)
+            ex.api_search_export_request_trees("shared", _Request(body), scope_obj=Scope.shared(), user=user, ctx=ctx)
         )
     except HTTPException as exc:
         return exc, started
@@ -1810,8 +1833,9 @@ def test_requesting_the_trees_starts_one_collection_request_run(monkeypatch):
 
 
 def test_the_tree_request_is_gated_like_the_providers_job(monkeypatch):
-    err, started = _request_trees(monkeypatch, {"provider": "vendor-a", "collections": ["beta"]}, admin_only=True)
-    assert err.status_code == 403 and not started
+    # An asset provider's request is an admin's, whatever its own `requires_admin` says.
+    err, started = _request_trees(monkeypatch, {"provider": "vendor-a", "collections": ["beta"]}, user=None)
+    assert err.status_code == 403 and not started and "administrators" in err.detail
     err, _ = _request_trees(monkeypatch, {"provider": "vendor-a", "collections": []})
     assert err.status_code == 400
     err, _ = _request_trees(
@@ -1914,13 +1938,17 @@ def _request_tree_world(monkeypatch, summary):
 
     async def enqueue(ctx, **kw):
         enqueued.append(kw)
-        await store.put_bytes(Scope.shared(), kw["derived_key"], json.dumps(summary).encode())
+        # An asset provider's job runs in the provider store (`provider_store.job_scope`), so its
+        # summary lands there -- and the request reads it, and publishes its answer, there too.
+        await store.put_bytes(kw["scope_obj"], kw["derived_key"], json.dumps(summary).encode())
         return "fetch-1"
 
     async def staged(ctx, scope_obj, staging_id):
+        assert scope_obj == Scope.providers()
         return {"tree": f"assets/_staging/{staging_id}/tree.json"}
 
     async def publish(ctx, scope_obj, *, provider, staged, user):
+        assert scope_obj == Scope.providers()
         published.append((provider, staged))
         return "publish-1", "_derived/pub.json"
 
@@ -1952,6 +1980,7 @@ def test_the_tree_request_asks_with_the_providers_own_options_and_publishes_the_
     [job] = enqueued
     # The provider's spelling of the collection, under its collection option, as a click would send.
     assert job["options"]["action"] == "stage-tree" and job["options"]["project"] == "ALPHA"
+    assert job["scope_obj"] == Scope.providers()
     assert published == [("vendor-a", {"tree": "assets/_staging/stg-1/tree.json"})]
     assert items["status"] == "requesting" and "tree_request_ms" in timings
 
@@ -1983,3 +2012,47 @@ def test_requesting_trees_is_for_mesh_exports_and_gated_like_the_providers_job(m
             )
         )
     assert err.value.status == 403 and "administrators" in err.value.detail
+
+
+def test_a_component_hit_resolves_to_its_nearest_leaf_ancestor():
+    # A component row of the attribute index (a primitive below an equipment): no spine lists it,
+    # its `path` (root first) does. Its geometry is the equipment's -- a LEAF of the spine.
+    spine = _spine("alpha", "alpha", [("fn-site", "/SITE-A"), ("fn-equi", "/EQUI-1")])
+    spine.leaves = frozenset({"fn-equi"})
+    component = {
+        "node_id": "cmp-1",
+        "full_name": "/EQUI-1/PRIM-3",
+        "path": [{"node_id": "fn-site", "full_name": "/SITE-A"}, {"node_id": "fn-equi", "full_name": "/EQUI-1"}],
+    }
+    index = SimpleNamespace(catalog=lambda c, p: _catalog([spine]))
+    got = se.resolve_geometry(index, "alpha", component)
+    manifest, node = got
+    assert manifest.subject == "alpha" and node == "fn-equi" and got.via == "fn-equi"
+    # The nearest listed ancestor is a BRANCH: its geometry is more than the component -- no geometry.
+    spine.leaves = frozenset()
+    with pytest.raises(se.NoGeometry):
+        se.resolve_geometry(index, "alpha", component)
+    # A hit the spine lists itself is not resolved through an ancestor.
+    spine.leaves = frozenset({"fn-equi"})
+    assert se.resolve_geometry(index, "alpha", {"node_id": "fn-equi", "full_name": "/EQUI-1"}).via is None
+
+
+def test_spine_leaves_come_from_the_leaf_column_or_from_who_is_a_parent(monkeypatch):
+    import ada.assets.projection as proj
+    from ada.clash.geometry_source import GeometrySourceIndex
+
+    published = {
+        # The hierarchy's own `leaf` column: only `b` is a leaf.
+        "r1": [
+            {"id": "a", "parent": None, "label": "A", "leaf": False},
+            {"id": "b", "parent": "a", "label": "B", "leaf": True},
+        ],
+        # No column: a row nobody names as its parent is a leaf.
+        "r2": [{"id": "a", "parent": None, "label": "A"}, {"id": "b", "parent": "a", "label": "B"}],
+    }
+    gsi = GeometrySourceIndex(storage=SimpleNamespace(get_bytes=lambda key: key.encode(), list_keys=lambda p: []))
+    monkeypatch.setattr(gsi, "_spine_key", lambda m: m.revision)
+    monkeypatch.setattr(proj, "parse_hierarchy", lambda raw: SimpleNamespace(records=lambda: published[raw.decode()]))
+    for rev in ("r1", "r2"):
+        assert gsi.spine(SimpleNamespace(collection="alpha", subject="alpha", revision=rev)) is not None
+        assert gsi._leaves[("alpha", "alpha", rev)] == frozenset({"b"})

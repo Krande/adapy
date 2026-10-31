@@ -35,7 +35,8 @@ from .deps import (
     rest_context,
     validate_cron,
 )
-from .plugin_jobs import enqueue_plugin_job
+from .plugin_jobs import enqueue_plugin_job, provider_spec_of
+from .provider_store import PROVIDER_STORE, PROVIDER_STORE_WIRE
 
 router = APIRouter()
 
@@ -75,11 +76,18 @@ async def admin_plugin_job_schedules_list(request: Request) -> JSONResponse:
 async def admin_plugin_job_schedules_create(
     request: Request,
     user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
     """Create a schedule.
 
     Body: ``{"name", "cron_expr", "scope", "plugin_id", "options",
     "capability", "enabled"}``.
+
+    A schedule of an ASSET PROVIDER (its live spec declares
+    ``asset_provider_id``) has no scope: it fires into the provider store, so
+    ``scope`` is optional, ignored, and stored as ``providers``. With the
+    plugin offline that cannot be told yet and ``scope`` is required as for
+    any plugin -- the firing still goes to the store once the spec is live.
 
     ``plugin_id`` is NOT checked against the live plugin registry. A schedule
     may legitimately be created before the worker that serves it exists, or
@@ -100,10 +108,12 @@ async def admin_plugin_job_schedules_create(
 
     if not name:
         raise HTTPException(status_code=400, detail="name required")
-    if not scope_str:
-        raise HTTPException(status_code=400, detail="scope required")
     if not plugin_id:
         raise HTTPException(status_code=400, detail="plugin_id required")
+    if provider_spec_of(plugin_id, await _live_spec(ctx, plugin_id)) is not None:
+        scope_str = PROVIDER_STORE_WIRE
+    if not scope_str:
+        raise HTTPException(status_code=400, detail="scope required")
     if not isinstance(options, dict):
         raise HTTPException(status_code=400, detail="options must be an object")
     if SCHEDULE_FIRE_TOKEN in options:
@@ -246,22 +256,34 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
     sched_id = schedule_row["id"]
     plugin_id = schedule_row["plugin_id"]
 
-    try:
-        scope_obj = parse_scope(schedule_row["scope"], SystemUser())
-        scope_obj = await resolve_project_scope(pool, scope_obj)
-    except HTTPException as exc:
-        reason = f"scope {schedule_row['scope']!r} did not resolve ({exc.status_code}): {exc.detail}"
-        await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
-        return {"skipped": reason}
-    except Exception as exc:
-        logger.exception("plugin-job scheduler: scope resolution crashed for %s", sched_id)
-        reason = f"scope resolution crashed: {exc}"
-        await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
-        return {"skipped": reason}
+    # THE PROVIDER STORE. A schedule of an asset provider -- a provider schedule (Admin ->
+    # Providers), or a plain one whose plugin's live spec declares `asset_provider_id` -- fires
+    # into the store whatever scope the row names: rows from before the store still carry
+    # `shared` or a project, and must neither land provider data there nor be skipped because
+    # that project has since gone. The live spec is read up front for that reason; it is read
+    # again below only for routing.
+    live_spec = await _live_spec(ctx, plugin_id)
+    store_job = bool(schedule_row.get("asset_provider")) or provider_spec_of(plugin_id, live_spec) is not None
+    if store_job:
+        scope_obj = PROVIDER_STORE
+    else:
+        try:
+            scope_obj = parse_scope(schedule_row["scope"], SystemUser())
+            scope_obj = await resolve_project_scope(pool, scope_obj)
+        except HTTPException as exc:
+            reason = f"scope {schedule_row['scope']!r} did not resolve ({exc.status_code}): {exc.detail}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+        except Exception as exc:
+            logger.exception("plugin-job scheduler: scope resolution crashed for %s", sched_id)
+            reason = f"scope resolution crashed: {exc}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
 
-    if schedule_row.get("schedule_kind") == "sweep":
+    if schedule_row.get("schedule_kind") in ("sweep", "apply-changes"):
         # A provider sweep is not one job but one per collection, driven by the API; it has its
         # own guard (one running sweep per provider) and its own record. routes/asset_sweeps.py.
+        # An apply-changes run is driven the same way (routes/asset_apply_changes.py).
         return await _fire_sweep(ctx, pool, schedule_row, scope_obj=scope_obj)
 
     # Concurrent-fire guard. A plugin job can hold a single licensed
@@ -270,12 +292,17 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
     # way that reads as the plugin's fault. The missed slot is NOT backfired:
     # the next slot is the next chance, which is the same choice the audit
     # scheduler makes and for the same reason.
+    #
+    # PER PLUGIN for an asset provider, not per scope: its jobs all run in the
+    # store now, and one started from a scope before the store (still in
+    # flight across the upgrade) holds the same seat.
     try:
         candidates = await db_module.plugin_job_in_flight_jobs(
             pool,
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
             plugin_id=plugin_id,
+            any_scope=store_job,
         )
         # THE AUDIT ROW IS NOT THE ANSWER ON ITS OWN. Its terminal status is
         # written by the worker, so a worker with no database pool never writes
@@ -329,10 +356,7 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
     capability = (schedule_row.get("capability") or "").strip() or None
     plugin_spec = None
     if capability is None:
-        for _spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
-            if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
-                plugin_spec = _spec
-                break
+        plugin_spec = live_spec
         if plugin_spec is None:
             reason = (
                 f"no online worker advertises {plugin_id!r}, so the job could not be routed to a "
@@ -400,6 +424,18 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
     return {"job_id": job_id, "schedule": schedule_row["name"], "plugin_id": plugin_id}
 
 
+async def _live_spec(ctx: RestContext, plugin_id: str) -> dict | None:
+    """The live spec of ``plugin_id`` (first advertiser wins), or None when no worker is online.
+    A failed read is None as well: the firing then skips as for an offline plugin."""
+    try:
+        for _spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
+            if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
+                return _spec
+    except Exception:  # noqa: BLE001 - see the docstring
+        logger.exception("plugin-job scheduler: could not read the live specs for %s", plugin_id)
+    return None
+
+
 async def _fire_sweep(ctx: RestContext, pool, schedule_row: dict, *, scope_obj) -> dict:
     """Start a provider sweep from its schedule. A sweep's "job" is the sweep run: its id goes in
     ``last_job_id``, so the Providers tab can link the row to the run it started."""
@@ -417,14 +453,17 @@ async def _fire_sweep(ctx: RestContext, pool, schedule_row: dict, *, scope_obj) 
         run = await start_sweep(
             ctx,
             pool,
-            scope=schedule_row["scope"],
-            scope_obj=scope_obj,
+            # No scope: a sweep runs in, and is recorded under, the provider store.
+            scope=PROVIDER_STORE_WIRE,
+            scope_obj=PROVIDER_STORE,
             provider=provider,
             job=schedule_row["schedule_job"],
             settings=settings_of(found[1], schedule_row["options"] or {}),
             user=SystemUser(),
             via="schedule",
             schedule_id=str(sched_id),
+            # An apply-changes row may name one collection; a sweep row never does (every one).
+            collections=[schedule_row["collection"]] if schedule_row.get("collection") else None,
         )
     except SweepRefused as exc:
         reason = f"{exc}; slot skipped"

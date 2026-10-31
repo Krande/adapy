@@ -41,3 +41,29 @@ test("summaries read the label, not the raw value", () => {
     assert.equal(choiceLabel("True", boolChoices), "Index and geometry");
     assert.equal(choiceLabel("x", undefined), "x");
 });
+
+test("a sweep's targets as checkboxes: default all, a stored single value is a list of one, none is refused", async () => {
+    const {multiValue, multiSettingError, toggleChoice, withMultiDefaults} = await import("@/components/admin/scheduleSettings");
+    const sweepTarget = {
+        name: "sweep_target",
+        title: "Export",
+        multiple: true,
+        default: ["tree", "geom", "attributes", "bounds"],
+        choices: ["tree", "geom", "attributes", "bounds"].map((v) => ({value: v, label: v})),
+    };
+    assert.deepEqual(multiValue(sweepTarget, undefined), ["tree", "geom", "attributes", "bounds"]);
+    assert.deepEqual(multiValue(sweepTarget, "geom"), ["geom"]);
+    assert.deepEqual(toggleChoice(sweepTarget, "geom", "tree", true), ["tree", "geom"]);
+    assert.deepEqual(withMultiDefaults([sweepTarget], {sweep_target: "bounds"}), {sweep_target: ["bounds"]});
+    assert.equal(multiSettingError([sweepTarget], {sweep_target: []}), 'Tick at least one under "Export".');
+});
+
+test("a bool setting is a checkbox: ticked when true however it travelled, unset is its default", async () => {
+    const {isBoolSetting, boolValue} = await import("@/components/admin/scheduleSettings");
+    assert.equal(isBoolSetting({type: "bool"}), true);
+    assert.equal(isBoolSetting({type: "enum"}), false);
+    assert.equal(boolValue({default: false}, undefined), false);
+    assert.equal(boolValue({default: true}, undefined), true);
+    assert.equal(boolValue({default: false}, "true"), true);
+    assert.equal(boolValue({default: true}, false), false);
+});

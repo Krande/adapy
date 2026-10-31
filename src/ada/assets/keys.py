@@ -17,7 +17,9 @@ Two rules are worth stating because they are easy to get subtly wrong later:
   ``GlobalId`` uses the base64 alphabet ``0-9A-Za-z_$`` and we want a GlobalId to be a valid
   subject VERBATIM, not hex-expanded; ``$`` is an RFC 3986 sub-delimiter and legal in a path
   segment. A leading ``_`` is reserved for core so ``_staging`` and any future core-owned segment
-  stay collision-free without banning words from real collections.
+  stay collision-free without banning words from real collections. The reservation holds in the
+  SUBJECT position too: ``assets/<collection>/_patches/...`` holds a collection's hierarchy patches
+  (``ada.comms.rest.hierarchy_patches``), which the index fold skips and no subject can collide with.
 """
 
 from __future__ import annotations

@@ -287,6 +287,16 @@ export interface WireBuildAssetResponse {
   readonly fingerprint: string;
   readonly job_id: string | null;
   readonly cached: boolean;
+  /** Descendants with a newer element-level publish that this build EXCLUDED: each is loaded
+   *  from its own geometry beside the build. Absent on a build with none (or an older core). */
+  readonly overrides?: readonly WireBuildOverride[];
+}
+
+export interface WireBuildOverride {
+  readonly node: string;
+  readonly subject: string;
+  readonly revision: string;
+  readonly provider?: string;
 }
 
 // --- the change feed (`GET /scopes/{scope}/source-nodes`) ----------------------

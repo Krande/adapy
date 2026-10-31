@@ -235,7 +235,10 @@ class _World:
     async def skip_pending(self, pool, run_id, reason):
         pass
 
-    def drive(self, batches, *, request=True):
+    def drive(self, batches, *, request=True, user=None):
+        # An admin by default: requesting provider geometry is an admin operation (a member's
+        # request enqueues nothing -- see test_a_members_request_enqueues_nothing).
+        user = user if user is not None else SimpleNamespace(is_admin=True, sub="admin")
         asyncio.run(
             ex.drive_export(
                 self.ctx,
@@ -250,7 +253,7 @@ class _World:
                     "target_scope": {"kind": "shared", "id": None},
                     "request_missing_geometry": request,
                 },
-                user=None,
+                user=user,
             )
         )
 
@@ -304,6 +307,37 @@ def test_missing_nodes_are_requested_back_to_back_published_then_exported(monkey
     assert t["request_batches"][0]["login_ms"] == 5 and t["request"]["logins"] == {"fresh": 1, "adopted": 1}
     assert "requested geometry for 4 node(s) in 2 job(s)" in item["message"]
     assert w.finished == ("done", None)
+
+
+def test_requests_run_and_publish_in_the_provider_store(monkeypatch):
+    """Started from `shared`, the node request is enqueued, read back and published in the store."""
+    seen = []
+    w = _World(monkeypatch, answers=[_ok("s0")], states_for=lambda c, hs: _states(hs))
+    enqueue, publish = w.enqueue, w.publish
+
+    async def spy_enqueue(ctx, **kw):
+        seen.append(("enqueue", kw["scope_obj"]))
+        return await enqueue(ctx, **kw)
+
+    async def spy_publish(ctx, scope_obj, **kw):
+        seen.append(("publish", scope_obj))
+        return await publish(ctx, scope_obj, **kw)
+
+    monkeypatch.setattr(greq, "_enqueue", spy_enqueue)
+    monkeypatch.setattr(greq, "_publish", spy_publish)
+    w.drive([("vendor-a", "alpha", [_hit(1)])])
+    assert seen == [("enqueue", Scope.providers()), ("publish", Scope.providers())]
+    assert w.items[0]["timings"]["request_batches"][0]["status"] == "published"
+
+
+def test_a_members_request_enqueues_nothing(monkeypatch):
+    """A member's export asking for missing geometry gets no provider job: the batch says why, and
+    the export writes what is there."""
+    w = _World(monkeypatch, answers=[], states_for=lambda c, hs: _states(hs))
+    w.drive([("vendor-a", "alpha", [_hit(1), _hit(2)])], user=SimpleNamespace(is_admin=False, sub="member"))
+    assert w.enqueued == [] and w.published == [] and w.events == ["export"]
+    [batch] = w.items[0]["timings"]["request_batches"]
+    assert batch["status"] == "error" and "admin operation" in batch["message"] and batch["nodes"] == 2
 
 
 def test_a_provider_answering_nothing_is_the_files_reason(monkeypatch):

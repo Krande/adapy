@@ -27,7 +27,14 @@
 //      module implements, `notes_core_asset_browser.md` §2c), so "is this
 //      loaded" is a Set lookup, never a network round trip.
 
-import type { BuildDelivery, DeliveryClaim, MeshDelivery, WireBuildAssetResponse, WireDeliveryClaim } from "./types";
+import type {
+  BuildDelivery,
+  DeliveryClaim,
+  MeshDelivery,
+  WireBuildAssetResponse,
+  WireBuildOverride,
+  WireDeliveryClaim,
+} from "./types";
 
 /** One node, resolved to the subject that actually carries its delivery claim.
  *
@@ -74,6 +81,73 @@ export interface LoadedAsset {
   readonly warnings?: readonly string[];
   /** The name the model was loaded under (its root row's label), when the loader was given one. */
   readonly label?: string;
+  /** Source names of the override models loaded WITH this build (see `planOverrideLoads`): they
+   *  belong to it, so unloading it unloads them too. */
+  readonly overrides?: readonly string[];
+}
+
+/** One descendant a build excluded, to load from its own geometry. */
+export interface OverrideLoad {
+  readonly ref: NodeRef;
+}
+
+/** Which of a build's `overrides` to load, and as what. PURE: no network, no scene.
+ *
+ *  An override is a descendant with a newer element-level publish that the build left out, so the
+ *  ancestor's mesh and the element's own geometry sit side by side. Entries that name no node,
+ *  subject or revision are dropped (the answer is the provider's word), a repeat is loaded once,
+ *  the parent's own source is never an override of itself, and one already in the scene is left
+ *  alone. The ref is the element's OWN publish: its `subject` asked for the delivery, `node` only
+ *  when it differs, exactly as the browser's own Load names a node. */
+export function planOverrideLoads(
+  parent: NodeRef,
+  overrides: readonly Partial<WireBuildOverride>[] | null | undefined,
+  isLoaded: (sourceName: string) => boolean,
+): OverrideLoad[] {
+  const seen = new Set<string>([assetSourceName(parent)]);
+  const out: OverrideLoad[] = [];
+  for (const o of overrides ?? []) {
+    if (!o || !o.node || !o.subject || !o.revision) continue;
+    const ref: NodeRef = {
+      provider: o.provider || parent.provider,
+      collection: parent.collection,
+      subject: o.subject,
+      revision: o.revision,
+      ...(o.node !== o.subject ? { node: o.node } : {}),
+    };
+    const name = assetSourceName(ref);
+    if (seen.has(name) || isLoaded(name)) continue;
+    seen.add(name);
+    out.push({ ref });
+  }
+  return out;
+}
+
+/** How many override models are prepared (built, downloaded) at once: a build can touch many
+ *  elements, and each is a request and possibly a build job. */
+export const OVERRIDE_CONCURRENCY = 3;
+
+/** Run `fn` over `items` with at most `limit` in flight, in order of start. Never rejects: each
+ *  result says whether it succeeded, so one failure does not stop the others. */
+export async function mapLimited<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        results[i] = { status: "fulfilled", value: await fn(items[i]) };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, lane));
+  return results;
 }
 
 /** A refusal this module makes on purpose -- an unreadable/disagreeing build
@@ -277,6 +351,15 @@ export interface DeliveryApi {
   /** One poll tick of a job's status -- mirrors the subset of `ConvertResponse`
    *  every job (conversion or plugin) reports through `GET /convert/{job_id}`. */
   jobStatus(jobId: string): Promise<{ status: string; error: string | null }>;
+  /** A node's delivery claim as `provider` published it, asked of the SUBJECT that owns the
+   *  manifest. Only what loading a build's overrides needs: without it they are skipped, warned. */
+  getAssetDelivery?(
+    scope: string,
+    provider: string,
+    collection: string,
+    subject: string,
+    opts?: { revision?: string },
+  ): Promise<WireDeliveryClaim>;
 }
 
 /** Everything `loadNode` needs beyond the network: put a model in the scene,
@@ -296,7 +379,7 @@ export interface LoadNodeDeps {
    *  load is a 401. Read at load time, not at prepare time: a bulk load prepares ahead,
    *  and a build can outlive the token it started with. */
   blobHeaders?: () => Record<string, string>;
-  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string }) => void;
+  trackJob?: (opts: { jobId: string; label: string; derivedKey?: string; scope?: string }) => void;
   /** Poll backoff between job-status checks. Defaults to a real 1.5s timer;
    *  tests inject an instant no-op so a job/poll test runs with no fake timers
    *  and no real delay. */
@@ -385,6 +468,9 @@ export interface PreparedNode {
   glbKey?: string;
   counts?: Readonly<Record<string, number>>;
   warnings?: readonly string[];
+  /** A build's `overrides` (and the scope to load them in), loaded after the build itself. */
+  scope?: string;
+  overrides?: readonly WireBuildOverride[];
 }
 
 /** The scene-side half of `loadNode`: put an already-prepared node in the scene. ``prepared`` is a
@@ -408,16 +494,44 @@ export async function loadPrepared(
     ...(headers && Object.keys(headers).length ? { headers } : {}),
     ...(p.sourceUpAxis ? { sourceUpAxis: p.sourceUpAxis } : {}),
   });
+  const overrides = await loadOverrides(deps, ref, p);
   return {
     sourceName,
     ref,
     revision: p.revision,
     provider: p.provider,
+    ...(overrides.length ? { overrides } : {}),
     ...(p.glbKey ? { glbKey: p.glbKey } : {}),
     ...(p.counts ? { counts: p.counts } : {}),
     ...(p.warnings ? { warnings: p.warnings } : {}),
     ...(displayName ? { label: displayName } : {}),
   };
+}
+
+/** Load a build's overrides, each the way the browser loads a node normally -- its delivery asked
+ *  of its own subject, then mesh / build -- with `OVERRIDE_CONCURRENCY` in flight. Part of the
+ *  parent's load: the names it returns ride on the parent's `LoadedAsset`, so unloading the
+ *  parent takes them out. A failed override is a console warning and costs nothing else. */
+async function loadOverrides(deps: LoadNodeDeps, parent: NodeRef, p: PreparedNode): Promise<string[]> {
+  const plan = planOverrideLoads(parent, p.overrides, deps.isLoaded);
+  if (!plan.length) return [];
+  const scope = p.scope;
+  const getDelivery = deps.api.getAssetDelivery;
+  if (!scope || !getDelivery) {
+    console.warn(`build of ${assetSourceName(parent)}: ${plan.length} override(s) not loaded, no delivery route`);
+    return [];
+  }
+  const results = await mapLimited(plan, OVERRIDE_CONCURRENCY, async ({ ref }) => {
+    const wire = await getDelivery.call(deps.api, scope, ref.provider, ref.collection, ref.subject, { revision: ref.revision });
+    const asset = await loadPrepared(deps, ref, prepareNode(deps, scope, ref, parseDeliveryClaim(wire)));
+    return asset.sourceName;
+  });
+  const loaded: string[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") loaded.push(r.value);
+    else console.warn(`override ${assetSourceName(plan[i].ref)} not loaded:`, r.reason);
+  });
+  return loaded;
 }
 
 /** The network half of `loadNode`: a claim to the URL its model loads from -- for a `build`
@@ -485,5 +599,6 @@ export async function prepareNode(
     glbKey: summary.glbKey,
     counts: summary.counts,
     warnings: summary.warnings.length ? summary.warnings : undefined,
+    ...(built.overrides?.length ? { scope, overrides: built.overrides } : {}),
   };
 }

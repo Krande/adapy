@@ -253,6 +253,147 @@ async def ingest_node_relations(
     }
 
 
+#: The staged role and schema of a node-relations patch (``db/attribute_index.py``, "patches").
+NODE_RELATIONS_PATCH_ROLE = "node-relations-patch.ndjson.gz"
+NODE_RELATIONS_PATCH_SCHEMA = "ada.assets/node-relations-patch@1"
+
+
+async def patch_node_relations(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    provider: str,
+    chunks: AsyncIterable[bytes],
+    batch_rows: int = INGEST_BATCH_ROWS,
+) -> dict:
+    """Apply one ``node-relations-patch.ndjson.gz`` to the (scope, provider, collection) set the full
+    ingest built, in one transaction. A node's lines REPLACE every relation it is the SOURCE of (its
+    ``from_node_id``); a deleted node loses them. Relations other nodes hold TO a deleted node stay:
+    they are those nodes' rows, and their target may still be named by full name. Refused
+    (``patch_refused``) when there is no such set.
+
+    ``ingested_at`` moves -- it is the token a cached export reads its relations by
+    (:func:`relations_token`), and those relations just changed."""
+    from .attribute_index import (
+        ensure_parent_index,
+        expand_subtree_deletes,
+        load_patch,
+        parse_patch_header,
+        patch_refused,
+    )
+
+    t0 = time.perf_counter()
+    lines = ndjson_lines(chunks)
+    try:
+        first = await lines.__anext__()
+    except StopAsyncIteration:
+        raise NodeRelationsError("the node relations patch is empty") from None
+    header = parse_patch_header(first, NODE_RELATIONS_PATCH_SCHEMA, NodeRelationsError)
+    warnings: list[str] = []
+    if header.get("provider") and header["provider"] != provider:
+        warnings.append(
+            f"the node relations patch header names provider {header['provider']!r}; applied under the publishing "
+            f"provider {provider!r}"
+        )
+    collection = str(header["collection"])
+    key = (scope, provider, collection)
+
+    def parse(batch: list[bytes]) -> tuple[list[tuple], int]:
+        return parse_relations_batch(batch, scope=scope, provider=provider, collection=collection)
+
+    async with pool.acquire() as conn, conn.transaction():
+        held = await conn.fetchval(
+            "SELECT rows FROM node_relations_sets WHERE scope = $1 AND provider = $2 AND collection = $3 FOR UPDATE",
+            *key,
+        )
+        if held is None:
+            await lines.aclose()
+            return patch_refused(provider=provider, collection=collection, header=header, t0=t0)
+        await conn.execute(
+            "CREATE TEMP TABLE node_relations_patch_load (LIKE node_relations INCLUDING DEFAULTS) ON COMMIT DROP"
+        )
+        await conn.execute("ALTER TABLE node_relations_patch_load ALTER COLUMN props TYPE TEXT")
+        await conn.execute("ALTER TABLE node_relations_patch_load ADD COLUMN seq INT NOT NULL")
+        loaded = await load_patch(
+            conn, lines, load_table="node_relations_patch_load", columns=_COLUMNS, parse=parse, batch_rows=batch_rows
+        )
+        t1 = time.perf_counter()
+        if loaded["subtrees"]:
+            # A re-exported unit: the relations of every row below it go too. Relations hold no tree,
+            # so the rows below are read from the collection's ATTRIBUTE partition -- which is why
+            # the publish applies this patch before the attribute patch rewrites that partition.
+            part = await conn.fetchrow(
+                "SELECT part_key, partition_name FROM attr_collections WHERE scope = $1 AND provider = $2 "
+                "AND collection = $3",
+                *key,
+            )
+            if part is None:
+                warnings.append(
+                    "a subtree deletion could not reach below its node (no attribute index for the collection): "
+                    "only the node's own relations were removed"
+                )
+            else:
+                await ensure_parent_index(conn, part["partition_name"])
+                await expand_subtree_deletes(conn, "attr_nodes", "n.part_key = $1", part["part_key"])
+        removed = await conn.execute(
+            """
+            DELETE FROM node_relations r
+            USING (SELECT from_node_id AS node_id FROM node_relations_patch_load
+                   UNION SELECT node_id FROM patch_deletes) t
+            WHERE r.scope = $1 AND r.provider = $2 AND r.collection = $3 AND r.from_node_id = t.node_id
+            """,
+            *key,
+        )
+        cols = ", ".join(_COLUMNS)
+        inserted = await conn.execute(
+            f"""
+            INSERT INTO node_relations ({cols})
+            SELECT DISTINCT l.scope, l.provider, l.collection, l.from_node_id, l.from_full_name, l.relation,
+                   l.to_node_id, l.to_full_name, l.props::jsonb
+            FROM node_relations_patch_load l
+            WHERE NOT EXISTS (SELECT 1 FROM patch_deletes d WHERE d.node_id = l.from_node_id AND d.seq > l.seq)
+            """
+        )
+        deleted = await conn.fetchval(
+            """
+            SELECT count(DISTINCT d.node_id) FROM patch_deletes d
+            WHERE NOT EXISTS (SELECT 1 FROM node_relations r
+                              WHERE r.scope = $1 AND r.provider = $2 AND r.collection = $3 AND r.from_node_id = d.node_id)
+            """,
+            *key,
+        )
+        n_removed, n_inserted = int(removed.split()[-1]), int(inserted.split()[-1])
+        await conn.execute(
+            """
+            UPDATE node_relations_sets SET rows = GREATEST(rows - $4 + $5, 0), ingested_at = clock_timestamp()
+            WHERE scope = $1 AND provider = $2 AND collection = $3
+            """,
+            *key,
+            n_removed,
+            n_inserted,
+        )
+    if loaded["skipped"]:
+        warnings.append(f"{loaded['skipped']} patch line(s) without a from_node_id, a relation or a target skipped")
+    return {
+        "provider": provider,
+        "collection": collection,
+        "since": header.get("since"),
+        "next_cursor": header.get("next_cursor"),
+        "applied": True,
+        "refused": False,
+        "upserted": n_inserted,
+        "deleted": int(deleted or 0),
+        "removed_rows": n_removed,
+        "skipped": loaded["skipped"],
+        "warnings": warnings,
+        "timings": {
+            "load_ms": round((t1 - t0) * 1000),
+            "apply_ms": round((time.perf_counter() - t1) * 1000),
+            "patch_ms": round((time.perf_counter() - t0) * 1000),
+        },
+    }
+
+
 async def drop_node_relations(pool: asyncpg.Pool, *, scope: str, provider: str, collection: str) -> bool:
     status = await pool.execute(
         "DELETE FROM node_relations_sets WHERE scope = $1 AND provider = $2 AND collection = $3",
@@ -460,12 +601,15 @@ def relations_token(collection: str, stamps: dict[str, str]) -> Optional[str]:
 
 __all__ = [
     "LOOKUP_MAX",
+    "NODE_RELATIONS_PATCH_ROLE",
+    "NODE_RELATIONS_PATCH_SCHEMA",
     "NODE_RELATIONS_ROLE",
     "NODE_RELATIONS_SCHEMA",
     "NodeRelationsError",
     "RELATIONS",
     "drop_node_relations",
     "ingest_node_relations",
+    "patch_node_relations",
     "parse_relations_batch",
     "parse_relations_header",
     "read_node_relations_header",

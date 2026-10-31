@@ -11,7 +11,10 @@ SYNTHETIC: the geometry comes from the geometry provider's concepts reader throu
 facade of the scope the hits LIE in -- the searched scope (``job.scope``), or the ``origin_scope`` the
 API names for a batch read from another scope's partition (:func:`_origin_of`), whose attribute rows
 and revision are read there too -- and the files go to the TARGET scope, which the API checked the
-user may write to before anything was queued.
+user may write to before anything was queued. The GEOMETRY alone may lie elsewhere: the provider
+store, when the searched scope holds a geometry grant on the design dataset (``geometry_scope``,
+:func:`_geometry_of`); and a batch from the store without that grant arrives ``geometry_refused``
+and writes no file -- every hit a ``no_geometry`` row with ``reason: "not_granted"``.
 
 PHASES ARE TIMED, SUMMED OVER THE BATCH: ``resolve_ms`` (finding the geometry provider's subject
 for the hit), ``read_ms`` (the provider reading it into objects), ``attrs_ms`` (the attribute-index
@@ -118,6 +121,29 @@ def _origin_of(opts: dict, scope):
     if isinstance(raw, str) and raw and raw != scope.prefix():
         return Scope.from_prefix(raw)
     return scope
+
+
+def _geometry_of(opts: dict, origin):
+    """The scope the batch's GEOMETRY is read from: ``geometry_scope`` (a storage prefix) when the
+    API named one -- the design geometry provider's dataset (or a mesh's builds) in the provider
+    store, read through a geometry grant of the searched scope -- else the hits' ``origin``. The
+    attribute rows stay the origin's."""
+    from ..scope import Scope
+
+    raw = opts.get("geometry_scope")
+    if isinstance(raw, str) and raw and raw != origin.prefix():
+        return Scope.from_prefix(raw)
+    return origin
+
+
+def _geometry_refused(opts: dict) -> tuple[str, str] | None:
+    """``(reason, message)`` when the API refused the batch's geometry (``not_granted``: the hits
+    come from the provider store and the searched scope holds no geometry grant on the design
+    dataset) -- then every hit is a ``no_geometry`` row saying so, and nothing is read."""
+    reason = opts.get("geometry_refused")
+    if not isinstance(reason, str) or not reason:
+        return None
+    return reason, str(opts.get("geometry_refused_message") or "the geometry is not granted to this scope")
 
 
 class _PrefixFacade:
@@ -472,8 +498,9 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
 
         loop = asyncio.get_running_loop()
         origin = _origin_of(opts, ctx.scope)
-        source = _PrefixFacade(ctx.storage, origin, loop)
+        source = _PrefixFacade(ctx.storage, _geometry_of(opts, origin), loop)
         index = GeometrySourceIndex(source)
+        refused = _geometry_refused(opts)
         geometry_provider = str(opts.get("geometry_provider") or GEOMETRY_PROVIDER)
         include_attrs = bool(opts.get("include_source_attributes", True))
         also = [f for f in (opts.get("also") or []) if f in ("glb", "step")]
@@ -485,6 +512,27 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         timings = {k: 0 for k in ("resolve_ms", "read_ms", "attrs_ms", "ifc_ms", "convert_ms", "thumb_ms", "upload_ms")}
         warnings: list[str] = []
         files: list[dict] = []
+        if refused is not None:
+            files = [
+                {
+                    "file": str(h["file"]),
+                    "node_id": h.get("node_id"),
+                    "full_name": h.get("full_name"),
+                    "status": "no_geometry",
+                    "error": refused[1],
+                    "reason": refused[0],
+                }
+                for h in hits
+            ]
+            return {
+                "schema": BATCH_SCHEMA,
+                "provider": provider,
+                "collection": collection,
+                "files": files,
+                "counts": {"written": 0, "no_geometry": len(files), "failed": 0},
+                "timings": timings,
+                "warnings": [refused[1]],
+            }
 
         revisions: dict[tuple[str, str], str | None] = {}
         if ctx.db_pool is not None:
@@ -519,13 +567,16 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
             try:
                 t = time.perf_counter()
                 try:
-                    manifest, node = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
+                    resolved = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
                 except NoGeometry as exc:
                     timings["resolve_ms"] += _ms(t)
                     row.update(status="no_geometry", error=str(exc))
                     files.append(row)
                     continue
                 timings["resolve_ms"] += _ms(t)
+                manifest, node = resolved
+                if getattr(resolved, "via", None):
+                    row["resolved_via"] = resolved.via  # a component hit: its leaf ancestor's geometry
 
                 t = time.perf_counter()
                 from ada.assets.concepts import part_for_manifest
@@ -765,8 +816,9 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
 
         loop = asyncio.get_running_loop()
         origin = _origin_of(opts, ctx.scope)
-        source = _PrefixFacade(ctx.storage, origin, loop)
+        source = _PrefixFacade(ctx.storage, _geometry_of(opts, origin), loop)
         index = GeometrySourceIndex(source)
+        refused = _geometry_refused(opts)
         geometry_provider = str(opts.get("geometry_provider") or GEOMETRY_PROVIDER)
         include_attrs = bool(opts.get("include_source_attributes", True))
         also = [f for f in (opts.get("also") or []) if f in ("glb", "step")]
@@ -778,6 +830,19 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
         timings = {k: 0 for k in ("resolve_ms", "read_ms", "attrs_ms", "ifc_ms", "convert_ms", "thumb_ms", "upload_ms")}
         warnings: list[str] = []
         key = str(hits[0]["file"])
+        if refused is not None:
+            rows = [
+                {
+                    "file": key,
+                    "node_id": h.get("node_id"),
+                    "full_name": h.get("full_name"),
+                    "status": "no_geometry",
+                    "error": refused[1],
+                    "reason": refused[0],
+                }
+                for h in hits
+            ]
+            return _batch_summary(provider, collection, rows, timings, [refused[1]], merged=None)
 
         revision = None
         if ctx.db_pool is not None:
@@ -800,12 +865,15 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
             rows_out.append(row)
             t = time.perf_counter()
             try:
-                manifest, node = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
+                resolved = await loop.run_in_executor(None, resolve_geometry, index, collection, hit)
             except NoGeometry as exc:
                 timings["resolve_ms"] += _ms(t)
                 row.update(status="no_geometry", error=str(exc))
                 continue
             timings["resolve_ms"] += _ms(t)
+            manifest, node = resolved
+            if getattr(resolved, "via", None):
+                row["resolved_via"] = resolved.via  # a component hit: its leaf ancestor's geometry
             t = time.perf_counter()
             try:
                 part = await loop.run_in_executor(
@@ -1044,11 +1112,14 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                     row.update(
                         status="no_geometry", error=str(hit.get("mesh_error") or f"{provider} published no mesh for it")
                     )
+                    if hit.get("mesh_reason"):
+                        row["reason"] = str(hit["mesh_reason"])
                     continue
                 t = time.perf_counter()
                 try:
-                    # The build ran in the hits' own scope (``routes/asset_exports.build_meshes``).
-                    data = await ctx.storage.get_bytes(origin, str(mesh["glb_key"]))
+                    # The build ran where the hits' dataset is read (``routes/asset_exports.build_meshes``):
+                    # their own scope, or the provider store through a geometry grant.
+                    data = await ctx.storage.get_bytes(_geometry_of(opts, origin), str(mesh["glb_key"]))
                     if data[:2] == b"\x1f\x8b":
                         import gzip
 
@@ -1269,12 +1340,14 @@ class ExportSearchAssetHandler(SyntheticFormatHandler):
                 row.update(
                     status="no_geometry", error=str(hit.get("mesh_error") or f"{provider} published no mesh for it")
                 )
+                if hit.get("mesh_reason"):
+                    row["reason"] = str(hit["mesh_reason"])
                 files.append(row)
                 continue
             work = pathlib.Path(tempfile.mkdtemp(prefix="ada-search-export-"))
             try:
                 t = time.perf_counter()
-                data = await ctx.storage.get_bytes(origin, str(mesh["glb_key"]))
+                data = await ctx.storage.get_bytes(_geometry_of(opts, origin), str(mesh["glb_key"]))
                 if data[:2] == b"\x1f\x8b":
                     import gzip
 

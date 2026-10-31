@@ -62,16 +62,25 @@ export interface ScheduleSetting {
   default: unknown;
   source: "enum" | "spec" | "change_users";
   choices?: ScheduleChoice[];
+  /** An enum a schedule holds SEVERAL of (a list): rendered as checkboxes, sent as a list. */
+  multiple?: boolean;
+  /** Core's own setting (e.g. an apply-changes entry's `missing_full_export`), not the provider's:
+   *  never sent to its job, and its empty choice means core's `default`, not the provider's. */
+  core?: boolean;
 }
 
 export interface ProviderScheduleJob {
   id: string;
   /** `sweep`: every collection the provider offers, one job each, each published
-   *  (`routes/asset_sweeps.py`). Its schedule names no collection. */
-  kind: "change-check" | "job" | "sweep";
+   *  (`routes/asset_sweeps.py`). Its schedule names no collection.
+   *  `apply-changes`: one collection, or ALL (an empty collection, driven like a sweep), keeping
+   *  the provider store current with what changed since a per-collection cursor. */
+  kind: "change-check" | "job" | "sweep" | "apply-changes" | "geometry-compare";
   label: string;
   description: string | null;
   settings: ScheduleSetting[];
+  /** What the provider calls its collections, plural ("projects"); the "All ..." option reads it. */
+  collections_label?: string;
 }
 
 export interface ProviderSchedules {
@@ -79,6 +88,9 @@ export interface ProviderSchedules {
   plugin_id: string;
   collections: string[];
   jobs: ProviderScheduleJob[];
+  /** Per-collection choices an admin may pin (`[{option, label, collections: {c: {default,
+   *  choices}}}]`); read through `parseCollectionChoiceDecls`. Absent on an older API. */
+  collection_choices?: unknown;
 }
 
 export interface ProviderSchedule {
@@ -86,7 +98,8 @@ export interface ProviderSchedule {
   provider: string;
   job: string;
   kind: string | null;
-  scope: string;
+  /** `providers` for a provider schedule: its jobs always run in the provider store. */
+  scope?: string;
   collection: string | null;
   frequency: string | null;
   settings: Record<string, unknown>;
@@ -97,6 +110,14 @@ export interface ProviderSchedule {
   last_skipped_reason: string | null;
   last_job_id: string | null;
   last_run: ChangeRun | null;
+  /** An `apply-changes` row: where each collection's "since" stands (`asset_apply_cursors`). */
+  cursors?: Record<string, ApplyCursor>;
+}
+
+/** One collection's apply-changes cursor: the provider's opaque `next_cursor` and when core applied it. */
+export interface ApplyCursor {
+  cursor: string | null;
+  applied_at: string | null;
 }
 
 export interface LegacyPluginSchedule {
@@ -134,7 +155,23 @@ export interface SweepItem {
   position: number;
   collection: string;
   /** `excluded`: ticked off -- by the provider's default list or while the sweep ran -- and not run. */
-  status: "pending" | "excluded" | "fetching" | "publishing" | "done" | "unchanged" | "nothing" | "error" | "skipped";
+  /** `no_full_export`: an apply-changes item left out because the provider store holds no full
+   *  export of the collection yet -- not asked for changes, no cursor. */
+  status:
+    | "pending"
+    | "excluded"
+    | "fetching"
+    | "publishing"
+    | "done"
+    | "unchanged"
+    | "nothing"
+    | "error"
+    | "skipped"
+    | "no_full_export"
+    // Another run of the provider is working on this collection: `waiting` until it is free (the
+    // message names that run), `busy` when it was still held after the wait.
+    | "waiting"
+    | "busy";
   fetch_job_id: string | null;
   publish_job_id: string | null;
   revision: string | null;
@@ -145,6 +182,21 @@ export interface SweepItem {
   job_status?: string;
   stage?: string | null;
   progress?: number | null;
+  /** An apply-changes run's per-collection answer (`ada.assets/apply-changes@1`, plus how each
+   *  staging role was applied); absent on a sweep's item. Read through `applyChangesOf`. */
+  apply_changes?: Record<string, unknown> | null;
+  /** An apply-changes item's publish outcome per staging role, beside `apply_changes`. */
+  roles?: Record<string, unknown> | null;
+  /** A multi-target sweep item (`targets_setting`): each ticked target's outcome -- `{status,
+   *  revision?, message?, error?, subjects?, timings}` -- in the order they ran. Read through
+   *  `sweepTargetsOf`. */
+  targets?: Record<string, unknown> | null;
+  /** The per-collection picks this item's provider job was SENT (`{option: value}`); `{}` when the
+   *  worker chose itself. Absent when the provider declares no such choice. */
+  collection_choices?: Record<string, unknown> | null;
+  /** "Pre-build meshes": `{subjects, cached, built, failed, skipped, ms, reason?, note?, errors?}`.
+   *  Read through `prebuildOf`. */
+  prebuild?: Record<string, unknown> | null;
   started_at: string | null;
   finished_at: string | null;
 }
@@ -153,15 +205,22 @@ export interface SweepItem {
  *  only on the listing. `interrupted`: the API process driving it is gone. */
 export interface SweepRun {
   id: string;
-  scope: string;
+  scope?: string;
   provider: string;
   plugin_id: string;
   job: string;
   settings: Record<string, unknown>;
   schedule_id: string | null;
   requested_by: string | null;
-  requested_via: "schedule" | "user";
+  /** `apply-changes`: the full project export an apply-changes run queued for what it left out. */
+  requested_via: "schedule" | "user" | "apply-changes" | (string & {});
   status: "running" | "done" | "error" | "cancelled" | "interrupted";
+  /** Run-level notes: an apply-changes run names every collection it left out for want of a full
+   *  export, and a full export it could not queue. Absent on an older API. */
+  warnings?: string[];
+  /** Run-level facts: an apply-changes run's `queued_full_exports: {run_id, collections}`; the
+   *  queued run's `apply_changes_run_id`. */
+  summary?: Record<string, unknown>;
   total: number;
   created_at: string | null;
   heartbeat_at: string | null;
@@ -213,14 +272,13 @@ export const assetSchedulesApi = {
     return jsonOrThrow(r, "adminAssetSchedules");
   },
 
-  /** Each setting's choices for one job, scope and collection. */
+  /** Each setting's choices for one job and collection. */
   async adminAssetScheduleChoices(
     provider: string,
     job: string,
-    scope: string,
     collection: string,
   ): Promise<Record<string, ScheduleChoice[]>> {
-    const q = new URLSearchParams({ provider, job, scope, collection });
+    const q = new URLSearchParams({ provider, job, collection });
     const r = await authedFetch(`${runtime.apiBase()}/admin/asset-schedules/choices?${q}`);
     return (await jsonOrThrow<{ settings: Record<string, ScheduleChoice[]> }>(r, "adminAssetScheduleChoices")).settings;
   },
@@ -228,7 +286,6 @@ export const assetSchedulesApi = {
   async adminCreateAssetSchedule(body: {
     provider: string;
     job: string;
-    scope: string;
     collection: string | null;
     frequency: string;
     settings: Record<string, unknown>;
@@ -260,11 +317,20 @@ export const assetSchedulesApi = {
   async adminStartAssetSweep(body: {
     provider: string;
     job: string;
-    scope: string;
     settings: Record<string, unknown>;
+    /** An `apply-changes` run of ONE collection; omitted, every collection the provider offers. */
+    collection?: string;
   }): Promise<SweepRun> {
     const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps`, json("POST", body));
     return jsonOrThrow(r, "adminStartAssetSweep");
+  },
+
+  /** Forget one collection's apply-changes cursor: its next run is a baseline again (records where
+   *  "since" starts, applies nothing). */
+  async adminResetAssetApplyCursor(provider: string, collection: string): Promise<unknown> {
+    const q = new URLSearchParams({ provider, collection });
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-apply-cursors?${q}`, { method: "DELETE" });
+    return jsonOrThrow(r, "adminResetAssetApplyCursor");
   },
 
   async adminAssetSweeps(provider?: string, limit = 10): Promise<SweepRun[]> {
@@ -334,7 +400,35 @@ export const assetSchedulesApi = {
     );
     return jsonOrThrow(r, "adminSetAssetSweepDefaults");
   },
+
+  /** How many provider jobs all of a provider's runs may have in flight together, and why. */
+  async adminAssetRunsMaxParallel(provider: string): Promise<RunBudget> {
+    const q = new URLSearchParams({ provider });
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-runs/max-parallel?${q}`);
+    return jsonOrThrow(r, "adminAssetRunsMaxParallel");
+  },
+
+  /** Lower a provider's shared cap to `maxParallel`, or `null` for "all live workers". */
+  async adminSetAssetRunsMaxParallel(provider: string, maxParallel: number | null): Promise<RunBudget> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-runs/max-parallel`,
+      json("PUT", { provider, max_parallel: maxParallel }),
+    );
+    return jsonOrThrow(r, "adminSetAssetRunsMaxParallel");
+  },
 };
+
+/** A provider's shared worker budget (`/admin/asset-runs/max-parallel`): `cap` provider jobs across
+ *  ALL its runs at once -- its declared `parallel` capped at its `live_workers`, lowered by an
+ *  admin's `max_parallel` when set -- and how many slots are `in_use` now. */
+export interface RunBudget {
+  provider: string;
+  cap: number | null;
+  live_workers: number | null;
+  declared: number | null;
+  max_parallel: number | null;
+  in_use?: number;
+}
 
 export interface SweepDefaults {
   provider: string;
