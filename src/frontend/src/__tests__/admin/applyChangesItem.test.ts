@@ -49,10 +49,10 @@ test("roles may also arrive as a list", () => {
 test("roles beside the block on the item (where core puts them) are read, a failed one named", () => {
     const a = applyChangesOf({
         apply_changes: {nothing: false},
-        roles: {"csg.db": {status: "applied", subjects: 2}, "attribute-index-patch.ndjson.gz": {status: "failed", error: "deadlock"}},
+        roles: {"geometry.db": {status: "applied", subjects: 2},"attribute-index-patch.ndjson.gz": {status: "failed", error: "deadlock"}},
     });
     assert.deepEqual(a?.roles.map((r) => [r.role, r.status, r.warning]), [
-        ["csg.db", "applied", null],
+        ["geometry.db", "applied", null],
         ["attribute-index-patch.ndjson.gz", "failed", "deadlock"],
     ]);
 });
