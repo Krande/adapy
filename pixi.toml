@@ -190,7 +190,7 @@ topo-model-demo = { cmd = "python topo_model_demo.py", env = { "PYTHONPATH" = "$
 [feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
 winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
-wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
+wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall", "wasm-adacpp-current"] }
 wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
 # The code-split SPA the REST API serves (ADA_VIEWER_STATIC_PATH), as Dockerfile.viewer builds it.
 # scripts/docs/ui_stories.py drives it for the Ada Studio docs page.
@@ -198,10 +198,14 @@ wbuild-serve = { cmd = "npm run gen:plugins && npm run build:serve", cwd = "./sr
 # Build the pyodide ada-py wheel into the SPA's public/wheels so the dev
 # server and build serve it at /wheels/ for the in-browser FEM/SAT stacks.
 wheel-pyodide = { cmd = "python scripts/packaging/build_pyodide_adapy_wheel.py src/frontend/public/wheels" }
-# Copy the adacpp embind wasm modules (STEP/IFC converters, GLB diff, compact
-# beam-solid expander) out of the pinned viewer base image into public/wasm, so
-# the dev server serves /wasm/ as a deployment does. Needs docker.
+# Put the adacpp wasm modules into public/wasm, so the dev server serves /wasm/ as a
+# deployment does: the embind modules (STEP/IFC converters, GLB diff, compact
+# beam-solid expander) out of the pinned viewer base image, and the WebGPU renderer
+# built from Dockerfile.viewer's adacpp-render stage. Needs docker.
 wasm-adacpp = { cmd = "python scripts/packaging/fetch_adacpp_wasm.py" }
+# What wdev runs first: refetches only a part whose Dockerfile.viewer pin moved, and
+# warns rather than fails without docker.
+wasm-adacpp-current = { cmd = "python scripts/packaging/fetch_adacpp_wasm.py --if-stale" }
 # Fetched on demand, not a devDependency: depcheck pulls in micromatch -> braces, whose advisory
 # (GHSA-vfj7-8cjw-p6xm) has no fixed release, and an occasional audit is not worth that in every install.
 fdepcheck = { cmd = "npx --yes depcheck@1.4.7", cwd = "./src/frontend", depends-on = ["winstall"] }
@@ -696,6 +700,8 @@ glb-face-classify = { cmd = "python scripts/diagnostics/glb_face_classify.py", e
 
 [feature.frontend.dependencies]
 nodejs = "24.*"
+# For the stdlib-only scripts the frontend tasks run (wasm-adacpp, wheel-pyodide).
+python = "3.12.*"
 flatbuffers = "==25.2.10"
 
 [feature.test-pyodide.dependencies]
