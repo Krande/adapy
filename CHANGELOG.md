@@ -2,6 +2,15 @@
 
 
 
+## v0.127.0 (2026-10-31)
+
+### Feature
+
+* feat: provider data in one admin-run store read through grants, element-level apply-changes, parallel multi-target sweeps (#475)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`f564a3c`](https://github.com/Krande/adapy/commit/f564a3c819bf1cbf922e99489a0f98e0bb072ce7))
+
+
 ## v0.126.0 (2026-10-31)
 
 ### Feature
