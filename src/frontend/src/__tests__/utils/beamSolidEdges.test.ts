@@ -99,6 +99,9 @@ test("the overlay is built once, in source numbering, and follows the solid's wa
     assert.ok(overlay);
     assert.equal(overlay.name, BEAM_SOLID_EDGES_NAME);
     assert.equal(ensureBeamSolidEdges(solids, base), overlay, "once");
+    const mat = overlay.material as THREE.LineBasicMaterial;
+    assert.ok(mat.transparent);
+    assert.notEqual(mat.onBeforeRender, THREE.Material.prototype.onBeforeRender, "fades with density like the shell grid");
     const morph = () => Array.from((overlay.geometry.morphAttributes.position[0] as THREE.BufferAttribute).array as Float32Array);
     assert.ok(morph().every((v) => v === 0.5));
 

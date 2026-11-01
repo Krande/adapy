@@ -25,6 +25,7 @@ import {clipWithModel} from "@/utils/scene/section_clipping";
 import {FEA_EDGE_COLOR} from "./edgeColors";
 import {elementLocalMap} from "./elementLocalGeometry";
 import {setSourceMorph} from "./sourceMorph";
+import {fadeWithDensity} from "./streaming/elementEdges";
 
 export const BEAM_SOLID_EDGES_NAME = "fea-beam-solid-edges";
 
@@ -204,6 +205,10 @@ export function ensureBeamSolidEdges(
     segments.layers.set(1);
     segments.frustumCulled = false;
     clipWithModel(segments);
+    // The shell grid's fade with on-screen density, measured on the overlay's own
+    // (source-numbered, undeformed) positions -- the solid's buffer may be an
+    // element-local expansion these pair indices do not address.
+    fadeWithDensity(segments, segments, pairs);
     segments.visible = useFeaAnimationStore.getState().beamSolidEdgesVisible;
     const ownership: BeamSolidEdgeOwners = {all: Uint32Array.from(pairs), rangeIds, owner: Uint32Array.from(owners)};
     segments.userData.beamSolidEdgeOwners = ownership;

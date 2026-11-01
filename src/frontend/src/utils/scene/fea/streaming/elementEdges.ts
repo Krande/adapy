@@ -59,7 +59,7 @@ function orbitTarget(): THREE.Vector3 | null {
  *  first frames computed -- 0 while the camera was still fitting, which hid the edges for good. */
 export function fadeWithDensity(
     segments: THREE.LineSegments,
-    mesh: THREE.Mesh,
+    mesh: THREE.Object3D & {geometry: THREE.BufferGeometry},
     edges: Uint32Array,
     lookingAt: () => THREE.Vector3 | null = orbitTarget,
 ): void {
