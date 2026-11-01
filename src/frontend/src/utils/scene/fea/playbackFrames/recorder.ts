@@ -18,6 +18,7 @@
 import * as THREE from "three";
 
 import {FEA_STEP_CACHE} from "@/services/fea/stepCache";
+import {warpBeamSolidEdgesFromRender} from "../beamSolidEdges";
 import {writeColorAttribute, writeMorphTarget} from "../gpuRefresh";
 import {clearResultLineSegments, hasResultLineSegments, installResultLineSegments} from "../resultLineSegments";
 import type {FrameDisplacementBackend} from "./backend";
@@ -162,7 +163,10 @@ export class FrameRecorder {
             fromBytes(record.beamColors, floats);
             writeColorAttribute(beam.geometry, floats, null);
         }
-        if (beam && record.beamMorph) writeMorphTarget(beam.geometry, record.beamMorph, null);
+        if (beam && record.beamMorph) {
+            writeMorphTarget(beam.geometry, record.beamMorph, null);
+            warpBeamSolidEdgesFromRender(beam, record.beamMorph);
+        }
 
         if (record.lines) {
             const {positions, colors, displacement, segmentIds} = record.lines;

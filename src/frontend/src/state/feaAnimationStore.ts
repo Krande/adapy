@@ -170,6 +170,11 @@ export interface FeaAnimationState {
      *  ``reset()`` so user pref sticks across scene swaps. */
     beamSolidsVisible: boolean;
 
+    /** Draw the beam solids' element edges (section outlines and profile corners)
+     *  while the solids show. On by default: without them a lattice of solids is
+     *  one shaded mass with no elements to read. Persisted like the above. */
+    beamSolidEdgesVisible: boolean;
+
     /** Why the loaded result's beam solids cannot be drawn although its
      *  manifest names them, or null when they loaded (or there are none).
      *  Set by the loader each time it builds a session. Without it the
@@ -244,6 +249,7 @@ export interface FeaAnimationState {
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
     setBeamSolidsVisible: (visible: boolean) => void;
+    setBeamSolidEdgesVisible: (visible: boolean) => void;
     setBeamSolidsUnavailable: (reason: string | null) => void;
     setApplyStep: (cb: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
@@ -306,6 +312,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // Line-only beam render by default — matches the pre-Phase-5
     // behaviour. Users opt into the solid render via the gear panel.
     beamSolidsVisible: false,
+    beamSolidEdgesVisible: true,
     beamSolidsUnavailable: null,
     applyStep: null,
     startFramePreload: null,
@@ -345,6 +352,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
+    setBeamSolidEdgesVisible: (beamSolidEdgesVisible) => set({beamSolidEdgesVisible}),
     setBeamSolidsUnavailable: (beamSolidsUnavailable) => set({beamSolidsUnavailable}),
     setApplyStep: (cb) => set({applyStep: cb}),
     setTimeHistory: (timeHistory) => set({timeHistory}),

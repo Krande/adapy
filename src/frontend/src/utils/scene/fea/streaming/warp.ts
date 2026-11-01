@@ -15,6 +15,7 @@ import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchFieldStep} from "@/services/feaFieldBlob";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
+import {warpBeamSolidEdges} from "../beamSolidEdges";
 import {elementLocalMap} from "../elementLocalGeometry";
 import {refreshMorphTexture, resetBasePositions, writeMorphTarget} from "../gpuRefresh";
 import {rotationOffsets, translationOffsets, warpValue} from "../warpComponents";
@@ -496,6 +497,8 @@ export function installBeamSolidWarp(
     // In place, morph texture refreshed without dropping the attribute buffers
     // (see gpuRefresh.ts) -- this ran on every step and re-uploaded the solids.
     writeMorphTarget(geom, displacement, renderToSource);
+    // Its element-edge overlay, in source numbering like `displacement`.
+    warpBeamSolidEdges(beamSolid, displacement);
 
     // Share the main mesh's influences array so a single write to
     // mesh.morphTargetInfluences[0] (manual drag or RAF sweep)

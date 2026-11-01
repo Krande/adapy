@@ -40,6 +40,7 @@ import {
 import {
     load_fea_streaming,
     setBeamSolidsVisible as setBeamSolidsVisibleScene,
+    syncFeaOverlayVisibility,
 } from "@/utils/scene/handlers/load_fea_streaming";
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {followerUrl} from "@/utils/simChannel";
@@ -336,6 +337,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         beamSolidsVisible,
         setBeamSolidsVisible,
         beamSolidsUnavailable,
+        beamSolidEdgesVisible,
+        setBeamSolidEdgesVisible,
         timeHistory,
         envelopeMode,
         setEnvelopeMode,
@@ -352,6 +355,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         requestRender();
     };
     const beamSolidsToggle = beamSolidsToggleState(manifest, beamSolidsUnavailable);
+    const onToggleBeamSolidEdges = (next: boolean) => {
+        setBeamSolidEdgesVisible(next);
+        syncFeaOverlayVisibility();
+    };
     const onToggleBeamSolids = (next: boolean) => {
         setBeamSolidsVisible(next);
         setBeamSolidsVisibleScene(next);
@@ -911,6 +918,16 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 onChange={(e) => onToggleBeamSolids(e.target.checked)}
                             />
                             <span className="text-gray-300">Beams as solid</span>
+                        </label>
+                    )}
+                    {beamSolidsToggle.offered && beamSolidsToggle.enabled && beamSolidsVisible && (
+                        <label className="flex items-center gap-1" title="Element edges on the beam solids">
+                            <input
+                                type="checkbox"
+                                checked={beamSolidEdgesVisible}
+                                onChange={(e) => onToggleBeamSolidEdges(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Solid edges</span>
                         </label>
                     )}
                 </span>

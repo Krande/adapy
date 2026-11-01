@@ -134,11 +134,14 @@ async function attachBeamSolids(
     active.mesh.add(beamSolid.mesh);
     active.beamSolidMesh = beamSolid.mesh;
     active.beamSolidBasePositions = beamSolid.basePositions;
+    // The source-numbered index, for the element-edge overlay built when the
+    // solids first show (an element field swaps in an expanded index first).
+    beamSolid.mesh.userData.__sourceIndex = beamSolid.mesh.geometry.getIndex()?.array ?? null;
     // The compact artefact expands into its own warp triple -- same (node0, node1,
     // t) AFBV carried, computed from the frames and the node positions instead of
     // shipped per vertex. Only a manifest that still points at the GLB has a
-    // sidecar to fetch. (No element-edge wireframe over the beam solids: a beam's
-    // mesh line is its element line, which the main mesh's edge sidecar has.)
+    // sidecar to fetch. The solids' own element edges are built from their
+    // triangles when they first show (beamSolidEdges.ts).
     const warp = beamSolid.warp ?? await fetchBeamSolidWarpSidecar(fetcher, manifest, beamSolid.basePositions);
     if (warp) active.beamSolidWarp = warp;
 }
