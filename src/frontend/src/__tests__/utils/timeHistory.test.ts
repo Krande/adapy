@@ -47,3 +47,20 @@ test("frame times get one decimal count per history, enough to tell frames apart
   assert.equal(timeDecimals([0, 1, 2]), 0);
   assert.equal(timeDecimals([0.5]), 3); // single frame: a sensible default
 });
+
+test("an element field baked 'static' at a transient run's instants plays as a time history", () => {
+  const steps = [0, 12.5, 25].map((value, i) => ({ i, value, label: String(value) }));
+  const displacement = { analysis_kind: "transient" as const, support: "nodal", n_steps: 3, steps };
+  const stress = { analysis_kind: "static" as const, support: "gauss", n_steps: 3, steps };
+  const manifest = { fields: [displacement, stress] };
+  assert.equal(isTimeHistory(stress, manifest), true);
+  assert.equal(initialStepIndex(stress, manifest), 2);
+  // Its own word only, without the manifest: unchanged.
+  assert.equal(isTimeHistory(stress), false);
+  // Different instants: a separate (static) step sequence, not the run's frames.
+  const other = { ...stress, steps: [1, 2, 3].map((value, i) => ({ i, value, label: String(value) })) };
+  assert.equal(isTimeHistory(other, { fields: [displacement, other] }), false);
+  // A static nodal field stays static: its kind came from the reader, not a fallback.
+  const staticNodal = { ...stress, support: "nodal" };
+  assert.equal(isTimeHistory(staticNodal, { fields: [displacement, staticNodal] }), false);
+});

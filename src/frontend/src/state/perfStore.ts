@@ -101,6 +101,18 @@ export interface PerfState {
     setTimeSlicedLoad: (v: boolean) => void;
 }
 
+/** Edge-fade full-strength spacing, CSS px. */
+export const EDGE_FADE_FULL_PX_DEFAULT = 5;
+
+/** Stored perf settings from an older version, brought up to date. */
+export function migratePerfState(persisted: unknown, version: number): Record<string, unknown> {
+    const state = {...((persisted ?? {}) as Record<string, unknown>)};
+    // v1: the edge-fade default went 8 -> 5 px. A stored 8 is the old default,
+    // not a choice, so it moves with it.
+    if (version < 1 && state.edgeFadeFullPx === 8) state.edgeFadeFullPx = EDGE_FADE_FULL_PX_DEFAULT;
+    return state;
+}
+
 export const usePerfStore = create<PerfState>()(
     persist(
         (set) => ({
@@ -122,7 +134,7 @@ export const usePerfStore = create<PerfState>()(
             hideBeamSolids: false,
             hideElementEdges: false,
             edgeFade: true,
-            edgeFadeFullPx: 8,
+            edgeFadeFullPx: EDGE_FADE_FULL_PX_DEFAULT,
 
             useFlatPicker: false,
             gpuFacePicking: true,
@@ -144,12 +156,16 @@ export const usePerfStore = create<PerfState>()(
             setHideBeamSolids: (v) => set({hideBeamSolids: v}),
             setHideElementEdges: (v) => set({hideElementEdges: v}),
             setEdgeFade: (v) => set({edgeFade: v}),
-            setEdgeFadeFullPx: (v) => set({edgeFadeFullPx: Number.isFinite(v) ? Math.min(100, Math.max(1, v)) : 8}),
+            setEdgeFadeFullPx: (v) => set({edgeFadeFullPx: Number.isFinite(v) ? Math.min(100, Math.max(1, v)) : EDGE_FADE_FULL_PX_DEFAULT}),
             setUseFlatPicker: (v) => set({useFlatPicker: v}),
             setGpuFacePicking: (v) => set({gpuFacePicking: v}),
             setTimeSlicedLoad: (v) => set({timeSlicedLoad: v}),
         }),
-        {name: "ada-perf"},
+        {
+            name: "ada-perf",
+            version: 1,
+            migrate: (persisted, version) => migratePerfState(persisted, version) as unknown as PerfState,
+        },
     ),
 );
 

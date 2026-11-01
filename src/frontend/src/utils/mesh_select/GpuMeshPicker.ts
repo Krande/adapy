@@ -72,8 +72,11 @@ interface RegisteredMesh {
      *  these wholesale on every step/scale change (assigning a new
      *  BufferAttribute, not mutating in place), so the references
      *  are the cheap canary for "picker morph is stale, rebuild it"
-     *  on the next pick. */
+     *  on the next pick. Since the playback fast path the morph is also written IN
+     *  PLACE (same attribute, bumped version), so the version is kept beside it. */
     sourceMorphAttrs: (THREE.BufferAttribute | null)[];
+    /** ``version`` of each ``sourceMorphAttrs`` entry when it was duplicated. */
+    sourceMorphVersions: number[];
     /** Per-picker-vertex source index — picker vertex ``i`` was
      *  duplicated from original vertex ``sourceVertexIndex[i]``.
      *  Lets us rebuild picker morph attrs on stale-attr detection
@@ -478,6 +481,9 @@ class GpuMeshPicker {
             | undefined;
         const morphTargetCount = sourceMorphs?.length ?? 0;
         const morphItemSize = sourceMorphs?.[0]?.itemSize ?? 3;
+        // The versions the worker's copy is taken at: a step painted while it
+        // builds bumps them, and the first pick then copies again.
+        const sourceMorphVersions = (sourceMorphs ?? []).map((a) => a.version);
 
         // The flat-picker toggle is a *preference*, not a force.
         // Whether flat actually saves memory depends on the source
@@ -557,7 +563,7 @@ class GpuMeshPicker {
         // serializer queue waits for the worker build to finish
         // before letting the next mesh start its slice() copies.
         await this.runWorkerBuild(
-            mesh, input, transfers, sourceMorphs, flat, morphTargetCount, t0,
+            mesh, input, transfers, sourceMorphs, sourceMorphVersions, flat, morphTargetCount, t0,
         );
     }
 
@@ -568,6 +574,7 @@ class GpuMeshPicker {
         input: PickerBuildInput,
         transfers: ArrayBuffer[],
         sourceMorphs: THREE.BufferAttribute[] | undefined,
+        sourceMorphVersions: number[],
         flat: boolean,
         morphTargetCount: number,
         t0: number,
@@ -632,6 +639,7 @@ class GpuMeshPicker {
             pickerMesh,
             morphTargetCount,
             sourceMorphAttrs,
+            sourceMorphVersions: sourceMorphAttrs.map((_, m) => sourceMorphVersions[m] ?? -1),
             sourceVertexIndex: out.sourceVertexIndex,
             pickerTotalCount,
             lastHiddenCounter: -1,
@@ -799,7 +807,7 @@ class GpuMeshPicker {
 
         let changed = false;
         for (let m = 0; m < srcMorphs.length; m++) {
-            if (reg.sourceMorphAttrs[m] === srcMorphs[m]) continue;
+            if (reg.sourceMorphAttrs[m] === srcMorphs[m] && reg.sourceMorphVersions[m] === srcMorphs[m].version) continue;
             // applyField swapped this attribute — rebuild.
             const dup = this.duplicateMorphAttr(srcMorphs[m], reg.sourceVertexIndex);
             const pickerAttr = pickerMorphs[m];
@@ -809,6 +817,7 @@ class GpuMeshPicker {
             (pickerAttr as any).array = dup;
             pickerAttr.needsUpdate = true;
             reg.sourceMorphAttrs[m] = srcMorphs[m];
+            reg.sourceMorphVersions[m] = srcMorphs[m].version;
             changed = true;
         }
         if (changed) {

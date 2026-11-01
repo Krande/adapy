@@ -13,8 +13,42 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 // element, keyed by the same draw-range id the mesh hides by — so filtering it is
 // a set lookup rather than a second pass over the field data.
 
-/** Draw-range id → the field value that element was painted with. */
-export type ValueByRange = Map<string, number>;
+/** Draw-range id → the field value that element was painted with. Read-only: the
+ *  consumers below only iterate it. */
+export type ValueByRange = Pick<ReadonlyMap<string, number>, "size" | "values" | typeof Symbol.iterator>;
+
+/**
+ * A ``ValueByRange`` over parallel arrays: the element ids (shared, built once per
+ * mesh and element bucket) and this paint's values. The element kernel records one
+ * per frame, and a ``Map`` with a string key per element -- a quarter of a million
+ * of them on a shell model -- was most of what a frame of a stress animation cost.
+ * NaN entries stand for elements that carry no value and are skipped.
+ */
+export class PaintedValues implements ValueByRange {
+    private readonly parts: {keys: readonly string[]; values: Float64Array}[] = [];
+    private count = 0;
+
+    add(keys: readonly string[], values: Float64Array): void {
+        this.parts.push({keys, values});
+        for (let i = 0; i < values.length; i++) if (!Number.isNaN(values[i])) this.count++;
+    }
+
+    get size(): number {
+        return this.count;
+    }
+
+    *[Symbol.iterator](): MapIterator<[string, number]> {
+        for (const {keys, values} of this.parts) {
+            for (let i = 0; i < values.length; i++) {
+                if (!Number.isNaN(values[i])) yield [keys[i], values[i]];
+            }
+        }
+    }
+
+    *values(): MapIterator<number> {
+        for (const [, value] of this) yield value;
+    }
+}
 
 const KEY = "__feaValueByRange";
 

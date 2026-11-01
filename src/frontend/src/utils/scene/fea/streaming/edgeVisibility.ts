@@ -15,6 +15,7 @@ import * as THREE from "three";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {BEAM_SOLID_EDGES_NAME, type BeamSolidEdgeOwners, maskBeamSolidEdges} from "../beamSolidEdges";
 import {edgeOwners, maskHiddenEdges, type EdgeOwners} from "../feaEdgeFilter";
 
 const OVERLAYS = ["fea-element-edges", "fea-beam-element-edges"];
@@ -37,6 +38,10 @@ export function syncFeaEdgeVisibility(): void {
     const scene = getViewerRuntime().scene.current;
     if (!scene) return;
     scene.traverse((overlay) => {
+        if (overlay instanceof THREE.LineSegments && overlay.name === BEAM_SOLID_EDGES_NAME) {
+            syncBeamSolidEdges(overlay);
+            return;
+        }
         if (!(overlay instanceof THREE.LineSegments) || !OVERLAYS.includes(overlay.name)) return;
         const mesh = overlay.parent;
         const edgeIndex = overlay.geometry.getIndex();
@@ -56,6 +61,20 @@ export function syncFeaEdgeVisibility(): void {
         }
         edgeIndex.needsUpdate = true;
     });
+}
+
+/** The beam solids' edges know their element per pair (beamSolidEdges.ts): no
+ *  ownership to derive, and the solid's index may be an element-local expansion
+ *  that does not match their numbering anyway. */
+function syncBeamSolidEdges(overlay: THREE.LineSegments): void {
+    const mesh = overlay.parent;
+    const owners = overlay.userData.beamSolidEdgeOwners as BeamSolidEdgeOwners | undefined;
+    const index = overlay.geometry.getIndex();
+    if (!(mesh instanceof CustomBatchedMesh) || !owners || !index) return;
+    const out = index.array as Uint32Array;
+    if (ghostHidden || mesh.getHiddenRanges().size === 0) out.set(owners.all);
+    else maskBeamSolidEdges(owners, (id) => mesh.isRangeHidden(id), out);
+    index.needsUpdate = true;
 }
 
 let subscribed = false;

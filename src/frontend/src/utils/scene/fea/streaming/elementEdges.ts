@@ -22,7 +22,7 @@ import {withoutEdges} from "../edgeSplit";
 
 // Zoomed out, a dense element grid draws a line every few pixels and washes the result colours
 // out to the edge colour. Fade the shell grid by how far apart its edges are on screen: full
-// strength from `edgeFadeFullPx` apart (a user setting, 8 by default), gone at 3/8 of that.
+// strength from `edgeFadeFullPx` apart (a user setting, 5 by default), gone at 3/8 of that.
 const EDGE_GONE_FRACTION = 3 / 8;
 
 /** Median length of a sample of `edges` (index pairs into `position`), in model units. */
@@ -59,7 +59,7 @@ function orbitTarget(): THREE.Vector3 | null {
  *  first frames computed -- 0 while the camera was still fitting, which hid the edges for good. */
 export function fadeWithDensity(
     segments: THREE.LineSegments,
-    mesh: THREE.Mesh,
+    mesh: THREE.Object3D & {geometry: THREE.BufferGeometry},
     edges: Uint32Array,
     lookingAt: () => THREE.Vector3 | null = orbitTarget,
 ): void {

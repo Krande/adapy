@@ -37,7 +37,11 @@ import {openFeaSession} from "../fea/streaming/sessionSetup";
 import {linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
 import {syncResultSession} from "../fea/streaming/legendSync";
 import {loadFeaWithDefaults} from "../fea/streaming/loadWithDefaults";
-import type {LoadFeaStreamingArgs} from "../fea/streaming/types";
+import type {ApplyStepOptions, LoadFeaStreamingArgs} from "../fea/streaming/types";
+import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
+import {framesKey, noteOrdinaryPaint, recordPlayedFrame, showRecordedFrame} from "../fea/streaming/frameRecording";
+import {FEA_STEP_CACHE} from "@/services/fea/stepCache";
+import {isTimeHistory} from "../fea/timeHistory";
 import {paintElemField} from "../fea/streaming/paintElemField";
 import {paintNodeField} from "../fea/streaming/paintNodeField";
 import {followShownRange, notePaintedShown} from "../fea/streaming/shownRangeRepaint";
@@ -76,6 +80,14 @@ let pendingStep: {step: number; run: (step: number) => Promise<void>} | null = n
 // (prefetch the next combination) from a jump (prefetch nothing).
 let lastAppliedSlot: number | null = null;
 let stepDrain: Promise<void> | null = null;
+// The (source, field) the last playback frame fully synced the controls and legend
+// for. While it matches, a playback frame only repaints (see
+// LoadFeaStreamingArgs.playback); any other load clears it, so the first frame
+// after a change -- a new colormap mid-play, a field switch -- syncs again.
+let playbackSyncedFor: string | null = null;
+// The running "load every frame" job, and what it is loading. A load of anything
+// else stops it; asking again for the same field is a no-op.
+let preload: {key: string; abort: AbortController} | null = null;
 
 function requestStep(step: number, run: (step: number) => Promise<void>): Promise<void> {
     pendingStep = {step, run};
@@ -122,11 +134,14 @@ async function attachBeamSolids(
     active.mesh.add(beamSolid.mesh);
     active.beamSolidMesh = beamSolid.mesh;
     active.beamSolidBasePositions = beamSolid.basePositions;
+    // The source-numbered index, for the element-edge overlay built when the
+    // solids first show (an element field swaps in an expanded index first).
+    beamSolid.mesh.userData.__sourceIndex = beamSolid.mesh.geometry.getIndex()?.array ?? null;
     // The compact artefact expands into its own warp triple -- same (node0, node1,
     // t) AFBV carried, computed from the frames and the node positions instead of
     // shipped per vertex. Only a manifest that still points at the GLB has a
-    // sidecar to fetch. (No element-edge wireframe over the beam solids: a beam's
-    // mesh line is its element line, which the main mesh's edge sidecar has.)
+    // sidecar to fetch. The solids' own element edges are built from their
+    // triangles when they first show (beamSolidEdges.ts).
     const warp = beamSolid.warp ?? await fetchBeamSolidWarpSidecar(fetcher, manifest, beamSolid.basePositions);
     if (warp) active.beamSolidWarp = warp;
 }
@@ -138,7 +153,9 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     if (!capabilities.fea.supports("fetchManifest") || !capabilities.fea.supports("fieldFetchers")) {
         throw new Error("This transport cannot serve streamed FEA results");
     }
-    const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
+    const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal, playback = false} = args;
+    const playbackKey = `${sourceName}\u0000${fieldName ?? ""}\u0000${reduction ?? ""}`;
+    if (!playback) playbackSyncedFor = null;
     // Who this load paints for, taken NOW rather than when it lands: an owning
     // mode entered while the fetch is in flight must not be credited with a
     // field the user picked before it, and a mode's own repaint stays its own
@@ -286,8 +303,11 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // drawn (shownRange.ts). A scale pinned at both ends describes nothing measured,
     // and a property keeps its own categorical range.
     const contourNow = useFeaAnimationStore.getState().contour;
+    // Playback holds the scale over every frame: measured per frame, the colours
+    // and the legend jumped on each one.
     const rangeFromShown =
-        !!paintField
+        !playback
+        && !!paintField
         && !envelopeAvailable
         && !isPropertyField(paintField)
         && !(contourNow.min !== null && contourNow.max !== null);
@@ -306,6 +326,8 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // displacement output), we clamp to its last step and warn.
     // Field-less FEM meshes (no results) skip all result coloring / warp / step handling —
     // they only need geometry + beam-solids (loaded above). Everything below is field work.
+    // The warp the paint below installs, for recording a played frame.
+    let paintedWarp: Awaited<ReturnType<typeof resolveWarpSource>> = null;
     if (field && paintField) {
     const reductionStr = reduction ?? "magnitude"; // field present -> reduction is meaningful
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
@@ -322,6 +344,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         paintStep,
         warpEnabled,
     );
+    paintedWarp = warpInfo;
 
     if (paintField.per_type && paintField.per_type.length > 0) {
         shownRange = await paintElemField({
@@ -335,6 +358,14 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         });
     }
     } // end if (field)
+    // What is on screen now is this ordinary paint, not a recorded frame. A playback
+    // paint is also recorded, so the next pass through the history can show it
+    // without repainting (fea/playbackFrames).
+    const recKey = framesKey(sourceName, fieldName, reduction);
+    noteOrdinaryPaint(recKey);
+    if (playback && field && paintField && !isCase) {
+        recordPlayedFrame({key: recKey, step: stepIndex, nFrames: nSlots, active, field: paintField, warp: paintedWarp});
+    }
     // Hiding or showing elements from here on re-measures the scale.
     followShownRange();
     followEdgeVisibility();
@@ -349,6 +380,22 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
 
     stage("rendering", 0.9);
     throwIfAborted();
+
+    // A playback frame after the first of this play: the morph links below are
+    // all that can have changed. The ghost, the view preferences, the controls,
+    // the legend, the colour owner and the step callback are as the first frame
+    // left them -- and re-running them each frame woke every subscriber of the
+    // store a dozen times per frame.
+    const fastFrame = playback && playbackSyncedFor === playbackKey;
+    if (fastFrame) {
+        linkLineMorphToMesh(active.mesh);
+        if (active.beamSolidMesh) linkLineMorphToMesh(active.beamSolidMesh);
+        // The repaint rebuilt the beam lines visible; beams-as-solid and the colour
+        // toggles decide whether they stay so.
+        syncFeaOverlayVisibility();
+        stage("ready", 1.0);
+        return;
+    }
 
     // Link the edge overlay's morph state to the mesh's so the
     // wireframe tracks deformation. Idempotent: re-running just
@@ -388,6 +435,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // or one that asked for this load itself. The tag taken at request time
     // says which; a load the mode did not ask for is set aside under it.
     noteFieldSourceLoaded(sourceName, colorOwner);
+    if (playback) playbackSyncedFor = playbackKey;
 
     // applyStep closure captures the *current* (sourceName, manifest,
     // fieldName, reduction). SimulationControls calls this when the
@@ -401,7 +449,54 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // step drag still picks up the latest selection without needing
     // to re-register the callback here.
     if (field) {
-        useFeaAnimationStore.getState().setApplyStep((newStepIndex: number) =>
+        const readAhead = (step: number) =>
+            prefetchFieldSteps({
+                manifest,
+                field,
+                steps: upcomingSteps(step, nSlots),
+                warpEnabled: useFeaAnimationStore.getState().warpEnabled,
+                fetcher,
+                rangeFetcher,
+                cacheKey,
+            });
+        // A different field or source: stop loading the old one's frames.
+        const preloadKey = `${scope}\u0000${sourceName}\u0000${field.name_canonical}`;
+        if (preload && preload.key !== preloadKey) {
+            preload.abort.abort();
+            preload = null;
+            useFeaAnimationStore.getState().setFramePreload(null);
+        }
+        useFeaAnimationStore.getState().setStartFramePreload(
+            isTimeHistory(field, manifest) && nSlots > 1
+                ? () => {
+                    if (preload?.key === preloadKey) return;
+                    const abort = new AbortController();
+                    preload = {key: preloadKey, abort};
+                    const store = useFeaAnimationStore.getState();
+                    void preloadFrames({
+                        manifest,
+                        field,
+                        warpEnabled: store.warpEnabled,
+                        fetcher,
+                        rangeFetcher,
+                        cacheKey,
+                        nFrames: nSlots,
+                        startStep: store.stepIndex,
+                        budgetBytes: FEA_STEP_CACHE.budgetBytes,
+                        signal: abort.signal,
+                        onProgress: (p) => {
+                            if (!abort.signal.aborted) useFeaAnimationStore.getState().setFramePreload(p);
+                        },
+                    }).finally(() => {
+                        // Done (or stopped): the next play may ask again -- cheap
+                        // when the frames are still cached, and right when the cache
+                        // was cleared in between (a model closed and reopened).
+                        if (preload?.abort === abort) preload = null;
+                    });
+                }
+                : null,
+        );
+        useFeaAnimationStore.getState().setApplyStep((newStepIndex: number, opts?: ApplyStepOptions) =>
             requestStep(newStepIndex, async (step) => {
                 // The influence is read at call time like the colormap, and for the
                 // same reason: without it a step change repainted at the default of
@@ -418,6 +513,13 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
                     const next = nextCaseToPrefetch(mergeCaseSteps(manifest, field), step);
                     if (next !== null) prefetchCase(manifest, {scope, sourceKey: sourceName}, next);
                 }
+                // Playing: read the next frames while this one paints.
+                if (opts?.playback) readAhead(step);
+                // A frame this play already painted once: show the recording.
+                if (
+                    opts?.playback
+                    && showRecordedFrame(framesKey(sourceName, fieldName, reduction), step, session.active, factor * scaleFactor)
+                ) return;
                 await load_fea_streaming({
                     sourceName,
                     manifest,
@@ -425,6 +527,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
                     stepIndex: step,
                     reduction,
                     displacementScale: factor * scaleFactor,
+                    playback: opts?.playback,
                 });
             }),
         );

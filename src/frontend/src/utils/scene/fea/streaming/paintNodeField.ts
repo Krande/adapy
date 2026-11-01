@@ -21,7 +21,8 @@ import type {FeaSessionHandle} from "@/state/modelSession";
 import {applyFieldToMesh} from "../applyField";
 import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
 import {shownNodalRange} from "../shownRange";
-import {expandSourceTriples, sourceVertexIndices} from "../elementLocalGeometry";
+import {elementLocalMap} from "../elementLocalGeometry";
+import {writeColorAttribute} from "../gpuRefresh";
 import {installBeamSolidWarp} from "./warp";
 
 export async function paintNodeField(args: {
@@ -118,16 +119,7 @@ export async function paintNodeField(args: {
                 // geometry from an earlier element field. Same reason the morph
                 // goes through it: a buffer sized for the original vertex count
                 // does not fit an expanded geometry.
-                const nSource = active.beamSolidWarp.n_verts;
-                const renderToSource = sourceVertexIndices(geom, nSource);
-                const renderColors = expandSourceTriples(sourceColors, renderToSource);
-                const existing = geom.getAttribute("color");
-                if (existing && existing.count === renderToSource.length && existing.itemSize === 3) {
-                    (existing.array as Float32Array).set(renderColors);
-                    existing.needsUpdate = true;
-                } else {
-                    geom.setAttribute("color", new THREE.BufferAttribute(renderColors, 3));
-                }
+                writeColorAttribute(geom, sourceColors, elementLocalMap(geom));
                 painted = true;
             }
         }

@@ -73,7 +73,19 @@ function warpedVertex(mesh: THREE.Mesh, v: number, out: THREE.Vector3): THREE.Ve
     return sum ? out.set(out.x * (1 - sum) + x, out.y * (1 - sum) + y, out.z * (1 - sum) + z) : out;
 }
 
-const warpKey = (mesh: THREE.Mesh) => (mesh.morphTargetInfluences ?? []).map((w) => w.toFixed(5)).join(",");
+/** What the warped surface depends on: the weights AND the morph data, which a
+ *  step change rewrites in place (same attribute, bumped version). */
+const morphIds = new WeakMap<THREE.BufferAttribute, number>();
+let nextMorphId = 1;
+function warpKey(mesh: THREE.Mesh): string {
+    const morph = (mesh.geometry.morphAttributes.position as THREE.BufferAttribute[] | undefined)?.[0];
+    let id = 0;
+    if (morph) {
+        id = morphIds.get(morph) ?? 0;
+        if (!id) morphIds.set(morph, (id = nextMorphId++));
+    }
+    return `${(mesh.morphTargetInfluences ?? []).map((w) => w.toFixed(5)).join(",")}|${id}:${morph?.version ?? 0}`;
+}
 
 /** The index-buffer vertices of `elements`' faces, three per triangle. */
 function elementVertices(mesh: FeaMesh, elements: Iterable<number>): number[] {

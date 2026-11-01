@@ -37,17 +37,17 @@ import * as THREE from "three";
 import type {FeaManifestField, FeaManifestFieldPerType, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
 import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
-import {recordValueByRange, type ValueByRange} from "./visibleValues";
+import {PaintedValues, recordValueByRange} from "./visibleValues";
 import {categoryCodes, distinctValues, isPropertyField, propertyColormap} from "./propertyColors";
 import {
     ensureElementLocalVertices,
-    expandSourceTriples,
     sourceVertexIndices,
 } from "./elementLocalGeometry";
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
 import {segmentRangeIds} from "./lineSegmentIds";
 import {RangeAccumulator} from "./shownRange";
+import {ensureVertexNormals, resetBasePositions, writeMorphTarget} from "./gpuRefresh";
 import {setSourceMorph} from "./sourceMorph";
 import {translationOffsets, warpValue} from "./warpComponents";
 
@@ -327,6 +327,39 @@ export function shownElemFieldRange(args: {
  *  the field's detail sidecar: the caller resolves the field through
  *  ``withFieldDetail`` first (paintElemField does). Missing here is a caller
  *  bug, and painting every element as label ``undefined`` would hide it. */
+interface BucketPlan {
+    /** "E<label>" per element: the id the mesh draws and hides it by. */
+    keys: string[];
+    /** Its draw range in the index buffer, or count -1 when it has none (a line). */
+    start: Int32Array;
+    count: Int32Array;
+}
+
+const bucketPlans = new WeakMap<Map<string, [number, number]>, WeakMap<readonly number[], BucketPlan>>();
+
+/** Each element's draw range and id, resolved once per (mesh draw ranges, bucket
+ *  labels) -- both stay the same objects for as long as one source is loaded. */
+function bucketPlan(drawRanges: Map<string, [number, number]>, labels: readonly number[]): BucketPlan {
+    let byLabels = bucketPlans.get(drawRanges);
+    if (!byLabels) {
+        byLabels = new WeakMap();
+        bucketPlans.set(drawRanges, byLabels);
+    }
+    const cached = byLabels.get(labels);
+    if (cached) return cached;
+    const n = labels.length;
+    const plan: BucketPlan = {keys: new Array<string>(n), start: new Int32Array(n), count: new Int32Array(n)};
+    for (let e = 0; e < n; e++) {
+        const key = `E${labels[e]}`;
+        plan.keys[e] = key;
+        const dr = drawRanges.get(key);
+        plan.start[e] = dr ? dr[0] : 0;
+        plan.count[e] = dr ? dr[1] : -1;
+    }
+    byLabels.set(labels, plan);
+    return plan;
+}
+
 function bucketLabels(field: FeaManifestField, bucket: FeaManifestFieldPerType): number[] {
     if (!bucket.element_labels) {
         throw new Error(
@@ -399,7 +432,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const renderToSource = nodalAverage
         ? sourceVertexIndices(geometry, n_points)
         : ensureElementLocalVertices(geometry);
-    const renderBasePositions = expandSourceTriples(basePositions, renderToSource);
     const n_render_points = renderToSource.length;
     const n_components = colorField.components.length;
 
@@ -407,10 +439,31 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     // element draw range. Without this seed, the colour attribute
     // would be zero-initialised and render black where AFEM doesn't
     // reach (typically nowhere on a healthy mesh, but defensive).
-    const out_colors = new Float32Array(n_render_points * 3);
-    for (let i = 0; i < out_colors.length; i++) out_colors[i] = 0.5;
+    // Painted straight into the installed colour buffer when it fits: on an
+    // element-local shell model that is 12 MB a frame not allocated and not copied.
+    const installedColor = geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
+    const paintInPlace = !!installedColor
+        && installedColor.itemSize === 3
+        && installedColor.array instanceof Float32Array
+        && installedColor.array.length === n_render_points * 3;
+    const out_colors = paintInPlace
+        ? (installedColor!.array as Float32Array)
+        : new Float32Array(n_render_points * 3);
+    // Every bucket's length is checked before the buffer on screen is touched, so
+    // a bad step throws with the previous frame still intact.
+    for (let b = 0; b < colorField.per_type.length; b++) {
+        const bucket = colorField.per_type[b];
+        const expected = bucket.n_elements * bucket.n_ips * colorField.components.length;
+        if (perTypeStepValues[b]?.length !== expected) {
+            throw new Error(
+                `applyElemFieldToMesh: bucket ${bucket.elem_type} step view ` +
+                `length ${perTypeStepValues[b]?.length} != expected ${expected}`,
+            );
+        }
+    }
+    out_colors.fill(0.5);
 
-    const valueByRange: ValueByRange = new Map();
+    const valueByRange = new PaintedValues();
     const range = rangeMax - rangeMin;
     const scaleColor = range > 0 ? 1 / range : 0;
 
@@ -476,6 +529,11 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         const ipIndices = layerIpIndices(bucket, layer);
         const elemStride = bucket.n_ips * n_components;
         const labels = bucketLabels(colorField, bucket);
+        // Label -> draw range and id, resolved once per mesh and bucket rather than
+        // by building and hashing an "E<label>" string per element per frame.
+        const plan = bucketPlan(drawRanges, labels);
+        const painted = new Float64Array(bucket.n_elements).fill(NaN);
+        valueByRange.add(plan.keys, painted);
 
         // What each element ended up painted with, so a legend can say which
         // values are on screen rather than which values the deck contains. One
@@ -484,10 +542,12 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         for (let e = 0; e < bucket.n_elements; e++) {
             const elemBase = e * elemStride;
             const label = labels[e];
-            const dr = drawRanges.get(`E${label}`);
+            const vCount = plan.count[e];
+            const hasDr = vCount >= 0;
+            const vStart = plan.start[e];
             {
                 const own = computeElementScalar(stepView, elemBase, ipIndices);
-                if (isFinite(own)) valueByRange.set(`E${label}`, own);
+                if (isFinite(own)) painted[e] = own;
             }
 
             // Line elements have AFEM entries with zero triangles, so their
@@ -497,7 +557,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             // ends; element-average fields use one colour at both ends.
             if (
                 lineFallback
-                && !dr
+                && !hasDr
                 && bucket.elem_type.startsWith("line")
                 && colorField.support !== "line_result_point"
                 && colorField.support !== "result_point"
@@ -552,9 +612,8 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                 )
             ) {
                 const sourceCorners = bucket.element_node_indices?.[e]?.slice() ?? [];
-                if (sourceCorners.length === 0 && dr) {
+                if (sourceCorners.length === 0 && hasDr) {
                     const seenSources = new Set<number>();
-                    const [vStart, vCount] = dr;
                     for (let i = vStart; i < vStart + vCount; i++) {
                         const sourceIdx = renderToSource[indexArr[i]];
                         if (seenSources.has(sourceIdx)) continue;
@@ -586,8 +645,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                 }
             }
 
-            if (!dr) continue;
-            const [vStart, vCount] = dr;
+            if (!hasDr) continue;
 
             // In Elements fields, carry one value per element-local corner.
             // Preserve that variation instead of collapsing all corners through
@@ -688,11 +746,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     //    applyFieldToMesh: reset to base, install the displacement as
     //    a morph delta, mark the geometry dirty so three.js rebuilds
     //    the morph texture on the next render.
-    const posAttr = geometry.getAttribute("position");
-    if (posAttr) {
-        (posAttr.array as Float32Array).set(renderBasePositions);
-        posAttr.needsUpdate = true;
-    }
+    resetBasePositions(geometry, basePositions, renderToSource);
 
     const sourceDisplacement = new Float32Array(basePositions.length);
     if (warpField && warpStepValues) {
@@ -725,7 +779,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
     setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
 
-    const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
     const markerDisplacement = new Float32Array(markerSourceWeights.length * 3);
     for (let point = 0; point < markerSourceWeights.length; point++) {
         for (const [sourceIdx, weight] of markerSourceWeights[point]) {
@@ -769,14 +822,15 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         const current = Array.from(owner.selectedRanges ?? []);
         if (current.length) restore(current);
     }
-    geometry.morphAttributes.position = [
-        new THREE.BufferAttribute(displacement, 3),
-    ];
-    geometry.morphTargetsRelative = true;
+    // In place, with the morph texture refreshed rather than the whole geometry
+    // disposed. See gpuRefresh.ts.
+    writeMorphTarget(geometry, sourceDisplacement, renderToSource);
 
     // Colour attribute install / replace.
     const existingColor = geometry.getAttribute("color");
-    if (existingColor && existingColor.itemSize === 3) {
+    if (paintInPlace) {
+        installedColor!.needsUpdate = true;
+    } else if (existingColor && existingColor.itemSize === 3 && existingColor.array.length === out_colors.length) {
         (existingColor.array as Float32Array).set(out_colors);
         existingColor.needsUpdate = true;
     } else {
@@ -810,7 +864,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         enableShaderFlags(mesh.material as THREE.Material);
     }
 
-    geometry.computeVertexNormals();
-    geometry.dispatchEvent({type: "dispose"});
+    ensureVertexNormals(geometry);
 }
 

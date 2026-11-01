@@ -6,6 +6,7 @@ import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions
 import {clipWithModel} from "@/utils/scene/section_clipping";
 import {coalescedGroups} from "./groupRuns";
 import {useVisibilityStore} from "@/state/visibilityStore";
+import {followMorph, refreshMorphTexture} from "@/utils/scene/fea/gpuRefresh";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -542,6 +543,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
                 for (const mName of Object.keys(srcGeom.morphAttributes))
                     (overlayGeom.morphAttributes as any)[mName] = (srcGeom.morphAttributes as any)[mName];
             overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+            followMorph(srcGeom, overlayGeom);
 
             // Same blue as object selection — in Faces mode only the clicked face is painted (the rest
             // of the solid keeps its normal colour), so it reads as a face-granular selection.
@@ -628,7 +630,14 @@ export class CustomBatchedMesh extends THREE.Mesh {
                     }
                 }
                 overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+                followMorph(srcGeom, overlayGeom);
                 (this._selectionOverlay as THREE.Mesh).geometry = overlayGeom;
+            } else if (overlayGeom.morphAttributes.position !== srcGeom.morphAttributes.position) {
+                // The mesh got a new morph without a refreshMorphTexture (which would
+                // have re-pointed this overlay): catch up, or it draws the old warp.
+                overlayGeom.morphAttributes = {...srcGeom.morphAttributes};
+                overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+                refreshMorphTexture(overlayGeom);
             }
             // Ensure material is configured for GPU morphing and polygon offset
             (overlayMat as any).morphTargets = true;
@@ -650,6 +659,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
                 }
             }
             overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+            followMorph(srcGeom, overlayGeom);
 
             overlayMat = selectedMaterial.clone();
             (overlayMat as any).morphTargets = true; // let GPU handle morphs

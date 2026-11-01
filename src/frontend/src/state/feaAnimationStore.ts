@@ -2,6 +2,8 @@ import {create} from "zustand";
 
 import type * as THREE from "three";
 import type {FeaManifest} from "@/services/viewerApi";
+import type {PreloadProgress} from "@/utils/scene/fea/streaming/prefetch";
+import type {ApplyStepOptions} from "@/utils/scene/fea/streaming/types";
 import {DEFAULT_CONTOUR, normaliseLevels, type ContourSettings} from "@/utils/scene/fea/contourScale";
 
 /** State for the streaming-FEA viewer's two-slider control surface:
@@ -168,6 +170,11 @@ export interface FeaAnimationState {
      *  ``reset()`` so user pref sticks across scene swaps. */
     beamSolidsVisible: boolean;
 
+    /** Draw the beam solids' element edges (section outlines and profile corners)
+     *  while the solids show. On by default: without them a lattice of solids is
+     *  one shaded mass with no elements to read. Persisted like the above. */
+    beamSolidEdgesVisible: boolean;
+
     /** Why the loaded result's beam solids cannot be drawn although its
      *  manifest names them, or null when they loaded (or there are none).
      *  Set by the loader each time it builds a session. Without it the
@@ -181,7 +188,15 @@ export interface FeaAnimationState {
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
      * the updated stepIndex. */
-    applyStep: ((stepIndex: number) => Promise<void>) | null;
+    applyStep: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null;
+
+    /** Starts loading every frame of the shown time history into memory (as many
+     *  as the step-cache budget holds), or null when there is nothing to preload.
+     *  Registered by the loader with ``applyStep``; play calls it. */
+    startFramePreload: (() => void) | null;
+
+    /** How far that preload got, for the transport bar; null before one starts. */
+    framePreload: PreloadProgress | null;
 
     /** The active field is a time history (``analysis_kind`` "transient"): play
      * advances ``stepIndex`` through the frames instead of sweeping ``factor``. */
@@ -234,9 +249,12 @@ export interface FeaAnimationState {
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
     setBeamSolidsVisible: (visible: boolean) => void;
+    setBeamSolidEdgesVisible: (visible: boolean) => void;
     setBeamSolidsUnavailable: (reason: string | null) => void;
-    setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
+    setApplyStep: (cb: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
+    setStartFramePreload: (cb: (() => void) | null) => void;
+    setFramePreload: (p: PreloadProgress | null) => void;
     setLegendScope: (scope: FeaAnimationState["legendScope"], label: string | null) => void;
     setAutoRange: (range: [number, number] | null) => void;
     setEnvelopeMode: (on: boolean) => void;
@@ -294,8 +312,11 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // Line-only beam render by default — matches the pre-Phase-5
     // behaviour. Users opt into the solid render via the gear panel.
     beamSolidsVisible: false,
+    beamSolidEdgesVisible: true,
     beamSolidsUnavailable: null,
     applyStep: null,
+    startFramePreload: null,
+    framePreload: null,
     timeHistory: false,
     legendScope: "all",
     legendScopeLabel: null,
@@ -331,9 +352,12 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
+    setBeamSolidEdgesVisible: (beamSolidEdgesVisible) => set({beamSolidEdgesVisible}),
     setBeamSolidsUnavailable: (beamSolidsUnavailable) => set({beamSolidsUnavailable}),
     setApplyStep: (cb) => set({applyStep: cb}),
     setTimeHistory: (timeHistory) => set({timeHistory}),
+    setStartFramePreload: (startFramePreload) => set({startFramePreload}),
+    setFramePreload: (framePreload) => set({framePreload}),
     setLegendScope: (legendScope, legendScopeLabel) => set({legendScope, legendScopeLabel}),
     setAutoRange: (autoRange) => set({autoRange}),
     setEnvelopeMode: (envelopeMode) => set({envelopeMode}),
@@ -361,6 +385,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             // model swaps.
             beamSolidsUnavailable: null,
             applyStep: null,
+            startFramePreload: null,
+            framePreload: null,
             timeHistory: false,
             legendScope: "all",
             legendScopeLabel: null,

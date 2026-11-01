@@ -17,6 +17,7 @@
 // ``ip_layout`` live in the manifest's per_type bucket, not the blob,
 // so the binary stays compact even for very large element counts.
 
+import {FEA_STEP_CACHE} from "./fea/stepCache";
 import {disableFeaRange, feaRangeSupported} from "./fea/feaFetcher";
 import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
 import {blobStepIndex, type FeaStepRef} from "./fea/feaStepRef";
@@ -101,7 +102,8 @@ export function parseElemFieldBlob(buf: ArrayBuffer): ParsedFeaElemFieldBlob {
 const ELEM_BLOB_CACHE = new Map<string, Promise<ParsedFeaElemFieldBlob>>();
 
 // Per-(bucket, step) cache for the range-fetched single steps.
-const ELEM_STEP_CACHE = new Map<string, Promise<Float32Array>>();
+// Byte-budgeted and shared with the other step cache: see services/fea/stepCache.ts.
+const ELEM_STEP_CACHE = FEA_STEP_CACHE;
 
 export function clearElemFieldBlobCache(): void {
     ELEM_BLOB_CACHE.clear();
@@ -134,7 +136,7 @@ export async function fetchElemFieldStep(
         return wholeFallback();
     }
 
-    const stepKey = `${fullKey}::${stepIndex}`;
+    const stepKey = `e::${fullKey}::${stepIndex}`;
     const cached = ELEM_STEP_CACHE.get(stepKey);
     if (cached) return cached;
 

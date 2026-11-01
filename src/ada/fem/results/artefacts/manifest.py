@@ -252,6 +252,17 @@ def build_manifest(
     elem_by_name: dict[str, list[ElementFieldArtefactMeta]] = defaultdict(list)
     for em in elem_field_metas or []:
         elem_by_name[em.spec.name].append(em)
+    # An element field whose reader states no kind takes the kind of the nodal
+    # fields recorded at exactly its instants: the same run, sampled at the same
+    # frames. Falling straight back to "static" baked the stress of an explicit
+    # run as static next to its transient displacement, so the viewer swept one
+    # frame's deformation instead of playing the history.
+    # Transient only: a modal result's stress keeps the "static" it always had.
+    nodal_kind_by_instants: dict[tuple, str] = {}
+    for fm in field_metas:
+        if fm.spec.n_steps > 1 and _infer_analysis_kind(fm.spec) == "transient":
+            nodal_kind_by_instants.setdefault(tuple(fm.spec.step_values), "transient")
+
     for name, metas in elem_by_name.items():
         primary = metas[0].spec
         for em in metas[1:]:
@@ -320,9 +331,7 @@ def build_manifest(
 
         # Synthesise a kind so the frontend's existing
         # ``kind.startsWith("vector")`` checks treat 3-component
-        # element fields the same as 3-component nodal vectors. Element
-        # fields don't have a "displacement / mode shape" axis, so the
-        # analysis_kind tracker just falls back to "static".
+        # element fields the same as 3-component nodal vectors.
         n_comp = len(primary.components)
         if n_comp == 1:
             kind = "scalar"
@@ -340,7 +349,9 @@ def build_manifest(
                 "kind": kind,
                 "category": primary.category,
                 "support": primary.support,
-                "analysis_kind": primary.analysis_kind or "static",
+                "analysis_kind": primary.analysis_kind
+                or nodal_kind_by_instants.get(tuple(primary.step_values))
+                or "static",
                 "components": primary.components,
                 "n_steps": primary.n_steps,
                 "steps": steps,

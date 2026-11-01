@@ -15,6 +15,7 @@ import * as THREE from "three";
 
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {requestRender} from "@/state/perfStore";
+import {ensureBeamSolidEdges} from "../beamSolidEdges";
 import {hasResultLineSegments, setResultLineSegmentsVisible} from "../resultLineSegments";
 import {setResultPointMarkersVisible} from "../resultPointMarkers";
 import {clearUndeformedGhost, installUndeformedGhost} from "../undeformedGhost";
@@ -93,6 +94,16 @@ export function syncFeaOverlayVisibility(): void {
     }
     for (const overlay of elementEdgeOverlays("fea-beam-element-edges")) {
         overlay.visible = store.elementEdgesVisible && !colouredLines;
+    }
+    // The solids' own element edges: built the first time they are wanted, and
+    // hidden with the solids (they hang under them).
+    const beamSolids = session.active.beamSolidMesh;
+    if (beamSolids && session.active.beamSolidBasePositions) {
+        const wanted = solids && store.beamSolidEdgesVisible;
+        const overlay = wanted
+            ? ensureBeamSolidEdges(beamSolids, session.active.beamSolidBasePositions)
+            : beamSolids.getObjectByName("fea-beam-solid-edges");
+        if (overlay) overlay.visible = store.beamSolidEdgesVisible;
     }
     requestRender();
 }

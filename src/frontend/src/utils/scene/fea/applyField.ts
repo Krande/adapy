@@ -19,7 +19,8 @@ import * as THREE from "three";
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
 import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
-import {expandSourceTriples, sourceVertexIndices} from "./elementLocalGeometry";
+import {elementLocalMap} from "./elementLocalGeometry";
+import {ensureVertexNormals, resetBasePositions, writeColorAttribute, writeMorphTarget} from "./gpuRefresh";
 import {setSourceMorph} from "./sourceMorph";
 import {clearResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments} from "./resultLineSegments";
@@ -126,8 +127,9 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
 
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
-    const renderToSource = sourceVertexIndices(geometry, n_points);
-    const renderBasePositions = expandSourceTriples(basePositions, renderToSource);
+    // null when the geometry was never expanded to element-local vertices: render
+    // numbering is source numbering and every write below is a straight copy.
+    const renderToSource = elementLocalMap(geometry);
     const n_components = colorField.components.length;
     if (colorStepValues.length !== n_points * n_components) {
         throw new Error(
@@ -165,8 +167,12 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // even when no warp source is active; the influence stays at
     // whatever the user has on the slider but the deltas are zero,
     // so the geometry sits at base positions.
-    const sourceDisplacement = new Float32Array(basePositions.length);
-    const sourceColors = new Float32Array(n_points * 3);
+    // Per-geometry scratch, reused across repaints: a 255k-node deck played at
+    // 12 fps allocated ~15 MB a frame here, and the garbage collector paid for it
+    // in the middle of the animation. Nothing keeps a reference to these past
+    // this call -- every consumer below copies out of them.
+    const {sourceDisplacement, sourceColors} = scratchFor(geometry, n_points);
+    sourceDisplacement.fill(0);
 
     const [rangeMin, rangeMax] = resolveContourRange(autoRange ?? pickRange(colorField, reduction), contour);
     const range = rangeMax - rangeMin;
@@ -203,46 +209,21 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
         colormap(t, sourceColors, base);
     }
-    const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
-    const out_colors = expandSourceTriples(sourceColors, renderToSource);
-
     // 1. Reset the position attribute to the un-deformed base. The
     //    morph delta is what carries the deformation; the base must
-    //    stay static or repeated applies stack onto each other.
-    const posAttr = geometry.getAttribute("position");
-    if (posAttr) {
-        (posAttr.array as Float32Array).set(renderBasePositions);
-        posAttr.needsUpdate = true;
-    }
+    //    stay static or repeated applies stack onto each other. A no-op
+    //    (no copy, no upload) when it already holds this base.
+    resetBasePositions(geometry, basePositions, renderToSource);
 
-    // 2. Install the displacement morph attribute. Always replace with
-    //    a fresh BufferAttribute — three.js's WebGLMorphtargets bakes
-    //    morph data into a DataArrayTexture once at allocation and
-    //    only rebuilds the texture when the morph target *count*
-    //    changes (see WebGLMorphtargets.js: `entry.count !==
-    //    morphTargetsCount`). Mutating the existing BufferAttribute's
-    //    array in place is invisible to the GPU. So on step changes
-    //    we additionally fire the geometry's "dispose" event below to
-    //    invalidate the cached morph texture entry; combined with
-    //    fresh BufferAttribute references that triggers a full
-    //    texture rebuild on the next render. Cost on a ~50k-vert FEA
-    //    mesh is one re-upload of position/index/color attributes —
-    //    negligible at human-scale step-change rates.
-    geometry.morphAttributes.position = [
-        new THREE.BufferAttribute(displacement, 3),
-    ];
-    // Additive morphing: position = base + influence * morphAttr.
-    // Without this THREE blends with (1 - influence) on the base.
-    geometry.morphTargetsRelative = true;
+    // 2. The displacement morph, written into the installed attribute in
+    //    place, and the morph texture refreshed WITHOUT the full geometry
+    //    dispose this used to fire -- that deleted every attribute buffer and
+    //    re-uploaded the whole mesh on each step change. See gpuRefresh.ts.
+    //    Additive morphing: position = base + influence * morphAttr.
+    writeMorphTarget(geometry, sourceDisplacement, renderToSource);
 
     // 3. Vertex colours — independent of the morph factor.
-    const existingColor = geometry.getAttribute("color");
-    if (existingColor && existingColor.itemSize === 3) {
-        (existingColor.array as Float32Array).set(out_colors);
-        existingColor.needsUpdate = true;
-    } else {
-        geometry.setAttribute("color", new THREE.BufferAttribute(out_colors, 3));
-    }
+    writeColorAttribute(geometry, sourceColors, renderToSource);
 
     // 4. Seed the influence. Animation drivers (RAF) update this
     //    directly afterwards.
@@ -294,17 +275,21 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
     setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
 
-    geometry.computeVertexNormals();
+    // Base positions only change with the position attribute, so neither do
+    // these: computed once per geometry, not once per step.
+    ensureVertexNormals(geometry);
+}
 
+const scratch = new WeakMap<THREE.BufferGeometry, {sourceDisplacement: Float32Array; sourceColors: Float32Array}>();
 
-    // 6. Force the renderer to rebuild the cached morph DataArrayTexture.
-    //    See the long-form comment on the morphAttributes assignment
-    //    above: the texture is keyed by geometry+count, and step
-    //    changes don't change the count, so we drop the cache by
-    //    dispatching the geometry's 'dispose' event. Three.js's
-    //    WebGLMorphtargets and WebGLGeometries listen for this event
-    //    to clear morph textures + GPU attribute bindings; the next
-    //    render rebuilds them from the fresh BufferAttribute we just
-    //    installed.
-    geometry.dispatchEvent({type: "dispose"});
+function scratchFor(
+    geometry: THREE.BufferGeometry,
+    nPoints: number,
+): {sourceDisplacement: Float32Array; sourceColors: Float32Array} {
+    let s = scratch.get(geometry);
+    if (!s || s.sourceDisplacement.length !== nPoints * 3) {
+        s = {sourceDisplacement: new Float32Array(nPoints * 3), sourceColors: new Float32Array(nPoints * 3)};
+        scratch.set(geometry, s);
+    }
+    return s;
 }

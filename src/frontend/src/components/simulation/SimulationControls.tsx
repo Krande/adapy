@@ -40,6 +40,7 @@ import {
 import {
     load_fea_streaming,
     setBeamSolidsVisible as setBeamSolidsVisibleScene,
+    syncFeaOverlayVisibility,
 } from "@/utils/scene/handlers/load_fea_streaming";
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {followerUrl} from "@/utils/simChannel";
@@ -336,9 +337,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         beamSolidsVisible,
         setBeamSolidsVisible,
         beamSolidsUnavailable,
+        beamSolidEdgesVisible,
+        setBeamSolidEdgesVisible,
         timeHistory,
         envelopeMode,
         setEnvelopeMode,
+        startFramePreload,
+        framePreload,
     } = useFeaAnimationStore();
 
     const edgeFade = usePerfStore((s) => s.edgeFade);
@@ -350,6 +355,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         requestRender();
     };
     const beamSolidsToggle = beamSolidsToggleState(manifest, beamSolidsUnavailable);
+    const onToggleBeamSolidEdges = (next: boolean) => {
+        setBeamSolidEdgesVisible(next);
+        syncFeaOverlayVisibility();
+    };
     const onToggleBeamSolids = (next: boolean) => {
         setBeamSolidsVisible(next);
         setBeamSolidsVisibleScene(next);
@@ -463,8 +472,19 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         });
     };
 
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    const onPlay = () => {
+        setIsPlaying(true);
+        // A time history: load every frame into memory in the background (as many
+        // as the budget holds) so play stops waiting on the network after the first
+        // few frames instead of after the first loop.
+        if (timeHistory) startFramePreload?.();
+    };
+    const onPause = () => {
+        setIsPlaying(false);
+        // Playing may be showing a recorded frame (fea/playbackFrames): repaint it the
+        // ordinary way, so picking, the probe and the legend describe exactly it.
+        if (timeHistory) void applyStep?.(stepIndex);
+    };
     const onStop = () => {
         setIsPlaying(false);
         if (timeHistory) {
@@ -756,6 +776,20 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         >
                             t = {stepTimeText} s
                         </div>
+                        {framePreload && (!framePreload.done || framePreload.total < framePreload.nFrames) && (
+                            <div
+                                className="shrink-0 whitespace-nowrap text-white/70 text-xs font-mono tabular-nums"
+                                title={
+                                    framePreload.total < framePreload.nFrames
+                                        ? "Frames held in memory for smooth playback. The rest do not fit the memory budget and load as they play."
+                                        : "Loading every frame into memory for smooth playback"
+                                }
+                            >
+                                {framePreload.done
+                                    ? `${framePreload.total}/${framePreload.nFrames} frames cached`
+                                    : `caching ${framePreload.loaded}/${framePreload.total}`}
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -884,6 +918,16 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 onChange={(e) => onToggleBeamSolids(e.target.checked)}
                             />
                             <span className="text-gray-300">Beams as solid</span>
+                        </label>
+                    )}
+                    {beamSolidsToggle.offered && beamSolidsToggle.enabled && beamSolidsVisible && (
+                        <label className="flex items-center gap-1" title="Element edges on the beam solids">
+                            <input
+                                type="checkbox"
+                                checked={beamSolidEdgesVisible}
+                                onChange={(e) => onToggleBeamSolidEdges(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Solid edges</span>
                         </label>
                     )}
                 </span>
