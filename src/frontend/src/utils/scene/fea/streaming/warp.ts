@@ -15,7 +15,8 @@ import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchFieldStep} from "@/services/feaFieldBlob";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
-import {expandSourceTriples, sourceVertexIndices} from "../elementLocalGeometry";
+import {elementLocalMap} from "../elementLocalGeometry";
+import {refreshMorphTexture, resetBasePositions, writeMorphTarget} from "../gpuRefresh";
 import {rotationOffsets, translationOffsets, warpValue} from "../warpComponents";
 
 /** Pick the displacement field from the manifest. Frontend reads
@@ -171,19 +172,18 @@ export function installBeamSolidWarp(
     // 172,260 -- and the expansion is cached, so it survives a switch back to a nodal
     // field. A morph sized for the original count is silently ignored by three.js,
     // which is why beam solids sat undeformed while everything around them moved.
-    // `sourceVertexIndices` returns the cached map, or the identity when the geometry
-    // was never expanded, so this is a no-op on the untouched case.
-    const renderToSource = sourceVertexIndices(geom, nVerts);
-    const renderPositions = expandSourceTriples(basePositions, renderToSource);
-    const renderDisplacement = expandSourceTriples(displacement, renderToSource);
+    // `elementLocalMap` returns the cached map, or null when the geometry was never
+    // expanded, in which case every write below is a straight copy.
+    const renderToSource = elementLocalMap(geom);
+    const renderCount = renderToSource ? renderToSource.length : nVerts;
 
     const posAttr = geom.getAttribute("position");
-    if (posAttr && posAttr.count === renderToSource.length) {
-        (posAttr.array as Float32Array).set(renderPositions);
-        posAttr.needsUpdate = true;
+    if (posAttr && posAttr.count === renderCount) {
+        resetBasePositions(geom, basePositions, renderToSource);
     }
-    geom.morphAttributes.position = [new THREE.BufferAttribute(renderDisplacement, 3)];
-    geom.morphTargetsRelative = true;
+    // In place, morph texture refreshed without dropping the attribute buffers
+    // (see gpuRefresh.ts) -- this ran on every step and re-uploaded the solids.
+    writeMorphTarget(geom, displacement, renderToSource);
 
     // Share the main mesh's influences array so a single write to
     // mesh.morphTargetInfluences[0] (manual drag or RAF sweep)
@@ -216,10 +216,6 @@ export function installBeamSolidWarp(
     if (Array.isArray(beamSolid.material)) beamSolid.material.forEach(enableMorph);
     else if (beamSolid.material) enableMorph(beamSolid.material as THREE.Material);
 
-    // Same dispose dance as applyField: drop the cached morph texture
-    // so three.js rebuilds it from the fresh BufferAttribute on the
-    // next render.
-    geom.dispatchEvent({type: "dispose"});
 }
 
 /** Wire the LineSegments wireframe child to share morph attributes
@@ -259,16 +255,10 @@ export function linkLineMorphToMesh(mesh: THREE.Mesh): void {
             (mat as any).morphTargets = true;
             mat.needsUpdate = true;
         }
-        // Mirror the morph-texture rebuild that applyFieldToMesh does
-        // for the parent mesh. lineGeom shares the parent's position
-        // BufferAttribute, so when applyField dispatched 'dispose' on
-        // mesh.geometry, three.js's WebGLAttributes deleted the GPU
-        // buffer for that shared position. lineGeom's VAO still
-        // references the (now-orphaned) buffer ID, which is why the
-        // wireframe vanishes after a step change. Dispatching dispose
-        // here rebuilds lineGeom's VAO + morph texture against the
-        // freshly-uploaded position buffer on the next render. No-op
-        // on the first call (no renderer state yet).
-        lineGeom.dispatchEvent({type: "dispose"});
+        // Rebuild lineGeom's morph texture (the parent's morph data changed) and
+        // its VAO, keeping every attribute buffer -- the position one is SHARED
+        // with the parent, and a full dispose here deleted it for both. See
+        // gpuRefresh.ts.
+        refreshMorphTexture(lineGeom);
     }
 }

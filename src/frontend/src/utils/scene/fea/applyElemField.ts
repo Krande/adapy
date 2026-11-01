@@ -41,13 +41,13 @@ import {recordValueByRange, type ValueByRange} from "./visibleValues";
 import {categoryCodes, distinctValues, isPropertyField, propertyColormap} from "./propertyColors";
 import {
     ensureElementLocalVertices,
-    expandSourceTriples,
     sourceVertexIndices,
 } from "./elementLocalGeometry";
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
 import {segmentRangeIds} from "./lineSegmentIds";
 import {RangeAccumulator} from "./shownRange";
+import {ensureVertexNormals, resetBasePositions, writeMorphTarget} from "./gpuRefresh";
 import {setSourceMorph} from "./sourceMorph";
 import {translationOffsets, warpValue} from "./warpComponents";
 
@@ -399,7 +399,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const renderToSource = nodalAverage
         ? sourceVertexIndices(geometry, n_points)
         : ensureElementLocalVertices(geometry);
-    const renderBasePositions = expandSourceTriples(basePositions, renderToSource);
     const n_render_points = renderToSource.length;
     const n_components = colorField.components.length;
 
@@ -688,11 +687,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     //    applyFieldToMesh: reset to base, install the displacement as
     //    a morph delta, mark the geometry dirty so three.js rebuilds
     //    the morph texture on the next render.
-    const posAttr = geometry.getAttribute("position");
-    if (posAttr) {
-        (posAttr.array as Float32Array).set(renderBasePositions);
-        posAttr.needsUpdate = true;
-    }
+    resetBasePositions(geometry, basePositions, renderToSource);
 
     const sourceDisplacement = new Float32Array(basePositions.length);
     if (warpField && warpStepValues) {
@@ -725,7 +720,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
     setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
 
-    const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
     const markerDisplacement = new Float32Array(markerSourceWeights.length * 3);
     for (let point = 0; point < markerSourceWeights.length; point++) {
         for (const [sourceIdx, weight] of markerSourceWeights[point]) {
@@ -769,10 +763,9 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         const current = Array.from(owner.selectedRanges ?? []);
         if (current.length) restore(current);
     }
-    geometry.morphAttributes.position = [
-        new THREE.BufferAttribute(displacement, 3),
-    ];
-    geometry.morphTargetsRelative = true;
+    // In place, with the morph texture refreshed rather than the whole geometry
+    // disposed. See gpuRefresh.ts.
+    writeMorphTarget(geometry, sourceDisplacement, renderToSource);
 
     // Colour attribute install / replace.
     const existingColor = geometry.getAttribute("color");
@@ -810,7 +803,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         enableShaderFlags(mesh.material as THREE.Material);
     }
 
-    geometry.computeVertexNormals();
-    geometry.dispatchEvent({type: "dispose"});
+    ensureVertexNormals(geometry);
 }
 

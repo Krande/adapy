@@ -35,6 +35,13 @@ export function ensureElementLocalVertices(
     return sourceVertices;
 }
 
+/** The render→source vertex map of an element-local geometry, or null when the
+ *  geometry was never expanded (render numbering IS source numbering). The
+ *  allocation-free counterpart of `sourceVertexIndices`, for per-frame paths. */
+export function elementLocalMap(geometry: THREE.BufferGeometry): Uint32Array | null {
+    return sourceVertexMaps.get(geometry) ?? null;
+}
+
 export function sourceVertexIndices(
     geometry: THREE.BufferGeometry,
     nSourceVertices: number,

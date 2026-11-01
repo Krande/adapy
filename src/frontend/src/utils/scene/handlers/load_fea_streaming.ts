@@ -37,7 +37,8 @@ import {openFeaSession} from "../fea/streaming/sessionSetup";
 import {linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
 import {syncResultSession} from "../fea/streaming/legendSync";
 import {loadFeaWithDefaults} from "../fea/streaming/loadWithDefaults";
-import type {LoadFeaStreamingArgs} from "../fea/streaming/types";
+import type {ApplyStepOptions, LoadFeaStreamingArgs} from "../fea/streaming/types";
+import {prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
 import {paintElemField} from "../fea/streaming/paintElemField";
 import {paintNodeField} from "../fea/streaming/paintNodeField";
 import {followShownRange, notePaintedShown} from "../fea/streaming/shownRangeRepaint";
@@ -76,6 +77,11 @@ let pendingStep: {step: number; run: (step: number) => Promise<void>} | null = n
 // (prefetch the next combination) from a jump (prefetch nothing).
 let lastAppliedSlot: number | null = null;
 let stepDrain: Promise<void> | null = null;
+// The (source, field) the last playback frame fully synced the controls and legend
+// for. While it matches, a playback frame only repaints (see
+// LoadFeaStreamingArgs.playback); any other load clears it, so the first frame
+// after a change -- a new colormap mid-play, a field switch -- syncs again.
+let playbackSyncedFor: string | null = null;
 
 function requestStep(step: number, run: (step: number) => Promise<void>): Promise<void> {
     pendingStep = {step, run};
@@ -138,7 +144,9 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     if (!capabilities.fea.supports("fetchManifest") || !capabilities.fea.supports("fieldFetchers")) {
         throw new Error("This transport cannot serve streamed FEA results");
     }
-    const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
+    const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal, playback = false} = args;
+    const playbackKey = `${sourceName}\u0000${fieldName ?? ""}\u0000${reduction ?? ""}`;
+    if (!playback) playbackSyncedFor = null;
     // Who this load paints for, taken NOW rather than when it lands: an owning
     // mode entered while the fetch is in flight must not be credited with a
     // field the user picked before it, and a mode's own repaint stays its own
@@ -286,8 +294,11 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // drawn (shownRange.ts). A scale pinned at both ends describes nothing measured,
     // and a property keeps its own categorical range.
     const contourNow = useFeaAnimationStore.getState().contour;
+    // Playback holds the scale over every frame: measured per frame, the colours
+    // and the legend jumped on each one.
     const rangeFromShown =
-        !!paintField
+        !playback
+        && !!paintField
         && !envelopeAvailable
         && !isPropertyField(paintField)
         && !(contourNow.min !== null && contourNow.max !== null);
@@ -350,6 +361,19 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     stage("rendering", 0.9);
     throwIfAborted();
 
+    // A playback frame after the first of this play: the morph links below are
+    // all that can have changed. The ghost, the view preferences, the controls,
+    // the legend, the colour owner and the step callback are as the first frame
+    // left them -- and re-running them each frame woke every subscriber of the
+    // store a dozen times per frame.
+    const fastFrame = playback && playbackSyncedFor === playbackKey;
+    if (fastFrame) {
+        linkLineMorphToMesh(active.mesh);
+        if (active.beamSolidMesh) linkLineMorphToMesh(active.beamSolidMesh);
+        stage("ready", 1.0);
+        return;
+    }
+
     // Link the edge overlay's morph state to the mesh's so the
     // wireframe tracks deformation. Idempotent: re-running just
     // re-links, which is fine — the references are stable across
@@ -388,6 +412,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // or one that asked for this load itself. The tag taken at request time
     // says which; a load the mode did not ask for is set aside under it.
     noteFieldSourceLoaded(sourceName, colorOwner);
+    if (playback) playbackSyncedFor = playbackKey;
 
     // applyStep closure captures the *current* (sourceName, manifest,
     // fieldName, reduction). SimulationControls calls this when the
@@ -401,7 +426,17 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // step drag still picks up the latest selection without needing
     // to re-register the callback here.
     if (field) {
-        useFeaAnimationStore.getState().setApplyStep((newStepIndex: number) =>
+        const readAhead = (step: number) =>
+            prefetchFieldSteps({
+                manifest,
+                field,
+                steps: upcomingSteps(step, nSlots),
+                warpEnabled: useFeaAnimationStore.getState().warpEnabled,
+                fetcher,
+                rangeFetcher,
+                cacheKey,
+            });
+        useFeaAnimationStore.getState().setApplyStep((newStepIndex: number, opts?: ApplyStepOptions) =>
             requestStep(newStepIndex, async (step) => {
                 // The influence is read at call time like the colormap, and for the
                 // same reason: without it a step change repainted at the default of
@@ -418,6 +453,8 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
                     const next = nextCaseToPrefetch(mergeCaseSteps(manifest, field), step);
                     if (next !== null) prefetchCase(manifest, {scope, sourceKey: sourceName}, next);
                 }
+                // Playing: read the next frames while this one paints.
+                if (opts?.playback) readAhead(step);
                 await load_fea_streaming({
                     sourceName,
                     manifest,
@@ -425,6 +462,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
                     stepIndex: step,
                     reduction,
                     displacementScale: factor * scaleFactor,
+                    playback: opts?.playback,
                 });
             }),
         );

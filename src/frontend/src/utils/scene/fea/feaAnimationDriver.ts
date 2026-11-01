@@ -129,10 +129,69 @@ function tickTimeHistory(deltaSeconds: number): void {
     if (state.factor !== hi) state.setFactor(hi);
     state.setStepIndex(next);
     historyClock.inFlight = true;
+    const started = performance.now();
     state
-        .applyStep(next)
+        .applyStep(next, {playback: true})
+        .then(() => recordPlaybackFrame(next, started))
         .catch((err) => console.warn("[fea] time-history frame failed", err))
         .finally(() => {
             historyClock.inFlight = false;
         });
+}
+
+// ── playback timing ─────────────────────────────────────────────────────────
+//
+// How long each played frame took from request to painted, so a stutter report
+// comes with numbers: a `fea:frame` entry per frame in the DevTools performance
+// timeline, a one-line summary in the console once per pass through the history,
+// and the rolling figures on `getFeaPlaybackStats()` (also `window.__feaPlayback`).
+
+const PLAYBACK_WINDOW = 120;
+const frameMs: number[] = [];
+let framesSinceReport = 0;
+
+export interface FeaPlaybackStats {
+    frames: number;
+    meanMs: number;
+    p95Ms: number;
+    maxMs: number;
+}
+
+/** Rolling paint latency over the last frames played, or null before any. */
+export function getFeaPlaybackStats(): FeaPlaybackStats | null {
+    if (frameMs.length === 0) return null;
+    const sorted = [...frameMs].sort((a, b) => a - b);
+    const mean = frameMs.reduce((a, b) => a + b, 0) / frameMs.length;
+    return {
+        frames: frameMs.length,
+        meanMs: round1(mean),
+        p95Ms: round1(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]),
+        maxMs: round1(sorted[sorted.length - 1]),
+    };
+}
+
+function recordPlaybackFrame(step: number, started: number): void {
+    const ms = performance.now() - started;
+    frameMs.push(ms);
+    if (frameMs.length > PLAYBACK_WINDOW) frameMs.shift();
+    try {
+        performance.measure("fea:frame", {start: started, duration: ms, detail: {step}});
+    } catch {
+        // An old browser without the options form: the console summary still runs.
+    }
+    const nSteps = useFeaAnimationStore.getState().nSteps;
+    if (++framesSinceReport >= Math.max(1, nSteps)) {
+        framesSinceReport = 0;
+        const stats = getFeaPlaybackStats();
+        // eslint-disable-next-line no-console
+        if (stats) console.info("[fea] playback frame ms", stats);
+    }
+}
+
+function round1(x: number): number {
+    return Math.round(x * 10) / 10;
+}
+
+if (typeof window !== "undefined") {
+    (window as unknown as {__feaPlayback?: () => FeaPlaybackStats | null}).__feaPlayback = getFeaPlaybackStats;
 }

@@ -47,6 +47,23 @@ export interface LoadFeaStreamingArgs {
      *  user clicking Kill in the toast bails out without waiting for
      *  the in-flight fetch (which doesn't itself accept a signal). */
     signal?: AbortSignal;
+    /**
+     * A frame of time-history playback rather than a user's step change.
+     *
+     * The colour scale is held over every frame (the field's own ``scalar_range``)
+     * instead of being re-measured over what each frame shows, so colours mean the
+     * same thing from frame to frame and the legend stands still. And once the first
+     * playback frame has synced the controls and legend, later frames of the same
+     * field only repaint: the view preferences, the ghost, the colour owner and the
+     * step callback cannot have changed between two frames of one play.
+     */
+    playback?: boolean;
+}
+
+/** Options for the step callback the loader registers (``applyStep``). */
+export interface ApplyStepOptions {
+    /** See ``LoadFeaStreamingArgs.playback``. */
+    playback?: boolean;
 }
 
 /** A function that performs one streaming-FEA load. */

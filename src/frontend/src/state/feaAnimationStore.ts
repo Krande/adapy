@@ -2,6 +2,7 @@ import {create} from "zustand";
 
 import type * as THREE from "three";
 import type {FeaManifest} from "@/services/viewerApi";
+import type {ApplyStepOptions} from "@/utils/scene/fea/streaming/types";
 import {DEFAULT_CONTOUR, normaliseLevels, type ContourSettings} from "@/utils/scene/fea/contourScale";
 
 /** State for the streaming-FEA viewer's two-slider control surface:
@@ -181,7 +182,7 @@ export interface FeaAnimationState {
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
      * the updated stepIndex. */
-    applyStep: ((stepIndex: number) => Promise<void>) | null;
+    applyStep: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null;
 
     /** The active field is a time history (``analysis_kind`` "transient"): play
      * advances ``stepIndex`` through the frames instead of sweeping ``factor``. */
@@ -235,7 +236,7 @@ export interface FeaAnimationState {
     setNodalAverage: (smooth: boolean) => void;
     setBeamSolidsVisible: (visible: boolean) => void;
     setBeamSolidsUnavailable: (reason: string | null) => void;
-    setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
+    setApplyStep: (cb: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
     setLegendScope: (scope: FeaAnimationState["legendScope"], label: string | null) => void;
     setAutoRange: (range: [number, number] | null) => void;
