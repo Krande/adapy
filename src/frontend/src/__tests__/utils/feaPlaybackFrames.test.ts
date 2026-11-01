@@ -19,7 +19,7 @@ class FakeBackend implements FrameDisplacementBackend {
   displacementBytes(n: number) { return n * 12; }
   allocate() {}
   store(slot: number, d: Float32Array) { this.stored.set(slot, Float32Array.from(d)); }
-  present(slot: number) { this.presented.push(slot); }
+  present(slot: number, _mesh?: THREE.Mesh, _edges?: readonly THREE.LineSegments[]) { this.presented.push(slot); }
   release() { this.released++; }
   dispose() { this.disposed = true; }
 }
@@ -99,7 +99,7 @@ test("the WebGPU adapter writes the frame into the morph in place for the scene 
   const be = new WebGpuFrameBackend();
   be.allocate(3, 2);
   be.store(1, new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, 9]));
-  be.present(1, mesh, null);
+  be.present(1, mesh, []);
   assert.equal(mesh.geometry.morphAttributes.position[0], morph, "same attribute: the mirror tracks identity");
   assert.ok(morph.version > version, "and version");
   assert.deepEqual(Array.from(morph.array), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -120,4 +120,27 @@ test("the recorded displacement is the warp field's translation slots per source
   const out = sourceDisplacementOf({ field, stepValues: new Float32Array([9, 1, 2, 3, 9, 4, 5, 6]) }, 2);
   assert.deepEqual(Array.from(out), [1, 2, 3, 4, 5, 6]);
   assert.deepEqual(Array.from(sourceDisplacementOf(null, 2)), [0, 0, 0, 0, 0, 0]);
+});
+
+test("a recorded frame moves every source-numbered wireframe, beam lines included", () => {
+  const mesh = triangleMesh();
+  const mk = (name: string, nVerts: number) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(nVerts * 3), 3));
+    const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial());
+    l.name = name;
+    mesh.add(l);
+    return l;
+  };
+  const edges = mk("fea-element-edges", 3);
+  const beams = mk("fea-beam-element-edges", 3);
+  mk("fea-undeformed-ghost", 3); // not one of ours
+  const backend = new FakeBackend();
+  let given: readonly THREE.LineSegments[] = [];
+  backend.present = (_slot: number, _mesh: THREE.Mesh, e: readonly THREE.LineSegments[]) => { given = e; };
+  const rec = new FrameRecorder("k", backend, 3, 3, 0, 10, 256, 1e9);
+  rec.record(0, mesh, new Float32Array(9), null);
+  rec.show(0, mesh, null, 1);
+  assert.deepEqual(given, [edges, beams]);
+  rec.dispose();
 });

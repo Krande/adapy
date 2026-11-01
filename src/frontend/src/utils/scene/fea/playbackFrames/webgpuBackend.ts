@@ -34,11 +34,11 @@ export class WebGpuFrameBackend implements FrameDisplacementBackend {
         this.slots[slot] = Float32Array.from(sourceDisplacement.subarray(0, this.nSource * 3));
     }
 
-    present(slot: number, mesh: THREE.Mesh, edges: THREE.LineSegments | null): void {
+    present(slot: number, mesh: THREE.Mesh, edges: readonly THREE.LineSegments[]): void {
         const disp = this.slots[slot];
         if (!disp) return;
         writeMorphTarget(mesh.geometry, disp, elementLocalMap(mesh.geometry));
-        if (edges) writeMorphTarget(edges.geometry as THREE.BufferGeometry, disp, null);
+        for (const e of edges) writeMorphTarget(e.geometry as THREE.BufferGeometry, disp, null);
     }
 
     release(): void {

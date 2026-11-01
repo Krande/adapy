@@ -25,9 +25,11 @@ import type {FrameDisplacementBackend} from "./backend";
 /** Share of the step-cache budget the recording may take. */
 const BUDGET_SHARE = 0.5;
 
-/** The element-edge wireframe in source numbering, the one child that moves with
- *  the displacement. */
-export const EDGE_CHILD = "fea-element-edges";
+/** The wireframes in source numbering that move with the displacement: the element
+ *  edges and the beam-element lines. The same two the ordinary paint drives
+ *  (setSourceMorph). Missing the second froze every beam of a lattice boom on a
+ *  recorded frame while the shells around it moved. */
+export const SOURCE_EDGE_CHILDREN = ["fea-element-edges", "fea-beam-element-edges"] as const;
 
 interface LineData {
     positions: Float32Array;
@@ -57,12 +59,18 @@ function fromBytes(src: Uint8Array, out: Float32Array): void {
     for (let i = 0; i < out.length; i++) out[i] = src[i] * inv;
 }
 
-/** The source-numbered edge wireframe of `mesh`, when it has one. */
-export function sourceEdges(mesh: THREE.Mesh, nSource: number): THREE.LineSegments | null {
-    const edges = mesh.getObjectByName(EDGE_CHILD);
-    if (!(edges instanceof THREE.LineSegments)) return null;
-    const pos = (edges.geometry as THREE.BufferGeometry).getAttribute("position");
-    return pos && pos.count === nSource ? edges : null;
+/** The source-numbered wireframes of `mesh` (see SOURCE_EDGE_CHILDREN). A child
+ *  with another vertex count is not in source numbering and not ours to move --
+ *  the same test setSourceMorph applies. */
+export function sourceEdges(mesh: THREE.Mesh, nSource: number): THREE.LineSegments[] {
+    const out: THREE.LineSegments[] = [];
+    for (const name of SOURCE_EDGE_CHILDREN) {
+        const edges = mesh.getObjectByName(name);
+        if (!(edges instanceof THREE.LineSegments)) continue;
+        const pos = (edges.geometry as THREE.BufferGeometry).getAttribute("position");
+        if (pos && pos.count === nSource) out.push(edges);
+    }
+    return out;
 }
 
 export class FrameRecorder {

@@ -132,7 +132,7 @@ export class ThreeFrameBackend implements FrameDisplacementBackend {
         this.texture.needsUpdate = true;
     }
 
-    present(slot: number, mesh: THREE.Mesh, edges: THREE.LineSegments | null): void {
+    present(slot: number, mesh: THREE.Mesh, edges: readonly THREE.LineSegments[]): void {
         if (!this.texture) return;
         const geometry = mesh.geometry;
         const nRender = geometry.getAttribute("position")?.count ?? 0;
@@ -144,7 +144,7 @@ export class ThreeFrameBackend implements FrameDisplacementBackend {
             geometry.setAttribute("feaSrc", new THREE.BufferAttribute(values, 1));
         }
         for (const m of materialsOf(mesh)) patchFrameMaterial(m, true);
-        if (edges) for (const m of materialsOf(edges)) patchFrameMaterial(m, false);
+        for (const e of edges) for (const m of materialsOf(e)) patchFrameMaterial(m, false);
         UNIFORMS.feaDispTex.value = this.texture;
         UNIFORMS.feaFrameLayer.value = slot;
         UNIFORMS.feaFramesOn.value = 1;

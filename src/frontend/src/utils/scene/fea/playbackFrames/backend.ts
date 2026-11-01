@@ -34,11 +34,12 @@ export interface FrameDisplacementBackend {
     store(slot: number, sourceDisplacement: Float32Array): void;
 
     /**
-     * Put slot `slot` on `mesh` and its source-numbered element-edge wireframe
-     * (`edges`, null when there is none). The mesh's `morphTargetInfluences[0]` is
-     * the scale, as for the ordinary paint.
+     * Put slot `slot` on `mesh` and on its source-numbered wireframes (`edges`: the
+     * element edges and the beam-element lines -- every child the ordinary paint
+     * gives a source-numbered morph). The mesh's `morphTargetInfluences[0]` is the
+     * scale, as for the ordinary paint.
      */
-    present(slot: number, mesh: THREE.Mesh, edges: THREE.LineSegments | null): void;
+    present(slot: number, mesh: THREE.Mesh, edges: readonly THREE.LineSegments[]): void;
 
     /** Stop presenting: the meshes' own (ordinarily painted) morph applies again. */
     release(): void;
