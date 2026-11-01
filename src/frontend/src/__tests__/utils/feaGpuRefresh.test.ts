@@ -5,6 +5,7 @@ import * as THREE from "three";
 
 import {
   ensureVertexNormals,
+  followMorph,
   refreshMorphTexture,
   resetBasePositions,
   writeColorAttribute,
@@ -145,4 +146,25 @@ test("play reads ahead the next frames, wrapping at the end", () => {
   assert.deepEqual(upcomingSteps(68, 70, 4), [69, 0, 1, 2]);
   assert.deepEqual(upcomingSteps(0, 3, 4), [1, 2]);
   assert.deepEqual(upcomingSteps(0, 1, 4), []);
+});
+
+test("a geometry following another's morph is re-pointed and refreshed with it", () => {
+  const src = new THREE.BufferGeometry();
+  src.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  writeMorphTarget(src, new Float32Array(9).fill(1), null);
+  const overlay = new THREE.BufferGeometry();
+  overlay.setAttribute("position", src.getAttribute("position"));
+  overlay.morphAttributes = {...src.morphAttributes};
+  followMorph(src, overlay);
+  followMorph(src, overlay); // idempotent
+  let dropped = 0;
+  overlay.addEventListener("dispose", () => dropped++);
+
+  writeMorphTarget(src, new Float32Array(9).fill(2), null); // in place
+  assert.equal(dropped, 1, "the overlay's morph texture goes with the mesh's");
+  assert.equal(overlay.getAttribute("position"), src.getAttribute("position"), "its attributes survive");
+
+  writeMorphTarget(src, new Float32Array(12).fill(3), null); // a new attribute
+  assert.equal(overlay.morphAttributes.position, src.morphAttributes.position);
+  assert.equal(dropped, 2);
 });

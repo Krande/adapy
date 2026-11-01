@@ -23,6 +23,42 @@ import * as THREE from "three";
  *  geometry's current `morphAttributes`. Safe on a geometry no renderer has seen:
  *  nobody listens, nothing happens. */
 export function refreshMorphTexture(geometry: THREE.BufferGeometry): void {
+    dropMorphTexture(geometry);
+    const followers = morphFollowers.get(geometry);
+    if (!followers) return;
+    for (const ref of followers) {
+        const follower = ref.deref();
+        if (!follower) {
+            followers.delete(ref);
+            continue;
+        }
+        follower.morphAttributes = {...geometry.morphAttributes};
+        follower.morphTargetsRelative = geometry.morphTargetsRelative;
+        dropMorphTexture(follower);
+    }
+}
+
+/** Geometries that draw `source`'s vertices with `source`'s morph -- the selection
+ *  and face-highlight overlays, which reference the mesh's attributes rather than
+ *  copy them. three.js keeps a morph texture per GEOMETRY, so an in-place morph
+ *  write refreshed the mesh's texture and left theirs at whatever step they were
+ *  built on: the selection drawn away from the element clicked. */
+const morphFollowers = new WeakMap<THREE.BufferGeometry, Set<WeakRef<THREE.BufferGeometry>>>();
+
+/** Keep `follower`'s morph in step with `source`'s: every refreshMorphTexture of
+ *  `source` re-points `follower` at its morph attributes and drops its texture too.
+ *  Idempotent. */
+export function followMorph(source: THREE.BufferGeometry, follower: THREE.BufferGeometry): void {
+    let set = morphFollowers.get(source);
+    if (!set) {
+        set = new Set();
+        morphFollowers.set(source, set);
+    }
+    for (const ref of set) if (ref.deref() === follower) return;
+    set.add(new WeakRef(follower));
+}
+
+function dropMorphTexture(geometry: THREE.BufferGeometry): void {
     const attributes = geometry.attributes;
     const index = geometry.index;
     // Detached for the duration of the event only: WebGLGeometries walks
