@@ -39,6 +39,7 @@ import {syncResultSession} from "../fea/streaming/legendSync";
 import {loadFeaWithDefaults} from "../fea/streaming/loadWithDefaults";
 import type {ApplyStepOptions, LoadFeaStreamingArgs} from "../fea/streaming/types";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
+import {framesKey, noteOrdinaryPaint, recordPlayedFrame, showRecordedFrame} from "../fea/streaming/frameRecording";
 import {FEA_STEP_CACHE} from "@/services/fea/stepCache";
 import {isTimeHistory} from "../fea/timeHistory";
 import {paintElemField} from "../fea/streaming/paintElemField";
@@ -322,6 +323,8 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // displacement output), we clamp to its last step and warn.
     // Field-less FEM meshes (no results) skip all result coloring / warp / step handling —
     // they only need geometry + beam-solids (loaded above). Everything below is field work.
+    // The warp the paint below installs, for recording a played frame.
+    let paintedWarp: Awaited<ReturnType<typeof resolveWarpSource>> = null;
     if (field && paintField) {
     const reductionStr = reduction ?? "magnitude"; // field present -> reduction is meaningful
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
@@ -338,6 +341,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         paintStep,
         warpEnabled,
     );
+    paintedWarp = warpInfo;
 
     if (paintField.per_type && paintField.per_type.length > 0) {
         shownRange = await paintElemField({
@@ -351,6 +355,14 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         });
     }
     } // end if (field)
+    // What is on screen now is this ordinary paint, not a recorded frame. A playback
+    // paint is also recorded, so the next pass through the history can show it
+    // without repainting (fea/playbackFrames).
+    const recKey = framesKey(sourceName, fieldName, reduction);
+    noteOrdinaryPaint(recKey);
+    if (playback && field && paintField && !isCase) {
+        recordPlayedFrame({key: recKey, step: stepIndex, nFrames: nSlots, active, field: paintField, warp: paintedWarp});
+    }
     // Hiding or showing elements from here on re-measures the scale.
     followShownRange();
     followEdgeVisibility();
@@ -375,6 +387,9 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     if (fastFrame) {
         linkLineMorphToMesh(active.mesh);
         if (active.beamSolidMesh) linkLineMorphToMesh(active.beamSolidMesh);
+        // The repaint rebuilt the beam lines visible; beams-as-solid and the colour
+        // toggles decide whether they stay so.
+        syncFeaOverlayVisibility();
         stage("ready", 1.0);
         return;
     }
@@ -497,6 +512,11 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
                 }
                 // Playing: read the next frames while this one paints.
                 if (opts?.playback) readAhead(step);
+                // A frame this play already painted once: show the recording.
+                if (
+                    opts?.playback
+                    && showRecordedFrame(framesKey(sourceName, fieldName, reduction), step, session.active, factor * scaleFactor)
+                ) return;
                 await load_fea_streaming({
                     sourceName,
                     manifest,

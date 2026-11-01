@@ -472,7 +472,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         // few frames instead of after the first loop.
         if (timeHistory) startFramePreload?.();
     };
-    const onPause = () => setIsPlaying(false);
+    const onPause = () => {
+        setIsPlaying(false);
+        // Playing may be showing a recorded frame (fea/playbackFrames): repaint it the
+        // ordinary way, so picking, the probe and the legend describe exactly it.
+        if (timeHistory) void applyStep?.(stepIndex);
+    };
     const onStop = () => {
         setIsPlaying(false);
         if (timeHistory) {

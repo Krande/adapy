@@ -15,6 +15,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelSessionStore} from "@/state/modelSession";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {resetFeaAnimationPhase} from "../feaAnimationDriver";
+import {disposeFrameRecorder} from "../playbackFrames";
 import {clearGoToNode} from "../goToNode";
 
 /** Drop the cached state on next call (e.g. when the user replaces
@@ -33,6 +34,8 @@ export function clearActiveFeaStreaming(): void {
     useFeaAnimationStore.getState().reset();
     useColorStore.getState().setShowLegend(false);
     resetFeaAnimationPhase();
+    // The recorded frames belong to the model that is going.
+    disposeFrameRecorder();
     // Materialised load combinations belong to the bake that was open; a re-open
     // may be a re-solved deck under the same name, so ask again.
     clearCaseCache();
