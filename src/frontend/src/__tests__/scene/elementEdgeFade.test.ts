@@ -3,7 +3,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 
-import {usePerfStore} from "@/state/perfStore";
+import {EDGE_FADE_FULL_PX_DEFAULT, migratePerfState, usePerfStore} from "@/state/perfStore";
 import {fadeWithDensity} from "@/utils/scene/fea/streaming/elementEdges";
 
 test("element edges fade as they crowd together on screen", () => {
@@ -28,7 +28,8 @@ test("element edges fade as they crowd together on screen", () => {
         return (segments.material as THREE.LineBasicMaterial).opacity;
     };
     assert.equal(opacityAt(10), 1); // 50 px apart: full strength
-    assert.ok(Math.abs(opacityAt(100) - (5 - 3) / 5) < 0.02); // 5 px apart: partly faded
+    assert.equal(opacityAt(100), 1); // 5 px apart: the default's full strength
+    assert.ok(Math.abs(opacityAt(200) - (2.5 - 1.875) / (5 - 1.875)) < 0.02); // 2.5 px apart: partly faded
     assert.equal(opacityAt(1000), 0); // half a pixel apart: gone
 });
 
@@ -51,9 +52,9 @@ test("the fade is the same from either side of what is looked at, wherever the m
         (segments.material as THREE.Material).onBeforeRender(renderer, new THREE.Scene(), camera, g, segments, null as never);
         return (segments.material as THREE.LineBasicMaterial).opacity;
     };
-    // 100 units either side of the target: one camera is 40 from the model's centre, the other 140.
-    const fromPlus = opacityFrom(110);
-    const fromMinus = opacityFrom(-90);
+    // 200 units either side of the target: one camera is 140 from the model's centre, the other 240.
+    const fromPlus = opacityFrom(210);
+    const fromMinus = opacityFrom(-190);
     assert.ok(fromPlus > 0 && fromPlus < 1);
     assert.equal(fromPlus, fromMinus);
 });
@@ -69,14 +70,14 @@ test("the fade can be turned off, and where it starts adjusted", () => {
         getPixelRatio: () => 1,
     } as unknown as THREE.WebGLRenderer;
     const camera = new THREE.PerspectiveCamera(90, 1);
-    camera.position.set(0, 0, 100); // unit edges 5 px apart
+    camera.position.set(0, 0, 200); // unit edges 2.5 px apart
     const opacity = () => {
         (segments.material as THREE.Material).onBeforeRender(renderer, new THREE.Scene(), camera, g, segments, null as never);
         return (segments.material as THREE.LineBasicMaterial).opacity;
     };
     try {
         assert.ok(opacity() > 0 && opacity() < 1);
-        usePerfStore.getState().setEdgeFadeFullPx(4); // full strength from 4 px: 5 px apart is full
+        usePerfStore.getState().setEdgeFadeFullPx(2); // full strength from 2 px: 2.5 px apart is full
         assert.equal(opacity(), 1);
         usePerfStore.getState().setEdgeFadeFullPx(40); // gone below 15 px
         assert.equal(opacity(), 0);
@@ -84,6 +85,13 @@ test("the fade can be turned off, and where it starts adjusted", () => {
         assert.equal(opacity(), 1);
     } finally {
         usePerfStore.getState().setEdgeFade(true);
-        usePerfStore.getState().setEdgeFadeFullPx(8);
+        usePerfStore.getState().setEdgeFadeFullPx(EDGE_FADE_FULL_PX_DEFAULT);
     }
+});
+
+test("the default is 5 px, and a stored old default of 8 moves with it", () => {
+    assert.equal(EDGE_FADE_FULL_PX_DEFAULT, 5);
+    assert.equal(migratePerfState({edgeFadeFullPx: 8}, 0).edgeFadeFullPx, 5);
+    assert.equal(migratePerfState({edgeFadeFullPx: 12}, 0).edgeFadeFullPx, 12);
+    assert.equal(migratePerfState({edgeFadeFullPx: 8}, 1).edgeFadeFullPx, 8, "a choice made after the change stays");
 });
