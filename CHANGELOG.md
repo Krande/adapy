@@ -2,6 +2,15 @@
 
 
 
+## v0.129.0 (2026-11-01)
+
+### Feature
+
+* feat: smooth FEA transient playback with recorded frames, beam-solid rotation and edges (#480)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`7e3b9b0`](https://github.com/Krande/adapy/commit/7e3b9b0fcf16d08930f28cdc7995c9e000c58da7))
+
+
 ## v0.128.0 (2026-10-31)
 
 ### Feature
