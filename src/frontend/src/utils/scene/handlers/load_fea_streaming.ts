@@ -38,7 +38,9 @@ import {linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
 import {syncResultSession} from "../fea/streaming/legendSync";
 import {loadFeaWithDefaults} from "../fea/streaming/loadWithDefaults";
 import type {ApplyStepOptions, LoadFeaStreamingArgs} from "../fea/streaming/types";
-import {prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
+import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
+import {FEA_STEP_CACHE} from "@/services/fea/stepCache";
+import {isTimeHistory} from "../fea/timeHistory";
 import {paintElemField} from "../fea/streaming/paintElemField";
 import {paintNodeField} from "../fea/streaming/paintNodeField";
 import {followShownRange, notePaintedShown} from "../fea/streaming/shownRangeRepaint";
@@ -82,6 +84,9 @@ let stepDrain: Promise<void> | null = null;
 // LoadFeaStreamingArgs.playback); any other load clears it, so the first frame
 // after a change -- a new colormap mid-play, a field switch -- syncs again.
 let playbackSyncedFor: string | null = null;
+// The running "load every frame" job, and what it is loading. A load of anything
+// else stops it; asking again for the same field is a no-op.
+let preload: {key: string; abort: AbortController} | null = null;
 
 function requestStep(step: number, run: (step: number) => Promise<void>): Promise<void> {
     pendingStep = {step, run};
@@ -436,6 +441,43 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
                 rangeFetcher,
                 cacheKey,
             });
+        // A different field or source: stop loading the old one's frames.
+        const preloadKey = `${scope}\u0000${sourceName}\u0000${field.name_canonical}`;
+        if (preload && preload.key !== preloadKey) {
+            preload.abort.abort();
+            preload = null;
+            useFeaAnimationStore.getState().setFramePreload(null);
+        }
+        useFeaAnimationStore.getState().setStartFramePreload(
+            isTimeHistory(field, manifest) && nSlots > 1
+                ? () => {
+                    if (preload?.key === preloadKey) return;
+                    const abort = new AbortController();
+                    preload = {key: preloadKey, abort};
+                    const store = useFeaAnimationStore.getState();
+                    void preloadFrames({
+                        manifest,
+                        field,
+                        warpEnabled: store.warpEnabled,
+                        fetcher,
+                        rangeFetcher,
+                        cacheKey,
+                        nFrames: nSlots,
+                        startStep: store.stepIndex,
+                        budgetBytes: FEA_STEP_CACHE.budgetBytes,
+                        signal: abort.signal,
+                        onProgress: (p) => {
+                            if (!abort.signal.aborted) useFeaAnimationStore.getState().setFramePreload(p);
+                        },
+                    }).finally(() => {
+                        // Done (or stopped): the next play may ask again -- cheap
+                        // when the frames are still cached, and right when the cache
+                        // was cleared in between (a model closed and reopened).
+                        if (preload?.abort === abort) preload = null;
+                    });
+                }
+                : null,
+        );
         useFeaAnimationStore.getState().setApplyStep((newStepIndex: number, opts?: ApplyStepOptions) =>
             requestStep(newStepIndex, async (step) => {
                 // The influence is read at call time like the colormap, and for the

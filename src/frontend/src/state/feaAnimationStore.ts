@@ -2,6 +2,7 @@ import {create} from "zustand";
 
 import type * as THREE from "three";
 import type {FeaManifest} from "@/services/viewerApi";
+import type {PreloadProgress} from "@/utils/scene/fea/streaming/prefetch";
 import type {ApplyStepOptions} from "@/utils/scene/fea/streaming/types";
 import {DEFAULT_CONTOUR, normaliseLevels, type ContourSettings} from "@/utils/scene/fea/contourScale";
 
@@ -184,6 +185,14 @@ export interface FeaAnimationState {
      * the updated stepIndex. */
     applyStep: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null;
 
+    /** Starts loading every frame of the shown time history into memory (as many
+     *  as the step-cache budget holds), or null when there is nothing to preload.
+     *  Registered by the loader with ``applyStep``; play calls it. */
+    startFramePreload: (() => void) | null;
+
+    /** How far that preload got, for the transport bar; null before one starts. */
+    framePreload: PreloadProgress | null;
+
     /** The active field is a time history (``analysis_kind`` "transient"): play
      * advances ``stepIndex`` through the frames instead of sweeping ``factor``. */
     timeHistory: boolean;
@@ -238,6 +247,8 @@ export interface FeaAnimationState {
     setBeamSolidsUnavailable: (reason: string | null) => void;
     setApplyStep: (cb: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
+    setStartFramePreload: (cb: (() => void) | null) => void;
+    setFramePreload: (p: PreloadProgress | null) => void;
     setLegendScope: (scope: FeaAnimationState["legendScope"], label: string | null) => void;
     setAutoRange: (range: [number, number] | null) => void;
     setEnvelopeMode: (on: boolean) => void;
@@ -297,6 +308,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     beamSolidsVisible: false,
     beamSolidsUnavailable: null,
     applyStep: null,
+    startFramePreload: null,
+    framePreload: null,
     timeHistory: false,
     legendScope: "all",
     legendScopeLabel: null,
@@ -335,6 +348,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setBeamSolidsUnavailable: (beamSolidsUnavailable) => set({beamSolidsUnavailable}),
     setApplyStep: (cb) => set({applyStep: cb}),
     setTimeHistory: (timeHistory) => set({timeHistory}),
+    setStartFramePreload: (startFramePreload) => set({startFramePreload}),
+    setFramePreload: (framePreload) => set({framePreload}),
     setLegendScope: (legendScope, legendScopeLabel) => set({legendScope, legendScopeLabel}),
     setAutoRange: (autoRange) => set({autoRange}),
     setEnvelopeMode: (envelopeMode) => set({envelopeMode}),
@@ -362,6 +377,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             // model swaps.
             beamSolidsUnavailable: null,
             applyStep: null,
+            startFramePreload: null,
+            framePreload: null,
             timeHistory: false,
             legendScope: "all",
             legendScopeLabel: null,

@@ -277,3 +277,57 @@ def test_an_abaqus_step_states_its_kind(domain, procedure, kind):
     from ada.fem.formats.abaqus.results.sqlite_stream import abaqus_step_kind
 
     assert abaqus_step_kind(domain, procedure) == kind
+
+
+def _kind_manifest(nodal_values, nodal_kind, elem_values, elem_kind=None):
+    import numpy as np
+
+    from ada.fem.results.artefacts import (
+        ElementFieldArtefactMeta,
+        ElementFieldSpec,
+        FieldArtefactMeta,
+        FieldSpec,
+        MeshGeometry,
+        build_manifest,
+    )
+
+    nodal = FieldSpec(
+        "U", ["U1", "U2", "U3"], len(nodal_values), 1, "nodal", list(nodal_values), analysis_kind=nodal_kind
+    )
+    elem = ElementFieldSpec(
+        name="S",
+        components=["S11"],
+        n_steps=len(elem_values),
+        elem_type="quad",
+        n_elements=1,
+        n_ips=1,
+        element_labels=[1],
+        step_values=list(elem_values),
+        analysis_kind=elem_kind,
+    )
+    manifest = build_manifest(
+        src="run.odb",
+        mesh_geom=MeshGeometry(points=np.zeros((1, 3)), cell_blocks=[]),
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=[FieldArtefactMeta(nodal, "fea.U.bin", 12, {"U1": (0.0, 1.0)}, (0.0, 1.0))],
+        elem_field_metas=[
+            ElementFieldArtefactMeta(elem, "fea.S.quad.elements.bin", 4, {"S11": (0.0, 1.0)}, (0.0, 1.0))
+        ],
+    )
+    return {f["name_canonical"]: f["analysis_kind"] for f in manifest["fields"]}
+
+
+def test_an_element_field_at_a_transient_runs_instants_is_transient():
+    """Stress of an explicit run was baked "static" beside its "transient" displacement, so the viewer swept one
+    frame's deformation instead of playing the history."""
+    assert _kind_manifest([0.0, 12.5, 25.0], None, [0.0, 12.5, 25.0]) == {"U": "transient", "S": "transient"}
+
+
+def test_an_element_field_keeps_static_where_the_run_is_not_transient():
+    # Other instants: not the same run's frames.
+    assert _kind_manifest([0.0, 12.5, 25.0], None, [1.0, 2.0, 3.0])["S"] == "static"
+    # A static deck's load cases, and a modal result's stress, stay static.
+    assert _kind_manifest([1.0, 2.0], "static", [1.0, 2.0])["S"] == "static"
+    assert _kind_manifest([1.0, 2.0], "eigen", [1.0, 2.0])["S"] == "static"
+    # What the reader stated wins.
+    assert _kind_manifest([0.0, 1.0], None, [0.0, 1.0], elem_kind="static")["S"] == "static"

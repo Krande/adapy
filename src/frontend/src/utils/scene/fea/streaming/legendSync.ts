@@ -69,7 +69,7 @@ export function syncResultSession(args: {
         animStore.setSessionActive(true);
         const range: [number, number] = field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
         animStore.setRange(range);
-        animStore.setTimeHistory(isTimeHistory(field));
+        animStore.setTimeHistory(isTimeHistory(field, manifest));
         // Only when the caller asked. See ``sliderFactor`` on the argument type:
         // the influence and the slider are different numbers, and equating them
         // moved the indicator on every component change.

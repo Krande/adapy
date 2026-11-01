@@ -339,6 +339,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         timeHistory,
         envelopeMode,
         setEnvelopeMode,
+        startFramePreload,
+        framePreload,
     } = useFeaAnimationStore();
 
     const edgeFade = usePerfStore((s) => s.edgeFade);
@@ -463,7 +465,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         });
     };
 
-    const onPlay = () => setIsPlaying(true);
+    const onPlay = () => {
+        setIsPlaying(true);
+        // A time history: load every frame into memory in the background (as many
+        // as the budget holds) so play stops waiting on the network after the first
+        // few frames instead of after the first loop.
+        if (timeHistory) startFramePreload?.();
+    };
     const onPause = () => setIsPlaying(false);
     const onStop = () => {
         setIsPlaying(false);
@@ -756,6 +764,20 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         >
                             t = {stepTimeText} s
                         </div>
+                        {framePreload && (!framePreload.done || framePreload.total < framePreload.nFrames) && (
+                            <div
+                                className="shrink-0 whitespace-nowrap text-white/70 text-xs font-mono tabular-nums"
+                                title={
+                                    framePreload.total < framePreload.nFrames
+                                        ? "Frames held in memory for smooth playback. The rest do not fit the memory budget and load as they play."
+                                        : "Loading every frame into memory for smooth playback"
+                                }
+                            >
+                                {framePreload.done
+                                    ? `${framePreload.total}/${framePreload.nFrames} frames cached`
+                                    : `caching ${framePreload.loaded}/${framePreload.total}`}
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div className="flex items-center gap-2 flex-1 min-w-0">

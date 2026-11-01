@@ -17,14 +17,56 @@ import type {FeaManifestField} from "@/services/viewerApi";
  * playback runs as fast as the network allows up to this rate, never faster. */
 export const TIME_HISTORY_FPS = 12;
 
-export function isTimeHistory(field: Pick<FeaManifestField, "analysis_kind"> | null | undefined): boolean {
-    return field?.analysis_kind === "transient";
+type KindedField = Pick<FeaManifestField, "analysis_kind"> & {
+    n_steps?: number;
+    support?: string;
+    steps?: ReadonlyArray<{value: number}>;
+};
+
+/**
+ * Whether ``field``'s steps are the frames of a time history.
+ *
+ * Its own ``analysis_kind`` says so, or -- for a bake that left an element field at
+ * the "static" it used to fall back to -- the result does: an element field with
+ * several steps that sit at exactly the instants of a transient nodal field is the
+ * same run sampled at the same frames. Stress and strain of an explicit run were
+ * baked "static" next to a "transient" displacement, so play swept the deformation
+ * of one frame instead of playing the history. ``manifest`` omitted: the field's
+ * own word only.
+ */
+export function isTimeHistory(
+    field: KindedField | null | undefined,
+    manifest?: {fields?: ReadonlyArray<KindedField>} | null,
+): boolean {
+    if (!field) return false;
+    if (field.analysis_kind === "transient") return true;
+    if (field.analysis_kind !== "static" || (field.n_steps ?? 0) <= 1 || !manifest?.fields) return false;
+    if (field.support === "nodal" || !field.steps) return false;
+    return manifest.fields.some(
+        (other) =>
+            other !== field
+            && other.analysis_kind === "transient"
+            && other.support === "nodal"
+            && sameInstants(other.steps, field.steps),
+    );
+}
+
+function sameInstants(
+    a: ReadonlyArray<{value: number}> | undefined,
+    b: ReadonlyArray<{value: number}> | undefined,
+): boolean {
+    if (!a || !b || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i].value !== b[i].value) return false;
+    return true;
 }
 
 /** The step a freshly loaded field opens on: the last frame of a time history, else 0. */
-export function initialStepIndex(field: Pick<FeaManifestField, "analysis_kind" | "n_steps"> | null): number {
-    if (!field || !isTimeHistory(field)) return 0;
-    return Math.max(0, field.n_steps - 1);
+export function initialStepIndex(
+    field: KindedField | null,
+    manifest?: {fields?: ReadonlyArray<KindedField>} | null,
+): number {
+    if (!field || !isTimeHistory(field, manifest)) return 0;
+    return Math.max(0, (field.n_steps ?? 1) - 1);
 }
 
 export interface TimeHistoryClock {

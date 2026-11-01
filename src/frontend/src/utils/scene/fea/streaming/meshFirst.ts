@@ -57,7 +57,7 @@ export function feaOpening(
     const field = defaultResultField(fields);
     return {
         field,
-        stepIndex: initialStepIndex(field),
+        stepIndex: initialStepIndex(field, manifest),
         reduction: field ? field.default_view?.reduction ?? "magnitude" : null,
         displacementScale: 1,
     };

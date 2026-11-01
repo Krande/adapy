@@ -141,44 +141,68 @@ function tickTimeHistory(deltaSeconds: number): void {
 
 // ── playback timing ─────────────────────────────────────────────────────────
 //
-// How long each played frame took from request to painted, so a stutter report
-// comes with numbers: a `fea:frame` entry per frame in the DevTools performance
-// timeline, a one-line summary in the console once per pass through the history,
-// and the rolling figures on `getFeaPlaybackStats()` (also `window.__feaPlayback`).
+// How long each played frame took, so a stutter report comes with numbers:
+//   * paint  -- request to painted: fetch (when not cached) + the CPU colouring kernel;
+//   * shown  -- request to the frame after the next render, which adds what the
+//               renderer does with the paint (the morph texture rebuild, the uploads).
+// A `fea:frame` entry per frame in the DevTools performance timeline, a one-line
+// summary in the console once per pass through the history, and the rolling figures
+// on `getFeaPlaybackStats()` (also `window.__feaPlayback()`).
 
 const PLAYBACK_WINDOW = 120;
-const frameMs: number[] = [];
+const paintMs: number[] = [];
+const shownMs: number[] = [];
 let framesSinceReport = 0;
 
-export interface FeaPlaybackStats {
-    frames: number;
+export interface FeaLatency {
     meanMs: number;
     p95Ms: number;
     maxMs: number;
 }
 
-/** Rolling paint latency over the last frames played, or null before any. */
-export function getFeaPlaybackStats(): FeaPlaybackStats | null {
-    if (frameMs.length === 0) return null;
-    const sorted = [...frameMs].sort((a, b) => a - b);
-    const mean = frameMs.reduce((a, b) => a + b, 0) / frameMs.length;
+export interface FeaPlaybackStats {
+    frames: number;
+    paint: FeaLatency;
+    shown: FeaLatency;
+}
+
+function latency(samples: number[]): FeaLatency {
+    const sorted = [...samples].sort((a, b) => a - b);
+    const mean = samples.reduce((a, b) => a + b, 0) / Math.max(1, samples.length);
     return {
-        frames: frameMs.length,
         meanMs: round1(mean),
-        p95Ms: round1(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]),
-        maxMs: round1(sorted[sorted.length - 1]),
+        p95Ms: round1(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? 0),
+        maxMs: round1(sorted[sorted.length - 1] ?? 0),
     };
 }
 
+/** Rolling frame latencies over the last frames played, or null before any. */
+export function getFeaPlaybackStats(): FeaPlaybackStats | null {
+    if (paintMs.length === 0) return null;
+    return {frames: paintMs.length, paint: latency(paintMs), shown: latency(shownMs.length ? shownMs : paintMs)};
+}
+
+function push(samples: number[], ms: number): void {
+    samples.push(ms);
+    if (samples.length > PLAYBACK_WINDOW) samples.shift();
+}
+
 function recordPlaybackFrame(step: number, started: number): void {
-    const ms = performance.now() - started;
-    frameMs.push(ms);
-    if (frameMs.length > PLAYBACK_WINDOW) frameMs.shift();
-    try {
-        performance.measure("fea:frame", {start: started, duration: ms, detail: {step}});
-    } catch {
-        // An old browser without the options form: the console summary still runs.
-    }
+    const painted = performance.now() - started;
+    push(paintMs, painted);
+    const finish = () => {
+        const shown = performance.now() - started;
+        push(shownMs, shown);
+        try {
+            performance.measure("fea:frame", {start: started, duration: shown, detail: {step, paintMs: painted}});
+        } catch {
+            // An old browser without the options form: the console summary still runs.
+        }
+    };
+    // The first callback runs before the render that draws this paint, the second
+    // after it.
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(finish));
+    else finish();
     const nSteps = useFeaAnimationStore.getState().nSteps;
     if (++framesSinceReport >= Math.max(1, nSteps)) {
         framesSinceReport = 0;

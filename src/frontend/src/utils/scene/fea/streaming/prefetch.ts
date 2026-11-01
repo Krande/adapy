@@ -38,40 +38,115 @@ function warpFieldFor(manifest: FeaManifest, field: FeaManifestField, warpEnable
     return findDisplacementField(manifest);
 }
 
-/**
- * Start fetching the colour and warp values of `steps` of `field` into the step
- * caches. Fire-and-forget: a failure here is not an error -- the frame's own load
- * fetches again and reports it. Combination slots are skipped (the loader already
- * prefetches the next case, and materialising them is not a read).
- */
-export function prefetchFieldSteps(args: {
+/** What the frame fetchers need: the manifest, the field played, the warp
+ *  preference and the transport's fetchers. */
+export interface FrameSource {
     manifest: FeaManifest;
     field: FeaManifestField;
-    steps: number[];
     warpEnabled: boolean;
     fetcher: FeaFetcher;
     rangeFetcher: FeaRangeFetcher;
     cacheKey: string;
-}): void {
-    const {manifest, field, steps, warpEnabled, fetcher, rangeFetcher, cacheKey} = args;
-    const warpField = warpFieldFor(manifest, field, warpEnabled);
-    const ignore = () => undefined;
-    for (const step of steps) {
-        const ref = slotRef(manifest, field, step);
-        if (isCaseRef(ref)) continue;
-        const stored = ref.stored;
-        if (field.per_type && field.per_type.length > 0) {
-            for (const bucket of field.per_type) {
-                fetchElemFieldStep(rangeFetcher, fetcher, bucket, stored, cacheKey).catch(ignore);
-            }
-        } else if (field.blob) {
-            fetchFieldStep(rangeFetcher, fetcher, field, stored, cacheKey).catch(ignore);
+}
+
+/** The fetches that put slot `step` of the played field -- its colour values and
+ *  the displacement that warps it -- into the step caches. Empty for a combination
+ *  slot (the loader prefetches the next case; materialising one is not a read). */
+function frameFetches(src: FrameSource, step: number): Promise<unknown>[] {
+    const {manifest, field, warpEnabled, fetcher, rangeFetcher, cacheKey} = src;
+    const ref = slotRef(manifest, field, step);
+    if (isCaseRef(ref)) return [];
+    const stored = ref.stored;
+    const out: Promise<unknown>[] = [];
+    if (field.per_type && field.per_type.length > 0) {
+        for (const bucket of field.per_type) {
+            out.push(fetchElemFieldStep(rangeFetcher, fetcher, bucket, stored, cacheKey));
         }
-        // The same blob and step as the colour field when it warps itself: the
-        // cache answers the second request with the first one's promise.
-        if (warpField?.blob) {
-            const warpStep = Math.min(stored, warpField.n_steps - 1);
-            fetchFieldStep(rangeFetcher, fetcher, warpField, warpStep, cacheKey).catch(ignore);
-        }
+    } else if (field.blob) {
+        out.push(fetchFieldStep(rangeFetcher, fetcher, field, stored, cacheKey));
     }
+    // The same blob and step as the colour field when it warps itself: the cache
+    // answers the second request with the first one's promise.
+    const warpField = warpFieldFor(manifest, field, warpEnabled);
+    if (warpField?.blob) {
+        out.push(fetchFieldStep(rangeFetcher, fetcher, warpField, Math.min(stored, warpField.n_steps - 1), cacheKey));
+    }
+    return out;
+}
+
+/**
+ * Start fetching `steps` of the played field into the step caches. Fire-and-forget:
+ * a failure here is not an error -- the frame's own load fetches again and reports
+ * it.
+ */
+export function prefetchFieldSteps(args: FrameSource & {steps: number[]}): void {
+    const ignore = () => undefined;
+    for (const step of args.steps) for (const p of frameFetches(args, step)) p.catch(ignore);
+}
+
+/** Bytes one frame of `field` takes in the step caches: its colour values plus the
+ *  displacement that warps it, when that is another field. */
+export function frameBytes(manifest: FeaManifest, field: FeaManifestField, warpEnabled: boolean): number {
+    let bytes = field.per_type?.length
+        ? field.per_type.reduce((sum, bucket) => sum + bucket.blob.stride_bytes, 0)
+        : field.blob?.stride_bytes ?? 0;
+    const warpField = warpFieldFor(manifest, field, warpEnabled);
+    if (warpField && warpField !== field) bytes += warpField.blob?.stride_bytes ?? 0;
+    return bytes;
+}
+
+export interface PreloadProgress {
+    /** Frames in the caches so far. */
+    loaded: number;
+    /** Frames this preload is fetching: every frame, or as many as the budget holds. */
+    total: number;
+    /** Frames in the history. Larger than ``total`` when the budget is the limit. */
+    nFrames: number;
+    done: boolean;
+}
+
+/**
+ * Fetch every frame of a time history into the step caches -- or as many as the
+ * byte budget holds, starting at `startStep` and going forward, which is the order
+ * play will want them in. A few requests at a time; `signal` stops it (a new field,
+ * a new model). Resolves with the final progress.
+ *
+ * After it, play paints from memory from the first frame on instead of from the
+ * second loop on.
+ */
+export async function preloadFrames(
+    src: FrameSource & {
+        nFrames: number;
+        startStep: number;
+        budgetBytes: number;
+        onProgress?: (p: PreloadProgress) => void;
+        signal?: AbortSignal;
+        concurrency?: number;
+    },
+): Promise<PreloadProgress> {
+    const {nFrames, startStep, budgetBytes, onProgress, signal, concurrency = 3} = src;
+    const perFrame = Math.max(1, frameBytes(src.manifest, src.field, src.warpEnabled));
+    // Some headroom: the caches hold more than this one field (the other fields'
+    // shown steps, a case or two).
+    const fits = Math.max(1, Math.floor((budgetBytes * 0.85) / perFrame));
+    const total = Math.min(nFrames, fits);
+    const order: number[] = [];
+    for (let i = 0; i < total; i++) order.push((startStep + i) % nFrames);
+
+    const progress: PreloadProgress = {loaded: 0, total, nFrames, done: false};
+    onProgress?.({...progress});
+    let next = 0;
+    const worker = async () => {
+        while (next < order.length && !signal?.aborted) {
+            const step = order[next++];
+            await Promise.all(frameFetches(src, step)).catch(() => undefined);
+            if (signal?.aborted) return;
+            progress.loaded++;
+            onProgress?.({...progress});
+        }
+    };
+    await Promise.all(Array.from({length: Math.min(concurrency, order.length)}, worker));
+    progress.done = !signal?.aborted;
+    onProgress?.({...progress});
+    return progress;
 }

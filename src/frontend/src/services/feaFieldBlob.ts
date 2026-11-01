@@ -14,6 +14,7 @@
 // Per-step labels and time/freq values live in the manifest, not
 // the blob.
 
+import {FEA_STEP_CACHE} from "./fea/stepCache";
 import {disableFeaRange, feaRangeSupported, localFeaRoute} from "./fea/feaFetcher";
 import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
 import {blobStepIndex, type FeaStepRef} from "./fea/feaStepRef";
@@ -95,7 +96,8 @@ const BLOB_CACHE = new Map<string, Promise<ParsedFeaFieldBlob>>();
 // the fast path. Keyed off the same stable url as BLOB_CACHE plus the
 // step index, so dragging the step slider re-fetches each step at most
 // once and switching back is free.
-const STEP_CACHE = new Map<string, Promise<Float32Array>>();
+// Byte-budgeted and shared with the other step cache: see services/fea/stepCache.ts.
+const STEP_CACHE = FEA_STEP_CACHE;
 
 export function clearFieldBlobCache(): void {
     BLOB_CACHE.clear();
@@ -150,7 +152,7 @@ export async function fetchFieldStep(
         return wholeFallback();
     }
 
-    const stepKey = `${fullKey}::${stepIndex}`;
+    const stepKey = `n::${fullKey}::${stepIndex}`;
     const cached = STEP_CACHE.get(stepKey);
     if (cached) return cached;
 
