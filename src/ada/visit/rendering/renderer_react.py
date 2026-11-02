@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 import re
 import zipfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import trimesh
 
@@ -20,6 +20,10 @@ PICKED_COLOR = Color(0, 123, 255)
 THIS_DIR = pathlib.Path(__file__).parent.absolute()
 ZIP_VIEWER = THIS_DIR / "resources" / "index.zip"
 HASH_FILE = ZIP_VIEWER.with_suffix(".hash")
+
+RenderBackend = Literal["three", "webgpu"]
+#: ``render_backend`` -> the viewer's ``?renderer=`` value.
+RENDER_BACKENDS: dict[str, str] = {"three": "three", "webgpu": "adacpp"}
 
 
 def _strip_absolute_asset_tags(html_content: str) -> str:
@@ -75,15 +79,29 @@ class RendererReact:
 
         hash_file.write_text(hash_content)
 
-    def show(self, target_id=None) -> None | HTML:
+    def show(self, target_id=None, render_backend: RenderBackend | None = None) -> None | HTML:
         import webbrowser
 
         if in_notebook():
             return self.get_notebook_renderer_widget(target_id=target_id)
         else:
-            url = self.local_html_path.resolve().as_uri()  # Converts to 'file:///...' format
+            html_path = self.local_html_path if render_backend is None else self._backend_launcher(render_backend)
+            url = html_path.resolve().as_uri()  # Converts to 'file:///...' format
             # open html file in browser
             webbrowser.open(url)
+
+    def _backend_launcher(self, render_backend: RenderBackend) -> pathlib.Path:
+        """A page that opens the viewer with ``?renderer=``. The query goes in a redirect rather than
+        the opened URL: Windows drops it from a ``file://`` URL handed to the default browser."""
+        if render_backend not in RENDER_BACKENDS:
+            raise ValueError(f"render_backend must be one of {sorted(RENDER_BACKENDS)}, got {render_backend!r}")
+        launcher = self.local_html_path.with_name(f"{self.local_html_path.stem}.{render_backend}.html")
+        target = f"{self.local_html_path.name}?renderer={RENDER_BACKENDS[render_backend]}"
+        launcher.write_text(
+            f'<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url={target}">',
+            encoding="utf-8",
+        )
+        return launcher
 
     def get_html_with_injected_data(
         self,

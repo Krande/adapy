@@ -132,6 +132,14 @@ export async function tryLoadBeamSolids(
         custom.userData.feaBeamSolids = true;
         custom.userData.feaStreaming = true;
         custom.visible = initialVisible;
+        // Pushed back in depth, so the element edges drawn on it win (beamSolidEdges.ts). They
+        // lie exactly on its surface, at an end cap's rim or a profile corner, and lost every
+        // depth comparison to it: built and visible, the overlay drew nothing at all.
+        for (const mat of Array.isArray(custom.material) ? custom.material : [custom.material]) {
+            mat.polygonOffset = true;
+            mat.polygonOffsetFactor = 1;
+            mat.polygonOffsetUnits = 1;
+        }
 
         // Register with the off-thread worker cache so the picker's
         // ``queryMeshDrawRange(unique_key, "node1", faceIndex)`` finds

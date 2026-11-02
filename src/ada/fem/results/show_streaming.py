@@ -27,6 +27,7 @@ from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
+    from ada.visit.rendering.renderer_react import RenderBackend
 
 ENV_FEA_BAKE_DIR = "ADA_FEA_SHOW_BAKE_DIR"
 MANIFEST_NAME = "fea.manifest.json"
@@ -104,8 +105,12 @@ def show_streaming(
     server_exe: pathlib.Path = None,
     server_args: list[str] = None,
     run_ws_in_thread: bool = False,
+    render_backend: RenderBackend | None = None,
 ) -> None:
-    """Bake ``result``, start the websocket server and a viewer if needed, and open the result in it."""
+    """Bake ``result``, start the websocket server and a viewer if needed, and open the result in it.
+
+    ``render_backend`` picks what draws in a viewer this opens (``"webgpu"``: the adacpp renderer); a
+    viewer already connected keeps its own."""
     from ada.comms.wsock.client_sync import WebSocketClientSync
     from ada.visit.renderer_manager import RendererManager
 
@@ -117,6 +122,7 @@ def show_streaming(
         server_exe=server_exe,
         server_args=server_args,
         run_ws_in_thread=run_ws_in_thread,
+        render_backend=render_backend,
     )
     manager.start_server()
     with WebSocketClientSync(host, port) as wc:

@@ -8,6 +8,7 @@ import {
     beamSolidFeatureEdges,
     ensureBeamSolidEdges,
     maskBeamSolidEdges,
+    typicalElementLength,
     warpBeamSolidEdges,
     warpBeamSolidEdgesFromRender,
     type BeamSolidEdgeOwners,
@@ -68,6 +69,50 @@ test("a finely faceted round section is smooth along its length", () => {
     const pairs = beamSolidFeatureEdges(new Float32Array(pos), idx, [[0, idx.length]]);
     // Open prism (no caps): boundary rims only, 16 + 16.
     assert.equal(pairs.length / 2, 32);
+});
+
+test("the fade is measured by element length, not by the short facets of a round section's rims", () => {
+    // A 32-sided tube of radius 0.1, 2 long: its rim facets are ~0.02, the element 2.
+    const n = 32;
+    const pos: number[] = [];
+    const idx: number[] = [];
+    for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * 2 * Math.PI, a1 = ((i + 1) / n) * 2 * Math.PI;
+        const o = pos.length / 3;
+        const r = 0.1;
+        pos.push(r * Math.cos(a0), 0, r * Math.sin(a0), r * Math.cos(a1), 0, r * Math.sin(a1),
+            r * Math.cos(a1), 2, r * Math.sin(a1), r * Math.cos(a0), 2, r * Math.sin(a0));
+        idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    }
+    const positions = new Float32Array(pos);
+    const pairs = beamSolidFeatureEdges(positions, idx, [[0, idx.length]]);
+    const edge = Math.hypot(positions[pairs[0] * 3] - positions[pairs[1] * 3], positions[pairs[0] * 3 + 2] - positions[pairs[1] * 3 + 2]);
+    assert.ok(edge < 0.03, "every edge is a rim facet");
+    assert.ok(Math.abs(typicalElementLength(positions, idx, [[0, idx.length]]) - 2) < 1e-6);
+});
+
+test("with a shell grid, the overlay fades at its spacing; without one, at element length", () => {
+    const solidsOf = () => {
+        const {pos, idx} = box(0, 0);
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+        geom.setIndex(idx);
+        const solids = new THREE.Mesh(geom, new THREE.MeshBasicMaterial()) as unknown as THREE.Mesh & {drawRanges: Map<string, [number, number]>};
+        solids.drawRanges = new Map([["E7", [0, 36]]]);
+        return {solids, base: new Float32Array(pos)};
+    };
+
+    const alone = solidsOf();
+    assert.equal(ensureBeamSolidEdges(alone.solids, alone.base)!.userData.fadeSpacing, 2, "the box's length");
+
+    const main = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    const grid = new THREE.LineSegments();
+    grid.name = "fea-element-edges";
+    grid.userData.fadeSpacing = 0.25;
+    main.add(grid);
+    const withShells = solidsOf();
+    main.add(withShells.solids);
+    assert.equal(ensureBeamSolidEdges(withShells.solids, withShells.base)!.userData.fadeSpacing, 0.25);
 });
 
 test("hidden elements' edges collapse to a point and come back", () => {
