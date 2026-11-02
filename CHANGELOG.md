@@ -2,6 +2,15 @@
 
 
 
+## v0.129.1 (2026-11-02)
+
+### Fix
+
+* fix(viewer): beam-solid edges for every format, WebGPU renderer in the single-file viewer (#481)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`e6558cc`](https://github.com/Krande/adapy/commit/e6558cc5d6c1b43f165c7538e33830bb15a3cb33))
+
+
 ## v0.129.0 (2026-11-01)
 
 ### Feature
