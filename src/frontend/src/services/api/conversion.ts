@@ -237,6 +237,28 @@ export const conversionApi = {
     return true;
   },
 
+  /** Extend a queued or running job's time limit by `seconds` (its owner's, or anyone's for an
+   *  admin). Returns the job's total extension in seconds, or null when the job is missing, not
+   *  the caller's, or already finished. A plugin that bounds its own steps grows them by as much,
+   *  and a run waiting on the job (a sweep) waits as much longer. */
+  async extendMyJob(scope: ScopeUrl, jobId: string, seconds: number): Promise<number | null> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
+        `/my-jobs/${encodeURIComponent(jobId)}/extend`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seconds }),
+      },
+    );
+    if (r.status === 404) return null;
+    const body = await jsonOrThrow<{ job_id: string; extra_seconds: number }>(
+      r,
+      `extendMyJob(${jobId})`,
+    );
+    return body.extra_seconds;
+  },
+
   /** Server-side viable-target listing. The frontend mirrors this
    * mapping client-side too, but this lets us cross-check. */
   async convertTargets(

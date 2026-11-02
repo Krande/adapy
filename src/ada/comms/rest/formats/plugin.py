@@ -24,6 +24,15 @@ from ..worker.source_nodes import _source_nodes_recorder, _SyncStorageFacade
 from .registry import JobContext, SourceFormatHandler, SyntheticFormatHandler
 
 
+class JobLimits:
+    """A running plugin job's time limit as core extends it: ``extra_seconds`` is what has been
+    added to the plugin's own limit since the job started (``audit_log.extra_seconds``), kept
+    current by the worker's poll. Read, never written, by the plugin."""
+
+    def __init__(self) -> None:
+        self.extra_seconds = 0
+
+
 async def _run_plugin_job(
     *,
     job: Job,
@@ -106,6 +115,9 @@ async def _run_plugin_job(
     # observe cooperatively between units of work. A pure-CPU plugin that ignores
     # the event runs to completion unchanged (fully backward-compatible).
     cancel_event = threading.Event()
+    # The same poll carries an extended time limit: what an admin added to the running job
+    # (audit_log.extra_seconds), for a plugin that bounds its own steps to grow them by.
+    job_limits = JobLimits()
 
     async def _cancel_poller() -> None:
         while True:
@@ -115,6 +127,10 @@ async def _run_plugin_job(
                     logger.info("worker: plugin_job %s cancel requested mid-run", job_id)
                     cancel_event.set()
                     return
+                extra = await db_module.audit_extra_seconds(db_pool, job_id)
+                if extra != job_limits.extra_seconds:
+                    logger.info("worker: plugin_job %s time limit extended by %ds in all", job_id, extra)
+                    job_limits.extra_seconds = extra
             except Exception:
                 logger.debug("worker: plugin_job cancel poll failed for %s", job_id, exc_info=True)
 
@@ -134,9 +150,11 @@ async def _run_plugin_job(
         # existed keeps working untouched rather than dying on an unexpected
         # keyword.
         _accepts_source_nodes = "source_nodes" in _sig.parameters or _has_varkw
+        _accepts_limits = "job_limits" in _sig.parameters or _has_varkw
     except (TypeError, ValueError):
         _accepts_cancel = False
         _accepts_source_nodes = False
+        _accepts_limits = False
 
     # --- In-process profiling harness (toggle + per-task filter gated) ------
     # Read the same admin toggle the convert path reads (`profile_conversions`)
@@ -169,6 +187,8 @@ async def _run_plugin_job(
         )
         if _accepts_cancel:
             kwargs["cancel_event"] = cancel_event
+        if _accepts_limits:
+            kwargs["job_limits"] = job_limits
         # A pool where there is one, the API where there is not, and the kwarg
         # left ABSENT when neither is configured. Passing a recorder that
         # cannot reach anything would turn a supported deployment into a

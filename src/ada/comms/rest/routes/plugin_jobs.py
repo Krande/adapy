@@ -397,6 +397,46 @@ async def api_scope_cancel_my_job(
     return JSONResponse({"job_id": job_id, "cancelled": True})
 
 
+#: Most one extend request may add to a job's time limit.
+MAX_EXTEND_STEP_S = 6 * 3600
+
+
+@router.post("/scopes/{scope}/my-jobs/{job_id}/extend")
+async def api_scope_extend_my_job(
+    request: Request,
+    job_id: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Extend a queued or running job's time limit by ``{"seconds": n}``.
+
+    For a job seen nearing its limit with most of its work done: the worker hands the extension
+    to the plugin (``job_limits``), and a run waiting on the job (a sweep) waits as much longer.
+    A plugin that bounds no step of its own is unaffected. The job's owner may extend it; an
+    admin may extend anyone's -- a sweep's jobs belong to whoever started the sweep, or to no one
+    for a scheduled one. Answers ``{"job_id", "extra_seconds"}``: the job's total extension."""
+    try:
+        body = await request.json()
+        seconds = int((body or {}).get("seconds"))
+    except Exception:  # noqa: BLE001 - any malformed body is the same 400
+        raise HTTPException(status_code=400, detail='the body must be {"seconds": <positive integer>}') from None
+    if not 0 < seconds <= MAX_EXTEND_STEP_S:
+        raise HTTPException(status_code=400, detail=f"seconds must be between 1 and {MAX_EXTEND_STEP_S}")
+    pool = require_pool(request)
+    total = await db_module.extend_audit_by_job(
+        pool,
+        job_id=job_id,
+        seconds=seconds,
+        user_sub=None if getattr(user, "is_admin", False) else user.sub,
+    )
+    if total is None:
+        return JSONResponse(
+            {"job_id": job_id, "extended": False, "reason": "not owned, missing, or already terminal"},
+            status_code=404,
+        )
+    return JSONResponse({"job_id": job_id, "extended": True, "extra_seconds": total})
+
+
 @router.get("/scopes/{scope}/my-jobs")
 async def api_scope_my_jobs(
     request: Request,

@@ -143,10 +143,17 @@ class _World:
 
     async def finish(self, pool, run_id, *, status, error=None):
         self.finished = (status, error)
+        return True
 
     async def skip(self, pool, run_id, reason):
         for item in self.items.values():
             item.setdefault("status", "skipped")
+
+    async def pending(self, pool, run_id):
+        # Items re-queued during the run: none, unless a test puts some here.
+        return list(self.requeued)
+
+    requeued: list = []
 
     # Another run holding a collection: collection -> holder, or a callable answering one per try.
     holders: dict = {}
@@ -180,6 +187,7 @@ def install_run_fakes(monkeypatch, w) -> None:
     monkeypatch.setattr(dbm, "claim_asset_sweep_item", w.claim)
     monkeypatch.setattr(dbm, "acquire_asset_worker_slot", w.acquire_slot)
     monkeypatch.setattr(dbm, "release_asset_worker_slot", w.release_slot)
+    monkeypatch.setattr(dbm, "pending_asset_sweep_items", w.pending)
 
 
 @pytest.fixture
@@ -524,6 +532,88 @@ async def test_ticking_collections_on_and_off_against_postgres():
     finally:
         await pool.execute("DELETE FROM asset_sweep_runs WHERE provider = $1", provider)
         await dbm.close_pool(pool)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_requeueing_a_failed_collection_against_postgres():
+    pool = await dbm.init_pool(POSTGRES_URL)
+    provider = f"test-{uuid.uuid4().hex[:8]}"
+    try:
+        run = await dbm.insert_asset_sweep_run(
+            pool,
+            scope="shared",
+            provider=provider,
+            plugin_id="vendor-plugin",
+            job="project-sweep",
+            settings={},
+            collections=["ALPHA", "BETA"],
+            requested_by="tester",
+            requested_via="user",
+        )
+        await dbm.update_asset_sweep_item(pool, run["id"], 0, status="error", error="boom", fetch_job_id="job-a")
+        await dbm.update_asset_sweep_item(pool, run["id"], 1, status="done")
+        # Only a failed item moves; while the run runs it is not reopened.
+        assert await dbm.requeue_asset_sweep_item(pool, run["id"], 1, by="tester") is None
+        got = await dbm.requeue_asset_sweep_item(pool, run["id"], 0, by="tester")
+        assert got["reopened"] is False and got["item"]["fetch_job_id"] == "job-a"
+        assert await dbm.pending_asset_sweep_items(pool, run["id"]) == [(0, "ALPHA")]
+        # A pending item holds the run open: the driver goes round again instead of finishing.
+        assert await dbm.finish_asset_sweep_run(pool, run["id"], status="done") is False
+        await dbm.update_asset_sweep_item(pool, run["id"], 0, status="error", error="boom again")
+        assert await dbm.finish_asset_sweep_run(pool, run["id"], status="error", error="1 failed") is True
+        # A finished run is reopened by a re-queue.
+        got = await dbm.requeue_asset_sweep_item(pool, run["id"], 0, by="tester")
+        assert got["reopened"] is True
+        full = await dbm.get_asset_sweep_run(pool, run["id"])
+        assert full["status"] == "running" and full["error"] is None and full["finished_at"] is None
+        assert full["items"][0]["status"] == "pending" and full["items"][0]["error"] is None
+        # A cancelled run is not.
+        await dbm.update_asset_sweep_item(pool, run["id"], 0, status="error")
+        await dbm.cancel_asset_sweep_run(pool, run["id"])
+        assert await dbm.requeue_asset_sweep_item(pool, run["id"], 0, by="tester") is None
+    finally:
+        await pool.execute("DELETE FROM asset_sweep_runs WHERE provider = $1", provider)
+        await dbm.close_pool(pool)
+
+
+@pytest.mark.asyncio
+async def test_a_collection_requeued_during_the_run_runs_again_before_it_finishes(world, monkeypatch):
+    """A failed collection re-queued while the sweep runs is taken up by a free lane, and the run's
+    outcome is counted from the items: one that now succeeded is no failure."""
+    w = world(
+        fetch_summaries={"ALPHA": {"asset_staging_id": "s-a"}, "BETA": {"asset_staging_id": "s-b"}},
+        fail_staging=frozenset({"s-a"}),
+    )
+    taken = {"n": 0}
+
+    async def pending(pool, run_id):
+        # BETA ran last; ALPHA (which failed) is re-queued by then, and is fixed for its second try.
+        if w.items.get(1, {}).get("status") in ("done", "unchanged") and w.items[0].get("status") == "error":
+            taken["n"] += 1
+            w.items[0]["status"] = "pending"
+            w.fail_staging = frozenset()
+            return [(0, "ALPHA")]
+        return []
+
+    async def count(pool, run_id, status):
+        return sum(1 for i in w.items.values() if i.get("status") == status)
+
+    monkeypatch.setattr(dbm, "pending_asset_sweep_items", pending)
+    monkeypatch.setattr(dbm, "count_asset_sweep_items", count)
+    await sweeps._drive(
+        w.ctx,
+        None,
+        RUN,
+        scope_obj=Scope.shared(),
+        spec=SPEC,
+        entry=SWEEP_ENTRY,
+        collections=["ALPHA", "BETA"],
+        user=None,
+    )
+    assert taken["n"] == 1
+    assert w.items[0]["status"] == "done"
+    assert w.finished == ("done", None)
 
 
 @pytest.mark.asyncio
@@ -1027,9 +1117,13 @@ class _Fleet:
 
     async def finish(self, pool, run_id, *, status, error=None):
         self.items[(run_id, "finished")] = {"status": status, "error": error}
+        return True
 
     async def skip(self, pool, run_id, reason):
         pass
+
+    async def pending(self, pool, run_id):
+        return []
 
     async def claim(self, pool, run_id, position, *, provider, collection):
         mine = self.items[(run_id, position)]
@@ -1067,6 +1161,7 @@ def fleet(monkeypatch):
         monkeypatch.setattr(dbm, "claim_asset_sweep_item", f.claim)
         monkeypatch.setattr(dbm, "acquire_asset_worker_slot", f.acquire)
         monkeypatch.setattr(dbm, "release_asset_worker_slot", f.release)
+        monkeypatch.setattr(dbm, "pending_asset_sweep_items", f.pending)
         monkeypatch.setattr(sweeps, "POLL_INTERVAL_S", 0)
 
         async def budget(ctx, pool, provider, spec, *, fresh=False):

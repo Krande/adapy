@@ -546,6 +546,8 @@ async def _wait(
         # Read here, at call time: a test sets this module's interval to 0.
         poll_s=POLL_INTERVAL_S,
         label=f"asset sweep {run_id}",
+        # A job whose limit an admin extended is waited for as much longer.
+        extension=lambda: db_module.audit_extra_seconds(pool, job_id),
     )
 
 
@@ -588,10 +590,20 @@ async def _drive(
     # lanes have nothing else to start; one still held after BUSY_WAIT_S ends `busy`.
     deferred: dict[int, tuple[str, float]] = {}
     busy_wait = fetch_timeout(entry) + PUBLISH_TIMEOUT_S
+    # Set once an item re-queued during the run (`requeue_asset_sweep_item`) is taken up: the run's
+    # outcome is then counted from the items, not from the lanes' tally of first attempts.
+    requeued = False
 
-    def next_up() -> tuple[int, str] | None:
+    async def next_up() -> tuple[int, str] | None:
+        nonlocal requeued
         for pair in queue:
             return pair
+        # The run's own list is spent: an item re-queued meanwhile is still to do. Two lanes may
+        # pick the same one; the claim lets only one of them run it.
+        for pair in await db_module.pending_asset_sweep_items(pool, run_id):
+            if pair[0] not in deferred:
+                requeued = True
+                return pair
         return None
 
     async def lane() -> None:
@@ -599,7 +611,7 @@ async def _drive(
         # exactly the sequential sweep.
         nonlocal failed
         while True:
-            pair = next_up()
+            pair = await next_up()
             retry = pair is None
             if retry:
                 if not deferred:
@@ -644,29 +656,36 @@ async def _drive(
             ):
                 failed += 1
 
-    try:
-        if width > 1:
-            logger.info("asset sweep %s: %d collections in parallel", run_id, width)
-        outcomes = await asyncio.gather(*(lane() for _ in range(width)), return_exceptions=True)
-        # A cancel seen by one lane is seen by the others on their next poll; a crash in one is
-        # the sweep's crash, after the other lanes finished what they had in flight.
-        for outcome in outcomes:
-            if isinstance(outcome, _Cancelled):
-                raise outcome
-        for outcome in outcomes:
-            if isinstance(outcome, BaseException):
-                raise outcome
-    except _Cancelled:
-        await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep was cancelled")
-        logger.info("asset sweep %s: cancelled", run_id)
-        return
-    except Exception as exc:  # noqa: BLE001 - the driver must always leave the run finished
-        logger.exception("asset sweep %s: driver crashed", run_id)
-        await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep stopped early")
-        await db_module.finish_asset_sweep_run(pool, run_id, status="error", error=f"the sweep crashed: {exc}")
-        return
-    error = f"{failed} of {len(collections)} collection(s) failed" if failed else None
-    await db_module.finish_asset_sweep_run(pool, run_id, status="error" if failed else "done", error=error)
+    if width > 1:
+        logger.info("asset sweep %s: %d collections in parallel", run_id, width)
+    while True:
+        try:
+            outcomes = await asyncio.gather(*(lane() for _ in range(width)), return_exceptions=True)
+            # A cancel seen by one lane is seen by the others on their next poll; a crash in one is
+            # the sweep's crash, after the other lanes finished what they had in flight.
+            for outcome in outcomes:
+                if isinstance(outcome, _Cancelled):
+                    raise outcome
+            for outcome in outcomes:
+                if isinstance(outcome, BaseException):
+                    raise outcome
+        except _Cancelled:
+            await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep was cancelled")
+            logger.info("asset sweep %s: cancelled", run_id)
+            return
+        except Exception as exc:  # noqa: BLE001 - the driver must always leave the run finished
+            logger.exception("asset sweep %s: driver crashed", run_id)
+            await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep stopped early")
+            await db_module.finish_asset_sweep_run(pool, run_id, status="error", error=f"the sweep crashed: {exc}")
+            return
+        if requeued:
+            failed = await db_module.count_asset_sweep_items(pool, run_id, "error")
+        error = f"{failed} of {len(collections)} collection(s) failed" if failed else None
+        if await db_module.finish_asset_sweep_run(pool, run_id, status="error" if failed else "done", error=error):
+            break
+        if await db_module.heartbeat_asset_sweep_run(pool, run_id) != "running":
+            break  # cancelled meanwhile: the cancel already finished the run
+        # An item was re-queued as the lanes finished: go round again for it.
     logger.info("asset sweep %s: %s finished (%s)", run_id, provider, error or "all ok")
     if apply_state is not None:
         # After the finish: a follow-up full export of the collections it left out.
@@ -1311,6 +1330,86 @@ async def admin_asset_sweep_resume(
     except SweepRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JSONResponse(run, status_code=202)
+
+
+async def requeue_sweep_item(ctx: RestContext, pool, run_id: str, position: int, *, user) -> dict:
+    """Run one failed collection of a sweep again (``error`` / ``busy`` / ``skipped``). Returns
+    ``{"requeued": position, "collection", "reopened": bool}``. Raises :class:`SweepRefused` (and
+    LookupError when there is no such run).
+
+    While the sweep runs, its driver takes the item up once a lane is free. A sweep that has
+    finished is reopened and driven on in THIS process, for its pending items only -- the finished
+    ones are not claimed again. An apply-changes run is not reopened: its follow-up after the run
+    has already been queued. An interrupted sweep is resumed instead (which also runs the item)."""
+    run = await db_module.get_asset_sweep_run(pool, run_id)
+    if run is None:
+        raise LookupError(run_id)
+    if run["status"] == "interrupted":
+        raise SweepRefused("that sweep was interrupted -- resume it")
+    if run["status"] not in ("running", "done", "error"):
+        raise SweepRefused(f"that sweep is {run['status']}; start a new one for the collection")
+    found = None
+    if run["status"] != "running":
+        specs, found = await sweep_entry(ctx, run["provider"], run["job"])
+        if not specs:
+            raise SweepRefused(f"no online worker advertises provider {run['provider']!r}")
+        if found is None:
+            raise SweepRefused(f"provider {run['provider']!r} no longer declares the sweep {run['job']!r}")
+        if found[1].get("kind") == APPLY_CHANGES:
+            raise SweepRefused("a finished apply-changes run is not reopened; start a new one")
+    requeued = await db_module.requeue_asset_sweep_item(pool, run_id, position, by=user_label(user))
+    if requeued is None:
+        raise SweepRefused(
+            "only a failed, busy or skipped collection of a running or finished sweep can be re-queued "
+            "-- refresh and look again"
+        )
+    item = requeued["item"]
+    # Its old job is over (it failed, or was skipped and cancelled); cancelling is a no-op then,
+    # and stops a straggler that is not.
+    for job_id in (item.get("fetch_job_id"), item.get("publish_job_id")):
+        if job_id:
+            try:
+                await ctx.jobs.cancel(job_id)
+            except Exception:  # noqa: BLE001 - it runs again either way
+                logger.warning("asset sweep %s: could not cancel job %s", run_id, job_id, exc_info=True)
+    if requeued["reopened"]:
+        spec, entry = found
+        run = await db_module.get_asset_sweep_run(pool, run_id)
+        collections = [i["collection"] for i in sorted(run.pop("items"), key=lambda i: i["position"])]
+        spawn(
+            _drive(
+                ctx, pool, run, scope_obj=PROVIDER_STORE, spec=spec, entry=entry, collections=collections, user=user
+            ),
+            name=f"asset-sweep-{run_id}",
+        )
+    logger.info(
+        "asset sweep %s: %s re-queued by %s%s",
+        run_id,
+        item["collection"],
+        user_label(user),
+        " (the run is reopened)" if requeued["reopened"] else "",
+    )
+    return {"requeued": position, "collection": item["collection"], "reopened": requeued["reopened"]}
+
+
+@admin_router.post("/asset-sweeps/{run_id}/items/{position}/requeue")
+async def admin_asset_sweep_item_requeue(
+    run_id: str,
+    position: int,
+    request: Request,
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Run a failed (or busy, or skipped) collection of a sweep again. 409 when the item cannot be
+    re-queued: not failed, the sweep cancelled or interrupted, or its provider offline."""
+    pool = require_pool(request)
+    try:
+        out = await requeue_sweep_item(ctx, pool, run_id, position, user=user)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="sweep not found") from exc
+    except SweepRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(out, status_code=202)
 
 
 #: Item states in which a sweep's collection is "the one in flight".

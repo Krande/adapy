@@ -8,7 +8,15 @@ import {viewerApi} from "@/services/viewerApi";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
-import {hasRunView, parentRunOf, toastSkipAction, viewToastRun, workerLabel} from "@/services/sweepTracking";
+import {
+    hasRunView,
+    parentRunOf,
+    requeueSweepItems,
+    sweepRequeueTargets,
+    toastSkipAction,
+    viewToastRun,
+    workerLabel,
+} from "@/services/sweepTracking";
 
 // Shared dismiss button. Hit area is 28×28 (Apple HIG min is 44 but
 // the toast is dense; 28 still beats the 24 we shipped with and stays
@@ -163,6 +171,80 @@ const CancelButton: React.FC<{
     );
 };
 
+/** What "Extend" offers: added to the running job's time limit. */
+const EXTEND_STEPS: {label: string; seconds: number}[] = [
+    {label: "+15 min", seconds: 15 * 60},
+    {label: "+30 min", seconds: 30 * 60},
+    {label: "+1 h", seconds: 60 * 60},
+];
+
+/** Extend a running job's time limit -- for one seen near its limit with most of its work done.
+ *  Says the job's total extension once one is made. */
+const ExtendButton: React.FC<{jobId: string; sourceKey: string}> = ({jobId, sourceKey}) => {
+    const [open, setOpen] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [total, setTotal] = useState<number | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+    const current = useScopeStore((s) => s.current);
+
+    const extend = async (seconds: number) => {
+        const scope = current ? scopeUrlPart(current) : null;
+        if (!scope) return;
+        setBusy(true);
+        setErr(null);
+        try {
+            const got = await viewerApi.extendMyJob(scope, jobId, seconds);
+            if (got === null) setErr("not extended: the job is finished, or not yours");
+            else setTotal(got);
+            setOpen(false);
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : String(e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const btn = "bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-sm px-1.5 py-0.5 disabled:opacity-50";
+    return (
+        <div className="flex items-center gap-1 ml-2 text-[11px] shrink-0">
+            {total !== null && !open && (
+                <span className="text-gray-400" title="What this job's time limit has been extended by">
+                    +{Math.round(total / 60)} min
+                </span>
+            )}
+            {open ? (
+                <>
+                    {EXTEND_STEPS.map((s) => (
+                        <button
+                            key={s.seconds}
+                            type="button"
+                            disabled={busy}
+                            className={btn}
+                            onClick={() => void extend(s.seconds)}
+                        >
+                            {s.label}
+                        </button>
+                    ))}
+                    <button type="button" disabled={busy} className={btn} onClick={() => setOpen(false)}>
+                        No
+                    </button>
+                </>
+            ) : (
+                <button
+                    type="button"
+                    className={btn}
+                    title={`Extend the time limit of ${sourceKey}`}
+                    aria-label={`Extend the time limit of ${sourceKey}`}
+                    onClick={() => setOpen(true)}
+                >
+                    Extend
+                </button>
+            )}
+            {err && <span className="text-red-400 break-all">{err}</span>}
+        </div>
+    );
+};
+
 const ErrorRow: React.FC<{
     sourceKey: string;
     message: string;
@@ -273,6 +355,8 @@ const ErrorStack: React.FC<{
                 message={job.error || "(no error message)"}
                 onClear={() => onClear(job.storeKey)}
             />
+            {/* A finished sweep with failed collections: re-queue them from here. */}
+            {job.storeKey.startsWith("sweep:") && !job.storeKey.includes("#") && <RunActions storeKey={job.storeKey}/>}
         </div>
     );
 };
@@ -411,12 +495,54 @@ import type {ConversionJob} from "@/state/conversionStore";
 const RunActions: React.FC<{storeKey: string}> = ({storeKey}) => {
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const [requeueOpen, setRequeueOpen] = useState(false);
     const skip = toastSkipAction(storeKey);
     const canView = hasRunView(storeKey);
-    if (!skip && !canView) return null;
+    const failed = sweepRequeueTargets(storeKey);
+    if (!skip && !canView && failed.length === 0) return null;
     const btn = "bg-gray-700 hover:bg-gray-600 text-gray-100 px-1.5 py-0.5 rounded-sm text-[11px] disabled:opacity-50";
+    const requeue = (positions: number[]) => {
+        setBusy(true);
+        setErr(null);
+        requeueSweepItems(storeKey, positions)
+            .then(() => setRequeueOpen(false))
+            .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+            .finally(() => setBusy(false));
+    };
     return (
         <div className="flex flex-wrap items-center gap-1">
+            {failed.length > 0 && (
+                <button
+                    type="button"
+                    className={btn}
+                    disabled={busy}
+                    title="Run failed collections of this sweep again"
+                    onClick={() => setRequeueOpen(!requeueOpen)}
+                >
+                    Re-queue failed ({failed.length}) {requeueOpen ? "▾" : "▸"}
+                </button>
+            )}
+            {requeueOpen && failed.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1 w-full max-h-24 overflow-auto">
+                    {failed.length > 1 && (
+                        <button type="button" className={btn} disabled={busy} onClick={() => requeue(failed.map((f) => f.position))}>
+                            All
+                        </button>
+                    )}
+                    {failed.map((f) => (
+                        <button
+                            key={f.position}
+                            type="button"
+                            className={btn}
+                            disabled={busy}
+                            title={`Run ${f.collection} again`}
+                            onClick={() => requeue([f.position])}
+                        >
+                            {f.collection}
+                        </button>
+                    ))}
+                </div>
+            )}
             {canView && (
                 <button type="button" className={btn} title="Open the run's table" onClick={() => viewToastRun(storeKey)}>
                     View run
@@ -452,7 +578,8 @@ const JobRow: React.FC<{
 }> = ({job, onCancel, showCancel, storeKey}) => {
     const pct = Math.round((job.progress || 0) * 100);
     const isCancellable = job.status === "queued" || job.status === "running";
-    const isRun = !!storeKey && (storeKey.startsWith("sweep:") || storeKey.startsWith("export:"));
+    const isRun =
+        !!storeKey && (storeKey.startsWith("sweep:") || storeKey.startsWith("export:")) && !storeKey.includes("#");
     // A watched run's worker job is named by the item it runs, not by its internal source key.
     const label = workerLabel(job.jobId) ?? job.sourceKey;
     return (
@@ -464,6 +591,9 @@ const JobRow: React.FC<{
                 <span className="ml-2 text-gray-400 shrink-0">
                     {STATUS_LABEL[job.status] || job.status} {pct}%
                 </span>
+                {showCancel && job.extendable && job.status === "running" && !!job.jobId && (
+                    <ExtendButton jobId={job.jobId} sourceKey={job.sourceKey}/>
+                )}
                 {showCancel && isCancellable && (
                     <CancelButton
                         sourceKey={job.sourceKey}
@@ -513,10 +643,14 @@ const ConversionRows: React.FC<{
     // would otherwise push it into the collapsed "+N more".
     // A bounds or attributes request and an operation are runs too (their steps are worker rows), without the
     // runs-list actions.
+    // `<run key>#<position>` is one of the run's worker entries, not a run.
     const isRunKey = (k: string) =>
-        k.startsWith("sweep:") ||
-        k.startsWith("export:") ||
-        ((k.startsWith("bounds:") || k.startsWith("attrs:") || k.startsWith("op:")) && !k.includes("#"));
+        (k.startsWith("sweep:") ||
+            k.startsWith("export:") ||
+            k.startsWith("bounds:") ||
+            k.startsWith("attrs:") ||
+            k.startsWith("op:")) &&
+        !k.includes("#");
     const sorted = [...jobs].sort(
         (a, b) => Number(isRunKey(b.storeKey)) - Number(isRunKey(a.storeKey)) || b.startedAt - a.startedAt,
     );

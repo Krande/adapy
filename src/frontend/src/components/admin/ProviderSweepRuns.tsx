@@ -3,7 +3,7 @@ import React, {useCallback, useEffect, useRef, useState} from "react";
 import {itemChoiceLines, type CollectionChoiceDecl} from "@/assets/collectionChoices";
 import type {SweepItem, SweepRun} from "@/services/viewerApi";
 import {ApiError, viewerApi} from "@/services/viewerApi";
-import {sweepSkipTarget, trackSweep, untrackSweep} from "@/services/sweepTracking";
+import {REQUEUE_FROM, isSweepTracked, sweepSkipTarget, trackSweep, untrackSweep} from "@/services/sweepTracking";
 import {useRunFocusStore} from "@/state/runFocusStore";
 import {useConversionStore} from "@/state/conversionStore";
 
@@ -240,10 +240,13 @@ const SweepItems: React.FC<{
     choiceDecls: CollectionChoiceDecl[];
     onSkip: (position: number) => void;
     onToggleRun: (position: number, on: boolean) => void;
-}> = ({run, choiceDecls, onSkip, onToggleRun}) => {
+    onRequeue: (position: number) => void;
+}> = ({run, choiceDecls, onSkip, onToggleRun, onRequeue}) => {
     // Only the item in flight can be skipped, and only once: a pending skip shows as "skipping…"
     // until the sweep carries it out (the item then ends `skipped`, "skipped by <user>").
     const skipAt = sweepSkipTarget(run);
+    // A failed collection of a running or finished sweep can run again (a finished one reopens).
+    const canRequeue = ["running", "done", "error"].includes(run.status);
     const items = run.items ?? [];
     const sums = COLUMNS.map((c) => items.reduce((acc, i) => acc + (c.get(i) ?? 0), 0));
     return (
@@ -302,6 +305,16 @@ const SweepItems: React.FC<{
                                         onClick={() => onSkip(i.position)}
                                     >
                                         Skip
+                                    </button>
+                                )}
+                                {canRequeue && REQUEUE_FROM.has(i.status) && (
+                                    <button
+                                        type="button"
+                                        className="ml-1 border border-gray-700 hover:bg-gray-800 px-1 rounded-sm text-gray-200"
+                                        title="Run this collection again (a finished sweep is reopened for it)"
+                                        onClick={() => onRequeue(i.position)}
+                                    >
+                                        Re-queue
                                     </button>
                                 )}
                             </td>
@@ -470,6 +483,23 @@ const ProviderSweepRuns: React.FC<{
             try {
                 await viewerApi.adminSetAssetSweepItemRun(id, position, on);
                 setError(null);
+            } catch (e) {
+                setError(errText(e));
+            }
+            await openRun(id);
+            await load();
+        },
+        [load, openRun],
+    );
+
+    /** Run a failed collection again; the run is re-read either way, so a 409 shows why not. A
+     *  watched run that had finished is watched again (it is reopened). */
+    const requeue = useCallback(
+        async (id: string, position: number) => {
+            try {
+                const out = await viewerApi.adminRequeueAssetSweepItem(id, position);
+                setError(null);
+                if (out.reopened && isSweepTracked(id)) trackSweep(id, useConversionStore.getState().jobs[`sweep:${id}`]?.sourceKey ?? id);
             } catch (e) {
                 setError(errText(e));
             }
@@ -658,6 +688,7 @@ const ProviderSweepRuns: React.FC<{
                                 choiceDecls={choiceDecls}
                                 onSkip={(position) => void skip(r.id, position)}
                                 onToggleRun={(position, on) => void toggleRun(r.id, position, on)}
+                                onRequeue={(position) => void requeue(r.id, position)}
                             />
                         )}
                         {open?.id === r.id && comparedWith(open) && <CompareGalleryToggle run={open} />}

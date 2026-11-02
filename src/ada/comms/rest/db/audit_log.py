@@ -196,6 +196,43 @@ async def audit_is_cancelled(pool: asyncpg.Pool, job_id: str) -> bool:
     return row is not None
 
 
+#: Most a job's time limit may be extended by in total.
+MAX_EXTRA_SECONDS = 24 * 3600
+
+
+async def extend_audit_by_job(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str,
+    seconds: int,
+    user_sub: str | None,
+) -> int | None:
+    """Add ``seconds`` to a queued or running job's time limit. Returns the job's total extension,
+    or None when no row was updated (missing, terminal, or -- with ``user_sub`` -- someone else's).
+
+    ``user_sub=None`` is the admin path: the route decides who may pass it. Bounded at
+    :data:`MAX_EXTRA_SECONDS` in total, so a slip of the finger cannot keep a job alive for ever."""
+    sql = """
+        UPDATE audit_log
+        SET extra_seconds = LEAST(extra_seconds + $2, $3)
+        WHERE job_id = $1
+          AND status IN ('queued', 'running')
+    """
+    args: list = [job_id, int(seconds), MAX_EXTRA_SECONDS]
+    if user_sub is not None:
+        sql += " AND user_sub = $4"
+        args.append(user_sub)
+    sql += " RETURNING extra_seconds"
+    row = await pool.fetchrow(sql, *args)
+    return int(row["extra_seconds"]) if row is not None else None
+
+
+async def audit_extra_seconds(pool: asyncpg.Pool, job_id: str) -> int:
+    """What the job's time limit has been extended by (0 when never, or no row)."""
+    row = await pool.fetchrow("SELECT extra_seconds FROM audit_log WHERE job_id = $1 LIMIT 1", job_id)
+    return int(row["extra_seconds"] or 0) if row is not None else 0
+
+
 async def get_audit_owner_by_job(pool: asyncpg.Pool, job_id: str) -> dict | None:
     """Return ``{user_sub, scope_kind, scope_id, audit_run_id, status}``
     for the audit row tied to ``job_id``, or ``None`` if absent.

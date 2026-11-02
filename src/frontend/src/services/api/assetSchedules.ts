@@ -376,6 +376,20 @@ export const assetSchedulesApi = {
     return jsonOrThrow(r, "adminSkipAssetSweepItem");
   },
 
+  /** Run a failed (or busy, or skipped) collection of a sweep again. A running sweep takes it up
+   *  once a lane is free; a finished one is reopened (`reopened`). 409 when the item cannot be
+   *  re-queued: not failed, the sweep cancelled or interrupted, or its provider offline. */
+  async adminRequeueAssetSweepItem(
+    id: string,
+    position: number,
+  ): Promise<{ requeued: number; collection: string; reopened: boolean }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-sweeps/${encodeURIComponent(id)}/items/${position}/requeue`,
+      json("POST", {}),
+    );
+    return jsonOrThrow(r, "adminRequeueAssetSweepItem");
+  },
+
   /** Tick a collection the running sweep has not reached on (`run: true`) or off. 409 once the
    *  sweep has reached it. */
   async adminSetAssetSweepItemRun(id: string, position: number, run: boolean): Promise<{ status: string }> {

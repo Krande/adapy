@@ -93,6 +93,8 @@ const EXPECTED_METHODS = [
   "nodeAttributes", "collectionNodes", "attributesRequestPermission", "requestAttributes", "attributesRequestRun",
   // Sweep run checkboxes and default lists, and the export's missing-geometry pre-flight.
   "adminAssetSweepDefaults", "adminSetAssetSweepDefaults", "adminSetAssetSweepItemRun", "exportPreflight",
+  // A failed sweep collection run again, and a running job's time limit extended.
+  "adminRequeueAssetSweepItem", "extendMyJob",
   // The mesh export's preflight and the tree request it offers.
   "meshExportPreflight", "requestTrees", "treeRequestRun",
   // Admin -> Database (adminDb).
