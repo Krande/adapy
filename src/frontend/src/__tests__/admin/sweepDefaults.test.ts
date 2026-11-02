@@ -19,7 +19,7 @@ globals.sessionStorage = storage;
 globals.localStorage = storage;
 
 const {excludedWithAll, toggledExcluded} = await import("@/components/admin/SweepDefaults");
-const {canToggleRun} = await import("@/components/admin/ProviderSweepRuns");
+const {canToggleRun, inFlightJobOf} = await import("@/components/admin/ProviderSweepRuns");
 
 test("toggling a default keeps the excluded list sorted and unique", () => {
     assert.deepEqual(toggledExcluded(["BETA"], "ALPHA", false), ["ALPHA", "BETA"]);
@@ -40,4 +40,14 @@ test("only collections a running sweep has not reached can be ticked on or off",
     assert.equal(canToggleRun(running, item("excluded")), true);
     for (const s of ["fetching", "publishing", "done", "error", "skipped"]) assert.equal(canToggleRun(running, item(s)), false);
     assert.equal(canToggleRun({status: "cancelled"} as never, item("pending")), false);
+});
+
+test("Extend targets the job an item has in flight: its fetch, then its publish", () => {
+    const item = (status: string, fetch: string | null, publish: string | null) =>
+        ({status, fetch_job_id: fetch, publish_job_id: publish}) as never;
+    assert.equal(inFlightJobOf(item("fetching", "f1", null)), "f1");
+    assert.equal(inFlightJobOf(item("publishing", "f1", "p1")), "p1");
+    // Publishing before its job is recorded: the fetch job is still the item's.
+    assert.equal(inFlightJobOf(item("publishing", "f1", null)), "f1");
+    for (const s of ["pending", "done", "error", "skipped"]) assert.equal(inFlightJobOf(item(s, "f1", "p1")), null);
 });

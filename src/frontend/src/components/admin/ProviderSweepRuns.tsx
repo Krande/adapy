@@ -20,6 +20,7 @@ import {
     prebuildOf,
 } from "./applyChangesItem";
 import GeometryCompareGallery from "./GeometryCompareGallery";
+import ExtendJobButton from "@/components/conversion/ExtendJobButton";
 
 // Admin → Providers → a provider's sweeps: every collection, one job each, each published -- and
 // what every phase of each took. See `routes/asset_sweeps.py`.
@@ -235,6 +236,82 @@ const ItemChoices: React.FC<{item: SweepItem; decls: CollectionChoiceDecl[]}> = 
     );
 };
 
+/** An item's result as one line: its live stage while in flight, else its error, else its revision
+ *  and message. The compact row shows it truncated; the detail panel shows it whole. */
+function resultLine(i: SweepItem): {text: string; tone: string} {
+    if (i.stage || i.progress != null) {
+        let text = i.job_status === "queued" ? "waiting for a worker" : String(i.stage ?? i.job_status ?? "");
+        if (i.progress != null) text += ` — ${Math.round(i.progress * 100)}%`;
+        if (i.started_at) text += ` (${duration(Date.now() - Date.parse(i.started_at))})`;
+        return {text, tone: "text-blue-300"};
+    }
+    if (i.error) return {text: i.error, tone: "text-red-300"};
+    if (i.status === NO_FULL_EXPORT) return {text: i.message ?? "", tone: "text-amber-300"};
+    const text = `${i.revision ?? ""}${i.message ? `${i.revision ? " — " : ""}${i.message}` : ""}`;
+    return {text, tone: "text-gray-400"};
+}
+
+/** The job an item has in flight -- the one whose time limit "Extend" grows -- or null. */
+export function inFlightJobOf(i: SweepItem): string | null {
+    if (i.status !== "fetching" && i.status !== "publishing") return null;
+    return (i.status === "publishing" && i.publish_job_id) || i.fetch_job_id || null;
+}
+
+const ACTION_BTN = "border border-gray-700 hover:bg-gray-800 px-1.5 rounded-sm text-gray-200";
+
+/** An expanded item: what can be done to it (skip, re-queue, extend its job's time limit) and the
+ *  whole of what it did -- the full result, its jobs, per-target outcomes, choices, pre-build. */
+const SweepItemDetail: React.FC<{
+    run: SweepRun;
+    item: SweepItem;
+    choiceDecls: CollectionChoiceDecl[];
+    canSkip: boolean;
+    canRequeue: boolean;
+    onSkip: () => void;
+    onRequeue: () => void;
+}> = ({run, item: i, choiceDecls, canSkip, canRequeue, onSkip, onRequeue}) => {
+    const jobId = run.status === "running" ? inFlightJobOf(i) : null;
+    const result = resultLine(i);
+    const jobs = [
+        i.fetch_job_id && `fetch ${i.fetch_job_id}`,
+        i.publish_job_id && `publish ${i.publish_job_id}`,
+    ].filter(Boolean);
+    return (
+        <div className="space-y-1 py-1 pl-4 border-l-2 border-gray-700" data-testid="sweep-item-detail">
+            <div className="flex flex-wrap items-center gap-1.5">
+                {canSkip && (
+                    <button
+                        type="button"
+                        className={ACTION_BTN}
+                        title="Give up on this collection and carry on with the next (the sweep keeps going)"
+                        onClick={onSkip}
+                    >
+                        Skip
+                    </button>
+                )}
+                {canRequeue && (
+                    <button
+                        type="button"
+                        className={ACTION_BTN}
+                        title="Run this collection again (a finished sweep is reopened for it)"
+                        onClick={onRequeue}
+                    >
+                        Re-queue
+                    </button>
+                )}
+                {jobId && <ExtendJobButton key={jobId} jobId={jobId} label={i.collection} scope={run.scope ?? "shared"} className="" />}
+                {!canSkip && !canRequeue && !jobId && <span className="text-gray-500">No actions for a {i.status} collection.</span>}
+            </div>
+            {result.text && <div className={`${result.tone} break-words`}>{result.text}</div>}
+            {jobs.length > 0 && <div className="font-mono text-gray-500">{jobs.join(" · ")}</div>}
+            <ApplyChangesResult item={i} />
+            <SweepTargets item={i} />
+            <ItemChoices item={i} decls={choiceDecls} />
+            <PrebuildResult item={i} />
+        </div>
+    );
+};
+
 const SweepItems: React.FC<{
     run: SweepRun;
     choiceDecls: CollectionChoiceDecl[];
@@ -247,8 +324,17 @@ const SweepItems: React.FC<{
     const skipAt = sweepSkipTarget(run);
     // A failed collection of a running or finished sweep can run again (a finished one reopens).
     const canRequeue = ["running", "done", "error"].includes(run.status);
+    // Rows stay one line; a click opens the item's actions and its full result beneath it.
+    const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+    const toggle = (position: number) =>
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            if (!next.delete(position)) next.add(position);
+            return next;
+        });
     const items = run.items ?? [];
     const sums = COLUMNS.map((c) => items.reduce((acc, i) => acc + (c.get(i) ?? 0), 0));
+    const span = 3 + COLUMNS.length + 1;
     return (
         <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
@@ -260,7 +346,9 @@ const SweepItems: React.FC<{
                         >
                             Run
                         </th>
-                        <th className="px-1.5 py-1 font-normal">Collection</th>
+                        <th className="px-1.5 py-1 font-normal" title="Click a row for its actions and full result">
+                            Collection
+                        </th>
                         <th className="px-1.5 py-1 font-normal">Status</th>
                         {COLUMNS.map((c) => (
                             <th key={c.key} className="px-1.5 py-1 font-normal text-right" title={c.hint}>
@@ -271,83 +359,76 @@ const SweepItems: React.FC<{
                     </tr>
                 </thead>
                 <tbody>
-                    {items.map((i) => (
-                        <tr key={i.position} className="border-t border-gray-800 align-top">
-                            <td className="px-1.5 py-1">
-                                <input
-                                    type="checkbox"
-                                    aria-label={`Run ${i.collection}`}
-                                    checked={i.status !== "excluded"}
-                                    disabled={!canToggleRun(run, i)}
-                                    onChange={(e) => onToggleRun(i.position, e.target.checked)}
-                                />
-                            </td>
-                            <td className="px-1.5 py-1 font-mono">{i.collection}</td>
-                            <td className={`px-1.5 py-1 ${STATUS_TONE[i.status] ?? ""}`}>
-                                {i.status === NO_FULL_EXPORT ? (
-                                    <span
-                                        className="px-1 rounded-sm border border-amber-600 text-amber-300 text-[10px] uppercase tracking-wide"
-                                        title={i.message ?? "This collection has not had a full project export yet; it was not asked for changes"}
-                                        data-testid="no-full-export-badge"
-                                    >
-                                        no full export
-                                    </span>
-                                ) : (
-                                    i.status
+                    {items.map((i) => {
+                        const isOpen = expanded.has(i.position);
+                        const result = resultLine(i);
+                        const requeueable = canRequeue && REQUEUE_FROM.has(i.status);
+                        return (
+                            <React.Fragment key={i.position}>
+                                <tr
+                                    className="border-t border-gray-800 cursor-pointer hover:bg-gray-800/40"
+                                    aria-expanded={isOpen}
+                                    data-testid="sweep-item-row"
+                                    onClick={() => toggle(i.position)}
+                                >
+                                    <td className="px-1.5 py-1" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                            type="checkbox"
+                                            aria-label={`Run ${i.collection}`}
+                                            checked={i.status !== "excluded"}
+                                            disabled={!canToggleRun(run, i)}
+                                            onChange={(e) => onToggleRun(i.position, e.target.checked)}
+                                        />
+                                    </td>
+                                    <td className="px-1.5 py-1 font-mono whitespace-nowrap">
+                                        <span className="text-gray-500">{isOpen ? "▾" : "▸"}</span> {i.collection}
+                                    </td>
+                                    <td className={`px-1.5 py-1 whitespace-nowrap ${STATUS_TONE[i.status] ?? ""}`}>
+                                        {i.status === NO_FULL_EXPORT ? (
+                                            <span
+                                                className="px-1 rounded-sm border border-amber-600 text-amber-300 text-[10px] uppercase tracking-wide"
+                                                title={i.message ?? "This collection has not had a full project export yet; it was not asked for changes"}
+                                                data-testid="no-full-export-badge"
+                                            >
+                                                no full export
+                                            </span>
+                                        ) : (
+                                            i.status
+                                        )}
+                                        {i.timings.login?.mode && <span className="text-gray-500"> ({i.timings.login.mode})</span>}
+                                        {run.skip_position === i.position && <span className="text-amber-300"> skipping…</span>}
+                                        {requeueable && !isOpen && (
+                                            <span className="text-gray-500" title="Can be re-queued: click the row"> ↻</span>
+                                        )}
+                                    </td>
+                                    {COLUMNS.map((c) => (
+                                        <td key={c.key} className="px-1.5 py-1 text-right tabular-nums whitespace-nowrap">
+                                            {duration(c.get(i))}
+                                            {c.note?.(i) && <span className="text-gray-500"> {c.note(i)}</span>}
+                                        </td>
+                                    ))}
+                                    <td className={`px-1.5 py-1 max-w-[24rem] truncate ${result.tone}`} title={result.text}>
+                                        {result.text}
+                                    </td>
+                                </tr>
+                                {isOpen && (
+                                    <tr className="bg-gray-900/40">
+                                        <td className="px-1.5 pb-1.5" colSpan={span}>
+                                            <SweepItemDetail
+                                                run={run}
+                                                item={i}
+                                                choiceDecls={choiceDecls}
+                                                canSkip={skipAt === i.position}
+                                                canRequeue={requeueable}
+                                                onSkip={() => onSkip(i.position)}
+                                                onRequeue={() => onRequeue(i.position)}
+                                            />
+                                        </td>
+                                    </tr>
                                 )}
-                                {i.timings.login?.mode && <span className="text-gray-500"> ({i.timings.login.mode})</span>}
-                                {run.skip_position === i.position && <span className="text-amber-300"> skipping…</span>}
-                                {skipAt === i.position && (
-                                    <button
-                                        type="button"
-                                        className="ml-1 border border-gray-700 hover:bg-gray-800 px-1 rounded-sm text-gray-200"
-                                        title="Give up on this collection and carry on with the next (the sweep keeps going)"
-                                        onClick={() => onSkip(i.position)}
-                                    >
-                                        Skip
-                                    </button>
-                                )}
-                                {canRequeue && REQUEUE_FROM.has(i.status) && (
-                                    <button
-                                        type="button"
-                                        className="ml-1 border border-gray-700 hover:bg-gray-800 px-1 rounded-sm text-gray-200"
-                                        title="Run this collection again (a finished sweep is reopened for it)"
-                                        onClick={() => onRequeue(i.position)}
-                                    >
-                                        Re-queue
-                                    </button>
-                                )}
-                            </td>
-                            {COLUMNS.map((c) => (
-                                <td key={c.key} className="px-1.5 py-1 text-right tabular-nums">
-                                    {duration(c.get(i))}
-                                    {c.note?.(i) && <span className="text-gray-500"> {c.note(i)}</span>}
-                                </td>
-                            ))}
-                            <td className="px-1.5 py-1 max-w-[24rem]">
-                                {i.stage || i.progress != null ? (
-                                    <span className="text-blue-300 break-words">
-                                        {i.job_status === "queued" ? "waiting for a worker" : (i.stage ?? i.job_status)}
-                                        {i.progress != null && ` — ${Math.round(i.progress * 100)}%`}
-                                        {i.started_at && ` (${duration(Date.now() - Date.parse(i.started_at))})`}
-                                    </span>
-                                ) : i.error ? (
-                                    <span className="text-red-300 break-words">{i.error}</span>
-                                ) : i.status === NO_FULL_EXPORT ? (
-                                    <span className="text-amber-300 break-words">{i.message}</span>
-                                ) : (
-                                    <span className="text-gray-400 break-words">
-                                        {i.revision ?? ""}
-                                        {i.message ? `${i.revision ? " — " : ""}${i.message}` : ""}
-                                    </span>
-                                )}
-                                <ApplyChangesResult item={i} />
-                                <SweepTargets item={i} />
-                                <ItemChoices item={i} decls={choiceDecls} />
-                                <PrebuildResult item={i} />
-                            </td>
-                        </tr>
-                    ))}
+                            </React.Fragment>
+                        );
+                    })}
                 </tbody>
                 {items.length > 1 && (
                     <tfoot className="border-t border-gray-700 text-gray-300">
