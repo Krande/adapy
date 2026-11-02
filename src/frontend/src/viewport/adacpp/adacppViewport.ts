@@ -17,6 +17,50 @@ import type {AdacppModule, AdacppStats, GpuDeviceLike, GpuLike, RawPick, WebRend
 
 const MODULE_URL = "/wasm/adacpp_render.js";
 
+/** The renderer inlined as base64 by embed-script.cjs. The single-file viewer opens from
+ *  file://, where there is no /wasm to import from. */
+interface InlineRenderer {
+    js: string;
+    wasm: string;
+}
+
+function decodeBase64(b64: string): Uint8Array {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
+/** The module factory and the options it needs: from the inlined copy when the page has one
+ *  (the wasm instantiated through `instantiateWasm`, since a blob-imported module cannot locate its
+ *  own and this build reads no `wasmBinary`), else from /wasm. */
+async function loadRendererModule(): Promise<{factory: (opts: object) => Promise<AdacppModule>; opts: object}> {
+    const inline = (globalThis as {ADACPP_RENDER_INLINE?: InlineRenderer}).ADACPP_RENDER_INLINE;
+    if (inline) {
+        const url = URL.createObjectURL(new Blob([decodeBase64(inline.js)], {type: "text/javascript"}));
+        try {
+            const mod = await import(/* @vite-ignore */ url);
+            // Compiled here, so a bad module throws to the caller rather than hanging the factory.
+            const compiled = await WebAssembly.compile(decodeBase64(inline.wasm) as BufferSource);
+            const instantiateWasm = (
+                imports: WebAssembly.Imports,
+                receive: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
+            ) => {
+                void WebAssembly.instantiate(compiled, imports).then(
+                    (instance) => receive(instance, compiled),
+                    (err) => console.error("[adacpp-webgpu] instantiating the inlined renderer failed:", err),
+                );
+                return {};
+            };
+            return {factory: mod.default ?? mod, opts: {instantiateWasm}};
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    }
+    const mod = await import(/* @vite-ignore */ resolveModuleUrl(MODULE_URL, globalThis.location?.origin));
+    return {factory: mod.default ?? mod, opts: {}};
+}
+
 export type AdacppRenderState = "off" | "starting" | "active" | "failed";
 
 interface AdacppRenderStatus {
@@ -89,10 +133,8 @@ export class AdacppViewport {
             });
             device.onuncapturederror = (ev) => console.error("[adacpp-webgpu]", ev.error.message);
 
-            const origin = globalThis.location?.origin;
-            const mod = await import(/* @vite-ignore */ resolveModuleUrl(MODULE_URL, origin));
-            const factory = (mod.default ?? mod) as (opts: object) => Promise<AdacppModule>;
-            const module = await factory({preinitializedWebGPUDevice: device});
+            const {factory, opts} = await loadRendererModule();
+            const module = await factory({...opts, preinitializedWebGPUDevice: device});
 
             const canvas = document.createElement("canvas");
             canvas.id = `adacpp-webgpu-canvas-${++canvasSerial}`;

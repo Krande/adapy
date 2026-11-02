@@ -63,8 +63,23 @@ function escapeScriptClosers(content) {
 // the browser then parses as real script tags and 404s on.
 const inlinedStyle = `<style>\n${escapeScriptClosers(cssContent)}\n</style>`;
 const inlinedScript = `<script type="module" crossorigin>\n${escapeScriptClosers(jsContent)}\n</script>`;
+// The WebGPU renderer (adacppViewport.ts) imports /wasm/adacpp_render.js, which a page opened from
+// file:// cannot reach: inline it as base64 ahead of the app. Absent from public/wasm (no
+// `pixi run wasm-adacpp`), the bundle is built without it and the renderer falls back to three.js.
+const renderJs = path.join(distPath, 'wasm', 'adacpp_render.js');
+const renderWasm = path.join(distPath, 'wasm', 'adacpp_render.wasm');
+let inlinedRenderer = '';
+if (fs.existsSync(renderJs) && fs.existsSync(renderWasm)) {
+    const js = fs.readFileSync(renderJs).toString('base64');
+    const wasm = fs.readFileSync(renderWasm).toString('base64');
+    inlinedRenderer = `<script>window.ADACPP_RENDER_INLINE = {js: "${js}", wasm: "${wasm}"};</script>\n`;
+    console.log(`WebGPU renderer inlined (${js.length + wasm.length} base64 bytes).`);
+} else {
+    console.warn('WARNING: public/wasm has no adacpp_render.js/.wasm -- the bundle ships without the WebGPU renderer.');
+}
+
 htmlContent = htmlContent.replace(LINK_TAG_REGEX, () => inlinedStyle);
-htmlContent = htmlContent.replace(SCRIPT_TAG_REGEX, () => inlinedScript);
+htmlContent = htmlContent.replace(SCRIPT_TAG_REGEX, () => inlinedRenderer + inlinedScript);
 
 fs.writeFileSync(htmlFilePath, htmlContent);
 console.log(`JavaScript (${jsFileName}) and CSS (${cssFileName}) embedded successfully.`);

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from ada.base.physical_objects import BackendGeom
     from ada.comms.wsock.client_sync import WebSocketClientSync
     from ada.fem.results.common import FEAResult
+    from ada.visit.rendering.renderer_react import RenderBackend
 
 
 Renderer = Literal["react", "trimesh"]
@@ -46,8 +47,11 @@ class RendererManager:
         run_ws_in_thread: bool = True,
         ping_timeout=1,
         embed_glb: bool = False,
+        render_backend: RenderBackend | None = None,
     ):
         self.renderer = resolve_renderer(renderer)
+        # The viewer's draw backend for a viewer this opens; None keeps the one it last used.
+        self.render_backend = render_backend
         self.host = host
         self.ws_port = ws_port
         self.server_exe = server_exe
@@ -106,7 +110,7 @@ class RendererManager:
             if self.is_in_notebook():
                 renderer = renderer_obj.get_notebook_renderer_widget(target_id=target_id)
             else:
-                renderer = renderer_obj.show()
+                renderer = renderer_obj.show(render_backend=self.render_backend)
 
         return renderer
 

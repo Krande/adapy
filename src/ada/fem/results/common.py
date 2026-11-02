@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ada.fem.results.compare import FEAResultComparison
     from ada.fem.results.concepts import EigenDataSummary
     from ada.visit.colors import Color
+    from ada.visit.rendering.renderer_react import RenderBackend
 
 
 @dataclass
@@ -877,6 +878,7 @@ class FEAResult:
         force_embed_glb=False,
         apply_transform=False,
         stream: bool | None = None,
+        render_backend: RenderBackend | None = None,
     ):
         """Show the result in the viewer.
 
@@ -886,6 +888,10 @@ class FEAResult:
         the viewer. Off, the result is sent as one GLB with its nodal steps baked in as
         animations (the notebook path always does this); ``step``, ``field``,
         ``warp_field``, ``warp_step`` and ``cfunc`` only apply there.
+
+        ``render_backend`` picks what draws in a viewer this opens: ``"three"`` (three.js) or
+        ``"webgpu"`` (the adacpp WebGPU renderer, which falls back to three.js where the browser has
+        no WebGPU). None keeps the viewer's own choice, as does a viewer already open.
         """
         from ada.visit.renderer_manager import RendererManager, resolve_renderer
 
@@ -904,6 +910,7 @@ class FEAResult:
                 server_exe=server_exe,
                 server_args=server_args,
                 run_ws_in_thread=run_ws_in_thread,
+                render_backend=render_backend,
             )
 
         # Use RendererManager to handle renderer setup and WebSocket connection
@@ -915,6 +922,7 @@ class FEAResult:
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
             ping_timeout=ping_timeout,
+            render_backend=render_backend,
         )
 
         fea_params = FEARenderParams(
