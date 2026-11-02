@@ -63,7 +63,17 @@ export function fadeWithDensity(
     edges: Uint32Array,
     lookingAt: () => THREE.Vector3 | null = orbitTarget,
 ): void {
-    const length = typicalEdgeLength(mesh.geometry.attributes.position as THREE.BufferAttribute, edges);
+    fadeAtSpacing(segments, mesh, typicalEdgeLength(mesh.geometry.attributes.position as THREE.BufferAttribute, edges), lookingAt);
+}
+
+/** `fadeWithDensity` with the spacing of the lines given, in model units, rather than taken
+ *  as their median length. */
+export function fadeAtSpacing(
+    segments: THREE.LineSegments,
+    mesh: THREE.Object3D & {geometry: THREE.BufferGeometry},
+    length: number,
+    lookingAt: () => THREE.Vector3 | null = orbitTarget,
+): void {
     if (!(length > 0)) return;
     const material = segments.material as THREE.LineBasicMaterial;
     const size = new THREE.Vector2();
