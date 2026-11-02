@@ -35,6 +35,7 @@ import {fadeAtSpacing} from "./streaming/elementEdges";
 export {beamSolidFeatureEdges, typicalElementLength} from "./beamSolidFeatureEdges";
 
 export const BEAM_SOLID_EDGES_NAME = "fea-beam-solid-edges";
+const SHELL_EDGES_NAME = "fea-element-edges";
 
 type BeamSolids = THREE.Mesh & {drawRanges?: Map<string, [number, number]>};
 
@@ -157,10 +158,17 @@ function attachBeamSolidEdges(
     segments.layers.set(1);
     segments.frustumCulled = false;
     clipWithModel(segments);
-    // The shell grid's fade with on-screen density, by element length rather than
-    // edge length (see typicalElementLength), at the overlay's own (source-numbered,
+    // Faded in step with the shell grid: its spacing, measured at its mesh's box, so
+    // the two show the same opacity at every zoom. A model with no shell grid fades by
+    // element length (see typicalElementLength) at the overlay's own (source-numbered,
     // undeformed) positions -- the solid's buffer may be an element-local expansion.
-    fadeAtSpacing(segments, segments, data.elementLength);
+    const shellGrid = solids.parent?.getObjectByName(SHELL_EDGES_NAME);
+    const shellSpacing = shellGrid?.userData.fadeSpacing as number | undefined;
+    if (shellGrid?.parent && shellSpacing) {
+        fadeAtSpacing(segments, shellGrid.parent as THREE.Mesh, shellSpacing);
+    } else {
+        fadeAtSpacing(segments, segments, data.elementLength);
+    }
     segments.visible = useFeaAnimationStore.getState().beamSolidEdgesVisible;
     const ownership: BeamSolidEdgeOwners = {all: pairs.slice(), rangeIds, owner: data.owner};
     segments.userData.beamSolidEdgeOwners = ownership;

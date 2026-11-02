@@ -75,6 +75,8 @@ export function fadeAtSpacing(
     lookingAt: () => THREE.Vector3 | null = orbitTarget,
 ): void {
     if (!(length > 0)) return;
+    // Kept so another overlay can fade in step with this one (beamSolidEdges.ts).
+    segments.userData.fadeSpacing = length;
     const material = segments.material as THREE.LineBasicMaterial;
     const size = new THREE.Vector2();
     const box = new THREE.Box3();

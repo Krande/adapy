@@ -91,6 +91,30 @@ test("the fade is measured by element length, not by the short facets of a round
     assert.ok(Math.abs(typicalElementLength(positions, idx, [[0, idx.length]]) - 2) < 1e-6);
 });
 
+test("with a shell grid, the overlay fades at its spacing; without one, at element length", () => {
+    const solidsOf = () => {
+        const {pos, idx} = box(0, 0);
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+        geom.setIndex(idx);
+        const solids = new THREE.Mesh(geom, new THREE.MeshBasicMaterial()) as unknown as THREE.Mesh & {drawRanges: Map<string, [number, number]>};
+        solids.drawRanges = new Map([["E7", [0, 36]]]);
+        return {solids, base: new Float32Array(pos)};
+    };
+
+    const alone = solidsOf();
+    assert.equal(ensureBeamSolidEdges(alone.solids, alone.base)!.userData.fadeSpacing, 2, "the box's length");
+
+    const main = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    const grid = new THREE.LineSegments();
+    grid.name = "fea-element-edges";
+    grid.userData.fadeSpacing = 0.25;
+    main.add(grid);
+    const withShells = solidsOf();
+    main.add(withShells.solids);
+    assert.equal(ensureBeamSolidEdges(withShells.solids, withShells.base)!.userData.fadeSpacing, 0.25);
+});
+
 test("hidden elements' edges collapse to a point and come back", () => {
     const owners: BeamSolidEdgeOwners = {
         all: new Uint32Array([0, 1, 2, 3, 4, 5]),
