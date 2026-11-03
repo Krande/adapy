@@ -14,7 +14,7 @@ import {
   visibleLoads,
 } from "@/utils/fem/femTakeoff";
 
-// The Scene > FEM take-off weighs what the panel switches on. The rule that matters most: an
+// The Simulation > Model take-off weighs what the panel switches on. The rule that matters most: an
 // analysis model's wind "equipment" is a heavy box placed only to generate a wind load, and must
 // not be weighed unless asked for -- so equipment starts switched on only in groups placed in a
 // load case that carries an acceleration.

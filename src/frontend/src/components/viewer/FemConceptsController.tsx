@@ -7,6 +7,8 @@ import {requestRender} from "@/state/perfStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
+import {openSimulationPanel} from "@/state/simPanelStore";
+import {MODEL_TAB} from "@/components/simulation/simPanelTabs";
 import {refKey, type FemConceptRef} from "@/utils/fem/femSelection";
 import {visibleEquipment} from "@/utils/fem/femTakeoff";
 import {clipWithModel} from "@/utils/scene/section_clipping";
@@ -486,9 +488,9 @@ function init(scene: THREE.Scene): () => void {
         arrived.forEach((n) => seen.add(n));
         if (arrived.some((n) => withConcepts.has(n) && ANALYSIS_SOURCE.test(n))) {
             useFemConceptsStore.getState().showAll();
-            const scene = useSceneInfoStore.getState();
-            scene.setMode("fem");
-            scene.setShowSceneInfoBox(true);
+            // Other UI shells show the concepts under the Scene panel's `fem` mode.
+            useSceneInfoStore.getState().setMode("fem");
+            openSimulationPanel(MODEL_TAB);
         }
     };
 

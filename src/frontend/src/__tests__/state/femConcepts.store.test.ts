@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { useFemConceptsStore } from "@/state/femConceptsStore";
 import type { ConstraintGlyph } from "@/extensions/design_and_analysis_extension";
 
-// The Scene > FEM tab's constraint picker holds an index into `constraints`, and
+// The Simulation > Model tab's constraint picker holds an index into `constraints`, and
 // the viewer overlay reads that index back to decide which constraint's nodes to
 // draw. A stale index would point the overlay at the wrong constraint (or past
 // the end of the list) after a model swap, so the selection rules are pinned here.
