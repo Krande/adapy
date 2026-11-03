@@ -369,7 +369,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // Hiding or showing elements from here on re-measures the scale.
     followShownRange();
     followEdgeVisibility();
-    notePaintedShown(rangeFromShown);
+    notePaintedShown(rangeFromShown, shownRange);
     const legendScope = legendScopeFor({
         hasCombinations: lazy,
         isCase,
