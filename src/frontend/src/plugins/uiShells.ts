@@ -117,6 +117,7 @@ export function resetUiShells(): void {
   _shells.clear();
   _buildDefault = null;
   _activeCache = null;
+  _switchCarries.clear();
 }
 
 /**
@@ -262,8 +263,61 @@ export function activeUiShellId(): string {
 }
 
 /**
+ * Query params a shell switch should carry into its reload, or null for none.
+ *
+ * A switch reloads the page, and the page it reloads is whatever the address bar
+ * shows. Loads that arrive through the URL consume their params and strip them
+ * (`useUrlParamLoad`: `?scope&file&derived` and any plugin params with them), so
+ * after a deep-linked load the address bar no longer says what is on screen and
+ * a switch would boot the other shell with an empty scene. The code that strips
+ * params registers a carry here so the switch can put them back.
+ */
+export type ShellSwitchCarry = () => Record<string, string> | null | undefined;
+
+const _switchCarries = new Set<ShellSwitchCarry>();
+
+/**
+ * Register a provider of params for the next shell switch's reload URL. Asked
+ * at the moment of the switch, so it can answer from what is loaded then.
+ * Returns a function that removes it.
+ */
+export function carryOnShellSwitch(carry: ShellSwitchCarry): () => void {
+  _switchCarries.add(carry);
+  return () => {
+    _switchCarries.delete(carry);
+  };
+}
+
+/**
+ * The URL a shell switch reloads into: `href` without `?ui=` (a stale one would
+ * outrank the new sticky choice), plus every carried param the URL does not
+ * already hold. A param in the URL wins over a carried one, and `ui` is never
+ * carried. A throwing provider is skipped, never the switch.
+ */
+export function shellSwitchUrl(href: string): string {
+  const url = new URL(href);
+  url.searchParams.delete(UI_SHELL_URL_PARAM);
+  for (const carry of _switchCarries) {
+    let params: Record<string, string> | null | undefined;
+    try {
+      params = carry();
+    } catch (err) {
+      console.warn("[plugins] a shell-switch carry threw; its params are not carried", err);
+      continue;
+    }
+    if (!params) continue;
+    for (const [key, value] of Object.entries(params)) {
+      if (key === UI_SHELL_URL_PARAM || url.searchParams.has(key)) continue;
+      url.searchParams.set(key, value);
+    }
+  }
+  return url.toString();
+}
+
+/**
  * Persist a shell choice and (by default) reload so it takes effect. Clearing
- * back to the build default is `setActiveUiShell(null)`.
+ * back to the build default is `setActiveUiShell(null)`. The reload keeps what
+ * the page was showing: see `shellSwitchUrl`.
  */
 export function setActiveUiShell(id: string | null, opts: { reload?: boolean } = {}): void {
   try {
@@ -278,10 +332,7 @@ export function setActiveUiShell(id: string | null, opts: { reload?: boolean } =
   _activeCache = null;
   if (opts.reload === false) return;
   try {
-    const url = new URL(window.location.href);
-    // A stale `?ui=` would outrank the new sticky choice on the next load.
-    url.searchParams.delete(UI_SHELL_URL_PARAM);
-    window.location.replace(url.toString());
+    window.location.replace(shellSwitchUrl(window.location.href));
   } catch {
     if (typeof window !== "undefined") window.location.reload();
   }

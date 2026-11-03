@@ -112,6 +112,15 @@ Switching from the switcher persists the choice and reloads — a shell owns the
 whole tree (canvas, websocket, stores), so hot-swapping would mean tearing all of
 that down for no benefit.
 
+The reload keeps a deep-linked model. `useUrlParamLoad` strips `?scope&file&derived`
+(and every other param that came with them) once it has started the load, so the
+address bar no longer says what is on screen; it registers the stripped params
+with `carryOnShellSwitch`, and `setActiveUiShell` reloads into `shellSwitchUrl(...)`,
+which puts them back. They are carried while the load is running and, after it,
+only while the file is still loaded; `ui` is never carried, and a param already in
+the URL wins. A shell that mounts `useUrlParamLoad` therefore opens the same model
+after a switch. A manual reload still does not load the file again.
+
 ## Failure isolation
 
 `UiShellHost` falls back to the `core` shell when the active shell's chunk fails
