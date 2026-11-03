@@ -15,7 +15,7 @@ import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchFieldStep} from "@/services/feaFieldBlob";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
-import {warpBeamSolidEdges} from "../beamSolidEdges";
+import {beamSolidEdges, warpBeamSolidEdges} from "../beamSolidEdges";
 import {elementLocalMap} from "../elementLocalGeometry";
 import {refreshMorphTexture, resetBasePositions, writeMorphTarget} from "../gpuRefresh";
 import {rotationOffsets, translationOffsets, warpValue} from "../warpComponents";
@@ -458,6 +458,40 @@ function turnBetween(rx: number, ry: number, rz: number, bx: number, by: number,
     return true;
 }
 
+interface WarpInputs {
+    warp: ParsedBeamSolidsWarp;
+    basePositions: Float32Array;
+    warpField: FeaManifestField | undefined;
+    warpStepValues: Float32Array | undefined;
+    nodePositions: Float32Array | undefined;
+    renderToSource: Uint32Array | null;
+}
+
+/** A morph attribute as written: which one, at which version. */
+interface MorphState {
+    attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined;
+    version: number;
+}
+
+/** What the last `installBeamSolidWarp` wrote per beam-solid geometry, and the morph
+ *  state it left on the solid and its edge overlay: any other writer moves those. */
+const installedWarps = new WeakMap<THREE.BufferGeometry, WarpInputs & {morph: MorphState; edgesMorph: MorphState}>();
+
+function morphState(geometry: THREE.BufferGeometry | undefined): MorphState {
+    const attr = geometry?.morphAttributes.position?.[0];
+    return {attr, version: (attr as THREE.BufferAttribute | undefined)?.version ?? -1};
+}
+
+function sameMorph(a: MorphState, b: MorphState): boolean {
+    return a.attr === b.attr && a.version === b.version;
+}
+
+function sameWarp(a: WarpInputs, b: WarpInputs): boolean {
+    return a.warp === b.warp && a.basePositions === b.basePositions && a.warpField === b.warpField
+        && a.warpStepValues === b.warpStepValues && a.nodePositions === b.nodePositions
+        && a.renderToSource === b.renderToSource;
+}
+
 /** Install the beam-solid mesh's morph delta from a nodal displacement
  *  field (see beamSolidDisplacement; `nodePositions`, the main mesh's
  *  undeformed node positions, turns on the rotation term).
@@ -475,8 +509,6 @@ export function installBeamSolidWarp(
     nodePositions?: Float32Array,
 ): void {
     const nVerts = warp.n_verts;
-    const displacement = beamSolidDisplacement(warp, basePositions, warpField, warpStepValues, nodePositions);
-
     const geom = beamSolid.geometry;
 
     // In the geometry's CURRENT vertex numbering, which is not always the one the
@@ -494,11 +526,25 @@ export function installBeamSolidWarp(
     if (posAttr && posAttr.count === renderCount) {
         resetBasePositions(geom, basePositions, renderToSource);
     }
-    // In place, morph texture refreshed without dropping the attribute buffers
-    // (see gpuRefresh.ts) -- this ran on every step and re-uploaded the solids.
-    writeMorphTarget(geom, displacement, renderToSource);
-    // Its element-edge overlay, in source numbering like `displacement`.
-    warpBeamSolidEdges(beamSolid, displacement);
+    // A repaint that changes only the colour (another field or component, a beam-solid
+    // toggle) keeps the warp: recomputing it and rewriting the morph made three.js
+    // rebuild the solid's morph texture, a pass over every render vertex.
+    const inputs: WarpInputs = {warp, basePositions, warpField, warpStepValues, nodePositions, renderToSource};
+    const last = installedWarps.get(geom);
+    if (!last || !sameWarp(last, inputs) || !sameMorph(last.morph, morphState(geom))
+        || !sameMorph(last.edgesMorph, morphState(beamSolidEdges(beamSolid)?.geometry))) {
+        const displacement = beamSolidDisplacement(warp, basePositions, warpField, warpStepValues, nodePositions);
+        // In place, morph texture refreshed without dropping the attribute buffers
+        // (see gpuRefresh.ts) -- this ran on every step and re-uploaded the solids.
+        writeMorphTarget(geom, displacement, renderToSource);
+        // Its element-edge overlay, in source numbering like `displacement`.
+        warpBeamSolidEdges(beamSolid, displacement);
+        installedWarps.set(geom, {
+            ...inputs,
+            morph: morphState(geom),
+            edgesMorph: morphState(beamSolidEdges(beamSolid)?.geometry),
+        });
+    }
 
     // Share the main mesh's influences array so a single write to
     // mesh.morphTargetInfluences[0] (manual drag or RAF sweep)

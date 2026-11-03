@@ -153,6 +153,9 @@ export async function paintElemField(args: {
             contour,
             autoRange,
             nodalAverage: false,
+            // installBeamSolidWarp below writes the real one; a zero written first
+            // only forced it to recompute and rewrite an unchanged warp.
+            writeMorph: !active.beamSolidWarp,
         });
         if (active.beamSolidWarp) {
             installBeamSolidWarp(
