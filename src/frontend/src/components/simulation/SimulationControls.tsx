@@ -624,13 +624,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         });
     };
 
-    // Laid out by the panel's OWN width (a container query, ``@container`` /
-    // ``@sm:``), not the browser window's. In a document the window is wide
-    // while the panel sits in a 3D figure a few hundred pixels across, and the
-    // window breakpoints gave it the desktop layout there: rows wider than the
-    // figure, controls cut off at its edge. Rows wrap when they must.
+    // Laid out by the panel's OWN width, not the browser window's: no window
+    // breakpoints, rows wrap when they must. In a document the window is wide
+    // while the panel sits in a 3D figure a few hundred pixels across. Not a
+    // size container either: that zeroes the content's intrinsic width, and the
+    // docked frame sizes itself to it.
     return (
-        <div className="@container flex flex-col gap-2 min-w-0">
+        <div className="flex flex-col gap-2 min-w-0">
             {/* Row 1 — what you are looking at: Field / Comp / Step, packed from the left at
                 one spacing. Field and Step share the spare width (``flex-1``) -- their names
                 are the long ones -- and Comp keeps its natural width; ``min-w-0 truncate``

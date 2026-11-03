@@ -43,6 +43,20 @@ function attrVersion(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute
         : (a as THREE.BufferAttribute).version;
 }
 
+// Buffer identity for the upload signature: a swapped-in attribute (an element field's
+// element-local expansion) can carry the same version as the one it replaced.
+const bufferIds = new WeakMap<object, number>();
+let nextBufferId = 0;
+function bufferId(a: object | null | undefined): number {
+    if (!a) return -1;
+    let id = bufferIds.get(a);
+    if (id === undefined) {
+        id = nextBufferId++;
+        bufferIds.set(a, id);
+    }
+    return id;
+}
+
 /** Any position-like attribute as a tightly packed Float32Array of `size` components. */
 function floats(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, size = 3): Float32Array {
     const plain = a as THREE.BufferAttribute;
@@ -265,7 +279,11 @@ export class SceneSync {
         const topology = o.isPoints ? Topology.Points : (o.isLine || o.isLineSegments || fatLines) ? Topology.Lines : Topology.Triangles;
         const flat = topology === Topology.Triangles && !!mat?.flatShading;
         const groupsSig = obj instanceof CustomBatchedMesh ? "b" : `${geometry.groups.length}`;
-        const signature = `${geometry.uuid}:${attrVersion(position)}:${geometry.index?.version ?? -1}:${topology}:${flat}:${groupsSig}`;
+        const positionBuffer = (position as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute
+            ? (position as THREE.InterleavedBufferAttribute).data
+            : position;
+        const signature = `${geometry.uuid}:${bufferId(positionBuffer)}:${attrVersion(position)}:` +
+            `${bufferId(geometry.index)}:${geometry.index?.version ?? -1}:${topology}:${flat}:${groupsSig}`;
 
         let e = this.entries.get(obj.uuid);
         if (e && e.signature !== signature) {
