@@ -125,14 +125,20 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     // unloaded, plugin deactivated) falls back to the default.
     const sourceName = useFeaAnimationStore((s) => s.sourceName);
     const hasAnimation = useAnimationStore((s) => s.hasAnimation);
-    const tabKey = simTabKey(sourceName, sessionActive || hasAnimation);
+    const hasResults = sessionActive || hasAnimation;
+    const tabKey = simTabKey(sourceName, hasResults);
     const remembered = useSimPanelStore((s) => s.remembered);
     const selectTab = (tab: string) => useSimPanelStore.getState().remember(tab, tabKey);
-    const activeTab = forcedTabId ?? resolveSimTab(remembered, tabKey, (tab) =>
-        tab === RESULTS_TAB
-        || (tab === MODEL_TAB && modelTab)
-        || (tab === LEGEND_TAB && legendTab)
-        || tabs.some((t) => t.panel.id === tab));
+    const activeTab = forcedTabId ?? resolveSimTab(
+        remembered,
+        tabKey,
+        (tab) =>
+            tab === RESULTS_TAB
+            || (tab === MODEL_TAB && modelTab)
+            || (tab === LEGEND_TAB && legendTab)
+            || tabs.some((t) => t.panel.id === tab),
+        {hasResults, hasModel: modelTab},
+    );
 
     const onOpenWindow = () => {
         // The built-in tabs need this window's scene; the follower opens on a plugin tab.
@@ -177,6 +183,7 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
             ) : (
                 <AnimationTab
                     sessionActive={sessionActive}
+                    hasResults={hasResults}
                     showSimData={showSimData}
                     onToggleData={togglePanel}
                 />
@@ -199,16 +206,21 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
 // Built-in Results tab (id "animation") — the FEA / GLTF transport controls, the optional
 // data panel, plus the additive plugin color-field picker and any buttonless
 // fem-sidebar panels (asTab panels are hoisted to their own tabs instead).
-const AnimationTab: React.FC<{sessionActive: boolean; showSimData: boolean; onToggleData: () => void}> = ({
-    sessionActive,
-    showSimData,
-    onToggleData,
-}) => (
+const AnimationTab: React.FC<{
+    sessionActive: boolean;
+    hasResults: boolean;
+    showSimData: boolean;
+    onToggleData: () => void;
+}> = ({sessionActive, hasResults, showSimData, onToggleData}) => (
     <div className="flex flex-col gap-2">
         {sessionActive ? (
             <FeaModeControls showSimData={showSimData} onToggleData={onToggleData} />
-        ) : (
+        ) : hasResults ? (
             <GltfClipControls showSimData={showSimData} onToggleData={onToggleData} />
+        ) : (
+            <p className="text-xs italic text-gray-400" data-testid="sim-no-results">
+                No results loaded.
+            </p>
         )}
         {showSimData && (
             <div className="flex-1 overflow-hidden">

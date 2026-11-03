@@ -47,8 +47,16 @@ export function simTabKey(sourceName: string | null, hasResults: boolean): strin
     return `${sourceName ?? ""}|${hasResults ? "results" : "model"}`;
 }
 
-export function defaultSimTab(): string {
-    return RESULTS_TAB;
+export interface SimPanelContent {
+    /** A result session or animation clips the Results tab can drive. */
+    hasResults: boolean;
+    /** An FE model for the Model tab. */
+    hasModel: boolean;
+}
+
+/** Results when there are any; an FE model without results opens on Model. */
+export function defaultSimTab(content: SimPanelContent): string {
+    return !content.hasResults && content.hasModel ? MODEL_TAB : RESULTS_TAB;
 }
 
 /** The tab to show: the remembered pick while the same model is loaded and the
@@ -57,7 +65,13 @@ export function resolveSimTab(
     remembered: RememberedSimTab | null,
     key: string,
     available: (tab: string) => boolean,
+    content: SimPanelContent,
 ): string {
     if (remembered && remembered.key === key && available(remembered.tab)) return remembered.tab;
-    return defaultSimTab();
+    return defaultSimTab(content);
+}
+
+/** The toolbar's Simulation button: shown for results, and for an FE model without any. */
+export function simulationButtonShown(s: {hasAnimation: boolean; sessionActive: boolean; feModel: boolean}): boolean {
+    return s.hasAnimation || s.sessionActive || s.feModel;
 }
