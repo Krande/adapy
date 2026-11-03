@@ -65,6 +65,7 @@ export {
     setBeamSolidsVisible,
     setFeaElementEdgesVisible,
     setFeaResultColorsVisible,
+    setFeaResultPointMarkersVisible,
     setFeaUndeformedGhost,
     syncFeaOverlayVisibility,
 } from "../fea/streaming/visibility";

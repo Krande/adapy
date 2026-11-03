@@ -17,7 +17,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {requestRender} from "@/state/perfStore";
 import {beamSolidEdges, requestBeamSolidEdges} from "../beamSolidEdges";
 import {hasResultLineSegments, setResultLineSegmentsVisible} from "../resultLineSegments";
-import {setResultPointMarkersVisible} from "../resultPointMarkers";
+import {resultPointMarkersShown, setResultPointMarkersVisible} from "../resultPointMarkers";
 import {clearUndeformedGhost, installUndeformedGhost} from "../undeformedGhost";
 import {feaSession as session} from "./session";
 import {scheduleShownRangeRepaint} from "./shownRangeRepaint";
@@ -89,6 +89,11 @@ export function syncFeaOverlayVisibility(): void {
         hasResultLineSegments(session.active.mesh) && store.resultColorsVisible && resultColorsShown && !solids;
 
     setResultLineSegmentsVisible(session.active.mesh, colouredLines);
+    // Result-point markers are result colouring too, and the user can switch them off.
+    setResultPointMarkersVisible(
+        session.active.mesh,
+        resultPointMarkersShown(resultColorsShown, store.resultPointMarkersVisible),
+    );
     for (const overlay of elementEdgeOverlays("fea-element-edges")) {
         overlay.visible = store.elementEdgesVisible;
     }
@@ -163,12 +168,15 @@ export function setFeaResultColorsVisible(visible: boolean): void {
         if (Array.isArray(m)) m.forEach(setVc);
         else if (m) setVc(m as THREE.Material);
     }
-    if (session.active?.mesh) {
-        // Result-point markers are result colouring too.
-        setResultPointMarkersVisible(session.active.mesh, visible);
-    }
-    // Which of a beam's three renderings is on screen changes with this, so the
-    // shared rule decides rather than this function reaching for one of them.
+    // Which of a beam's three renderings is on screen, and the result-point markers,
+    // change with this, so the shared rule decides rather than this function.
+    syncFeaOverlayVisibility();
+}
+
+/** Set the result-point markers preference and apply it: a flag flip on the
+ *  installed markers, no repaint. Later paints install them as set here. */
+export function setFeaResultPointMarkersVisible(visible: boolean): void {
+    useFeaAnimationStore.getState().setResultPointMarkersVisible(visible);
     syncFeaOverlayVisibility();
 }
 

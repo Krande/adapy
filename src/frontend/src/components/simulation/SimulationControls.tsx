@@ -40,8 +40,10 @@ import {
 import {
     load_fea_streaming,
     setBeamSolidsVisible as setBeamSolidsVisibleScene,
+    setFeaResultPointMarkersVisible,
     syncFeaOverlayVisibility,
 } from "@/utils/scene/handlers/load_fea_streaming";
+import {fieldHasResultPointMarkers} from "@/utils/scene/fea/resultPointMarkers";
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {followerUrl} from "@/utils/simChannel";
 import {runtime} from "@/runtime/config";
@@ -339,6 +341,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         beamSolidsUnavailable,
         beamSolidEdgesVisible,
         setBeamSolidEdgesVisible,
+        resultPointMarkersVisible,
         timeHistory,
         envelopeMode,
         setEnvelopeMode,
@@ -363,7 +366,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setBeamSolidsVisible(next);
         setBeamSolidsVisibleScene(next);
     };
-
     // Options panel toggle — currently houses just the colormap
     // picker. Kept folded by default so the controls row stays
     // single-line; new per-session preferences (background tone,
@@ -928,6 +930,16 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 onChange={(e) => onToggleBeamSolidEdges(e.target.checked)}
                             />
                             <span className="text-gray-300">Solid edges</span>
+                        </label>
+                    )}
+                    {fieldHasResultPointMarkers(activeField) && (
+                        <label className="flex items-center gap-1" title="Markers at the result points, coloured by their exact values">
+                            <input
+                                type="checkbox"
+                                checked={resultPointMarkersVisible}
+                                onChange={(e) => setFeaResultPointMarkersVisible(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Result points</span>
                         </label>
                     )}
                 </span>

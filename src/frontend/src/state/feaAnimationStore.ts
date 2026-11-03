@@ -175,6 +175,10 @@ export interface FeaAnimationState {
      *  one shaded mass with no elements to read. Persisted like the above. */
     beamSolidEdgesVisible: boolean;
 
+    /** Draw the result-point markers of a result-point field (one coloured point
+     *  per integration / result point). On by default. Persisted like the above. */
+    resultPointMarkersVisible: boolean;
+
     /** Why the loaded result's beam solids cannot be drawn although its
      *  manifest names them, or null when they loaded (or there are none).
      *  Set by the loader each time it builds a session. Without it the
@@ -250,6 +254,7 @@ export interface FeaAnimationState {
     setNodalAverage: (smooth: boolean) => void;
     setBeamSolidsVisible: (visible: boolean) => void;
     setBeamSolidEdgesVisible: (visible: boolean) => void;
+    setResultPointMarkersVisible: (visible: boolean) => void;
     setBeamSolidsUnavailable: (reason: string | null) => void;
     setApplyStep: (cb: ((stepIndex: number, opts?: ApplyStepOptions) => Promise<void>) | null) => void;
     setTimeHistory: (timeHistory: boolean) => void;
@@ -313,6 +318,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // behaviour. Users opt into the solid render via the gear panel.
     beamSolidsVisible: false,
     beamSolidEdgesVisible: true,
+    resultPointMarkersVisible: true,
     beamSolidsUnavailable: null,
     applyStep: null,
     startFramePreload: null,
@@ -353,6 +359,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
     setBeamSolidEdgesVisible: (beamSolidEdgesVisible) => set({beamSolidEdgesVisible}),
+    setResultPointMarkersVisible: (resultPointMarkersVisible) => set({resultPointMarkersVisible}),
     setBeamSolidsUnavailable: (beamSolidsUnavailable) => set({beamSolidsUnavailable}),
     setApplyStep: (cb) => set({applyStep: cb}),
     setTimeHistory: (timeHistory) => set({timeHistory}),

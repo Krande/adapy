@@ -22,6 +22,7 @@ import {
 } from "@/utils/scene/fea/propertyColors";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 import {mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
+import {fieldHasResultPointMarkers} from "@/utils/scene/fea/resultPointMarkers";
 import {useIsMobile} from "@/utils/useIsMobile";
 
 function formatValue(value: number): string {
@@ -61,6 +62,7 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
         colormap,
         contour,
         legendScopeLabel,
+        resultPointMarkersVisible,
     } = useFeaAnimationStore();
 
     const field = useMemo(
@@ -149,7 +151,7 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
     const path = basePath && field?.difference ? `Δ ${basePath}` : basePath;
     const selectableSurface = field?.surface === "selectable" || !!field?.surface_variants?.length;
     const surface = selectableSurface ? layer : field?.surface;
-    const hasExactMarkers = field?.support === "result_point" || field?.support === "line_result_point";
+    const hasExactMarkers = fieldHasResultPointMarkers(field);
     const pinned = !property && (contour.min !== null || contour.max !== null);
 
     if (!inPanel && isMobile && !expanded) {
@@ -207,7 +209,9 @@ const ColorLegend: React.FC<ColorLegendProps> = ({placement = "overlay"}) => {
                     )}
                     {surface && <div>Surface/layer: {surface}</div>}
                     {field.coordinate_system && <div>Axes: {field.coordinate_system}</div>}
-                    {hasExactMarkers && <div>Markers: exact · contour: {ipReduction} reduction</div>}
+                    {hasExactMarkers && (
+                        <div>Markers: {resultPointMarkersVisible ? "exact" : "hidden"} · contour: {ipReduction} reduction</div>
+                    )}
                     {/* A pinned scale is invisible in the picture, and a reader who
                         does not know the range was fixed reads the colours as the
                         field's own extremes. Say so. */}
