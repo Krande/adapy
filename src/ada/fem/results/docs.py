@@ -50,6 +50,7 @@ from ada.fem.results.artefacts import (
     bake_with_posters,
     bake_with_posters_from_source,
 )
+from ada.visit.rendering.offscreen import OffscreenUnavailableError
 
 if TYPE_CHECKING:  # pragma: no cover
     from ada.fem.results.artefacts import FEAStreamReader
@@ -498,6 +499,8 @@ def bake_fea_bundles(
             )
             out[case.name] = assets
             logger.info(f"{case.name}: baked FEA artefacts → {case_dir.name}/ " f"(n_modes={assets.n_modes})")
+        except OffscreenUnavailableError:
+            raise
         except Exception as exc:
             logger.warning(f"{case.name}: FEA artefact bake failed: {exc}", exc_info=True)
     return out
@@ -617,7 +620,7 @@ def render_missing_posters(assets: FeaDocAssets, *, poster_backend: str = "auto"
 
     Same filenames as :func:`bake_with_posters` (``fea.mesh.png`` for mode 1,
     ``fea.mesh.mode_<N>.png`` after), so the result reads exactly like a fresh bake. Per-mode render
-    failures are logged and skipped, like the bake's.
+    failures are logged and skipped, like the bake's; :class:`OffscreenUnavailableError` is raised.
     """
     from ada.visit.rendering.fea_offscreen import render_fea_mode_from_bundle
 
@@ -637,6 +640,8 @@ def render_missing_posters(assets: FeaDocAssets, *, poster_backend: str = "auto"
                 backend=poster_backend,
                 beam_solids=_DOCS_BEAM_SOLID_POSTERS,
             ).save(str(dest))
+        except OffscreenUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 — a missing poster degrades one figure, not the doc
             logger.warning(f"{assets.key}: mode {mode_idx + 1} poster failed: {exc}")
             continue
@@ -676,6 +681,8 @@ def restore_fea_bundles(
                     shutil.rmtree(dest)
                 shutil.copytree(src_dir, dest, ignore=shutil.ignore_patterns("*.png"))
             out.append(render_missing_posters(assets_from_bundle_dir(dest, key=key)))
+        except OffscreenUnavailableError:
+            raise
         except Exception as exc:
             logger.warning(f"could not restore bundle {key} from {src_dir}: {exc}")
     return out

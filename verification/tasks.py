@@ -369,14 +369,32 @@ def postprocess(results: list) -> list:
     return out
 
 
+def _render_poster(glb: pathlib.Path, regen: bool) -> None:
+    """Render ``glb``'s static poster beside it, the only view the DOCX / PDF exports have.
+
+    A failed render is logged; no renderer at all raises (``OffscreenUnavailableError``).
+    """
+    from ada.visit.rendering.offscreen import OffscreenUnavailableError, glb_to_image
+
+    png = glb.with_suffix(".png")
+    if png.is_file() and not regen:
+        return
+    try:
+        glb_to_image(glb).save(str(png))
+    except OffscreenUnavailableError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"poster PNG for {glb.name} failed: {exc}")
+
+
 @task(parent=design, outputs=[_ASSETS_DIR / "beam.glb"])
 def beam_glb(assembly: ada.Assembly):
     """Bake the standalone beam GLB + ThreeDData row.
 
     The outputs= declaration drives cache pre-flight: if the user
     deletes the .glb, this task re-runs to regenerate it. The PNG
-    poster is best-effort (frontend has its own fallback) so it's not
-    declared in outputs=.
+    poster is rendered whenever it is missing, so it's not declared
+    in outputs=.
     """
     beam = next(b for b in assembly.get_all_physical_objects() if isinstance(b, ada.Beam))
     dest = _ASSETS_DIR / "beam.glb"
@@ -390,18 +408,13 @@ def beam_glb(assembly: ada.Assembly):
             dest.parent.mkdir(parents=True, exist_ok=True)
             asm.to_gltf(dest)
             logger.info(f"wrote beam GLB → {dest}")
-            try:
-                from ada.visit.rendering.offscreen import glb_to_image
-
-                glb_to_image(dest).save(str(dest.with_suffix(".png")))
-            except Exception as exc:
-                logger.warning(f"beam poster PNG failed: {exc}")
         except Exception as exc:
             logger.warning(f"beam GLB generation failed: {exc}")
             return None
 
     if not dest.is_file():
         return None
+    _render_poster(dest, regen)
 
     sha = hashlib.sha256(dest.read_bytes()).hexdigest()
     metadata: dict = {}
@@ -714,18 +727,13 @@ def plate_glb(a: ada.Assembly):
             dest.parent.mkdir(parents=True, exist_ok=True)
             a.to_gltf(dest)
             logger.info(f"wrote plate GLB → {dest}")
-            try:
-                from ada.visit.rendering.offscreen import glb_to_image
-
-                glb_to_image(dest).save(str(dest.with_suffix(".png")))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"plate poster PNG failed: {exc}")
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"plate GLB generation failed: {exc}")
             return None
 
     if not dest.is_file():
         return None
+    _render_poster(dest, regen)
 
     metadata: dict = {}
     png_path = dest.with_suffix(".png")

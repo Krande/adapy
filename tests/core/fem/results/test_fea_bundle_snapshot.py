@@ -2,7 +2,8 @@
 
 A licensed machine bakes a lean bundle beside the case's JSON snapshot; any other build copies it
 into its assets dir and renders the posters there. Posters are stubbed out here -- the renderer
-needs a GPU adapter, and what is under test is which files move where.
+needs a GPU adapter, and what is under test is which files move where, and that a build with no
+renderer fails rather than leaving the posters out.
 """
 
 import json
@@ -148,6 +149,32 @@ def test_restore_skips_fresh_keys_and_other_prefixes(tmp_path, rendered):
     assert restore_fea_bundles(cache, assets_dir, skip_keys={KEY}) == []
     assert restore_fea_bundles(cache, assets_dir, prefix="plate_") == []
     assert not assets_dir.exists()
+
+
+@pytest.fixture
+def no_renderer(monkeypatch):
+    from ada.visit.rendering import adacpp_offscreen, chromium_offscreen_utils
+
+    monkeypatch.setattr(adacpp_offscreen, "is_available", lambda: False)
+    monkeypatch.setattr(chromium_offscreen_utils, "is_available", lambda embed_bundle=None: False)
+
+
+def test_restore_raises_when_no_renderer_can_run(tmp_path, no_renderer):
+    """Without a renderer every figure would lose its static image; the build must fail, not log."""
+    from ada.visit.rendering.offscreen import OffscreenUnavailableError
+
+    cache, assets_dir = tmp_path / ".cache", tmp_path / "_assets"
+    snapshot_fea_bundle(_eigen_result(), key=KEY, cache_dir=cache)
+    with pytest.raises(OffscreenUnavailableError):
+        restore_fea_bundles(cache, assets_dir)
+
+
+def test_bake_with_posters_raises_when_no_renderer_can_run(tmp_path, no_renderer):
+    from ada.fem.results.artefacts import bake_with_posters
+    from ada.visit.rendering.offscreen import OffscreenUnavailableError
+
+    with pytest.raises(OffscreenUnavailableError):
+        bake_with_posters(_eigen_result(), tmp_path / KEY, src=KEY, modes="all")
 
 
 def test_a_changed_snapshot_replaces_the_stale_copy(tmp_path, rendered):

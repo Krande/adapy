@@ -1,6 +1,6 @@
 """The offscreen renderer seam: backend choice, the embed camera preset as matrices, the poster legend.
 
-All but the last test need no GPU or adacpp's renderer extension, so they run everywhere.
+The tests that render need adacpp's renderer extension and a graphics adapter; the rest run everywhere.
 """
 
 import math
@@ -14,11 +14,56 @@ from ada.visit.rendering.adacpp_offscreen import preset_camera
 from ada.visit.rendering.fea_offscreen import _legend_spec
 
 
-def test_backends_resolve_to_adacpp_and_the_removed_pygfx_one_warns():
+def _renderers(monkeypatch, *, adacpp: bool, chromium: bool):
+    from ada.visit.rendering import adacpp_offscreen, chromium_offscreen_utils
+
+    monkeypatch.setattr(adacpp_offscreen, "is_available", lambda: adacpp)
+    monkeypatch.setattr(chromium_offscreen_utils, "is_available", lambda embed_bundle=None: chromium)
+
+
+def test_backends_resolve_to_adacpp_and_the_removed_pygfx_one_warns(monkeypatch):
+    _renderers(monkeypatch, adacpp=True, chromium=False)
     assert offscreen.resolve_backend("auto") == "adacpp"
     assert offscreen.resolve_backend("chromium") == "chromium"
     with pytest.warns(DeprecationWarning, match="pygfx"):
         assert offscreen.resolve_backend("pygfx") == "adacpp"
+
+
+def test_auto_falls_back_to_chromium_without_adacpps_renderer(monkeypatch):
+    _renderers(monkeypatch, adacpp=False, chromium=True)
+    with pytest.warns(UserWarning, match="adacpp._render"):
+        assert offscreen.resolve_backend("auto") == "chromium"
+
+
+def test_no_renderer_raises_instead_of_leaving_the_image_out(monkeypatch, tmp_path):
+    _renderers(monkeypatch, adacpp=False, chromium=False)
+    for backend in ("auto", "adacpp"):
+        with pytest.raises(offscreen.OffscreenUnavailableError, match="adacpp._render"):
+            offscreen.resolve_backend(backend)
+    with pytest.raises(offscreen.OffscreenUnavailableError):
+        offscreen.glb_to_image(tmp_path / "unused.glb")
+
+
+def test_a_model_renders_to_a_static_image(tmp_path):
+    """What a report embeds for every model view: fails, not skips, when the installed adacpp has
+    no renderer, since that leaves every report without its figures."""
+    import ada
+    from ada.visit.rendering import adacpp_offscreen
+
+    assert adacpp_offscreen.is_available(), offscreen._adacpp_missing_message()
+    part = ada.Part("part_a")
+    part.add_beam(ada.Beam("bm_a", (0, 0, 0), (2, 0, 0), "IPE300"))
+    part.add_beam(ada.Beam("bm_b", (0, 0, 0), (0, 0, 2), "IPE300"))
+    part.add_plate(ada.Plate("pl_a", [(0, 0), (2, 0), (2, 2), (0, 2)], 0.01))
+    try:
+        img = (ada.Assembly("asm_a") / part).render_offscreen(size=(160, 120))
+    except offscreen.OffscreenUnavailableError as exc:
+        if "adapter" in str(exc):
+            pytest.skip(str(exc))  # a host without a graphics adapter, not a broken install
+        raise
+    alpha = np.asarray(img)[..., 3]
+    assert img.size == (160, 120)
+    assert 0 < (alpha > 0).mean() < 1  # the model is drawn, over a transparent background
 
 
 def test_the_removed_pygfx_viewer_shows_with_react():

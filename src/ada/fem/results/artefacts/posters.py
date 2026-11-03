@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Iterable
 
-from ada.visit.rendering.offscreen import OffscreenBackend
+from ada.visit.rendering.offscreen import OffscreenBackend, OffscreenUnavailableError
 
 from .bake import BakeResult, bake_artefacts
 from .readers import make_stream_reader
@@ -129,7 +129,10 @@ def bake_with_posters(
     twisting with the mode (the viewer's "Beams as solid"). It needs mesh-format beam solids, so
     it takes effect with ``beam_solid_format="mesh"``.
 
-    Per-mode render failures are logged but don't abort the bake —
+    :class:`OffscreenUnavailableError` (no renderer can run) is raised: it
+    would leave every poster out.
+
+    Other per-mode render failures are logged but don't abort the bake —
     the bundle is still valid even if a few posters are missing, and
     surfacing them as warnings keeps a single bad mode from blowing
     up the whole docs build. Modes that render successfully appear in
@@ -202,6 +205,8 @@ def bake_with_posters(
             )
             img.save(str(dest_png))
             poster_paths[mode_idx] = dest_png
+        except OffscreenUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 — render failure is non-fatal
             import logging
 

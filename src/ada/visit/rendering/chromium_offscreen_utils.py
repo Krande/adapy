@@ -188,6 +188,15 @@ def _serve(embed_path: Path, glb_bytes: bytes):
         httpd.server_close()
 
 
+def is_available(embed_bundle: Path | None = None) -> bool:
+    """True when playwright is installed and the embed bundle is built."""
+    import importlib.util
+
+    if importlib.util.find_spec("playwright") is None:
+        return False
+    return (Path(embed_bundle) if embed_bundle else _EMBED_BUNDLE).is_file()
+
+
 def glb_to_image_via_browser(
     glb_path: str | Path,
     *,
