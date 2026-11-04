@@ -226,6 +226,12 @@ const PrebuildResult: React.FC<{item: SweepItem}> = ({item}) => {
     );
 };
 
+/** The collection's own settings an item ran with (from the sweep defaults), as one line, or "". */
+export function itemSettingsLine(settings: Record<string, unknown> | null | undefined): string {
+    const parts = Object.entries(settings ?? {}).map(([k, v]) => `${k} ${String(v)}`);
+    return parts.length ? `Own settings (sweep defaults): ${parts.join(", ")}` : "";
+}
+
 const ItemChoices: React.FC<{item: SweepItem; decls: CollectionChoiceDecl[]}> = ({item, decls}) => {
     const lines = itemChoiceLines(decls, item.collection, item.collection_choices);
     if (!lines.length) return null;
@@ -307,6 +313,11 @@ const SweepItemDetail: React.FC<{
             <ApplyChangesResult item={i} />
             <SweepTargets item={i} />
             <ItemChoices item={i} decls={choiceDecls} />
+            {itemSettingsLine(i.collection_settings) && (
+                <div className="text-[11px] text-sky-300" data-testid="sweep-item-settings">
+                    {itemSettingsLine(i.collection_settings)}
+                </div>
+            )}
             <PrebuildResult item={i} />
         </div>
     );
