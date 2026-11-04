@@ -426,7 +426,12 @@ class TopoEquipment(_TopoConfigBoundModel):
             else:
                 origin = ada.Point(0, 0, 0)
 
-            if self.SPACE_LOC == "ROOF":
+            # The roof offset seats a space-LOCAL unit on top of its cell. Global X/Y/Z already
+            # say where the unit is, so it gets no offset at all -- the rule
+            # ada.topo_model.compile.equipment_space_offset and the cellbuilder follow. Adding
+            # the cell height here too lifted every roof unit the cellbuilder saves (it writes
+            # GLOBAL_COORDS with the roof height already in Z) one cell height above its roof.
+            if self.SPACE_LOC == "ROOF" and not self.GLOBAL_COORDS:
                 if space is None:
                     logger.warning(
                         "Topo Equipment %s: space %r not found for ROOF placement; "
