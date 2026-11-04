@@ -47,6 +47,7 @@ RESERVED = frozenset(
         "Traction",
         # the element groups the model is assigned over
         "bm_sets",
+        "bm_t_sets",
         "tr_sets",
         "cb_sets",
         "mb_sets",
