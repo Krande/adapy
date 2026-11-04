@@ -73,14 +73,79 @@ def _distributed(load: Load) -> bool:
     return False
 
 
-def _stress_cases(step, part, cases, together: bool = False) -> list[int] | None:
+#: ``AFFE_CHAR_MECA`` keywords that take one value (U4.44.01): two loads giving one cannot share a charge.
+_SINGLE_VALUED = frozenset({"PESANTEUR", "ROTATION"})
+
+
+def _charge_keywords(load_str: str) -> list[tuple[str, list[str]]]:
+    """The keywords of a load's ``AFFE_CHAR_MECA`` (as :func:`write_load` writes it) and the source of each of their
+    ``_F(...)`` items, ``MODELE`` left out; None when the string is not one such assignment."""
+    import ast
+
+    tree = ast.parse(load_str)
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Assign):
+        return None
+    call = tree.body[0].value
+    if not isinstance(call, ast.Call) or getattr(call.func, "id", None) != "AFFE_CHAR_MECA":
+        return None
+    out = []
+    for kw in call.keywords:
+        if kw.arg == "MODELE":
+            continue
+        items = kw.value.elts if isinstance(kw.value, (ast.Tuple, ast.List)) else [kw.value]
+        out.append((kw.arg, [ast.get_source_segment(load_str, it) for it in items]))
+    return out
+
+
+def merged_charge_str(name: str, loads) -> str | None:
+    """One ``AFFE_CHAR_MECA`` named ``name`` holding every keyword item of ``loads``' own charges; None when two of
+    them give a keyword that takes one value (:data:`_SINGLE_VALUED`) or a charge is not of the form it is read in.
+
+    What it is for: Code_Aster computes a beam model's stresses and element forces over one charge with distributed
+    loads at most (<CALCULEL2_92> counts charges, not loads -- measured, 18.1.11: a case of eight line-load charges
+    stopped there, the same eight ``FORCE_POUTRE`` items in one charge computed, with the same displacements to every
+    printed digit). A load case of several distributed loads is solved over this one charge instead.
+    """
+    merged: dict[str, list[str]] = {}
+    for ld in loads:
+        keywords = _charge_keywords(write_load(ld))
+        if keywords is None:
+            return None
+        for key, items in keywords:
+            if key in _SINGLE_VALUED and key in merged:
+                return None
+            merged.setdefault(key, []).extend(items)
+    body = "".join(
+        f"    {key}=(\n" + "".join(f"        {item},\n" for item in items) + "    ),\n" for key, items in merged.items()
+    )
+    return f"{name} = AFFE_CHAR_MECA(\n    MODELE=model,\n{body})"
+
+
+def _case_charges(result: str, cases) -> tuple[list[list[str]], list[str]]:
+    """Each case's charges, and the merged charges (:func:`merged_charge_str`) they use: a case of more than one
+    distributed load is solved over one charge of all its loads, ``<result>_c<k>``, where they can share one; any
+    other case over its loads' own charges."""
+    charges, definitions = [], []
+    for k, (_, case_loads) in enumerate(cases, start=1):
+        own = [concept_name(ld, "load") for ld in case_loads]
+        if sum(1 for ld in case_loads if _distributed(ld)) > 1:
+            merged = merged_charge_str(f"{result}_c{k}", case_loads)
+            if merged is not None:
+                definitions.append(merged)
+                own = [f"{result}_c{k}"]
+        charges.append(own)
+    return charges, definitions
+
+
+def _stress_cases(step, part, cases, together: bool = False, merged=()) -> list[int] | None:
     """The 1-based cases whose stresses and element forces ``CALC_CHAMP`` can compute; ``None`` for all of them.
 
     Code_Aster computes a beam model's stresses and element forces with one distributed load at most -- measured,
     18.1.8: ``CONTRAINTE=("SIEF_ELNO",)`` over a result whose loads held several stopped at <CALCULEL2_92> ("votre
     chargement contient plus d'une charge répartie ... modèles de poutre"), where ``FORCE=("REAC_NODA",)`` ran. A case
     with more is reported and keeps its displacements and reactions. ``together``: the cases are instants of one
-    ``MECA_STATIQUE``, whose result holds every case's loads, so they are counted over all the cases.
+    ``MECA_STATIQUE``, whose result holds every case's loads, so they are counted over all the cases. ``merged``: the
+    1-based cases solved over one merged charge (:func:`_case_charges`), whose stresses are computed.
     """
     from ada.fem.formats import conversion_report
 
@@ -91,6 +156,9 @@ def _stress_cases(step, part, cases, together: bool = False) -> list[int] | None
     every = _distinct([ld for _, case_loads in cases for ld in case_loads])
     ok = []
     for k, (name, case_loads) in enumerate(cases, start=1):
+        if k in merged and not together:
+            ok.append(k)
+            continue
         if sum(1 for ld in (every if together else case_loads) if _distributed(ld)) > 1:
             conversion_report.current().omitted(
                 STAGE,
@@ -166,7 +234,11 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
     resu_cara_str = ", CARA_ELEM=element" if has_shells_or_beams else ""
 
     instants = settled and len(step.load_cases) > 0
-    stress_cases = _stress_cases(step, part, cases, together=instants)
+    case_charges, merged_defs = ([], []) if instants else _case_charges(result, cases)
+    if merged_defs:
+        load_str += "\n" + "\n".join(merged_defs)
+    merged = {k for k, chs in enumerate(case_charges, start=1) if len(chs) == 1 and chs[0] == f"{result}_c{k}"}
+    stress_cases = _stress_cases(step, part, cases, together=instants, merged=merged)
     if stress_cases is None:
         targets = None
     elif len(stress_cases) == 0:
@@ -184,7 +256,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
         if settled:
             pd_str = prescribed_charge_str(f"{result}_pd", values[0], bcs) + "\n"
             excit += f"_F(CHARGE={result}_pd),"
-        excit += "".join(f"_F(CHARGE={concept_name(ld, 'load')})," for ld in loads)
+        excit += "".join(f"_F(CHARGE={name})," for name in case_charges[0])
         solve = f"""{pd_str}{result} = MECA_STATIQUE(
     MODELE=model,
     CHAM_MATER=material,{sec_str}
@@ -194,9 +266,8 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
             targets = None if targets else []
     else:
         rows = "\n".join(
-            f"        _F(NOM_CAS='{_nom_cas(name, k)}', CHAR_MECA=({''.join(concept_name(ld, 'load') + ',' for ld in lds)}), "
-            f"OPTION='SANS'),"
-            for k, (name, lds) in enumerate(cases, start=1)
+            f"        _F(NOM_CAS='{_nom_cas(name, k)}', CHAR_MECA=({''.join(ch + ',' for ch in chs)}), OPTION='SANS'),"
+            for k, ((name, _), chs) in enumerate(zip(cases, case_charges), start=1)
         )
         order = "\n".join(f"#   {k}: {name}" for k, (name, _) in enumerate(cases, start=1))
         solve = f"""# Load cases of step {step.name}, by order number:
