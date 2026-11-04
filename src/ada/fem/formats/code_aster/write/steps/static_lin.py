@@ -378,10 +378,22 @@ def _solver_str(part) -> str:
     stiffness (``COEF_RIGI_DRZ`` 1e-3 / 1e-7: 6.17e-6 / 5.05e-6); DKT on the same mesh: 4.4e-8. So the check is kept,
     at 1e-4 -- an answer within about 5e-7 of the exact one by the measured ratio -- and a shell thinner or finer than
     that still stops at <FACTOR_57>, which the runner raises by name.
+
+    ``options.CODE_ASTER.solver`` (:class:`~ada.fem.formats.code_aster.options.CodeAsterOptions`) overrides this: the
+    method, and for MUMPS ``options.CODE_ASTER.resi_rela`` (else the value above). A stiff part in a model -- a
+    "rigid" beam of E 1000 times steel's -- makes MUMPS's estimate exceed 1e-6 the same way on DKT shells and beams
+    (measured, 18.1.11: a 22 000-dof model of shells and beams with such parts, 2.5e-6, a false alarm: MULT_FRONT
+    and MUMPS at 1e-4 gave the same displacements to 1e-11 m), and there was no way round it but editing the deck.
     """
     from ada.fem.shapes.definitions import ShellShapes
 
-    if not any(el.type in (ShellShapes.TRI6, ShellShapes.QUAD8) for el in part.fem.elements):
+    from ..solver import solveur_str
+
+    opts = part.fem.options.CODE_ASTER
+    second_order = any(el.type in (ShellShapes.TRI6, ShellShapes.QUAD8) for el in part.fem.elements)
+    if opts.solver is not None:
+        return solveur_str(opts.solver, opts.resi_rela if opts.resi_rela is not None else (1e-4 if second_order else None))
+    if not second_order:
         return ""
     return "\n    SOLVEUR=_F(METHODE='MUMPS', RESI_RELA=1e-4),"
 

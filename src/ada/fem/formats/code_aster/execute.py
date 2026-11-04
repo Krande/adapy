@@ -66,8 +66,9 @@ KNOWN_MESSAGES = {
     "supports and the connections",
     "FACTOR_57": "MUMPS's error estimate exceeds RESI_RELA: an ill-conditioned system, typically a thin COQUE_3D "
     "(second-order) shell, for which adapy already allows 1e-4 (the estimate measured 200 times or more the true "
-    "error); mesh it with first-order shells (DKT) or coarser, or check the answer with SOLVEUR=_F(METHODE="
-    "'MULT_FRONT') before allowing more",
+    "error), or a near-rigid part (E far above the rest); mesh with first-order shells (DKT) or coarser, or solve "
+    "with fem.options.CODE_ASTER.solver = 'MULT_FRONT' (no such estimate) and check the answer before allowing more "
+    "with solver = 'MUMPS', resi_rela = ...",
     "ASSEMBLA_26": "one node's dof is held by two dualised charges (two supports or a support and a prescribed value "
     "on the same node and dof): merge them into one",
     "ASSEMBLA_45": "a load case's own support charge given beside CHAR_MECA_GLOBAL in MACRO_ELAS_MULT",
