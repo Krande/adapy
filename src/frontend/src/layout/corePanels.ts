@@ -3,15 +3,17 @@
 //
 // Until now the list existed only implicitly, as the toggle buttons and render
 // conditions in `components/Menu.tsx` and `app.tsx`. This file states it once.
-// It changes nothing the classic UI renders: `Menu.tsx` still hand-writes its
-// buttons and mounts its panels, reading the same flags these bindings read and
-// write. A test holds the two together (`__tests__/layout/corePanels.test.ts`).
+// By default the classic UI is still that hand-written tree, reading the same
+// flags these bindings read and write; with the layout-engine flag on, the
+// layout host's classic preset (`./presets/classic`) renders the same UI from
+// this catalogue. Tests hold the catalogue to Menu.tsx
+// (`__tests__/layout/corePanels.test.ts`, `classicPreset.test.ts`).
 //
 // Each entry is an ADAPTER over today's component and flag, not a new panel:
 //
-//   * `body` loads the existing component, frame and all (`frame: "own"`), so a
-//     host can mount it later without a visible change. Content and frame are
-//     split per panel in a later phase.
+//   * `body` loads the existing component, frame and all (`frame: "own"`), so
+//     the classic preset mounts it without a visible change; `content` loads the
+//     same panel's content without that frame, for a host that draws its own.
 //   * `binding` reads and writes the existing flag, through the store's own
 //     action where there is one.
 //   * `available` mirrors the condition under which `Menu.tsx` offers the panel
@@ -57,7 +59,7 @@ import ServerIcon from "@/components/icons/ServerIcon";
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle";
 import TreeViewIcon from "@/components/icons/TreeViewIcon";
 
-import { bindStoreFlag } from "./bindings";
+import { bindStoreFlag, watchStores } from "./bindings";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
 import { getPanel, registerPanel } from "./registry";
@@ -88,16 +90,26 @@ export const CORE_PANEL_IDS = {
 
 export type CorePanelId = (typeof CORE_PANEL_IDS)[keyof typeof CORE_PANEL_IDS];
 
-/** A legacy component as a panel body. It ignores `PanelProps`, which a body may. */
-function legacy(load: () => Promise<{ default: unknown }>): PanelBodyLoader {
-  return () => load().then((m) => ({ default: m.default as React.ComponentType<PanelProps> }));
+/**
+ * A panel's classic component (its content in its classic frame), or its
+ * content alone. Loaded THROUGH the classic shell module (`@/app`, a chunk of its
+ * own already), which resolves it from its own module graph -- statically
+ * imported there, or lazily from inside it for the panels the classic UI has
+ * always code-split. A dynamic import from here straight to a panel module would
+ * give the bundler a second way to reach it that does not pass the shell, and it
+ * would split everything the two share into chunks of their own. See
+ * `./classicBodies`.
+ */
+function classicBody(id: CorePanelId): PanelBodyLoader {
+  return () => import("@/app").then((m) => m.loadClassicPanel(id, "body"));
 }
 
-/** A component of the classic shell's own chunk, through `./classicBodies` (see there for why). */
-function classicBody(name: keyof typeof import("./classicBodies")): PanelBodyLoader {
-  return () =>
-    import("./classicBodies").then((m) => ({ default: m[name] as React.ComponentType<PanelProps> }));
+function classicContent(id: CorePanelId): PanelBodyLoader {
+  return () => import("@/app").then((m) => m.loadClassicPanel(id, "content"));
 }
+
+/** The stores the Simulation button's condition reads. */
+const watchSimulation = watchStores(useAnimationStore, useFeaAnimationStore, useFemConceptsStore);
 
 const classic = (p: PanelPlacement) => ({ [CLASSIC_PRESET_ID]: p });
 const column = (order: number) => classic({ zone: CLASSIC_ZONES.menuColumn, order });
@@ -143,7 +155,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Options",
       hint: "Toggle options drawer",
       shortcut: "Shift+Q",
-      body: classicBody("OptionsComponent"),
+      body: classicBody(CORE_PANEL_IDS.options),
+      content: classicContent(CORE_PANEL_IDS.options),
+      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useOptionsStore,
         (s) => s.isOptionsVisible,
@@ -159,7 +173,9 @@ export function corePanelSpecs(): PanelSpec[] {
       icon: TreeViewIcon,
       hint: "Show or hide the selection tree",
       shortcut: "Shift+T",
-      body: classicBody("ResizableTreeView"),
+      body: classicBody(CORE_PANEL_IDS.tree),
+      content: classicContent(CORE_PANEL_IDS.tree),
+      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useTreeViewStore,
         (s) => !s.isTreeCollapsed,
@@ -176,7 +192,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Node editor",
       icon: GraphIcon,
       hint: "Toggle node editor",
-      body: classicBody("NodeEditorComponent"),
+      body: classicBody(CORE_PANEL_IDS.nodeEditor),
+      content: classicContent(CORE_PANEL_IDS.nodeEditor),
+      watch: watchStores(useNodeEditorStore, useOptionsStore),
       binding: bindStoreFlag(
         useNodeEditorStore,
         (s) => s.isNodeEditorVisible,
@@ -192,7 +210,8 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Storage",
       icon: ServerIcon,
       hint: "Storage",
-      body: legacy(() => import("@/components/storage/StorageBrowser")),
+      body: classicBody(CORE_PANEL_IDS.storage),
+      content: classicContent(CORE_PANEL_IDS.storage),
       binding: bindStoreFlag(
         useServerInfoStore,
         (s) => s.showServerInfoBox,
@@ -209,7 +228,8 @@ export function corePanelSpecs(): PanelSpec[] {
       id: CORE_PANEL_IDS.serverInfo,
       title: "Server info",
       icon: ServerIcon,
-      body: classicBody("ServerInfoBox"),
+      body: classicBody(CORE_PANEL_IDS.serverInfo),
+      content: classicContent(CORE_PANEL_IDS.serverInfo),
       binding: bindStoreFlag(
         useServerInfoStore,
         (s) => s.showServerInfoBox,
@@ -223,7 +243,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: SEARCH_WINDOW_TITLE,
       icon: AttributeSearchIcon,
       hint: SEARCH_WINDOW_TITLE,
-      body: legacy(() => import("@/components/asset_browser/AttributeSearchWindow")),
+      body: classicBody(CORE_PANEL_IDS.attributeSearch),
+      content: classicContent(CORE_PANEL_IDS.attributeSearch),
+      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useSearchWindowStore,
         (s) => s.open,
@@ -239,7 +261,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Object info",
       icon: InfoIcon,
       hint: "Toggle object info",
-      body: classicBody("ObjectInfoBox"),
+      body: classicBody(CORE_PANEL_IDS.objectInfo),
+      content: classicContent(CORE_PANEL_IDS.objectInfo),
+      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useObjectInfoStore,
         (s) => s.show_info_box,
@@ -257,7 +281,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Scene info",
       icon: SceneIcon,
       hint: "Toggle scene info",
-      body: classicBody("SceneInfoBox"),
+      body: classicBody(CORE_PANEL_IDS.scene),
+      content: classicContent(CORE_PANEL_IDS.scene),
+      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useSceneInfoStore,
         (s) => s.show_scene_info_box,
@@ -271,7 +297,8 @@ export function corePanelSpecs(): PanelSpec[] {
       id: CORE_PANEL_IDS.wsStatus,
       title: "Connection",
       hint: "Viewer connection status",
-      body: classicBody("WebsocketStatusBox"),
+      body: classicBody(CORE_PANEL_IDS.wsStatus),
+      content: classicContent(CORE_PANEL_IDS.wsStatus),
       binding: bindStoreFlag(
         useWebsocketStatusStore,
         (s) => s.showInfoBox,
@@ -286,7 +313,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Simulation",
       icon: ToggleControlsIcon,
       hint: "Toggle simulation panel",
-      body: classicBody("SimulationControls"),
+      body: classicBody(CORE_PANEL_IDS.simulation),
+      content: classicContent(CORE_PANEL_IDS.simulation),
+      watch: watchSimulation,
       binding: bindStoreFlag(
         useAnimationStore,
         (s) => s.isControlsVisible,
@@ -301,7 +330,9 @@ export function corePanelSpecs(): PanelSpec[] {
       // The data table, toggled from inside the Simulation panel.
       id: CORE_PANEL_IDS.feaTable,
       title: "Result data",
-      body: classicBody("SimulationDataInfoPanel"),
+      body: classicBody(CORE_PANEL_IDS.feaTable),
+      content: classicContent(CORE_PANEL_IDS.feaTable),
+      watch: watchSimulation,
       binding: bindStoreFlag(
         useTableNavStore,
         (s) => s.isPanelOpen,
@@ -320,7 +351,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Connection components",
       icon: ComponentIcon,
       hint: "Toggle connection-component panel",
-      body: classicBody("ComponentControls"),
+      body: classicBody(CORE_PANEL_IDS.componentControls),
+      content: classicContent(CORE_PANEL_IDS.componentControls),
+      watch: watchStores(useNodeEditorStore, useComponentSpecsStore),
       binding: bindStoreFlag(
         useComponentControlsStore,
         (s) => s.isVisible,
@@ -335,7 +368,9 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Procedural cellbuilder",
       icon: CellBuilderIcon,
       hint: "Toggle procedural cellbuilder panel",
-      body: classicBody("CellBuilderPanel"),
+      body: classicBody(CORE_PANEL_IDS.cellbuilder),
+      content: classicContent(CORE_PANEL_IDS.cellbuilder),
+      watch: watchStores(useNodeEditorStore, useCellBuilderStore),
       binding: bindStoreFlag(
         useCellBuilderStore,
         (s) => s.panelVisible,
@@ -350,7 +385,8 @@ export function corePanelSpecs(): PanelSpec[] {
       // Opened contextually (an equipment's "Edit properties"); no top-bar button.
       id: CORE_PANEL_IDS.equipmentAdmin,
       title: "Equipment catalog",
-      body: legacy(() => import("@/components/admin/EquipmentAdminPanel")),
+      body: classicBody(CORE_PANEL_IDS.equipmentAdmin),
+      watch: watchStores(useCellBuilderStore),
       binding: bindStoreFlag(
         useEquipmentCatalogStore,
         (s) => s.equipmentPanelOpen,
@@ -365,7 +401,8 @@ export function corePanelSpecs(): PanelSpec[] {
     {
       id: CORE_PANEL_IDS.systemAdmin,
       title: "System catalog",
-      body: legacy(() => import("@/components/admin/SystemAdminPanel")),
+      body: classicBody(CORE_PANEL_IDS.systemAdmin),
+      watch: watchStores(useCellBuilderStore),
       binding: bindStoreFlag(
         useEquipmentCatalogStore,
         (s) => s.systemPanelOpen,
@@ -381,7 +418,8 @@ export function corePanelSpecs(): PanelSpec[] {
       id: CORE_PANEL_IDS.admin,
       title: "Admin panel",
       shortcut: "Shift+P",
-      body: legacy(() => import("@/components/admin/AdminPanel")),
+      // Embedded, on the tab the viewer-panel store asks for, as the in-viewer window shows it.
+      body: classicBody(CORE_PANEL_IDS.admin),
       binding: viewerWindowBinding("admin"),
       available: (env) => env.restMode !== false,
       constraints: { requiresRest: true, exclusiveGroup: "classic.viewer-window" },
@@ -392,7 +430,7 @@ export function corePanelSpecs(): PanelSpec[] {
     {
       id: CORE_PANEL_IDS.convert,
       title: "Convert files",
-      body: legacy(() => import("@/components/convert/ConvertPage")),
+      body: classicBody(CORE_PANEL_IDS.convert),
       binding: viewerWindowBinding("convert"),
       available: (env) => env.restMode !== false,
       constraints: { requiresRest: true, exclusiveGroup: "classic.viewer-window" },

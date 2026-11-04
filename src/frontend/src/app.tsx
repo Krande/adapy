@@ -16,6 +16,11 @@ import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
 
+// The core panel catalogue loads each panel's classic component and content
+// through this module (`import("@/app")`), so they come out of this shell's own
+// chunk rather than a chunk of their own. See `layout/classicBodies`.
+export {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS, loadClassicPanel} from "@/layout/classicBodies";
+
 // REST-only UI lives in its own chunk so the embedded desktop bundle
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
 // upload / Pyodide / OIDC code. The chunk only loads when

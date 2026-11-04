@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {AdminTab, AdminTabDeepLink} from "@/state/adminPanelStore";
 import {auditFiltersForUser, useAuditFilterStore} from "@/state/auditFilterStore";
 import {useMeStore} from "@/state/meStore";
+import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {disablePlugin, getAdminTabs, makePluginContextStandalone} from "@/plugins";
 import AuditTab from "./AuditTab";
@@ -291,5 +292,11 @@ const TabButton: React.FC<{
         {children}
     </button>
 );
+
+/** The admin panel as the in-viewer window's body: embedded, on the tab the viewer-panel store asks for. */
+export const AdminWindowBody: React.FC = () => {
+    const adminTab = useViewerPanelStore((s) => s.adminTab);
+    return <AdminPanel embedded initialTab={adminTab ?? undefined}/>;
+};
 
 export default AdminPanel;
