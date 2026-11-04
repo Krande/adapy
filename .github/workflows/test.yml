@@ -25,6 +25,12 @@ jobs:
           environments: tests
           cache: true
 
+      # The offscreen render tests draw with adacpp's WebGPU renderer (wgpu-native). A bare runner
+      # has no graphics adapter: mesa-vulkan-drivers is lavapipe, a software Vulkan adapter, and
+      # libvulkan1 the loader (the same closure as ci-pages.yml and deploy/Dockerfile.docs).
+      - name: Install offscreen render deps (wgpu software Vulkan)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
+
       - name: Runs Tests
         run: pixi run -e tests test-core
 
@@ -91,6 +97,10 @@ jobs:
           environments: >-
             tests-adacpp
           cache: true
+
+      # Software Vulkan for the offscreen render tests: see test-core.
+      - name: Install offscreen render deps (wgpu software Vulkan)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
 
       - name: Run Tests
         run: pixi run -e tests-adacpp test-core

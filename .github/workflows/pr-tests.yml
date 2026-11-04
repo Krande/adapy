@@ -68,6 +68,14 @@ jobs:
             key: dexpi-corpus-${{ hashFiles('scripts/codegen/fetch_dexpi_testcases.py') }}
             restore-keys: dexpi-corpus-
 
+        # The offscreen render tests draw with adacpp's WebGPU renderer (wgpu-native). A Linux
+        # runner has no graphics adapter: mesa-vulkan-drivers is lavapipe, a software Vulkan
+        # adapter, and libvulkan1 the loader (as in ci-pages.yml and deploy/Dockerfile.docs).
+        # The Windows and macOS runners have an adapter already (D3D12 / Metal).
+        - name: Install offscreen render deps (wgpu software Vulkan)
+          if: runner.os == 'Linux'
+          run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
+
         - name: Runs Tests
           run: pixi run -e tests test-quick
 
