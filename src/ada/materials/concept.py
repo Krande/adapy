@@ -108,5 +108,32 @@ class Material(Root):
     def refs(self):
         return self._refs
 
+    def _ref_ids(self) -> set[int]:
+        """``{id(ref)}`` of :attr:`refs`, cached on the material as ``Materials.add`` caches it (``_ref_id_set``), so a
+        membership test is a set lookup rather than a scan of a list that can hold tens of thousands of objects."""
+        ids = getattr(self, "_ref_id_set", None)
+        if ids is None or len(ids) != len(self._refs):
+            ids = {id(r) for r in self._refs}
+            self._ref_id_set = ids
+        return ids
+
+    def link_ref(self, obj) -> None:
+        """Add ``obj`` to :attr:`refs` unless it is already there (by identity)."""
+        ids = self._ref_ids()
+        if id(obj) not in ids:
+            self._refs.append(obj)
+            ids.add(id(obj))
+
+    def unlink_ref(self, obj) -> None:
+        """Remove ``obj`` from :attr:`refs` if it is there (by identity)."""
+        ids = self._ref_ids()
+        if id(obj) not in ids:
+            return
+        for i, r in enumerate(self._refs):
+            if r is obj:
+                del self._refs[i]
+                break
+        ids.discard(id(obj))
+
     def __repr__(self):
         return f'Material(Name: "{self.name}" Material Model: "{self.model}'
