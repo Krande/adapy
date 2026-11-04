@@ -65,10 +65,9 @@ export const SEMANTIC_TOKENS = {
 export type ThemePresetId = keyof typeof THEME_PRESETS;
 
 /** Shared chrome class for every menu-row panel. Color comes from the
- *  CSS vars this store maintains; shape/elevation stay constant. */
-export const PANEL_CHROME =
-    "bg-[var(--ada-panel-bg)] border border-[var(--ada-panel-border)] " +
-    "text-[var(--ada-panel-text)] shadow-lg rounded-md p-2";
+ *  CSS vars this store maintains; shape/elevation stay constant. Defined with
+ *  the rest of the panel chrome in `components/ui/panelChrome`. */
+export {PANEL_CHROME} from "@/components/ui/panelChrome";
 
 interface ThemeState {
     preset: ThemePresetId;

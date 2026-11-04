@@ -41,6 +41,41 @@ export function defaultRect(viewport: Extent, preferred: Extent, min: Extent, to
   return clampRect({ x: (viewport.width - width) / 2, y: top, width, height }, viewport, min);
 }
 
+/**
+ * A window centred both ways at `preferred` size, kept `margin` px from the
+ * viewport's sides and at least `top` px from its top. Where the Simulation
+ * panel's floating dialog opens.
+ */
+export function centredRect(
+  viewport: Extent,
+  preferred: Extent,
+  margin: { x: number; y: number; top: number },
+): WindowRect {
+  const width = Math.min(preferred.width, viewport.width - 2 * margin.x);
+  const height = Math.min(preferred.height, viewport.height - 2 * margin.y);
+  return {
+    x: Math.max(margin.x, (viewport.width - width) / 2),
+    y: Math.max(margin.top, (viewport.height - height) / 2),
+    width,
+    height,
+  };
+}
+
+/** `start` moved by a pointer delta, never past the viewport's top-left corner. */
+export function moveRect(start: WindowRect, dx: number, dy: number): WindowRect {
+  return { x: Math.max(0, start.x + dx), y: Math.max(0, start.y + dy), width: start.width, height: start.height };
+}
+
+/** `start` resized from its bottom-right corner by a pointer delta, never below `min`. */
+export function resizeRect(start: WindowRect, dx: number, dy: number, min: Extent): WindowRect {
+  return {
+    x: start.x,
+    y: start.y,
+    width: Math.max(min.width, start.width + dx),
+    height: Math.max(min.height, start.height + dy),
+  };
+}
+
 /** A rect read back from storage, or null when it is not one (absent, a hand edit, an older shape). */
 export function parseStoredRect(raw: string | null): WindowRect | null {
   if (!raw) return null;

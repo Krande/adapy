@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { clampRect, defaultRect, parseStoredRect } from "../../assets/floatingWindow";
+import { centredRect, clampRect, defaultRect, moveRect, parseStoredRect, resizeRect } from "../../assets/floatingWindow";
 
 const MIN = { width: 420, height: 320 };
 const VIEW = { width: 1600, height: 900 };
@@ -76,4 +76,31 @@ test("a stored rect is read back defensively", () => {
   ]) {
     assert.equal(parseStoredRect(raw), null, String(raw));
   }
+});
+
+// The Simulation panel's floating dialog: its first rect and its pointer drag, which it
+// computed inline before the geometry had one home.
+
+test("centredRect centres a preferred size both ways, inside the margins", () => {
+  const r = centredRect({ width: 1440, height: 900 }, { width: 560, height: 640 }, { x: 24, y: 48, top: 48 });
+  assert.deepEqual(r, { x: 440, y: 130, width: 560, height: 640 });
+});
+
+test("centredRect shrinks to the viewport less its margins, and keeps the top margin", () => {
+  const r = centredRect({ width: 500, height: 600 }, { width: 560, height: 640 }, { x: 24, y: 48, top: 48 });
+  // width min(560, 500-48) = 452, x max(24, 24) ; height min(640, 600-96) = 504, y max(48, 48)
+  assert.deepEqual(r, { x: 24, y: 48, width: 452, height: 504 });
+});
+
+test("moveRect follows the pointer but not past the top-left corner", () => {
+  const start = { x: 100, y: 80, width: 300, height: 200 };
+  assert.deepEqual(moveRect(start, 25, -10), { x: 125, y: 70, width: 300, height: 200 });
+  assert.deepEqual(moveRect(start, -500, -500), { x: 0, y: 0, width: 300, height: 200 });
+});
+
+test("resizeRect grows from the corner and stops at the minimum", () => {
+  const start = { x: 100, y: 80, width: 300, height: 200 };
+  const min = { width: 280, height: 200 };
+  assert.deepEqual(resizeRect(start, 50, 40, min), { x: 100, y: 80, width: 350, height: 240 });
+  assert.deepEqual(resizeRect(start, -100, -100, min), { x: 100, y: 80, width: 280, height: 200 });
 });

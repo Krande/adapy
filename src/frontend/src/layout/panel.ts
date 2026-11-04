@@ -163,6 +163,11 @@ export interface PanelFrameProps {
   host: PanelHostInfo;
   actions: readonly PanelAction[];
   onClose?: () => void;
+  /**
+   * In a floating host: the class the window is dragged by. The frame puts it on
+   * its title bar, so the window moves by its header and nowhere else.
+   */
+  dragHandleClassName?: string;
   children?: React.ReactNode;
 }
 
