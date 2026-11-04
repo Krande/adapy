@@ -135,10 +135,18 @@ def partition_elements(fem: FEM) -> Tuple[List[Elem], Dict[str, List[Elem]]]:
     return writable, skipped
 
 
-def unwritten_element_ids(fem: FEM) -> set:
-    """Ids of the elements :func:`elem_gen` leaves out of the deck."""
+def unwritten_element_ids(fem: FEM, ndofs=None) -> set:
+    """Ids of the elements :func:`elem_gen` leaves out of the deck, including the point masses written as nodal
+    mass (BNMASS) rather than as a mass element (``write_point_elements.is_mass_element``)."""
+    from . import write_point_elements as points
+
     _, skipped = partition_elements(fem)
-    return {el.id for els in skipped.values() for el in els}
+    out = {el.id for els in skipped.values() for el in els}
+    masses = [m for m in fem.elements.masses if m.id is not None]
+    if masses:
+        as_elements = {el.id for el in points.point_elements(fem, ndofs)}
+        out |= {m.id for m in masses if m.id not in as_elements}
+    return out
 
 
 def _report_skipped(fem: FEM, skipped: Dict[str, List[Elem]]) -> int:
@@ -151,7 +159,7 @@ def _report_skipped(fem: FEM, skipped: Dict[str, List[Elem]]) -> int:
     return sum(len(els) for els in skipped.values())
 
 
-def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None) -> Iterator[str]:
+def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None, ndofs=None) -> Iterator[str]:
     """
     'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
             'eccno', 'transno'), 'members|'
@@ -184,8 +192,12 @@ def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None) -> Iterator
     springs = list(fem.elements.springs) if spring_matnos else []
     # So do point masses (write_point_elements): GELMNT1 type 11 with a GELREF1 naming their
     # MGMASS.
-    masses = points.point_elements(fem)
-    mass_matnos = points.matnos(fem, points.first_free_matno(fem))
+    if ndofs is None:
+        from .writer import node_dofs
+
+        ndofs = node_dofs(fem)
+    masses = points.point_elements(fem, ndofs)
+    mass_matnos = points.matnos(fem, points.first_free_matno(fem), ndofs)
     writable = writable + springs + masses
     mass_ids = {el.id for el in masses}
     el_ids = [el.id for el in writable]

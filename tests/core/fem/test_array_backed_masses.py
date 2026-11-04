@@ -36,6 +36,7 @@ from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.read.read_elements import lower_matrix
+from ada.fem.formats.sesam.write.write_masses import mass_str
 from ada.fem.formats.sesam.write.write_point_elements import point_elements_str
 from ada.fem.formats.sesam.write.writer import node_dofs
 from ada.fem.shapes.definitions import MassTypes, SolidShapes
@@ -87,20 +88,35 @@ def warnings_visible(monkeypatch, caplog):
 # ── the defect ───────────────────────────────────────────────────────────────────
 
 
-def test_point_mass_writes_mgmass_on_the_object_path():
+def _bnmass(text: str) -> list[list[float]]:
+    """The BNMASS records, one flat list of numbers each: node id, NDOF, then the masses. A
+    translational point mass on this solid-only (3-dof) node is nodal mass, not a GMAS
+    element, which Sestra accepts on a 6-dof node only (see ``write_point_elements``)."""
+    rows, cur = [], None
+    for line in text.splitlines():
+        if line.startswith("BNMASS"):
+            cur = [float(x) for x in line.split()[1:]]
+            rows.append(cur)
+        elif cur is not None and line.strip():
+            cur += [float(x) for x in line.split()]
+    return rows
+
+
+def test_point_mass_writes_bnmass_on_the_object_path():
     """Today's good behaviour, pinned first so the array-path assertions below have
     something to be equal to."""
     fem = _mass_fem(12.0, MassTypes.MASS, "object")
 
-    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(3, [12.0, 12.0, 12.0])]
+    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == []
+    assert _bnmass(mass_str(fem, node_dofs(fem))) == [[MASS_NODE, 3, 12.0, 12.0, 12.0]]
 
 
 @pytest.mark.parametrize("path", PATHS)
-def test_point_mass_writes_the_same_mgmass_after_packing(path):
+def test_point_mass_writes_the_same_mass_after_packing(path):
     """The reported defect: on ``array`` this used to be the empty string."""
     fem = _mass_fem(12.0, MassTypes.MASS, path)
 
-    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(3, [12.0, 12.0, 12.0])]
+    assert _bnmass(mass_str(fem, node_dofs(fem))) == [[MASS_NODE, 3, 12.0, 12.0, 12.0]]
 
 
 @pytest.mark.parametrize("path", PATHS)
@@ -119,7 +135,8 @@ def test_mass_records_are_byte_identical_across_the_two_paths():
     for value, mass_type in ((12.0, MassTypes.MASS), ([1.0, 2.0, 3.0], MassTypes.ROTARYI)):
         obj = _mass_fem(value, mass_type, "object")
         arr = _mass_fem(value, mass_type, "array")
-        assert point_elements_str(arr, node_dofs(arr)) == point_elements_str(obj, node_dofs(obj)) != ""
+        records = [point_elements_str(f, node_dofs(f)) + mass_str(f, node_dofs(f)) for f in (arr, obj)]
+        assert records[0] == records[1] != ""
 
 
 # ── what survives the packing ────────────────────────────────────────────────────

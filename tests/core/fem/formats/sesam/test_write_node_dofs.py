@@ -334,10 +334,34 @@ def test_bldep_dependent_dof_above_its_ndof_raises():
 # ── MGMASS ───────────────────────────────────────────────────────────────────────
 
 
-def test_mgmass_on_a_3_dof_node_is_three_by_three():
-    """MGMASS's NDOF must equal the node's (manual 7.4.7)."""
-    fem = _solid_with_mass_fem(12.0, MassTypes.MASS)
-    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(3, [12.0, 12.0, 12.0])]
+@pytest.mark.parametrize("path", PATHS)
+def test_point_mass_on_a_3_dof_node_is_nodal_mass_not_a_gmas_element(path):
+    """Sestra's GMAS is a 6-dof element whatever NDOF its MGMASS declares: on a 3-dof node Sestra V11.3-01 aborts
+    ("Trying to add element matrix with 6 degrees of freedom to system matrix, which is more than 3"; an eigen run
+    "GmasWrapper: Illegal input to mass matrix routine"). So the mass goes out as a 3-dof BNMASS, no GELMNT1 names
+    it, and a set naming it leaves it out (tests/fem/test_sesam_point_mass_on_solid.py runs both in Sestra)."""
+    from ada.fem.formats.sesam.write.write_elements import elem_gen, unwritten_element_ids
+    from ada.fem.formats.sesam.write.write_masses import mass_str
+
+    fem = _solid_with_mass_fem(12.0, MassTypes.MASS, path)
+    dofs = node_dofs(fem)
+    mass = next(iter(fem.elements.masses))
+
+    assert _mgmass(point_elements_str(fem, dofs)) == []
+    bnmass = mass_str(fem, dofs).split()
+    assert bnmass[0] == "BNMASS"
+    assert [float(x) for x in bnmass[1:]] == [5.0, 3.0, 12.0, 12.0, 12.0]
+    assert mass.id in unwritten_element_ids(fem, dofs)
+    gelmnt = [ln.split() for ln in "".join(elem_gen(fem, {})).splitlines() if ln.startswith("GELMNT1")]
+    assert all(int(float(r[1])) != mass.id for r in gelmnt)
+
+
+def test_point_mass_on_a_6_dof_node_stays_a_gmas_element():
+    nodes = [ada.Node((0, 0, 0), 1), ada.Node((1, 0, 0), 2)]
+    fem = FEM("beam", nodes=Nodes(nodes), elements=FemElements([Elem(1, nodes, LineShapes.LINE)]))
+    fs = fem.add_set(FemSet("ms", [fem.nodes.from_id(2)], FemSet.TYPES.NSET))
+    fem.add_mass(Mass("m1", fs, 12.0, MassTypes.MASS, parent=fem))
+    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(6, [12.0, 12.0, 12.0, 0.0, 0.0, 0.0])]
 
 
 def test_mgmass_on_a_6_dof_node_is_unchanged():
