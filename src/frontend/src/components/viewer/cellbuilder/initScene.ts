@@ -11,6 +11,7 @@
 import * as THREE from "three";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useCompanionModelStore} from "@/state/companionModelStore";
+import {useGroupViewStore} from "@/state/cellbuilder/groupViewStore";
 import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
@@ -155,6 +156,8 @@ export function initCellBuilderScene(
             applyCellVisibility(ctx);
             requestRender();
         }
+        // Colour by group follows the groups (rename / add / remove re-palettes).
+        if (s.groups !== prev.groups && useGroupViewStore.getState().colourByGroup) refreshFaceStyles(ctx);
         if (
             s.mode !== prev.mode &&
             s.mode !== "add-cell" &&
@@ -165,6 +168,11 @@ export function initCellBuilderScene(
             ctx.ghostBox = null;
             requestRender();
         }
+    });
+    // Colour by group (Groups section) restyles the boxes; it is view state kept
+    // outside the cellbuilder store, so it needs its own subscription.
+    const unsubGroupView = useGroupViewStore.subscribe((s, prev) => {
+        if (s.colourByGroup !== prev.colourByGroup || s.colours !== prev.colours) refreshFaceStyles(ctx);
     });
     const unsubModel = useModelState.subscribe((s, prev) => {
         if (s.translation !== prev.translation) syncOffset(ctx);
@@ -181,6 +189,7 @@ export function initCellBuilderScene(
     return () => {
         unsub();
         unsubCompanions();
+        unsubGroupView();
         unsubModel();
         el.removeEventListener("pointerdown", hPointerDown, true);
         el.removeEventListener("pointermove", hPointerMove, true);
