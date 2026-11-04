@@ -134,3 +134,30 @@ test("every facade entry point declares the contract version exactly once", () =
   );
   assert.deepEqual(decls.map(rel), ["src/viewer-core/index.ts"]);
 });
+
+test("the layout entry publishes every split core panel's content", () => {
+  // A shell frames these itself instead of copying the panels; dropping one is a
+  // breaking change for it, so the list is held here.
+  const src = readFileSync(join(facadeDir, "layout.ts"), "utf8");
+  for (const name of [
+    "SceneBody",
+    "ObjectInfoBody",
+    "StorageBody",
+    "OptionsBody",
+    "SimulationBody",
+    "FeaTableBody",
+    "CellBuilderBody",
+    "ComponentControlsBody",
+    "NodeEditorBody",
+    "TreeBody",
+    "AttributeSearchBody",
+    "ConvertBody",
+    "ServerInfoBody",
+    "WebsocketStatusBody",
+    "PanelFrame",
+    "FloatingWindow",
+    "LayoutHost",
+  ]) {
+    assert.match(src, new RegExp(`\\b${name}\\b`), `${name} is not on @/viewer-core/layout`);
+  }
+});
