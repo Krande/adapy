@@ -69,6 +69,7 @@ import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useMeStore } from "@/state/meStore";
 import { providerName, useProviderName } from "@/state/providerNamesStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
+import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
 import { useTreeSetsStore } from "@/state/treeSetsStore";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { loaderFor } from "@/state/assetBrowserLoader";
@@ -1274,7 +1275,6 @@ function useJointsCheck(view: AssetView, id: string, scope: string) {
     const setAssetTarget = useClashCheckStore((s) => s.setAssetTarget);
     const runCheck = useClashCheckStore((s) => s.runCheck);
     const setMode = useSceneInfoStore((s) => s.setMode);
-    const setShowSceneInfoBox = useSceneInfoStore((s) => s.setShowSceneInfoBox);
 
     const badge: RowBadge | null = rowFacts(view, id)?.badge ?? null;
     if (!badge) return null;
@@ -1289,7 +1289,7 @@ function useJointsCheck(view: AssetView, id: string, scope: string) {
             collectionProviders: view.contentProviders,
         });
         setMode("clashes");
-        setShowSceneInfoBox(true);
+        reveal(CORE_PANEL_IDS.scene);
         void runCheck(scope);
     };
     return { busy, run };

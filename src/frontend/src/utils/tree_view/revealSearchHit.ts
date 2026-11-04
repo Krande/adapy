@@ -17,6 +17,7 @@ import type {SearchHit} from "@/services/api/attributeSearch";
 import {assetsApi} from "@/services/api/assets";
 import {sourceNodesApi} from "@/services/api/sourceNodes";
 import {getSingletonViewerStores} from "@/state/AdaViewerContext";
+import {CORE_PANEL_IDS, reveal} from "@/layout/panelActions";
 import type {AssetBrowserState} from "@/state/assetBrowserStore";
 import {loaderFor} from "@/state/assetBrowserLoader";
 import {scopeUrlPart} from "@/state/scopeStore";
@@ -68,7 +69,7 @@ export async function revealSearchHit(hit: SearchHit, opts: {load?: boolean} = {
     const scope = scopeUrlPart(stores.useScopeStore.getState().current);
 
     // Open the drawer on Sources; the tab loads the scope's collections when it first mounts.
-    stores.useTreeViewStore.getState().setIsTreeCollapsed(false);
+    reveal(CORE_PANEL_IDS.tree);
     store.getState().setTab("assets");
     await waitFor(store, (s) => s.scope === scope && s.collections !== null);
     if (!alive()) return {status: "superseded"};

@@ -4,6 +4,7 @@
  */
 
 import {runtime} from "@/runtime/config";
+import {CORE_PANEL_IDS, hide, reveal} from "@/layout/panelActions";
 import {getSingletonViewerStores} from "@/state/AdaViewerContext";
 
 import {revealPickInTrees, syncSceneTreeToSelection} from "./revealPick";
@@ -35,9 +36,8 @@ export function selectedTreeRowNames(): string[] | null {
  *  a tree has focus. Called from the trees' own key handlers rather than the viewer's global one:
  *  a focused tree consumes its keys, so a window listener never reliably sees them. */
 export function closeTreeFromKeyboard(): void {
-    const {useTreeViewStore} = getSingletonViewerStores();
     (document.activeElement as HTMLElement | null)?.blur();
-    useTreeViewStore.getState().setIsTreeCollapsed(true);
+    hide(CORE_PANEL_IDS.tree);
     document.querySelector<HTMLElement>("canvas")?.focus();
 }
 
@@ -93,7 +93,7 @@ export function toggleTreeFocus(): void {
     const focused = !!current && !!active && current.contains(active);
     if (open && (focused || empty)) {
         if (focused) (active as HTMLElement).blur();
-        useTreeViewStore.getState().setIsTreeCollapsed(true);
+        hide(CORE_PANEL_IDS.tree);
         document.querySelector<HTMLElement>("canvas")?.focus();
         return;
     }
@@ -126,7 +126,7 @@ export function toggleTreeFocus(): void {
     if (useTreeViewStore.getState().isTreeCollapsed) {
         // Opening the drawer mounts and sizes the tree; reveal once it has laid out, or the scroll
         // runs against a zero-height list.
-        useTreeViewStore.getState().setIsTreeCollapsed(false);
+        reveal(CORE_PANEL_IDS.tree);
         requestAnimationFrame(() => requestAnimationFrame(go));
     } else {
         go();
