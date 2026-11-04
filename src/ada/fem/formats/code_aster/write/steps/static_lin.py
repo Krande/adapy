@@ -97,16 +97,42 @@ def _charge_keywords(load_str: str) -> list[tuple[str, list[str]]]:
     return out
 
 
-def merged_charge_str(name: str, loads) -> str | None:
-    """One ``AFFE_CHAR_MECA`` named ``name`` holding every keyword item of ``loads``' own charges; None when two of
-    them give a keyword that takes one value (:data:`_SINGLE_VALUED`) or a charge is not of the form it is read in.
+def _item_entities(item: str, fem) -> set | None:
+    """The mesh entities a keyword item of a charge acts on -- ``("MA", element id)`` / ``("NO", node id)`` of its
+    ``GROUP_MA`` / ``GROUP_NO`` groups, ``{"ALL"}`` for ``TOUT`` or an item of no group (``PESANTEUR``); None when a
+    group is not one of ``fem``'s sets."""
+    import re
+
+    groups = re.findall(r"GROUP_(MA|NO)\s*=\s*\(?((?:\s*'[^']*'\s*,?)+)\)?", item)
+    if not groups:
+        return {"ALL"}
+    out = set()
+    for kind, names in groups:
+        for name in re.findall(r"'([^']*)'", names):
+            fs = (fem.elsets if kind == "MA" else fem.nsets).get(name)
+            if fs is None:
+                return None
+            ids = getattr(fs, "_member_ids", None)
+            out |= {(kind, int(i)) for i in (ids if ids is not None else [m.id for m in fs.members])}
+    return out
+
+
+def merged_charge_str(name: str, loads, fem=None) -> str | None:
+    """One ``AFFE_CHAR_MECA`` named ``name`` holding every keyword item of ``loads``' own charges; None when it would
+    not load the model as the separate charges do: two of them give a keyword that takes one value
+    (:data:`_SINGLE_VALUED`), or (``fem`` given) items of one keyword from two loads act on a common element or node --
+    in one charge the later item replaces the earlier there, where two charges add -- or a charge is not of the form
+    it is read in.
 
     What it is for: Code_Aster computes a beam model's stresses and element forces over one charge with distributed
     loads at most (<CALCULEL2_92> counts charges, not loads -- measured, 18.1.11: a case of eight line-load charges
-    stopped there, the same eight ``FORCE_POUTRE`` items in one charge computed, with the same displacements to every
-    printed digit). A load case of several distributed loads is solved over this one charge instead.
+    stopped there, the same items in one charge computed, with the same displacements to every printed digit). A load
+    case of several distributed loads is solved over this one charge instead. Measured: merging a case's point loads
+    too, two of them on one node, left one of them out (tests/fem/test_code_aster_case_stresses.py: 22.6 kN of
+    23.6 kN at the root).
     """
     merged: dict[str, list[str]] = {}
+    seen: dict[str, set] = {}
     for ld in loads:
         keywords = _charge_keywords(write_load(ld))
         if keywords is None:
@@ -114,6 +140,16 @@ def merged_charge_str(name: str, loads) -> str | None:
         for key, items in keywords:
             if key in _SINGLE_VALUED and key in merged:
                 return None
+            if fem is not None:
+                mine = set()
+                for item in items:
+                    entities = _item_entities(item, fem)
+                    if entities is None:
+                        return None
+                    mine |= entities
+                if mine & seen.get(key, set()) or ("ALL" in mine and key in seen):
+                    return None
+                seen.setdefault(key, set()).update(mine)
             merged.setdefault(key, []).extend(items)
     body = "".join(
         f"    {key}=(\n" + "".join(f"        {item},\n" for item in items) + "    ),\n" for key, items in merged.items()
@@ -121,18 +157,19 @@ def merged_charge_str(name: str, loads) -> str | None:
     return f"{name} = AFFE_CHAR_MECA(\n    MODELE=model,\n{body})"
 
 
-def _case_charges(result: str, cases) -> tuple[list[list[str]], list[str]]:
+def _case_charges(result: str, cases, fem) -> tuple[list[list[str]], list[str]]:
     """Each case's charges, and the merged charges (:func:`merged_charge_str`) they use: a case of more than one
-    distributed load is solved over one charge of all its loads, ``<result>_c<k>``, where they can share one; any
-    other case over its loads' own charges."""
+    distributed load is solved over one charge of its distributed loads, ``<result>_c<k>``, where they can share one,
+    and its other loads' own charges; any other case over its loads' own charges."""
     charges, definitions = [], []
     for k, (_, case_loads) in enumerate(cases, start=1):
         own = [concept_name(ld, "load") for ld in case_loads]
-        if sum(1 for ld in case_loads if _distributed(ld)) > 1:
-            merged = merged_charge_str(f"{result}_c{k}", case_loads)
+        distributed = [ld for ld in case_loads if _distributed(ld)]
+        if len(distributed) > 1:
+            merged = merged_charge_str(f"{result}_c{k}", distributed, fem)
             if merged is not None:
                 definitions.append(merged)
-                own = [f"{result}_c{k}"]
+                own = [f"{result}_c{k}"] + [concept_name(ld, "load") for ld in case_loads if not _distributed(ld)]
         charges.append(own)
     return charges, definitions
 
@@ -234,10 +271,10 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
     resu_cara_str = ", CARA_ELEM=element" if has_shells_or_beams else ""
 
     instants = settled and len(step.load_cases) > 0
-    case_charges, merged_defs = ([], []) if instants else _case_charges(result, cases)
+    case_charges, merged_defs = ([], []) if instants else _case_charges(result, cases, part.fem)
     if merged_defs:
         load_str += "\n" + "\n".join(merged_defs)
-    merged = {k for k, chs in enumerate(case_charges, start=1) if len(chs) == 1 and chs[0] == f"{result}_c{k}"}
+    merged = {k for k, chs in enumerate(case_charges, start=1) if f"{result}_c{k}" in chs}
     stress_cases = _stress_cases(step, part, cases, together=instants, merged=merged)
     if stress_cases is None:
         targets = None
