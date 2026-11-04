@@ -100,6 +100,8 @@ test("the root @/viewer-core entry point is dependency-free", async () => {
   const facade = await import("@/viewer-core");
   assert.equal(typeof facade.registerPlugin, "function");
   assert.equal(typeof facade.listUiShells, "function");
+  assert.equal(typeof facade.registerPanel, "function");
+  assert.equal(typeof facade.reveal, "function");
   assert.equal(typeof facade.VIEWER_CORE_API_VERSION, "string");
 });
 
@@ -107,7 +109,15 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
   // Belt to the previous test's braces: node might tolerate a heavy module that
   // a browser build would still pay for. Anything else belongs in /app, /scene
   // or /plugins.
-  const DEP_FREE_LEAVES = ["@/plugins/registry", "@/plugins/uiShells"];
+  const DEP_FREE_LEAVES = [
+    "@/plugins/registry",
+    "@/plugins/uiShells",
+    "@/layout/panel",
+    "@/layout/registry",
+    "@/layout/reveal",
+    "@/layout/bindings",
+    "@/layout/layout",
+  ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));
   assert.deepEqual(
