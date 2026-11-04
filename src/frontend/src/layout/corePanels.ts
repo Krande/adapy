@@ -93,6 +93,12 @@ function legacy(load: () => Promise<{ default: unknown }>): PanelBodyLoader {
   return () => load().then((m) => ({ default: m.default as React.ComponentType<PanelProps> }));
 }
 
+/** A component of the classic shell's own chunk, through `./classicBodies` (see there for why). */
+function classicBody(name: keyof typeof import("./classicBodies")): PanelBodyLoader {
+  return () =>
+    import("./classicBodies").then((m) => ({ default: m[name] as React.ComponentType<PanelProps> }));
+}
+
 const classic = (p: PanelPlacement) => ({ [CLASSIC_PRESET_ID]: p });
 const column = (order: number) => classic({ zone: CLASSIC_ZONES.menuColumn, order });
 
@@ -137,7 +143,7 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Options",
       hint: "Toggle options drawer",
       shortcut: "Shift+Q",
-      body: legacy(() => import("@/components/OptionsComponent")),
+      body: classicBody("OptionsComponent"),
       binding: bindStoreFlag(
         useOptionsStore,
         (s) => s.isOptionsVisible,
@@ -153,7 +159,7 @@ export function corePanelSpecs(): PanelSpec[] {
       icon: TreeViewIcon,
       hint: "Show or hide the selection tree",
       shortcut: "Shift+T",
-      body: legacy(() => import("@/components/tree_view/ResizableTreeView")),
+      body: classicBody("ResizableTreeView"),
       binding: bindStoreFlag(
         useTreeViewStore,
         (s) => !s.isTreeCollapsed,
@@ -170,7 +176,7 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Node editor",
       icon: GraphIcon,
       hint: "Toggle node editor",
-      body: legacy(() => import("@/components/node_editor/NodeEditorComponent")),
+      body: classicBody("NodeEditorComponent"),
       binding: bindStoreFlag(
         useNodeEditorStore,
         (s) => s.isNodeEditorVisible,
@@ -203,7 +209,7 @@ export function corePanelSpecs(): PanelSpec[] {
       id: CORE_PANEL_IDS.serverInfo,
       title: "Server info",
       icon: ServerIcon,
-      body: legacy(() => import("@/components/server_info/ServerInfoBox")),
+      body: classicBody("ServerInfoBox"),
       binding: bindStoreFlag(
         useServerInfoStore,
         (s) => s.showServerInfoBox,
@@ -233,7 +239,7 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Object info",
       icon: InfoIcon,
       hint: "Toggle object info",
-      body: legacy(() => import("@/components/info_box_selected_object/ObjectInfoBoxComponent")),
+      body: classicBody("ObjectInfoBox"),
       binding: bindStoreFlag(
         useObjectInfoStore,
         (s) => s.show_info_box,
@@ -251,7 +257,7 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Scene info",
       icon: SceneIcon,
       hint: "Toggle scene info",
-      body: legacy(() => import("@/components/info_box_scene/SceneInfoBox")),
+      body: classicBody("SceneInfoBox"),
       binding: bindStoreFlag(
         useSceneInfoStore,
         (s) => s.show_scene_info_box,
@@ -265,10 +271,7 @@ export function corePanelSpecs(): PanelSpec[] {
       id: CORE_PANEL_IDS.wsStatus,
       title: "Connection",
       hint: "Viewer connection status",
-      body: () =>
-        import("@/components/WebsocketStatusMenu").then((m) => ({
-          default: m.WebsocketStatusBox as React.ComponentType<PanelProps>,
-        })),
+      body: classicBody("WebsocketStatusBox"),
       binding: bindStoreFlag(
         useWebsocketStatusStore,
         (s) => s.showInfoBox,
@@ -283,7 +286,7 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Simulation",
       icon: ToggleControlsIcon,
       hint: "Toggle simulation panel",
-      body: legacy(() => import("@/components/simulation/SimulationControls")),
+      body: classicBody("SimulationControls"),
       binding: bindStoreFlag(
         useAnimationStore,
         (s) => s.isControlsVisible,
@@ -298,7 +301,7 @@ export function corePanelSpecs(): PanelSpec[] {
       // The data table, toggled from inside the Simulation panel.
       id: CORE_PANEL_IDS.feaTable,
       title: "Result data",
-      body: legacy(() => import("@/components/simulation/SimulationDataInfoPanel")),
+      body: classicBody("SimulationDataInfoPanel"),
       binding: bindStoreFlag(
         useTableNavStore,
         (s) => s.isPanelOpen,
@@ -317,7 +320,7 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Connection components",
       icon: ComponentIcon,
       hint: "Toggle connection-component panel",
-      body: legacy(() => import("@/components/component_view/ComponentControls")),
+      body: classicBody("ComponentControls"),
       binding: bindStoreFlag(
         useComponentControlsStore,
         (s) => s.isVisible,
@@ -332,7 +335,7 @@ export function corePanelSpecs(): PanelSpec[] {
       title: "Procedural cellbuilder",
       icon: CellBuilderIcon,
       hint: "Toggle procedural cellbuilder panel",
-      body: legacy(() => import("@/components/viewer/CellBuilderPanel")),
+      body: classicBody("CellBuilderPanel"),
       binding: bindStoreFlag(
         useCellBuilderStore,
         (s) => s.panelVisible,
