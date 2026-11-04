@@ -51,7 +51,8 @@ def _model() -> ada.Assembly:
 def test_a_case_of_several_distributed_loads_has_element_forces(tmp_path, require_solver):
     require_solver("code_aster")
     a = _model()
-    a.to_fem("cs", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
+    res = a.to_fem("cs", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
+    assert res.step_name_map == {1: "all"}  # the load case by name, as Sesam's reader gives it
     bm = next(iter(a.get_all_physical_objects(by_type=ada.Beam)))
     w = bm.material.model.rho * bm.section.properties.Ax * G
     with h5py.File(tmp_path / "cs" / "cs.rmed", "r") as f:
