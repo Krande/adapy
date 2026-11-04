@@ -116,7 +116,12 @@ def test_shared_adacpp_renderer_resizes_and_drops_the_previous_overlay(tmp_path)
 
     glb = tmp_path / "box.glb"
     trimesh.creation.box().export(glb)
-    with_gizmo = np.asarray(glb_to_image(glb, size=(200, 150), overlay={"gizmo": True}))
+    try:
+        with_gizmo = np.asarray(glb_to_image(glb, size=(200, 150), overlay={"gizmo": True}))
+    except offscreen.OffscreenUnavailableError as exc:
+        if "adapter" in str(exc):
+            pytest.skip(str(exc))  # a host without a graphics adapter, not a broken install
+        raise
     plain = np.asarray(glb_to_image(glb, size=(320, 240)))
     assert with_gizmo.shape == (150, 200, 4) and plain.shape == (240, 320, 4)
     # The gizmo sits in the bottom-right corner; the next call without an overlay must leave it empty.
