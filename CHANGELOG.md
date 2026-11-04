@@ -2,6 +2,13 @@
 
 
 
+## v0.130.0 (2026-11-04)
+
+### Feature
+
+* feat(jobs,sweeps): extend a running job&#39;s time limit, re-queue failed sweep items, per-worker sweep toast (#482) ([`ef36966`](https://github.com/Krande/adapy/commit/ef3696604703d1c2b01b95a1a0d7aabbee00be1c))
+
+
 ## v0.129.1 (2026-11-02)
 
 ### Fix
