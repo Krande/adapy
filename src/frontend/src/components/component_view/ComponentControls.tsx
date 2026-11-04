@@ -35,8 +35,8 @@ import {useModelState} from "@/state/modelState";
 // overlay_file_in_scene reads from. Empty cache → panel surfaces a
 // "no specs published" hint.
 
-const ComponentControls: React.FC = () => {
-    const isVisible = useComponentControlsStore((s) => s.isVisible);
+/** The connection-component builder's content: spec picker, role inputs, build and its status. */
+export const ComponentControlsBody: React.FC = () => {
     const selectedSpecName = useComponentControlsStore((s) => s.selectedSpecName);
     const selectSpec = useComponentControlsStore((s) => s.selectSpec);
     const inputs = useComponentControlsStore((s) => s.inputs);
@@ -90,8 +90,6 @@ const ComponentControls: React.FC = () => {
         if (!specs || !selectedSpecName) return null;
         return specs.specs[selectedSpecName] ?? null;
     }, [specs, selectedSpecName]);
-
-    if (!isVisible) return null;
 
     const specNames = specs ? Object.keys(specs.specs).sort() : [];
     /** Group specs by the branch their manifest was published on so
@@ -169,7 +167,7 @@ const ComponentControls: React.FC = () => {
     };
 
     return (
-        <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[280px]">
+        <>
             <div className="flex items-center gap-2">
                 <span className="text-gray-300 shrink-0">Spec</span>
                 <select
@@ -229,6 +227,17 @@ const ComponentControls: React.FC = () => {
                     {job && <JobStatus job={job} />}
                 </>
             )}
+        </>
+    );
+};
+
+/** The classic frame: a dark card in the menu column, shown while the panel is toggled on. */
+const ComponentControls: React.FC = () => {
+    const isVisible = useComponentControlsStore((s) => s.isVisible);
+    if (!isVisible) return null;
+    return (
+        <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[280px]">
+            <ComponentControlsBody />
         </div>
     );
 };

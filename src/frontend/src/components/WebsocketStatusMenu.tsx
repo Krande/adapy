@@ -1,4 +1,4 @@
-import {PANEL_CHROME} from "@/state/themeStore";
+import {PanelCard} from "@/components/ui/PanelFrame";
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useWebsocketStatusStore} from '../state/websocketStatusStore';
 import {comms} from '../utils/comms';
@@ -38,7 +38,8 @@ export function WebsocketStatusMenu() {
     );
 }
 
-export function WebsocketStatusBox() {
+/** The websocket connection's content: this instance, the server, its clients and its log. */
+export function WebsocketStatusBody() {
     const [showClientsList, setShowClientsList] = useState(false);
     const [editingId, setEditingId] = useState(false);
     const [tempId, setTempId] = useState<string>('');
@@ -101,8 +102,7 @@ export function WebsocketStatusBox() {
     }, [saveEdit, cancelEdit]);
 
     return (
-        <div className={`${PANEL_CHROME} min-w-80`}>
-            <h2 className="font-bold">WebSocket Status</h2>
+        <>
             <div className="text-xs text-gray-300 space-y-2 mb-2">
                 <div className="border-b border-gray-300 pb-2">
                     <div className="font-medium mb-1">Frontend Instance</div>
@@ -226,7 +226,16 @@ export function WebsocketStatusBox() {
                     Shutdown Server
                 </button>
             )}
-        </div>
+        </>
+    );
+}
+
+/** The classic frame: a menu-column card. */
+export function WebsocketStatusBox() {
+    return (
+        <PanelCard className="min-w-80" heading="WebSocket Status">
+            <WebsocketStatusBody/>
+        </PanelCard>
     );
 }
 

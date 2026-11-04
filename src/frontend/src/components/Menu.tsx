@@ -1,4 +1,5 @@
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense } from "react";
+import { useIsWide } from "@/utils/useIsMobile";
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import SimulationControls from "./simulation/SimulationControls";
 import { feModelLoaded, hasFemConcepts, simulationButtonShown } from "./simulation/simPanelTabs";
@@ -44,11 +45,6 @@ const SystemAdminPanel = React.lazy(() => import("./admin/SystemAdminPanel"));
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import { WebsocketStatusMenu, WebsocketStatusBox } from "./WebsocketStatusMenu";
 import { PluginTopBarButtons, PluginPanelRegion } from "@/plugins";
-
-// `md:` Tailwind breakpoint. Match it with matchMedia so the menu can
-// react to viewport changes (rotating a tablet, dragging the window
-// across breakpoints) without re-architecting around CSS-only rules.
-const DESKTOP_QUERY = "(min-width: 768px)";
 
 // Top-bar button styling. Inactive uses a translucent hover (lighter
 // than the base) so the button "lifts" on hover. Active uses a darker
@@ -103,20 +99,6 @@ function navBtnClass(
   return `${NAV_BTN_BASE} ${active ? NAV_BTN_ACTIVE : NAV_BTN_INACTIVE} ${hiddenClass} ${extra}`
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function useIsDesktop(): boolean {
-  const [isDesktop, setIsDesktop] = useState(
-    () =>
-      typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(DESKTOP_QUERY);
-    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return isDesktop;
 }
 
 const Menu = () => {
@@ -184,7 +166,9 @@ const Menu = () => {
   const isTreeCollapsed = stores.useTreeViewStore((s) => s.isTreeCollapsed);
   const setIsTreeCollapsed = stores.useTreeViewStore((s) => s.setIsTreeCollapsed);
   const treeViewWidth = stores.useTreeViewStore((s) => s.treeViewWidth);
-  const isDesktop = useIsDesktop();
+  // The `md:` (wide) breakpoint, followed as the viewport changes (rotating a
+  // tablet, dragging the window across it).
+  const isDesktop = useIsWide();
   const searchWindowOpen = useSearchWindowStore((s) => s.open);
 
   // On desktop the tree panel pushes the menu bar to its right so

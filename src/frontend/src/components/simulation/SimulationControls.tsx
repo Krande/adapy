@@ -95,7 +95,13 @@ export interface SimulationControlsProps {
     forcedTabId?: string;
 }
 
-const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "docked", forcedTabId}) => {
+/**
+ * The Simulation panel's tab state: which tabs exist (results, the FE model, the
+ * phone legend, plugin tabs), which one is active, and how to open the active one
+ * in a follower window. The frame needs the last for its header, the content the
+ * rest, so both take it from here.
+ */
+export function useSimulationTabs(forcedTabId?: string) {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     // Panel-visibility now lives in tableNavStore so external
     // triggers (ObjectInfoBoxComponent's "Show in data" button) can
@@ -106,7 +112,6 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     const togglePanel = useTableNavStore((s) => s.togglePanel);
 
     const stores = useViewerStores();
-    const [mode, setMode] = useState<SimFrameMode>(initialMode);
 
     // Plugin-contributed Simulation tabs (fem-sidebar panels carrying `asTab`).
     // Rebuilt each render so activation + badges track live store state.
@@ -158,7 +163,21 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
         tabs.find((t) => t.panel.id === activeTab) ??
         (forcedTabId ? findSimulationTabById(forcedTabId) : null);
 
-    const body = (
+    return {
+        forcedTabId, stores, tabs, legendTab, modelTab, activeTab, selectTab, activePluginTab,
+        sessionActive, hasResults, showSimData, togglePanel, onOpenWindow,
+    };
+}
+
+export type SimulationTabs = ReturnType<typeof useSimulationTabs>;
+
+/** The Simulation panel's content -- its tab strip and the active tab -- over tab state its host keeps. */
+export const SimulationContent: React.FC<{sim: SimulationTabs}> = ({sim}) => {
+    const {
+        forcedTabId, stores, tabs, legendTab, modelTab, activeTab, selectTab, activePluginTab,
+        sessionActive, hasResults, showSimData, togglePanel,
+    } = sim;
+    return (
         <div className="flex flex-col gap-2 min-w-0">
             {!forcedTabId && (tabs.length > 0 || legendTab || modelTab) && (
                 <SimTabStrip
@@ -190,6 +209,17 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
             )}
         </div>
     );
+};
+
+/** The Simulation panel's content, with its own tab state. */
+export const SimulationBody: React.FC<{forcedTabId?: string}> = ({forcedTabId}) => (
+    <SimulationContent sim={useSimulationTabs(forcedTabId)}/>
+);
+
+/** The classic frame: `SimWindowFrame`, docked in the menu column, floating, or a whole window. */
+const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "docked", forcedTabId}) => {
+    const sim = useSimulationTabs(forcedTabId);
+    const [mode, setMode] = useState<SimFrameMode>(initialMode);
 
     return (
         // A follower window shares state over same-origin BroadcastChannel + a
@@ -197,8 +227,8 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
         // utils/simChannel.ts's followerUrl) -- neither works from a file:// tab
         // (every `file:` document is its own unique origin), so the button is
         // omitted there rather than offered and failing.
-        <SimWindowFrame mode={mode} setMode={setMode} onOpenWindow={runtime.isFileOrigin() ? undefined : onOpenWindow}>
-            {body}
+        <SimWindowFrame mode={mode} setMode={setMode} onOpenWindow={runtime.isFileOrigin() ? undefined : sim.onOpenWindow}>
+            <SimulationContent sim={sim}/>
         </SimWindowFrame>
     );
 };

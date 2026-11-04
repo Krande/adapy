@@ -1,5 +1,6 @@
-import {PANEL_CHROME} from "@/state/themeStore";
-import React, {Suspense, useEffect, useState} from "react";
+import {PanelCard} from "@/components/ui/PanelFrame";
+import React, {Suspense, useState} from "react";
+import {useIsNarrow} from "@/utils/useIsMobile";
 import {runtime} from "@/runtime/config";
 import {useOptionsStore} from "@/state/optionsStore";
 import PointSizeOptions from "./options/PointSizeOptions";
@@ -17,8 +18,6 @@ import ThemeOptions from "./options/ThemeOptions";
 const RestSection = React.lazy(() => import("./options/RestSection"));
 import {UiShellSwitcher} from "@/plugins";
 import { buildLabel } from "@/utils/buildLabel";
-
-const MOBILE_QUERY = "(max-width: 767px)";
 
 // Lightweight disclosure. State is local — these sections are leaf-y
 // enough that no other component cares whether they're open. Defaults
@@ -52,12 +51,8 @@ const CollapsibleSection: React.FC<{title: string; children: React.ReactNode}> =
 //   like ObjectInfoBox / SceneInfoBox / StorageBrowser — same
 //   semi-transparent gray, same rounded corners. The ☰ button toggles
 //   it; nothing else needs to.
-function OptionsComponent() {
-    const [isMobile, setIsMobile] = useState(
-        () => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches,
-    );
-    const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
-
+/** The Options panel's content: the build line and every settings section. */
+export function OptionsBody() {
     const unique_version_id = runtime.uniqueVersionId();
     const adapy_version = runtime.adapyVersion();
     const frontend_sha = runtime.frontendSha();
@@ -76,13 +71,6 @@ function OptionsComponent() {
             Build: <span className="font-mono">{build_label}</span>
         </div>
     );
-
-    useEffect(() => {
-        const mq = window.matchMedia(MOBILE_QUERY);
-        const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-        mq.addEventListener("change", onChange);
-        return () => mq.removeEventListener("change", onChange);
-    }, []);
 
     const sections = (
         <>
@@ -144,6 +132,19 @@ function OptionsComponent() {
         </>
     );
 
+    return (
+        <>
+            {versionInfo}
+            {sections}
+        </>
+    );
+}
+
+// The classic frame around `OptionsBody`, in two layouts (see above).
+function OptionsComponent() {
+    const isMobile = useIsNarrow();
+    const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
+
     if (isMobile) {
         // Drawer pinned to the left edge, full visible-viewport height.
         return (
@@ -161,8 +162,7 @@ function OptionsComponent() {
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
-                    {versionInfo}
-                    {sections}
+                    <OptionsBody/>
                 </div>
             </div>
         );
@@ -173,13 +173,9 @@ function OptionsComponent() {
     // pattern. Cap max-height so a long Options list doesn't push the
     // page; scroll inside instead.
     return (
-        <div
-            className={`${PANEL_CHROME} min-w-80 max-w-sm text-sm space-y-3 max-h-[70vh] overflow-y-auto`}
-        >
-            <h2 className="font-bold">Options</h2>
-            {versionInfo}
-            {sections}
-        </div>
+        <PanelCard className="min-w-80 max-w-sm text-sm space-y-3 max-h-[70vh] overflow-y-auto" heading="Options">
+            <OptionsBody/>
+        </PanelCard>
     );
 }
 
