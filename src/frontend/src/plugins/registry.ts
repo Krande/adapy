@@ -14,6 +14,8 @@
 import type React from "react";
 import type { AdaViewerStores } from "@/state/AdaViewerContext";
 import { registerUiShell, type UiShellSpec } from "./uiShells";
+import { panelSpecFromSlot } from "@/layout/pluginPanels";
+import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -96,7 +98,13 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 // 1.11.0 — `setFeaUnpaintedColor` (the plain FEA model's colour where nothing paints it), and
 //          `addLabels` labels cut whole at their anchor under section planes (they lost part of
 //          their text at the cut). Additive, so a minor bump.
-export const PLUGIN_API_VERSION = "1.11.0";
+// 1.12.0 — kept in step with viewer-core 1.10.0: the panel registry (`registerPanel`,
+//          `listPanels`, `getPanel`) and the panel intents (`reveal`, `hide`, `toggle`,
+//          `isPanelOpen`) on `@/viewer-core`. Every accepted `PanelSlot` is also registered
+//          there as a panel, under the same namespaced id, so a host lists plugin panels
+//          beside core's. Slots themselves are unchanged and still mounted by region.
+//          Additive, so a minor bump.
+export const PLUGIN_API_VERSION = "1.12.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -800,6 +808,11 @@ export function registerPlugin(spec: PluginSpec): void {
     modes: spec.modes ?? [],
     uiShellIds,
   });
+
+  // The same panels, in the panel registry's terms (see @/layout/pluginPanels).
+  // Additive: the region hosts above still read `panels` directly.
+  const isDisabled = () => !!_registry.get(id)?.disabled;
+  for (const slot of panels) registerPanel(panelSpecFromSlot(id, slot, isDisabled), id);
 }
 
 /** All registered plugins in insertion order (test/introspection helper). */
@@ -813,6 +826,7 @@ export function getPlugin(id: string): RegisteredPlugin | undefined {
 
 /** Clear the registry — for unit tests only. */
 export function resetRegistry(): void {
+  for (const id of _registry.keys()) removePanelsOwnedBy(id);
   _registry.clear();
 }
 
