@@ -11,8 +11,13 @@ def create_sections_str(
     has_ref_points: bool = False,
     ref_points_group: str = None,
     membrane_large_strain: bool = False,
+    masses=(),
+    timoshenko: bool = False,
 ) -> str:
-    from .write_constraints import REF_POINTS_GROUP, create_ref_points_discrete_str
+    """``masses``: the point masses (:func:`.write_masses.point_masses`), given their ``DISCRET`` here.
+    ``timoshenko``: beams with shear areas carry their shear coefficients (``POU_D_T``, :func:`write_beam_section`)."""
+    from .write_constraints import REF_POINTS_GROUP, create_ref_points_discrete_items
+    from .write_masses import mass_discrete_str
 
     mat_assign_str = ""
     section_materials = ""
@@ -41,7 +46,7 @@ def create_sections_str(
 
     if len(beams) > 0:
         mat_assign_str_, beam_sections_str, orientations_str = [
-            "".join(x) for x in zip(*[write_beam_section(bm) for bm in beams])
+            "".join(x) for x in zip(*[write_beam_section(bm, timoshenko) for bm in beams])
         ]
         mat_assign_str += mat_assign_str_
         beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
@@ -61,10 +66,17 @@ def create_sections_str(
     if len(fem_sections.solids) > 0:
         mat_assign_str += write_solid_section(fem_sections.solids)
 
-    discrete_str = create_ref_points_discrete_str(ref_points_group or REF_POINTS_GROUP) if has_ref_points else ""
+    discrete_items = []
+    if has_ref_points:
+        discrete_items.append(create_ref_points_discrete_items(ref_points_group or REF_POINTS_GROUP))
+    if masses:
+        discrete_items.append(mass_discrete_str(list(masses)))
+    discrete_str = ""
+    if discrete_items:
+        discrete_str = "\n        DISCRET=(\n" + "\n".join(discrete_items) + "\n        ),"
 
     sec_str = ""
-    if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or has_ref_points:
+    if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or discrete_items:
         sec_str = f"""element = AFFE_CARA_ELEM(\n
     MODELE=model,{shell_sections_str}{beam_sections_str}{discrete_str}
 )"""
@@ -178,12 +190,44 @@ def write_cable_section(fem_sec: FemSection) -> tuple[str, str, str]:
     return material, mat_, sec_str
 
 
-def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
+def shear_coefficients(fem_sec: FemSection) -> tuple[float, float] | None:
+    """``(AY, AZ)``, Code_Aster's shear coefficients of a beam section -- its area over its shear area along local y
+    and z, ``A / Shary`` and ``A / Sharz`` (U4.42.01 ``POUTRE``, ``SECTION='GENERALE'``) -- or None when the section
+    has no shear areas, so that the beam is written without shear deformation (``POU_D_E``)."""
+    p = fem_sec.section.properties
+    shary, sharz = getattr(p, "Shary", None), getattr(p, "Sharz", None)
+    if not p.Ax or not shary or not sharz or shary <= 0 or sharz <= 0:
+        return None
+    return p.Ax / shary, p.Ax / sharz
+
+
+def has_shear_deformation(fem_sec: FemSection) -> bool:
+    """Whether the beam is a Timoshenko beam, ``POU_D_T``: when its section has shear areas (:func:`shear_coefficients`)."""
+    return shear_coefficients(fem_sec) is not None
+
+
+def write_beam_section(fem_sec: FemSection, timoshenko: bool = False) -> tuple[str, str, str]:
+    """A beam's ``POUTRE`` (``SECTION='GENERALE'``) and ``ORIENTATION``.
+
+    ``timoshenko`` (``options.CODE_ASTER.use_timoshenko_beams``) and shear areas: the beam is ``POU_D_T``
+    (:func:`.writer.create_comm_str`) and its section carries the shear coefficients ``AY``, ``AZ`` as well -- without
+    them ``POU_D_T`` fails (a floating point exception in RIGI_MECA, measured 18.1.11). Else ``POU_D_E``,
+    Euler-Bernoulli, which has no shear deformation while Sestra's beams have it: a 1.5 m IPE300 cantilever's
+    strong-axis tip deflection is 13 % short of the Timoshenko closed form, which Sestra matches, and with the option
+    within 0.1 %.
+    """
     mat_name = concept_name(fem_sec.material, "material")
     sec_name = fem_sec.elset.name
     p = fem_sec.section.properties
 
-    values = ",".join([str(x) for x in [p.Ax, p.Iy, p.Iz, p.Ix]])
+    cara = ["A", "IY", "IZ", "JX"]
+    vals = [p.Ax, p.Iy, p.Iz, p.Ix]
+    shear = shear_coefficients(fem_sec) if timoshenko else None
+    if shear is not None:
+        cara += ["AY", "AZ"]
+        vals += list(shear)
+    values = ",".join([str(x) for x in vals])
+    cara_str = ", ".join(f"'{c}'" for c in cara)
 
     local_vec = str(tuple(float(c) for c in fem_sec.local_y))
 
@@ -191,7 +235,7 @@ def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
     sec_str = f"""            _F(
                 GROUP_MA=("{sec_name}"),
                 SECTION = 'GENERALE',
-                CARA = ('A', 'IY', 'IZ', 'JX'),
+                CARA = ({cara_str}),
                 VALE = ({values})
             ),
 """

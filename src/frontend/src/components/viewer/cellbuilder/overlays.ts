@@ -13,6 +13,7 @@ import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometr
 import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
+import {cellGroupTint} from "@/utils/cellbuilder/groupView";
 import {BOX_FACE_SIDES, edgeEndpoints, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
 import {BASE_OPACITY, EXCLUDED_FACE_COLOR, HOVER_FACE_COLOR, LOFT_OPACITY, SELECTED_FACE_COLOR, colorForKind} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
@@ -115,10 +116,14 @@ export const refreshFaceStyles = (ctx: CellBuilderScene) => {
     // Every cell in the multi-select set highlights (not just the primary),
     // so an add-mode selection shows what a Hide / copy will act on.
     const selectedSet = new Set(st.selectedCellIds);
+    const allCells = Object.values(st.cells);
     for (const [cellId, mesh] of ctx.meshById) {
         const cell = st.cells[cellId];
         if (!cell) continue;
-        const base = colorForKind(cell.kind);
+        // Colour by group (Groups section) replaces the kind colour for anything
+        // in a group; selection / hover tints still win below.
+        const tint = cell.kind === "loft" ? null : cellGroupTint(cell, allCells);
+        const base = tint ?? colorForKind(cell.kind);
         const cellSelected = sel?.cellId === cellId || selectedSet.has(cellId);
         // Loft band (Phase 3b): per-face pickable when built with material
         // groups (one per side panel + cap) — highlight the picked panel and

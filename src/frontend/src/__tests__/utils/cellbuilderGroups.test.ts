@@ -3,9 +3,15 @@ import { test } from "node:test";
 
 import {
   type CellGroup,
+  GROUP_PALETTE,
   groupAfterRemoval,
+  groupColor,
+  groupFromWire,
   groupToStructureName,
+  groupToWire,
+  isGroupIncluded,
   normalizeGroups,
+  objectGroup,
   resolveCellGroup,
   structureNameToGroup,
 } from "../../utils/cellbuilder/groups";
@@ -32,14 +38,14 @@ test("structureNameToGroup reads STRUCTURE_NAME back, blank = ungrouped", () => 
 
 test("normalizeGroups drops blank + duplicate names, keeps order", () => {
   const groups: CellGroup[] = [
-    { name: "A", blueprint: "Framework" },
+    { name: "A", blueprint: "blueprint-b" },
     { name: "  ", blueprint: "x" },
-    { name: "B", blueprint: "Stiffened plate" },
+    { name: "B", blueprint: "blueprint-a" },
     { name: "A", blueprint: "dup-ignored" },
   ];
   assert.deepEqual(normalizeGroups(groups), [
-    { name: "A", blueprint: "Framework" },
-    { name: "B", blueprint: "Stiffened plate" },
+    { name: "A", blueprint: "blueprint-b" },
+    { name: "B", blueprint: "blueprint-a" },
   ]);
 });
 
@@ -47,7 +53,7 @@ test("toDoc -> cellsFromDoc preserves groups + per-cell group", () => {
   // A model: two groups (distinct blueprints) + a mix of grouped/ungrouped cells.
   const groups: CellGroup[] = [
     { name: "Deck A", blueprint: "Framework with deck" },
-    { name: "Deck B", blueprint: "Stiffened plate" },
+    { name: "Deck B", blueprint: "blueprint-a" },
   ];
   const cells = [
     { name: "c1", group: "Deck A" as string | undefined },
@@ -74,10 +80,90 @@ test("toDoc -> cellsFromDoc preserves groups + per-cell group", () => {
 });
 
 test("resolveCellGroup drops a group that is no longer defined", () => {
-  const groups: CellGroup[] = [{ name: "A", blueprint: "Framework" }];
+  const groups: CellGroup[] = [{ name: "A", blueprint: "blueprint-b" }];
   assert.equal(resolveCellGroup("A", groups), "A");
   assert.equal(resolveCellGroup("gone", groups), undefined); // stale STRUCTURE_NAME
   assert.equal(resolveCellGroup(undefined, groups), undefined);
+});
+
+// ── include: build inclusion on the wire ────────────────────────────
+
+test("include is written only when false (a built group stays byte-identical)", () => {
+  assert.deepEqual(groupToWire({ name: "A", blueprint: "blueprint-b" }), { name: "A", blueprint: "blueprint-b" });
+  assert.deepEqual(groupToWire({ name: "A", blueprint: "blueprint-b", include: true }), {
+    name: "A",
+    blueprint: "blueprint-b",
+  });
+  assert.deepEqual(groupToWire({ name: "A", blueprint: "blueprint-b", include: false }), {
+    name: "A",
+    blueprint: "blueprint-b",
+    include: false,
+  });
+  assert.equal(JSON.stringify(normalizeGroups([{ name: "A", blueprint: "F", include: true }])), '[{"name":"A","blueprint":"F"}]');
+});
+
+test("groupFromWire: only an explicit false excludes", () => {
+  assert.deepEqual(groupFromWire({ name: "A", blueprint: "F" }), { name: "A", blueprint: "F" });
+  assert.deepEqual(groupFromWire({ name: "A", blueprint: "F", include: true }), { name: "A", blueprint: "F" });
+  assert.deepEqual(groupFromWire({ name: "A", blueprint: "F", include: "false" }), { name: "A", blueprint: "F" });
+  assert.deepEqual(groupFromWire({ name: "A", blueprint: "F", include: false }), {
+    name: "A",
+    blueprint: "F",
+    include: false,
+  });
+  assert.equal(isGroupIncluded({}), true);
+  assert.equal(isGroupIncluded({ include: false }), false);
+  assert.equal(isGroupIncluded(undefined), true);
+});
+
+test("groups round-trip doc -> store -> doc keeps include", () => {
+  // What a doc carries (two structures, the second excluded),
+  // read the way groupsFromDoc does, written the way toDoc does.
+  const wire = [
+    { name: "upper", blueprint: "blueprint-a" },
+    { name: "lower", blueprint: "blueprint-b", include: false },
+  ];
+  const store = normalizeGroups(wire.map(groupFromWire));
+  assert.deepEqual(store.map(isGroupIncluded), [true, false]);
+  assert.deepEqual(JSON.parse(JSON.stringify(normalizeGroups(store))), wire);
+  // Switching it back on drops the key again.
+  const back = normalizeGroups(store.map((g) => ({ name: g.name, blueprint: g.blueprint })));
+  assert.deepEqual(back, [
+    { name: "upper", blueprint: "blueprint-a" },
+    { name: "lower", blueprint: "blueprint-b" },
+  ]);
+});
+
+// ── colour + membership for the group display ───────────────────────
+
+test("groupColor: palette by position, override wins, null for a non-group", () => {
+  const groups: CellGroup[] = [
+    { name: "A", blueprint: "x" },
+    { name: "B", blueprint: "x" },
+  ];
+  assert.equal(groupColor(groups, "A"), GROUP_PALETTE[0]);
+  assert.equal(groupColor(groups, "B"), GROUP_PALETTE[1]);
+  assert.equal(groupColor(groups, "B", { B: "#123456" }), "#123456");
+  assert.equal(groupColor(groups, "nope"), null);
+  assert.equal(groupColor(groups, undefined), null);
+  assert.notEqual(groupColor(groups, "A"), groupColor(groups, "B"));
+});
+
+test("objectGroup: a cell is its own group; equipment takes the cell it sits in or on", () => {
+  const lower = { kind: "cell", group: "Low", origin: [0, 0, 0], size: [10, 10, 3] };
+  const upper = { kind: "cell", group: "High", origin: [0, 0, 3], size: [10, 10, 3] };
+  const other = { kind: "cell", group: undefined, origin: [20, 0, 0], size: [5, 5, 3] };
+  const cells = [lower, upper, other];
+  assert.equal(objectGroup(lower, cells), "Low");
+  // inside the upper deck
+  assert.equal(objectGroup({ kind: "equipment", origin: [1, 1, 3], size: [1, 1, 1] }, cells), "High");
+  // seated on the upper deck's roof
+  assert.equal(objectGroup({ kind: "equipment", origin: [1, 1, 6], size: [1, 1, 1] }, cells), "High");
+  // inside the lower one
+  assert.equal(objectGroup({ kind: "equipment", origin: [1, 1, 0], size: [1, 1, 1] }, cells), "Low");
+  // in an ungrouped cell, or outside every cell
+  assert.equal(objectGroup({ kind: "opening", origin: [21, 1, 0], size: [1, 1, 1] }, cells), undefined);
+  assert.equal(objectGroup({ kind: "equipment", origin: [50, 50, 0], size: [1, 1, 1] }, cells), undefined);
 });
 
 test("removeGroup unassigns exactly the deleted group's cells", () => {

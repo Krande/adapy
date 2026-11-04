@@ -172,6 +172,11 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
           ? { detailSourceName: sourceName }
           : { resultSourceName: sourceName },
       );
+      // A (re)loaded result arrives fully shown and in its own colours: put the
+      // Groups section's hidden groups and colour-by-group back on it.
+      void import("@/utils/cellbuilder/groupView").then(({ reapplyGroupViewToResult }) =>
+        reapplyGroupViewToResult(),
+      );
       // Side-by-side: nudge the freshly-loaded result beside the topology. The
       // loader replaces the group (position resets to the model translation), so
       // re-apply on every load.
@@ -250,6 +255,9 @@ export const createJobsSlice: CellBuilderSlice<JobsSlice> = (set, get) => {
         const sourceName = `procedural:${active.name}`;
         await load_glb_from_bytes(bytes, sourceName, false); // never move the camera
         set({ resultSourceName: sourceName });
+        void import("@/utils/cellbuilder/groupView").then(({ reapplyGroupViewToResult }) =>
+          reapplyGroupViewToResult(),
+        );
         if (get().sideBySide) {
           const { applySideBySideOffset } = await import(
             "@/utils/scene/handlers/side_by_side"
