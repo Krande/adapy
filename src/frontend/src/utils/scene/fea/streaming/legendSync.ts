@@ -122,10 +122,11 @@ export function syncResultSession(args: {
         legendStore.setMax(legendMax);
         legendStore.setShowLegend(true);
     } else {
-        // Field-less FEM mesh (model only): no results -> NO simulation session, so
-        // SimulationControls + the results-only "show in data" action stay hidden. The
-        // beam-solids toggle acts on the session's FEA mesh, not on a result session, so
-        // it still works from the Scene > FEM panel.
+        // Field-less FEM mesh (model only): no results -> NO simulation session, so the
+        // result controls + the results-only "show in data" action stay hidden; the
+        // Simulation panel opens on its Model tab (the manifest set above is the FE
+        // model). The beam-solids toggle acts on the session's FEA mesh, not on a
+        // result session, so it still works from there.
         animStore.setSessionActive(false);
         animStore.setFieldName(null);
         animStore.setNSteps(1);

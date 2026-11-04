@@ -40,8 +40,10 @@ import {
 import {
     load_fea_streaming,
     setBeamSolidsVisible as setBeamSolidsVisibleScene,
+    setFeaResultPointMarkersVisible,
     syncFeaOverlayVisibility,
 } from "@/utils/scene/handlers/load_fea_streaming";
+import {fieldHasResultPointMarkers} from "@/utils/scene/fea/resultPointMarkers";
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {followerUrl} from "@/utils/simChannel";
 import {runtime} from "@/runtime/config";
@@ -67,6 +69,20 @@ import {
     type SimulationTabEntry,
 } from "@/plugins";
 import SimWindowFrame, {type SimFrameMode} from "./SimWindowFrame";
+import FemConceptsPanel from "./FemConceptsPanel";
+import {
+    LEGEND_TAB,
+    MODEL_TAB,
+    MODEL_TAB_LABEL,
+    RESULTS_TAB,
+    RESULTS_TAB_LABEL,
+    feModelLoaded,
+    hasFemConcepts,
+    resolveSimTab,
+    simTabKey,
+} from "./simPanelTabs";
+import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useSimPanelStore} from "@/state/simPanelStore";
 import ColorLegend from "../viewer/ColorLegend";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useIsMobile} from "@/utils/useIsMobile";
@@ -91,8 +107,6 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
 
     const stores = useViewerStores();
     const [mode, setMode] = useState<SimFrameMode>(initialMode);
-    const [activeTabState, setActiveTabState] = useState<string>("animation");
-    const activeTab = forcedTabId ?? activeTabState;
 
     // Plugin-contributed Simulation tabs (fem-sidebar panels carrying `asTab`).
     // Rebuilt each render so activation + badges track live store state.
@@ -102,21 +116,34 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     const isMobile = useIsMobile();
     const legendShown = useColorStore((s) => s.showLegend);
     const legendTab = !forcedTabId && isMobile && sessionActive && legendShown;
+    // The FE model tab: masses, supports, constraints, load scenarios.
+    const manifest = useFeaAnimationStore((s) => s.manifest);
+    const femHasConcepts = useFemConceptsStore(hasFemConcepts);
+    const modelTab = !forcedTabId && feModelLoaded({manifest, femHasConcepts});
 
-    // Snap back to Animation if the active plugin tab goes away (model unloaded).
-    useEffect(() => {
-        if (forcedTabId) return;
-        if (activeTabState === "legend") {
-            if (!legendTab) setActiveTabState("animation");
-            return;
-        }
-        if (activeTabState !== "animation" && !tabs.some((t) => t.panel.id === activeTabState)) {
-            setActiveTabState("animation");
-        }
-    }, [tabs, activeTabState, forcedTabId, legendTab]);
+    // The last pick, for the model it was made on; a tab that went away (model
+    // unloaded, plugin deactivated) falls back to the default.
+    const sourceName = useFeaAnimationStore((s) => s.sourceName);
+    const hasAnimation = useAnimationStore((s) => s.hasAnimation);
+    const hasResults = sessionActive || hasAnimation;
+    const tabKey = simTabKey(sourceName, hasResults);
+    const remembered = useSimPanelStore((s) => s.remembered);
+    const selectTab = (tab: string) => useSimPanelStore.getState().remember(tab, tabKey);
+    const activeTab = forcedTabId ?? resolveSimTab(
+        remembered,
+        tabKey,
+        (tab) =>
+            tab === RESULTS_TAB
+            || (tab === MODEL_TAB && modelTab)
+            || (tab === LEGEND_TAB && legendTab)
+            || tabs.some((t) => t.panel.id === tab),
+        {hasResults, hasModel: modelTab},
+    );
 
     const onOpenWindow = () => {
-        const panelId = forcedTabId ?? (activeTab !== "animation" ? activeTab : tabs[0]?.panel.id ?? "");
+        // The built-in tabs need this window's scene; the follower opens on a plugin tab.
+        const builtIn = activeTab === RESULTS_TAB || activeTab === MODEL_TAB || activeTab === LEGEND_TAB;
+        const panelId = forcedTabId ?? (!builtIn ? activeTab : tabs[0]?.panel.id ?? "");
         const source = useFeaAnimationStore.getState().sourceName || "model";
         const scope = scopeUrlPart(useScopeStore.getState().current);
         window.open(followerUrl(source, panelId, scope), "_blank", "noopener,width=920,height=820");
@@ -126,24 +153,27 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     // and load only result sidecars, so the plugin's activation predicate can be
     // false and `tabs` empty even though the panel's data is present. Fall back to
     // an activation-ignoring lookup by id so the follower mounts the real plugin
-    // controls instead of silently dropping to the Animation tab.
+    // controls instead of silently dropping to the Results tab.
     const activePluginTab =
         tabs.find((t) => t.panel.id === activeTab) ??
         (forcedTabId ? findSimulationTabById(forcedTabId) : null);
 
     const body = (
         <div className="flex flex-col gap-2 min-w-0">
-            {!forcedTabId && (tabs.length > 0 || legendTab) && (
+            {!forcedTabId && (tabs.length > 0 || legendTab || modelTab) && (
                 <SimTabStrip
                     tabs={tabs}
                     legendTab={legendTab}
+                    modelTab={modelTab}
                     activeTab={activeTab}
-                    onSelect={setActiveTabState}
+                    onSelect={selectTab}
                     ctxFor={(pid) => makePluginContext(pid, stores)}
                 />
             )}
-            {legendTab && activeTab === "legend" ? (
+            {legendTab && activeTab === LEGEND_TAB ? (
                 <ColorLegend placement="panel" />
+            ) : modelTab && activeTab === MODEL_TAB ? (
+                <FemConceptsPanel />
             ) : activePluginTab ? (
                 <PluginTabBody
                     pluginId={activePluginTab.pluginId}
@@ -153,6 +183,7 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
             ) : (
                 <AnimationTab
                     sessionActive={sessionActive}
+                    hasResults={hasResults}
                     showSimData={showSimData}
                     onToggleData={togglePanel}
                 />
@@ -172,19 +203,24 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     );
 };
 
-// Built-in "animation" tab — the FEA / GLTF transport controls, the optional
+// Built-in Results tab (id "animation") — the FEA / GLTF transport controls, the optional
 // data panel, plus the additive plugin color-field picker and any buttonless
 // fem-sidebar panels (asTab panels are hoisted to their own tabs instead).
-const AnimationTab: React.FC<{sessionActive: boolean; showSimData: boolean; onToggleData: () => void}> = ({
-    sessionActive,
-    showSimData,
-    onToggleData,
-}) => (
+const AnimationTab: React.FC<{
+    sessionActive: boolean;
+    hasResults: boolean;
+    showSimData: boolean;
+    onToggleData: () => void;
+}> = ({sessionActive, hasResults, showSimData, onToggleData}) => (
     <div className="flex flex-col gap-2">
         {sessionActive ? (
             <FeaModeControls showSimData={showSimData} onToggleData={onToggleData} />
-        ) : (
+        ) : hasResults ? (
             <GltfClipControls showSimData={showSimData} onToggleData={onToggleData} />
+        ) : (
+            <p className="text-xs italic text-gray-400" data-testid="sim-no-results">
+                No results loaded.
+            </p>
         )}
         {showSimData && (
             <div className="flex-1 overflow-hidden">
@@ -201,18 +237,32 @@ const AnimationTab: React.FC<{sessionActive: boolean; showSimData: boolean; onTo
 const SimTabStrip: React.FC<{
     tabs: SimulationTabEntry[];
     legendTab: boolean;
+    modelTab: boolean;
     activeTab: string;
     onSelect: (id: string) => void;
     ctxFor: (pluginId: string) => AdaPluginContext;
-}> = ({tabs, legendTab, activeTab, onSelect, ctxFor}) => (
+}> = ({tabs, legendTab, modelTab, activeTab, onSelect, ctxFor}) => (
     <div
         className="flex flex-wrap gap-0.5 border-b border-white/15"
         role="tablist"
         aria-label="Simulation panel section"
     >
-        <SimTabButton id="animation" label="Animation" active={activeTab === "animation"} onClick={() => onSelect("animation")} />
+        <SimTabButton
+            id={RESULTS_TAB}
+            label={RESULTS_TAB_LABEL}
+            active={activeTab === RESULTS_TAB}
+            onClick={() => onSelect(RESULTS_TAB)}
+        />
+        {modelTab && (
+            <SimTabButton
+                id={MODEL_TAB}
+                label={MODEL_TAB_LABEL}
+                active={activeTab === MODEL_TAB}
+                onClick={() => onSelect(MODEL_TAB)}
+            />
+        )}
         {legendTab && (
-            <SimTabButton id="legend" label="Legend" active={activeTab === "legend"} onClick={() => onSelect("legend")} />
+            <SimTabButton id={LEGEND_TAB} label="Legend" active={activeTab === LEGEND_TAB} onClick={() => onSelect(LEGEND_TAB)} />
         )}
         {tabs.map((t) => {
             let badge: number | string | null = null;
@@ -339,6 +389,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         beamSolidsUnavailable,
         beamSolidEdgesVisible,
         setBeamSolidEdgesVisible,
+        resultPointMarkersVisible,
         timeHistory,
         envelopeMode,
         setEnvelopeMode,
@@ -363,7 +414,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setBeamSolidsVisible(next);
         setBeamSolidsVisibleScene(next);
     };
-
     // Options panel toggle — currently houses just the colormap
     // picker. Kept folded by default so the controls row stays
     // single-line; new per-session preferences (background tone,
@@ -624,13 +674,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         });
     };
 
-    // Laid out by the panel's OWN width (a container query, ``@container`` /
-    // ``@sm:``), not the browser window's. In a document the window is wide
-    // while the panel sits in a 3D figure a few hundred pixels across, and the
-    // window breakpoints gave it the desktop layout there: rows wider than the
-    // figure, controls cut off at its edge. Rows wrap when they must.
+    // Laid out by the panel's OWN width, not the browser window's: no window
+    // breakpoints, rows wrap when they must. In a document the window is wide
+    // while the panel sits in a 3D figure a few hundred pixels across. Not a
+    // size container either: that zeroes the content's intrinsic width, and the
+    // docked frame sizes itself to it.
     return (
-        <div className="@container flex flex-col gap-2 min-w-0">
+        <div className="flex flex-col gap-2 min-w-0">
             {/* Row 1 — what you are looking at: Field / Comp / Step, packed from the left at
                 one spacing. Field and Step share the spare width (``flex-1``) -- their names
                 are the long ones -- and Comp keeps its natural width; ``min-w-0 truncate``
@@ -854,7 +904,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     numbers that shape the animation), and beams as solid. Drawn as the same
                     field as the dropdowns above.
 
-                    Beams as solid is here as well as in the Scene > FEM panel, through the same
+                    Beams as solid is here as well as in the Model tab, through the same
                     store flag + scene helper, so the two can never disagree: in the paradoc
                     embed this panel is the only one there is, and a beam drawn as a line cannot
                     show a torsion mode at all. Only offered when the bundle has beam solids. */}
@@ -928,6 +978,16 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 onChange={(e) => onToggleBeamSolidEdges(e.target.checked)}
                             />
                             <span className="text-gray-300">Solid edges</span>
+                        </label>
+                    )}
+                    {fieldHasResultPointMarkers(activeField) && (
+                        <label className="flex items-center gap-1" title="Markers at the result points, coloured by their exact values">
+                            <input
+                                type="checkbox"
+                                checked={resultPointMarkersVisible}
+                                onChange={(e) => setFeaResultPointMarkersVisible(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Result points</span>
                         </label>
                     )}
                 </span>

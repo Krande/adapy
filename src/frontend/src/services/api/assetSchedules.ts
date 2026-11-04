@@ -194,6 +194,9 @@ export interface SweepItem {
   /** The per-collection picks this item's provider job was SENT (`{option: value}`); `{}` when the
    *  worker chose itself. Absent when the provider declares no such choice. */
   collection_choices?: Record<string, unknown> | null;
+  /** The collection's own settings from the sweep defaults that this item ran with, over the
+   *  run's (`{setting: value}`). Absent when it had none. */
+  collection_settings?: Record<string, unknown> | null;
   /** "Pre-build meshes": `{subjects, cached, built, failed, skipped, ms, reason?, note?, errors?}`.
    *  Read through `prebuildOf`. */
   prebuild?: Record<string, unknown> | null;
@@ -376,6 +379,20 @@ export const assetSchedulesApi = {
     return jsonOrThrow(r, "adminSkipAssetSweepItem");
   },
 
+  /** Run a failed (or busy, or skipped) collection of a sweep again. A running sweep takes it up
+   *  once a lane is free; a finished one is reopened (`reopened`). 409 when the item cannot be
+   *  re-queued: not failed, the sweep cancelled or interrupted, or its provider offline. */
+  async adminRequeueAssetSweepItem(
+    id: string,
+    position: number,
+  ): Promise<{ requeued: number; collection: string; reopened: boolean }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/asset-sweeps/${encodeURIComponent(id)}/items/${position}/requeue`,
+      json("POST", {}),
+    );
+    return jsonOrThrow(r, "adminRequeueAssetSweepItem");
+  },
+
   /** Tick a collection the running sweep has not reached on (`run: true`) or off. 409 once the
    *  sweep has reached it. */
   async adminSetAssetSweepItemRun(id: string, position: number, run: boolean): Promise<{ status: string }> {
@@ -393,11 +410,17 @@ export const assetSchedulesApi = {
     return jsonOrThrow(r, "adminAssetSweepDefaults");
   },
 
-  async adminSetAssetSweepDefaults(provider: string, excluded: string[]): Promise<SweepDefaults> {
-    const r = await authedFetch(
-      `${runtime.apiBase()}/admin/asset-sweeps/defaults`,
-      json("PUT", { provider, excluded }),
-    );
+  /** Save the default list; `collectionSettings`, when given, replaces the per-collection settings
+   *  (left out, the saved ones are kept). */
+  async adminSetAssetSweepDefaults(
+    provider: string,
+    excluded: string[],
+    collectionSettings?: CollectionSettings,
+  ): Promise<SweepDefaults> {
+    const body = collectionSettings === undefined
+      ? { provider, excluded }
+      : { provider, excluded, collection_settings: collectionSettings };
+    const r = await authedFetch(`${runtime.apiBase()}/admin/asset-sweeps/defaults`, json("PUT", body));
     return jsonOrThrow(r, "adminSetAssetSweepDefaults");
   },
 
@@ -436,4 +459,18 @@ export interface SweepDefaults {
    *  excluded that it no longer offers). */
   collections?: string[];
   excluded: string[];
+  /** Per collection, its own value of a sweep setting: wins over the run's for that collection. */
+  collection_settings?: CollectionSettings;
+  /** Present only on the read: the sweep settings a collection may set (single dropdowns). */
+  overridable?: OverridableSetting[];
+}
+
+/** `{collection: {setting: value}}` */
+export type CollectionSettings = Record<string, Record<string, unknown>>;
+
+export interface OverridableSetting {
+  name: string;
+  title: string;
+  description?: string | null;
+  choices: { value: unknown; label: string }[];
 }

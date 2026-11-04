@@ -397,6 +397,46 @@ async def api_scope_cancel_my_job(
     return JSONResponse({"job_id": job_id, "cancelled": True})
 
 
+#: Most one extend request may add to a job's time limit.
+MAX_EXTEND_STEP_S = 6 * 3600
+
+
+@router.post("/scopes/{scope}/my-jobs/{job_id}/extend")
+async def api_scope_extend_my_job(
+    request: Request,
+    job_id: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Extend a queued or running job's time limit by ``{"seconds": n}``.
+
+    For a job seen nearing its limit with most of its work done: the worker hands the extension
+    to the plugin (``job_limits``), and a run waiting on the job (a sweep) waits as much longer.
+    A plugin that bounds no step of its own is unaffected. The job's owner may extend it; an
+    admin may extend anyone's -- a sweep's jobs belong to whoever started the sweep, or to no one
+    for a scheduled one. Answers ``{"job_id", "extra_seconds"}``: the job's total extension."""
+    try:
+        body = await request.json()
+        seconds = int((body or {}).get("seconds"))
+    except Exception:  # noqa: BLE001 - any malformed body is the same 400
+        raise HTTPException(status_code=400, detail='the body must be {"seconds": <positive integer>}') from None
+    if not 0 < seconds <= MAX_EXTEND_STEP_S:
+        raise HTTPException(status_code=400, detail=f"seconds must be between 1 and {MAX_EXTEND_STEP_S}")
+    pool = require_pool(request)
+    total = await db_module.extend_audit_by_job(
+        pool,
+        job_id=job_id,
+        seconds=seconds,
+        user_sub=None if getattr(user, "is_admin", False) else user.sub,
+    )
+    if total is None:
+        return JSONResponse(
+            {"job_id": job_id, "extended": False, "reason": "not owned, missing, or already terminal"},
+            status_code=404,
+        )
+    return JSONResponse({"job_id": job_id, "extended": True, "extra_seconds": total})
+
+
 @router.get("/scopes/{scope}/my-jobs")
 async def api_scope_my_jobs(
     request: Request,
@@ -444,6 +484,36 @@ async def api_scope_my_jobs(
     return JSONResponse({"jobs": rows})
 
 
+def plugin_owned_key(plugin_id: str, value, field: str, *, prefix: bool = False) -> str | None:
+    """A ``derived_key`` / ``derived_prefix`` sent with a plugin job, or None when none was sent.
+
+    Accepted only inside the plugin's own namespace -- ``_derived/plugin_jobs/<plugin_id>/`` (the
+    default key's home) or ``_derived/<plugin_id>/`` -- and only as a plain relative key: no
+    ``\\``, no empty, ``.`` or ``..`` segment (a prefix may end in ``/``). Anything else is a 400
+    naming the namespace, so a plugin that picks its own cache key keeps working and one outside
+    it is refused rather than quietly replaced.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail=f"{field} must be a string")
+    roots = [f"_derived/plugin_jobs/{plugin_id}/"]
+    if plugin_id != "plugin_jobs":
+        roots.append(f"_derived/{plugin_id}/")
+    segments = value.split("/")
+    if prefix and segments[-1] == "":
+        segments = segments[:-1]
+    under = value if not prefix or value.endswith("/") else f"{value}/"
+    if (
+        "\\" not in value
+        and segments
+        and all(s not in ("", ".", "..") for s in segments)
+        and any(under.startswith(r) for r in roots)
+    ):
+        return value
+    raise HTTPException(status_code=400, detail=f"{field} must be a key under {' or '.join(roots)}")
+
+
 @router.post("/plugins/{plugin_id}/jobs")
 async def api_plugin_job(
     plugin_id: str,
@@ -459,7 +529,8 @@ async def api_plugin_job(
     str | None, "capability": str | None}``. ``options`` is passed opaquely to
     the plugin's ``job_entrypoint``; the returned summary lands as JSON at
     ``derived_key`` and the plugin writes its sidecar bundle under its reserved
-    prefix (``derived_prefix``). Poll via ``GET /api/convert/{job_id}``.
+    prefix (``derived_prefix``). Both, when sent, must lie in the plugin's own
+    namespace (``plugin_owned_key``). Poll via ``GET /api/convert/{job_id}``.
 
     AN ASSET PROVIDER'S JOB (its spec declares ``asset_provider_id``) is an
     admin operation and runs in the provider store, whatever ``?scope=`` says:
@@ -473,6 +544,9 @@ async def api_plugin_job(
     options = body.get("options") or {}
     if not isinstance(options, dict):
         raise HTTPException(status_code=400, detail="options must be a dict")
+    # Where the job writes is the plugin's own namespace, whatever the body names.
+    requested_key = plugin_owned_key(plugin_id, body.get("derived_key"), "derived_key")
+    requested_prefix = plugin_owned_key(plugin_id, body.get("derived_prefix"), "derived_prefix", prefix=True)
 
     # Read the advertised spec ONCE, before the scope: it decides where the
     # job runs, whether this request needs an admin and which pool it routes to.
@@ -523,9 +597,7 @@ async def api_plugin_job(
     # enqueue_plugin_job. The checks above (scope access, the admin gate) are
     # this route's alone, which is why they are not in the helper.
     opts_hash = hashlib.sha256(json.dumps(options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
-    derived_key = body.get("derived_key")
-    if not isinstance(derived_key, str) or not derived_key.strip():
-        derived_key = f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
+    derived_key = requested_key or f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
     job_id = await enqueue_plugin_job(
         ctx,
         plugin_id=plugin_id,
@@ -534,7 +606,7 @@ async def api_plugin_job(
         capability=body.get("capability"),
         user=user,
         request=request,
-        derived_prefix=body.get("derived_prefix"),
+        derived_prefix=requested_prefix,
         derived_key=derived_key,
         plugin_spec=plugin_spec,
     )

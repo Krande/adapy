@@ -143,10 +143,17 @@ class _World:
 
     async def finish(self, pool, run_id, *, status, error=None):
         self.finished = (status, error)
+        return True
 
     async def skip(self, pool, run_id, reason):
         for item in self.items.values():
             item.setdefault("status", "skipped")
+
+    async def pending(self, pool, run_id):
+        # Items re-queued during the run: none, unless a test puts some here.
+        return list(self.requeued)
+
+    requeued: list = []
 
     # Another run holding a collection: collection -> holder, or a callable answering one per try.
     holders: dict = {}
@@ -180,6 +187,7 @@ def install_run_fakes(monkeypatch, w) -> None:
     monkeypatch.setattr(dbm, "claim_asset_sweep_item", w.claim)
     monkeypatch.setattr(dbm, "acquire_asset_worker_slot", w.acquire_slot)
     monkeypatch.setattr(dbm, "release_asset_worker_slot", w.release_slot)
+    monkeypatch.setattr(dbm, "pending_asset_sweep_items", w.pending)
 
 
 @pytest.fixture
@@ -524,6 +532,88 @@ async def test_ticking_collections_on_and_off_against_postgres():
     finally:
         await pool.execute("DELETE FROM asset_sweep_runs WHERE provider = $1", provider)
         await dbm.close_pool(pool)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_requeueing_a_failed_collection_against_postgres():
+    pool = await dbm.init_pool(POSTGRES_URL)
+    provider = f"test-{uuid.uuid4().hex[:8]}"
+    try:
+        run = await dbm.insert_asset_sweep_run(
+            pool,
+            scope="shared",
+            provider=provider,
+            plugin_id="vendor-plugin",
+            job="project-sweep",
+            settings={},
+            collections=["ALPHA", "BETA"],
+            requested_by="tester",
+            requested_via="user",
+        )
+        await dbm.update_asset_sweep_item(pool, run["id"], 0, status="error", error="boom", fetch_job_id="job-a")
+        await dbm.update_asset_sweep_item(pool, run["id"], 1, status="done")
+        # Only a failed item moves; while the run runs it is not reopened.
+        assert await dbm.requeue_asset_sweep_item(pool, run["id"], 1, by="tester") is None
+        got = await dbm.requeue_asset_sweep_item(pool, run["id"], 0, by="tester")
+        assert got["reopened"] is False and got["item"]["fetch_job_id"] == "job-a"
+        assert await dbm.pending_asset_sweep_items(pool, run["id"]) == [(0, "ALPHA")]
+        # A pending item holds the run open: the driver goes round again instead of finishing.
+        assert await dbm.finish_asset_sweep_run(pool, run["id"], status="done") is False
+        await dbm.update_asset_sweep_item(pool, run["id"], 0, status="error", error="boom again")
+        assert await dbm.finish_asset_sweep_run(pool, run["id"], status="error", error="1 failed") is True
+        # A finished run is reopened by a re-queue.
+        got = await dbm.requeue_asset_sweep_item(pool, run["id"], 0, by="tester")
+        assert got["reopened"] is True
+        full = await dbm.get_asset_sweep_run(pool, run["id"])
+        assert full["status"] == "running" and full["error"] is None and full["finished_at"] is None
+        assert full["items"][0]["status"] == "pending" and full["items"][0]["error"] is None
+        # A cancelled run is not.
+        await dbm.update_asset_sweep_item(pool, run["id"], 0, status="error")
+        await dbm.cancel_asset_sweep_run(pool, run["id"])
+        assert await dbm.requeue_asset_sweep_item(pool, run["id"], 0, by="tester") is None
+    finally:
+        await pool.execute("DELETE FROM asset_sweep_runs WHERE provider = $1", provider)
+        await dbm.close_pool(pool)
+
+
+@pytest.mark.asyncio
+async def test_a_collection_requeued_during_the_run_runs_again_before_it_finishes(world, monkeypatch):
+    """A failed collection re-queued while the sweep runs is taken up by a free lane, and the run's
+    outcome is counted from the items: one that now succeeded is no failure."""
+    w = world(
+        fetch_summaries={"ALPHA": {"asset_staging_id": "s-a"}, "BETA": {"asset_staging_id": "s-b"}},
+        fail_staging=frozenset({"s-a"}),
+    )
+    taken = {"n": 0}
+
+    async def pending(pool, run_id):
+        # BETA ran last; ALPHA (which failed) is re-queued by then, and is fixed for its second try.
+        if w.items.get(1, {}).get("status") in ("done", "unchanged") and w.items[0].get("status") == "error":
+            taken["n"] += 1
+            w.items[0]["status"] = "pending"
+            w.fail_staging = frozenset()
+            return [(0, "ALPHA")]
+        return []
+
+    async def count(pool, run_id, status):
+        return sum(1 for i in w.items.values() if i.get("status") == status)
+
+    monkeypatch.setattr(dbm, "pending_asset_sweep_items", pending)
+    monkeypatch.setattr(dbm, "count_asset_sweep_items", count)
+    await sweeps._drive(
+        w.ctx,
+        None,
+        RUN,
+        scope_obj=Scope.shared(),
+        spec=SPEC,
+        entry=SWEEP_ENTRY,
+        collections=["ALPHA", "BETA"],
+        user=None,
+    )
+    assert taken["n"] == 1
+    assert w.items[0]["status"] == "done"
+    assert w.finished == ("done", None)
 
 
 @pytest.mark.asyncio
@@ -956,6 +1046,133 @@ async def test_a_single_target_sweep_is_unchanged(world):
     assert w.enqueued[0]["options"]["sweep_target"] == "tree" and "targets" not in w.items[0]["timings"]
 
 
+# --- per-collection settings in the sweep defaults ------------------------------------------------
+
+TIMEOUT_DECL = {
+    "name": "timeout_seconds",
+    "type": "int",
+    "enum": [3600, 14400],
+    "labels": {"3600": "1 hour", "14400": "4 hours"},
+}
+PER_ENTRY = {
+    **MULTI_ENTRY,
+    "settings": [{"name": "sweep_target"}, {"name": "timeout_seconds"}, {"name": "who", "choices": "change_users"}],
+}
+PER_SPEC = {
+    **MULTI_SPEC,
+    "job_options": MULTI_SPEC["job_options"] + [TIMEOUT_DECL, {"name": "who", "type": "enum"}],
+    "asset_schedules": [PER_ENTRY],
+}
+
+
+def _saved_defaults(monkeypatch, doc: dict) -> None:
+    async def setting(pool, key):
+        assert key == "asset_sweeps.defaults.vendor"
+        return json.dumps(doc)
+
+    monkeypatch.setattr(dbm, "get_setting", setting)
+
+
+def test_only_a_single_dropdown_of_a_sweep_can_be_set_per_collection():
+    # Not the targets (multiple), not core's pre-build, not a choice from earlier runs.
+    assert [s["name"] for s in sweeps.overridable_settings(PER_SPEC, PER_ENTRY)] == ["timeout_seconds"]
+    assert sweeps.overridable_settings(PER_SPEC, {**PER_ENTRY, "kind": "apply-changes"}) == []
+    [decl] = sweeps.provider_overridable_settings([PER_SPEC])
+    assert decl["name"] == "timeout_seconds" and [c["value"] for c in decl["choices"]] == [3600, 14400]
+
+
+def test_collection_settings_are_checked_typed_and_unset_values_dropped():
+    over = sweeps.provider_overridable_settings([PER_SPEC])
+    clean = sweeps.clean_collection_settings(
+        over, {"BETA": {"timeout_seconds": "14400"}, "ALPHA": {"timeout_seconds": None}, " ": {"x": 1}}
+    )
+    assert clean == {"BETA": {"timeout_seconds": 14400}}
+    for bad, why in (
+        ({"BETA": {"timeout_seconds": 999}}, "not one of"),
+        ({"BETA": {"sweep_target": "tree"}}, "can override"),
+        ({"BETA": 14400}, "must be"),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            sweeps.clean_collection_settings(over, bad)
+        assert exc.value.status_code == 400 and why in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_a_collections_own_setting_wins_over_the_runs_for_every_target(target_world, monkeypatch):
+    _saved_defaults(monkeypatch, {"excluded": [], "collection_settings": {"alpha": {"timeout_seconds": 14400}}})
+    w = target_world(
+        fetch_summaries={
+            "ALPHA/tree": {"asset_staging_id": "s-tree"},
+            "ALPHA/geom": {"asset_unchanged": True},
+            "BETA/tree": {"asset_unchanged": True},
+        }
+    )
+    run = {**RUN, "settings": {"sweep_target": ["tree", "geom"], "timeout_seconds": 3600}}
+    kw = dict(scope_obj=Scope.shared(), spec=PER_SPEC, entry=PER_ENTRY, user=None)
+    assert await sweeps._sweep_one(w.ctx, None, run, 0, "ALPHA", **kw)
+    assert [(e["options"]["sweep_target"], e["options"]["timeout_seconds"]) for e in w.enqueued] == [
+        ("tree", 14400),
+        ("geom", 14400),
+    ]
+    assert w.items[0]["timings"]["collection_settings"] == {"timeout_seconds": 14400}
+
+    # Another collection keeps the run's choice, and its row records no override.
+    run_b = {**run, "settings": {"sweep_target": ["tree"], "timeout_seconds": 3600}}
+    assert await sweeps._sweep_one(w.ctx, None, run_b, 1, "BETA", **kw)
+    assert w.enqueued[-1]["options"]["timeout_seconds"] == 3600
+    assert "collection_settings" not in w.items[1]["timings"]
+
+
+@pytest.mark.asyncio
+async def test_a_collections_own_setting_applies_to_a_single_job_sweep_too(world, monkeypatch):
+    entry = {**SWEEP_ENTRY, "settings": [{"name": "sweep_target"}, {"name": "timeout_seconds"}]}
+    spec = {**SPEC, "job_options": SPEC["job_options"] + [TIMEOUT_DECL], "asset_schedules": [entry]}
+    _saved_defaults(monkeypatch, {"collection_settings": {"ALPHA": {"timeout_seconds": 14400}}})
+    w = world(fetch_summaries={"ALPHA": {"asset_unchanged": True}})
+    await sweeps._sweep_one(w.ctx, None, RUN, 0, "ALPHA", scope_obj=Scope.shared(), spec=spec, entry=entry, user=None)
+    opts = w.enqueued[0]["options"]
+    assert opts["timeout_seconds"] == 14400 and opts["sweep_target"] == "tree"
+
+
+class _Req:
+    def __init__(self, body: dict):
+        self._body = json.dumps(body).encode()
+        self.app = SimpleNamespace(state=SimpleNamespace(pg_pool=object()))
+
+    async def body(self):
+        return self._body
+
+    async def json(self):
+        return json.loads(self._body)
+
+
+@pytest.mark.asyncio
+async def test_saving_the_default_list_keeps_the_collection_settings_unless_sent(monkeypatch):
+    stored = {"doc": {"excluded": ["BETA"], "collection_settings": {"ALPHA": {"timeout_seconds": 14400}}}}
+
+    async def get_setting(pool, key):
+        return json.dumps(stored["doc"])
+
+    async def set_setting(pool, key, value, updated_by=None):
+        stored["doc"] = json.loads(value)
+
+    async def specs(ctx):
+        return {"vendor": [PER_SPEC]}
+
+    monkeypatch.setattr(dbm, "get_setting", get_setting)
+    monkeypatch.setattr(dbm, "set_setting", set_setting)
+    monkeypatch.setattr(sweeps, "provider_specs", specs)
+    monkeypatch.setattr(sweeps, "require_pool", lambda request: object())
+    user = SimpleNamespace(sub="admin", name="admin", email=None)
+
+    await sweeps.admin_asset_sweep_defaults_set(_Req({"provider": "vendor", "excluded": []}), user=user, ctx=None)
+    assert stored["doc"] == {"excluded": [], "collection_settings": {"ALPHA": {"timeout_seconds": 14400}}}
+
+    body = {"provider": "vendor", "excluded": [], "collection_settings": {"ALPHA": {"timeout_seconds": None}}}
+    await sweeps.admin_asset_sweep_defaults_set(_Req(body), user=user, ctx=None)
+    assert stored["doc"] == {"excluded": []}
+
+
 # --- several runs of one provider at once --------------------------------------------------------
 
 
@@ -1027,9 +1244,13 @@ class _Fleet:
 
     async def finish(self, pool, run_id, *, status, error=None):
         self.items[(run_id, "finished")] = {"status": status, "error": error}
+        return True
 
     async def skip(self, pool, run_id, reason):
         pass
+
+    async def pending(self, pool, run_id):
+        return []
 
     async def claim(self, pool, run_id, position, *, provider, collection):
         mine = self.items[(run_id, position)]
@@ -1067,6 +1288,7 @@ def fleet(monkeypatch):
         monkeypatch.setattr(dbm, "claim_asset_sweep_item", f.claim)
         monkeypatch.setattr(dbm, "acquire_asset_worker_slot", f.acquire)
         monkeypatch.setattr(dbm, "release_asset_worker_slot", f.release)
+        monkeypatch.setattr(dbm, "pending_asset_sweep_items", f.pending)
         monkeypatch.setattr(sweeps, "POLL_INTERVAL_S", 0)
 
         async def budget(ctx, pool, provider, spec, *, fresh=False):

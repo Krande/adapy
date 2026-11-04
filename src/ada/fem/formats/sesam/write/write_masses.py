@@ -43,7 +43,8 @@ def _bnmass_components(mass, n_members: int) -> list[float]:
 def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     """The BNMASS block: the masses that are not a mass element on one node
     (``write_point_elements.is_mass_element``) -- a nonstructural mass on nodes, lumped onto
-    them. One over elements has no BNMASS form and is left out and reported.
+    them, and a point mass on a 3-dof node. One over elements has no BNMASS form and is left
+    out and reported.
 
     BNMASS declares an NDOF of its own and then lists exactly that many mass components,
     so it has to agree with what GNODE says about the node (:class:`writer.NodeDofs`): a
@@ -65,9 +66,19 @@ def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     rep = report()
     out_str = ""
     for mass in fem.elements.masses:
-        if is_mass_element(mass):
+        if is_mass_element(mass, ndofs):
             continue  # a mass element: write_point_elements
         members = list(mass.members)
+        if mass.type == MassTypes.MASS and mass.id is not None and len(members) == 1:
+            # On a node with no rotational dofs: Sestra's GMAS element is 6-dof (is_mass_element).
+            rep.note(
+                STAGE,
+                "Mass",
+                mass.name,
+                "a point mass on a node with no rotational dofs is written as nodal mass (BNMASS), not as a GMAS "
+                "element, which Sestra only accepts on a 6-dof node; a set naming the mass element leaves it out",
+                node=members[0].id,
+            )
         if mass.type == MassTypes.NONSTRUCTURAL:
             if any(getattr(m, "nodes", None) is not None for m in members):
                 # An element region: its members are elements, whose ids this loop used to

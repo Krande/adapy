@@ -124,6 +124,7 @@ async def wait_for_job(
     position: int | None = None,
     poll_s: float = POLL_INTERVAL_S,
     label: str = "run",
+    extension: Callable[[], Awaitable[float]] | None = None,
 ) -> tuple[int, int]:
     """Poll ``job_id`` to done. Returns ``(queued_ms, ran_ms)``.
 
@@ -131,6 +132,9 @@ async def wait_for_job(
     string). Raises :class:`RunCancelled` (after cancelling the job) when the run is no longer
     running, :class:`ItemSkipped` (after cancelling the job) when the beat names ``position`` as
     the item to skip, and RuntimeError when the job failed or outlived ``timeout_s``.
+
+    ``extension()`` answers how much the job's own time limit has been extended by since it
+    started; the wait grows by as much. Asked only once ``timeout_s`` has passed.
     """
     t0 = time.monotonic()
     started: float | None = None
@@ -156,5 +160,13 @@ async def wait_for_job(
         if snap is None and now - t0 > 60:
             raise RuntimeError("the job is no longer known to the queue")
         if now - t0 > timeout_s:
-            raise RuntimeError(f"still {state or 'unknown'} after {round(timeout_s / 60)} min (not cancelled)")
+            extra = 0.0
+            if extension is not None:
+                try:
+                    extra = max(0.0, float(await extension()))
+                except Exception:  # noqa: BLE001 - an unreadable extension is no extension
+                    logger.debug("%s: could not read job %s's extension", label, job_id, exc_info=True)
+            if now - t0 > timeout_s + extra:
+                limit = timeout_s + extra
+                raise RuntimeError(f"still {state or 'unknown'} after {round(limit / 60)} min (not cancelled)")
         await asyncio.sleep(poll_s)

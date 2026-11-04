@@ -23,6 +23,7 @@ import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
 import {shownNodalRange} from "../shownRange";
 import {elementLocalMap} from "../elementLocalGeometry";
 import {writeColorAttribute} from "../gpuRefresh";
+import {noteShownMeasure} from "./shownRangeRepaint";
 import {installBeamSolidWarp} from "./warp";
 
 export async function paintNodeField(args: {
@@ -55,14 +56,18 @@ export async function paintNodeField(args: {
 
     // One range for every surface below: the shells, the beam solids and the legend.
     const nPoints = active.basePositions.length / 3;
-    const autoRange = rangeFromShown
-        ? shownNodalRange(nodalScalars(field, colorStepValues, reductionStr, nPoints), {
+    let autoRange: [number, number] | null = null;
+    if (rangeFromShown) {
+        const scalars = nodalScalars(field, colorStepValues, reductionStr, nPoints);
+        const measureShown = () => shownNodalRange(scalars, {
             mesh: active.mesh,
             nPoints,
             beamSolidMesh: active.beamSolidMesh,
             beamSolidWarp: active.beamSolidWarp,
-        })
-        : null;
+        });
+        autoRange = measureShown();
+        noteShownMeasure(measureShown);
+    }
 
     applyFieldToMesh({
         mesh: active.mesh,

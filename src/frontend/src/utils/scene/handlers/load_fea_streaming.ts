@@ -65,6 +65,7 @@ export {
     setBeamSolidsVisible,
     setFeaElementEdgesVisible,
     setFeaResultColorsVisible,
+    setFeaResultPointMarkersVisible,
     setFeaUndeformedGhost,
     syncFeaOverlayVisibility,
 } from "../fea/streaming/visibility";
@@ -236,7 +237,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         const edgeIndices = await installElementEdges(mesh, fetcher, manifest);
         if (edgeIndices) active.edgeIndices = edgeIndices;
 
-        // The dummy-mass beams start the way the Scene > FEM toggle says (hidden by
+        // The dummy-mass beams start the way the Simulation > Model toggle says (hidden by
         // default: they are not structure). The manifest's sets were registered by
         // openFeaSession above; the beam solids they hide are only now in the scene.
         applyDummyMassVisibility(null);
@@ -369,7 +370,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // Hiding or showing elements from here on re-measures the scale.
     followShownRange();
     followEdgeVisibility();
-    notePaintedShown(rangeFromShown);
+    notePaintedShown(rangeFromShown, shownRange);
     const legendScope = legendScopeFor({
         hasCombinations: lazy,
         isCase,

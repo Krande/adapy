@@ -1,14 +1,32 @@
 import * as THREE from "three";
 
+import type {FeaManifestField} from "@/services/viewerApi";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {clipWithModel} from "../section_clipping";
 
 const RESULT_POINT_MARKERS = "__fea_result_point_markers__";
 
-/** Show or hide the installed markers without discarding them. Result markers
- * are result colouring, so the colour-visibility toggle routes through this. */
+/** Does painting this field draw result-point markers? */
+export function fieldHasResultPointMarkers(field: Pick<FeaManifestField, "support"> | null | undefined): boolean {
+    return field?.support === "result_point" || field?.support === "line_result_point";
+}
+
+/** Whether the markers are on screen: result colouring is shown and the user has
+ *  not switched the markers off. */
+export function resultPointMarkersShown(resultColorsShown: boolean, markersWanted: boolean): boolean {
+    return resultColorsShown && markersWanted;
+}
+
+/** Show or hide the installed markers without discarding them. */
 export function setResultPointMarkersVisible(mesh: THREE.Mesh, visible: boolean): void {
     const existing = mesh.getObjectByName(RESULT_POINT_MARKERS);
     if (existing) existing.visible = visible;
+}
+
+/** The installed markers, or null when the last paint drew none. */
+export function resultPointMarkers(mesh: THREE.Mesh): THREE.Points | null {
+    const existing = mesh.getObjectByName(RESULT_POINT_MARKERS);
+    return existing instanceof THREE.Points ? existing : null;
 }
 
 export function clearResultPointMarkers(mesh: THREE.Mesh): void {
@@ -45,6 +63,9 @@ export function installResultPointMarkers(
     const points = new THREE.Points(geometry, material);
     points.name = RESULT_POINT_MARKERS;
     points.frustumCulled = false;
+    // Rebuilt on every repaint: start as the user left them, before the loader's
+    // visibility pass runs.
+    points.visible = useFeaAnimationStore.getState().resultPointMarkersVisible;
     points.updateMorphTargets();
     points.onBeforeRender = () => {
         const influence = mesh.morphTargetInfluences?.[0] ?? 0;

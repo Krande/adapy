@@ -328,11 +328,15 @@ class GmshSession:
                 partition_objects_with_holes(model, self)
             else:
                 for dim, tag in model.entities:
-                    try:
-                        self.model.mesh.set_transfinite_surface(tag)
-                    except Exception as e:
-                        logger.error(f"Error while setting transfinite surface: {e}")
-                        continue
+                    # Transfinite only on a four-sided surface: gmsh accepts the setting on any surface and then
+                    # fails the whole mesh in generate() ("Surface 2858 is transfinite but has 6 corners"), so a
+                    # single L-shaped plate cost the model its mesh. Any other surface is recombined, which gives a
+                    # quad-dominant mesh: four-noded shells, with a triangle where the outline needs one.
+                    if dim == 2 and len(self.model.getBoundary([(dim, tag)], oriented=False)) == 4:
+                        try:
+                            self.model.mesh.set_transfinite_surface(tag)
+                        except Exception as e:
+                            logger.error(f"Error while setting transfinite surface: {e}")
                     ents.append(tag)
                     self.model.mesh.setRecombine(dim, tag)
 

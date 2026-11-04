@@ -136,13 +136,16 @@ from .asset_schedules import (
     collection_choice_decls,
     collection_choice_options,
     collections_of,
+    entry_settings,
     find_entry,
     job_keys,
     provider_specs,
+    schedule_entries,
     settings_of,
     sweep_targets,
     target_requires,
     targets_setting,
+    typed_choice,
 )
 from .assets import staged_by_role, submit_asset_publish
 from .deps import (
@@ -546,6 +549,8 @@ async def _wait(
         # Read here, at call time: a test sets this module's interval to 0.
         poll_s=POLL_INTERVAL_S,
         label=f"asset sweep {run_id}",
+        # A job whose limit an admin extended is waited for as much longer.
+        extension=lambda: db_module.audit_extra_seconds(pool, job_id),
     )
 
 
@@ -588,10 +593,20 @@ async def _drive(
     # lanes have nothing else to start; one still held after BUSY_WAIT_S ends `busy`.
     deferred: dict[int, tuple[str, float]] = {}
     busy_wait = fetch_timeout(entry) + PUBLISH_TIMEOUT_S
+    # Set once an item re-queued during the run (`requeue_asset_sweep_item`) is taken up: the run's
+    # outcome is then counted from the items, not from the lanes' tally of first attempts.
+    requeued = False
 
-    def next_up() -> tuple[int, str] | None:
+    async def next_up() -> tuple[int, str] | None:
+        nonlocal requeued
         for pair in queue:
             return pair
+        # The run's own list is spent: an item re-queued meanwhile is still to do. Two lanes may
+        # pick the same one; the claim lets only one of them run it.
+        for pair in await db_module.pending_asset_sweep_items(pool, run_id):
+            if pair[0] not in deferred:
+                requeued = True
+                return pair
         return None
 
     async def lane() -> None:
@@ -599,7 +614,7 @@ async def _drive(
         # exactly the sequential sweep.
         nonlocal failed
         while True:
-            pair = next_up()
+            pair = await next_up()
             retry = pair is None
             if retry:
                 if not deferred:
@@ -644,29 +659,36 @@ async def _drive(
             ):
                 failed += 1
 
-    try:
-        if width > 1:
-            logger.info("asset sweep %s: %d collections in parallel", run_id, width)
-        outcomes = await asyncio.gather(*(lane() for _ in range(width)), return_exceptions=True)
-        # A cancel seen by one lane is seen by the others on their next poll; a crash in one is
-        # the sweep's crash, after the other lanes finished what they had in flight.
-        for outcome in outcomes:
-            if isinstance(outcome, _Cancelled):
-                raise outcome
-        for outcome in outcomes:
-            if isinstance(outcome, BaseException):
-                raise outcome
-    except _Cancelled:
-        await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep was cancelled")
-        logger.info("asset sweep %s: cancelled", run_id)
-        return
-    except Exception as exc:  # noqa: BLE001 - the driver must always leave the run finished
-        logger.exception("asset sweep %s: driver crashed", run_id)
-        await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep stopped early")
-        await db_module.finish_asset_sweep_run(pool, run_id, status="error", error=f"the sweep crashed: {exc}")
-        return
-    error = f"{failed} of {len(collections)} collection(s) failed" if failed else None
-    await db_module.finish_asset_sweep_run(pool, run_id, status="error" if failed else "done", error=error)
+    if width > 1:
+        logger.info("asset sweep %s: %d collections in parallel", run_id, width)
+    while True:
+        try:
+            outcomes = await asyncio.gather(*(lane() for _ in range(width)), return_exceptions=True)
+            # A cancel seen by one lane is seen by the others on their next poll; a crash in one is
+            # the sweep's crash, after the other lanes finished what they had in flight.
+            for outcome in outcomes:
+                if isinstance(outcome, _Cancelled):
+                    raise outcome
+            for outcome in outcomes:
+                if isinstance(outcome, BaseException):
+                    raise outcome
+        except _Cancelled:
+            await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep was cancelled")
+            logger.info("asset sweep %s: cancelled", run_id)
+            return
+        except Exception as exc:  # noqa: BLE001 - the driver must always leave the run finished
+            logger.exception("asset sweep %s: driver crashed", run_id)
+            await db_module.skip_pending_asset_sweep_items(pool, run_id, "the sweep stopped early")
+            await db_module.finish_asset_sweep_run(pool, run_id, status="error", error=f"the sweep crashed: {exc}")
+            return
+        if requeued:
+            failed = await db_module.count_asset_sweep_items(pool, run_id, "error")
+        error = f"{failed} of {len(collections)} collection(s) failed" if failed else None
+        if await db_module.finish_asset_sweep_run(pool, run_id, status="error" if failed else "done", error=error):
+            break
+        if await db_module.heartbeat_asset_sweep_run(pool, run_id) != "running":
+            break  # cancelled meanwhile: the cancel already finished the run
+        # An item was re-queued as the lanes finished: go round again for it.
     logger.info("asset sweep %s: %s finished (%s)", run_id, provider, error or "all ok")
     if apply_state is not None:
         # After the finish: a follow-up full export of the collections it left out.
@@ -709,14 +731,22 @@ async def _sweep_one(
     await item(status="fetching", started_at=datetime.now(timezone.utc))
     kw = dict(scope_obj=scope_obj, spec=spec, entry=entry, user=user, item=item)
     try:
+        # The collection's own settings from the sweep defaults, over the run's (see
+        # `collection_overrides`); recorded so the row says what this collection ran with.
+        overrides = await collection_overrides(pool, run, spec, entry, collection)
+        if overrides:
+            timings["collection_settings"] = overrides
+        settings = {**(run.get("settings") or {}), **overrides}
         targets = sweep_targets(spec, entry, run["settings"])
         if targets is None:
             status, fields = await _fetch_and_publish(
-                ctx, pool, run, position, collection, settings=run["settings"], timings=timings, **kw
+                ctx, pool, run, position, collection, settings=settings, timings=timings, **kw
             )
             blocked = None if status in ("done", "unchanged") else f"the collection did not publish ({status})"
         else:
-            status, fields = await _sweep_targets(ctx, pool, run, position, collection, targets, timings=timings, **kw)
+            status, fields = await _sweep_targets(
+                ctx, pool, run, position, collection, targets, timings=timings, settings=settings, **kw
+            )
             blocked = geometry_blocked(entry, timings.get("targets") or {})
         if prebuild_wanted(run.get("settings")):
             # Core's "Pre-build meshes": fill the build cache now that the collection has published.
@@ -787,8 +817,10 @@ async def _sweep_targets(
     entry: dict,
     user,
     item,
+    settings: dict | None = None,
 ) -> tuple[str, dict]:
     """One collection, one provider job per target, in order, each published before the next.
+    ``settings`` are the collection's (the run's, with its own over them); default the run's.
     Returns the item's ``(status, fields)``; raises only a cancel or a skip of the item.
 
     A target that fails is that target's failure, not the collection's end: the rest still run --
@@ -821,7 +853,7 @@ async def _sweep_targets(
                 run,
                 position,
                 collection,
-                settings={**(run.get("settings") or {}), name: target},
+                settings={**((run.get("settings") if settings is None else settings) or {}), name: target},
                 timings=own,
                 scope_obj=scope_obj,
                 spec=spec,
@@ -982,21 +1014,123 @@ async def _fetch_and_publish(
     return "done", {"revision": revision, **({"subjects": subjects} if target is not None else {})}
 
 
-#: ``app_settings`` key of a provider's default sweep list: ``{"excluded": [collection, ...]}``.
+#: ``app_settings`` key of a provider's sweep defaults: ``{"excluded": [collection, ...],
+#: "collection_settings": {collection: {setting: value}}}``.
 DEFAULTS_SETTING = "asset_sweeps.defaults.{provider}"
+
+
+async def _defaults_doc(pool, provider: str) -> dict:
+    """The provider's sweep defaults document; unreadable or absent is ``{}`` (logged)."""
+    try:
+        raw = await db_module.get_setting(pool, DEFAULTS_SETTING.format(provider=provider))
+        doc = json.loads(raw) if raw else {}
+    except Exception:  # noqa: BLE001 - every reader falls back to "no defaults"
+        logger.warning("asset sweeps: the sweep defaults of %s are unreadable; using none", provider, exc_info=True)
+        return {}
+    return doc if isinstance(doc, dict) else {}
 
 
 async def default_excluded(pool, provider: str) -> list[str]:
     """The collections a provider's new sweeps start with ticked off. Unreadable means none: a
     sweep that runs one collection too many is better than one that silently runs none."""
-    try:
-        raw = await db_module.get_setting(pool, DEFAULTS_SETTING.format(provider=provider))
-        doc = json.loads(raw) if raw else {}
-    except Exception:  # noqa: BLE001 - see the docstring
-        logger.warning("asset sweeps: the default list of %s is unreadable; using none", provider, exc_info=True)
-        return []
-    excluded = doc.get("excluded") if isinstance(doc, dict) else None
+    excluded = (await _defaults_doc(pool, provider)).get("excluded")
     return [str(c) for c in excluded] if isinstance(excluded, list) else []
+
+
+# PER-COLLECTION SETTINGS. A provider's sweep defaults may also hold, per collection, a value for
+# one of the sweep's own settings -- the export timeout of a project too large for the sweep-wide
+# one, say. It is applied to that collection in EVERY sweep that declares the setting, scheduled or
+# one-off, and it wins over the run's own choice: it is the more specific of the two. Read when the
+# collection starts, so a value saved while a sweep runs applies to what that sweep has not reached
+# (and to a re-queue). The item records what it applied (``timings.collection_settings``).
+#
+# Only a SINGLE dropdown setting can be overridden: not a multiple choice (the targets are what the
+# run is), not one of core's own, not one whose choices come from earlier runs.
+
+
+def overridable_settings(spec: dict, entry: dict) -> list[dict]:
+    """The settings of ``entry`` a collection may override (see above), as ``entry_settings``
+    describes them."""
+    if entry.get("kind") != SWEEP:
+        return []  # applied by `_sweep_one`: an apply-changes or compare run is small, or its own
+    targets = targets_setting(spec, entry)
+    return [
+        s
+        for s in entry_settings(spec, entry)
+        if not s.get("multiple") and not s.get("core") and s.get("source") in ("enum", "spec") and s["name"] != targets
+    ]
+
+
+def provider_overridable_settings(specs: list[dict]) -> list[dict]:
+    """Every overridable setting of the provider's driven entries, once per name (first declared
+    wins), as ``{name, title, description, choices}``."""
+    out: dict[str, dict] = {}
+    for spec in specs:
+        for entry in schedule_entries(spec):
+            for s in overridable_settings(spec, entry):
+                out.setdefault(
+                    s["name"],
+                    {
+                        "name": s["name"],
+                        "title": s["title"],
+                        "description": s.get("description"),
+                        "choices": s["choices"],
+                    },
+                )
+    return list(out.values())
+
+
+def clean_collection_settings(overridable: list[dict], raw) -> dict:
+    """An admin's ``{collection: {setting: value}}`` checked against ``overridable``: an unset
+    value (``None`` / ``""``) is dropped, as is a collection left with none; a setting that cannot
+    be overridden, or a value that is not one of its choices, is refused (400). Values are stored as
+    the declaration types them."""
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="collection_settings must be {collection: {setting: value}}")
+    by_name = {s["name"]: s for s in overridable}
+    out: dict[str, dict] = {}
+    for collection, values in raw.items():
+        name_c = str(collection).strip()
+        if not name_c:
+            continue
+        if not isinstance(values, dict):
+            raise HTTPException(status_code=400, detail=f"collection_settings.{name_c} must be {{setting: value}}")
+        kept: dict[str, Any] = {}
+        for name, value in values.items():
+            if value is None or value == "":
+                continue
+            setting = by_name.get(name)
+            if setting is None:
+                raise HTTPException(status_code=400, detail=f"{name!r} is not a setting a collection can override")
+            found, typed = typed_choice(value, setting["choices"])
+            if not found:
+                valid = ", ".join(repr(c.get("value")) for c in setting["choices"])
+                raise HTTPException(status_code=400, detail=f"{name} for {name_c}: {value!r} is not one of {valid}")
+            kept[str(name)] = typed
+        if kept:
+            out[name_c] = kept
+    return dict(sorted(out.items()))
+
+
+async def default_collection_settings(pool, provider: str) -> dict[str, dict]:
+    """The provider's saved ``{collection: {setting: value}}``; unreadable means none."""
+    raw = (await _defaults_doc(pool, provider)).get("collection_settings")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(c): dict(v) for c, v in raw.items() if isinstance(v, dict)}
+
+
+async def collection_overrides(pool, run: dict, spec: dict, entry: dict, collection: str) -> dict:
+    """The saved settings of ``collection`` (matched case-insensitively) that ``entry`` declares
+    and that may be overridden -- what this collection's jobs in ``run`` send instead of the run's."""
+    names = {s["name"] for s in overridable_settings(spec, entry)}
+    if not names:
+        return {}
+    saved = await default_collection_settings(pool, run["provider"])
+    values = next((v for c, v in saved.items() if c.lower() == collection.lower()), {})
+    return {k: v for k, v in values.items() if k in names and v not in (None, "")}
 
 
 async def _scope_of(pool, scope: str, user) -> Scope:
@@ -1067,21 +1201,36 @@ async def admin_asset_sweep_start(
 async def admin_asset_sweep_defaults(
     request: Request, provider: str, ctx: RestContext = Depends(rest_context)
 ) -> JSONResponse:
-    """A provider's default sweep list: every collection it offers now, and which are ticked off.
-    A collection ticked off that the provider no longer offers is listed too, so it can be cleared."""
+    """A provider's sweep defaults: every collection it offers now, which are ticked off, and the
+    per-collection settings (``collection_settings``) with the settings that may be set per
+    collection (``overridable``). A collection ticked off, or with settings, that the provider no
+    longer offers is listed too, so it can be cleared."""
     pool = require_pool(request)
-    offered = _all_collections((await provider_specs(ctx)).get(provider) or [], await load_splits(pool, provider))
+    specs = (await provider_specs(ctx)).get(provider) or []
+    offered = _all_collections(specs, await load_splits(pool, provider))
     excluded = await default_excluded(pool, provider)
+    per = await default_collection_settings(pool, provider)
+    extra = [c for c in [*excluded, *per] if c not in offered]
     return JSONResponse(
-        {"provider": provider, "collections": offered + [c for c in excluded if c not in offered], "excluded": excluded}
+        {
+            "provider": provider,
+            "collections": offered + list(dict.fromkeys(extra)),
+            "excluded": excluded,
+            "collection_settings": per,
+            "overridable": provider_overridable_settings(specs),
+        }
     )
 
 
 @admin_router.put("/asset-sweeps/defaults")
 async def admin_asset_sweep_defaults_set(
-    request: Request, user: User = Depends(auth_module.current_user)
+    request: Request,
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """Body: ``{provider, excluded: [collection, ...]}``. Applies to sweeps started from now on."""
+    """Body: ``{provider, excluded: [collection, ...], collection_settings?: {collection: {setting:
+    value}}}``. ``excluded`` applies to sweeps started from now on, ``collection_settings`` to every
+    collection started from now on. Without ``collection_settings`` the saved ones are kept."""
     pool = require_pool(request)
     body = await request.json() if await request.body() else {}
     provider = str(body.get("provider") or "").strip()
@@ -1089,10 +1238,16 @@ async def admin_asset_sweep_defaults_set(
     if not provider or not isinstance(excluded, list):
         raise HTTPException(status_code=400, detail="provider and an excluded list are required")
     clean = sorted({str(c).strip() for c in excluded if str(c).strip()})
+    if "collection_settings" in body:
+        specs = (await provider_specs(ctx)).get(provider) or []
+        per = clean_collection_settings(provider_overridable_settings(specs), body.get("collection_settings"))
+    else:
+        per = await default_collection_settings(pool, provider)
+    doc = {"excluded": clean, **({"collection_settings": per} if per else {})}
     await db_module.set_setting(
-        pool, DEFAULTS_SETTING.format(provider=provider), json.dumps({"excluded": clean}), updated_by=user_label(user)
+        pool, DEFAULTS_SETTING.format(provider=provider), json.dumps(doc), updated_by=user_label(user)
     )
-    return JSONResponse({"provider": provider, "excluded": clean})
+    return JSONResponse({"provider": provider, "excluded": clean, "collection_settings": per})
 
 
 @admin_router.get("/asset-runs/max-parallel")
@@ -1191,7 +1346,7 @@ async def sweep_with_progress(ctx: RestContext, pool, run_id: str) -> dict | Non
         # free column); it is read as the item's own: `apply_changes` and `roles`. So does a
         # multi-target sweep item its per-target outcome: `targets`.
         timings = item.get("timings") or {}
-        for name in ("apply_changes", "roles", "targets", "collection_choices", "prebuild"):
+        for name in ("apply_changes", "roles", "targets", "collection_choices", "collection_settings", "prebuild"):
             if name in timings:
                 item[name] = timings[name]
         job_id = {"fetching": item["fetch_job_id"], "publishing": item["publish_job_id"]}.get(item["status"])
@@ -1311,6 +1466,86 @@ async def admin_asset_sweep_resume(
     except SweepRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JSONResponse(run, status_code=202)
+
+
+async def requeue_sweep_item(ctx: RestContext, pool, run_id: str, position: int, *, user) -> dict:
+    """Run one failed collection of a sweep again (``error`` / ``busy`` / ``skipped``). Returns
+    ``{"requeued": position, "collection", "reopened": bool}``. Raises :class:`SweepRefused` (and
+    LookupError when there is no such run).
+
+    While the sweep runs, its driver takes the item up once a lane is free. A sweep that has
+    finished is reopened and driven on in THIS process, for its pending items only -- the finished
+    ones are not claimed again. An apply-changes run is not reopened: its follow-up after the run
+    has already been queued. An interrupted sweep is resumed instead (which also runs the item)."""
+    run = await db_module.get_asset_sweep_run(pool, run_id)
+    if run is None:
+        raise LookupError(run_id)
+    if run["status"] == "interrupted":
+        raise SweepRefused("that sweep was interrupted -- resume it")
+    if run["status"] not in ("running", "done", "error"):
+        raise SweepRefused(f"that sweep is {run['status']}; start a new one for the collection")
+    found = None
+    if run["status"] != "running":
+        specs, found = await sweep_entry(ctx, run["provider"], run["job"])
+        if not specs:
+            raise SweepRefused(f"no online worker advertises provider {run['provider']!r}")
+        if found is None:
+            raise SweepRefused(f"provider {run['provider']!r} no longer declares the sweep {run['job']!r}")
+        if found[1].get("kind") == APPLY_CHANGES:
+            raise SweepRefused("a finished apply-changes run is not reopened; start a new one")
+    requeued = await db_module.requeue_asset_sweep_item(pool, run_id, position, by=user_label(user))
+    if requeued is None:
+        raise SweepRefused(
+            "only a failed, busy or skipped collection of a running or finished sweep can be re-queued "
+            "-- refresh and look again"
+        )
+    item = requeued["item"]
+    # Its old job is over (it failed, or was skipped and cancelled); cancelling is a no-op then,
+    # and stops a straggler that is not.
+    for job_id in (item.get("fetch_job_id"), item.get("publish_job_id")):
+        if job_id:
+            try:
+                await ctx.jobs.cancel(job_id)
+            except Exception:  # noqa: BLE001 - it runs again either way
+                logger.warning("asset sweep %s: could not cancel job %s", run_id, job_id, exc_info=True)
+    if requeued["reopened"]:
+        spec, entry = found
+        run = await db_module.get_asset_sweep_run(pool, run_id)
+        collections = [i["collection"] for i in sorted(run.pop("items"), key=lambda i: i["position"])]
+        spawn(
+            _drive(
+                ctx, pool, run, scope_obj=PROVIDER_STORE, spec=spec, entry=entry, collections=collections, user=user
+            ),
+            name=f"asset-sweep-{run_id}",
+        )
+    logger.info(
+        "asset sweep %s: %s re-queued by %s%s",
+        run_id,
+        item["collection"],
+        user_label(user),
+        " (the run is reopened)" if requeued["reopened"] else "",
+    )
+    return {"requeued": position, "collection": item["collection"], "reopened": requeued["reopened"]}
+
+
+@admin_router.post("/asset-sweeps/{run_id}/items/{position}/requeue")
+async def admin_asset_sweep_item_requeue(
+    run_id: str,
+    position: int,
+    request: Request,
+    user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Run a failed (or busy, or skipped) collection of a sweep again. 409 when the item cannot be
+    re-queued: not failed, the sweep cancelled or interrupted, or its provider offline."""
+    pool = require_pool(request)
+    try:
+        out = await requeue_sweep_item(ctx, pool, run_id, position, user=user)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="sweep not found") from exc
+    except SweepRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(out, status_code=202)
 
 
 #: Item states in which a sweep's collection is "the one in flight".

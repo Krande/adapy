@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {ensureElementLocalVertices} from "@/utils/scene/fea/elementLocalGeometry";
+import {resetBasePositions, writeMorphTarget} from "@/utils/scene/fea/gpuRefresh";
 import {SceneSync, SPRITE_LAYER} from "@/viewport/adacpp/sceneSync";
 import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
@@ -203,6 +205,33 @@ test("a warp swapped in as a new buffer reaches a wireframe that shares it (FEA 
     step(2);
     const lineGeomId = [...rec.geometries.entries()].find(([, g]) => g.topology === Topology.Lines)![0];
     assert.deepEqual(rec.morphUpdates.get(lineGeomId), [1, 2]);
+});
+
+test("an element field's element-local expansion re-uploads the geometry (field switch)", () => {
+    // A nodal paint resets positions once (version 1). An element field then swaps in a
+    // non-indexed position buffer and a sequential index, and its own reset bumps the new
+    // buffer to version 1 as well: same uuid, same versions, different buffers. Kept on the
+    // old upload, the element-local colours and warp land on the source-numbered vertices.
+    const {module, renderer, rec} = fakeModule();
+    const g = new THREE.BufferGeometry();
+    const base = new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]);
+    g.setAttribute("position", new THREE.BufferAttribute(base.slice(), 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+    const {scene, camera} = cameraAndScene(mesh);
+    const sync = new SceneSync(module, renderer);
+
+    resetBasePositions(g, base, null);
+    sync.sync(scene, camera);
+    assert.equal([...rec.geometries.values()][0].vertexCount, 4);
+
+    const renderToSource = ensureElementLocalVertices(g);
+    resetBasePositions(g, base, renderToSource);
+    writeMorphTarget(g, new Float32Array(12), renderToSource);
+    sync.sync(scene, camera);
+    assert.equal(rec.removed.length, 1, "the source-numbered upload is dropped");
+    const latest = [...rec.geometries.values()].at(-1)!;
+    assert.equal(latest.vertexCount, 6);
 });
 
 test("onBeforeRender hooks run before mirroring: an overlay that copies the influence there follows the warp", () => {

@@ -64,29 +64,46 @@ const HeaderBtn: React.FC<{onClick: () => void; title: string; children: React.R
     </button>
 );
 
-// Docked panel is horizontally resizable and remembers its width. The default is
-// wide enough that plugin tabs with tabular content (e.g. results tables) don't
-// force horizontal scrolling out of the box; the user can drag the right edge to
-// widen further (persisted) or narrow it back.
-const DOCKED_WIDTH_KEY = "ada:sim-docked-width";
-const DOCKED_DEFAULT = 620;
-const DOCKED_MIN = 360;
+// Docked panel: sized to its content within [DOCKED_MIN, DOCKED_AUTO_MAX] until the
+// user drags the right edge, which sets (and persists) an explicit width. A
+// double-click on the edge returns it to content size. The key was bumped when the
+// fixed default was dropped, so a width saved under it does not come back.
+const DOCKED_WIDTH_KEY = "ada:sim-docked-width-v2";
+export const DOCKED_MIN = 360;
+export const DOCKED_AUTO_MAX = 520;
+
+/** The docked panel's width style: content-sized and capped when `width` is null,
+ *  else the user's width. Bounded by the window and the container either way. */
+export function dockedFrameStyle(width: number | null): React.CSSProperties {
+    return {
+        width: width ?? "fit-content",
+        minWidth: `min(${DOCKED_MIN}px, 100%)`,
+        maxWidth: width === null
+            ? `min(${DOCKED_AUTO_MAX}px, calc(100vw - 32px), 100%)`
+            : "min(calc(100vw - 32px), 100%)",
+    };
+}
 
 const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "Simulation", children}) => {
     const {panelRef, isMobile, sheetStyle, grab} = useBottomSheet(() => setMode("docked"));
 
-    const [dockedWidth, setDockedWidth] = React.useState<number>(() => {
-        if (typeof window === "undefined") return DOCKED_DEFAULT;
+    const [dockedWidth, setDockedWidth] = React.useState<number | null>(() => {
+        if (typeof window === "undefined") return null;
         const saved = parseInt(window.localStorage.getItem(DOCKED_WIDTH_KEY) || "", 10);
-        return Number.isFinite(saved) && saved >= DOCKED_MIN ? saved : DOCKED_DEFAULT;
+        return Number.isFinite(saved) && saved >= DOCKED_MIN ? saved : null;
     });
     React.useEffect(() => {
-        if (typeof window !== "undefined") window.localStorage.setItem(DOCKED_WIDTH_KEY, String(dockedWidth));
+        if (typeof window === "undefined") return;
+        if (dockedWidth === null) window.localStorage.removeItem(DOCKED_WIDTH_KEY);
+        else window.localStorage.setItem(DOCKED_WIDTH_KEY, String(dockedWidth));
     }, [dockedWidth]);
+    const dockedRef = React.useRef<HTMLDivElement>(null);
     const dockResizeRef = React.useRef<{sx: number; ow: number} | null>(null);
     const onDockResizeDown = (e: React.PointerEvent) => {
         e.preventDefault();
-        dockResizeRef.current = {sx: e.clientX, ow: dockedWidth};
+        // From the width on screen: a content-sized panel has no number of its own yet.
+        const ow = dockedWidth ?? dockedRef.current?.getBoundingClientRect().width ?? DOCKED_MIN;
+        dockResizeRef.current = {sx: e.clientX, ow};
         e.currentTarget.setPointerCapture(e.pointerId);
     };
     const onDockResizeMove = (e: React.PointerEvent) => {
@@ -243,27 +260,26 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
     // standalone app leaves it unset and keeps 70vh.
     return (
         <div
+            ref={dockedRef}
             className={CHROME + " relative rounded-md flex flex-col overflow-hidden"}
-            style={{
-                width: dockedWidth,
-                minWidth: `min(${DOCKED_MIN}px, 100%)`,
-                maxWidth: "min(calc(100vw - 32px), 100%)",
-            }}
+            style={dockedFrameStyle(dockedWidth)}
         >
             {header}
             <div className="min-h-0 overflow-auto p-2" style={{maxHeight: "var(--ada-sim-max-h, 70vh)"}}>
                 {children}
             </div>
-            {/* Right-edge handle — drag to resize the panel horizontally. */}
+            {/* Right-edge handle — drag to resize the panel horizontally, double-click to fit the content. */}
             <div
                 className="absolute top-0 right-0 h-full w-1.5 cursor-ew-resize touch-none hover:bg-blue-400/40"
                 onPointerDown={onDockResizeDown}
                 onPointerMove={onDockResizeMove}
                 onPointerUp={onDockResizeUp}
                 onPointerCancel={onDockResizeUp}
+                onDoubleClick={() => setDockedWidth(null)}
                 role="separator"
                 aria-orientation="vertical"
                 aria-label="Resize simulation panel width"
+                title="Drag to resize; double-click to fit the content"
             />
         </div>
     );

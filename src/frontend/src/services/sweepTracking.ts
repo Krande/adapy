@@ -310,20 +310,42 @@ export function isSweepTracked(runId: string): boolean {
     return !!useConversionStore.getState().jobs[storeKey(runId)];
 }
 
-/** Show a sweep in the global toast and keep it current until it finishes or is dismissed. */
+/** Show a sweep in the global toast and keep it current until it finishes or is dismissed: the run
+ *  as the parent entry, and each collection in flight as a worker entry under it with its job's own
+ *  progress -- several at once when the sweep runs lanes in parallel. Its jobs' time limits can be
+ *  extended from there. */
 export function trackSweep(runId: string, label: string): void {
-    const key = storeKey(runId);
-    seed(key, label);
     remember(runId, label);
-    void pollRun(
-        key,
-        async () => {
-            const run = await viewerApi.adminAssetSweep(runId);
-            latest.set(key, {kind: "sweep", run});
-            return {state: sweepToastState(run)};
-        },
-        () => remember(runId, null),
-    );
+    trackTargetRequest(storeKey(runId), () => viewerApi.adminAssetSweep(runId), label, () => remember(runId, null), {
+        activeOnly: true,
+        extendable: true,
+    });
+}
+
+/** The failed collections of a watched sweep that can be run again: `[{position, collection}]`. */
+export function sweepRequeueTargets(key: string): {position: number; collection: string}[] {
+    const seen = latest.get(key);
+    if (!seen || seen.kind !== "sweep" || !["running", "done", "error"].includes(seen.run.status)) return [];
+    return (seen.run.items ?? [])
+        .filter((i) => REQUEUE_FROM.has(i.status))
+        .map((i) => ({position: i.position, collection: i.collection}));
+}
+
+/** Item states a sweep's failed collection can be re-queued from (`requeue_asset_sweep_item`). */
+export const REQUEUE_FROM = new Set(["error", "busy", "skipped"]);
+
+/** Run a watched sweep's failed collections again, and watch the run again if it had finished. */
+export async function requeueSweepItems(key: string, positions: number[]): Promise<void> {
+    const seen = latest.get(key);
+    if (!seen || seen.kind !== "sweep") return;
+    const runId = seen.run.id;
+    for (const position of positions) await viewerApi.adminRequeueAssetSweepItem(runId, position);
+    const prev = useConversionStore.getState().jobs[key];
+    if (prev && prev.status !== "running") {
+        // Finished and now reopened: the poll had stopped with it.
+        useConversionStore.getState().setJob(key, {...prev, status: "running", stage: "re-queued", error: null});
+        trackSweep(runId, prev.sourceKey);
+    }
 }
 
 export function untrackSweep(runId: string): void {
@@ -394,7 +416,16 @@ export function trackAttributesRequest(scope: string, runId: string, label: stri
     );
 }
 
-function trackTargetRequest(key: string, readRun: () => Promise<SweepRun>, label: string, onEnd?: () => void): void {
+/** `activeOnly`: a worker entry only while its item is in flight (fetching / publishing), dropped once
+ *  it ends -- a sweep of every project would otherwise list each finished one. `extendable`: its
+ *  jobs' time limits may be extended from the toast. */
+function trackTargetRequest(
+    key: string,
+    readRun: () => Promise<SweepRun>,
+    label: string,
+    onEnd?: () => void,
+    opts: {activeOnly?: boolean; extendable?: boolean} = {},
+): void {
     const childKey = (position: number) => `${key}#${position}`;
     const children = new Set<string>();
     seed(key, label);
@@ -411,10 +442,14 @@ function trackTargetRequest(key: string, readRun: () => Promise<SweepRun>, label
             const run = await readRun();
             latest.set(key, {kind: "sweep", run});
             for (const item of run.items ?? []) {
+                const k = childKey(item.position);
+                if (opts.activeOnly && item.status !== "fetching" && item.status !== "publishing") {
+                    if (children.delete(k)) useConversionStore.getState().clearJob(k);
+                    continue;
+                }
                 // Named and linked to the run by its job (`workerLabel`, `parentRunOf`): none yet, no row.
                 const jobId = (item.status === "publishing" && item.publish_job_id) || item.fetch_job_id;
                 if (!jobId) continue;
-                const k = childKey(item.position);
                 const prev = useConversionStore.getState().jobs[k];
                 if (!prev) {
                     if (!useConversionStore.getState().jobs[key]) continue;
@@ -425,12 +460,17 @@ function trackTargetRequest(key: string, readRun: () => Promise<SweepRun>, label
                     jobId,
                     derivedKey: "",
                     startedAt: prev?.startedAt ?? Date.now(),
+                    ...(opts.extendable ? {extendable: true} : {}),
                     ...sweepItemToastState(item),
                 });
             }
             return {state: sweepToastState(run)};
         },
-        () => onEnd?.(),
+        () => {
+            // Finished: the in-flight worker entries of an active-only run are over with it.
+            if (opts.activeOnly) for (const k of children) useConversionStore.getState().clearJob(k);
+            onEnd?.();
+        },
     );
 }
 

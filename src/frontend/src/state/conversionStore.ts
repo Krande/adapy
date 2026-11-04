@@ -16,6 +16,8 @@ export interface ConversionJob {
     parent?: string;
     /** On an operation: its steps are not listed under it, only folded into its bar and stage. */
     collapsed?: boolean;
+    /** The job runs under a time limit an admin may extend while it runs (a run's provider job). */
+    extendable?: boolean;
 }
 
 type ConversionState = {

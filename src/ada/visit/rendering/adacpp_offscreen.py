@@ -34,7 +34,12 @@ def _shared_renderer(width: int, height: int):
     from adacpp import _render
 
     if _renderer is None:
-        _renderer = _render.OffscreenRenderer(width, height)
+        try:
+            _renderer = _render.OffscreenRenderer(width, height)
+        except Exception as exc:  # noqa: BLE001 - no adapter or device: nothing renders in this process
+            from ada.visit.rendering.offscreen import OffscreenUnavailableError
+
+            raise OffscreenUnavailableError(f"adacpp's WebGPU renderer found no usable adapter: {exc}") from exc
     else:
         _renderer.clear()
         _renderer.resize(width, height)

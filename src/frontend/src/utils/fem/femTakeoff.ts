@@ -1,4 +1,4 @@
-// Pure helpers for the Scene > FEM panel: equipment grouped by the load cases that place it, the
+// Pure helpers for the Simulation > Model panel: equipment grouped by the load cases that place it, the
 // mass take-off of whatever the panel has switched on, and the resultant of a load scenario.
 //
 // Equipment is grouped by load case because an analysis model places the same box in several

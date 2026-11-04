@@ -21,6 +21,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import type {FeaSessionHandle} from "@/state/modelSession";
 import {applyElemFieldToMesh, shownElemFieldRange} from "../applyElemField";
 import {elementShownPredicate} from "../shownRange";
+import {noteShownMeasure} from "./shownRangeRepaint";
 import {installBeamSolidWarp} from "./warp";
 
 export async function paintElemField(args: {
@@ -75,21 +76,21 @@ export async function paintElemField(args: {
     const {layer, ipReduction, nodalAverage} = useFeaAnimationStore.getState();
     // One range for every surface below: the shells, the beam solids, the beam lines
     // and the legend.
-    const autoRange = rangeFromShown
-        ? shownElemFieldRange({
-            field,
-            perTypeStepValues,
-            layer,
-            ipReduction,
-            reduction: reductionStr,
-            isShown: elementShownPredicate({
-                mesh: active.mesh,
-                nPoints: active.basePositions.length / 3,
-                beamSolidMesh: active.beamSolidMesh,
-                beamSolidWarp: active.beamSolidWarp,
-            }),
-        })
-        : null;
+    const measureShown = () => shownElemFieldRange({
+        field,
+        perTypeStepValues,
+        layer,
+        ipReduction,
+        reduction: reductionStr,
+        isShown: elementShownPredicate({
+            mesh: active.mesh,
+            nPoints: active.basePositions.length / 3,
+            beamSolidMesh: active.beamSolidMesh,
+            beamSolidWarp: active.beamSolidWarp,
+        }),
+    });
+    const autoRange = rangeFromShown ? measureShown() : null;
+    if (rangeFromShown) noteShownMeasure(measureShown);
     applyElemFieldToMesh({
         mesh: active.mesh,
         basePositions: active.basePositions,
@@ -153,6 +154,9 @@ export async function paintElemField(args: {
             contour,
             autoRange,
             nodalAverage: false,
+            // installBeamSolidWarp below writes the real one; a zero written first
+            // only forced it to recompute and rewrite an unchanged warp.
+            writeMorph: !active.beamSolidWarp,
         });
         if (active.beamSolidWarp) {
             installBeamSolidWarp(

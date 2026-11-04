@@ -17,7 +17,7 @@ import {
 import {setDummyMassesVisible} from "@/utils/scene/fea/dummyMassVisibility";
 import {setBeamSolidsVisible as setBeamSolidsVisibleScene} from "@/utils/scene/handlers/load_fea_streaming";
 
-// Scene-panel "FEM" mode: visualize the analysis inputs baked into the model —
+// The Simulation panel's Model tab: visualize the analysis inputs baked into the model —
 // masses, boundary conditions, equipment, constraints, and the applied load scenarios — as
 // toggleable 3D glyph overlays (drawn by FemConceptsController). The load-scenario selector
 // cycles through each load case / combination and shows that one's arrows and resultant; the

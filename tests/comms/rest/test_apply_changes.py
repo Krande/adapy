@@ -275,6 +275,7 @@ class _World:
 
     async def finish(self, pool, run_id, *, status, error=None):
         self.finished = (status, error)
+        return True
 
     async def skip(self, pool, run_id, reason):
         pass
@@ -318,6 +319,10 @@ def world(monkeypatch):
         async def no_runs(pool, **kw):
             return []
 
+        async def none_pending(pool, run_id):
+            return []
+
+        monkeypatch.setattr(dbm, "pending_asset_sweep_items", none_pending)
         monkeypatch.setattr(dbm, "claim_asset_sweep_item", claim)
         monkeypatch.setattr(dbm, "acquire_asset_worker_slot", acquire)
         monkeypatch.setattr(dbm, "release_asset_worker_slot", release)

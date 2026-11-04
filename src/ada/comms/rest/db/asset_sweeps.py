@@ -206,16 +206,91 @@ async def clear_asset_sweep_skip(pool: asyncpg.Pool, run_id: str, position: int)
     )
 
 
-async def finish_asset_sweep_run(pool: asyncpg.Pool, run_id: str, *, status: str, error: Optional[str] = None) -> None:
-    """Only a ``running`` run moves: a cancel that landed first is not overwritten."""
-    await pool.execute(
+async def finish_asset_sweep_run(pool: asyncpg.Pool, run_id: str, *, status: str, error: Optional[str] = None) -> bool:
+    """Only a ``running`` run moves: a cancel that landed first is not overwritten. Nor does a run
+    with a ``pending`` item -- one re-queued while the lanes were finishing: False, and the driver
+    goes round again for it."""
+    row = await pool.fetchrow(
         """
         UPDATE asset_sweep_runs SET status = $2, error = $3, finished_at = NOW(), heartbeat_at = NOW()
         WHERE id = $1 AND status = 'running'
+          AND NOT EXISTS (SELECT 1 FROM asset_sweep_items WHERE run_id = $1 AND status = 'pending')
+        RETURNING id
         """,
         run_id,
         status,
         error,
+    )
+    return row is not None
+
+
+#: Item states an admin may re-queue: the item ran (or was given up on) without an answer.
+REQUEUE_FROM = ("error", "busy", "skipped")
+
+
+async def requeue_asset_sweep_item(
+    pool: asyncpg.Pool, run_id: str, position: int, *, by: Optional[str]
+) -> Optional[dict]:
+    """Put a failed item back to ``pending`` so it runs again. Returns ``{"reopened": bool, "item":
+    {position, collection, fetch_job_id, publish_job_id}}`` -- ``reopened`` when the run had already
+    finished (``done`` / ``error``) and is ``running`` again, to be driven by a new driver -- or None
+    when the item is not in a state to re-queue (:data:`REQUEUE_FROM`) or the run was cancelled or
+    is interrupted (resume it instead)."""
+    async with pool.acquire() as conn, conn.transaction():
+        run = await conn.fetchrow(
+            f"""
+            SELECT status, heartbeat_at >= NOW() - INTERVAL '{HEARTBEAT_STALE_S} seconds' AS live
+            FROM asset_sweep_runs WHERE id = $1 FOR UPDATE
+            """,
+            run_id,
+        )
+        if run is None or run["status"] not in ("running", "done", "error"):
+            return None
+        if run["status"] == "running" and not run["live"]:
+            return None
+        item = await conn.fetchrow(
+            """
+            UPDATE asset_sweep_items i SET status = 'pending', message = $4, error = NULL,
+                started_at = NULL, finished_at = NULL, worker_slot = FALSE
+            FROM (SELECT position, fetch_job_id, publish_job_id FROM asset_sweep_items
+                  WHERE run_id = $1 AND position = $2 AND status = ANY($3::text[]) FOR UPDATE) old
+            WHERE i.run_id = $1 AND i.position = old.position
+            RETURNING i.position, i.collection, old.fetch_job_id, old.publish_job_id
+            """,
+            run_id,
+            position,
+            list(REQUEUE_FROM),
+            f"re-queued by {by}" if by else "re-queued",
+        )
+        if item is None:
+            return None
+        reopened = run["status"] != "running"
+        if reopened:
+            await conn.execute(
+                """
+                UPDATE asset_sweep_runs SET status = 'running', error = NULL, finished_at = NULL,
+                    heartbeat_at = NOW(), skip_position = NULL, skip_requested_by = NULL
+                WHERE id = $1
+                """,
+                run_id,
+            )
+    return {"reopened": reopened, "item": dict(item)}
+
+
+async def pending_asset_sweep_items(pool: asyncpg.Pool, run_id: str) -> list[tuple[int, str]]:
+    """``[(position, collection)]`` of the run's ``pending`` items, in order: what a driver whose
+    own list is spent still has to do (items re-queued while it ran)."""
+    rows = await pool.fetch(
+        "SELECT position, collection FROM asset_sweep_items WHERE run_id = $1 AND status = 'pending' ORDER BY position",
+        run_id,
+    )
+    return [(int(r["position"]), str(r["collection"])) for r in rows]
+
+
+async def count_asset_sweep_items(pool: asyncpg.Pool, run_id: str, status: str) -> int:
+    return int(
+        await pool.fetchval("SELECT COUNT(*) FROM asset_sweep_items WHERE run_id = $1 AND status = $2", run_id, status)
+        or 0
     )
 
 

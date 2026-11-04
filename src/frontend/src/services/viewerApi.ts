@@ -80,6 +80,8 @@ export type {
   ScheduleSetting,
   SweepItem,
   SweepDefaults,
+  CollectionSettings,
+  OverridableSetting,
   RunBudget,
   SweepItemTimings,
   SweepRun,

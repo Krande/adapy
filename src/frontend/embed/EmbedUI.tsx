@@ -19,6 +19,8 @@ import InfoIcon from "@/components/icons/InfoIcon"
 import SceneIcon from "@/components/icons/SceneIcon"
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle"
 import { useViewerStores } from "@/state/AdaViewerContext"
+import { useFemConceptsStore } from "@/state/femConceptsStore"
+import { feModelLoaded, hasFemConcepts, simulationButtonShown } from "@/components/simulation/simPanelTabs"
 
 // ``pointer-fine:`` gate on hover styles (same as Menu.tsx): plain
 // ``hover:`` resolves to ``@media (hover: hover)`` which Android
@@ -55,12 +57,18 @@ export const EmbedUI: React.FC = () => {
     // actually animation data — for paradoc-embed that's a FEA mode
     // shape baked into the GLB (clip animation path) or a live
     // streaming FEA session if/when the embed grows that capability.
-    // Mirrors Menu.tsx's `!hasAnimation && !feaSessionActive` hide.
+    // Same rule as Menu.tsx: results, or an FE model without any (its Model tab).
     const hasAnimation = useAnimationStore((s: any) => s.hasAnimation)
     const isControlsVisible = useAnimationStore((s: any) => s.isControlsVisible)
     const setIsControlsVisible = useAnimationStore.getState().setIsControlsVisible
     const feaSessionActive = useFeaAnimationStore((s: any) => s.sessionActive)
-    const animPanelAvailable = hasAnimation || feaSessionActive
+    const feaManifest = useFeaAnimationStore((s: any) => s.manifest)
+    const femHasConcepts = useFemConceptsStore(hasFemConcepts)
+    const animPanelAvailable = simulationButtonShown({
+        hasAnimation,
+        sessionActive: feaSessionActive,
+        feModel: feModelLoaded({ manifest: feaManifest, femHasConcepts }),
+    })
 
     // Push the toolbar right when the drawer is open so the buttons
     // stay visible. Matches Menu.tsx's behavior on desktop; mobile

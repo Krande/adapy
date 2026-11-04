@@ -122,6 +122,9 @@ export interface ApplyElemFieldArgs {
      *  the elements that touch it. ``false`` (default) paints the same
      *  colour onto every vertex of an element (piecewise-constant). */
     nodalAverage?: boolean;
+    /** Install the (zero, without ``warpField``) morph delta. ``false`` for a mesh
+     *  whose caller installs its own warp right after (the beam solids). */
+    writeMorph?: boolean;
 }
 
 function pickRange(field: FeaManifestField, reduction: string): [number, number] {
@@ -390,6 +393,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         autoRange,
         nodalAverage: nodalAverageArg = false,
         lineFallback = true,
+        writeMorph = true,
     } = args;
     // A model property is not a result: it is drawn in its own scheme over its own
     // range (propertyColors.ts), never averaged across element boundaries - the
@@ -824,7 +828,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     }
     // In place, with the morph texture refreshed rather than the whole geometry
     // disposed. See gpuRefresh.ts.
-    writeMorphTarget(geometry, sourceDisplacement, renderToSource);
+    if (writeMorph) writeMorphTarget(geometry, sourceDisplacement, renderToSource);
 
     // Colour attribute install / replace.
     const existingColor = geometry.getAttribute("color");

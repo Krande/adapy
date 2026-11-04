@@ -445,11 +445,18 @@ class Beam(BackendGeom):
 
     @material.setter
     def material(self, value: Material):
-        # old = self._material
+        """Keeps ``Material.refs`` in step, as the constructor does: ``consolidate_materials`` and
+        ``merge_materials_by_properties`` find a material's users through its refs, so a beam given a material here
+        and missing from its refs kept pointing at a duplicate the IFC writer then refused ("is not among synced
+        materials")."""
+        old = self._material
+        if value is old:
+            return
         self._material = value
-        # self._material.refs.append(self)
-        # if self in old.refs:
-        #    old.refs.remove(self)
+        if old is not None:
+            old.unlink_ref(self)
+        if value is not None:
+            value.link_ref(self)
 
     @property
     def orientation(self) -> Placement:

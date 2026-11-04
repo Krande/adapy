@@ -3,10 +3,13 @@
 - ``"adacpp"``: adacpp's WebGPU renderer, headless (``adacpp._render``) -- the renderer Ada Studio's
   WebGPU mode draws with.
 - ``"chromium"``: the production embed in headless Chromium (Playwright); the visual oracle for tests.
-- ``"auto"``: adacpp.
+- ``"auto"``: adacpp; chromium when the installed adacpp has no renderer and chromium can run.
 
 ``"pygfx"``, the renderer adacpp replaced, is still accepted and renders with adacpp, with a
 DeprecationWarning.
+
+A backend that cannot run raises :class:`OffscreenUnavailableError`. Static images are the only
+model views a PDF / DOCX export has, so callers that tolerate a failed render let this one through.
 """
 
 from __future__ import annotations
@@ -24,7 +27,27 @@ OffscreenBackend = Literal["auto", "adacpp", "chromium"]
 PRESET_KEYS = ("azimuth_deg", "elevation_deg", "fov_deg", "distance", "margin", "z_up")
 
 
+class OffscreenUnavailableError(RuntimeError):
+    """No offscreen backend that was asked for (or, for ``"auto"``, none at all) can render here."""
+
+
+def _adacpp_missing_message() -> str:
+    try:
+        from importlib.metadata import version
+
+        installed = f"ada-cpp {version('ada-cpp')}"
+    except Exception:  # noqa: BLE001 - not installed, or installed without metadata
+        installed = "the installed ada-cpp"
+    return (
+        f"{installed} has no adacpp._render, the WebGPU renderer static model images are drawn with. "
+        "Install an ada-cpp build that ships it."
+    )
+
+
 def resolve_backend(backend: OffscreenBackend) -> Literal["adacpp", "chromium"]:
+    """The backend ``backend`` renders with; raises :class:`OffscreenUnavailableError` if it cannot run."""
+    from ada.visit.rendering import adacpp_offscreen, chromium_offscreen_utils
+
     if backend == "pygfx":
         warnings.warn(
             'The "pygfx" offscreen backend is removed; rendering with "adacpp" (adacpp\'s WebGPU renderer). '
@@ -32,9 +55,19 @@ def resolve_backend(backend: OffscreenBackend) -> Literal["adacpp", "chromium"]:
             DeprecationWarning,
             stacklevel=3,
         )
-        return "adacpp"
+        backend = "adacpp"
     if backend == "auto":
-        return "adacpp"
+        if adacpp_offscreen.is_available():
+            return "adacpp"
+        if chromium_offscreen_utils.is_available():
+            warnings.warn(f"{_adacpp_missing_message()} Rendering with chromium instead.", stacklevel=3)
+            return "chromium"
+        raise OffscreenUnavailableError(
+            f"No offscreen renderer: {_adacpp_missing_message()} The chromium backend needs playwright "
+            "and a built embed (src/frontend/dist-embed/index.js)."
+        )
+    if backend == "adacpp" and not adacpp_offscreen.is_available():
+        raise OffscreenUnavailableError(_adacpp_missing_message())
     return backend
 
 

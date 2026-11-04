@@ -30,14 +30,46 @@ if TYPE_CHECKING:
 MASS_ELTYP = 11
 
 
-def is_mass_element(mass: Mass) -> bool:
-    """A point mass or rotary inertia on one node, with an id: written as a mass element."""
-    return mass.type in (MassTypes.MASS, MassTypes.ROTARYI) and len(_nodes(mass)) == 1 and mass.id is not None
+def is_mass_element(mass: Mass, ndofs: NodeDofs | None = None) -> bool:
+    """A point mass or rotary inertia on one node, with an id, on a node that has rotational dofs: written as a
+    mass element.
+
+    Sestra's one-noded mass element (GMAS) is a 6-dof element whatever NDOF its MGMASS declares. On a 3-dof node --
+    one touched only by solids -- Sestra V11.3-01 aborts the run: a static analysis with "Trying to add element matrix
+    with 6 degrees of freedom to system matrix, which is more than 3", an eigenvalue analysis with "GmasWrapper:
+    Illegal input to mass matrix routine". Making the node 6-dof is no way out either: its rotations would have no
+    stiffness. So a translational point mass on such a node is written as nodal mass (BNMASS, ``write_masses``),
+    which carries an NDOF of its own and is exact for it. A rotary inertia always promotes its node to 6 dofs
+    (``writer.node_dofs``), so it stays an element.
+
+    ``ndofs`` defaults to the dof counts of the mass's FEM.
+    """
+    if mass.type not in (MassTypes.MASS, MassTypes.ROTARYI) or mass.id is None:
+        return False
+    nodes = _nodes(mass)
+    if len(nodes) != 1:
+        return False
+    if mass.type == MassTypes.ROTARYI:
+        return True
+    if ndofs is None:
+        from .writer import node_dofs
+
+        if mass.parent is None:
+            return True
+        ndofs = node_dofs(mass.parent)
+    return ndofs.ndof(nodes[0].id) == 6
 
 
-def point_elements(fem: FEM) -> list[Elem]:
-    """The masses written as elements, in element id order."""
-    return sorted((m for m in fem.elements.masses if is_mass_element(m)), key=lambda el: el.id)
+def point_elements(fem: FEM, ndofs: NodeDofs | None = None) -> list[Elem]:
+    """The masses written as elements, in element id order (:func:`is_mass_element`)."""
+    masses = list(fem.elements.masses)
+    if not masses:
+        return []
+    if ndofs is None:
+        from .writer import node_dofs
+
+        ndofs = node_dofs(fem)
+    return sorted((m for m in masses if is_mass_element(m, ndofs)), key=lambda el: el.id)
 
 
 def _nodes(el) -> list:
@@ -56,9 +88,9 @@ def node_ids(el) -> list[int]:
     return [n.id for n in _nodes(el)]
 
 
-def matnos(fem: FEM, first: int) -> dict[int, int]:
+def matnos(fem: FEM, first: int, ndofs: NodeDofs | None = None) -> dict[int, int]:
     """``{element id: MATNO}`` of the matrices, numbered from ``first``."""
-    return {el.id: first + i for i, el in enumerate(point_elements(fem))}
+    return {el.id: first + i for i, el in enumerate(point_elements(fem, ndofs))}
 
 
 def first_free_matno(fem: FEM) -> int:
@@ -77,13 +109,13 @@ def gelref_str(el, matno: int) -> str:
 
 def point_elements_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     """The TDELEM names and the MGMASS matrices of :func:`point_elements`."""
-    from .writer import ALL_SIX_DOF
+    from .writer import node_dofs
 
     if ndofs is None:
-        ndofs = ALL_SIX_DOF
-    numbers = matnos(fem, first_free_matno(fem))
+        ndofs = node_dofs(fem)
+    numbers = matnos(fem, first_free_matno(fem), ndofs)
     out = ""
-    for el in point_elements(fem):
+    for el in point_elements(fem, ndofs):
         if el.name:
             out += write_ff("TDELEM", [(4, el.id, 100 + len(el.name), 0), (el.name,)])
         out += _matrix_card("MGMASS", numbers[el.id], mass_matrix(el), ndofs.ndof(node_ids(el)[0]), el)

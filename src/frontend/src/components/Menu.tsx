@@ -1,6 +1,8 @@
 import React, { Suspense, useEffect, useState } from "react";
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import SimulationControls from "./simulation/SimulationControls";
+import { feModelLoaded, hasFemConcepts, simulationButtonShown } from "./simulation/simPanelTabs";
+import { useFemConceptsStore } from "@/state/femConceptsStore";
 import ComponentControls from "./component_view/ComponentControls";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
 import { useComponentSpecsStore } from "@/state/componentSpecsStore";
@@ -137,6 +139,14 @@ const Menu = () => {
   const { hasAnimation, isControlsVisible, setIsControlsVisible } =
     stores.useAnimationStore();
   const feaSessionActive = stores.useFeaAnimationStore((s) => s.sessionActive);
+  // An FE model without results still has the panel's Model tab to show.
+  const feaManifest = stores.useFeaAnimationStore((s) => s.manifest);
+  const femHasConcepts = useFemConceptsStore(hasFemConcepts);
+  const simulationButton = simulationButtonShown({
+    hasAnimation,
+    sessionActive: feaSessionActive,
+    feModel: feModelLoaded({ manifest: feaManifest, femHasConcepts }),
+  });
   const componentControlsVisible = useComponentControlsStore(
     (s) => s.isVisible,
   );
@@ -298,11 +308,11 @@ const Menu = () => {
             className={navBtnClass(
               isControlsVisible,
               "",
-              !hasAnimation && !feaSessionActive,
+              !simulationButton,
             )}
-            hidden={!hasAnimation && !feaSessionActive}
+            hidden={!simulationButton}
             onClick={() => setIsControlsVisible(!isControlsVisible)}
-            title="Toggle animation controls"
+            title="Toggle simulation panel"
             aria-pressed={isControlsVisible}
           >
             <ToggleControlsIcon />

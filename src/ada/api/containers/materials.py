@@ -76,7 +76,8 @@ class Materials(NumericMapped):
             else:
                 index = models[prop_key]
                 replacement_mat = final_mats[index]
-                for ref in mat.refs:
+                # A snapshot: a beam's material setter takes it out of ``mat.refs``.
+                for ref in list(mat.refs):
                     ref.material = replacement_mat
 
         self.materials = final_mats

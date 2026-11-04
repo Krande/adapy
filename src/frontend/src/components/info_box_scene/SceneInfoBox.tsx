@@ -12,14 +12,12 @@ import BBoxSelectionSection from "./BBoxSelectionSection";
 import FacePickingToggle from "./FacePickingToggle";
 import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
-import FemConceptsPanel from "./FemConceptsPanel";
 import JointsOverviewPanel from "./JointsOverviewPanel";
 import ClashesPanel from "./ClashesPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
 import OverlaysPanel from "./OverlaysPanel";
-import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
-import {useFemConceptsStore} from "@/state/femConceptsStore";
-import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useSceneInfoStore} from "@/state/sceneInfoStore";
+import {MODE_TO_TAB, TAB_META, TAB_TO_MODE} from "./sceneTabs";
 import {useStatsStore} from "@/state/statsStore";
 import {useClashCheckStore} from "@/state/clashCheckStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
@@ -28,13 +26,15 @@ import {useBottomSheet} from "@/utils/useBottomSheet";
 // than a single selected object). Its destinations used to hide behind a 6-way
 // mode <select>; now they're a tab strip that adapts to what's loaded. Every
 // model is a GLB in the scene, so Model / Tools / Clip / Mesh always apply —
-// only FEM is contextual (it needs baked FE concepts: masses / BCs / load
-// scenarios). "Loaded models" stays pinned above the tabs, visible in every one.
+// only Joints is contextual. "Loaded models" stays pinned above the tabs,
+// visible in every one. The FE model's concepts (masses / BCs / load scenarios)
+// live in the Simulation panel's Model tab.
 //
-// The 6 legacy modes map onto 5 tabs: Info + Source merge into "Model" (both
-// describe what's loaded), Utilities → Tools, Section → Clip, and Mesh / FEM
-// keep their own tabs. The store still holds a `mode`, so external openers keep
-// working; the tab bar is just a nicer projection of it.
+// The legacy modes map onto the tabs: Info + Source merge into "Model" (both
+// describe what's loaded), Utilities → Tools, Section → Clip, and Mesh keeps its
+// own tab. The store still holds a `mode`, so external openers keep working; the
+// tab bar is just a nicer projection of it. `fem` stays a mode for other UI
+// shells and lands on Model here.
 
 // Colour tokens used by this panel — same CSS vars as PANEL_CHROME, but the
 // pinned regions manage their own padding so the tab strip can span edge-to-edge
@@ -43,69 +43,12 @@ const CHROME =
     "bg-[var(--ada-panel-bg)] border border-[var(--ada-panel-border)] " +
     "text-[var(--ada-panel-text)] shadow-lg";
 
-type SceneTab = "model" | "overlays" | "tools" | "clip" | "mesh" | "fem" | "clashes" | "joints";
-
-// "Clashes" sits immediately before "Joints", on purpose: identifying joints and reviewing them
-// are two ends of one workflow (`notes_core_asset_browser.md` §Decision 10's naming paragraph),
-// never a second joints table under a different tab. "Clashes" is NOT contextual -- unlike FEM
-// and Joints it needs no baked concepts to be worth showing: it runs against whatever source is
-// loaded and says plainly when that source has no members to check.
-const TAB_META: {id: SceneTab; label: string; ctx?: boolean}[] = [
-    {id: "model", label: "Model"},
-    {id: "overlays", label: "Overlays"},
-    {id: "tools", label: "Tools"},
-    {id: "clip", label: "Clip"},
-    {id: "mesh", label: "Mesh"},
-    {id: "fem", label: "FEM", ctx: true},
-    {id: "clashes", label: "Clashes"},
-    {id: "joints", label: "Joints", ctx: true},
-];
-
-const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
-    info: "model",
-    source: "model",
-    utilities: "tools",
-    section: "clip",
-    mesh: "mesh",
-    fem: "fem",
-    clashes: "clashes",
-    joints: "joints",
-    overlays: "overlays",
-};
-
-const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
-    model: "info",
-    overlays: "overlays",
-    tools: "utilities",
-    clip: "section",
-    mesh: "mesh",
-    fem: "fem",
-    clashes: "clashes",
-    joints: "joints",
-};
-
 const SceneInfoBox = () => {
     const mode = useSceneInfoStore((s) => s.mode);
     const setMode = useSceneInfoStore((s) => s.setMode);
     const setShow = useSceneInfoStore((s) => s.setShowSceneInfoBox);
 
-    // FEM is a contextual tab. It appears when the loaded model carries FE
-    // concepts (masses / boundary conditions / constraints / load cases / equipment) OR whenever an FEA
-    // result session is active — any FEA result file (e.g. a Sesam SIN) streams
-    // through the FEA path and enables the panel's mesh tools ("Beams as solid",
-    // scenario selector) even when the result carries no baked concepts, so the
-    // tab shouldn't be limited to concept-carrying models.
-    const femHasConcepts = useFemConceptsStore(
-        (s) =>
-            s.masses.length > 0 ||
-            s.bcs.length > 0 ||
-            s.constraints.length > 0 ||
-            s.scenarios.length > 0 ||
-            s.equipment.length > 0,
-    );
-    const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
-    const femTabAvailable = femHasConcepts || feaSessionActive;
-    // Joints is the other contextual tab. It used to appear only when the loaded model's
+    // Joints is the contextual tab. It used to appear only when the loaded model's
     // take-off carried fabrication-detail joints (a model compiled with a detailing engine) --
     // "PRODUCED" joints. It now ALSO appears when a `Clashes` run has IDENTIFIED joints in the
     // loaded source, even before anything has been detailed: identification and review are two
@@ -120,11 +63,11 @@ const SceneInfoBox = () => {
 
     const {panelRef, isMobile, sheetStyle, grab} = useBottomSheet(() => setShow(false));
 
-    const ctxAvailable: Record<string, boolean> = {fem: femTabAvailable, joints: hasJoints};
+    const ctxAvailable: Record<string, boolean> = {joints: hasJoints};
     const tabs = TAB_META.filter((t) => !t.ctx || ctxAvailable[t.id]);
     // Derive the active tab from the store mode, falling back to Model if the
-    // stored mode points at a tab that isn't currently available (e.g. FEM after
-    // the FE model was unloaded).
+    // stored mode points at a tab that isn't currently available (e.g. Joints
+    // after the model carrying them was unloaded).
     let tab = MODE_TO_TAB[mode];
     if (!tabs.some((t) => t.id === tab)) tab = "model";
 
@@ -243,10 +186,8 @@ const SceneInfoBox = () => {
                     <MeshDistortionSection />
                 ) : tab === "clashes" ? (
                     <ClashesPanel />
-                ) : tab === "joints" ? (
-                    <JointsOverviewPanel />
                 ) : (
-                    <FemConceptsPanel />
+                    <JointsOverviewPanel />
                 )}
             </div>
         </div>
