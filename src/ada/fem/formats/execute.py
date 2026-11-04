@@ -54,7 +54,8 @@ def execute_fem(
 def check_previous_run(name, fem_format, scratch_dir) -> None:
     """Raise :class:`~ada.fem.exceptions.fea_execution.FEASolveFailed` unless the run that left the result of
     ``name`` in ``scratch_dir`` says it finished: Code_Aster's verdict in the .mess file (``OK`` or ``<A>_ALARM``),
-    CalculiX's saved output (``Job finished``, no ``*ERROR``). Other formats are not checked.
+    CalculiX's saved output (``Job finished``, no ``*ERROR``), Sestra's SESTRA.MLG / SESTRA.LIS. Other formats are not
+    checked.
 
     A failed run can leave a result file: Code_Aster's MED file holds what was printed before the command that
     stopped, CalculiX's .frd its header. ``Assembly.to_fem`` with ``overwrite=False`` read such a file back as the
@@ -73,3 +74,10 @@ def check_previous_run(name, fem_format, scratch_dir) -> None:
         from ada.fem.formats.calculix.execute import check_previous_calculix_run
 
         check_previous_calculix_run(inp_path)
+    elif fem_format == FEATypes.SESAM:
+        from ada.fem.formats.sesam.execute import check_sestra_run
+
+        run_dir = pathlib.Path(inp_path).parent
+        # A SIN with no Sestra log beside it was run elsewhere (copied in, or from GeniE): nothing to judge it by.
+        if (run_dir / "SESTRA.MLG").exists() or (run_dir / "SESTRA.LIS").exists():
+            check_sestra_run(run_dir)

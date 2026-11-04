@@ -18,7 +18,7 @@ class FEASolveFailed(FEAnalysisUnsuccessfulError):
     that stopped, CalculiX's .frd its header -- and reading it gives a partial answer or an opaque reader error. This
     carries what the solver said, by name:
 
-    * ``solver``: ``"code_aster"`` or ``"calculix"``
+    * ``solver``: ``"code_aster"``, ``"calculix"`` or ``"sestra"``
     * ``code``: the first message code (Code_Aster's ``<FACTOR_11>`` as ``"FACTOR_11"``; for CalculiX, which has no
       codes, the routine of its first ``*ERROR in <routine>`` line, or a short tag such as ``"spooles_singular"``)
     * ``codes``: every distinct code, in order
