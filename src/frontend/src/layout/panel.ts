@@ -197,15 +197,27 @@ export interface PanelSpec {
   hint?: string;
   /** In one shared key vocabulary, e.g. `"Shift+T"`. Descriptive in phase 0: the key is bound elsewhere. */
   shortcut?: string;
-  /** The panel's content, lazily loaded. */
+  /** The panel's content, lazily loaded. With `frame: "own"`, the content in its own (classic) frame. */
   body: PanelBodyLoader;
-  /** The existing visibility flag. Omitted: the layout owns visibility (from phase 1). */
+  /**
+   * The content WITHOUT the classic frame, for a host that draws its own (a dock,
+   * a UI shell's frame). Omitted when `body` is already frameless (`frame: "host"`)
+   * or the panel has not been split yet.
+   */
+  content?: PanelBodyLoader;
+  /** The existing visibility flag. Omitted: the layout owns visibility. */
   binding?: PanelBinding;
   /**
    * Is the panel offered right now. Cheap, synchronous, no I/O; may read a store's
    * current state (the classic top bar hides a button the same way). Omitted: always.
    */
   available?: (env: PanelEnv) => boolean;
+  /**
+   * Notifies when `available` may have changed (the stores it reads moved).
+   * Returns the unsubscribe. Lets a host re-render a toolbar exactly when a
+   * button appears or goes. Omitted: `available` depends on the env only.
+   */
+  watch?: (cb: () => void) => () => void;
   capabilities?: Partial<PanelCapabilities>;
   constraints?: PanelConstraints;
   placement?: PanelPlacements;
@@ -221,8 +233,9 @@ export interface PanelSpec {
   /**
    * Who draws the chrome. `"own"`: the body still renders its legacy frame, so a
    * host mounts it bare (the pixel-identity lever for the classic UI). `"host"`:
-   * the body is content only and the host wraps it in a panel frame. Default `"own"`
-   * until a panel's content and frame are split.
+   * the body is content only and the host wraps it in a panel frame. Default `"own"`.
+   * A split panel keeps `"own"` in the classic preset (its classic frame is the
+   * pixel-identical one) and offers its frameless content as `content`.
    */
   frame?: "own" | "host";
 }

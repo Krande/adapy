@@ -18,6 +18,22 @@ export interface FlagStore<S> {
 }
 
 /**
+ * A spec's `watch` over the stores its `available` reads: notifies on any change
+ * to any of them. Coarse on purpose -- `available` is cheap, and a host compares
+ * the answers before it re-renders.
+ */
+export function watchStores(
+  ...stores: ReadonlyArray<{ subscribe(listener: () => void): () => void }>
+): (cb: () => void) => () => void {
+  return (cb) => {
+    const unsubs = stores.map((s) => s.subscribe(() => cb()));
+    return () => {
+      for (const u of unsubs) u();
+    };
+  };
+}
+
+/**
  * Bind a panel to a flag in a store.
  *
  * `read` derives "is the panel open" from the store state. `write` sets it,

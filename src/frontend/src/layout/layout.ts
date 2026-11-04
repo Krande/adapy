@@ -1,8 +1,9 @@
 // Layout as data: presets, zones and the per-user document that records where
-// panels are. TYPES ONLY in phase 0 -- nothing reads or writes a layout yet, and
-// the classic UI renders exactly as before. They are defined now so that the
-// panel contract (`./panel`) and the presets that consume it are designed
-// together, and so the shapes are fixed before anything is persisted.
+// panels are. Types only: the pure reducers over a document are `./reducers`,
+// the store that holds the user's documents is `./layoutStore`, and the host
+// that renders a preset is `./LayoutHost`. Defined beside the panel contract
+// (`./panel`) so the two are designed together, and so the shapes are fixed
+// before anything is persisted.
 //
 // The model, briefly:
 //
