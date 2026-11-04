@@ -73,7 +73,9 @@ def mass_discrete_str(masses: list[Mass]) -> str:
         value = mass.mass
         if isinstance(value, (list, tuple)):
             mx, my, mz = (float(v) for v in value)
-            items.append(f"            _F(GROUP_MA='{group}', CARA='M_T_N', VALE=({mx!r}, 0.0, 0.0, {my!r}, 0.0, {mz!r})),")
+            items.append(
+                f"            _F(GROUP_MA='{group}', CARA='M_T_N', VALE=({mx!r}, 0.0, 0.0, {my!r}, 0.0, {mz!r})),"
+            )
         else:
             items.append(f"            _F(GROUP_MA='{group}', CARA='M_T_D_N', VALE={float(value)!r}),")
         items.append(f"            _F(GROUP_MA='{group}', CARA='K_T_D_N', VALE=(0.0, 0.0, 0.0)),")

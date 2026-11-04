@@ -26,7 +26,9 @@ def _fields(*names):
 
 def test_case_names_come_from_the_comm_comment(tmp_path):
     (tmp_path / "jt.comm").write_text(COMM)
-    names = load_case_names(tmp_path / "jt.rmed", _fields("result__DEPL[0] - 999.999", "result__REAC_NODA[2] - 999.999"))
+    names = load_case_names(
+        tmp_path / "jt.rmed", _fields("result__DEPL[0] - 999.999", "result__REAC_NODA[2] - 999.999")
+    )
     assert names == {1: "acc_x", 2: "acc_y", 3: "local_loads"}
 
 

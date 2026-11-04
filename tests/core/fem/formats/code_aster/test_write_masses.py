@@ -39,7 +39,10 @@ def test_isotropic_point_mass(tmp_path):
     group = re.search(r"_F\(GROUP_MA=\('(\w+)',\), PHENOMENE='MECANIQUE', MODELISATION='DIS_T',\)", comm).group(1)
     assert f"_F(GROUP_MA='{group}', CARA='M_T_D_N', VALE=1000.0)" in comm
     assert f"_F(GROUP_MA='{group}', CARA='K_T_D_N', VALE=(0.0, 0.0, 0.0))" in comm
-    assert "CARA_ELEM=element" in comm.split("MACRO_ELAS_MULT")[-1] or "CARA_ELEM=element" in comm.split("MECA_STATIQUE")[-1]
+    assert (
+        "CARA_ELEM=element" in comm.split("MACRO_ELAS_MULT")[-1]
+        or "CARA_ELEM=element" in comm.split("MECA_STATIQUE")[-1]
+    )
 
 
 def test_anisotropic_point_mass(tmp_path):

@@ -429,7 +429,9 @@ def _solver_str(part) -> str:
     opts = part.fem.options.CODE_ASTER
     second_order = any(el.type in (ShellShapes.TRI6, ShellShapes.QUAD8) for el in part.fem.elements)
     if opts.solver is not None:
-        return solveur_str(opts.solver, opts.resi_rela if opts.resi_rela is not None else (1e-4 if second_order else None))
+        return solveur_str(
+            opts.solver, opts.resi_rela if opts.resi_rela is not None else (1e-4 if second_order else None)
+        )
     if not second_order:
         return ""
     return "\n    SOLVEUR=_F(METHODE='MUMPS', RESI_RELA=1e-4),"
