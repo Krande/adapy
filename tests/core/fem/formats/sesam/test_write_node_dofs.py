@@ -340,7 +340,10 @@ def test_point_mass_on_a_3_dof_node_is_nodal_mass_not_a_gmas_element(path):
     ("Trying to add element matrix with 6 degrees of freedom to system matrix, which is more than 3"; an eigen run
     "GmasWrapper: Illegal input to mass matrix routine"). So the mass goes out as a 3-dof BNMASS, no GELMNT1 names
     it, and a set naming it leaves it out (tests/fem/test_sesam_point_mass_on_solid.py runs both in Sestra)."""
-    from ada.fem.formats.sesam.write.write_elements import elem_gen, unwritten_element_ids
+    from ada.fem.formats.sesam.write.write_elements import (
+        elem_gen,
+        unwritten_element_ids,
+    )
     from ada.fem.formats.sesam.write.write_masses import mass_str
 
     fem = _solid_with_mass_fem(12.0, MassTypes.MASS, path)

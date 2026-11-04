@@ -93,7 +93,9 @@ def test_a_key_that_is_not_a_string_is_refused():
     assert e.value.status_code == 400
 
 
-@pytest.mark.parametrize("prefix", [f"_derived/{PLUGIN}", f"_derived/{PLUGIN}/", f"_derived/plugin_jobs/{PLUGIN}/run-1/"])
+@pytest.mark.parametrize(
+    "prefix", [f"_derived/{PLUGIN}", f"_derived/{PLUGIN}/", f"_derived/plugin_jobs/{PLUGIN}/run-1/"]
+)
 def test_a_prefix_may_be_the_namespace_itself_or_end_in_a_slash(prefix):
     assert plugin_owned_key(PLUGIN, prefix, "derived_prefix", prefix=True) == prefix
 

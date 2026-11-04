@@ -1070,7 +1070,12 @@ def provider_overridable_settings(specs: list[dict]) -> list[dict]:
             for s in overridable_settings(spec, entry):
                 out.setdefault(
                     s["name"],
-                    {"name": s["name"], "title": s["title"], "description": s.get("description"), "choices": s["choices"]},
+                    {
+                        "name": s["name"],
+                        "title": s["title"],
+                        "description": s.get("description"),
+                        "choices": s["choices"],
+                    },
                 )
     return list(out.values())
 
@@ -1239,7 +1244,9 @@ async def admin_asset_sweep_defaults_set(
     else:
         per = await default_collection_settings(pool, provider)
     doc = {"excluded": clean, **({"collection_settings": per} if per else {})}
-    await db_module.set_setting(pool, DEFAULTS_SETTING.format(provider=provider), json.dumps(doc), updated_by=user_label(user))
+    await db_module.set_setting(
+        pool, DEFAULTS_SETTING.format(provider=provider), json.dumps(doc), updated_by=user_label(user)
+    )
     return JSONResponse({"provider": provider, "excluded": clean, "collection_settings": per})
 
 

@@ -38,7 +38,12 @@ pytestmark = pytest.mark.skipif(_sestra_exe() is None, reason="Sestra is not ins
 
 def _solid_cantilever_with_tip_mass(analysis: str) -> ada.Assembly:
     a = mesh_cantilever(
-        design_cantilever(), geom_repr="solid", elem_order=1, use_hex_quad=True, reduced_integration=False, mesh_size=0.1
+        design_cantilever(),
+        geom_repr="solid",
+        elem_order=1,
+        use_hex_quad=True,
+        reduced_integration=False,
+        mesh_size=0.1,
     )
     fem = a.get_part(PART_NAME).fem
     tip = max(fem.nodes, key=lambda n: (n.x, n.z))
