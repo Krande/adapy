@@ -5,6 +5,9 @@
 import { registerCoreUiShell } from "./coreUiShell";
 import { DEFAULT_UI_SHELL, registerBuiltinPlugins } from "./registry.generated";
 import { setBuildDefaultUiShellId } from "./uiShells";
+import { usePluginUiStore } from "./pluginUiStore";
+import { registerCorePanels } from "@/layout/corePanels";
+import { setPluginPanelVisibility } from "@/layout/pluginPanels";
 
 let _loaded = false;
 
@@ -15,6 +18,17 @@ export function loadPlugins(): void {
   // fallback every other shell falls back to, so it must exist even if a plugin
   // registration below blows up.
   registerCoreUiShell();
+  // Core's panel catalogue, then the store plugin panels with a top-bar button
+  // keep their visibility in, so the panel registry binds plugin panels to it as
+  // they register below. Neither changes what renders.
+  setPluginPanelVisibility(usePluginUiStore);
+  try {
+    registerCorePanels();
+  } catch (err) {
+    // The catalogue is not on the render path; the viewer must boot without it.
+    // eslint-disable-next-line no-console
+    console.error("[layout] registerCorePanels failed", err);
+  }
   try {
     registerBuiltinPlugins();
   } catch (err) {
