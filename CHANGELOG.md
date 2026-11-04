@@ -2,6 +2,13 @@
 
 
 
+## v0.131.0 (2026-11-04)
+
+### Feature
+
+* feat(cellbuilder): per-group visibility, colour and build switch; Sesam, Code_Aster and topology fixes (#487) ([`b020656`](https://github.com/Krande/adapy/commit/b020656453a63bbab28cbce4a87f5bdd077e3b44))
+
+
 ## v0.130.0 (2026-11-04)
 
 ### Feature
