@@ -11,8 +11,11 @@ def create_sections_str(
     has_ref_points: bool = False,
     ref_points_group: str = None,
     membrane_large_strain: bool = False,
+    masses=(),
 ) -> str:
-    from .write_constraints import REF_POINTS_GROUP, create_ref_points_discrete_str
+    """``masses``: the point masses (:func:`.write_masses.point_masses`), given their ``DISCRET`` here."""
+    from .write_constraints import REF_POINTS_GROUP, create_ref_points_discrete_items
+    from .write_masses import mass_discrete_str
 
     mat_assign_str = ""
     section_materials = ""
@@ -61,10 +64,17 @@ def create_sections_str(
     if len(fem_sections.solids) > 0:
         mat_assign_str += write_solid_section(fem_sections.solids)
 
-    discrete_str = create_ref_points_discrete_str(ref_points_group or REF_POINTS_GROUP) if has_ref_points else ""
+    discrete_items = []
+    if has_ref_points:
+        discrete_items.append(create_ref_points_discrete_items(ref_points_group or REF_POINTS_GROUP))
+    if masses:
+        discrete_items.append(mass_discrete_str(list(masses)))
+    discrete_str = ""
+    if discrete_items:
+        discrete_str = "\n        DISCRET=(\n" + "\n".join(discrete_items) + "\n        ),"
 
     sec_str = ""
-    if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or has_ref_points:
+    if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or discrete_items:
         sec_str = f"""element = AFFE_CARA_ELEM(\n
     MODELE=model,{shell_sections_str}{beam_sections_str}{discrete_str}
 )"""

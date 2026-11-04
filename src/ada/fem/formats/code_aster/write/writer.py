@@ -24,6 +24,7 @@ from .write_constraints import (
     step_bcs,
 )
 from .write_loads import add_line_load_groups
+from .write_masses import mass_model_str, point_masses
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str
@@ -98,11 +99,13 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
+    masses = point_masses(part)
     sections_str = create_sections_str(
         part.fem.sections,
         has_ref_points=len(couplings) > 0,
         ref_points_group=ref_group,
         membrane_large_strain=membranes_large_strain(part, all_steps(assembly)),
+        masses=masses,
     )
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
@@ -119,7 +122,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
 
-    model_type_str = ""
+    # Point masses: DIS_T discrete elements on their POI1 cells (write_masses).
+    model_type_str = mass_model_str(masses)
     section_sets = ""
     input_mesh = "mesh"
     lines = part.fem.sections.lines
