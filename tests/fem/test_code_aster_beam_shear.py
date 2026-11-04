@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 import ada
-from ada.fem import Bc, FemSet, Load, StepImplicitStatic
+from ada.fem import Bc, FemSet, StepImplicitStatic
 from ada.materials.metals import CarbonSteel
 
 L, F = 1.5, 1.0e4
