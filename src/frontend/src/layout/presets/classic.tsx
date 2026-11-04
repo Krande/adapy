@@ -55,7 +55,7 @@ import type {PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
 import type {PanelState} from "../panelStates";
 import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
 import {listToolbarPanels} from "../registry";
-import {toggle} from "../reveal";
+import {hide, toggle} from "../reveal";
 import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, toolbarPresence} from "./classicRules";
 
 const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
@@ -161,7 +161,7 @@ function ColumnPanel({panel, state, env, proceduralActive}: {panel: RegisteredPa
   const props: PanelProps = {
     panelId: panel.id,
     host: {kind: "stack", zone: CLASSIC_ZONES.menuColumn},
-    close: () => void toggle(panel.id),
+    close: () => void hide(panel.id),
     isActive: true,
   };
   const mount = <PanelMount panel={panel} provided={CLASSIC_PANEL_COMPONENTS[panel.id]} props={props} />;
@@ -229,7 +229,7 @@ function TreeZone() {
             key={p.id}
             panel={p}
             provided={CLASSIC_PANEL_COMPONENTS[p.id]}
-            props={{panelId: p.id, host: {kind: "dock", zone: CLASSIC_ZONES.tree}, close: () => void toggle(p.id), isActive: true}}
+            props={{panelId: p.id, host: {kind: "dock", zone: CLASSIC_ZONES.tree}, close: () => void hide(p.id), isActive: true}}
           />
         ) : null,
       )}
