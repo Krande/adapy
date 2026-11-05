@@ -6,8 +6,11 @@ import {renderToStaticMarkup} from "react-dom/server";
 import {
     CloseGlyph,
     ExternalGlyph,
+    FloatGlyph,
     PanelCard,
     PanelFrame,
+    PanelHeaderActions,
+    PanelHeaderActionsProvider,
     WindowFrame,
     WindowHeaderActions,
     WindowHeaderButton,
@@ -221,4 +224,23 @@ test("PanelFrame draws a card with its title in a stack, and no buttons without 
     assert.ok(out.startsWith(`<div class="${PANEL_CHROME}" data-panel-id="core:x">`));
     assert.match(out, /<h2 class="font-bold">Things<\/h2>/);
     assert.doesNotMatch(out, /<button/);
+});
+
+test("a header's action slot is empty until a host offers actions", () => {
+    const card = (
+        <PanelCard heading="Options">
+            <p>body</p>
+        </PanelCard>
+    );
+    const bare = html(card);
+    assert.equal(html(<PanelHeaderActionsProvider actions={[]}>{card}</PanelHeaderActionsProvider>), bare);
+    assert.equal(html(<div><PanelHeaderActions /></div>), "<div></div>");
+
+    const offered = html(
+        <PanelHeaderActionsProvider actions={[{id: "float", label: "Float in a window", icon: FloatGlyph, run: noop}]}>
+            {card}
+        </PanelHeaderActionsProvider>,
+    );
+    assert.match(offered, /<div class="flex items-center gap-2"><h2 class="font-bold">Options<\/h2><div class="ml-auto/);
+    assert.match(offered, /title="Float in a window" aria-label="Float in a window"/);
 });

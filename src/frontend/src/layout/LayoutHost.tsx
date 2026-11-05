@@ -85,7 +85,8 @@ export function lazyPanelBody(panel: RegisteredPanel, which: "body" | "content" 
  * A panel's component: the one the preset provides synchronously (no Suspense,
  * so first paint matches a statically imported panel), else its lazy body inside
  * a Suspense boundary with `fallback` -- or none with `outerSuspense`, when the
- * frame around it already has the boundary.
+ * frame around it already has the boundary. `which: "content"` loads the
+ * panel's frameless content, for a host that draws the frame.
  */
 export function PanelMount({
   panel,
@@ -93,18 +94,20 @@ export function PanelMount({
   props,
   fallback = null,
   outerSuspense = false,
+  which = "body",
 }: {
   panel: RegisteredPanel;
   provided?: React.ComponentType<PanelProps>;
   props: PanelProps;
   fallback?: React.ReactNode;
   outerSuspense?: boolean;
+  which?: "body" | "content";
 }) {
   if (provided) {
     const C = provided;
     return <C {...props} />;
   }
-  const Lazy = lazyPanelBody(panel);
+  const Lazy = lazyPanelBody(panel, which);
   if (outerSuspense) return <Lazy {...props} />;
   return (
     <Suspense fallback={fallback}>

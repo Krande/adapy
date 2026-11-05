@@ -58,9 +58,15 @@ export {
 export type { PanelCardVariant } from "@/components/ui/panelChrome";
 export {
   CloseGlyph,
+  DockGlyph,
   ExternalGlyph,
+  FloatGlyph,
+  MinimiseGlyph,
   PanelCard,
   PanelFrame,
+  PanelHeaderActions,
+  PanelHeaderActionsProvider,
+  usePanelHeaderActions,
   WindowFrame,
   WindowHeaderActions,
   WindowHeaderButton,
@@ -91,16 +97,23 @@ export {
   migrateLayoutPrefs,
 } from "@/layout/layoutStore";
 export type { LayoutStoreState } from "@/layout/layoutStore";
+export { LAYOUT_PREFS_STORAGE_KEY, localLayoutPersistence } from "@/layout/localPersistence";
+export type { PrefsStorage } from "@/layout/localPersistence";
 export {
   LAYOUT_DOC_VERSION,
   adoptNewPanels,
   closePanel,
+  dockPanel,
   emptyLayoutDoc,
+  floatPanel,
   isOpenIn,
   migrateLayoutDoc,
+  minimisePanel,
   movePanel,
   openPanel,
   raiseFloat,
+  restorePanel,
+  setFloatRect,
   setZoneCollapsed,
   setZoneSize,
   whereOpen,

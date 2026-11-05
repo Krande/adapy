@@ -5,6 +5,7 @@ import { createLayoutController } from "@/layout/controller";
 import type { ZoneDef } from "@/layout/layout";
 import { createLayoutStore } from "@/layout/layoutStore";
 import type { PanelBinding, PanelSpec } from "@/layout/panel";
+import { floatPanel, minimisePanel } from "@/layout/reducers";
 import { registerPanel, resetPanelRegistry } from "@/layout/registry";
 import { hide, isPanelOpen, reveal, setPanelController, toggle } from "@/layout/reveal";
 
@@ -100,6 +101,17 @@ test("revealing one panel of an exclusive group closes the others, bound or not"
   reveal("core:admin");
   assert.equal(isPanelOpen("x:tool"), false);
   assert.equal(admin.value, true);
+});
+
+test("revealing a minimised panel brings it out of the tray; its flag still opens it", () => {
+  const b = flag(true);
+  registerPanel(spec("core:a", { binding: b }), "core");
+  store.getState().update("p", ZONES, (d) => minimisePanel(floatPanel(d, "core:a", { x: 0, y: 0, w: 100, h: 100 }), "core:a"));
+  reveal("core:a");
+  const d = store.getState().doc("p", ZONES);
+  assert.deepEqual(d.minimised, []);
+  assert.ok(d.floats["core:a"], "still floated");
+  assert.equal(b.value, true);
 });
 
 test("a panel hosted inside another, or placed in no zone of the preset, cannot be revealed on its own", () => {

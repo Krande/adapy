@@ -11,7 +11,8 @@
 //   * where it opens -- a fixed first rect (`initialRect`), or a rect remembered
 //     per browser (`remember`), which always passes through `clampRect` (on open
 //     and whenever the browser window is resized) so a position saved on a larger
-//     screen still opens on this one;
+//     screen still opens on this one; or a rect the caller keeps (`rect`,
+//     `onRectChange`), clamped the same way;
 //   * how it stacks -- `zIndex` on the window, or, with `overlay`, a click-through
 //     fixed layer the size of the viewport drawn in a portal, so the window's
 //     coordinates are the viewport's whatever the layout around the caller;
@@ -49,6 +50,9 @@ export interface FloatingWindowProps {
   initialRect?: WindowRect | (() => WindowRect);
   /** Remember the rect per browser instead. */
   remember?: RememberedRect;
+  /** Or the caller keeps the rect: shown clamped to the viewport, every move and resize reported. */
+  rect?: WindowRect;
+  onRectChange?: (rect: WindowRect) => void;
   /** Draw in a portal over the page, in a click-through layer the size of the viewport. */
   overlay?: boolean;
   /** Below the `wide` breakpoint, take the whole screen. */
@@ -95,6 +99,8 @@ export function FloatingWindow({
   minSize,
   initialRect,
   remember,
+  rect: controlledRect,
+  onRectChange,
   overlay = false,
   fullScreenWhenNarrow = false,
   style,
@@ -127,22 +133,27 @@ export function FloatingWindow({
     return overlay ? createPortal(takeover, document.body) : takeover;
   }
 
-  if (remember && rect) {
+  const shown = controlledRect ? clampRect(controlledRect, viewport(), min) : remember ? rect : null;
+  if (shown) {
     const commit = (r: WindowRect) => {
       const c = clampRect(r, viewport(), min);
+      if (controlledRect) {
+        onRectChange?.(c);
+        return;
+      }
       setRect(c);
-      writeRememberedRect(remember, c);
+      if (remember) writeRememberedRect(remember, c);
     };
     const rnd = (
       <Rnd
         className={overlay ? "pointer-events-auto" : undefined}
-        position={{x: rect.x, y: rect.y}}
-        size={{width: rect.width, height: rect.height}}
+        position={{x: shown.x, y: shown.y}}
+        size={{width: shown.width, height: shown.height}}
         {...sizeLimits(minSize)}
         bounds={overlay ? "parent" : "window"}
         style={overlay ? style : {zIndex, ...style}}
         dragHandleClassName={dragHandleClassName}
-        onDragStop={(_e, d) => commit({...rect, x: d.x, y: d.y})}
+        onDragStop={(_e, d) => commit({...shown, x: d.x, y: d.y})}
         onResizeStop={(_e, _dir, ref, _delta, pos) =>
           commit({x: pos.x, y: pos.y, width: ref.offsetWidth, height: ref.offsetHeight})
         }

@@ -4,14 +4,15 @@
 // A panel with a binding is opened and closed through it -- its existing flag
 // stays the truth, so every other opener keeps working. A panel without one is
 // opened in its placement zone of the layout document (`./reducers`). Either
-// way the panel's exclusive group is honoured: revealing one closes the others.
+// way the panel's exclusive group is honoured: revealing one closes the others,
+// and a minimised panel is restored.
 
 import type { StoreApi } from "zustand/vanilla";
 
 import type { ZoneDef } from "./layout";
 import type { LayoutStoreState } from "./layoutStore";
 import { placementFor, type PanelId, type PresetId, type RegisteredPanel } from "./panel";
-import { closePanel, isOpenIn, openPanel } from "./reducers";
+import { closePanel, isOpenIn, openPanel, restorePanel } from "./reducers";
 import { getPanel, listPanels } from "./registry";
 import type { PanelController } from "./reveal";
 
@@ -49,6 +50,8 @@ export function createLayoutController({ preset, zones, store, context }: Layout
       const p = getPanel(id);
       if (!p) return false;
       for (const other of rivals(p)) close(other);
+      // Revealing a minimised panel brings it back out of the tray.
+      if (doc().minimised.includes(p.id)) update((d) => restorePanel(d, p.id));
       if (p.binding) {
         p.binding.setOpen(true);
         return true;

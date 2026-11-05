@@ -5,6 +5,7 @@ import {runtime} from "@/runtime/config";
 import {useOptionsStore} from "@/state/optionsStore";
 import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";
+import LayoutOptions from "./options/LayoutOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
 import PerformanceOptions from "./options/PerformanceOptions";
 import SceneRestoreOptions from "./options/SceneRestoreOptions";
@@ -107,6 +108,7 @@ export function OptionsBody() {
                     with Theme because both answer "how does this app look",
                     and neither is a decision anyone revisits often. */}
                 <UiShellSwitcher className="mt-3"/>
+                <LayoutOptions className="mt-3"/>
             </CollapsibleSection>
             <hr className="border-gray-600"/>
             <CollapsibleSection title="Performance">

@@ -9,13 +9,17 @@
 //   * `PanelFrame` -- the frame a layout host puts around a panel whose spec says
 //     `frame: "host"`, from the contract's `PanelFrameProps`: a window frame when
 //     the host floats the panel, a card otherwise. A UI shell may supply its own.
+//   * `PanelHeaderActions` -- the slot in a panel's OWN header (`frame: "own"`)
+//     where a layout host's actions (float, dock, minimise) go. It renders
+//     nothing until a host provides actions (`PanelHeaderActionsProvider`).
+//     `PanelCard` carries it beside its heading.
 //
 // Markup is exactly what the panels drew before, so adopting a frame changes no
 // pixel and no DOM node.
 
-import React, {Suspense} from "react";
+import React, {Suspense, createContext, useContext} from "react";
 
-import type {PanelFrameProps} from "@/layout/panel";
+import type {PanelAction, PanelFrameProps} from "@/layout/panel";
 import {
   WINDOW_CARD,
   WINDOW_HEADER_BUTTON,
@@ -34,11 +38,48 @@ export interface PanelCardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /** The menu-column card. Extra classes follow the chrome; other props reach the root `div`. */
 export function PanelCard({variant = "card", heading, className, children, ref, ...rest}: PanelCardProps) {
+  const actions = usePanelHeaderActions();
+  const h2 = heading != null && <h2 className="font-bold">{heading}</h2>;
   return (
     <div ref={ref} className={panelClass(variant, className)} {...rest}>
-      {heading != null && <h2 className="font-bold">{heading}</h2>}
+      {h2 && actions.length > 0 ? (
+        <div className="flex items-center gap-2">
+          {h2}
+          <PanelHeaderActions />
+        </div>
+      ) : (
+        h2
+      )}
       {children}
     </div>
+  );
+}
+
+const PanelHeaderActionsContext = createContext<readonly PanelAction[] | null>(null);
+
+/** Offer `actions` to the `PanelHeaderActions` slot of the panel below. */
+export const PanelHeaderActionsProvider: React.FC<{actions: readonly PanelAction[]; children: React.ReactNode}> = ({
+  actions,
+  children,
+}) => <PanelHeaderActionsContext.Provider value={actions}>{children}</PanelHeaderActionsContext.Provider>;
+
+/** The host's actions for the panel this header belongs to; none outside a provider. */
+export function usePanelHeaderActions(): readonly PanelAction[] {
+  return useContext(PanelHeaderActionsContext) ?? [];
+}
+
+/** The layout host's actions in a panel's own header; nothing when it offers none. */
+export function PanelHeaderActions() {
+  const actions = usePanelHeaderActions();
+  if (actions.length === 0) return null;
+  return (
+    <WindowHeaderActions>
+      {actions.map((a) => (
+        <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
+          {a.icon ? <a.icon /> : a.label}
+        </WindowHeaderButton>
+      ))}
+    </WindowHeaderActions>
   );
 }
 
@@ -60,6 +101,27 @@ export const ExternalGlyph: React.FC = () => (
       strokeLinejoin="round"
       fill="none"
     />
+  </svg>
+);
+
+/** The glyph of "float in a window". */
+export const FloatGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M5 2 H14 V11 H5 Z M2 5 V14 H11" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
+/** The glyph of "dock back into the layout". */
+export const DockGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M2 2 H14 V14 H2 Z M6 2 V14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
+/** The glyph of "minimise to the tray". */
+export const MinimiseGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M3 12 H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
   </svg>
 );
 

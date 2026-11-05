@@ -46,17 +46,22 @@ import {useViewerPanelStore, type ViewerPanel} from "@/state/viewerPanelStore";
 import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_of_nodes";
 import {useIsWide} from "@/utils/useIsMobile";
 
-import {CLASSIC_PANEL_COMPONENTS} from "../classicBodies";
+import {PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
+
+import {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS} from "../classicBodies";
 import {CORE_PANEL_IDS, CORE_PANEL_OWNER, corePanelEnv, registerCorePanels} from "../corePanels";
 import {FloatLayer, type WindowChrome} from "../FloatLayer";
 import {CLASSIC_PRESET_ID, CLASSIC_ZONES, type LayoutPreset} from "../layout";
 import {LayoutHost, PanelMount, usePanelStates, useLayout, zonePanels} from "../LayoutHost";
-import type {PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
+import {layoutStore} from "../layoutStore";
+import {localLayoutPersistence} from "../localPersistence";
+import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
 import type {PanelState} from "../panelStates";
 import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
 import {listToolbarPanels} from "../registry";
 import {hide, toggle} from "../reveal";
 import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, toolbarPresence} from "./classicRules";
+import {MinimisedTray, UndockedLayer, columnActions, isUndocked, useClassicDoc, useCustomisablePanels} from "./classicUndock";
 
 const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
 
@@ -96,6 +101,7 @@ function ToolbarButton({panel, state, env}: {panel: RegisteredPanel; state: Pane
 
 function ClassicToolbar({nodeEditorOnly}: {nodeEditorOnly: boolean}) {
   const {env} = useLayout();
+  const customisable = useCustomisablePanels();
   // Core's buttons; plugin buttons are drawn by their own host at their slot,
   // where activation predicates (which need a plugin context) are evaluated.
   const panels = listToolbarPanels().filter((p) => p.owner === CORE_PANEL_OWNER);
@@ -117,6 +123,7 @@ function ClassicToolbar({nodeEditorOnly}: {nodeEditorOnly: boolean}) {
       {before.map(button)}
       <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
       {after.map(button)}
+      {customisable && <MinimisedTray />}
     </div>
   );
 }
@@ -156,7 +163,21 @@ const CellBuilderOverlays: React.FC = () => (
   </>
 );
 
-function ColumnPanel({panel, state, env, proceduralActive}: {panel: RegisteredPanel; state: PanelState; env: PanelEnv; proceduralActive: boolean}) {
+const NO_ACTIONS: readonly PanelAction[] = [];
+
+function ColumnPanel({
+  panel,
+  state,
+  env,
+  proceduralActive,
+  customisable,
+}: {
+  panel: RegisteredPanel;
+  state: PanelState;
+  env: PanelEnv;
+  proceduralActive: boolean;
+  customisable: boolean;
+}) {
   if (!mounts(panel.id, {state, env, proceduralActive})) return null;
   const props: PanelProps = {
     panelId: panel.id,
@@ -166,17 +187,29 @@ function ColumnPanel({panel, state, env, proceduralActive}: {panel: RegisteredPa
   };
   const mount = <PanelMount panel={panel} provided={CLASSIC_PANEL_COMPONENTS[panel.id]} props={props} />;
   const Wrap = COLUMN_WRAP[panel.id];
-  return Wrap ? <Wrap>{mount}</Wrap> : mount;
+  const wrapped = Wrap ? <Wrap>{mount}</Wrap> : mount;
+  // Always provided (it draws no DOM), so turning the setting on or off never remounts a panel.
+  return <PanelHeaderActionsProvider actions={customisable ? columnActions(panel) : NO_ACTIONS}>{wrapped}</PanelHeaderActionsProvider>;
 }
 
 function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const {preset, env} = useLayout();
+  const customisable = useCustomisablePanels();
+  const doc = useClassicDoc();
   // Core's panels; the plugin `top-panel` region host draws the plugins' at their slot.
   const panels = zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER);
   const states = usePanelStates(panels, env);
   const render = (p: RegisteredPanel) => (
     <React.Fragment key={p.id}>
-      <ColumnPanel panel={p} state={states.get(p.id)!} env={env} proceduralActive={proceduralActive} />
+      {!(customisable && isUndocked(doc, p.id)) && (
+        <ColumnPanel
+          panel={p}
+          state={states.get(p.id)!}
+          env={env}
+          proceduralActive={proceduralActive}
+          customisable={customisable}
+        />
+      )}
       {p.id === CORE_PANEL_IDS.cellbuilder && proceduralActive && <CellBuilderOverlays />}
     </React.Fragment>
   );
@@ -264,9 +297,10 @@ function useMountRule(): (panel: RegisteredPanel, state: PanelState, env: PanelE
 
 /** The classic frame: `AppBody`'s tree, its zones filled from the registry. */
 function ClassicFrame() {
-  const {env} = useLayout();
+  const {preset, env} = useLayout();
   const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);
   const mount = useMountRule();
+  const customisable = useCustomisablePanels();
   return (
     <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
       {/* Tree View Section */}
@@ -285,6 +319,15 @@ function ClassicFrame() {
 
       {/* Windows: the node editor in the tree, the attribute search in its own portal. */}
       <FloatLayer zone={CLASSIC_ZONES.float} mount={mount} provided={CLASSIC_PANEL_COMPONENTS} />
+
+      {/* Column panels the user floated ("Customisable panels"). */}
+      {customisable && (
+        <UndockedLayer
+          panels={zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER)}
+          mounts={mount}
+          contents={CLASSIC_PANEL_CONTENTS}
+        />
+      )}
 
       {env.restMode === true && (
         <Suspense fallback={null}>
@@ -318,5 +361,8 @@ export const classicPreset: LayoutPreset = {
 export default function ClassicLayout() {
   registerCorePanels();
   const env = React.useMemo(() => corePanelEnv(), []);
+  React.useEffect(() => {
+    if (!layoutStore.getState().hydrated) void layoutStore.getState().hydrate(localLayoutPersistence());
+  }, []);
   return <LayoutHost preset={classicPreset} env={env} />;
 }

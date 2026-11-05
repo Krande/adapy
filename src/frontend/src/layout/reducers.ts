@@ -151,6 +151,50 @@ export function raiseFloat(doc: LayoutDoc, id: PanelId): LayoutDoc {
   return { ...doc, floats: { ...doc.floats, [id]: { ...f, z: z + 1 } } };
 }
 
+// ---------------------------------------------------------------------------
+// Undocking. For a panel bound to its own visibility flag, `floats` and
+// `minimised` record WHERE it shows, not WHETHER: the flag still opens and closes
+// it, and a floated panel keeps its window across a close.
+// ---------------------------------------------------------------------------
+
+/** Float `id` at `rect` (or where it last floated), on top, not minimised. */
+export function floatPanel(doc: LayoutDoc, id: PanelId, rect: { x: number; y: number; w: number; h: number }): LayoutDoc {
+  const prev = doc.floats[id];
+  const r = prev ?? rect;
+  return {
+    ...doc,
+    floats: { ...doc.floats, [id]: { x: r.x, y: r.y, w: r.w, h: r.h, z: topZ(doc) + 1 } },
+    minimised: doc.minimised.filter((p) => p !== id),
+  };
+}
+
+/** A floated panel's new rect. */
+export function setFloatRect(doc: LayoutDoc, id: PanelId, rect: { x: number; y: number; w: number; h: number }): LayoutDoc {
+  const f = doc.floats[id];
+  if (!f || (f.x === rect.x && f.y === rect.y && f.w === rect.w && f.h === rect.h)) return doc;
+  return { ...doc, floats: { ...doc.floats, [id]: { ...f, ...rect } } };
+}
+
+/** Back to its place in the layout: no window, not minimised. */
+export function dockPanel(doc: LayoutDoc, id: PanelId): LayoutDoc {
+  if (!doc.floats[id] && !doc.minimised.includes(id)) return doc;
+  const floats = { ...doc.floats };
+  delete floats[id];
+  return { ...doc, floats, minimised: doc.minimised.filter((p) => p !== id) };
+}
+
+export function minimisePanel(doc: LayoutDoc, id: PanelId): LayoutDoc {
+  if (doc.minimised.includes(id)) return doc;
+  return { ...doc, minimised: [...doc.minimised, id] };
+}
+
+/** Out of the tray; a float comes to the front. */
+export function restorePanel(doc: LayoutDoc, id: PanelId): LayoutDoc {
+  if (!doc.minimised.includes(id)) return doc;
+  const next = { ...doc, minimised: doc.minimised.filter((p) => p !== id) };
+  return raiseFloat(next, id);
+}
+
 /**
  * Panels registered since the document was saved. Each is recorded as known
  * exactly once, so a layout can offer it (open it in its default place, show it

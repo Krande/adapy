@@ -322,6 +322,8 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setIsControlsVisible(open),
       ),
       available: () => simulationOffered(),
+      // It floats itself: its frame docks, floats or becomes a window.
+      capabilities: { floatable: false },
       constraints: { requiresCanvas: true },
       placement: column(60),
       toolbar: { order: 80 },

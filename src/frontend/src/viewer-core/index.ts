@@ -125,7 +125,13 @@
 //          On the root: `PanelSpec.content` (a panel's frameless content) and
 //          `PanelSpec.watch` (when `available` may change), `watchStores`, and
 //          `PanelFrameProps.dragHandleClassName`. Additive.
-export const VIEWER_CORE_API_VERSION = "1.11.0";
+//   1.12.0 Undocking, on `@/viewer-core/layout`: the reducers `floatPanel`,
+//          `setFloatRect`, `dockPanel`, `minimisePanel`, `restorePanel`; the
+//          header-action slot of a panel's own frame (`PanelHeaderActions`,
+//          `PanelHeaderActionsProvider`, `usePanelHeaderActions`) and its glyphs;
+//          `localLayoutPersistence`; `FloatingWindow`'s caller-kept `rect` /
+//          `onRectChange`. Additive.
+export const VIEWER_CORE_API_VERSION = "1.12.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

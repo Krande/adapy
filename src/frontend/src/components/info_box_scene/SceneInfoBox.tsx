@@ -1,6 +1,6 @@
 import React from "react";
 
-import {PanelCard} from "@/components/ui/PanelFrame";
+import {PanelCard, PanelHeaderActions} from "@/components/ui/PanelFrame";
 import {SheetHandle} from "@/components/ui/SheetHandle";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
@@ -33,6 +33,7 @@ const SceneInfoBox = () => {
             {/* ── pinned header ── */}
             <div className="shrink-0 flex items-center justify-between px-2.5 pt-1.5 pb-1">
                 <h2 className="font-bold">Scene</h2>
+                <PanelHeaderActions />
             </div>
 
             <SceneBody />
