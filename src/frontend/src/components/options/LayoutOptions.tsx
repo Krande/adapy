@@ -3,13 +3,14 @@ import {useStore} from "zustand";
 
 import {LAYOUT_PRESET_CHOICES, resolvePreset, switchLayoutPreset} from "@/layout/presetChoice";
 import {layoutEngineEnabled} from "@/layout/flag";
+import {customisablePanelsOn} from "@/layout/layout";
 import {layoutStore} from "@/layout/layoutStore";
 
 // The layout mode (classic or docked) and the "Customisable panels" setting.
 // Shown only while the viewer renders through the layout host (the layout-engine
 // flag), the one path that honours them.
 const LayoutOptions: React.FC<{className?: string}> = ({className}) => {
-    const on = useStore(layoutStore, (s) => s.prefs.customisablePanels === true);
+    const on = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
     const active = useStore(layoutStore, (s) => resolvePreset(s.prefs.activePreset));
     const [engine] = React.useState(() => layoutEngineEnabled());
     if (!engine) return null;

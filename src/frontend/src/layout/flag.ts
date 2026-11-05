@@ -1,14 +1,12 @@
-// The layout-engine flag: render the classic UI through the layout host.
+// The layout-engine flag: render the UI through the layout host.
 //
-// Off by default, and with it off the classic UI is the hand-written tree it has
-// always been (`app.tsx`'s `AppBody`, `Menu.tsx`). On, the same UI is rendered
-// from the panel registry by `LayoutHost` with the classic preset -- which must
-// produce exactly the same DOM. The flag exists so that can be verified, and
-// used, side by side before the hand-written tree is retired.
+// On by default: the UI is rendered from the panel registry by `LayoutHost`,
+// with the user's preset. Off, it is the hand-written tree (`app.tsx`'s
+// `AppBody`, `Menu.tsx`), kept as a fallback until it is retired.
 //
 //   ?layout=engine     on for this page load
 //   ?layout=classic    off for this page load
-//   localStorage["ada:layout-engine"] = "on"   on until removed
+//   localStorage["ada:layout-engine"] = "off"   off until removed
 //
 // The URL wins over storage, so a link can force either path. Dependency-free:
 // the location and the storage are passed in (or read from the browser).
@@ -36,7 +34,7 @@ function browserStorage(): FlagStorage | null {
   }
 }
 
-/** Is the layout engine on: the URL's `layout` parameter, else the stored flag, else off. */
+/** Is the layout engine on: the URL's `layout` parameter, else the stored flag, else on. */
 export function layoutEngineEnabled(
   search: string = browserSearch(),
   storage: FlagStorage | null = browserStorage(),
@@ -50,5 +48,5 @@ export function layoutEngineEnabled(
   } catch {
     stored = null;
   }
-  return !!stored && ON.has(stored.trim().toLowerCase());
+  return !(stored && OFF.has(stored.trim().toLowerCase()));
 }
