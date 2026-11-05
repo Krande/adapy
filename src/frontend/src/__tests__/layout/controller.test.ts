@@ -103,6 +103,20 @@ test("revealing one panel of an exclusive group closes the others, bound or not"
   assert.equal(admin.value, true);
 });
 
+test("a preset that lifts exclusive groups leaves the rest of the group open", () => {
+  let lifted = true;
+  setPanelController(createLayoutController({ preset: "p", zones: ZONES, store, exclusive: () => !lifted }));
+  const admin = flag(true);
+  registerPanel(spec("core:admin", { binding: admin, constraints: { exclusiveGroup: "w" } }), "core");
+  registerPanel(spec("x:tool", { constraints: { exclusiveGroup: "w" }, placement: { p: { zone: "win" } } }), "x");
+  reveal("x:tool");
+  assert.equal(admin.value, true);
+  assert.equal(isPanelOpen("x:tool"), true);
+  lifted = false;
+  reveal("core:admin");
+  assert.equal(isPanelOpen("x:tool"), false, "read on every reveal");
+});
+
 test("revealing a minimised panel brings it out of the tray; its flag still opens it", () => {
   const b = flag(true);
   registerPanel(spec("core:a", { binding: b }), "core");

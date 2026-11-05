@@ -154,9 +154,9 @@ export function setupCameraControlsHandlers(
             // Shift+P: the admin panel, toggled -- the same floating window as Options' "Admin panel"
             // button, and offered to the same people: for anyone else the key does nothing.
             if (!useMeStore.getState().isAdmin) return;
-            const {open, openPanel, closePanel} = useViewerPanelStore.getState();
+            const {shown, openPanel, closePanel} = useViewerPanelStore.getState();
             event.preventDefault();
-            if (open === "admin") closePanel();
+            if (shown.includes("admin")) closePanel("admin");
             else openPanel("admin");
         } else if (shift && key === "r" && !ctrl && !event.altKey) {
             // Shift+R: start / end a render-profiling session (the Performance option "Record render

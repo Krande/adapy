@@ -156,7 +156,12 @@
 //          `showWarpToggle`, `showBeamSolids`, `showColorToggle`,
 //          `excludeDockedTabs`) and `AnimationControls`. `ConvertBodyProps`
 //          (`inViewer`), and the progress toast `ConversionProgress` with
-//          `isClaimed` (loads a host reports elsewhere). Additive.
+//          `isClaimed` (loads a host reports elsewhere).
+//          The core docked preset's zone ids, `DOCKED_ZONES`. On
+//          `@/viewer-core/layout`: its rules (`DOCKED_ZONE_DEFS`, `dockGrid`,
+//          `dockZonePanels`, `dockedPlacement`, `dockedDefaults`, `adoptDocked`,
+//          `activateInZone`, `shownTab`, `trackSize`) and the shared
+//          `CollapsibleSection` (its `"section"` and `"caret"` looks). Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -275,6 +280,7 @@ export {
   CLASSIC_PRESET_ID,
   CLASSIC_ZONES,
   DOCKED_PRESET_ID,
+  DOCKED_ZONES,
   layoutDocKey,
 } from "@/layout/layout";
 export type {

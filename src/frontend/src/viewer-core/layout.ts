@@ -91,6 +91,8 @@ export type { PanelCardProps, WindowFrameProps, WindowHeaderButtonProps } from "
 export { FloatingWindow, usePointerDrag } from "@/components/ui/FloatingWindow";
 export type { FloatingWindowProps, RememberedRect } from "@/components/ui/FloatingWindow";
 export { SheetHandle } from "@/components/ui/SheetHandle";
+export { CollapsibleSection } from "@/components/ui/CollapsibleSection";
+export type { CollapsibleSectionProps } from "@/components/ui/CollapsibleSection";
 export { useBottomSheet } from "@/utils/useBottomSheet";
 export type { BottomSheet, SheetGrab } from "@/utils/useBottomSheet";
 export { useIsMobile, useIsNarrow, useIsWide, useMediaQuery } from "@/utils/useIsMobile";
@@ -164,3 +166,17 @@ export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
 export { LAYOUT_ENGINE_PARAM, LAYOUT_ENGINE_STORAGE_KEY, layoutEngineEnabled } from "@/layout/flag";
+export {
+  COLLAPSED_STRIP,
+  DOCK_ZONE_DEFS,
+  DOCKED_ZONE_DEFS,
+  activateInZone,
+  adoptDocked,
+  dockGrid,
+  dockZonePanels,
+  dockedDefaults,
+  dockedPlacement,
+  dockedZoneOf,
+  shownTab,
+  trackSize,
+} from "@/layout/presets/dockRules";

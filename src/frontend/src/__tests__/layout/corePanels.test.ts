@@ -107,7 +107,7 @@ function resetFlags(): void {
   useCellBuilderStore.setState({ panelVisible: false });
   useEquipmentCatalogStore.setState({ equipmentPanelOpen: false, systemPanelOpen: false });
   useWebsocketStatusStore.setState({ showInfoBox: false });
-  useViewerPanelStore.setState({ open: null, adminTab: null });
+  useViewerPanelStore.setState({ open: null, shown: [], exclusive: true, adminTab: null });
   useTableNavStore.setState({ isPanelOpen: false });
 }
 
@@ -315,6 +315,32 @@ test("admin and convert share one window: revealing one replaces the other", () 
   hide(CORE_PANEL_IDS.admin); // not the open one: no effect
   assert.equal(useViewerPanelStore.getState().open, "convert");
   assert.equal(getPanel(CORE_PANEL_IDS.admin)?.binding?.isOpen(), false);
+});
+
+test("where the layout lets them, admin and convert are open side by side and close one by one", () => {
+  const s = () => useViewerPanelStore.getState();
+  s().setExclusive(false);
+  s().openPanel("admin", "audit_runs" as never);
+  reveal(CORE_PANEL_IDS.convert);
+  assert.deepEqual(s().shown, ["admin", "convert"]);
+  assert.equal(s().open, "convert", "the last opened is in front");
+  assert.equal(s().adminTab, "audit_runs", "opening convert leaves the admin tab alone");
+  assert.equal(getPanel(CORE_PANEL_IDS.admin)?.binding?.isOpen(), true);
+  hide(CORE_PANEL_IDS.convert);
+  assert.deepEqual(s().shown, ["admin"]);
+  assert.equal(s().open, "admin");
+  reveal(CORE_PANEL_IDS.convert);
+  s().setExclusive(true);
+  assert.deepEqual(s().shown, ["convert"], "back to one at a time: the one in front stays");
+  s().closePanel();
+  assert.deepEqual([s().open, s().shown, s().adminTab], [null, [], null]);
+});
+
+test("closePanel used as a click handler closes every window", () => {
+  const s = () => useViewerPanelStore.getState();
+  s().openPanel("admin");
+  s().closePanel({ type: "click" } as never);
+  assert.equal(s().open, null);
 });
 
 test("availability follows the conditions Menu.tsx gates on", () => {

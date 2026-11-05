@@ -75,7 +75,7 @@ import {
 
 const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
 
-function useProceduralActive(): boolean {
+export function useProceduralActive(): boolean {
   return useCellBuilderStore((s) => s.active !== null || hasEmbeddedDoc(s));
 }
 
@@ -85,16 +85,16 @@ const mounts = classicMounts;
 // The top bar.
 // ---------------------------------------------------------------------------
 
-function ToolbarButton({
+export function ToolbarButton({
   panel,
   state,
   env,
-  customisable,
+  customisable = false,
 }: {
   panel: RegisteredPanel;
   state: PanelState;
   env: PanelEnv;
-  customisable: boolean;
+  customisable?: boolean;
 }) {
   const recipe = CLASSIC_TOOLBAR[panel.id];
   if (toolbarPresence(panel, state, env) === "omit") return null;
@@ -178,7 +178,7 @@ const COLUMN_WRAP: Readonly<Record<PanelId, React.ComponentType<{children: React
 };
 
 /** The cellbuilder's canvas menus and gizmo HUD, mounted beside its panel while a model is loaded. */
-const CellBuilderOverlays: React.FC = () => (
+export const CellBuilderOverlays: React.FC = () => (
   <>
     <CellBuilderContextMenu />
     <CellBuilderPortMenu />
@@ -310,11 +310,14 @@ const VIEWER_PANEL_OF: Readonly<Record<PanelId, ViewerPanel>> = {
 };
 
 /** The in-viewer window's own chrome: its title bar and "open in a dedicated tab". */
-const ViewerWindowChrome: WindowChrome = ({panel, close, children}) => {
+export const ViewerWindowChrome: WindowChrome = ({panel, close, children}) => {
   const adminTab = useViewerPanelStore((s) => s.adminTab);
   const which = VIEWER_PANEL_OF[panel.id];
+  // A second window opens stepped down from the first, not on top of it.
+  const index = which ? useViewerPanelStore.getState().shown.indexOf(which) : 0;
   return (
     <ViewerWindow
+      offset={Math.max(0, index) * 32}
       title={which ? VIEWER_PANEL_TITLE[which] : panel.title}
       onExternal={which ? viewerPanelExternal(which, adminTab, close) : null}
       onClose={close}
@@ -335,6 +338,8 @@ function ClassicFrame() {
   const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);
   const mount = useMountRule();
   const customisable = useCustomisablePanels();
+  // The in-viewer windows follow the preset's exclusive-group rule.
+  React.useEffect(() => useViewerPanelStore.getState().setExclusive(!customisable), [customisable]);
   return (
     <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
       {/* Tree View Section */}
@@ -392,6 +397,8 @@ export const classicPreset: LayoutPreset = {
   owner: CORE_PANEL_OWNER,
   zones: [...CLASSIC_ZONE_DEFS],
   defaults: classicDefaults,
+  // One in-viewer window at a time, as always, unless the user customises panels.
+  exclusiveGroups: (prefs) => prefs.customisablePanels !== true,
   frame: () => Promise.resolve({default: ClassicFrame}),
 };
 

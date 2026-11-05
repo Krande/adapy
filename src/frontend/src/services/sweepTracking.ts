@@ -527,8 +527,8 @@ export function viewToastRun(key: string): void {
     const panels = useViewerPanelStore.getState();
     // The admin panel reads its tab once, on mount: already open on another tab, it would stay
     // there. Close it and open it again on the next tick so it mounts on Providers.
-    if (panel === "admin" && panels.open === "admin") {
-        panels.closePanel();
+    if (panel === "admin" && panels.shown.includes("admin")) {
+        panels.closePanel("admin");
         setTimeout(() => useViewerPanelStore.getState().openPanel(panel, target.tab ?? undefined), 0);
         return;
     }

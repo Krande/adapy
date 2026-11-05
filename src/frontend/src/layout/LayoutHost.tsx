@@ -127,7 +127,15 @@ export function LayoutHost({preset, env, store = layoutStore}: LayoutHostProps) 
   // Before children's effects, so a panel that reveals another on mount already
   // goes through this preset's controller.
   useLayoutEffect(() => {
-    setPanelController(createLayoutController({preset: preset.id, zones: preset.zones, store}));
+    const groups = preset.exclusiveGroups;
+    setPanelController(
+      createLayoutController({
+        preset: preset.id,
+        zones: preset.zones,
+        store,
+        exclusive: groups ? () => groups(store.getState().prefs) : undefined,
+      }),
+    );
     return () => setPanelController(null);
   }, [preset, store]);
 

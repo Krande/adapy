@@ -1,5 +1,6 @@
 import {PanelCard} from "@/components/ui/PanelFrame";
-import React, {Suspense, useState} from "react";
+import {CollapsibleSection} from "@/components/ui/CollapsibleSection";
+import React, {Suspense} from "react";
 import {useIsNarrow} from "@/utils/useIsMobile";
 import {runtime} from "@/runtime/config";
 import {useOptionsStore} from "@/state/optionsStore";
@@ -20,29 +21,12 @@ const RestSection = React.lazy(() => import("./options/RestSection"));
 import {UiShellSwitcher} from "@/plugins";
 import { buildLabel } from "@/utils/buildLabel";
 
-// Lightweight disclosure. State is local — these sections are leaf-y
-// enough that no other component cares whether they're open. Defaults
-// to closed; click the header to toggle.
-const CollapsibleSection: React.FC<{title: string; children: React.ReactNode}> = ({
-    title,
-    children,
-}) => {
-    const [open, setOpen] = useState(false);
-    return (
-        <div>
-            <button
-                type="button"
-                className="w-full flex items-center justify-between py-1 text-left font-semibold"
-                onClick={() => setOpen((v) => !v)}
-                aria-expanded={open}
-            >
-                <span>{title}</span>
-                <span className="text-gray-300 text-xs">{open ? "▾" : "▸"}</span>
-            </button>
-            {open && <div className="mt-2">{children}</div>}
-        </div>
-    );
-};
+// Each section starts closed; click the header to toggle.
+const Section: React.FC<{title: string; children: React.ReactNode}> = ({title, children}) => (
+    <CollapsibleSection title={title} variant="caret" defaultOpen={false}>
+        {children}
+    </CollapsibleSection>
+);
 
 // Two layouts:
 // * Mobile: full-height slide-in drawer from the left edge. There
@@ -86,22 +70,22 @@ export function OptionsBody() {
             {/* Same idea for the scene-config knobs. The defaults are
                 tuned for the common case; tucking the controls behind a
                 disclosure keeps the drawer from feeling overwhelming. */}
-            <CollapsibleSection title="Scene config">
+            <Section title="Scene config">
                 <div className="space-y-4">
                     <PointSizeOptions/>
                     <DisplayOptions/>
                 </div>
-            </CollapsibleSection>
+            </Section>
             <hr className="border-gray-600"/>
             {runtime.isRestMode() && (
                 <>
-                    <CollapsibleSection title="Session restore">
+                    <Section title="Session restore">
                         <SceneRestoreOptions/>
-                    </CollapsibleSection>
+                    </Section>
                     <hr className="border-gray-600"/>
                 </>
             )}
-            <CollapsibleSection title="Theme">
+            <Section title="Theme">
                 <ThemeOptions/>
                 {/* Renders nothing unless a build actually carries more than one
                     shell, so this costs a stock viewer no space at all. Grouped
@@ -109,24 +93,24 @@ export function OptionsBody() {
                     and neither is a decision anyone revisits often. */}
                 <UiShellSwitcher className="mt-3"/>
                 <LayoutOptions className="mt-3"/>
-            </CollapsibleSection>
+            </Section>
             <hr className="border-gray-600"/>
-            <CollapsibleSection title="Performance">
+            <Section title="Performance">
                 <PerformanceOptions/>
-            </CollapsibleSection>
+            </Section>
             <hr className="border-gray-600"/>
-            <CollapsibleSection title="3D mouse">
+            <Section title="3D mouse">
                 <SpaceMouseOptions/>
-            </CollapsibleSection>
+            </Section>
             <hr className="border-gray-600"/>
             {/* The in-browser (WASM) conversion engine only makes sense for the
                 hosted REST viewer; the websocket/desktop and embed bundles
                 don't expose it. */}
             {runtime.isRestMode() && (
                 <>
-                    <CollapsibleSection title="Conversion engine">
+                    <Section title="Conversion engine">
                         <ExperimentalOptions/>
-                    </CollapsibleSection>
+                    </Section>
                     <hr className="border-gray-600"/>
                 </>
             )}

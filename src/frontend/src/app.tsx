@@ -42,10 +42,10 @@ const isAuthCallback = isRestMode && window.location.pathname === "/auth/callbac
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
 // The layout engine (`?layout=engine`, off by default): the same UI rendered from
-// the panel registry by the layout host's classic preset. Its own chunk, so the
-// default path does not load it.
+// the panel registry by the layout host, in the user's preset (classic unless
+// they chose docked). Its own chunk, so the default path does not load it.
 const useLayoutEngine = layoutEngineEnabled();
-const ClassicLayout = React.lazy(() => import("./layout/presets/classic"));
+const LayoutRoot = React.lazy(() => import("./layout/LayoutRoot"));
 
 
 function App() {
@@ -136,7 +136,7 @@ function AppBody() {
 
     const tree = useLayoutEngine ? (
         <Suspense fallback={null}>
-            <ClassicLayout/>
+            <LayoutRoot/>
         </Suspense>
     ) : (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
