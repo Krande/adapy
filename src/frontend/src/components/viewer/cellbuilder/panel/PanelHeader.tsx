@@ -15,7 +15,7 @@ import {PanelHeaderActions} from "@/components/ui/PanelFrame";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import type {LocalModelBrowser} from "./useLocalModelBrowser";
 
-export const PanelHeader: React.FC<{browser: LocalModelBrowser}> = ({browser}) => {
+export const PanelHeader: React.FC<{browser: LocalModelBrowser; showUndoRedo?: boolean}> = ({browser, showUndoRedo = true}) => {
   const s = useCellBuilderStore();
   const btnRef = React.useRef<HTMLButtonElement>(null);
   return (
@@ -90,27 +90,31 @@ export const PanelHeader: React.FC<{browser: LocalModelBrowser}> = ({browser}) =
           }
         />
       )}
+      {showUndoRedo && (
+        <>
+        <button
+          className={
+            (browser.supported ? "" : "ml-auto ") +
+            "px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+          }
+          title="Undo (Ctrl+Z)"
+          disabled={s.past.length === 0}
+          onClick={s.undo}
+        >
+          ↶
+        </button>
+        <button
+          className="px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+          title="Redo (Ctrl+Shift+Z)"
+          disabled={s.future.length === 0}
+          onClick={s.redo}
+        >
+          ↷
+        </button>
+        </>
+      )}
       <button
-        className={
-          (browser.supported ? "" : "ml-auto ") +
-          "px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
-        }
-        title="Undo (Ctrl+Z)"
-        disabled={s.past.length === 0}
-        onClick={s.undo}
-      >
-        ↶
-      </button>
-      <button
-        className="px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
-        title="Redo (Ctrl+Shift+Z)"
-        disabled={s.future.length === 0}
-        onClick={s.redo}
-      >
-        ↷
-      </button>
-      <button
-        className="px-1 rounded-sm hover:bg-red-500/30"
+        className={(showUndoRedo || browser.supported ? "" : "ml-auto ") + "px-1 rounded-sm hover:bg-red-500/30"}
         title="Close model"
         onClick={s.close}
       >

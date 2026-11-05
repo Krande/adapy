@@ -42,7 +42,7 @@ export {
   CellBuilderContent,
   useCellBuilderPanelState,
 } from "@/components/viewer/CellBuilderPanel";
-export type { CellBuilderPanelState } from "@/components/viewer/CellBuilderPanel";
+export type { CellBuilderBodyProps, CellBuilderPanelState, CellBuilderTab } from "@/components/viewer/CellBuilderPanel";
 export { ComponentControlsBody } from "@/components/component_view/ComponentControls";
 export { default as NodeEditorBody } from "@/components/node_editor/NodeEditorBody";
 // The node editor's toolbar actions, for a host that draws that toolbar itself.

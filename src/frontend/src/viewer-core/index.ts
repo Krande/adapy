@@ -174,7 +174,10 @@
 //          `maximized` / `setMaximized` are kept, ignored and deprecated (the panel no
 //          longer maximizes). On the root, the load claims the progress toast
 //          consults by default: `claimLoad` / `releaseLoad` / `isLoadClaimed`,
-//          `subscribeLoadClaims`, `loadClaimsVersion`. Additive.
+//          `subscribeLoadClaims`, `loadClaimsVersion`.
+//          Cellbuilder: `CellBuilderBodyProps` (`tabs`, `tabLabels`, `showUndoRedo`,
+//          `showAddButtons`, `showComponentList`, `emptyState`), also taken by
+//          `CellBuilderContent`, and `CellBuilderTab`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
