@@ -902,9 +902,22 @@ export interface ConversionProgressProps {
     /** Loads whose progress the host tells elsewhere, left out of the toast, in addition to
      *  the ones claimed with `claimLoad` (core's storage rows claim theirs). */
     isClaimed?: IsClaimed;
+    /** The corner of its host the toast sits in. Default `"bottom-right"`. */
+    anchor?: ToastAnchor;
 }
 
-const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostClaimed}) => {
+export type ToastAnchor = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+
+// Phones: across the bottom (or top), 16px from each edge, so a long source key
+// cannot overflow; from `sm:` up, a pill in its corner capped at `max-w-sm`.
+const TOAST_ANCHOR_CLASS: Readonly<Record<ToastAnchor, string>> = {
+    "bottom-right": "absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+    "bottom-left": "absolute bottom-4 left-4 right-4 sm:right-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+    "top-right": "absolute top-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+    "top-left": "absolute top-4 left-4 right-4 sm:right-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+};
+
+const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostClaimed, anchor = "bottom-right"}) => {
     useSyncExternalStore(subscribeLoadClaims, loadClaimsVersion, loadClaimsVersion);
     const isClaimed = eitherClaimed(isLoadClaimed, hostClaimed);
     const jobs = useConversionStore((s) => s.jobs);
@@ -999,8 +1012,8 @@ const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostC
         // floating-pill style — anchored to the right, capped at
         // ``max-w-sm`` (24rem).
         <div
-            className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto"
-            style={galleryBarHeight > 0 ? {bottom: galleryBarHeight + 16} : undefined}
+            className={TOAST_ANCHOR_CLASS[anchor]}
+            style={galleryBarHeight > 0 && anchor.startsWith("bottom") ? {bottom: galleryBarHeight + 16} : undefined}
         >
             <AuditActivityBadge/>
             {visibleSweeps.map(([scopeLabel, state]) => (

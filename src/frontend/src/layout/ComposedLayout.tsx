@@ -12,6 +12,7 @@ import {usePluginTheme} from "@/state/themeStore";
 import {setFeaDeformationShown} from "@/utils/scene/fea/deformationGate";
 import {notifyActiveModeSceneColor} from "@/utils/scene/fea/modeSceneColor";
 
+import {useBodyPalette} from "./bodyPalette";
 import {CommandPaletteHost, openCommandPalette} from "./CommandPalette";
 import {registerCommand} from "./commands";
 import LayoutRoot from "./LayoutRoot";
@@ -101,6 +102,7 @@ function installShell(spec: UiShellSpec): void {
       modes: byMode,
       groups: spec.chrome?.groups,
       overlays: spec.chrome?.overlays,
+      toastAnchor: spec.chrome?.toastAnchor,
       version: spec.layout?.version,
       migrate: spec.layout?.migrate,
     },
@@ -149,6 +151,7 @@ export default function ComposedLayout({spec}: {spec: UiShellSpec}) {
     return null;
   });
   useThemeTokens(spec.themeTokens);
+  useBodyPalette(spec.bodyPalette);
   useModeEffects(spec.id);
   const lazyOf = (load?: () => Promise<{default: React.ComponentType}>) => (load ? React.lazy(load) : null);
   const Header = React.useMemo(() => lazyOf(spec.chrome?.header), [spec]);

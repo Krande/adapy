@@ -220,6 +220,8 @@ the chrome it draws in the slots.
 | Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
 | | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
 | Look | `themeTokens` | `--ada-*` tokens, or a function of the user's panel theme, applied again on every theme change. |
+| | `bodyPalette` | Tailwind palette variables (`--color-gray-800`, `--color-blue-600`, ...) redefined inside core's panel bodies only (elements marked `data-ada-panel-body`), so every core body takes the shell's colours without a copy; or a function of the user's theme. |
+| | `chrome.toastAnchor` | The corner core's progress toast sits in. |
 | Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`). |
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,

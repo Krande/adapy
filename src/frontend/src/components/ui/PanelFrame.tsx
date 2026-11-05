@@ -29,6 +29,7 @@ import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "@/layout/zoneKeys"
 import {
   WINDOW_CARD,
   WINDOW_HEADER_BUTTON,
+  panelBodyAttrs,
   panelClass,
   windowHeaderClass,
   type PanelCardVariant,
@@ -47,7 +48,7 @@ export function PanelCard({variant = "card", heading, className, children, ref, 
   const actions = usePanelHeaderActions();
   const h2 = heading != null && <h2 className="font-bold">{heading}</h2>;
   return (
-    <div ref={ref} className={panelClass(variant, className)} {...rest}>
+    <div ref={ref} className={panelClass(variant, className)} {...panelBodyAttrs} {...rest}>
       {h2 && actions.length > 0 ? (
         <div className="flex items-center gap-2">
           {h2}
@@ -374,7 +375,7 @@ export function WindowFrame({title, subtitle, dragHandleClassName, actions, chil
           actions
         )}
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden" {...panelBodyAttrs}>
         <WindowDockContext.Provider value={null}>
           <Suspense fallback={<div className="p-4 text-sm text-gray-400">Loading…</div>}>{children}</Suspense>
         </WindowDockContext.Provider>

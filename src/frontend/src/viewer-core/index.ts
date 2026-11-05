@@ -283,6 +283,12 @@
 //          `CellBuilderBodyProps.showFooter`, `OptionsBodyProps` (`sections`,
 //          `hiddenSections`: `OptionsSectionId`), `SceneTreeProps.rowExtras` /
 //          `rowClassName` (`SceneTreeRowOptions`).
+//          Body colours: `UiShellSpec.bodyPalette` redefines Tailwind's palette
+//          variables inside elements marked `PANEL_BODY_ATTR` (column cards, window
+//          bodies, grid groups, floats, covers, pop-out pages), so every core body
+//          takes a shell's colours with no class changed; `panelBodyAttrs`,
+//          `bodyPaletteCss` on `@/viewer-core/layout`. `UiShellChrome.toastAnchor`
+//          and `ConversionProgressProps.anchor` (`ToastAnchor`).
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

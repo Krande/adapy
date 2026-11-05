@@ -127,6 +127,8 @@ export function register(): void {
         },
         // Restyles core's chrome while this shell is active (docs/UI_SHELLS.md lists the tokens).
         themeTokens: { "--ada-tab-active-bg": "#065f46" },
+        // Inside core's panel bodies only: their blue accents become this UI's green.
+        bodyPalette: { "--color-blue-700": "#047857", "--color-blue-600": "#059669", "--color-blue-500": "#10b981" },
         chrome: {
           // Lazily loaded: the chrome only downloads when this shell is the active one.
           header: () => import("./AltHeader"),

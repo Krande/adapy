@@ -119,6 +119,8 @@ export interface UiShellChrome {
    * A shell's own HUDs are added with `registerViewportOverlay`.
    */
   overlays?: { legend?: ViewportAnchor; pluginPanels?: ViewportAnchor };
+  /** The corner of the layout core's progress toast sits in. Default bottom-right. */
+  toastAnchor?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   /**
    * Drawn above core's canvas-less pages (`/convert`, `/admin`) in place of
    * nothing: the shell's title bar there, given the page's title and the way back
@@ -172,6 +174,13 @@ export interface UiShellSpec {
    * applied again whenever the theme changes.
    */
   themeTokens?: Record<string, string> | ((theme: PluginTheme) => Record<string, string>);
+  /**
+   * Tailwind palette variables redefined inside core's panel bodies only
+   * (`{"--color-gray-800": "...", "--color-blue-600": "..."}`), so every core
+   * body takes the shell's colours without a copy; a function of the user's panel
+   * theme is applied again whenever it changes. The shell's own chrome is untouched.
+   */
+  bodyPalette?: Record<string, string> | ((theme: PluginTheme) => Record<string, string>);
 }
 
 /** Is `spec` composed from core's layout (no root component of its own). */

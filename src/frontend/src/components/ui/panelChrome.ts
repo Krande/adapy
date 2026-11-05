@@ -75,6 +75,29 @@ export function groupTabClass(selected: boolean): string {
 /** The bar between two groups (or a group and the view). */
 export const GROUP_DIVIDER = "bg-[var(--ada-group-divider,#374151)]";
 
+/**
+ * On every element core draws a panel's body in (a column card, a window's body,
+ * a group of the grid, a pop-out page). A shell's `bodyPalette` redefines
+ * Tailwind's palette variables (`--color-gray-800`, ...) under it, which restyles
+ * every core body without touching its classes; outside it, nothing changes.
+ */
+export const PANEL_BODY_ATTR = "data-ada-panel-body";
+
+/** `PANEL_BODY_ATTR` as props to spread on an element. */
+export const panelBodyAttrs: Readonly<Record<string, string>> = Object.freeze({[PANEL_BODY_ATTR]: ""});
+
+/** Only values that cannot close the rule they are written in. */
+const SAFE_VALUE = /^[^;{}<>]*$/;
+
+/** The stylesheet that scopes a body palette (custom properties) to panel bodies; empty for none. */
+export function bodyPaletteCss(palette: Readonly<Record<string, string>> | null | undefined): string {
+  const decls = Object.entries(palette ?? {})
+    .filter(([k, v]) => /^--[\w-]+$/.test(k) && SAFE_VALUE.test(v))
+    .map(([k, v]) => `${k}:${v};`)
+    .join("");
+  return decls ? `[${PANEL_BODY_ATTR}]{${decls}}` : "";
+}
+
 /** The title bar's class: the drag handle (when draggable) first, then the bar. */
 export function windowHeaderClass(dragHandleClassName?: string | null): string {
   return (dragHandleClassName ? `${dragHandleClassName} cursor-move ` : "") + WINDOW_HEADER;

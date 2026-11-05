@@ -47,6 +47,7 @@ import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_o
 import {useIsWide} from "@/utils/useIsMobile";
 
 import {PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
+import {panelBodyAttrs} from "@/components/ui/panelChrome";
 
 import {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS} from "../classicBodies";
 import {CORE_PANEL_IDS, CORE_PANEL_OWNER, corePanelEnv, registerCorePanels} from "../corePanels";
@@ -79,6 +80,7 @@ import {
   canFloat,
   classicCover,
   classicOverlays,
+  classicToastAnchor,
   isOverlayPanel,
   leaveContext,
   upgradeShellDocs,
@@ -400,7 +402,11 @@ function ViewportCover({panelId}: {panelId: PanelId}) {
   if (!panel) return null;
   const props: PanelProps = {panelId, host: {kind: "overlay", zone: CLASSIC_ZONES.overlay}, close: () => {}, isActive: true};
   return (
-    <div className="absolute inset-0 z-[5] overflow-auto bg-[var(--ada-window-bg,#111827)] text-[var(--ada-panel-text)]" data-viewport-cover={panelId}>
+    <div
+      className="absolute inset-0 z-[5] overflow-auto bg-[var(--ada-window-bg,#111827)] text-[var(--ada-panel-text)]"
+      data-viewport-cover={panelId}
+      {...panelBodyAttrs}
+    >
       <ErrorBoundary label={panel.title}>
         <Suspense fallback={null}>
           <PanelMount panel={panel} provided={CLASSIC_PANEL_CONTENTS[panelId]} props={props} which="content" outerSuspense />
@@ -533,7 +539,7 @@ function ClassicFrame() {
 
       {env.restMode === true && (
         <Suspense fallback={null}>
-          <RestModeUI />
+          <RestModeUI toastAnchor={classicToastAnchor() ?? undefined} />
         </Suspense>
       )}
 

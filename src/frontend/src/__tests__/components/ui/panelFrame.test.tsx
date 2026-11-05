@@ -23,8 +23,15 @@ import {PANEL_CHROME, PANEL_SURFACE, WINDOW_CARD, WINDOW_HEADER, WINDOW_HEADER_B
 // and requires the two to be the same string: adopting a frame must not change one
 // node, class or attribute.
 
-const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+// The legacy markup these compare against predates the body marker (`PANEL_BODY_ATTR`),
+// which draws nothing: it is left out of the comparison, and checked on its own below.
+const html = (el: React.ReactElement) => renderToStaticMarkup(el).replaceAll(' data-ada-panel-body=""', "");
 const noop = () => {};
+
+test("a card and a window's body carry the body marker a shell's palette is scoped to", () => {
+    assert.match(renderToStaticMarkup(<PanelCard>x</PanelCard>), /^<div[^>]* data-ada-panel-body=""/);
+    assert.match(renderToStaticMarkup(<WindowFrame title="W">x</WindowFrame>), /<div class="flex-1 min-h-0 overflow-hidden" data-ada-panel-body="">x<\/div>/);
+});
 
 test("PanelCard draws the menu-column card with its heading", () => {
     const legacy = (

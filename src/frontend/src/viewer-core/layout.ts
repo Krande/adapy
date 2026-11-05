@@ -59,7 +59,7 @@ export { default as AttributeSearchBody } from "@/components/asset_browser/Attri
 export { default as ConvertBody } from "@/components/convert/ConvertPage";
 export type { ConvertBodyProps } from "@/components/convert/ConvertPage";
 export { default as ConversionProgress } from "@/components/conversion/ConversionProgress";
-export type { ConversionProgressProps } from "@/components/conversion/ConversionProgress";
+export type { ConversionProgressProps, ToastAnchor } from "@/components/conversion/ConversionProgress";
 export type { IsClaimed } from "@/components/conversion/claimedLoads";
 export { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
 export { WebsocketStatusBody } from "@/components/WebsocketStatusMenu";
@@ -72,7 +72,10 @@ export {
   PANEL_SURFACE,
   GROUP_DIVIDER,
   GROUP_HEADER,
+  PANEL_BODY_ATTR,
+  bodyPaletteCss,
   groupTabClass,
+  panelBodyAttrs,
   WINDOW_CARD,
   WINDOW_HEADER,
   WINDOW_HEADER_BUTTON,

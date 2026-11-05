@@ -1,5 +1,5 @@
 import React, {useEffect} from "react";
-import ConversionProgress from "../conversion/ConversionProgress";
+import ConversionProgress, {type ToastAnchor} from "../conversion/ConversionProgress";
 import UploadContextMenu from "../upload/UploadContextMenu";
 import {useRestoreInflightJobs} from "@/hooks/useRestoreInflightJobs";
 import {useCompressionSweepPoll} from "@/hooks/useCompressionSweepPoll";
@@ -9,7 +9,7 @@ import {prewarmPyodide} from "@/utils/pyodide/pyodide_converter";
 // Aggregator for all REST-mode-only floating UI. Lazy-loaded by
 // app.tsx so the embedded desktop bundle never pulls in the
 // conversion / upload code paths.
-const RestModeUI: React.FC = () => {
+const RestModeUI: React.FC<{toastAnchor?: ToastAnchor}> = ({toastAnchor}) => {
     // Re-attach to any in-flight conversions the current user kicked
     // off in this scope so the bottom-right toast survives page
     // reloads and cross-device logins. Side-effect-only hook; the
@@ -30,7 +30,7 @@ const RestModeUI: React.FC = () => {
     }, [wasmEngineOn]);
     return (
         <>
-            <ConversionProgress/>
+            <ConversionProgress anchor={toastAnchor}/>
             <UploadContextMenu/>
         </>
     );

@@ -5,9 +5,10 @@
 
 import React, {useEffect} from "react";
 
-import {WINDOW_HEADER} from "@/components/ui/panelChrome";
+import {WINDOW_HEADER, panelBodyAttrs} from "@/components/ui/panelChrome";
 import {activeUiShellId, getUiShell} from "@/plugins/uiShells";
 
+import {useBodyPalette} from "./bodyPalette";
 import {registerCorePanels} from "./corePanels";
 import {PanelMount} from "./LayoutHost";
 import type {PanelId, PanelProps} from "./panel";
@@ -27,6 +28,7 @@ export default function PopoutPage({panelId}: {panelId: PanelId}) {
     if (ok) document.title = panel!.title;
   }, [ok, panel]);
   // The active shell's look, as in the window it came from.
+  useBodyPalette(getUiShell(activeUiShellId())?.bodyPalette);
   useEffect(() => {
     const tokens = getUiShell(activeUiShellId())?.themeTokens;
     for (const [k, v] of Object.entries(tokens ?? {})) document.documentElement.style.setProperty(k, v);
@@ -44,7 +46,7 @@ export default function PopoutPage({panelId}: {panelId: PanelId}) {
       <div className={WINDOW_HEADER}>
         <span className="truncate text-sm font-medium">{panel!.title}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2 text-sm">
+      <div className="min-h-0 flex-1 overflow-auto p-2 text-sm" {...panelBodyAttrs}>
         <PanelMount panel={panel!} props={props} which={panel!.content ? "content" : "body"} />
       </div>
     </div>
