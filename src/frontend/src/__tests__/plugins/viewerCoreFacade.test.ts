@@ -112,6 +112,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
   const DEP_FREE_LEAVES = [
     "@/plugins/registry",
     "@/plugins/uiShells",
+    "@/plugins/sceneTreeRoots",
     "@/layout/panel",
     "@/layout/registry",
     "@/layout/reveal",
@@ -150,6 +151,7 @@ test("the layout entry publishes every split core panel's content", () => {
     "ComponentControlsBody",
     "NodeEditorBody",
     "TreeBody",
+    "SceneTreeBody",
     "AttributeSearchBody",
     "ConvertBody",
     "ServerInfoBody",

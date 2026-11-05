@@ -131,7 +131,13 @@
 //          `PanelHeaderActionsProvider`, `usePanelHeaderActions`) and its glyphs;
 //          `localLayoutPersistence`; `FloatingWindow`'s caller-kept `rect` /
 //          `onRectChange`. Additive.
-export const VIEWER_CORE_API_VERSION = "1.12.0";
+//   1.13.0 Options on core's panel contents, so a shell uses them instead of a
+//          copy. On `@/viewer-core/layout`: `SceneTreeBody` (the Scene tree) with
+//          `SceneTreeProps` (`rootFilter`, `extraRoots`, `onSelectOverride`,
+//          `header`) and `TreeNodeData.meta`; `TreeBody`'s `sceneTree`. On the
+//          root: `registerSceneTreeRoots` / `listSceneTreeRoots`, the rows a
+//          plugin adds to the Scene tree. Additive.
+export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -232,6 +238,11 @@ export {
 } from "@/layout/registry";
 export { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
 export type { PanelController } from "@/layout/reveal";
+export {
+  listSceneTreeRoots,
+  registerSceneTreeRoots,
+} from "@/plugins/sceneTreeRoots";
+export type { SceneTreeRootProvider } from "@/plugins/sceneTreeRoots";
 export { bindStoreFlag, watchStores } from "@/layout/bindings";
 export type { FlagStore } from "@/layout/bindings";
 export {

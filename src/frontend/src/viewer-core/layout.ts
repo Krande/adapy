@@ -38,6 +38,10 @@ export type { CellBuilderPanelState } from "@/components/viewer/CellBuilderPanel
 export { ComponentControlsBody } from "@/components/component_view/ComponentControls";
 export { default as NodeEditorBody } from "@/components/node_editor/NodeEditorBody";
 export { default as TreeBody } from "@/components/asset_browser/AssetBrowser";
+export type { TreeBodyProps } from "@/components/asset_browser/AssetBrowser";
+export { default as SceneTreeBody } from "@/components/tree_view/TreeViewComponent";
+export type { SceneTreeProps, SceneTreeRootFilter } from "@/components/tree_view/TreeViewComponent";
+export type { TreeNodeData } from "@/components/tree_view/CustomNode";
 export { default as AttributeSearchBody } from "@/components/asset_browser/AttributeSearchPanel";
 export { default as ConvertBody } from "@/components/convert/ConvertPage";
 export { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
