@@ -162,13 +162,15 @@ export interface LayoutPrefs {
   v: number;
   /** The selected preset -- the user's "mode". Absent: the deployment / build default. */
   activePreset?: PresetId;
-  /**
-   * Show undock / re-dock affordances in the classic preset. Off by default,
-   * which keeps the classic UI exactly as it is.
-   */
+  /** Undock / re-dock affordances in the classic preset. Absent: on (`customisablePanelsOn`). */
   customisablePanels?: boolean;
   /** Documents by `layoutDocKey`. */
   docs: Record<string, LayoutDoc>;
+}
+
+/** Are customisable panels on: unless the user turned them off. */
+export function customisablePanelsOn(prefs: Pick<LayoutPrefs, "customisablePanels">): boolean {
+  return prefs.customisablePanels !== false;
 }
 
 /**

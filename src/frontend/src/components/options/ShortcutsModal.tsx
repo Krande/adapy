@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useStore } from "zustand";
 
 import { OverlayPortal } from "@/components/ui/OverlayPortal";
+import { customisablePanelsOn } from "@/layout/layout";
 import { layoutStore } from "@/layout/layoutStore";
 
 // Single source of truth for the keyboard-shortcut help map. Grouped by
@@ -164,7 +165,7 @@ const KeyCombo: React.FC<{ keys: string[] }> = ({ keys }) => (
 
 const ShortcutsModal: React.FC = () => {
   const [open, setOpen] = useState(false);
-  const customisable = useStore(layoutStore, (s) => s.prefs.customisablePanels === true);
+  const customisable = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
   const groups = customisable ? [SHORTCUT_GROUPS[0], PANEL_SHORTCUTS, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS;
 
   // Escape closes the modal (mirrors the other centered dialogs, e.g.

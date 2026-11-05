@@ -1,5 +1,5 @@
 // Undocking in the classic preset, behind the "Customisable panels" setting
-// (`LayoutPrefs.customisablePanels`, default off).
+// (`LayoutPrefs.customisablePanels`, on unless turned off).
 //
 // With the setting off nothing here renders and no header gets an action, so the
 // classic UI is unchanged. With it on:
@@ -27,7 +27,7 @@ import {navBtnClass} from "@/components/navButton";
 import {defaultRect} from "@/assets/floatingWindow";
 
 import {DROP_ATTR, dockDragStore, endDockDrag, moveDockDrag} from "../dockDrag";
-import {CLASSIC_PRESET_ID, CLASSIC_ZONES, layoutDocKey, type LayoutDoc, type ZoneDef} from "../layout";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, customisablePanelsOn, layoutDocKey, type LayoutDoc, type ZoneDef} from "../layout";
 import {PanelMount, usePanelStates, useLayout} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, PresetId, RegisteredPanel} from "../panel";
@@ -45,7 +45,7 @@ const MIN_SIZE = {width: 280, height: 160};
 
 /** Is the "Customisable panels" setting on. */
 export function useCustomisablePanels(): boolean {
-  return useStore(layoutStore, (s) => s.prefs.customisablePanels === true);
+  return useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
 }
 
 /** Which preset's document the undock layer reads and writes. */
