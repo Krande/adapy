@@ -60,7 +60,7 @@ import ToggleControlsIcon from "@/components/icons/AnimationControlToggle";
 import TreeViewIcon from "@/components/icons/TreeViewIcon";
 
 import { bindStoreFlag, watchStores } from "./bindings";
-import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
+import { CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, DOCKED_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
 import { getPanel, registerPanel } from "./registry";
 
@@ -111,8 +111,11 @@ function classicContent(id: CorePanelId): PanelBodyLoader {
 /** The stores the Simulation button's condition reads. */
 const watchSimulation = watchStores(useAnimationStore, useFeaAnimationStore, useFemConceptsStore);
 
-const classic = (p: PanelPlacement) => ({ [CLASSIC_PRESET_ID]: p });
-const column = (order: number) => classic({ zone: CLASSIC_ZONES.menuColumn, order });
+/** A placement in the classic preset and, given one, in the docked preset. */
+const classic = (p: PanelPlacement, docked?: PanelPlacement) =>
+  docked ? { [CLASSIC_PRESET_ID]: p, [DOCKED_PRESET_ID]: docked } : { [CLASSIC_PRESET_ID]: p };
+const column = (order: number, docked?: PanelPlacement) => classic({ zone: CLASSIC_ZONES.menuColumn, order }, docked);
+const dock = (zone: string, order: number, extra?: Partial<PanelPlacement>): PanelPlacement => ({ zone, order, ...extra });
 
 // The conditions Menu.tsx gates its buttons and panels on, as plain reads.
 const nodeEditorOnly = () => useNodeEditorStore.getState().use_node_editor_only;
@@ -164,7 +167,7 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setIsOptionsVisible(open),
       ),
       available: () => !nodeEditorOnly(),
-      placement: column(10),
+      placement: column(10, dock(DOCKED_ZONES.rightAux, 10)),
       toolbar: { order: 10 },
     },
     {
@@ -182,9 +185,10 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setIsTreeCollapsed(!open),
       ),
       available: () => !nodeEditorOnly(),
-      capabilities: { stackable: false },
+      // Kept mounted once opened, as the classic drawer is: reopening must not rebuild the tree.
+      capabilities: { stackable: false, keepAlive: true },
       constraints: { requiresViewerProvider: true },
-      placement: classic({ zone: CLASSIC_ZONES.tree, order: 10 }),
+      placement: classic({ zone: CLASSIC_ZONES.tree, order: 10 }, dock(DOCKED_ZONES.left, 10)),
       toolbar: { order: 20 },
     },
     {
@@ -202,7 +206,7 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: () => !nodeEditorOnly() && useOptionsStore.getState().enableNodeEditor,
       capabilities: { keepAlive: true, stackable: false },
-      placement: classic({ zone: CLASSIC_ZONES.float, order: 20 }),
+      placement: classic({ zone: CLASSIC_ZONES.float, order: 20 }, dock(DOCKED_ZONES.float, 20)),
       toolbar: { order: 30 },
     },
     {
@@ -219,7 +223,7 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: (env) => env.restMode !== false,
       constraints: { requiresRest: true },
-      placement: column(20),
+      placement: column(20, dock(DOCKED_ZONES.leftAux, 10)),
       toolbar: { order: 40 },
     },
     {
@@ -236,7 +240,7 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setShowServerInfoBox(open),
       ),
       available: (env) => env.restMode !== true,
-      placement: column(20),
+      placement: column(20, dock(DOCKED_ZONES.leftAux, 20)),
     },
     {
       id: CORE_PANEL_IDS.attributeSearch,
@@ -253,7 +257,7 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: (env) => env.restMode !== false && !nodeEditorOnly(),
       constraints: { requiresRest: true },
-      placement: classic({ zone: CLASSIC_ZONES.float, order: 10 }),
+      placement: classic({ zone: CLASSIC_ZONES.float, order: 10 }, dock(DOCKED_ZONES.float, 10)),
       toolbar: { order: 50 },
     },
     {
@@ -273,7 +277,7 @@ export function corePanelSpecs(): PanelSpec[] {
         },
       ),
       available: () => !nodeEditorOnly(),
-      placement: column(30),
+      placement: column(30, dock(DOCKED_ZONES.right, 10)),
       toolbar: { order: 60 },
     },
     {
@@ -290,7 +294,7 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setShowSceneInfoBox(open),
       ),
       available: () => !nodeEditorOnly(),
-      placement: column(40),
+      placement: column(40, dock(DOCKED_ZONES.right, 20)),
       toolbar: { order: 70 },
     },
     {
@@ -305,7 +309,7 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setShowInfoBox(open),
       ),
       available: (env) => env.restMode !== true && env.websocketDeactivated !== true,
-      placement: column(50),
+      placement: column(50, dock(DOCKED_ZONES.rightAux, 20)),
       toolbar: { order: 1000 },
     },
     {
@@ -325,7 +329,7 @@ export function corePanelSpecs(): PanelSpec[] {
       // It floats itself: its frame docks, floats or becomes a window.
       capabilities: { floatable: false },
       constraints: { requiresCanvas: true },
-      placement: column(60),
+      placement: column(60, dock(DOCKED_ZONES.bottom, 10)),
       toolbar: { order: 80 },
     },
     {
@@ -342,11 +346,10 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: () => simulationOffered(),
       capabilities: { keepAlive: true, stackable: false },
-      placement: classic({
-        zone: CLASSIC_ZONES.menuColumn,
-        parent: CORE_PANEL_IDS.simulation,
-        as: "section",
-      }),
+      placement: classic(
+        { zone: CLASSIC_ZONES.menuColumn, parent: CORE_PANEL_IDS.simulation, as: "section" },
+        { zone: DOCKED_ZONES.bottom, parent: CORE_PANEL_IDS.simulation, as: "section" },
+      ),
     },
     {
       id: CORE_PANEL_IDS.componentControls,
@@ -362,7 +365,7 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setIsVisible(open),
       ),
       available: () => !nodeEditorOnly() && useComponentSpecsStore.getState().hasSpecs,
-      placement: column(70),
+      placement: column(70, dock(DOCKED_ZONES.rightAux2, 10)),
       toolbar: { order: 90 },
     },
     {
@@ -380,7 +383,7 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: () => !nodeEditorOnly() && proceduralActive(),
       constraints: { requiresCanvas: true },
-      placement: column(80),
+      placement: column(80, dock(DOCKED_ZONES.rightAux2, 20)),
       toolbar: { order: 100 },
     },
     {
@@ -398,7 +401,7 @@ export function corePanelSpecs(): PanelSpec[] {
         },
       ),
       available: () => proceduralActive(),
-      placement: column(90),
+      placement: column(90, dock(DOCKED_ZONES.rightAux2, 30)),
     },
     {
       id: CORE_PANEL_IDS.systemAdmin,
@@ -413,7 +416,7 @@ export function corePanelSpecs(): PanelSpec[] {
         },
       ),
       available: () => proceduralActive(),
-      placement: column(100),
+      placement: column(100, dock(DOCKED_ZONES.rightAux2, 40)),
     },
     {
       // The in-viewer admin window (Options' "Admin panel", Shift+P).
@@ -425,7 +428,10 @@ export function corePanelSpecs(): PanelSpec[] {
       binding: viewerWindowBinding("admin"),
       available: (env) => env.restMode !== false,
       constraints: { requiresRest: true, exclusiveGroup: "classic.viewer-window" },
-      placement: classic({ zone: CLASSIC_ZONES.window, order: 10, float: { w: 1100, h: 720 } }),
+      placement: classic(
+        { zone: CLASSIC_ZONES.window, order: 10, float: { w: 1100, h: 720 } },
+        dock(DOCKED_ZONES.window, 10, { float: { w: 1100, h: 720 } }),
+      ),
       // The classic chrome is the window host's, not the admin panel's own.
       frame: "host",
     },
@@ -436,7 +442,10 @@ export function corePanelSpecs(): PanelSpec[] {
       binding: viewerWindowBinding("convert"),
       available: (env) => env.restMode !== false,
       constraints: { requiresRest: true, exclusiveGroup: "classic.viewer-window" },
-      placement: classic({ zone: CLASSIC_ZONES.window, order: 20, float: { w: 1100, h: 720 } }),
+      placement: classic(
+        { zone: CLASSIC_ZONES.window, order: 20, float: { w: 1100, h: 720 } },
+        dock(DOCKED_ZONES.window, 20, { float: { w: 1100, h: 720 } }),
+      ),
       frame: "host",
     },
   ];

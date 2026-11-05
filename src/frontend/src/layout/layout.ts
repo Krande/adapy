@@ -50,6 +50,25 @@ export const CLASSIC_ZONES = {
   overlay: "classic.overlay",
 } as const;
 
+/**
+ * Zone ids of the docked preset. The docks use the ids a plugin slot's `dock`
+ * names, so a plugin placement maps onto them as it is.
+ */
+export const DOCKED_ZONES = {
+  left: "left",
+  leftAux: "left-aux",
+  right: "right",
+  rightAux: "right-aux",
+  rightAux2: "right-aux2",
+  bottom: "bottom",
+  /** Free floating windows. */
+  float: "docked.float",
+  /** The in-viewer admin / convert windows. */
+  window: "docked.window",
+  /** HUDs anchored to the canvas. */
+  overlay: "docked.overlay",
+} as const;
+
 export type ZoneKind =
   /** Panels stacked in one column, each its own card (the classic menu column). */
   | "stack"

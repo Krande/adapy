@@ -131,8 +131,11 @@
 //          `PanelHeaderActionsProvider`, `usePanelHeaderActions`) and its glyphs;
 //          `localLayoutPersistence`; `FloatingWindow`'s caller-kept `rect` /
 //          `onRectChange`. Additive.
-//   1.13.0 On `@/viewer-core/layout`: the shared `CollapsibleSection` (its
-//          `"section"` and `"caret"` looks). Additive.
+//   1.13.0 The core docked preset's zone ids, `DOCKED_ZONES`. On
+//          `@/viewer-core/layout`: its rules (`DOCKED_ZONE_DEFS`, `dockGrid`,
+//          `dockZonePanels`, `dockedPlacement`, `dockedDefaults`, `adoptDocked`,
+//          `activateInZone`, `shownTab`, `trackSize`) and the shared
+//          `CollapsibleSection` (its `"section"` and `"caret"` looks). Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -240,6 +243,7 @@ export {
   CLASSIC_PRESET_ID,
   CLASSIC_ZONES,
   DOCKED_PRESET_ID,
+  DOCKED_ZONES,
   layoutDocKey,
 } from "@/layout/layout";
 export type {

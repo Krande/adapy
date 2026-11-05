@@ -65,7 +65,7 @@ import {MinimisedTray, UndockedLayer, columnActions, isUndocked, useClassicDoc, 
 
 const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
 
-function useProceduralActive(): boolean {
+export function useProceduralActive(): boolean {
   return useCellBuilderStore((s) => s.active !== null || hasEmbeddedDoc(s));
 }
 
@@ -75,7 +75,7 @@ const mounts = classicMounts;
 // The top bar.
 // ---------------------------------------------------------------------------
 
-function ToolbarButton({panel, state, env}: {panel: RegisteredPanel; state: PanelState; env: PanelEnv}) {
+export function ToolbarButton({panel, state, env}: {panel: RegisteredPanel; state: PanelState; env: PanelEnv}) {
   const recipe = CLASSIC_TOOLBAR[panel.id];
   if (toolbarPresence(panel, state, env) === "omit") return null;
   if (recipe.statusMenu) {
@@ -154,7 +154,7 @@ const COLUMN_WRAP: Readonly<Record<PanelId, React.ComponentType<{children: React
 };
 
 /** The cellbuilder's canvas menus and gizmo HUD, mounted beside its panel while a model is loaded. */
-const CellBuilderOverlays: React.FC = () => (
+export const CellBuilderOverlays: React.FC = () => (
   <>
     <CellBuilderContextMenu />
     <CellBuilderPortMenu />
@@ -276,7 +276,7 @@ const VIEWER_PANEL_OF: Readonly<Record<PanelId, ViewerPanel>> = {
 };
 
 /** The in-viewer window's own chrome: its title bar and "open in a dedicated tab". */
-const ViewerWindowChrome: WindowChrome = ({panel, close, children}) => {
+export const ViewerWindowChrome: WindowChrome = ({panel, close, children}) => {
   const adminTab = useViewerPanelStore((s) => s.adminTab);
   const which = VIEWER_PANEL_OF[panel.id];
   return (
