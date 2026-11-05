@@ -48,20 +48,20 @@ test("an indexed target inserts before itself, or after past its middle", () => 
 test("a drag shows the targets on its first move and tracks the zone under the pointer after", () => {
   const hit = (x: number) => (x < 100 ? "column" : null);
   moveDockDrag("p", 50, 0, hit);
-  assert.deepEqual(dockDragStore.getState(), { panel: "p", over: null, index: null });
+  assert.deepEqual(dockDragStore.getState(), { panel: "p", over: null, index: null, edge: null });
   moveDockDrag("p", 50, 0, hit);
   assert.equal(dockDragStore.getState().over, "column");
   moveDockDrag("p", 500, 0, hit);
   assert.equal(dockDragStore.getState().over, null);
   assert.equal(endDockDrag(50, 0, hit), "column");
-  assert.deepEqual(dockDragStore.getState(), { panel: null, over: null, index: null });
+  assert.deepEqual(dockDragStore.getState(), { panel: null, over: null, index: null, edge: null });
 });
 
 test("a drag tracks the insertion point and drops there", () => {
   const hit = (x: number) => ({ zone: "z", index: x < 50 ? 0 : 1 });
   moveDockDrag("p", 10, 0, hit);
   moveDockDrag("p", 10, 0, hit);
-  assert.deepEqual(dockDragStore.getState(), { panel: "p", over: "z", index: 0 });
+  assert.deepEqual(dockDragStore.getState(), { panel: "p", over: "z", index: 0, edge: null });
   moveDockDrag("p", 60, 0, hit);
   assert.equal(dockDragStore.getState().index, 1);
   assert.deepEqual(endDockDragAt(60, 0, hit), { zone: "z", index: 1 });

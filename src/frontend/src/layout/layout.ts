@@ -8,9 +8,8 @@
 // The model, briefly:
 //
 //   * A PRESET is a whole arrangement of zones around the viewport. Core ships
-//     `classic` (today's UI) and, later, `docked`; a UI shell may contribute
-//     more. Which preset is active is a user choice -- a "mode" -- and is
-//     persisted with the rest of the user's layout.
+//     `classic`, whose document also holds a split grid of panel groups around
+//     the viewport (`./splitTree`); a UI shell may contribute more.
 //   * A ZONE is a region of a preset that holds panels: a stack (the classic
 //     menu column), a dock, the float layer, a bottom sheet, an overlay.
 //   * A LAYOUT DOCUMENT is the user's arrangement within ONE preset (and
@@ -26,9 +25,11 @@
 
 import type React from "react";
 import type { PanelId, PresetId, RegisteredPanel, ZoneId } from "./panel";
+import type { GridNode } from "./splitTree";
 
-/** The built-in presets. Shell presets use their own ids. */
+/** The built-in preset. Shell presets use their own ids. */
 export const CLASSIC_PRESET_ID: PresetId = "classic";
+/** A placement key a plugin slot's `dock` is recorded under, for a shell that docks by it. Core has no such preset. */
 export const DOCKED_PRESET_ID: PresetId = "docked";
 
 /**
@@ -48,25 +49,6 @@ export const CLASSIC_ZONES = {
   float: "classic.float",
   /** HUDs anchored to the canvas. */
   overlay: "classic.overlay",
-} as const;
-
-/**
- * Zone ids of the docked preset. The docks use the ids a plugin slot's `dock`
- * names, so a plugin placement maps onto them as it is.
- */
-export const DOCKED_ZONES = {
-  left: "left",
-  leftAux: "left-aux",
-  right: "right",
-  rightAux: "right-aux",
-  rightAux2: "right-aux2",
-  bottom: "bottom",
-  /** Free floating windows. */
-  float: "docked.float",
-  /** The in-viewer admin / convert windows. */
-  window: "docked.window",
-  /** HUDs anchored to the canvas. */
-  overlay: "docked.overlay",
 } as const;
 
 export type ZoneKind =
@@ -118,6 +100,8 @@ export interface LayoutDoc {
   /** A context within the preset (a shell's sub-mode); `"default"` when there is none. */
   context?: string;
   zones: Record<ZoneId, ZoneState>;
+  /** The split grid around the viewport (`./splitTree`). Absent: the viewport alone. */
+  grid?: GridNode;
   floats: Record<PanelId, FloatState>;
   minimised: PanelId[];
   /** Panels already offered once, so a panel registered after the document was saved is adopted once. */
@@ -160,7 +144,7 @@ export function layoutDocKey(preset: PresetId, context?: string): string {
  */
 export interface LayoutPrefs {
   v: number;
-  /** The selected preset -- the user's "mode". Absent: the deployment / build default. */
+  /** A preset a user once selected. Kept for older saved prefs; core renders the classic preset whatever it says. */
   activePreset?: PresetId;
   /** Undock / re-dock affordances in the classic preset. Absent: on (`customisablePanelsOn`). */
   customisablePanels?: boolean;
