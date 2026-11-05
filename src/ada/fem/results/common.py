@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from ada import Material, Node, Section
     from ada.fem import Elem, FemSet
+    from ada.fem.results.cases import ResultCases
     from ada.fem.results.compare import FEAResultComparison
     from ada.fem.results.concepts import EigenDataSummary
     from ada.visit.colors import Color
@@ -201,6 +202,16 @@ def report_unrenderable(unrenderable: dict[str, int]) -> None:
     )
 
 
+#: ``Mesh.section_kinds``' values: the beam profiles a section's dimensions describe.
+#:
+#: * ``"i"``: an I or T girder: ``h``, ``t_w``, top flange ``w_top``/``t_ftop``, bottom ``w_btn``/``t_fbtn``
+#: * ``"angle"``: an L section (a bulb flat idealised as one too): ``h``, ``t_w``, flange ``w_btn``/``t_fbtn``
+#: * ``"bar"``: a solid (flat) bar: height ``h``, width ``w_top`` at the top and ``w_btn`` at the bottom
+#: * ``"box"``, ``"pipe"``, ``"channel"``: closed and other open profiles a plate check does not model
+#: * ``"general"``: section properties only, no profile
+SECTION_KINDS = ("i", "angle", "bar", "box", "pipe", "channel", "general")
+
+
 @dataclass
 class Mesh:
     elements: list[ElementBlock]
@@ -216,6 +227,24 @@ class Mesh:
     # profile is drawn centred on the element axis, floating beside the plate it is
     # welded to. None for readers that carry no eccentricity concept.
     eccentricities: dict[int, list] = None
+
+    # The model data a structural check reads beside the results, the same in every format
+    # (``ada.fem.results.field_data.FieldRole``). None where the reader has none of it.
+    #: ``{shell element: thickness}``.
+    thickness: dict[int, float] = None
+    #: ``{element: 3x3}``, rows the element's local x, y, z in global axes: the axes its role fields
+    #: (``SHELL_STRESS``, ``BEAM_FORCES``) are in.
+    element_frames: dict[int, np.ndarray] = None
+    #: ``{element: {point: xyz}}``: where an element's ``SHELL_STRESS`` / ``BEAM_FORCES`` rows are.
+    result_points: dict[int, dict[int, np.ndarray]] = None
+    #: ``{section id (elem_data's): kind}``, the profile a beam section is by
+    #: :data:`SECTION_KINDS`: what a section's dimensions in ``sections`` mean.
+    section_kinds: dict[int, str] = None
+    #: ``{element: the name of the structural member it meshes}`` (a stiffener, a girder, a plate).
+    concept_names: dict[int, str] = None
+    #: Nodes held by the analysis: a support (fixed or prescribed) on any DOF, or either end of a
+    #: rigid link.
+    restrained_nodes: frozenset[int] = None
 
     def _elem_counts(self) -> dict[str, int]:
         el_counts: dict[str, int] = {}
@@ -596,6 +625,10 @@ class FEAResult:
     # dynamics frames -- the viewer opens on the last state and plays through time),
     # "static" / "eigen" otherwise. None leaves the bake's step-value heuristic to decide.
     analysis_kind: Literal["static", "eigen", "transient"] | None = None
+    #: The result cases and how to read them one at a time, in the role layouts
+    #: (``ada.fem.results.cases.ResultCases``): set by ``ada.fem.results.open_result``; None from the
+    #: readers that load every step at once.
+    cases: "ResultCases | None" = None
 
     def __post_init__(self):
         if self.results is None:
