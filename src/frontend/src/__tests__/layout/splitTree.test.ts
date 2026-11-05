@@ -14,7 +14,6 @@ import {
   gridGroups,
   gridPanels,
   groupOf,
-  neighbourRect,
   normaliseGrid,
   removeFromGrid,
   resizePair,
@@ -201,21 +200,6 @@ test("the grid as drawn: groups that show nothing take no room, their split's fr
   assert.equal(shape(onlyC), "row(V [c])");
   assert.equal(groupOf(onlyC, "c")!.active, "c", "a hidden active tab gives way to a shown one");
   assert.deepEqual(shownGrid(g, () => false), DEFAULT_GRID, "nothing shown: the viewport alone");
-});
-
-test("the neighbour of a rect in a direction, by geometry", () => {
-  const R = (left: number, top: number, width: number, height: number) => ({ left, top, width, height });
-  const from = R(100, 100, 100, 100);
-  const cands = [
-    { id: "right-near", rect: R(200, 120, 50, 50) },
-    { id: "right-far", rect: R(300, 100, 50, 100) },
-    { id: "below", rect: R(100, 200, 100, 50) },
-    { id: "above-off", rect: R(400, 0, 50, 50) },
-  ];
-  assert.equal(neighbourRect(from, "right", cands)?.id, "right-near");
-  assert.equal(neighbourRect(from, "down", cands)?.id, "below");
-  assert.equal(neighbourRect(from, "up", cands), null, "nothing above that overlaps across");
-  assert.equal(neighbourRect(from, "left", cands), null);
 });
 
 test("a stored grid is read back as it was", () => {

@@ -168,12 +168,11 @@ export {
   ZONE_ATTR,
   ZONE_ORDER,
   ZONE_PANEL_ATTR,
-  arrowDirection,
   cycleZone,
   orderZones,
   zoneKeyIntent,
 } from "@/layout/zoneKeys";
-export type { ArrowDirection, ZoneKeyContext, ZoneKeyEvent, ZoneKeyIntent, ZoneKind } from "@/layout/zoneKeys";
+export type { ZoneKeyContext, ZoneKeyEvent, ZoneKeyIntent, ZoneKind } from "@/layout/zoneKeys";
 export { ZoneKeys, focusZone, requestFloatFocus, restoreFocus, useFloatFocus } from "@/layout/zoneFocus";
 export {
   DROP_ATTR,
@@ -204,7 +203,6 @@ export {
   gridGroups,
   gridPanels,
   groupOf,
-  neighbourRect,
   normaliseGrid,
   removeFromGrid,
   resizePair,
@@ -214,7 +212,6 @@ export {
   splitShare,
 } from "@/layout/splitTree";
 export type {
-  Direction,
   DockEdge,
   GridNode,
   GridTarget,

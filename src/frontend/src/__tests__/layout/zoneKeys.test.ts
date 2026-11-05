@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { arrowDirection, cycleZone, orderZones, zoneKeyIntent, type ZoneKeyContext, type ZoneKeyEvent } from "@/layout/zoneKeys";
+import { cycleZone, orderZones, zoneKeyIntent, type ZoneKeyContext, type ZoneKeyEvent } from "@/layout/zoneKeys";
 
 const key = (k: string, mods: Partial<ZoneKeyEvent> = {}): ZoneKeyEvent => ({
   key: k,
@@ -30,27 +30,11 @@ test("Esc closes a focused window, unless a field, a menu or a dialog has it", (
   assert.equal(zoneKeyIntent(key("Escape", { shiftKey: true }), inFloat), null);
 });
 
-test("Ctrl+Alt+arrow docks a focused window; other arrow chords do not", () => {
+test("arrow chords are left to the page", () => {
   for (const k of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
-    assert.equal(zoneKeyIntent(key(k, { ctrlKey: true, altKey: true }), inFloat), "dock-float");
+    assert.equal(zoneKeyIntent(key(k, { ctrlKey: true, altKey: true }), inFloat), null);
+    assert.equal(zoneKeyIntent(key(k, { ctrlKey: true, altKey: true }), outside), null);
   }
-  assert.equal(zoneKeyIntent(key("ArrowLeft", { ctrlKey: true, altKey: true }), outside), null);
-  assert.equal(zoneKeyIntent(key("ArrowLeft", { ctrlKey: true }), inFloat), null);
-  assert.equal(zoneKeyIntent(key("ArrowLeft", { shiftKey: true }), inFloat), null);
-  assert.equal(zoneKeyIntent(key("ArrowLeft", { ctrlKey: true, altKey: true, shiftKey: true }), inFloat), null);
-});
-
-test("Ctrl+Alt+arrow moves a focused docked panel where the preset moves panels by direction", () => {
-  const inDock: ZoneKeyContext = { ...outside, inDock: true };
-  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true, altKey: true }), inDock), "move-docked");
-  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true, altKey: true }), outside), null);
-  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true, altKey: true }), { ...inDock, inTextField: true }), null);
-  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true }), inDock), null);
-  assert.equal(zoneKeyIntent(key("Escape"), inDock), null, "Esc closes windows only");
-  assert.equal(zoneKeyIntent(key("ArrowUp", { ctrlKey: true, altKey: true }), { ...inFloat, inDock: true }), "dock-float");
-  assert.equal(arrowDirection("ArrowLeft"), "left");
-  assert.equal(arrowDirection("ArrowDown"), "down");
-  assert.equal(arrowDirection("Enter"), null);
 });
 
 test("cycling wraps, and starts at an end when focus is in no zone", () => {

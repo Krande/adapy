@@ -352,7 +352,7 @@ export function shownGrid(root: GridNode, shows: (panel: PanelId) => boolean): S
 }
 
 // ---------------------------------------------------------------------------
-// Geometry: the neighbour of a rect in a direction, for the keyboard.
+// Geometry.
 // ---------------------------------------------------------------------------
 
 export interface Rect {
@@ -360,35 +360,6 @@ export interface Rect {
   top: number;
   width: number;
   height: number;
-}
-
-export type Direction = "left" | "right" | "up" | "down";
-
-/**
- * The candidate nearest `from` in direction `dir`: one that lies that way (past
- * `from`'s edge, within a pixel) and overlaps it across, the nearest edge first,
- * then the most overlap. Null when there is none.
- */
-export function neighbourRect<T extends { rect: Rect }>(from: Rect, dir: Direction, candidates: readonly T[]): T | null {
-  const EPS = 2;
-  const r = (x: Rect) => ({ l: x.left, t: x.top, r: x.left + x.width, b: x.top + x.height });
-  const f = r(from);
-  let best: { c: T; gap: number; overlap: number } | null = null;
-  for (const c of candidates) {
-    const o = r(c.rect);
-    let gap: number;
-    let overlap: number;
-    if (dir === "left" || dir === "right") {
-      gap = dir === "right" ? o.l - f.r : f.l - o.r;
-      overlap = Math.min(f.b, o.b) - Math.max(f.t, o.t);
-    } else {
-      gap = dir === "down" ? o.t - f.b : f.t - o.b;
-      overlap = Math.min(f.r, o.r) - Math.max(f.l, o.l);
-    }
-    if (gap < -EPS || overlap <= 0) continue;
-    if (!best || gap < best.gap - EPS || (Math.abs(gap - best.gap) <= EPS && overlap > best.overlap)) best = { c, gap, overlap };
-  }
-  return best?.c ?? null;
 }
 
 // ---------------------------------------------------------------------------

@@ -45,7 +45,6 @@ import {
   floatOut,
   homeOf,
   moveAction,
-  moveByKey,
   updateClassic,
   useClassicDoc,
 } from "./classicPlace";
@@ -64,9 +63,9 @@ export function columnActions(panel: RegisteredPanel): PanelAction[] {
 
 const closeFloat = (id: PanelId) => void hide(id);
 
-/** F6 between the classic zones, Esc on a window, and Ctrl+Alt+arrow on a window or a docked panel. */
+/** F6 between the classic zones, and Esc on a window. */
 export function ClassicZoneKeys() {
-  return <ZoneKeys closeFloat={closeFloat} dockFloat={backHome} movePanel={moveByKey} />;
+  return <ZoneKeys closeFloat={closeFloat} />;
 }
 
 /** The actions a floated panel's window offers, before its close button. */

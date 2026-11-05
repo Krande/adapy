@@ -9,8 +9,8 @@
 // classic document records where; the panel's flag still says whether.
 //
 // The moves are the document's: floating, docking at an edge of the view or of
-// a group, stacking with a group, going home. A header's menu, a drop and
-// Ctrl+Alt+arrow all end here.
+// a group, stacking with a group, going home. A header's menu and a drop both
+// end here.
 
 import {useMemo} from "react";
 import {useStore} from "zustand";
@@ -25,18 +25,14 @@ import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "../pane
 import {dockInGridDoc, dockPanel, floatPanel, floatPanelAt, gridOf, isInGrid, migrateLayoutDoc} from "../reducers";
 import {getPanel} from "../registry";
 import {
-  ROOT_NODE,
   VIEWPORT_NODE,
   gridGroups,
   groupOf,
-  neighbourRect,
   type DockEdge,
-  type Direction,
   type GridTarget,
-  type Rect,
 } from "../splitTree";
 import {requestFloatFocus, restoreFocus} from "../zoneFocus";
-import {PANEL_ACTIONS_ATTR, ZONE_ATTR} from "../zoneKeys";
+import {PANEL_ACTIONS_ATTR} from "../zoneKeys";
 import {CLASSIC_ZONE_DEFS} from "./classicRules";
 
 /** On a group of the grid: its id. */
@@ -202,52 +198,6 @@ export function focusPanel(id: PanelId): void {
     }
     if (document.querySelector(`[${PANEL_ACTIONS_ATTR}="${esc(id)}"]`)) restoreFocus(id, null);
   });
-}
-
-const DIR_EDGE: Readonly<Record<Direction, DockEdge>> = {left: "left", right: "right", up: "top", down: "bottom"};
-
-function rectOf(el: Element | null): Rect | null {
-  if (!el) return null;
-  const r = el.getBoundingClientRect();
-  return r.width > 0 && r.height > 0 ? {left: r.left, top: r.top, width: r.width, height: r.height} : null;
-}
-
-/**
- * Ctrl+Alt+arrow: to the group that way on screen (stacked in it); with none,
- * a panel in the grid goes to the grid's edge that way, and any other to the
- * view's. A panel alone at the grid's edge that way stays.
- */
-export function moveByKey(id: PanelId, dir: Direction): void {
-  const panel = getPanel(id);
-  if (!panel || !canDock(panel)) return;
-  const grid = gridOf(classicDoc());
-  const own = groupOf(grid, id);
-  const groups = Array.from(document.querySelectorAll(`[${GRID_GROUP_ATTR}]`))
-    .map((el) => ({id: el.getAttribute(GRID_GROUP_ATTR)!, rect: rectOf(el)}))
-    .filter((g): g is {id: string; rect: Rect} => !!g.rect);
-  const from = (own && groups.find((g) => g.id === own.id)?.rect) || rectOf(document.querySelector(`[${ZONE_ATTR}="viewport"]`));
-  if (!from) return;
-  const next = neighbourRect(from, dir, groups.filter((g) => g.id !== own?.id));
-  const edge = DIR_EDGE[dir];
-  let target: GridTarget;
-  if (next) target = {node: next.id, edge: "center"};
-  else if (own) {
-    const root = rectOf(document.querySelector(`[${GRID_ROOT_ATTR}]`));
-    const atEdge =
-      !!root &&
-      own.panels.length === 1 &&
-      (dir === "left"
-        ? from.left <= root.left + 1
-        : dir === "right"
-          ? from.left + from.width >= root.left + root.width - 1
-          : dir === "up"
-            ? from.top <= root.top + 1
-            : from.top + from.height >= root.top + root.height - 1);
-    if (atEdge) return;
-    target = {node: ROOT_NODE, edge};
-  } else target = {node: VIEWPORT_NODE, edge};
-  dockAt(id, target);
-  focusPanel(id);
 }
 
 const EDGE_LABEL: readonly [DockEdge, string][] = [

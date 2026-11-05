@@ -134,8 +134,8 @@
 //   1.13.0 Undocking, continued, on `@/viewer-core/layout`: the per-user server
 //          backend `serverLayoutPersistence` (debounced, with a browser-local
 //          fallback) and its `PreferenceStore`; the zone keys (`ZoneKeys`:
-//          F6 / Shift+F6 between zones marked `ZONE_ATTR`, Esc and Ctrl+Alt+arrow
-//          on a floating window, `useFloatFocus` / `restoreFocus`); an optional
+//          F6 / Shift+F6 between zones marked `ZONE_ATTR`, Esc on a floating
+//          window, `useFloatFocus` / `restoreFocus`); an optional
 //          `panelId` on `PanelHeaderActionsProvider` and `WindowHeaderActions`;
 //          drag-to-dock (`moveDockDrag` / `endDockDrag` hit-testing drop targets
 //          marked `DROP_ATTR`, `dockDragStore`) and `FloatingWindow`'s
@@ -165,9 +165,7 @@
 //          a header action that opens a menu. On `@/viewer-core/layout`:
 //          `WindowHeaderMenuButton` and `MoveGlyph`; indexed drop targets
 //          (`DROP_INDEX_ATTR`, `DROP_AXIS_ATTR`, `dropTargetAt`, `endDockDragAt`,
-//          `DropTarget`, `DockDragState.index`); the zone kind `"dock"`, the
-//          intent `"move-docked"`, `arrowDirection` and `ZoneKeysProps.movePanel`
-//          (Ctrl+Alt+arrow moves a window or a docked panel by direction);
+//          `DropTarget`, `DockDragState.index`); the zone kind `"dock"`;
 //          `dragHandleClassName` on a docked `PanelFrame` marks the header a
 //          host drags the panel by.
 //          In-app dialogs on the root: `confirmDialog` / `alertDialog` /
@@ -189,7 +187,7 @@
 //          starts over). On `@/viewer-core/layout`: the pure tree (`GridNode`:
 //          `SplitNode`, `GroupNode`, `ViewportNode`; `dockInGrid`,
 //          `removeFromGrid`, `setActiveTab`, `setSplitSizes`, `equaliseSplit`,
-//          `resizePair`, `shownGrid`, `normaliseGrid`, `neighbourRect`,
+//          `resizePair`, `shownGrid`, `normaliseGrid`,
 //          `gridGroups`, `gridPanels`, `groupOf`, `findNode`, `splitShare`,
 //          `DEFAULT_GRID`, `VIEWPORT_NODE`, `ROOT_NODE`); the document reducers
 //          `dockInGridDoc`, `updateGrid`, `gridOf`, `isInGrid`, `floatPanelAt`
