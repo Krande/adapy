@@ -115,6 +115,12 @@ export interface SimulationBodyProps extends ResultControlsOptions {
     forcedTabId?: string;
     /** Leave out plugin tabs whose panel names a `dock`, for a shell that docks them itself. */
     excludeDockedTabs?: boolean;
+    /**
+     * The built-in Results, FE model and Legend tabs. False: plugin tabs only, for a
+     * shell that has the result controls elsewhere (`AnimationControls` in a toolbar).
+     * Default true.
+     */
+    builtinTabs?: boolean;
 }
 
 /**
@@ -123,7 +129,8 @@ export interface SimulationBodyProps extends ResultControlsOptions {
  * in a follower window. The frame needs the last for its header, the content the
  * rest, so both take it from here.
  */
-export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs?: boolean} = {}) {
+export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs?: boolean; builtinTabs?: boolean} = {}) {
+    const builtin = opts.builtinTabs !== false;
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     // Panel-visibility now lives in tableNavStore so external
     // triggers (ObjectInfoBoxComponent's "Show in data" button) can
@@ -145,11 +152,11 @@ export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs
     // Phones: the colour legend is a tab here rather than floating over the canvas.
     const isMobile = useIsMobile();
     const legendShown = useColorStore((s) => s.showLegend);
-    const legendTab = !forcedTabId && isMobile && sessionActive && legendShown;
+    const legendTab = builtin && !forcedTabId && isMobile && sessionActive && legendShown;
     // The FE model tab: masses, supports, constraints, load scenarios.
     const manifest = useFeaAnimationStore((s) => s.manifest);
     const femHasConcepts = useFemConceptsStore(hasFemConcepts);
-    const modelTab = !forcedTabId && feModelLoaded({manifest, femHasConcepts});
+    const modelTab = builtin && !forcedTabId && feModelLoaded({manifest, femHasConcepts});
 
     // The last pick, for the model it was made on; a tab that went away (model
     // unloaded, plugin deactivated) falls back to the default.
@@ -159,16 +166,18 @@ export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs
     const tabKey = simTabKey(sourceName, hasResults);
     const remembered = useSimPanelStore((s) => s.remembered);
     const selectTab = (tab: string) => useSimPanelStore.getState().remember(tab, tabKey);
-    const activeTab = forcedTabId ?? resolveSimTab(
+    const resolved = resolveSimTab(
         remembered,
         tabKey,
         (tab) =>
-            tab === RESULTS_TAB
+            (builtin && tab === RESULTS_TAB)
             || (tab === MODEL_TAB && modelTab)
             || (tab === LEGEND_TAB && legendTab)
             || tabs.some((t) => t.panel.id === tab),
         {hasResults, hasModel: modelTab},
     );
+    // Without the built-in tabs, the first plugin tab stands in for Results.
+    const activeTab = forcedTabId ?? (builtin || resolved !== RESULTS_TAB ? resolved : (tabs[0]?.panel.id ?? ""));
 
     const onOpenWindow = () => {
         // The built-in tabs need this window's scene; the follower opens on a plugin tab.
@@ -190,7 +199,7 @@ export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs
 
     return {
         forcedTabId, stores, tabs, legendTab, modelTab, activeTab, selectTab, activePluginTab,
-        sessionActive, hasResults, showSimData, togglePanel, onOpenWindow,
+        sessionActive, hasResults, showSimData, togglePanel, onOpenWindow, builtin,
     };
 }
 
@@ -200,13 +209,14 @@ export type SimulationTabs = ReturnType<typeof useSimulationTabs>;
 export const SimulationContent: React.FC<{sim: SimulationTabs} & ResultControlsOptions> = ({sim, ...display}) => {
     const {
         forcedTabId, stores, tabs, legendTab, modelTab, activeTab, selectTab, activePluginTab,
-        sessionActive, hasResults, showSimData, togglePanel,
+        sessionActive, hasResults, showSimData, togglePanel, builtin,
     } = sim;
     return (
         <div className="flex flex-col gap-2 min-w-0">
-            {!forcedTabId && (tabs.length > 0 || legendTab || modelTab) && (
+            {!forcedTabId && (builtin ? tabs.length > 0 || legendTab || modelTab : tabs.length > 1) && (
                 <SimTabStrip
                     tabs={tabs}
+                    results={builtin}
                     legendTab={legendTab}
                     modelTab={modelTab}
                     activeTab={activeTab}
@@ -214,7 +224,11 @@ export const SimulationContent: React.FC<{sim: SimulationTabs} & ResultControlsO
                     ctxFor={(pid) => makePluginContext(pid, stores)}
                 />
             )}
-            {legendTab && activeTab === LEGEND_TAB ? (
+            {!builtin && !activePluginTab ? (
+                <p className="text-xs italic text-gray-400" data-testid="sim-no-tools">
+                    No simulation tools for this model.
+                </p>
+            ) : legendTab && activeTab === LEGEND_TAB ? (
                 <ColorLegend placement="panel" />
             ) : modelTab && activeTab === MODEL_TAB ? (
                 <FemConceptsPanel />
@@ -238,8 +252,8 @@ export const SimulationContent: React.FC<{sim: SimulationTabs} & ResultControlsO
 };
 
 /** The Simulation panel's content, with its own tab state. */
-export const SimulationBody: React.FC<SimulationBodyProps> = ({forcedTabId, excludeDockedTabs, ...display}) => (
-    <SimulationContent sim={useSimulationTabs(forcedTabId, {excludeDockedTabs})} {...display}/>
+export const SimulationBody: React.FC<SimulationBodyProps> = ({forcedTabId, excludeDockedTabs, builtinTabs, ...display}) => (
+    <SimulationContent sim={useSimulationTabs(forcedTabId, {excludeDockedTabs, builtinTabs})} {...display}/>
 );
 
 /** The result controls on their own -- the FEA transport and pickers, or the GLTF clip
@@ -307,23 +321,27 @@ const AnimationTab: React.FC<{
 
 const SimTabStrip: React.FC<{
     tabs: SimulationTabEntry[];
+    /** The built-in Results tab. */
+    results?: boolean;
     legendTab: boolean;
     modelTab: boolean;
     activeTab: string;
     onSelect: (id: string) => void;
     ctxFor: (pluginId: string) => AdaPluginContext;
-}> = ({tabs, legendTab, modelTab, activeTab, onSelect, ctxFor}) => (
+}> = ({tabs, results = true, legendTab, modelTab, activeTab, onSelect, ctxFor}) => (
     <div
         className="flex flex-wrap gap-0.5 border-b border-white/15"
         role="tablist"
         aria-label="Simulation panel section"
     >
-        <SimTabButton
-            id={RESULTS_TAB}
-            label={RESULTS_TAB_LABEL}
-            active={activeTab === RESULTS_TAB}
-            onClick={() => onSelect(RESULTS_TAB)}
-        />
+        {results && (
+            <SimTabButton
+                id={RESULTS_TAB}
+                label={RESULTS_TAB_LABEL}
+                active={activeTab === RESULTS_TAB}
+                onClick={() => onSelect(RESULTS_TAB)}
+            />
+        )}
         {modelTab && (
             <SimTabButton
                 id={MODEL_TAB}

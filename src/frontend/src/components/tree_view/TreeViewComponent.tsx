@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
-import {CustomNode, TreeNodeData} from './CustomNode';
+import {CustomNode, SceneTreeRowContext, TreeNodeData, type SceneTreeRowOptions} from './CustomNode';
 import {sceneTreeRow} from './SceneTreeRow';
 import {useSceneMenuStore} from '@/state/sceneMenuStore';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
@@ -40,9 +40,14 @@ export interface SceneTreeProps {
     onSelectOverride?: (ids: string[]) => boolean;
     /** Rendered under the search row. */
     header?: React.ReactNode;
+    /** Drawn at each row's end, before its eye (a badge, a property chip). */
+    rowExtras?: SceneTreeRowOptions["rowExtras"];
+    /** Classes added to a row. */
+    rowClassName?: SceneTreeRowOptions["rowClassName"];
 }
 
-const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabels = ROOT_FILTER_LABELS, extraRoots, onSelectOverride, header}) => {
+const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabels = ROOT_FILTER_LABELS, extraRoots, onSelectOverride, header, rowExtras, rowClassName}) => {
+    const rowOptions = React.useMemo(() => ({rowExtras, rowClassName}), [rowExtras, rowClassName]);
     const {useTreeViewStore} = useViewerStores();
     const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope, rootLabelMode, setRootLabelMode} = useTreeViewStore();
     const {useModelState} = useViewerStores();
@@ -260,6 +265,7 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
                     closeTreeFromKeyboard();
                 }}
             >
+                <SceneTreeRowContext.Provider value={rowOptions}>
                 <Tree
                     // No focus ring: arborist moves DOM focus onto the cursor row, and the browser's
                     // outline drew a box around it on top of the selection highlight.
@@ -311,6 +317,7 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
                 >
                     {CustomNode}
                 </Tree>
+                </SceneTreeRowContext.Provider>
             </div>
 
         </div>

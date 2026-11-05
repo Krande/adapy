@@ -25,6 +25,16 @@ export interface TreeNodeData {
     meta?: string;
 }
 
+/** What a host adds to the Scene tree's rows (`SceneTreeProps.rowExtras` / `rowClassName`). */
+export interface SceneTreeRowOptions {
+    /** Drawn at the row's end, before its eye: a host's badge, a property chip. */
+    rowExtras?: (row: TreeNodeData) => React.ReactNode;
+    /** Classes added to the row (a host's emphasis for some rows). */
+    rowClassName?: (row: TreeNodeData) => string | undefined;
+}
+
+export const SceneTreeRowContext = React.createContext<SceneTreeRowOptions>({});
+
 const VISIBILITY_TITLE: Record<RowVisibility, string> = {
     shown: "Visible -- click to hide",
     hidden: "Hidden -- click to show",
@@ -41,6 +51,8 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
     const version = useVisibilityStore((s) => s.version);
     const visibility = rowVisibility(data, version, node.tree.props.data);
     const hidden = visibility === "hidden";
+    const {rowExtras, rowClassName} = React.useContext(SceneTreeRowContext);
+    const extraClass = rowClassName?.(data);
 
     return (
         <div
@@ -48,7 +60,7 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
             ref={dragHandle}
             className={`group flex items-center gap-1.5 cursor-pointer mr-1 my-1 pr-1 rounded ${
                 isSelected ? 'bg-blue-700' : 'hover:bg-white/5'
-            }`}
+            }${extraClass ? ` ${extraClass}` : ''}`}
             title={hidden ? `${data.name} (hidden)` : undefined}
         >
             <span
@@ -70,6 +82,7 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                     {data.meta}
                 </span>
             )}
+            {rowExtras?.(data)}
             {visibility !== "none" && (
                 <button
                     type="button"

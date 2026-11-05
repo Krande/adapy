@@ -98,6 +98,8 @@ export interface CellBuilderBodyProps {
   showComponentList?: boolean;
   /** Shown instead of the panel while no model is open. Default: the panel, empty. */
   emptyState?: React.ReactNode;
+  /** The pinned footer (Commit, Compile), for a shell that has them in its toolbar. Default on. */
+  showFooter?: boolean;
 }
 
 /** The cellbuilder panel's content, with its own UI state. */
@@ -114,6 +116,7 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState} & CellB
   showAddButtons = true,
   showComponentList = true,
   emptyState,
+  showFooter = true,
 }) => {
   const s = useCellBuilderStore();
   const {
@@ -183,7 +186,7 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState} & CellB
         </div>
       )}
 
-      <PanelFooter onSaved={browser.refresh} />
+      {showFooter && <PanelFooter onSaved={browser.refresh} />}
     </>
   );
 };

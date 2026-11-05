@@ -25,6 +25,8 @@ export type { ObjectInfoBodyProps } from "@/components/info_box_selected_object/
 export { STORAGE_MODIFIED_MIN_PX, StorageBody } from "@/components/storage/StorageBrowser";
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
+export type { OptionsBodyProps, OptionsSectionId } from "@/components/OptionsComponent";
+export type { SceneTreeRowOptions } from "@/components/tree_view/CustomNode";
 export {
   AnimationControls,
   SimulationBody,

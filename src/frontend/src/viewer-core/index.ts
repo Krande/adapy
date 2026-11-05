@@ -279,6 +279,10 @@
 //          `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`
 //          (`LayoutPrefs.workspaces`). Core's convert and admin panels take content
 //          options.
+//          Body options: `SimulationBodyProps.builtinTabs` (false: plugin tabs only),
+//          `CellBuilderBodyProps.showFooter`, `OptionsBodyProps` (`sections`,
+//          `hiddenSections`: `OptionsSectionId`), `SceneTreeProps.rowExtras` /
+//          `rowClassName` (`SceneTreeRowOptions`).
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
