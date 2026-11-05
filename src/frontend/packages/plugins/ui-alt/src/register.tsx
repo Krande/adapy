@@ -100,6 +100,8 @@ export function register(): void {
             },
           ],
         },
+        // Restyles core's chrome while this shell is active (docs/UI_SHELLS.md lists the tokens).
+        themeTokens: { "--ada-tab-active-bg": "#065f46" },
         chrome: {
           // Lazily loaded: the header only downloads when this shell is the active one.
           header: () => import("./AltHeader"),

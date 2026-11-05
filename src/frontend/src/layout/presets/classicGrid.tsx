@@ -28,6 +28,7 @@ import {
   WindowHeaderButton,
   WindowHeaderMenuButton,
 } from "@/components/ui/PanelFrame";
+import {GROUP_DIVIDER, GROUP_HEADER, groupTabClass} from "@/components/ui/panelChrome";
 
 import {
   DROP_ATTR,
@@ -390,7 +391,7 @@ function Divider({
       aria-valuemax={100}
       aria-valuenow={value}
       tabIndex={0}
-      className={`group relative shrink-0 touch-none bg-gray-700 focus:outline-none ${row ? "w-1 cursor-ew-resize" : "h-1 cursor-ns-resize"}`}
+      className={`group relative shrink-0 touch-none ${GROUP_DIVIDER} focus:outline-none ${row ? "w-1 cursor-ew-resize" : "h-1 cursor-ns-resize"}`}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -504,9 +505,7 @@ function GroupTab({
       tabIndex={selected ? 0 : -1}
       {...{[GRID_TAB_ATTR]: panel.id, [ZONE_PANEL_ATTR]: panel.id}}
       {...(dragging ? dropAttrs(gridZone(group.id), {[DROP_INDEX_ATTR]: String(index), [DROP_AXIS_ATTR]: "x"}) : {})}
-      className={`relative shrink-0 max-w-[14rem] truncate select-none rounded-sm px-2 py-1 text-xs cursor-grab ${
-        selected ? "bg-gray-700 text-white" : "text-gray-400 hover:text-white hover:bg-white/10"
-      }`}
+      className={`relative shrink-0 max-w-[14rem] truncate select-none rounded-sm px-2 py-1 text-xs cursor-grab ${groupTabClass(selected)}`}
       title={panel.title}
       onClick={() => updateClassic((d) => updateGrid(d, (g) => setActiveTab(g, panel.id)))}
       onKeyDown={(e) => {
@@ -559,7 +558,7 @@ function GridGroup({
       {...(dragging ? dropAttrs(zone, {[DROP_EDGES_ATTR]: "all"}) : {})}
       className="relative flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden bg-[var(--ada-panel-bg)] text-[var(--ada-panel-text)] text-sm"
     >
-      <div className="flex items-center gap-1 h-9 shrink-0 pl-1 pr-1 border-b border-[var(--ada-panel-border)] bg-gray-800">
+      <div className={GROUP_HEADER}>
         <div
           role="tablist"
           aria-label={groupLabel(group.panels)}

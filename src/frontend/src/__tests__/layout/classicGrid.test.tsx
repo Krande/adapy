@@ -125,6 +125,15 @@ test("Move panel: float, the view's four edges, the other groups by their panels
   for (const l of [...labels("t:a"), ...search]) assert.doesNotMatch(l, /inner|outer|aux/i);
 });
 
+test("a column panel's header offers Float and the Move menu", async () => {
+  const { columnActions } = await import("@/layout/presets/classicUndock");
+  const ids = (id: string) => columnActions(getPanel(id)!, emptyLayoutDoc("classic", [])).map((a) => a.id);
+  assert.deepEqual(ids(CORE_PANEL_IDS.scene), ["float", "move"]);
+  assert.deepEqual(columnActions(getPanel(CORE_PANEL_IDS.scene)!).map((a) => a.id), ["float"], "no document: Float only");
+  const move = columnActions(getPanel(CORE_PANEL_IDS.scene)!, emptyLayoutDoc("classic", [])).find((a) => a.id === "move")!;
+  assert.ok(move.menu!.some((i) => i.label === "Dock right of the view"));
+});
+
 test("a drop on the panel column takes only a column panel; a grid drop needs an edge or a position", () => {
   assert.equal(P.dropPanel(CORE_PANEL_IDS.tree, { zone: CLASSIC_ZONES.menuColumn, index: null }), false);
   assert.equal(P.dropPanel("t:a", { zone: "grid:g1", index: null }), false);

@@ -225,6 +225,11 @@
 //          `ShellModeSwitcher`, `ShellModeToolbar` (a plugin mode's `toolbar`),
 //          `useShellMode`. A mode change is reported to the scene colouring
 //          (`notifyActiveModeSceneColor`) by core.
+//          Window and group chrome read `--ada-window-*`, `--ada-tab-*` and
+//          `--ada-group-divider` (falling back to the classic colours), so a
+//          shell's `themeTokens` restyle them; `GROUP_HEADER`, `groupTabClass`
+//          and `GROUP_DIVIDER` on `@/viewer-core/layout`. A dormant plugin's panels
+//          are unavailable (`setPluginContextFactory`, set by the bootstrap).
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
