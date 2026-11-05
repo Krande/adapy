@@ -68,6 +68,9 @@ export { WebsocketStatusBody } from "@/components/WebsocketStatusMenu";
 export {
   PANEL_CHROME,
   PANEL_SURFACE,
+  GROUP_DIVIDER,
+  GROUP_HEADER,
+  groupTabClass,
   WINDOW_CARD,
   WINDOW_HEADER,
   WINDOW_HEADER_BUTTON,

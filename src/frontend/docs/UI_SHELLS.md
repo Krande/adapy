@@ -170,6 +170,16 @@ window, its region host (the panel column, the Simulation or Admin tab strip, a
 core panel's section) leaves it out; its top-bar button stays and still opens and
 closes it.
 
+`themeTokens` restyles core's chrome without touching its markup. Panels read
+`--ada-panel-bg`, `--ada-panel-border`, `--ada-panel-text`,
+`--ada-panel-surface` and `--ada-panel-text-muted` (also set by the user's theme
+picker, which a shell's tokens override while it is active). Windows and the
+split grid's groups read `--ada-window-bg`, `--ada-window-border`,
+`--ada-window-header-bg` (also a group's tab strip), `--ada-window-header-text`,
+`--ada-window-button-bg`, `--ada-window-button-border`, `--ada-tab-active-bg`,
+`--ada-tab-active-text`, `--ada-tab-text` and `--ada-group-divider`; unset, each
+falls back to the classic look (`components/ui/panelChrome.ts`).
+
 A shell with **modes** lists them in `layout.modes`. Each mode may give its own
 `grid`, `open` and `docks` (else the shell's) and keeps its own saved
 arrangement. Plugins' modes (`PluginSpec.modes`) follow the shell's and start

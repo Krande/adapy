@@ -51,7 +51,7 @@ import {PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
 import {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS} from "../classicBodies";
 import {CORE_PANEL_IDS, CORE_PANEL_OWNER, corePanelEnv, registerCorePanels} from "../corePanels";
 import {FloatLayer, type WindowChrome} from "../FloatLayer";
-import {CLASSIC_PRESET_ID, CLASSIC_ZONES, customisablePanelsOn, type LayoutPreset} from "../layout";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, customisablePanelsOn, type LayoutDoc, type LayoutPreset} from "../layout";
 import {LayoutHost, PanelMount, usePanelStates, useLayout, zonePanels} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
 import {viewerLayoutPersistence} from "../viewerPersistence";
@@ -70,6 +70,7 @@ import type {WindowDock} from "@/components/ui/PanelFrame";
 import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
 import {GridView, ViewportDropTarget} from "./classicGrid";
 import {setPlacedElsewhere} from "../placedElsewhere";
+import {ShortcutKeys} from "../ShortcutKeys";
 import {offeredInMode} from "../shellModes";
 import {
   adoptDockedPanels,
@@ -210,12 +211,14 @@ function ColumnPanel({
   env,
   proceduralActive,
   customisable,
+  doc,
 }: {
   panel: RegisteredPanel;
   state: PanelState;
   env: PanelEnv;
   proceduralActive: boolean;
   customisable: boolean;
+  doc: LayoutDoc;
 }) {
   if (!mounts(panel.id, {state, env, proceduralActive})) return null;
   const props: PanelProps = {
@@ -230,7 +233,7 @@ function ColumnPanel({
   // Always provided (it draws no DOM), so turning the setting on or off never remounts a panel.
   return (
     <PanelHeaderActionsProvider
-      actions={customisable ? columnActions(panel) : NO_ACTIONS}
+      actions={customisable ? columnActions(panel, doc) : NO_ACTIONS}
       panelId={customisable ? panel.id : undefined}
     >
       {wrapped}
@@ -255,6 +258,7 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
           env={env}
           proceduralActive={proceduralActive}
           customisable={customisable}
+          doc={doc}
         />
       )}
       {p.id === CORE_PANEL_IDS.cellbuilder && proceduralActive && <CellBuilderOverlays />}
@@ -319,7 +323,7 @@ function TreeZone() {
     <>
       {panels.map((p) =>
         mounts(p.id, {state: states.get(p.id)!, env, proceduralActive: false}) && shownPlace(doc, p.id, customisable, narrow) === "home" ? (
-          <PanelHeaderActionsProvider key={p.id} actions={customisable ? columnActions(p) : NO_ACTIONS} panelId={customisable ? p.id : undefined}>
+          <PanelHeaderActionsProvider key={p.id} actions={customisable ? columnActions(p, doc) : NO_ACTIONS} panelId={customisable ? p.id : undefined}>
             <PanelMount
               panel={p}
               provided={CLASSIC_PANEL_COMPONENTS[p.id]}
@@ -472,6 +476,9 @@ function ClassicFrame() {
 
       {/* Panels the user floated ("Customisable panels"), the drop targets, and the keys between zones. */}
       {customisable && <ClassicZoneKeys />}
+      {/* Shells' and plugins' own shortcuts, and their panels'. */}
+      <ShortcutKeys />
+
       {customisable && <ColumnDropTarget />}
       {gridOn && <ViewportDropTarget viewport={viewportRef} />}
       {customisable && <UndockedLayer panels={floatable} mounts={mount} contents={CLASSIC_PANEL_CONTENTS} />}

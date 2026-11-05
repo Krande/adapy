@@ -17,6 +17,7 @@ import {
   getSimulationTabs,
   registerPlugin,
   resetRegistry,
+  setPluginContextFactory,
   type PanelSlot,
 } from "@/plugins/registry";
 
@@ -165,6 +166,20 @@ test("a disabled plugin's panels are unavailable", () => {
   assert.deepEqual(listPanels({}).map((p) => p.id), ["fine:p"]);
   // Still registered: availability, not removal.
   assert.ok(getPanel("flaky:p"));
+});
+
+test("a dormant plugin's panels are unavailable once the bootstrap gives a context to ask with", () => {
+  let awake = false;
+  registerPlugin({ id: "sleepy", activationPredicate: () => awake, panels: [{ id: "p", region: "top-panel", render }] });
+  assert.deepEqual(listPanels({}).map((p) => p.id), ["sleepy:p"], "no context: only disabling counts");
+  setPluginContextFactory((pluginId) => ({ pluginId }) as never);
+  try {
+    assert.deepEqual(listPanels({}).map((p) => p.id), []);
+    awake = true;
+    assert.deepEqual(listPanels({}).map((p) => p.id), ["sleepy:p"]);
+  } finally {
+    setPluginContextFactory(null);
+  }
 });
 
 test("resetRegistry drops the plugins' panels too, so a re-registration is not a duplicate", () => {

@@ -40,6 +40,7 @@ import {
   FLOAT_MIN_SIZE,
   HOME_LABEL,
   backHome,
+  canDock,
   canFloat,
   dropPanel,
   floatOut,
@@ -51,14 +52,18 @@ import {
 
 const DRAG_HANDLE = "classic-undock-drag-handle";
 
-/** The actions a column or tree-track panel's own header offers. */
-export function columnActions(panel: RegisteredPanel): PanelAction[] {
-  if (!canFloat(panel)) return [];
-  const run = () => {
-    requestFloatFocus(panel.id);
-    floatOut(panel.id);
-  };
-  return [{id: "float", label: "Float in a window", icon: FloatGlyph, run}];
+/** The actions a column or tree-track panel's own header offers: Float, and the Move menu when it can dock. */
+export function columnActions(panel: RegisteredPanel, doc?: LayoutDoc): PanelAction[] {
+  const out: PanelAction[] = [];
+  if (canFloat(panel)) {
+    const run = () => {
+      requestFloatFocus(panel.id);
+      floatOut(panel.id);
+    };
+    out.push({id: "float", label: "Float in a window", icon: FloatGlyph, run});
+  }
+  if (doc && canDock(panel)) out.push(moveAction(panel, doc));
+  return out;
 }
 
 const closeFloat = (id: PanelId) => void hide(id);

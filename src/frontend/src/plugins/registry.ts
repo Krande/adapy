@@ -816,8 +816,27 @@ export function registerPlugin(spec: PluginSpec): void {
 
   // The same panels, in the panel registry's terms (see @/layout/pluginPanels).
   // Additive: the region hosts above still read `panels` directly.
-  const isDisabled = () => !!_registry.get(id)?.disabled;
-  for (const slot of panels) registerPanel(panelSpecFromSlot(id, slot, isDisabled), id);
+  // Unavailable while disabled, or while the plugin's own activation predicate is
+  // false (when the bootstrap gave a context to ask it with).
+  const isUnavailable = () => {
+    const p = _registry.get(id);
+    if (!p || p.disabled) return true;
+    if (!p.activationPredicate || !_contextFactory) return false;
+    return !isActive(p, _contextFactory(id));
+  };
+  for (const slot of panels) registerPanel(panelSpecFromSlot(id, slot, isUnavailable), id);
+}
+
+let _contextFactory: ((pluginId: string) => AdaPluginContext) | null = null;
+
+/**
+ * Hand the registry a way to build a plugin's context outside a mounted host, so
+ * a plugin's panels in the panel registry are unavailable while the plugin's own
+ * activation predicate is false (a dormant plugin's panels are not placed or
+ * listed). Called once by the bootstrap; without it only disabling counts.
+ */
+export function setPluginContextFactory(factory: ((pluginId: string) => AdaPluginContext) | null): void {
+  _contextFactory = factory;
 }
 
 /** All registered plugins in insertion order (test/introspection helper). */

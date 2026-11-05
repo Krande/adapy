@@ -4,6 +4,7 @@ import { useStore } from "zustand";
 import { OverlayPortal } from "@/components/ui/OverlayPortal";
 import { customisablePanelsOn } from "@/layout/layout";
 import { layoutStore } from "@/layout/layoutStore";
+import { listShortcuts } from "@/layout/shortcuts";
 
 // Single source of truth for the keyboard-shortcut help map. Grouped by
 // the CONTEXT in which the keys are live so the user knows WHERE/WHEN each
@@ -145,13 +146,19 @@ const PANEL_SHORTCUTS: ShortcutGroup = {
     },
     { keys: ["Shift", "F6"], description: "Move focus to the previous area" },
     { keys: ["Esc"], description: "While a floating panel has focus (not a text field): close it; focus returns to where it was" },
-    {
-      keys: ["Ctrl", "Alt", "Arrow"],
-      description:
-        "While a panel has focus: stack it with the docked group that way, or dock it at that edge of the view when there is none",
-    },
   ],
 };
+
+/** The registered shortcuts as dialog groups, in first-seen group order. */
+function registeredGroups(): ShortcutGroup[] {
+  const byGroup = new Map<string, Shortcut[]>();
+  for (const s of listShortcuts()) {
+    const g = s.group ?? "Shell and plugins";
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g)!.push({ keys: s.keys.split("+"), description: s.label });
+  }
+  return [...byGroup].map(([context, shortcuts]) => ({ context, when: "Active whenever the viewer has focus (ignored while typing in a field)", shortcuts }));
+}
 
 const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <kbd className="inline-block rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-xs font-mono text-gray-100 shadow-sm">
@@ -174,7 +181,12 @@ const ShortcutsModal: React.FC = () => {
   const [open, setOpen] = useState(false);
   const customisable = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
   const panelKeys = customisable ? PANEL_SHORTCUTS : null;
-  const groups = panelKeys ? [SHORTCUT_GROUPS[0], panelKeys, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS;
+  // A shell's and plugins' own shortcuts (`registerShortcut`, `PanelSpec.shortcut`), by group; read when opened.
+  const registered = open ? registeredGroups() : [];
+  const groups = [
+    ...(panelKeys ? [SHORTCUT_GROUPS[0], panelKeys, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS),
+    ...registered,
+  ];
 
   // Escape closes the modal (mirrors the other centered dialogs, e.g.
   // WorkerInfoModal). Only wired while open so it doesn't shadow the

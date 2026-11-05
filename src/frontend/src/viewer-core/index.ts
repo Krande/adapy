@@ -225,6 +225,16 @@
 //          `ShellModeSwitcher`, `ShellModeToolbar` (a plugin mode's `toolbar`),
 //          `useShellMode`. A mode change is reported to the scene colouring
 //          (`notifyActiveModeSceneColor`) by core.
+//          Window and group chrome read `--ada-window-*`, `--ada-tab-*` and
+//          `--ada-group-divider` (falling back to the classic colours), so a
+//          shell's `themeTokens` restyle them; `GROUP_HEADER`, `groupTabClass`
+//          and `GROUP_DIVIDER` on `@/viewer-core/layout`. A dormant plugin's panels
+//          are unavailable (`setPluginContextFactory`, set by the bootstrap).
+//          Shortcuts on the root: `registerShortcut` / `unregisterShortcut` /
+//          `listShortcuts` / `parseShortcut` (`ShortcutSpec`, `"Shift+K"`
+//          chords); core's own keys are `RESERVED_SHORTCUTS` and refused. A
+//          non-core panel's `PanelSpec.shortcut` toggles it. The layout dispatches
+//          them and the shortcuts dialog lists them.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -298,6 +308,15 @@ export {
   subscribeShellModes,
 } from "@/layout/shellModes";
 export type { ShellMode } from "@/layout/shellModes";
+// Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
+export {
+  RESERVED_SHORTCUTS,
+  listShortcuts,
+  parseShortcut,
+  registerShortcut,
+  unregisterShortcut,
+} from "@/layout/shortcuts";
+export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
 export { isComposedShell } from "@/plugins/uiShells";
 // Core's panel ids, for a composed shell's `layout` (dependency-free: the ids alone).
 export { CORE_PANEL_IDS, CORE_PANEL_OWNER } from "@/layout/corePanelIds";
