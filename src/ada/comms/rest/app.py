@@ -90,6 +90,7 @@ from .routes.fea import router as fea_router
 from .routes.plugin_jobs import enqueue_plugin_job
 from .routes.plugin_jobs import router as plugin_jobs_router
 from .routes.plugins import router as plugins_router
+from .routes.preferences import router as preferences_router
 from .routes.procedural_models import router as procedural_models_router
 from .routes.projects import router as projects_router
 from .routes.source_nodes import router as source_nodes_router
@@ -649,6 +650,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(content=reply, media_type="application/octet-stream")
 
     api.include_router(projects_router)
+    api.include_router(preferences_router)
 
     api.include_router(storage_router)
 

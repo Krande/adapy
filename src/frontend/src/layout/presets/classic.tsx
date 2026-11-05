@@ -54,7 +54,7 @@ import {FloatLayer, type WindowChrome} from "../FloatLayer";
 import {CLASSIC_PRESET_ID, CLASSIC_ZONES, type LayoutPreset} from "../layout";
 import {LayoutHost, PanelMount, usePanelStates, useLayout, zonePanels} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
-import {localLayoutPersistence} from "../localPersistence";
+import {viewerLayoutPersistence} from "../viewerPersistence";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
 import type {PanelState} from "../panelStates";
 import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
@@ -362,7 +362,7 @@ export default function ClassicLayout() {
   registerCorePanels();
   const env = React.useMemo(() => corePanelEnv(), []);
   React.useEffect(() => {
-    if (!layoutStore.getState().hydrated) void layoutStore.getState().hydrate(localLayoutPersistence());
+    if (!layoutStore.getState().hydrated) void layoutStore.getState().hydrate(viewerLayoutPersistence());
   }, []);
   return <LayoutHost preset={classicPreset} env={env} />;
 }

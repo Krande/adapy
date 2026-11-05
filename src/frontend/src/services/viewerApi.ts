@@ -35,6 +35,7 @@ import { adminUsersApi } from "./api/adminUsers";
 import { workersApi } from "./api/workers";
 import { metricsApi } from "./api/metrics";
 import { settingsApi } from "./api/settings";
+import { preferencesApi } from "./api/preferences";
 export { ApiError } from "./api/client";
 
 export const viewerApi = {
@@ -61,6 +62,7 @@ export const viewerApi = {
   ...workersApi,
   ...metricsApi,
   ...settingsApi,
+  ...preferencesApi,
 };
 
 // ── Re-exported DTO types (unchanged import path for ~90 call sites

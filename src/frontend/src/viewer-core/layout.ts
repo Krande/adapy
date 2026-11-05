@@ -100,6 +100,16 @@ export type { LayoutStoreState } from "@/layout/layoutStore";
 export { LAYOUT_PREFS_STORAGE_KEY, localLayoutPersistence } from "@/layout/localPersistence";
 export type { PrefsStorage } from "@/layout/localPersistence";
 export {
+  LAYOUT_PREFERENCE_KEY,
+  LAYOUT_SAVE_DEBOUNCE_MS,
+  serverLayoutPersistence,
+} from "@/layout/serverPersistence";
+export type {
+  PreferenceStore,
+  ServerLayoutPersistence,
+  ServerLayoutPersistenceOptions,
+} from "@/layout/serverPersistence";
+export {
   LAYOUT_DOC_VERSION,
   adoptNewPanels,
   closePanel,

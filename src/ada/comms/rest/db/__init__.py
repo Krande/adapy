@@ -294,6 +294,11 @@ from .source_nodes import (
     list_source_nodes_changed_since,
     record_source_nodes,
 )
+from .user_preferences import (
+    delete_user_preference,
+    get_user_preference,
+    set_user_preference,
+)
 from .workers import get_worker_packages, upsert_worker_packages
 
 __all__ = [
@@ -334,6 +339,9 @@ __all__ = [
     "get_worker_packages",
     "get_setting",
     "set_setting",
+    "get_user_preference",
+    "set_user_preference",
+    "delete_user_preference",
     "insert_cli_token",
     "check_cli_token",
     "list_cli_tokens",
