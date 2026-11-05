@@ -73,14 +73,116 @@ def _distributed(load: Load) -> bool:
     return False
 
 
-def _stress_cases(step, part, cases, together: bool = False) -> list[int] | None:
+#: ``AFFE_CHAR_MECA`` keywords that take one value (U4.44.01): two loads giving one cannot share a charge.
+_SINGLE_VALUED = frozenset({"PESANTEUR", "ROTATION"})
+
+
+def _charge_keywords(load_str: str) -> list[tuple[str, list[str]]]:
+    """The keywords of a load's ``AFFE_CHAR_MECA`` (as :func:`write_load` writes it) and the source of each of their
+    ``_F(...)`` items, ``MODELE`` left out; None when the string is not one such assignment."""
+    import ast
+
+    tree = ast.parse(load_str)
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Assign):
+        return None
+    call = tree.body[0].value
+    if not isinstance(call, ast.Call) or getattr(call.func, "id", None) != "AFFE_CHAR_MECA":
+        return None
+    out = []
+    for kw in call.keywords:
+        if kw.arg == "MODELE":
+            continue
+        items = kw.value.elts if isinstance(kw.value, (ast.Tuple, ast.List)) else [kw.value]
+        out.append((kw.arg, [ast.get_source_segment(load_str, it) for it in items]))
+    return out
+
+
+def _item_entities(item: str, fem) -> set | None:
+    """The mesh entities a keyword item of a charge acts on -- ``("MA", element id)`` / ``("NO", node id)`` of its
+    ``GROUP_MA`` / ``GROUP_NO`` groups, ``{"ALL"}`` for ``TOUT`` or an item of no group (``PESANTEUR``); None when a
+    group is not one of ``fem``'s sets."""
+    import re
+
+    groups = re.findall(r"GROUP_(MA|NO)\s*=\s*\(?((?:\s*'[^']*'\s*,?)+)\)?", item)
+    if not groups:
+        return {"ALL"}
+    out = set()
+    for kind, names in groups:
+        for name in re.findall(r"'([^']*)'", names):
+            fs = (fem.elsets if kind == "MA" else fem.nsets).get(name)
+            if fs is None:
+                return None
+            ids = getattr(fs, "_member_ids", None)
+            out |= {(kind, int(i)) for i in (ids if ids is not None else [m.id for m in fs.members])}
+    return out
+
+
+def merged_charge_str(name: str, loads, fem=None) -> str | None:
+    """One ``AFFE_CHAR_MECA`` named ``name`` holding every keyword item of ``loads``' own charges; None when it would
+    not load the model as the separate charges do: two of them give a keyword that takes one value
+    (:data:`_SINGLE_VALUED`), or (``fem`` given) items of one keyword from two loads act on a common element or node --
+    in one charge the later item replaces the earlier there, where two charges add -- or a charge is not of the form
+    it is read in.
+
+    What it is for: Code_Aster computes a beam model's stresses and element forces over one charge with distributed
+    loads at most (<CALCULEL2_92> counts charges, not loads -- measured, 18.1.11: a case of eight line-load charges
+    stopped there, the same items in one charge computed, with the same displacements to every printed digit). A load
+    case of several distributed loads is solved over this one charge instead. Measured: merging a case's point loads
+    too, two of them on one node, left one of them out (tests/fem/test_code_aster_case_stresses.py: 22.6 kN of
+    23.6 kN at the root).
+    """
+    merged: dict[str, list[str]] = {}
+    seen: dict[str, set] = {}
+    for ld in loads:
+        keywords = _charge_keywords(write_load(ld))
+        if keywords is None:
+            return None
+        for key, items in keywords:
+            if key in _SINGLE_VALUED and key in merged:
+                return None
+            if fem is not None:
+                mine = set()
+                for item in items:
+                    entities = _item_entities(item, fem)
+                    if entities is None:
+                        return None
+                    mine |= entities
+                if mine & seen.get(key, set()) or ("ALL" in mine and key in seen):
+                    return None
+                seen.setdefault(key, set()).update(mine)
+            merged.setdefault(key, []).extend(items)
+    body = "".join(
+        f"    {key}=(\n" + "".join(f"        {item},\n" for item in items) + "    ),\n" for key, items in merged.items()
+    )
+    return f"{name} = AFFE_CHAR_MECA(\n    MODELE=model,\n{body})"
+
+
+def _case_charges(result: str, cases, fem) -> tuple[list[list[str]], list[str]]:
+    """Each case's charges, and the merged charges (:func:`merged_charge_str`) they use: a case of more than one
+    distributed load is solved over one charge of its distributed loads, ``<result>_c<k>``, where they can share one,
+    and its other loads' own charges; any other case over its loads' own charges."""
+    charges, definitions = [], []
+    for k, (_, case_loads) in enumerate(cases, start=1):
+        own = [concept_name(ld, "load") for ld in case_loads]
+        distributed = [ld for ld in case_loads if _distributed(ld)]
+        if len(distributed) > 1:
+            merged = merged_charge_str(f"{result}_c{k}", distributed, fem)
+            if merged is not None:
+                definitions.append(merged)
+                own = [f"{result}_c{k}"] + [concept_name(ld, "load") for ld in case_loads if not _distributed(ld)]
+        charges.append(own)
+    return charges, definitions
+
+
+def _stress_cases(step, part, cases, together: bool = False, merged=()) -> list[int] | None:
     """The 1-based cases whose stresses and element forces ``CALC_CHAMP`` can compute; ``None`` for all of them.
 
     Code_Aster computes a beam model's stresses and element forces with one distributed load at most -- measured,
     18.1.8: ``CONTRAINTE=("SIEF_ELNO",)`` over a result whose loads held several stopped at <CALCULEL2_92> ("votre
     chargement contient plus d'une charge répartie ... modèles de poutre"), where ``FORCE=("REAC_NODA",)`` ran. A case
     with more is reported and keeps its displacements and reactions. ``together``: the cases are instants of one
-    ``MECA_STATIQUE``, whose result holds every case's loads, so they are counted over all the cases.
+    ``MECA_STATIQUE``, whose result holds every case's loads, so they are counted over all the cases. ``merged``: the
+    1-based cases solved over one merged charge (:func:`_case_charges`), whose stresses are computed.
     """
     from ada.fem.formats import conversion_report
 
@@ -91,6 +193,9 @@ def _stress_cases(step, part, cases, together: bool = False) -> list[int] | None
     every = _distinct([ld for _, case_loads in cases for ld in case_loads])
     ok = []
     for k, (name, case_loads) in enumerate(cases, start=1):
+        if k in merged and not together:
+            ok.append(k)
+            continue
         if sum(1 for ld in (every if together else case_loads) if _distributed(ld)) > 1:
             conversion_report.current().omitted(
                 STAGE,
@@ -166,7 +271,11 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
     resu_cara_str = ", CARA_ELEM=element" if has_shells_or_beams else ""
 
     instants = settled and len(step.load_cases) > 0
-    stress_cases = _stress_cases(step, part, cases, together=instants)
+    case_charges, merged_defs = ([], []) if instants else _case_charges(result, cases, part.fem)
+    if merged_defs:
+        load_str += "\n" + "\n".join(merged_defs)
+    merged = {k for k, chs in enumerate(case_charges, start=1) if f"{result}_c{k}" in chs}
+    stress_cases = _stress_cases(step, part, cases, together=instants, merged=merged)
     if stress_cases is None:
         targets = None
     elif len(stress_cases) == 0:
@@ -184,7 +293,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
         if settled:
             pd_str = prescribed_charge_str(f"{result}_pd", values[0], bcs) + "\n"
             excit += f"_F(CHARGE={result}_pd),"
-        excit += "".join(f"_F(CHARGE={concept_name(ld, 'load')})," for ld in loads)
+        excit += "".join(f"_F(CHARGE={name})," for name in case_charges[0])
         solve = f"""{pd_str}{result} = MECA_STATIQUE(
     MODELE=model,
     CHAM_MATER=material,{sec_str}
@@ -194,9 +303,8 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
             targets = None if targets else []
     else:
         rows = "\n".join(
-            f"        _F(NOM_CAS='{_nom_cas(name, k)}', CHAR_MECA=({''.join(concept_name(ld, 'load') + ',' for ld in lds)}), "
-            f"OPTION='SANS'),"
-            for k, (name, lds) in enumerate(cases, start=1)
+            f"        _F(NOM_CAS='{_nom_cas(name, k)}', CHAR_MECA=({''.join(ch + ',' for ch in chs)}), OPTION='SANS'),"
+            for k, ((name, _), chs) in enumerate(zip(cases, case_charges), start=1)
         )
         order = "\n".join(f"#   {k}: {name}" for k, (name, _) in enumerate(cases, start=1))
         solve = f"""# Load cases of step {step.name}, by order number:
@@ -307,10 +415,24 @@ def _solver_str(part) -> str:
     stiffness (``COEF_RIGI_DRZ`` 1e-3 / 1e-7: 6.17e-6 / 5.05e-6); DKT on the same mesh: 4.4e-8. So the check is kept,
     at 1e-4 -- an answer within about 5e-7 of the exact one by the measured ratio -- and a shell thinner or finer than
     that still stops at <FACTOR_57>, which the runner raises by name.
+
+    ``options.CODE_ASTER.solver`` (:class:`~ada.fem.formats.code_aster.options.CodeAsterOptions`) overrides this: the
+    method, and for MUMPS ``options.CODE_ASTER.resi_rela`` (else the value above). A stiff part in a model -- a
+    "rigid" beam of E 1000 times steel's -- makes MUMPS's estimate exceed 1e-6 the same way on DKT shells and beams
+    (measured, 18.1.11: a 22 000-dof model of shells and beams with such parts, 2.5e-6, a false alarm: MULT_FRONT
+    and MUMPS at 1e-4 gave the same displacements to 1e-11 m), and there was no way round it but editing the deck.
     """
     from ada.fem.shapes.definitions import ShellShapes
 
-    if not any(el.type in (ShellShapes.TRI6, ShellShapes.QUAD8) for el in part.fem.elements):
+    from ..solver import solveur_str
+
+    opts = part.fem.options.CODE_ASTER
+    second_order = any(el.type in (ShellShapes.TRI6, ShellShapes.QUAD8) for el in part.fem.elements)
+    if opts.solver is not None:
+        return solveur_str(
+            opts.solver, opts.resi_rela if opts.resi_rela is not None else (1e-4 if second_order else None)
+        )
+    if not second_order:
         return ""
     return "\n    SOLVEUR=_F(METHODE='MUMPS', RESI_RELA=1e-4),"
 

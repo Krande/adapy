@@ -24,9 +24,10 @@ from .write_constraints import (
     step_bcs,
 )
 from .write_loads import add_line_load_groups
+from .write_masses import mass_model_str, point_masses
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
-from .write_sections import create_sections_str
+from .write_sections import create_sections_str, has_shear_deformation
 from .write_steps import all_steps, steps_str
 
 if TYPE_CHECKING:
@@ -98,11 +99,14 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
+    masses = point_masses(part)
     sections_str = create_sections_str(
         part.fem.sections,
         has_ref_points=len(couplings) > 0,
         ref_points_group=ref_group,
         membrane_large_strain=membranes_large_strain(part, all_steps(assembly)),
+        masses=masses,
+        timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams,
     )
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
@@ -119,13 +123,19 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
 
-    model_type_str = ""
+    # Point masses: DIS_T discrete elements on their POI1 cells (write_masses).
+    model_type_str = mass_model_str(masses)
     section_sets = ""
     input_mesh = "mesh"
     lines = part.fem.sections.lines
-    # Beams are Euler-Bernoulli POU_D_E; trusses BARRE; cables CABLE (U3.11.01, U3.11.04, U3.11.06).
+    # Beams are Euler-Bernoulli POU_D_E, or with options.CODE_ASTER.use_timoshenko_beams Timoshenko POU_D_T where the
+    # section has shear areas (write_sections.write_beam_section); trusses BARRE; cables CABLE (U3.11.01, U3.11.04,
+    # U3.11.06).
+    beams = [fs for fs in lines if not fs.is_axial_only]
+    timoshenko = part.fem.options.CODE_ASTER.use_timoshenko_beams
     for group, el_formula, members in (
-        ("bm_sets", "POU_D_E", [fs for fs in lines if not fs.is_axial_only]),
+        ("bm_sets", "POU_D_E", [fs for fs in beams if not (timoshenko and has_shear_deformation(fs))]),
+        ("bm_t_sets", "POU_D_T", [fs for fs in beams if timoshenko and has_shear_deformation(fs)]),
         ("tr_sets", "BARRE", [fs for fs in lines if fs.is_axial_only and not fs.is_cable]),
         ("cb_sets", "CABLE", [fs for fs in lines if fs.is_cable]),
     ):

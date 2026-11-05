@@ -128,9 +128,11 @@ def test_a_point_load_is_force_nodale_and_gravity_has_its_direction(tmp_path):
     assert "PESANTEUR=_F(DIRECTION=(0.0, -1.0, 0.0), GRAVITE=9.81)" in comm
 
 
-def test_a_load_case_with_two_distributed_beam_loads_keeps_its_displacements_and_is_named(tmp_path):
-    """Code_Aster computes a beam model's stresses with one distributed load at most (<CALCULEL2_92>, measured): such a
-    case is left out of the stress calculation by name; the others are asked for by order number."""
+def test_a_load_case_with_two_distributed_beam_loads_is_solved_over_one_charge(tmp_path):
+    """Code_Aster computes a beam model's stresses over one charge with distributed loads at most (<CALCULEL2_92>,
+    which counts charges): a case of a line load and gravity is solved over one charge holding both, ``result_c<k>``,
+    and its stresses are computed with the others'. (It used to be left out of the stress calculation, and on
+    Code_Aster 18.1.11 even ``REAC_NODA`` stopped at <CALCULEL2_92> over the separate charges.)"""
     a, p, _ = _beam()
     ld = p.concept_fem.loads
     q = (0, 0, -1000.0)
@@ -142,10 +144,32 @@ def test_a_load_case_with_two_distributed_beam_loads_keeps_its_displacements_and
     )
     p.fem = p.to_fem_obj(0.5, bm_repr="line")
     comm, report = _comm(a, tmp_path)
+    k = next(i for i, line in enumerate(re.findall(r"^#   \d+: (.*)$", comm, re.M), start=1) if line == "LC_ug")
+    merged = re.search(rf"^result_c{k} = AFFE_CHAR_MECA\((.*?)^\)", comm, re.M | re.S)[1]
+    assert "FORCE_POUTRE=(" in merged and "PESANTEUR=(" in merged
+    assert re.search(rf"_F\(NOM_CAS='LC_ug', CHAR_MECA=\(result_c{k},\), OPTION='SANS'\)", comm)
     assert re.search(r"CONTRAINTE=.*", comm)
-    assert "NUME_ORDRE=(1, 2, 3,)," in comm
+    assert "NUME_ORDRE" not in comm  # every case's stresses
+    assert not [f for f in report.findings if f.keyword == "CALC_CHAMP"]
+
+
+def test_a_load_case_with_two_gravity_loads_cannot_share_a_charge_and_is_named(tmp_path):
+    """``PESANTEUR`` takes one value per charge, so a case of two acceleration fields keeps its loads' own charges and
+    is left out of the stress calculation by name; the others are asked for by order number."""
+    a, p, _ = _beam()
+    ld = p.concept_fem.loads
+    ld.add_load_case(
+        LoadConceptCase(
+            "LC_gg",
+            [LoadConceptAccelerationField("g1", (0, 0, -9.81)), LoadConceptAccelerationField("g2", (1.0, 0, 0))],
+        )
+    )
+    p.fem = p.to_fem_obj(0.5, bm_repr="line")
+    comm, report = _comm(a, tmp_path)
+    assert "result_c" not in comm
+    assert re.search(r"NUME_ORDRE=\([\d, ]+,\),", comm)
     (left,) = [f for f in report.findings if f.keyword == "CALC_CHAMP"]
-    assert (left.kind, left.subject) == ("omitted", "LC_ug")
+    assert (left.kind, left.subject) == ("omitted", "LC_gg")
 
 
 def test_a_load_of_a_kind_it_has_no_form_for_is_refused_by_name(tmp_path):

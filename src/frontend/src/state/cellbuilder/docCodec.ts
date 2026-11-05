@@ -9,7 +9,13 @@
  */
 
 import type {ProceduralDoc} from "@/services/viewerApi";
-import {normalizeGroups, resolveCellGroup, structureNameToGroup, type CellGroup} from "@/utils/cellbuilder/groups";
+import {
+  groupFromWire,
+  normalizeGroups,
+  resolveCellGroup,
+  structureNameToGroup,
+  type CellGroup,
+} from "@/utils/cellbuilder/groups";
 import {bandBounds, memberToBands, type LoftMemberDoc} from "@/utils/cellbuilder/loft";
 import type {BuilderCell, BuilderSystem, SystemType} from "./types";
 import {nextId} from "./shared";
@@ -74,15 +80,11 @@ function equipmentSpaceOffset(
   return [Number(s.X ?? 0), Number(s.Y ?? 0), oz];
 }
 
-/** The doc's cell groups (name + per-group blueprint), normalized (blank/dup
- * names dropped). Empty for an ungrouped doc. */
+/** The doc's cell groups (name + per-group blueprint + `include: false` when
+ * left out of the build), normalized (blank/dup names dropped). Empty for an
+ * ungrouped doc. */
 export function groupsFromDoc(doc: ProceduralDoc): CellGroup[] {
-  return normalizeGroups(
-    (doc.groups ?? []).map((g) => ({
-      name: String(g.name ?? ""),
-      blueprint: String(g.blueprint ?? ""),
-    })),
-  );
+  return normalizeGroups((doc.groups ?? []).map(groupFromWire));
 }
 
 /** Convert a stored document into builder cells.
