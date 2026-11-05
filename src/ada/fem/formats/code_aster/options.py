@@ -15,3 +15,7 @@ class CodeAsterOptions:
     solver: str | None = None
     #: MUMPS's ``RESI_RELA`` with ``solver="MUMPS"``: the error estimate it stops above (Code_Aster's default 1e-6).
     resi_rela: float | None = None
+    #: Also give the results as a Sesam Results Interface File, ``<name>R1.SIN``, for tools that read Sestra's (a code
+    #: check of the plating, a SIN viewer): the deck is written with the Sesam deck of the same model beside it,
+    #: ``<name>T1.FEM``, and a finished run's ``.rmed`` is converted (:mod:`.results.to_sin`).
+    write_sin: bool = False
