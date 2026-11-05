@@ -23,6 +23,8 @@
 
 import type React from "react";
 
+import type { GridNode } from "@/layout/splitTree";
+
 /** The built-in shell id — the stock Ada Studio UI. Always registered. */
 export const CORE_UI_SHELL_ID = "core";
 
@@ -31,6 +33,26 @@ export const UI_SHELL_URL_PARAM = "ui";
 
 /** localStorage key holding the user's sticky choice. */
 export const UI_SHELL_STORAGE_KEY = "ada:ui";
+
+/** Where a composed shell's panels start, for a user who has not arranged them yet. */
+export interface UiShellLayout {
+  /**
+   * The split grid around the viewport (`GridNode`, one viewport leaf). Used
+   * until the user rearranges anything; after that their own arrangement is
+   * kept, per shell. Absent: the viewport alone.
+   */
+  grid?: GridNode;
+  /** Panels opened when the shell loads. Where they show is the user's arrangement. */
+  open?: string[];
+}
+
+/** The chrome core draws around a composed shell's layout. */
+export interface UiShellChrome {
+  /** Drawn full width above the layout: the shell's own menu bar. Lazy. */
+  header?: () => Promise<{ default: React.ComponentType }>;
+  /** Core's top bar of panel toggles over the viewport. Default true. */
+  toolbar?: boolean;
+}
 
 /** A whole-UI implementation a plugin can contribute. */
 export interface UiShellSpec {
@@ -47,8 +69,24 @@ export interface UiShellSpec {
    * Lazy so a build that carries several shells only downloads the active one
    * (hosted, code-split build). The embed build inlines every chunk, so there
    * it costs bundle size but no extra request — see frontend.md.
+   *
+   * Omit it to COMPOSE the shell from core instead: core mounts its own root
+   * (routing, sign-in, the viewer provider) and its layout of floating and
+   * dockable panels, arranged and dressed by `layout`, `chrome` and
+   * `themeTokens`. A shell that gives `load` owns all of that itself.
    */
-  load: () => Promise<{ default: React.ComponentType }>;
+  load?: () => Promise<{ default: React.ComponentType }>;
+  /** A composed shell's starting arrangement. */
+  layout?: UiShellLayout;
+  /** A composed shell's chrome. */
+  chrome?: UiShellChrome;
+  /** CSS custom properties set on the document root while the shell is active (`--ada-*`). */
+  themeTokens?: Record<string, string>;
+}
+
+/** Is `spec` composed from core's layout (no root component of its own). */
+export function isComposedShell(spec: Pick<UiShellSpec, "load">): boolean {
+  return typeof spec.load !== "function";
 }
 
 export interface RegisteredUiShell extends UiShellSpec {
@@ -90,8 +128,8 @@ export function registerUiShell(spec: UiShellSpec, pluginId: string): void {
     console.warn(`[plugins] duplicate UI shell id "${id}"; ignoring the later registration`);
     return;
   }
-  if (typeof spec.load !== "function") {
-    console.warn(`[plugins] UI shell "${id}" has no load(); ignored`);
+  if (spec.load !== undefined && typeof spec.load !== "function") {
+    console.warn(`[plugins] UI shell "${id}" has a load that is not a function; ignored`);
     return;
   }
   _shells.set(id, {

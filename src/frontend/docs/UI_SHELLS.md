@@ -122,6 +122,46 @@ defaults to a third-party UI cannot be bricked by that UI.
 
 ## Writing a shell
 
+### Composed from core's layout (recommended)
+
+A shell without `load` is composed by core. Core mounts its own root (the
+canvas-less routes, sign-in, the viewer provider, deep links) and its layout of
+floating, dockable panels. The shell gives only data and chrome:
+
+```tsx
+import { CORE_PANEL_IDS, registerPlugin } from "@/viewer-core";
+
+registerPlugin({
+  id: "my-ui",
+  version: "1.0.0",
+  coreApiRange: ">=1.13 <2.0", // composed shells need plugin API 1.13
+  uiShells: [
+    {
+      id: "my-ui",
+      label: "My UI",
+      layout: {
+        // The split grid a user starts from; their own arrangement replaces it.
+        grid: { kind: "split", id: "s1", dir: "row", sizes: [0.25, 0.75], children: [
+          { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.tree], active: CORE_PANEL_IDS.tree },
+          { kind: "viewport" },
+        ] },
+        open: [CORE_PANEL_IDS.tree], // opened when the shell loads
+      },
+      chrome: { header: () => import("./MyHeader"), toolbar: false },
+      themeTokens: { "--ada-panel-bg": "rgb(17 24 39 / 0.95)" },
+    },
+  ],
+});
+```
+
+The header is an ordinary component; `PanelToggles` (`@/viewer-core/layout`)
+draws core's panel toggles in it and `PluginTopBarButtons`
+(`@/viewer-core/plugins`) the plugins' buttons. The shell's own panels are
+registered with `registerPanel` and named in the grid like core's. Each shell
+keeps its own saved arrangement (`LayoutDoc.context` is the shell id).
+
+### A root of its own
+
 ```tsx
 // my-adapy-ui/src/register.tsx
 import { registerPlugin } from "@/plugins/registry";

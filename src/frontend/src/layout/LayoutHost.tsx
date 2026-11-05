@@ -121,9 +121,11 @@ export interface LayoutHostProps {
   env: PanelEnv;
   /** Where layout-owned state lives. The viewer's store by default. */
   store?: StoreApi<LayoutStoreState>;
+  /** The document context within the preset (`LayoutDoc.context`). Default: `"default"`. */
+  context?: string;
 }
 
-export function LayoutHost({preset, env, store = layoutStore}: LayoutHostProps) {
+export function LayoutHost({preset, env, store = layoutStore, context}: LayoutHostProps) {
   // Before children's effects, so a panel that reveals another on mount already
   // goes through this preset's controller.
   useLayoutEffect(() => {
@@ -133,11 +135,12 @@ export function LayoutHost({preset, env, store = layoutStore}: LayoutHostProps) 
         preset: preset.id,
         zones: preset.zones,
         store,
+        context,
         exclusive: groups ? () => groups(store.getState().prefs) : undefined,
       }),
     );
     return () => setPanelController(null);
-  }, [preset, store]);
+  }, [preset, store, context]);
 
   const Frame = useMemo(() => (preset.frame ? React.lazy(preset.frame) : null), [preset]);
   const value = useMemo(() => ({preset, env}), [preset, env]);

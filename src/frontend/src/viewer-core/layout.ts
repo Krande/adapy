@@ -114,6 +114,8 @@ export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/componen
 // The layout host, its store and its pure reducers.
 // ---------------------------------------------------------------------------
 export { LayoutHost, PanelMount, lazyPanelBody, useLayout, usePanelStates, zonePanels } from "@/layout/LayoutHost";
+export { PanelToggles } from "@/layout/PanelToggles";
+export type { PanelTogglesProps } from "@/layout/PanelToggles";
 export type { LayoutContextValue, LayoutHostProps } from "@/layout/LayoutHost";
 export { DefaultWindowChrome, FloatLayer } from "@/layout/FloatLayer";
 export type { FloatLayerProps, WindowChrome } from "@/layout/FloatLayer";

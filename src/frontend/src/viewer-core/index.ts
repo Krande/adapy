@@ -199,6 +199,17 @@
 //          `windowDockAttrs`; `FloatingWindow` and `WindowFrame` pick it up);
 //          `FloatLayerProps.skip` and `windowDock`. `DOCKED_PRESET_ID` stays
 //          a placement key only.
+//          Composed shells: `UiShellSpec.load` is optional. Without it core
+//          mounts its own root (routes, sign-in, viewer provider) and its layout
+//          of floating and dockable panels for the shell, arranged by
+//          `UiShellSpec.layout` (`UiShellLayout`: a starting `grid`, panels to
+//          `open` when it loads), dressed by `chrome` (`UiShellChrome`:
+//          a lazy `header`, `toolbar`) and `themeTokens`; each shell keeps its own
+//          layout document (`LayoutDoc.context` is the shell id). `isComposedShell`;
+//          `CORE_PANEL_IDS` / `CORE_PANEL_OWNER` / `CorePanelId` and the grid types
+//          on the root. On `@/viewer-core/layout`: `PanelToggles` (the top bar's
+//          toggles, for a shell's header), `LayoutHostProps.context`, and
+//          `LayoutStoreState.setStartingDoc`.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -261,7 +272,12 @@ export {
   UI_SHELL_STORAGE_KEY,
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
-export type { RegisteredUiShell, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+export type { RegisteredUiShell, UiShellChrome, UiShellLayout, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+export { isComposedShell } from "@/plugins/uiShells";
+// Core's panel ids, for a composed shell's `layout` (dependency-free: the ids alone).
+export { CORE_PANEL_IDS, CORE_PANEL_OWNER } from "@/layout/corePanelIds";
+export type { CorePanelId } from "@/layout/corePanelIds";
+export type { GridNode, GroupNode, SplitDir, SplitNode, ViewportNode } from "@/layout/splitTree";
 
 // ---------------------------------------------------------------------------
 // Panels (1.10.0) -- the catalogue of every panel, core's and plugins', and the

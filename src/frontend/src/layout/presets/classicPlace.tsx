@@ -22,13 +22,14 @@ import type {DropTarget} from "../dockDrag";
 import {CLASSIC_PRESET_ID, CLASSIC_ZONES, customisablePanelsOn, layoutDocKey, type LayoutDoc} from "../layout";
 import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "../panel";
-import {dockInGridDoc, dockPanel, floatPanel, floatPanelAt, gridOf, isInGrid, migrateLayoutDoc} from "../reducers";
+import {dockInGridDoc, dockPanel, emptyLayoutDoc, floatPanel, floatPanelAt, gridOf, isInGrid, migrateLayoutDoc} from "../reducers";
 import {getPanel} from "../registry";
 import {
   VIEWPORT_NODE,
   gridGroups,
   groupOf,
   type DockEdge,
+  type GridNode,
   type GridTarget,
 } from "../splitTree";
 import {requestFloatFocus, restoreFocus} from "../zoneFocus";
@@ -51,18 +52,63 @@ export function useCustomisablePanels(): boolean {
   return useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
 }
 
+/**
+ * The document context the classic frame reads and writes: core's own UI uses
+ * the default one; a composed shell its id, so each shell keeps its own
+ * arrangement. Set once at startup, before the frame renders.
+ */
+let context = "default";
+let startOpen: readonly PanelId[] = [];
+
+/**
+ * Serve a composed shell: its own document, starting from `grid` until the user
+ * rearranges, with the panels of `open` opened when the shell loads.
+ */
+export function setClassicContext(ctx: string, grid?: GridNode, open?: readonly PanelId[]): void {
+  context = ctx || "default";
+  startOpen = open ?? [];
+  layoutStore
+    .getState()
+    .setStartingDoc(CLASSIC_PRESET_ID, context, grid ? () => ({...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, context), grid}) : null);
+}
+
+export function classicContext(): string {
+  return context;
+}
+
+/**
+ * Open the shell's starting panels. On every load: whether a panel is open is its
+ * own flag, which a reload resets, while where it shows is the saved document.
+ * Call after the layout's panel controller is installed.
+ */
+export function openStartingPanels(reveal: (id: PanelId) => boolean): void {
+  for (const id of startOpen) reveal(id);
+}
+
+/** Core's top bar of toggles; a composed shell with a menu bar of its own may leave it out. */
+let toolbarShown = true;
+
+export function setClassicToolbar(on: boolean): void {
+  toolbarShown = on;
+}
+
+export function classicToolbarShown(): boolean {
+  return toolbarShown;
+}
+
 /** The user's classic document, re-rendering when it changes. */
 export function useClassicDoc(): LayoutDoc {
-  const raw = useStore(layoutStore, (s) => s.prefs.docs[layoutDocKey(CLASSIC_PRESET_ID)]);
-  return useMemo(() => migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS), [raw]);
+  const raw = useStore(layoutStore, (s) => s.prefs.docs[layoutDocKey(CLASSIC_PRESET_ID, context)]);
+  // Read through the store, so an unsaved document starts from the shell's grid.
+  return useMemo(() => (raw ? migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, context) : classicDoc()), [raw]);
 }
 
 export function classicDoc(): LayoutDoc {
-  return layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS);
+  return layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, context);
 }
 
 export function updateClassic(fn: (doc: LayoutDoc) => LayoutDoc): void {
-  layoutStore.getState().update(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, fn);
+  layoutStore.getState().update(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, fn, context);
 }
 
 // ---------------------------------------------------------------------------
