@@ -63,7 +63,30 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
         software_version=software_version,
         eigen_mode_data=eigen_mode_data,
         analysis_kind=result_kind((mr.field_kinds or {}).values()),
+        step_name_map=load_case_names(rmed_file, mr.results),
     )
+
+
+def load_case_names(rmed_file: pathlib.Path, results) -> dict[int, str] | None:
+    """``{order number: load case name}`` of a result of load cases (``MACRO_ELAS_MULT``), for ``FEAResult.
+    step_name_map``; None for anything else.
+
+    The MED file numbers a load case by its order (``NDT``) only; its name is in the command file the writer put
+    beside it, as the comment above the ``MACRO_ELAS_MULT`` (``# Load cases of step <step>, by order number:`` and
+    ``#   <k>: <name>`` per case). Read only when the deck has one such step and every field is of its result
+    (``result__...``): the order numbers of two results would overlap in one map. Sesam's reader gives the result
+    cases their names the same way, so the two can be compared case by case by name.
+    """
+    import re
+
+    comm = pathlib.Path(rmed_file).with_suffix(".comm")
+    if not comm.exists() or not results:
+        return None
+    text = comm.read_text(encoding="utf-8", errors="replace")
+    blocks = re.findall(r"^# Load cases of step .*?, by order number:\n((?:#   \d+: .*\n)+)", text, re.M)
+    if len(blocks) != 1 or not all(str(r.name).startswith("result__") for r in results):
+        return None
+    return {int(k): name.strip() for k, name in re.findall(r"^#   (\d+): (.*)$", blocks[0], re.M)}
 
 
 @dataclass

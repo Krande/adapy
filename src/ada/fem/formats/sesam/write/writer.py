@@ -159,11 +159,14 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     inp_file_path = (analysis_dir / f"{name}T{seltyp}").with_suffix(".FEM")
     logger.info("writing super element %s to %s (IDENT SELTYP %s)", seltyp, inp_file_path.name, seltyp)
 
-    fems = [part.fem, assembly.fem]
+    # The part's FEM and the assembly's -- once when they are one: a model meshed on the assembly itself
+    # (``a.fem = a.to_fem_obj(...)``) is its own FEM part (``get_fem_model_from_assembly``), and listing it twice
+    # wrote every BLDEP record twice, which Sestra sums into a slave moving twice as far as its master.
+    fems = [part.fem] if assembly.fem is part.fem else [part.fem, assembly.fem]
     # One step is written: the first, the assembly's before the part's. Its loads are the
     # load case; its analysis goes to sestra.inp when Sestra has one for its type. Any other
     # step used to be dropped with a log line, and an explicit or dynamic first step raised.
-    steps = list(assembly.fem.steps) + list(part.fem.steps)
+    steps = list(assembly.fem.steps) + ([] if assembly.fem is part.fem else list(part.fem.steps))
     step = written_step(steps)
     # ``model_data_only``: the FEM file alone, no Sestra control file beside it.
     sestra_inp = not model_data_only and step is not None and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC)
@@ -211,7 +214,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(mass_str(part.fem, ndofs))
         d.write(point_elements_str(part.fem, ndofs))
         d.write(sets_str(_SetsOf(part.fem, assembly.fem), unwritten_elements=unwritten_element_ids(part.fem, ndofs)))
-        d.write(equation_names_str(part.fem, assembly.fem))
+        d.write(equation_names_str(*fems))
         d.write(bnbcd_str(held_bcs, lin_deps, retained, ndofs, prescribed))
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))

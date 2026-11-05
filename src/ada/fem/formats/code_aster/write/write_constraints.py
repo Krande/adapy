@@ -131,7 +131,10 @@ def get_charge_names(part: Part, step=None) -> list[str]:
 def has_cara_elem(part: Part) -> bool:
     """Whether the model needs element characteristics (AFFE_CARA_ELEM)"""
     fem = part.fem
-    return len(fem.sections.lines) > 0 or len(fem.sections.shells) > 0 or len(get_couplings(part)) > 0
+    if len(fem.sections.lines) > 0 or len(fem.sections.shells) > 0 or len(get_couplings(part)) > 0:
+        return True
+    # A point mass is a DIS_T element whose mass is an element characteristic (write_masses).
+    return any(m.type == m.TYPES.MASS and m.elset is not None for m in fem.elements.masses)
 
 
 def ref_points_group(part: Part) -> str:
@@ -164,11 +167,16 @@ def create_ref_points_model_str(group: str = REF_POINTS_GROUP) -> str:
     return f"_F(GROUP_MA='{group}', PHENOMENE='MECANIQUE', MODELISATION='DIS_TR',),"
 
 
+def create_ref_points_discrete_items(group: str = REF_POINTS_GROUP) -> str:
+    """The ``DISCRET`` items of the reference points: zero stiffness and zero mass."""
+    return f"""            _F(GROUP_MA='{group}', CARA='K_TR_D_N', VALE=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)),
+            _F(GROUP_MA='{group}', CARA='M_TR_D_N', VALE=(0.0,) * 10),"""
+
+
 def create_ref_points_discrete_str(group: str = REF_POINTS_GROUP) -> str:
     return f"""
         DISCRET=(
-            _F(GROUP_MA='{group}', CARA='K_TR_D_N', VALE=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)),
-            _F(GROUP_MA='{group}', CARA='M_TR_D_N', VALE=(0.0,) * 10),
+{create_ref_points_discrete_items(group)}
         ),"""
 
 

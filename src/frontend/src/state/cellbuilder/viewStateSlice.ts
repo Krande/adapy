@@ -57,6 +57,8 @@ export interface ViewStateSlice {
   hideCells: (ids: string[]) => void;
   /** Clear all per-cell hides. */
   unhideAllCells: () => void;
+  /** Show the given cells again (the inverse of `hideCells` for just these). */
+  unhideCells: (ids: string[]) => void;
   setPortsOverlayVisible: (v: boolean) => void;
   /** Switch the active model representation (topology / simulation / detail),
    * coordinating the cell overlay and the two result GLB sources. Compiles/loads
@@ -107,6 +109,12 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
         };
       }),
     unhideAllCells: () => set({ hiddenCellIds: [] }),
+    unhideCells: (ids) =>
+      set((s) => {
+        const drop = new Set(ids);
+        if (!s.hiddenCellIds.some((id) => drop.has(id))) return {};
+        return { hiddenCellIds: s.hiddenCellIds.filter((id) => !drop.has(id)) };
+      }),
     setPortsOverlayVisible: (portsOverlayVisible) =>
       set({ portsOverlayVisible }),
 

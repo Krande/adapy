@@ -11,7 +11,7 @@
 import {capabilities} from "@/services/capabilities";
 import type {ProceduralBlueprintOption} from "@/services/viewerApi";
 import {resolveSelectedBlueprint} from "@/utils/cellbuilder/blueprints";
-import {groupAfterRemoval, type CellGroup} from "@/utils/cellbuilder/groups";
+import {groupAfterRemoval, isGroupIncluded, type CellGroup} from "@/utils/cellbuilder/groups";
 import type {BuilderCell} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
@@ -58,6 +58,11 @@ export interface BlueprintsSlice {
   setGroupBlueprint: (name: string, blueprint: string) => void;
   /** Assign a cell to a group (or null to clear). Undoable; marks the model dirty. */
   setCellGroup: (cellId: string, groupName: string | null) => void;
+  /** Build a group's structure, or leave it out of the next compile (saved on
+   * the group as `include: false`). A document edit like a blueprint change:
+   * undoable, marks the model dirty, and reaches the build through the normal
+   * commit (which auto-compiles when that is on). */
+  setGroupIncluded: (name: string, include: boolean) => void;
 }
 
 export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, get) => {
@@ -169,6 +174,21 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
         if (cell.group === group) return {};
         return {
           cells: { ...s.cells, [cellId]: { ...cell, group } },
+          dirty: true,
+        };
+      }),
+
+    setGroupIncluded: (name, include) =>
+      withHistory((s) => {
+        const g = s.groups.find((x) => x.name === name);
+        if (!g || isGroupIncluded(g) === include) return {};
+        return {
+          groups: s.groups.map((x) => {
+            if (x.name !== name) return x;
+            // Built = no `include` key at all (the wire default).
+            const next: CellGroup = { name: x.name, blueprint: x.blueprint };
+            return include ? next : { ...next, include: false };
+          }),
           dirty: true,
         };
       }),
