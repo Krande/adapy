@@ -81,6 +81,7 @@ export { useIsMobile, useIsNarrow, useIsWide, useMediaQuery } from "@/utils/useI
 export { BREAKPOINTS, COMPACT_QUERY, NARROW_QUERY, WIDE_QUERY } from "@/layout/breakpoints";
 export { clampRect, defaultRect } from "@/assets/floatingWindow";
 export type { Extent, WindowRect } from "@/assets/floatingWindow";
+export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/components/ui/OverlayPortal";
 
 // ---------------------------------------------------------------------------
 // The layout host, its store and its pure reducers.

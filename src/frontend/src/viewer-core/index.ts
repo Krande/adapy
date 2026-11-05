@@ -139,7 +139,9 @@
 //          `panelId` on `PanelHeaderActionsProvider` and `WindowHeaderActions`;
 //          drag-to-dock (`moveDockDrag` / `endDockDrag` hit-testing drop targets
 //          marked `DROP_ATTR`, `dockDragStore`) and `FloatingWindow`'s
-//          `onDragMove` / `onDragEnd`. On `viewerApi`: `getPreference` / `setPreference`. Additive.
+//          `onDragMove` / `onDragEnd`; `OverlayPortal` / `TransformedHost`
+//          (a fixed overlay of content in a floating window portals to the
+//          body). On `viewerApi`: `getPreference` / `setPreference`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

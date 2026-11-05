@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useStore } from "zustand";
 
+import { OverlayPortal } from "@/components/ui/OverlayPortal";
 import { layoutStore } from "@/layout/layoutStore";
 
 // Single source of truth for the keyboard-shortcut help map. Grouped by
@@ -187,6 +188,7 @@ const ShortcutsModal: React.FC = () => {
         Shortcut Keys
       </button>
       {open && (
+        <OverlayPortal>
         <div
           className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
           onClick={() => setOpen(false)}
@@ -236,6 +238,7 @@ const ShortcutsModal: React.FC = () => {
             </div>
           </div>
         </div>
+        </OverlayPortal>
       )}
     </div>
   );

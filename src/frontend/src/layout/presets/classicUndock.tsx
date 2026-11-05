@@ -21,6 +21,7 @@ import {createPortal} from "react-dom";
 import {useStore} from "zustand";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {DockGlyph, FloatGlyph, MinimiseGlyph, PanelFrame} from "@/components/ui/PanelFrame";
 import {navBtnClass} from "@/components/navButton";
 import {defaultRect} from "@/assets/floatingWindow";
@@ -159,7 +160,10 @@ function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: La
           >
             {/* The column card gave the content its text colour and padding; the window body does not. */}
             <div className="h-full overflow-y-auto p-2 text-sm text-[var(--ada-panel-text)]">
-              <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />
+              {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
+              <TransformedHost>
+                <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />
+              </TransformedHost>
             </div>
           </PanelFrame>
         </div>
