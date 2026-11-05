@@ -164,6 +164,15 @@
 //          `dockZonePanels`, `dockedPlacement`, `dockedDefaults`, `adoptDocked`,
 //          `activateInZone`, `shownTab`, `trackSize`) and the shared
 //          `CollapsibleSection` (its `"section"` and `"caret"` looks). Additive.
+//          Rearranging docks. On the root: `PanelAction.menu` (`PanelMenuItem`),
+//          a header action that opens a menu. On `@/viewer-core/layout`:
+//          `WindowHeaderMenuButton` and `MoveGlyph`; indexed drop targets
+//          (`DROP_INDEX_ATTR`, `DROP_AXIS_ATTR`, `dropTargetAt`, `endDockDragAt`,
+//          `DropTarget`, `DockDragState.index`); the zone kind `"dock"`, the
+//          intent `"move-docked"`, `arrowDirection` and `ZoneKeysProps.movePanel`
+//          (Ctrl+Alt+arrow moves a window or a docked panel by direction); the
+//          docked rules `dockInZone` and `adjacentZone`; `dragHandleClassName`
+//          on a docked `PanelFrame` marks the header a host drags the panel by.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -239,6 +248,7 @@ export {
 } from "@/layout/panel";
 export type {
   PanelAction,
+  PanelMenuItem,
   PanelBinding,
   PanelBodyLoader,
   PanelCapabilities,

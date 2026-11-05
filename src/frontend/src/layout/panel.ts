@@ -148,6 +148,18 @@ export interface PanelAction {
   icon?: React.FC;
   run(): void;
   disabled?: boolean;
+  /** A menu the action's button opens instead of running it. */
+  menu?: readonly PanelMenuItem[];
+}
+
+/** One item of a `PanelAction`'s menu. */
+export interface PanelMenuItem {
+  id: string;
+  label: string;
+  run(): void;
+  disabled?: boolean;
+  /** Marks where the panel is now. */
+  current?: boolean;
 }
 
 /**
@@ -165,7 +177,8 @@ export interface PanelFrameProps {
   onClose?: () => void;
   /**
    * In a floating host: the class the window is dragged by. The frame puts it on
-   * its title bar, so the window moves by its header and nowhere else.
+   * its title bar, so the window moves by its header and nowhere else. In a dock:
+   * the class of the header the host drags the panel out by.
    */
   dragHandleClassName?: string;
   children?: React.ReactNode;

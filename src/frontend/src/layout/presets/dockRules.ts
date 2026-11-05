@@ -12,7 +12,8 @@
 
 import {DOCKED_PRESET_ID, DOCKED_ZONES, CLASSIC_PRESET_ID, CLASSIC_ZONES, type LayoutDoc, type ZoneDef, type ZoneState} from "../layout";
 import {placementFor, type PanelId, type PanelPlacement, type RegisteredPanel, type ZoneId} from "../panel";
-import {adoptNewPanels, emptyLayoutDoc, openPanel} from "../reducers";
+import {adoptNewPanels, emptyLayoutDoc, movePanel, openPanel, setZoneCollapsed} from "../reducers";
+import type {ArrowDirection} from "../zoneKeys";
 
 /** The docked preset's zones. The top bar is chrome, not a zone. */
 export const DOCKED_ZONE_DEFS: readonly ZoneDef[] = [
@@ -93,6 +94,45 @@ export function activateInZone(doc: LayoutDoc, zone: ZoneId, id: PanelId, order:
   if (!state || (state.active === id && state.panels.includes(id))) return doc;
   const panels = state.panels.includes(id) ? state.panels : [...new Set([...order, ...state.panels, id])];
   return {...doc, zones: {...doc.zones, [zone]: {...state, panels, active: id}}};
+}
+
+/**
+ * Dock `id` in `zone` before `before` (null, or not there: at the end), out of
+ * any other zone and any window, as the zone's shown tab, the zone expanded.
+ * `order` is the zone's panels as shown that the document may list, which then
+ * become the zone's list (see `activateInZone`).
+ */
+export function dockInZone(doc: LayoutDoc, zone: ZoneId, id: PanelId, order: readonly PanelId[], before: PanelId | null = null): LayoutDoc {
+  const state = doc.zones[zone] ?? {panels: [], active: null};
+  const list = [...new Set([...order, ...state.panels])].filter((p) => p !== id);
+  const at = before === null || !list.includes(before) ? list.length : list.indexOf(before);
+  const listed = {...doc, zones: {...doc.zones, [zone]: {...state, panels: list}}};
+  return setZoneCollapsed(movePanel(listed, id, zone, at), zone, false);
+}
+
+/** The side docks, outermost left to outermost right, as the grid lays them out. */
+const SIDE_ORDER: readonly ZoneId[] = [DOCKED_ZONES.left, DOCKED_ZONES.leftAux, DOCKED_ZONES.rightAux2, DOCKED_ZONES.rightAux, DOCKED_ZONES.right];
+
+export type DockDirection = ArrowDirection;
+
+/**
+ * The dock next to `from` in direction `dir`, by the grid's geometry: along the
+ * side docks across the viewport, down to the bottom dock, and from the bottom
+ * to the inner side docks. From a window (`"float"`), the dock nearest the
+ * viewport on that side. Null when there is none that way.
+ */
+export function adjacentZone(from: ZoneId | "float", dir: DockDirection): ZoneId | null {
+  const Z = DOCKED_ZONES;
+  if (from === "float" || from === Z.bottom) {
+    if (dir === "left") return Z.leftAux;
+    if (dir === "right") return Z.rightAux2;
+    return dir === "down" && from === "float" ? Z.bottom : null;
+  }
+  const i = SIDE_ORDER.indexOf(from);
+  if (i < 0) return null;
+  if (dir === "down") return Z.bottom;
+  if (dir === "up") return null;
+  return SIDE_ORDER[i + (dir === "left" ? -1 : 1)] ?? null;
 }
 
 /** A zone's track size: nothing when it shows no panel, the strip when collapsed, else its size within its limits. */

@@ -6,6 +6,10 @@
 // under it; the drop docks into the zone found there. Nothing is re-parented:
 // docking is a document change, and React draws the panel in its new place.
 //
+// A target may also carry `DROP_INDEX_ATTR`, the position a drop there inserts
+// at (a tab in a strip); with an axis (`DROP_AXIS_ATTR`), past the middle of
+// the target along it the position after.
+//
 // A vanilla zustand store, so the drop targets re-render while the window's own
 // drag handlers stay plain functions.
 
@@ -15,54 +19,92 @@ import type { PanelId, ZoneId } from "./panel";
 
 /** On a drop target: the zone a drop there docks into. */
 export const DROP_ATTR = "data-layout-drop";
+/** On a drop target: the position in its zone a drop there inserts at. */
+export const DROP_INDEX_ATTR = "data-layout-drop-index";
+/** On an indexed drop target: `x` or `y`, the axis its positions run along. */
+export const DROP_AXIS_ATTR = "data-layout-drop-axis";
+
+/** Where a drop lands: a zone, and the position in it (null: at the end). */
+export interface DropTarget {
+  zone: ZoneId;
+  index: number | null;
+}
 
 export interface DockDragState {
   /** The panel whose window is being dragged. */
   panel: PanelId | null;
   /** The zone under the pointer, if it takes the drop. */
   over: ZoneId | null;
+  /** The position in `over` a drop inserts at; null at the end. */
+  index: number | null;
 }
 
-export const dockDragStore = createStore<DockDragState>()(() => ({ panel: null, over: null }));
+export const dockDragStore = createStore<DockDragState>()(() => ({ panel: null, over: null, index: null }));
 
 /** The minimal element surface the hit test reads. */
 export interface DropCandidate {
-  closest?(selector: string): { getAttribute(name: string): string | null } | null;
+  closest?(selector: string): {
+    getAttribute(name: string): string | null;
+    getBoundingClientRect?(): { left: number; top: number; width: number; height: number };
+  } | null;
 }
 
-/** The zone of the first drop target among `elements` (topmost first, as `elementsFromPoint` lists them). */
-export function dropZoneAt(elements: readonly DropCandidate[]): ZoneId | null {
+/** The first drop target among `elements` (topmost first, as `elementsFromPoint` lists them), at pointer `x`, `y`. */
+export function dropTargetAt(elements: readonly DropCandidate[], x = 0, y = 0): DropTarget | null {
   for (const el of elements) {
     const target = el.closest?.(`[${DROP_ATTR}]`);
     const zone = target?.getAttribute(DROP_ATTR);
-    if (zone) return zone;
+    if (!target || !zone) continue;
+    const raw = target.getAttribute(DROP_INDEX_ATTR);
+    let index = raw === null ? null : Number.parseInt(raw, 10);
+    if (index !== null && Number.isNaN(index)) index = null;
+    const axis = index !== null ? target.getAttribute(DROP_AXIS_ATTR) : null;
+    const r = axis === "x" || axis === "y" ? target.getBoundingClientRect?.() : undefined;
+    if (r && index !== null && (axis === "y" ? y > r.top + r.height / 2 : x > r.left + r.width / 2)) index += 1;
+    return { zone, index };
   }
   return null;
 }
 
-function hitTest(x: number, y: number): ZoneId | null {
-  if (typeof document === "undefined" || !document.elementsFromPoint) return null;
-  return dropZoneAt(document.elementsFromPoint(x, y));
+/** The zone of the first drop target among `elements` (topmost first, as `elementsFromPoint` lists them). */
+export function dropZoneAt(elements: readonly DropCandidate[]): ZoneId | null {
+  return dropTargetAt(elements)?.zone ?? null;
 }
 
+type Hit = (x: number, y: number) => ZoneId | DropTarget | null;
+
+function hitTest(x: number, y: number): DropTarget | null {
+  if (typeof document === "undefined" || !document.elementsFromPoint) return null;
+  return dropTargetAt(document.elementsFromPoint(x, y), x, y);
+}
+
+const asTarget = (t: ZoneId | DropTarget | null): DropTarget | null => (typeof t === "string" ? { zone: t, index: null } : t);
+
 /** The pointer moved while `panel`'s window is dragged. */
-export function moveDockDrag(panel: PanelId, x: number, y: number, hit: (x: number, y: number) => ZoneId | null = hitTest): void {
+export function moveDockDrag(panel: PanelId, x: number, y: number, hit: Hit = hitTest): void {
   const s = dockDragStore.getState();
   if (s.panel !== panel) {
     // The targets render on the first move; they can be hit from the next.
-    dockDragStore.setState({ panel, over: null });
+    dockDragStore.setState({ panel, over: null, index: null });
     return;
   }
-  const over = hit(x, y);
-  if (over !== s.over) dockDragStore.setState({ over });
+  const t = asTarget(hit(x, y));
+  const over = t?.zone ?? null;
+  const index = t?.index ?? null;
+  if (over !== s.over || index !== s.index) dockDragStore.setState({ over, index });
+}
+
+/** The drag ended: where the window was dropped, if anywhere. */
+export function endDockDragAt(x: number, y: number, hit: Hit = hitTest): DropTarget | null {
+  const was = dockDragStore.getState().panel;
+  const target = was ? asTarget(hit(x, y)) : null;
+  dockDragStore.setState({ panel: null, over: null, index: null });
+  return target;
 }
 
 /** The drag ended: the zone the window was dropped on, if any. */
-export function endDockDrag(x: number, y: number, hit: (x: number, y: number) => ZoneId | null = hitTest): ZoneId | null {
-  const was = dockDragStore.getState().panel;
-  const zone = was ? hit(x, y) : null;
-  dockDragStore.setState({ panel: null, over: null });
-  return zone;
+export function endDockDrag(x: number, y: number, hit: Hit = hitTest): ZoneId | null {
+  return endDockDragAt(x, y, hit)?.zone ?? null;
 }
 
 /** A mouse or touch event's pointer position. */

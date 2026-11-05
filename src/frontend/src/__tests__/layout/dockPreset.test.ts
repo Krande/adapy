@@ -36,7 +36,7 @@ g.document ??= {
 const { CORE_PANEL_IDS, CORE_PANEL_OWNER, registerCorePanels } = await import("@/layout/corePanels");
 const { listPanels } = await import("@/layout/registry");
 const { DOCKED_PRESET_ID, DOCKED_ZONES } = await import("@/layout/layout");
-const { emptyLayoutDoc, migrateLayoutDoc, movePanel } = await import("@/layout/reducers");
+const { emptyLayoutDoc, floatPanel, migrateLayoutDoc, minimisePanel, movePanel, setZoneCollapsed } = await import("@/layout/reducers");
 const R = await import("@/layout/presets/dockRules");
 
 registerCorePanels();
@@ -88,6 +88,47 @@ test("the document's placement wins over the default, in the document's order", 
   assert.deepEqual(ids(R.dockZonePanels(d, "right", all)), [CORE_PANEL_IDS.objectInfo]);
   d = movePanel(d, CORE_PANEL_IDS.tree, "left", 0);
   assert.deepEqual(ids(R.dockZonePanels(d, "left", all)), [CORE_PANEL_IDS.tree, CORE_PANEL_IDS.scene]);
+});
+
+test("docking into a zone inserts at the drop position, out of its old zone and its window", () => {
+  const all = listPanels();
+  const left = () => ids(R.dockZonePanels(d, "left", all));
+  let d = R.dockInZone(fresh(), "left", CORE_PANEL_IDS.scene, [CORE_PANEL_IDS.tree], CORE_PANEL_IDS.tree);
+  assert.deepEqual(left(), [CORE_PANEL_IDS.scene, CORE_PANEL_IDS.tree]);
+  assert.deepEqual(ids(R.dockZonePanels(d, "right", all)), [CORE_PANEL_IDS.objectInfo]);
+  assert.equal(d.zones.left.active, CORE_PANEL_IDS.scene, "the docked panel is the shown tab");
+  // A reorder within the zone, and a drop at the end.
+  d = R.dockInZone(d, "left", CORE_PANEL_IDS.scene, left());
+  assert.deepEqual(left(), [CORE_PANEL_IDS.tree, CORE_PANEL_IDS.scene]);
+  d = R.dockInZone(d, "left", CORE_PANEL_IDS.scene, left(), CORE_PANEL_IDS.tree);
+  assert.deepEqual(left(), [CORE_PANEL_IDS.scene, CORE_PANEL_IDS.tree]);
+  // From a window, minimised, into a collapsed zone it was never in.
+  d = floatPanel(d, CORE_PANEL_IDS.objectInfo, { x: 1, y: 2, w: 300, h: 200 });
+  d = minimisePanel(setZoneCollapsed(d, "bottom", true), CORE_PANEL_IDS.objectInfo);
+  d = R.dockInZone(d, "bottom", CORE_PANEL_IDS.objectInfo, ids(R.dockZonePanels(d, "bottom", all)), "missing");
+  assert.deepEqual(ids(R.dockZonePanels(d, "bottom", all)), [CORE_PANEL_IDS.simulation, CORE_PANEL_IDS.objectInfo]);
+  assert.equal(d.floats[CORE_PANEL_IDS.objectInfo], undefined);
+  assert.deepEqual(d.minimised, []);
+  assert.equal(d.zones.bottom.collapsed, false);
+  assert.ok(!ids(R.dockZonePanels(d, "right", all)).includes(CORE_PANEL_IDS.objectInfo));
+  const back = migrateLayoutDoc(JSON.parse(JSON.stringify(d)), DOCKED_PRESET_ID, R.DOCKED_ZONE_DEFS);
+  assert.deepEqual(back.zones, d.zones, "and survives a save and a load");
+});
+
+test("the dock next to a zone, by the grid's geometry", () => {
+  assert.equal(R.adjacentZone("left", "right"), "left-aux");
+  assert.equal(R.adjacentZone("left-aux", "right"), "right-aux2", "across the viewport");
+  assert.equal(R.adjacentZone("right-aux2", "left"), "left-aux");
+  assert.equal(R.adjacentZone("right", "right"), null);
+  assert.equal(R.adjacentZone("left", "left"), null);
+  assert.equal(R.adjacentZone("right", "down"), "bottom");
+  assert.equal(R.adjacentZone("right", "up"), null);
+  assert.equal(R.adjacentZone("bottom", "left"), "left-aux");
+  assert.equal(R.adjacentZone("bottom", "right"), "right-aux2");
+  assert.equal(R.adjacentZone("bottom", "down"), null);
+  assert.equal(R.adjacentZone("float", "down"), "bottom");
+  assert.equal(R.adjacentZone("float", "left"), "left-aux");
+  assert.equal(R.adjacentZone("float", "up"), null);
 });
 
 test("a zone shows its active tab while it is open, else the first open one", () => {

@@ -81,6 +81,7 @@ export {
   ExternalGlyph,
   FloatGlyph,
   MinimiseGlyph,
+  MoveGlyph,
   PanelCard,
   PanelFrame,
   PanelHeaderActions,
@@ -89,6 +90,7 @@ export {
   WindowFrame,
   WindowHeaderActions,
   WindowHeaderButton,
+  WindowHeaderMenuButton,
 } from "@/components/ui/PanelFrame";
 export type { PanelCardProps, WindowFrameProps, WindowHeaderButtonProps } from "@/components/ui/PanelFrame";
 export { FloatingWindow, usePointerDrag } from "@/components/ui/FloatingWindow";
@@ -157,14 +159,25 @@ export {
   ZONE_ATTR,
   ZONE_ORDER,
   ZONE_PANEL_ATTR,
+  arrowDirection,
   cycleZone,
   orderZones,
   zoneKeyIntent,
 } from "@/layout/zoneKeys";
-export type { ZoneKeyContext, ZoneKeyEvent, ZoneKeyIntent } from "@/layout/zoneKeys";
+export type { ArrowDirection, ZoneKeyContext, ZoneKeyEvent, ZoneKeyIntent, ZoneKind } from "@/layout/zoneKeys";
 export { ZoneKeys, focusZone, requestFloatFocus, restoreFocus, useFloatFocus } from "@/layout/zoneFocus";
-export { DROP_ATTR, dockDragStore, dropZoneAt, endDockDrag, moveDockDrag } from "@/layout/dockDrag";
-export type { DockDragState, DropCandidate } from "@/layout/dockDrag";
+export {
+  DROP_ATTR,
+  DROP_AXIS_ATTR,
+  DROP_INDEX_ATTR,
+  dockDragStore,
+  dropTargetAt,
+  dropZoneAt,
+  endDockDrag,
+  endDockDragAt,
+  moveDockDrag,
+} from "@/layout/dockDrag";
+export type { DockDragState, DropCandidate, DropTarget } from "@/layout/dockDrag";
 export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
@@ -174,8 +187,10 @@ export {
   DOCK_ZONE_DEFS,
   DOCKED_ZONE_DEFS,
   activateInZone,
+  adjacentZone,
   adoptDocked,
   dockGrid,
+  dockInZone,
   dockZonePanels,
   dockedDefaults,
   dockedPlacement,

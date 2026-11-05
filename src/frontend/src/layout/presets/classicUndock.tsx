@@ -26,7 +26,7 @@ import {DockGlyph, FloatGlyph, MinimiseGlyph, PanelFrame} from "@/components/ui/
 import {navBtnClass} from "@/components/navButton";
 import {defaultRect} from "@/assets/floatingWindow";
 
-import {DROP_ATTR, dockDragStore, endDockDrag, moveDockDrag} from "../dockDrag";
+import {DROP_ATTR, dockDragStore, endDockDrag, endDockDragAt, moveDockDrag, type DropTarget} from "../dockDrag";
 import {CLASSIC_PRESET_ID, CLASSIC_ZONES, layoutDocKey, type LayoutDoc, type ZoneDef} from "../layout";
 import {PanelMount, usePanelStates, useLayout} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
@@ -54,6 +54,10 @@ export interface DocRef {
   zones: readonly ZoneDef[];
   /** The Dock action's label: where docking puts the panel back. */
   dockLabel: string;
+  /** More title-bar actions of a floated panel's window. */
+  windowActions?(panel: RegisteredPanel): PanelAction[];
+  /** A window of the panel dropped at `target` (null: on no target); true when it docked. */
+  drop?(panelId: PanelId, target: DropTarget | null): boolean;
 }
 
 export const CLASSIC_DOC: DocRef = {preset: CLASSIC_PRESET_ID, zones: CLASSIC_ZONE_DEFS, dockLabel: "Dock back into the panel column"};
@@ -82,17 +86,22 @@ export function canFloat(panel: RegisteredPanel): boolean {
 
 const CASCADE = 32;
 
+/** Where a window floated at the pointer is held: this far into its title bar. */
+const GRAB = {x: 60, y: 16};
+
 /**
  * Float a panel where it last floated, else at its first-open size near the top
- * right, stepped down and left past the windows already open.
+ * right, stepped down and left past the windows already open; or, given `at`,
+ * with its title bar under that pointer.
  */
-export function floatColumnPanel(id: PanelId, ref: DocRef = CLASSIC_DOC): void {
+export function floatColumnPanel(id: PanelId, ref: DocRef = CLASSIC_DOC, at?: {x: number; y: number}): void {
   const p = getPanel(id);
   const size = p?.placement?.[ref.preset]?.float ?? FIRST_SIZE;
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
   const r = defaultRect({width: vw, height: vh}, {width: size.w, height: size.h}, MIN_SIZE);
   update((d) => {
+    if (at) return floatPanel(d, id, {x: Math.max(0, at.x - GRAB.x), y: Math.max(0, at.y - GRAB.y), w: r.width, h: r.height});
     const step = Object.keys(d.floats).length * CASCADE;
     return floatPanel(d, id, {x: Math.max(0, vw - r.width - 80 - step), y: r.y + step, w: r.width, h: r.height});
   }, ref);
@@ -125,6 +134,7 @@ export function floatActions(panel: RegisteredPanel, ref: DocRef = CLASSIC_DOC):
   return [
     {id: "dock", label: ref.dockLabel, icon: DockGlyph, run: () => dockColumnPanel(panel.id, ref)},
     {id: "minimise", label: "Minimise", icon: MinimiseGlyph, run: () => update((d) => minimisePanel(d, panel.id), ref)},
+    ...(ref.windowActions?.(panel) ?? []),
   ];
 }
 
@@ -160,16 +170,18 @@ function UndockedWindow({
       style={{zIndex: f.z}}
       rect={{x: f.x, y: f.y, width: f.w, height: f.h}}
       onRectChange={(r) => update((d) => setFloatRect(d, panel.id, {x: r.x, y: r.y, w: r.width, h: r.height}), docRef)}
-      // Drag-to-dock has a drop target in the classic preset only (its panel column).
-      onDragMove={docRef.preset === CLASSIC_PRESET_ID ? (p) => moveDockDrag(panel.id, p.x, p.y) : undefined}
+      // Drag-to-dock: onto the classic panel column, or where the preset's `drop` takes it.
+      onDragMove={docRef.preset === CLASSIC_PRESET_ID || docRef.drop ? (p) => moveDockDrag(panel.id, p.x, p.y) : undefined}
       onDragEnd={
-        docRef.preset === CLASSIC_PRESET_ID
-          ? (p) => {
-              if (endDockDrag(p.x, p.y) !== CLASSIC_ZONES.menuColumn) return false;
-              dockColumnPanel(panel.id, docRef);
-              return true;
-            }
-          : undefined
+        docRef.drop
+          ? (p) => docRef.drop!(panel.id, endDockDragAt(p.x, p.y))
+          : docRef.preset === CLASSIC_PRESET_ID
+            ? (p) => {
+                if (endDockDrag(p.x, p.y) !== CLASSIC_ZONES.menuColumn) return false;
+                dockColumnPanel(panel.id, docRef);
+                return true;
+              }
+            : undefined
       }
     >
       {({fullScreen}) => (

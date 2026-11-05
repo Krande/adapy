@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useStore } from "zustand";
 
 import { OverlayPortal } from "@/components/ui/OverlayPortal";
+import { DOCKED_PRESET_ID } from "@/layout/layout";
 import { layoutStore } from "@/layout/layoutStore";
 
 // Single source of truth for the keyboard-shortcut help map. Grouped by
@@ -145,6 +146,21 @@ const PANEL_SHORTCUTS: ShortcutGroup = {
   ],
 };
 
+// The docked layout's keys: always live there (layout/presets/dock.tsx).
+const DOCKED_PANEL_SHORTCUTS: ShortcutGroup = {
+  context: "Panels",
+  when: "In the Docked layout",
+  shortcuts: [
+    { keys: ["F6"], description: "Move focus to the next area: top bar, each dock, each floating panel, the 3D view" },
+    { keys: ["Shift", "F6"], description: "Move focus to the previous area" },
+    { keys: ["Esc"], description: "While a floating panel has focus (not a text field): close it; focus returns to where it was" },
+    {
+      keys: ["Ctrl", "Alt", "Arrow"],
+      description: "While a docked or floating panel has focus: move it to the next dock that way (Up docks a floating panel back)",
+    },
+  ],
+};
+
 const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <kbd className="inline-block rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-xs font-mono text-gray-100 shadow-sm">
     {children}
@@ -165,7 +181,9 @@ const KeyCombo: React.FC<{ keys: string[] }> = ({ keys }) => (
 const ShortcutsModal: React.FC = () => {
   const [open, setOpen] = useState(false);
   const customisable = useStore(layoutStore, (s) => s.prefs.customisablePanels === true);
-  const groups = customisable ? [SHORTCUT_GROUPS[0], PANEL_SHORTCUTS, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS;
+  const docked = useStore(layoutStore, (s) => s.prefs.activePreset === DOCKED_PRESET_ID);
+  const panelKeys = docked ? DOCKED_PANEL_SHORTCUTS : customisable ? PANEL_SHORTCUTS : null;
+  const groups = panelKeys ? [SHORTCUT_GROUPS[0], panelKeys, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS;
 
   // Escape closes the modal (mirrors the other centered dialogs, e.g.
   // WorkerInfoModal). Only wired while open so it doesn't shadow the

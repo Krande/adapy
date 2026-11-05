@@ -13,11 +13,13 @@
 //     where a layout host's actions (float, dock, minimise) go. It renders
 //     nothing until a host provides actions (`PanelHeaderActionsProvider`).
 //     `PanelCard` carries it beside its heading.
+//   * `WindowHeaderMenuButton` -- an action with a `menu` (move to a dock...).
 //
 // Markup is exactly what the panels drew before, so adopting a frame changes no
 // pixel and no DOM node.
 
-import React, {Suspense, createContext, useContext, useMemo} from "react";
+import React, {Suspense, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
+import {createPortal} from "react-dom";
 
 import type {PanelAction, PanelFrameProps} from "@/layout/panel";
 import {PANEL_ACTIONS_ATTR} from "@/layout/zoneKeys";
@@ -82,14 +84,120 @@ export function PanelHeaderActions() {
   const panelId = useContext(PanelHeaderActionsContext)?.panelId;
   const actions = usePanelHeaderActions();
   if (actions.length === 0) return null;
+  return <WindowHeaderActions panelId={panelId}>{actions.map(actionButton)}</WindowHeaderActions>;
+}
+
+/** An action's title-bar button: a menu button when it has a menu. */
+function actionButton(a: PanelAction) {
+  if (a.menu) return <WindowHeaderMenuButton key={a.id} action={a} />;
   return (
-    <WindowHeaderActions panelId={panelId}>
-      {actions.map((a) => (
-        <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
-          {a.icon ? <a.icon /> : a.label}
-        </WindowHeaderButton>
-      ))}
-    </WindowHeaderActions>
+    <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
+      {a.icon ? <a.icon /> : a.label}
+    </WindowHeaderButton>
+  );
+}
+
+const MENU_ITEM = "menuitem";
+
+/**
+ * A title-bar button opening its action's menu, drawn on the page body so no
+ * scrolling dock or moved window clips it. Arrows, Home and End move between the
+ * items, Esc closes it and returns focus to the button.
+ */
+export function WindowHeaderMenuButton({action}: {action: PanelAction}) {
+  const [at, setAt] = useState<{top: number; right: number} | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const items = () => Array.from(menu.current?.querySelectorAll<HTMLElement>(`[role="${MENU_ITEM}"]:not([disabled])`) ?? []);
+  const close = (refocus: boolean) => {
+    setAt(null);
+    if (refocus) button.current?.focus();
+  };
+  useLayoutEffect(() => {
+    // Above the button when there is no room below it.
+    const m = menu.current;
+    const r = button.current?.getBoundingClientRect();
+    if (!m || !r || r.bottom + 4 + m.offsetHeight <= window.innerHeight) return;
+    m.style.top = `${Math.max(4, r.top - 4 - m.offsetHeight)}px`;
+  }, [at]);
+  useEffect(() => {
+    if (!at) return;
+    items()[0]?.focus();
+    const away = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!menu.current?.contains(t) && !button.current?.contains(t)) setAt(null);
+    };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [at !== null]);
+  const toggle = () => {
+    const r = button.current?.getBoundingClientRect();
+    setAt(at || !r ? null : {top: r.bottom + 4, right: Math.max(4, window.innerWidth - r.right)});
+  };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const list = items();
+    const i = list.indexOf(document.activeElement as HTMLElement);
+    const go = (j: number) => list[(j + list.length) % list.length]?.focus();
+    if (e.key === "ArrowDown") go(i + 1);
+    else if (e.key === "ArrowUp") go(i - 1);
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(list.length - 1);
+    else if (e.key === "Escape") close(true);
+    else if (e.key === "Tab") return close(false);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        onClick={toggle}
+        title={action.label}
+        aria-label={action.label}
+        aria-haspopup="menu"
+        aria-expanded={at !== null}
+        disabled={action.disabled}
+        className={WINDOW_HEADER_BUTTON}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        {action.icon ? <action.icon /> : action.label}
+      </button>
+      {at &&
+        createPortal(
+          <div
+            ref={menu}
+            role="menu"
+            aria-label={action.label}
+            className="fixed z-[70] min-w-44 rounded-md border border-gray-600 bg-gray-800 py-1 text-sm text-white shadow-lg"
+            style={{top: at.top, right: at.right}}
+            onKeyDown={onKeyDown}
+          >
+            {action.menu!.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role={MENU_ITEM}
+                disabled={item.disabled}
+                aria-current={item.current || undefined}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none disabled:text-gray-500 disabled:hover:bg-transparent"
+                onClick={() => {
+                  close(false);
+                  item.run();
+                }}
+              >
+                <span className="w-2 text-blue-400" aria-hidden="true">
+                  {item.current ? "•" : ""}
+                </span>
+                {item.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -125,6 +233,13 @@ export const FloatGlyph: React.FC = () => (
 export const DockGlyph: React.FC = () => (
   <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
     <path d="M2 2 H14 V14 H2 Z M6 2 V14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
+/** The glyph of "move to another dock". */
+export const MoveGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M2 2 H14 V14 H2 Z M10 2 V14 M4 8 H8 M6 6 L8 8 L6 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
   </svg>
 );
 
@@ -206,11 +321,7 @@ export function WindowFrame({title, subtitle, dragHandleClassName, actions, chil
  * from the host (float, dock to..., close), so the frame has no opinion on them.
  */
 export function PanelFrame({panelId, title, host, actions, onClose, dragHandleClassName, children}: PanelFrameProps) {
-  const buttons = actions.map((a) => (
-    <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
-      {a.icon ? <a.icon /> : a.label}
-    </WindowHeaderButton>
-  ));
+  const buttons = actions.map(actionButton);
   const close = onClose && (
     <WindowHeaderButton onClick={onClose} title="Close" ariaLabel="Close panel">
       <CloseGlyph />
@@ -236,9 +347,14 @@ export function PanelFrame({panelId, title, host, actions, onClose, dragHandleCl
   }
   return (
     <PanelCard data-panel-id={panelId}>
-      <div className="flex items-center gap-2">
+      <div className={dragHandleClassName ? `flex items-center gap-2 ${dragHandleClassName}` : "flex items-center gap-2"}>
         <h2 className="font-bold">{title}</h2>
-        {(buttons.length > 0 || close) && <WindowHeaderActions>{buttons}{close}</WindowHeaderActions>}
+        {(buttons.length > 0 || close) && (
+          <WindowHeaderActions panelId={dragHandleClassName ? panelId : undefined}>
+            {buttons}
+            {close}
+          </WindowHeaderActions>
+        )}
       </div>
       {children}
     </PanelCard>

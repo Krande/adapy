@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cycleZone, orderZones, zoneKeyIntent, type ZoneKeyContext, type ZoneKeyEvent } from "@/layout/zoneKeys";
+import { arrowDirection, cycleZone, orderZones, zoneKeyIntent, type ZoneKeyContext, type ZoneKeyEvent } from "@/layout/zoneKeys";
 
 const key = (k: string, mods: Partial<ZoneKeyEvent> = {}): ZoneKeyEvent => ({
   key: k,
@@ -40,6 +40,19 @@ test("Ctrl+Alt+arrow docks a focused window; other arrow chords do not", () => {
   assert.equal(zoneKeyIntent(key("ArrowLeft", { ctrlKey: true, altKey: true, shiftKey: true }), inFloat), null);
 });
 
+test("Ctrl+Alt+arrow moves a focused docked panel where the preset moves panels by direction", () => {
+  const inDock: ZoneKeyContext = { ...outside, inDock: true };
+  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true, altKey: true }), inDock), "move-docked");
+  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true, altKey: true }), outside), null);
+  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true, altKey: true }), { ...inDock, inTextField: true }), null);
+  assert.equal(zoneKeyIntent(key("ArrowDown", { ctrlKey: true }), inDock), null);
+  assert.equal(zoneKeyIntent(key("Escape"), inDock), null, "Esc closes windows only");
+  assert.equal(zoneKeyIntent(key("ArrowUp", { ctrlKey: true, altKey: true }), { ...inFloat, inDock: true }), "dock-float");
+  assert.equal(arrowDirection("ArrowLeft"), "left");
+  assert.equal(arrowDirection("ArrowDown"), "down");
+  assert.equal(arrowDirection("Enter"), null);
+});
+
 test("cycling wraps, and starts at an end when focus is in no zone", () => {
   assert.equal(cycleZone(-1, 4, 1), 0);
   assert.equal(cycleZone(-1, 4, -1), 3);
@@ -61,5 +74,9 @@ test("zones order by kind, windows among themselves by document order", () => {
   assert.deepEqual(
     orderZones(zones, (z) => z.k).map((z) => z.n),
     ["t", "c", "w1", "w2", "v", "x"],
+  );
+  assert.deepEqual(
+    orderZones([{ k: "float" }, { k: "dock" }, { k: "toolbar" }], (z) => z.k).map((z) => z.k),
+    ["toolbar", "dock", "float"],
   );
 });

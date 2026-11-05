@@ -10,9 +10,11 @@ import {
   PANEL_TOGGLE_ATTR,
   ZONE_ATTR,
   ZONE_PANEL_ATTR,
+  arrowDirection,
   cycleZone,
   orderZones,
   zoneKeyIntent,
+  type ArrowDirection,
 } from "./zoneKeys";
 
 const FOCUSABLE =
@@ -107,10 +109,22 @@ export function useFloatFocus(panelId: PanelId, ref: React.RefObject<HTMLElement
 export interface ZoneKeysProps {
   closeFloat(panelId: PanelId): void;
   dockFloat(panelId: PanelId): void;
+  /**
+   * Ctrl+Alt+arrow on a window or a docked panel (an element in a `"dock"` zone
+   * that carries `ZONE_PANEL_ATTR`, or is inside one): move it that way. Without
+   * it the chord docks a window (`dockFloat`) and does nothing in a dock.
+   */
+  movePanel?(panelId: PanelId, dir: ArrowDirection): void;
+}
+
+/** The docked panel focus is on: in a `"dock"` zone, the nearest element naming a panel. */
+function dockedPanelOf(el: Element | null): PanelId | null {
+  if (!el?.closest?.(`[${ZONE_ATTR}="dock"]`)) return null;
+  return el.closest(`[${ZONE_PANEL_ATTR}]`)?.getAttribute(ZONE_PANEL_ATTR) ?? null;
 }
 
 /** Listens for the zone keys while mounted. Draws nothing. */
-export function ZoneKeys({closeFloat, dockFloat}: ZoneKeysProps) {
+export function ZoneKeys({closeFloat, dockFloat, movePanel}: ZoneKeysProps) {
   useEffect(() => {
     // F6 in the capture phase, so a focused widget that keeps its keys does not swallow it.
     const onCapture = (e: KeyboardEvent) => {
@@ -125,15 +139,19 @@ export function ZoneKeys({closeFloat, dockFloat}: ZoneKeysProps) {
       if (e.key === "F6") return;
       const active = document.activeElement;
       const win = floatOf(active);
+      const docked = !win && movePanel ? dockedPanelOf(active) : null;
       const intent = zoneKeyIntent(e, {
         inFloat: !!win,
+        inDock: !!docked,
         inTextField: isTextField(active),
         overlayOpen: !!document.querySelector('[aria-modal="true"], [role="menu"]'),
       });
-      const panelId = win?.getAttribute(ZONE_PANEL_ATTR);
+      const panelId = win?.getAttribute(ZONE_PANEL_ATTR) ?? docked;
       if (!intent || !panelId) return;
       e.preventDefault();
+      const dir = arrowDirection(e.key);
       if (intent === "close-float") closeFloat(panelId);
+      else if (movePanel && dir && (intent === "dock-float" || intent === "move-docked")) movePanel(panelId, dir);
       else if (intent === "dock-float") dockFloat(panelId);
     };
     window.addEventListener("keydown", onCapture, true);
@@ -142,6 +160,6 @@ export function ZoneKeys({closeFloat, dockFloat}: ZoneKeysProps) {
       window.removeEventListener("keydown", onCapture, true);
       window.removeEventListener("keydown", onBubble);
     };
-  }, [closeFloat, dockFloat]);
+  }, [closeFloat, dockFloat, movePanel]);
   return null;
 }

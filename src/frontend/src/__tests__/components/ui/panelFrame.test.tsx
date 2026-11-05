@@ -244,3 +244,21 @@ test("a header's action slot is empty until a host offers actions", () => {
     assert.match(offered, /<div class="flex items-center gap-2"><h2 class="font-bold">Options<\/h2><div class="ml-auto/);
     assert.match(offered, /title="Float in a window" aria-label="Float in a window"/);
 });
+
+test("an action with a menu is a closed menu button; a docked card's header carries the drag handle and names its panel", () => {
+    const out = html(
+        <PanelFrame
+            panelId="core:x"
+            title="Things"
+            host={{kind: "dock", zone: "right"}}
+            actions={[{id: "move", label: "Move", run: noop, menu: [{id: "a", label: "A", run: noop}]}]}
+            dragHandleClassName="my-handle"
+        >
+            <p>body</p>
+        </PanelFrame>,
+    );
+    assert.match(out, /<div class="flex items-center gap-2 my-handle"><h2/);
+    assert.match(out, /data-panel-actions="core:x"/);
+    assert.match(out, /aria-label="Move" aria-haspopup="menu" aria-expanded="false"/);
+    assert.doesNotMatch(out, /role="menu"/);
+});
