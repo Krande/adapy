@@ -5,7 +5,8 @@ import { createLayoutController } from "@/layout/controller";
 import type { ZoneDef } from "@/layout/layout";
 import { createLayoutStore } from "@/layout/layoutStore";
 import type { PanelBinding, PanelSpec } from "@/layout/panel";
-import { floatPanel, minimisePanel } from "@/layout/reducers";
+import { dockInGridDoc, floatPanel, gridOf, minimisePanel, updateGrid } from "@/layout/reducers";
+import { VIEWPORT_NODE, groupOf, setActiveTab, setGroupCollapsed } from "@/layout/splitTree";
 import { registerPanel, resetPanelRegistry } from "@/layout/registry";
 import { hide, isPanelOpen, reveal, setPanelController, toggle } from "@/layout/reveal";
 
@@ -126,6 +127,33 @@ test("revealing a minimised panel brings it out of the tray; its flag still open
   assert.deepEqual(d.minimised, []);
   assert.ok(d.floats["core:a"], "still floated");
   assert.equal(b.value, true);
+});
+
+test("revealing an unbound panel already docked in the grid activates its tab and expands its group", () => {
+  registerPanel(spec("x:a"), "x");
+  registerPanel(spec("x:b"), "x");
+  store.getState().update("p", ZONES, (d) => {
+    let n = dockInGridDoc(d, "x:a", { node: VIEWPORT_NODE, edge: "right" });
+    n = dockInGridDoc(n, "x:b", { node: groupOf(gridOf(n), "x:a")!.id, edge: "center" });
+    return updateGrid(n, (g) => setGroupCollapsed(setActiveTab(g, "x:a"), groupOf(g, "x:a")!.id, true));
+  });
+  assert.equal(reveal("x:b"), true);
+  const d = store.getState().doc("p", ZONES);
+  const g = groupOf(gridOf(d), "x:b")!;
+  assert.equal(g.active, "x:b");
+  assert.ok(!g.collapsed);
+  assert.deepEqual(d.zones.col.panels, [], "not moved out to its zone");
+});
+
+test("revealing an unbound floating panel raises it where it is", () => {
+  registerPanel(spec("x:a"), "x");
+  registerPanel(spec("x:b"), "x");
+  store.getState().update("p", ZONES, (d) => floatPanel(floatPanel(d, "x:a", { x: 1, y: 1, w: 100, h: 100 }), "x:b", { x: 5, y: 5, w: 100, h: 100 }));
+  reveal("x:a");
+  const d = store.getState().doc("p", ZONES);
+  assert.ok(d.floats["x:a"].z > d.floats["x:b"].z);
+  assert.equal(d.floats["x:a"].x, 1);
+  assert.deepEqual(d.zones.col.panels, []);
 });
 
 test("a panel hosted inside another, or placed in no zone of the preset, cannot be revealed on its own", () => {
