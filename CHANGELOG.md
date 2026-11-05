@@ -2,6 +2,17 @@
 
 
 
+## v0.132.0 (2026-11-05)
+
+### Chore
+
+* chore(frontend): layout snapshot comparison scripts (#490) ([`6db55b7`](https://github.com/Krande/adapy/commit/6db55b7d9bef8049d59a60dd3529d94c3e1a572b))
+
+### Feature
+
+* feat(frontend): panel registry, layout host and undockable classic panels (panel system phases 0-2a) (#491) ([`3f95162`](https://github.com/Krande/adapy/commit/3f951623f56cd21a4c19cd6304d72ed43ab20620))
+
+
 ## v0.131.0 (2026-11-04)
 
 ### Feature
