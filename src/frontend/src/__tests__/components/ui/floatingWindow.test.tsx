@@ -81,6 +81,21 @@ test("with a minimum size it is the in-viewer window on a wide screen", () => {
         </FloatingWindow>
     );
     assert.equal(html(shared), html(legacy));
+    // A press handler (bringing a window to the front) adds no markup.
+    const activatable = (
+        <FloatingWindow
+            dragHandleClassName="viewer-panel-drag-handle"
+            zIndex={60}
+            zClassName="z-[60]"
+            minSize={{width: 420, height: 320}}
+            initialRect={() => rect}
+            fullScreenWhenNarrow
+            onActivate={() => {}}
+        >
+            <p>admin</p>
+        </FloatingWindow>
+    );
+    assert.equal(html(activatable), html(legacy));
 });
 
 test("below the wide breakpoint it takes the screen, and tells its content so", () => {

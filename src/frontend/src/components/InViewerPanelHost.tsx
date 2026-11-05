@@ -58,22 +58,26 @@ export function viewerPanelExternal(panel: ViewerPanel, adminTab: string | null,
  * The in-viewer window: centred near the top at 1100×720 (capped to the
  * viewport), above the canvas and the tree but under the toast slot, a
  * full-screen takeover on narrow screens. `offset` steps it down and right, for a
- * second window beside the first.
+ * second window beside the first; `layer` stacks it over the other.
  */
 export const ViewerWindow: React.FC<{
     title: string;
     onExternal: (() => void) | null;
     onClose: () => void;
     offset?: number;
+    /** Stacking above the other in-viewer window (0: the base layer). */
+    layer?: number;
+    onActivate?: () => void;
     children: React.ReactNode;
-}> = ({title, onExternal, onClose, offset = 0, children}) => (
+}> = ({title, onExternal, onClose, offset = 0, layer = 0, onActivate, children}) => (
     <FloatingWindow
         dragHandleClassName={DRAG_HANDLE}
         // z-60 keeps it above the canvas (z-0) and below the toast slot (z-50,
         // intentionally inverted on mobile so the panel can show the same
         // toasts the user already saw in the drawer).
-        zIndex={60}
+        zIndex={60 + layer}
         zClassName="z-[60]"
+        onActivate={onActivate}
         minSize={{width: 420, height: 320}}
         initialRect={() => ({
             // Centered-ish over the viewport. Big enough that
