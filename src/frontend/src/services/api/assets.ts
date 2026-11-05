@@ -191,6 +191,13 @@ export const assetsApi = {
     return jsonOrThrow(r, "listStaging");
   },
 
+  /** Delete what is staged and not yet published: one staging id's files, or (none given) all of them. */
+  async clearStaging(scope: ScopeUrl, stagingId?: string): Promise<{ ok: boolean; deleted: number; failed: string[] }> {
+    const q = stagingId ? `?staging_id=${encodeURIComponent(stagingId)}` : "";
+    const r = await authedFetch(`${base(scope)}/staging${q}`, { method: "DELETE" });
+    return jsonOrThrow(r, "clearStaging");
+  },
+
   /** Every file in this scope's asset areas -- published, staged and cached builds -- classified. */
   async listFiles(scope: ScopeUrl): Promise<WireAssetFiles> {
     const r = await authedFetch(`${base(scope)}/files`);
