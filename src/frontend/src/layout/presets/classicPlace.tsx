@@ -34,7 +34,7 @@ import {
   isInGrid,
   migrateLayoutDoc,
 } from "../reducers";
-import {getPanel, listPanels} from "../registry";
+import {getPanel, isPanelAvailable, listPanels} from "../registry";
 import {
   VIEWPORT_NODE,
   findNode,
@@ -159,7 +159,10 @@ export function adoptDockedPanels(): void {
   if (!shell) return;
   const docks = arrangementOf().docks ?? {};
   // Per mode: a panel offered only in other modes is adopted when one of those is entered.
-  const candidates = listPanels().filter((p) => p.owner !== CORE_PANEL_OWNER && dockOf(p) !== null && canDock(p) && offeredInMode(p));
+  // An unavailable one (a dormant or disabled plugin's) is placed when it becomes available.
+  const candidates = listPanels().filter(
+    (p) => p.owner !== CORE_PANEL_OWNER && dockOf(p) !== null && canDock(p) && offeredInMode(p) && isPanelAvailable(p, {}),
+  );
   if (!candidates.length) return;
   updateClassic((d) => {
     const {doc, adopted} = adoptNewPanels(d, candidates.map((p) => p.id));

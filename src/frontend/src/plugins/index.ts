@@ -8,6 +8,8 @@ import { setBuildDefaultUiShellId } from "./uiShells";
 import { usePluginUiStore } from "./pluginUiStore";
 import { registerCorePanels } from "@/layout/corePanels";
 import { setPluginPanelVisibility } from "@/layout/pluginPanels";
+import { makePluginContextStandalone } from "./context";
+import { setPluginContextFactory } from "./registry";
 
 let _loaded = false;
 
@@ -22,6 +24,8 @@ export function loadPlugins(): void {
   // keep their visibility in, so the panel registry binds plugin panels to it as
   // they register below. Neither changes what renders.
   setPluginPanelVisibility(usePluginUiStore);
+  // ...and a plugin context, so a dormant plugin's panels count as unavailable.
+  setPluginContextFactory(makePluginContextStandalone);
   try {
     registerCorePanels();
   } catch (err) {
