@@ -2,6 +2,15 @@
 
 
 
+## v0.133.0 (2026-11-05)
+
+### Feature
+
+* feat(code_aster): results as a Sesam SIN, a drop-in for Sestra&#39;s; read MED cell fields in MED&#39;s own layout (#497)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`c91a2d0`](https://github.com/Krande/adapy/commit/c91a2d0b6fa97cbfac8417e7b3c9b9f5afec7147))
+
+
 ## v0.132.0 (2026-11-05)
 
 ### Chore

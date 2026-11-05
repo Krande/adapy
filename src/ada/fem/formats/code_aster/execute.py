@@ -57,6 +57,13 @@ def run_code_aster(
     out = ca.run(exit_on_complete=exit_on_complete)
     if isinstance(out, subprocess.CompletedProcess):
         check_code_aster_run(pathlib.Path(inp_path).with_suffix(".mess"))
+        # The writer puts the Sesam deck of the model beside the Code_Aster deck when the results are to be given as
+        # a SIN as well (options.CODE_ASTER.write_sin); the analysis folder holds nothing else of a previous run.
+        deck = pathlib.Path(inp_path).with_name(f"{name}T1.FEM")
+        if deck.exists():
+            from .results.to_sin import code_aster_to_sin
+
+            code_aster_to_sin(pathlib.Path(inp_path).with_suffix(".rmed"), deck)
     return out
 
 
