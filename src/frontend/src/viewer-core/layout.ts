@@ -75,6 +75,8 @@ export type { PanelCardProps, WindowFrameProps, WindowHeaderButtonProps } from "
 export { FloatingWindow, usePointerDrag } from "@/components/ui/FloatingWindow";
 export type { FloatingWindowProps, RememberedRect } from "@/components/ui/FloatingWindow";
 export { SheetHandle } from "@/components/ui/SheetHandle";
+export { CollapsibleSection } from "@/components/ui/CollapsibleSection";
+export type { CollapsibleSectionProps } from "@/components/ui/CollapsibleSection";
 export { useBottomSheet } from "@/utils/useBottomSheet";
 export type { BottomSheet, SheetGrab } from "@/utils/useBottomSheet";
 export { useIsMobile, useIsNarrow, useIsWide, useMediaQuery } from "@/utils/useIsMobile";

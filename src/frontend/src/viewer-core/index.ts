@@ -131,7 +131,9 @@
 //          `PanelHeaderActionsProvider`, `usePanelHeaderActions`) and its glyphs;
 //          `localLayoutPersistence`; `FloatingWindow`'s caller-kept `rect` /
 //          `onRectChange`. Additive.
-export const VIEWER_CORE_API_VERSION = "1.12.0";
+//   1.13.0 On `@/viewer-core/layout`: the shared `CollapsibleSection` (its
+//          `"section"` and `"caret"` looks). Additive.
+export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
