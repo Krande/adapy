@@ -13,11 +13,8 @@ import React from "react";
 import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 
-// Shared panel chrome uses the same CSS tokens as PANEL_CHROME (themeStore) but
-// leaves padding/rounding to the pinned regions below.
-export const CHROME =
-  "bg-[var(--ada-panel-bg)] border border-[var(--ada-panel-border)] " +
-  "text-[var(--ada-panel-text)] shadow-lg";
+// The panel's own surface is the shared one (`PanelCard variant="surface"`,
+// components/ui); these are the controls inside it.
 export const btn =
   "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
 export const btnGray =

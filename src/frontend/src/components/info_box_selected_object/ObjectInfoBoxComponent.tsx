@@ -1,4 +1,4 @@
-import {PANEL_CHROME} from "@/state/themeStore";
+import {PanelCard} from "@/components/ui/PanelFrame";
 import React, {useState} from 'react';
 import {useViewerRefs, useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
@@ -26,7 +26,12 @@ import DownloadSelectionButton from './DownloadSelectionButton';
 // expect from a copy gesture.
 const COPIED_FEEDBACK_MS = 1500;
 
-const ObjectInfoBox = () => {
+/**
+ * The Selected Object Info panel's content: the selection's name, actions and
+ * every section that describes it. Its frame (the card and heading) is
+ * `ObjectInfoBox` below; another host may draw its own.
+ */
+export const ObjectInfoBody = () => {
     // This viewer instance's scene-graph handles. Aliased to the names the
     // body already uses, which until now were module-level globals.
     const {scene: sceneRef, camera: cameraRef, controls: controlsRef} = useViewerRefs();
@@ -169,8 +174,7 @@ const ObjectInfoBox = () => {
     };
 
     return (
-        <div className={`${PANEL_CHROME} min-w-80 max-h-[80svh] overflow-y-auto`}>
-            <h2 className="font-bold">Selected Object Info</h2>
+        <>
             {/* Name. Two layouts because mobile and desktop have very
                 different real-estate constraints:
 
@@ -398,9 +402,16 @@ const ObjectInfoBox = () => {
                 parameters, gizmo toggles and connected systems. Lives here
                 (not in the busy cellbuilder tool panel) as its own section. */}
             <CellBuilderSelectionInfo/>
-        </div>
+        </>
     );
 };
+
+/** The classic frame: the menu-column card, capped in height so a long record scrolls inside. */
+const ObjectInfoBox = () => (
+    <PanelCard className="min-w-80 max-h-[80svh] overflow-y-auto" heading="Selected Object Info">
+        <ObjectInfoBody/>
+    </PanelCard>
+);
 
 // Tap-to-copy name button. Used twice — once inside the desktop
 // table-row layout, once standalone on mobile — so the styling +

@@ -1,4 +1,4 @@
-import {PANEL_CHROME} from "@/state/themeStore";
+import {PanelCard} from "@/components/ui/PanelFrame";
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
@@ -26,10 +26,22 @@ import {useDragAndMenus} from "./browser/useDragAndMenus";
 import {useListKeyboardNav} from "./browser/useListKeyboardNav";
 
 // The storage panel: composition of the hooks and pieces under ./browser.
-// State that several pieces share (selection, load queue, menus, maximize)
-// lives here; everything else is owned by the hook that acts on it.
+// State that several pieces share (selection, load queue, menus) lives in
+// `StorageBody`; everything else is owned by the hook that acts on it.
+// Maximize is presentation, so it is the frame's (`StorageBrowser`, below),
+// which hands it to the body.
 
-const StorageBrowser: React.FC = () => {
+export interface StorageBodyProps {
+    /** The frame shows the browser maximized: the list grows to fill it. */
+    maximized?: boolean;
+    /** Offered by a frame that can maximize; without it the header has no maximize toggle to act on. */
+    setMaximized?: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const noMaximize = () => {};
+
+/** The storage browser's content: header, selection toolbar, upload progress, the file tree and its dialogs. */
+export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setMaximized = noMaximize}) => {
     const allFiles = useServerInfoStore((s) => s.serverFileObjects);
     // Published-asset blobs are storage, not "my files": a publishing scope
     // holds thousands under assets/<collection>/<subject>/<revision>/, and none
@@ -104,18 +116,6 @@ const StorageBrowser: React.FC = () => {
         e.stopPropagation?.();
         setCtxMenu({x: e.clientX, y: e.clientY, items, header});
     };
-    // Maximize: same component, restyled as a centered fixed overlay
-    // with a backdrop. Styling-only so every bit of panel state
-    // (selection, expansion, menus) survives the toggle.
-    const [maximized, setMaximized] = useState(false);
-    useEffect(() => {
-        if (!maximized) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setMaximized(false);
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [maximized]);
     // Mutating actions (delete / rename / move): personal scope for
     // everyone via the user endpoints, admins elsewhere via the admin
     // endpoints. The backend enforces the same split; canMutate just
@@ -277,47 +277,7 @@ const StorageBrowser: React.FC = () => {
     ).sort((a, b) => a.localeCompare(b));
 
     return (
-        <div
-            data-no-upload-menu
-            // Compact: match ObjectInfoBox footprint (viewport-clamped
-            // max-width so the panel self-contains on mobile).
-            // Maximized: same element restyled as a centered fixed
-            // overlay — styling-only so panel state survives the
-            // toggle. The host column has no transform ancestors, so
-            // position:fixed escapes it cleanly.
-            className={
-                PANEL_CHROME + " " +
-                (maximized
-                    ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
-                      // Same footprint as the floating admin panel
-                      // (InViewerPanelHost Rnd: 1100×720 capped to the
-                      // viewport). dvh not vh: on mobile 100vh includes
-                      // the area behind the browser chrome, so a
-                      // vh-sized panel ran past the visible bottom.
-                      "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
-                    : // Mobile: bound the panel to the viewport and SCROLL its
-                      // content (overflow-y-auto), so a long file list can't run
-                      // the panel past the bottom of the screen. Desktop keeps the
-                      // natural unbounded block layout (md:max-h-none md:overflow-visible).
-                      "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
-                      "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
-            }
-        >
-            {maximized && createPortal(
-                // Light scrim — just enough to signal modality without
-                // blacking out the 3D scene. z-[5]: the panel lives in
-                // the menu overlay's `z-10` stacking context, so its
-                // own z-index can never exceed 10 at the root level —
-                // a body-portaled scrim above 10 paints OVER the panel
-                // and darkens it too (visibly so on mobile). Below 10
-                // it dims only the canvas underneath.
-                <div
-                    className="fixed inset-0 z-[5] bg-black/25"
-                    onClick={() => setMaximized(false)}
-                    aria-hidden="true"
-                />,
-                document.body,
-            )}
+        <>
             <BrowserHeader
                 currentScope={currentScope}
                 hiddenFiles={hiddenFiles}
@@ -434,7 +394,68 @@ const StorageBrowser: React.FC = () => {
                 setPicker={setPicker}
                 existingFolderPaths={existingFolderPaths}
             />
-        </div>
+        </>
+    );
+};
+
+/** The classic frame: a menu-column card that maximizes to a centred overlay. */
+const StorageBrowser: React.FC = () => {
+    // Maximize: same component, restyled as a centered fixed overlay
+    // with a backdrop. Styling-only so every bit of panel state
+    // (selection, expansion, menus) survives the toggle.
+    const [maximized, setMaximized] = useState(false);
+    useEffect(() => {
+        if (!maximized) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setMaximized(false);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [maximized]);
+
+    return (
+        <PanelCard
+            data-no-upload-menu
+            // Compact: match ObjectInfoBox footprint (viewport-clamped
+            // max-width so the panel self-contains on mobile).
+            // Maximized: same element restyled as a centered fixed
+            // overlay — styling-only so panel state survives the
+            // toggle. The host column has no transform ancestors, so
+            // position:fixed escapes it cleanly.
+            className={
+                maximized
+                    ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
+                      // Same footprint as the floating admin panel
+                      // (InViewerPanelHost: 1100×720 capped to the
+                      // viewport). dvh not vh: on mobile 100vh includes
+                      // the area behind the browser chrome, so a
+                      // vh-sized panel ran past the visible bottom.
+                      "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
+                    : // Mobile: bound the panel to the viewport and SCROLL its
+                      // content (overflow-y-auto), so a long file list can't run
+                      // the panel past the bottom of the screen. Desktop keeps the
+                      // natural unbounded block layout (md:max-h-none md:overflow-visible).
+                      "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
+                      "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible"
+            }
+        >
+            {maximized && createPortal(
+                // Light scrim — just enough to signal modality without
+                // blacking out the 3D scene. z-[5]: the panel lives in
+                // the menu overlay's `z-10` stacking context, so its
+                // own z-index can never exceed 10 at the root level —
+                // a body-portaled scrim above 10 paints OVER the panel
+                // and darkens it too (visibly so on mobile). Below 10
+                // it dims only the canvas underneath.
+                <div
+                    className="fixed inset-0 z-[5] bg-black/25"
+                    onClick={() => setMaximized(false)}
+                    aria-hidden="true"
+                />,
+                document.body,
+            )}
+            <StorageBody maximized={maximized} setMaximized={setMaximized}/>
+        </PanelCard>
     );
 };
 

@@ -11,6 +11,7 @@ import { checkedSourceName, contactRunOf, useClashCheckStore } from "@/state/cla
 import { loadedSourceGroups, useModelState } from "@/state/modelState";
 import { contactSceneElements } from "@/utils/scene/clashContactPlan";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
+import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 
 export interface FocusOptions {
@@ -28,7 +29,7 @@ export async function focusJoint(jointId: string, opts: FocusOptions = {}): Prom
   if (opts.revealPanel) {
     const scenePanel = useSceneInfoStore.getState();
     scenePanel.setMode("joints");
-    scenePanel.setShowSceneInfoBox(true);
+    reveal(CORE_PANEL_IDS.scene);
   }
 
   const joint = store.result?.jointsById.get(jointId);

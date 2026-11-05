@@ -1,0 +1,57 @@
+// The classic top bar's toggle-button recipe, shared by `Menu.tsx` and the
+// layout host's classic preset, which must draw the same buttons.
+//
+// Top-bar button styling. Inactive uses a translucent hover (lighter
+// than the base) so the button "lifts" on hover. Active uses a darker
+// blue + inset shadow so the button reads as "pressed" — distinct from
+// hover (lighter) and from the base (mid-tone). Applied to every
+// toggle in the bar so the whole row uses one visual vocabulary.
+//
+// Mobile (<md): fixed 40x40 inline-flex box so every entry takes the
+// same horizontal slot — keeps the row inside a 360px viewport even
+// at the busiest combo (options + tree + node-editor + storage + info
+// + scene + animation + ws status). The 24px SVG icons centre via
+// flex; the lone ☰ text glyph keeps its size with font-bold.
+//
+// Desktop (md+): drop the fixed box in favour of padding-based sizing
+// (``py-2 px-4``). Icon buttons end up ~40 % wider than the narrow ☰
+// glyph, which reads as a clearer visual rhythm when the row isn't
+// space-constrained.
+//
+// The base class includes ``inline-flex``, which is what gives the
+// uniform box on mobile but also outranks the UA stylesheet's
+// ``[hidden] { display: none }`` rule in the cascade. ``navBtnClass``
+// takes an explicit ``hidden`` boolean and folds in Tailwind's
+// ``!hidden`` (display: none !important) when set — that way the
+// HTML ``hidden`` attribute doesn't have to fight ``inline-flex``
+// and the simulation-controls / node-editor toggles stay properly
+// gated on their ``hasAnimation``/``feaSessionActive``/``enableNodeEditor``
+// state.
+//
+// Hover styles are gated with ``pointer-fine:`` (mouse-only) instead
+// of plain ``hover:``. ``hover:`` resolves to ``@media (hover: hover)``
+// which Android Chrome and many hybrid tablets report TRUE on touch-
+// primary devices because the hardware *could* accept a stylus or
+// paired mouse — leaving :hover sticky on touch. After tapping a
+// button to toggle the menu OFF, the now-inactive button rendered
+// the translucent ``bg-blue-700/50`` hover style and looked
+// half-pressed. ``pointer: coarse`` is the touch canonical, so
+// ``pointer-fine`` is the safe mouse-only gate.
+export const NAV_BTN_BASE =
+  "inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-sm " +
+  "md:w-auto md:h-auto md:py-2 md:px-4 md:rounded " +
+  "text-white font-bold transition-colors";
+const NAV_BTN_INACTIVE = "bg-blue-700 pointer-fine:hover:bg-blue-700/50";
+const NAV_BTN_ACTIVE =
+  "bg-blue-900 pointer-fine:hover:bg-blue-800 shadow-inner";
+
+export function navBtnClass(
+  active: boolean,
+  extra: string = "",
+  hidden: boolean = false,
+): string {
+  const hiddenClass = hidden ? "hidden!" : "";
+  return `${NAV_BTN_BASE} ${active ? NAV_BTN_ACTIVE : NAV_BTN_INACTIVE} ${hiddenClass} ${extra}`
+    .replace(/\s+/g, " ")
+    .trim();
+}

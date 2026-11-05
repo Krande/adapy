@@ -4,6 +4,7 @@ import type {ScopeOption} from "@/state/scopeStore";
 import type {ServerFileEntry} from "@/state/serverInfoStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
+import {PanelHeaderActions} from "@/components/ui/PanelFrame";
 import ReloadIcon from "../../icons/ReloadIcon";
 import PlusIcon from "../../icons/PlusIcon";
 import ExpandIcon from "../../icons/ExpandIcon";
@@ -368,6 +369,7 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                             <ExpandIcon expanded={maximized} width="24px" height="24px"/>
                         </span>
                     </button>
+                    <PanelHeaderActions/>
                 </div>
             </div>
     );

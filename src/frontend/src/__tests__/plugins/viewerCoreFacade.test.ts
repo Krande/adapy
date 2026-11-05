@@ -100,6 +100,8 @@ test("the root @/viewer-core entry point is dependency-free", async () => {
   const facade = await import("@/viewer-core");
   assert.equal(typeof facade.registerPlugin, "function");
   assert.equal(typeof facade.listUiShells, "function");
+  assert.equal(typeof facade.registerPanel, "function");
+  assert.equal(typeof facade.reveal, "function");
   assert.equal(typeof facade.VIEWER_CORE_API_VERSION, "string");
 });
 
@@ -107,7 +109,15 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
   // Belt to the previous test's braces: node might tolerate a heavy module that
   // a browser build would still pay for. Anything else belongs in /app, /scene
   // or /plugins.
-  const DEP_FREE_LEAVES = ["@/plugins/registry", "@/plugins/uiShells"];
+  const DEP_FREE_LEAVES = [
+    "@/plugins/registry",
+    "@/plugins/uiShells",
+    "@/layout/panel",
+    "@/layout/registry",
+    "@/layout/reveal",
+    "@/layout/bindings",
+    "@/layout/layout",
+  ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));
   assert.deepEqual(
@@ -123,4 +133,31 @@ test("every facade entry point declares the contract version exactly once", () =
     /export const VIEWER_CORE_API_VERSION/.test(readFileSync(f, "utf8")),
   );
   assert.deepEqual(decls.map(rel), ["src/viewer-core/index.ts"]);
+});
+
+test("the layout entry publishes every split core panel's content", () => {
+  // A shell frames these itself instead of copying the panels; dropping one is a
+  // breaking change for it, so the list is held here.
+  const src = readFileSync(join(facadeDir, "layout.ts"), "utf8");
+  for (const name of [
+    "SceneBody",
+    "ObjectInfoBody",
+    "StorageBody",
+    "OptionsBody",
+    "SimulationBody",
+    "FeaTableBody",
+    "CellBuilderBody",
+    "ComponentControlsBody",
+    "NodeEditorBody",
+    "TreeBody",
+    "AttributeSearchBody",
+    "ConvertBody",
+    "ServerInfoBody",
+    "WebsocketStatusBody",
+    "PanelFrame",
+    "FloatingWindow",
+    "LayoutHost",
+  ]) {
+    assert.match(src, new RegExp(`\\b${name}\\b`), `${name} is not on @/viewer-core/layout`);
+  }
 });

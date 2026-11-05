@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
-import {useServerInfoStore} from "@/state/serverInfoStore";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import {useCellBuilderStore, cellsFromDoc} from "@/state/cellBuilderStore";
 import {
     companionSourceName,
@@ -89,7 +89,7 @@ export function useProceduralModels(p: {
             // menu does not: the operator is arranging several and needs the
             // list to keep arranging them.
             if (opts?.collapsePanel !== false) {
-                useServerInfoStore.getState().setShowServerInfoBox(false);
+                hide(CORE_PANEL_IDS.storage);
             }
         } catch (e) {
             window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);

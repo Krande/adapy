@@ -20,8 +20,9 @@
 // and a plugin that merely declares itself stays testable without a DOM:
 //
 //   `@/viewer-core`          this file. DEPENDENCY-FREE: the contract version,
-//                            plugin declaration + every slot type, and the
-//                            UI-shell registry APIs. Imports no DOM, no store,
+//                            plugin declaration + every slot type, the
+//                            UI-shell registry APIs, and the panel registry
+//                            and panel intents. Imports no DOM, no store,
 //                            no three — so `node --test` can import it, which is
 //                            the same property `@/plugins/registry` is written
 //                            for and the reason that rule is tested, not hoped.
@@ -32,11 +33,16 @@
 //   `@/viewer-core/plugins`  the slot HOSTS a shell mounts so OTHER plugins'
 //                            panels appear in its chrome. Separate because the
 //                            plugin context pulls in the FEA streaming module.
+//   `@/viewer-core/layout`   core's panel contents (each panel without its
+//                            classic frame), the shared panel chrome, and the
+//                            layout host. Separate because the contents are
+//                            the panels themselves: importing it is opting in
+//                            to their weight.
 //
 // COMPATIBILITY
 // -------------
 // `VIEWER_CORE_API_VERSION` is bumped on a breaking change to anything exported
-// from the three entry points — the same contract `PLUGIN_API_VERSION` provides
+// from the entry points — the same contract `PLUGIN_API_VERSION` provides
 // for the slot interfaces. A shell declares the range it was built against via
 // its plugin's `coreApiRange`.
 //
@@ -103,7 +109,29 @@
 //          1.9.0 (the renderer-neutral scene overlays and `showColorScale`).
 //   1.9.0  The `SceneBox` and `SceneFace` types of plugin API 1.10.0's view verbs
 //          (`frameBox`, `findFaces` / `focusFace`).
-export const VIEWER_CORE_API_VERSION = "1.9.0";
+//   1.10.0 The panel registry and the panel intents, here on the root entry:
+//          `registerPanel` / `listPanels` / `getPanel` / `listToolbarPanels`,
+//          `reveal` / `hide` / `toggle` / `isPanelOpen`, `bindStoreFlag`, and the
+//          panel and layout types. One catalogue of every panel core and the
+//          plugins offer, each bound to the visibility flag it already has, so a
+//          shell lists panels and opens them by id instead of rediscovering them.
+//          Additive. Ships with PLUGIN_API_VERSION 1.12.0.
+//   1.11.0 The `@/viewer-core/layout` entry: core's panel CONTENTS, split from
+//          their classic frames (`SceneBody`, `ObjectInfoBody`, `StorageBody`,
+//          `OptionsBody`, `SimulationBody`, `CellBuilderBody`, ...), the shared
+//          panel chrome (`PanelCard`, `PanelFrame`, `WindowFrame`,
+//          `FloatingWindow`, `SheetHandle`, `useBottomSheet`, the named
+//          breakpoints), and the layout host with its store and pure reducers.
+//          On the root: `PanelSpec.content` (a panel's frameless content) and
+//          `PanelSpec.watch` (when `available` may change), `watchStores`, and
+//          `PanelFrameProps.dragHandleClassName`. Additive.
+//   1.12.0 Undocking, on `@/viewer-core/layout`: the reducers `floatPanel`,
+//          `setFloatRect`, `dockPanel`, `minimisePanel`, `restorePanel`; the
+//          header-action slot of a panel's own frame (`PanelHeaderActions`,
+//          `PanelHeaderActionsProvider`, `usePanelHeaderActions`) and its glyphs;
+//          `localLayoutPersistence`; `FloatingWindow`'s caller-kept `rect` /
+//          `onRectChange`. Additive.
+export const VIEWER_CORE_API_VERSION = "1.12.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -166,3 +194,59 @@ export {
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
 export type { RegisteredUiShell, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+
+// ---------------------------------------------------------------------------
+// Panels (1.10.0) -- the catalogue of every panel, core's and plugins', and the
+// intents that open and close one by id. Data and functions only, so it stays
+// dependency-free; core's own panels are registered at bootstrap.
+// ---------------------------------------------------------------------------
+export {
+  DEFAULT_PANEL_CAPABILITIES,
+  placementFor,
+} from "@/layout/panel";
+export type {
+  PanelAction,
+  PanelBinding,
+  PanelBodyLoader,
+  PanelCapabilities,
+  PanelConstraints,
+  PanelEnv,
+  PanelFrameProps,
+  PanelHostInfo,
+  PanelId,
+  PanelOwnerId,
+  PanelPlacement,
+  PanelPlacements,
+  PanelProps,
+  PanelSpec,
+  PresetId,
+  RegisteredPanel,
+  ZoneId,
+} from "@/layout/panel";
+export {
+  getPanel,
+  isPanelAvailable,
+  listPanels,
+  listToolbarPanels,
+  registerPanel,
+} from "@/layout/registry";
+export { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
+export type { PanelController } from "@/layout/reveal";
+export { bindStoreFlag, watchStores } from "@/layout/bindings";
+export type { FlagStore } from "@/layout/bindings";
+export {
+  CLASSIC_PRESET_ID,
+  CLASSIC_ZONES,
+  DOCKED_PRESET_ID,
+  layoutDocKey,
+} from "@/layout/layout";
+export type {
+  FloatState,
+  LayoutDoc,
+  LayoutPersistence,
+  LayoutPrefs,
+  LayoutPreset,
+  ZoneDef,
+  ZoneKind,
+  ZoneState,
+} from "@/layout/layout";

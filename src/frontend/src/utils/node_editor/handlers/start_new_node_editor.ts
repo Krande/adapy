@@ -2,7 +2,7 @@ import {Message} from "@/flatbuffers/wsock/message";
 import {comms} from "@/utils/comms";
 import {CommandType, TargetType} from "@/flatbuffers/commands";
 import * as flatbuffers from "flatbuffers";
-import {useNodeEditorStore} from "@/state/useNodeEditorStore";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 
 export async function start_new_node_editor(){
 
@@ -17,5 +17,5 @@ export async function start_new_node_editor(){
 
     await comms.sendCommand(builder.asUint8Array());
     console.log('Starting new node editor');
-    useNodeEditorStore.getState().setIsNodeEditorVisible(false);
+    hide(CORE_PANEL_IDS.nodeEditor);
 }

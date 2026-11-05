@@ -15,6 +15,12 @@ import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
+import {layoutEngineEnabled} from "@/layout/flag";
+
+// The core panel catalogue loads each panel's classic component and content
+// through this module (`import("@/app")`), so they come out of this shell's own
+// chunk rather than a chunk of their own. See `layout/classicBodies`.
+export {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS, loadClassicPanel} from "@/layout/classicBodies";
 
 // REST-only UI lives in its own chunk so the embedded desktop bundle
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
@@ -35,6 +41,11 @@ const isSimFollower = !!simFollowerParams();
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
+// The layout engine (`?layout=engine`, off by default): the same UI rendered from
+// the panel registry by the layout host's classic preset. Its own chunk, so the
+// default path does not load it.
+const useLayoutEngine = layoutEngineEnabled();
+const ClassicLayout = React.lazy(() => import("./layout/presets/classic"));
 
 
 function App() {
@@ -123,7 +134,11 @@ function AppBody() {
     useUrlParamLoad();
     useSceneRestore();
 
-    const tree = (
+    const tree = useLayoutEngine ? (
+        <Suspense fallback={null}>
+            <ClassicLayout/>
+        </Suspense>
+    ) : (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
             {/* Tree View Section */}
             <div className={"relative h-full"}>

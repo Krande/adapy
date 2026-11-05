@@ -27,6 +27,43 @@ const PluginPanelBody: React.FC<{ ctx: AdaPluginContext; panel: PanelSlot }> = (
   return <>{panel.render(ctx)}</>;
 };
 
+/** One plugin panel, in its plugin's context, inside the boundary that disables
+ * the plugin when the panel throws. Shared by the region host below and by the
+ * panel registry's body for a plugin slot (`@/layout/PluginPanelBody`). */
+export const PluginPanelMount: React.FC<{ ctx: AdaPluginContext; panel: PanelSlot }> = ({
+  ctx,
+  panel,
+}) => {
+  const pluginId = ctx.pluginId;
+  return (
+    <ErrorBoundary
+      label={`Plugin ${pluginId}`}
+      fallback={(error, reset) => {
+        disablePlugin(pluginId, `panel render threw: ${error.message}`);
+        return (
+          <div className="rounded-md border border-red-700/60 bg-gray-800/95 p-2 text-xs text-gray-100">
+            <div className="font-semibold text-red-300">
+              Plugin “{pluginId}” hit an error
+            </div>
+            <div className="mt-0.5 mb-1.5 break-words text-gray-400">
+              {error.message}
+            </div>
+            <button
+              type="button"
+              onClick={reset}
+              className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600"
+            >
+              Retry
+            </button>
+          </div>
+        );
+      }}
+    >
+      <PluginPanelBody ctx={ctx} panel={panel} />
+    </ErrorBoundary>
+  );
+};
+
 /** Mount every registered panel for a region. Panels with a top-bar button only
  * render while that button toggled them visible; buttonless panels render
  * whenever their activation predicate holds (data-present case).
@@ -55,37 +92,13 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
     <>
       {panels
         .filter(({ panel }) => !panel.topBarButton || visible[panel.id])
-        .map(({ pluginId, panel }) => {
-          const ctx = makePluginContext(pluginId, stores, theme);
-          return (
-            <ErrorBoundary
-              key={panel.id}
-              label={`Plugin ${pluginId}`}
-              fallback={(error, reset) => {
-                disablePlugin(pluginId, `panel render threw: ${error.message}`);
-                return (
-                  <div className="rounded-md border border-red-700/60 bg-gray-800/95 p-2 text-xs text-gray-100">
-                    <div className="font-semibold text-red-300">
-                      Plugin “{pluginId}” hit an error
-                    </div>
-                    <div className="mt-0.5 mb-1.5 break-words text-gray-400">
-                      {error.message}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={reset}
-                      className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                );
-              }}
-            >
-              <PluginPanelBody ctx={ctx} panel={panel} />
-            </ErrorBoundary>
-          );
-        })}
+        .map(({ pluginId, panel }) => (
+          <PluginPanelMount
+            key={panel.id}
+            ctx={makePluginContext(pluginId, stores, theme)}
+            panel={panel}
+          />
+        ))}
     </>
   );
 };

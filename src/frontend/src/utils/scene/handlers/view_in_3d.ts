@@ -1,6 +1,6 @@
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
-import {useOptionsStore} from "@/state/optionsStore";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 
 // Shared "View in 3D" dispatcher for the /convert page. Behaviour
 // depends on how the page is mounted:
@@ -46,7 +46,7 @@ export async function view_in_3d(
     // viewer immediately, then kick off the load. The drawer would
     // otherwise sit over the canvas until the user dismisses it.
     useViewerPanelStore.getState().closePanel();
-    useOptionsStore.getState().setIsOptionsVisible(false);
+    hide(CORE_PANEL_IDS.options);
 
     const {overlay_file_in_scene} = await import("./overlay_file_in_scene");
     await overlay_file_in_scene(sourceKey, derivedKey, scopeOverride ? {scope: scopeOverride} : undefined);

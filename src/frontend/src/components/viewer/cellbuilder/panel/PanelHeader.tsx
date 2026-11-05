@@ -11,6 +11,7 @@
 import React from "react";
 
 import {PositionedMenu} from "@/components/common/PositionedMenu";
+import {PanelHeaderActions} from "@/components/ui/PanelFrame";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import type {LocalModelBrowser} from "./useLocalModelBrowser";
 
@@ -115,6 +116,7 @@ export const PanelHeader: React.FC<{browser: LocalModelBrowser}> = ({browser}) =
       >
         ✕
       </button>
+      <PanelHeaderActions />
     </div>
   );
 };

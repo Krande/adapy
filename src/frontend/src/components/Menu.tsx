@@ -1,4 +1,5 @@
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense } from "react";
+import { useIsWide } from "@/utils/useIsMobile";
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import SimulationControls from "./simulation/SimulationControls";
 import { feModelLoaded, hasFemConcepts, simulationButtonShown } from "./simulation/simPanelTabs";
@@ -44,80 +45,8 @@ const SystemAdminPanel = React.lazy(() => import("./admin/SystemAdminPanel"));
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import { WebsocketStatusMenu, WebsocketStatusBox } from "./WebsocketStatusMenu";
 import { PluginTopBarButtons, PluginPanelRegion } from "@/plugins";
+import { navBtnClass } from "./navButton";
 
-// `md:` Tailwind breakpoint. Match it with matchMedia so the menu can
-// react to viewport changes (rotating a tablet, dragging the window
-// across breakpoints) without re-architecting around CSS-only rules.
-const DESKTOP_QUERY = "(min-width: 768px)";
-
-// Top-bar button styling. Inactive uses a translucent hover (lighter
-// than the base) so the button "lifts" on hover. Active uses a darker
-// blue + inset shadow so the button reads as "pressed" — distinct from
-// hover (lighter) and from the base (mid-tone). Applied to every
-// toggle in the bar so the whole row uses one visual vocabulary.
-//
-// Mobile (<md): fixed 40x40 inline-flex box so every entry takes the
-// same horizontal slot — keeps the row inside a 360px viewport even
-// at the busiest combo (options + tree + node-editor + storage + info
-// + scene + animation + ws status). The 24px SVG icons centre via
-// flex; the lone ☰ text glyph keeps its size with font-bold.
-//
-// Desktop (md+): drop the fixed box in favour of padding-based sizing
-// (``py-2 px-4``). Icon buttons end up ~40 % wider than the narrow ☰
-// glyph, which reads as a clearer visual rhythm when the row isn't
-// space-constrained.
-//
-// The base class includes ``inline-flex``, which is what gives the
-// uniform box on mobile but also outranks the UA stylesheet's
-// ``[hidden] { display: none }`` rule in the cascade. ``navBtnClass``
-// takes an explicit ``hidden`` boolean and folds in Tailwind's
-// ``!hidden`` (display: none !important) when set — that way the
-// HTML ``hidden`` attribute doesn't have to fight ``inline-flex``
-// and the simulation-controls / node-editor toggles stay properly
-// gated on their ``hasAnimation``/``feaSessionActive``/``enableNodeEditor``
-// state.
-//
-// Hover styles are gated with ``pointer-fine:`` (mouse-only) instead
-// of plain ``hover:``. ``hover:`` resolves to ``@media (hover: hover)``
-// which Android Chrome and many hybrid tablets report TRUE on touch-
-// primary devices because the hardware *could* accept a stylus or
-// paired mouse — leaving :hover sticky on touch. After tapping a
-// button to toggle the menu OFF, the now-inactive button rendered
-// the translucent ``bg-blue-700/50`` hover style and looked
-// half-pressed. ``pointer: coarse`` is the touch canonical, so
-// ``pointer-fine`` is the safe mouse-only gate.
-const NAV_BTN_BASE =
-  "inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-sm " +
-  "md:w-auto md:h-auto md:py-2 md:px-4 md:rounded " +
-  "text-white font-bold transition-colors";
-const NAV_BTN_INACTIVE = "bg-blue-700 pointer-fine:hover:bg-blue-700/50";
-const NAV_BTN_ACTIVE =
-  "bg-blue-900 pointer-fine:hover:bg-blue-800 shadow-inner";
-
-function navBtnClass(
-  active: boolean,
-  extra: string = "",
-  hidden: boolean = false,
-): string {
-  const hiddenClass = hidden ? "hidden!" : "";
-  return `${NAV_BTN_BASE} ${active ? NAV_BTN_ACTIVE : NAV_BTN_INACTIVE} ${hiddenClass} ${extra}`
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function useIsDesktop(): boolean {
-  const [isDesktop, setIsDesktop] = useState(
-    () =>
-      typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(DESKTOP_QUERY);
-    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return isDesktop;
-}
 
 const Menu = () => {
   const stores = useViewerStores();
@@ -184,7 +113,9 @@ const Menu = () => {
   const isTreeCollapsed = stores.useTreeViewStore((s) => s.isTreeCollapsed);
   const setIsTreeCollapsed = stores.useTreeViewStore((s) => s.setIsTreeCollapsed);
   const treeViewWidth = stores.useTreeViewStore((s) => s.treeViewWidth);
-  const isDesktop = useIsDesktop();
+  // The `md:` (wide) breakpoint, followed as the viewport changes (rotating a
+  // tablet, dragging the window across it).
+  const isDesktop = useIsWide();
   const searchWindowOpen = useSearchWindowStore((s) => s.open);
 
   // On desktop the tree panel pushes the menu bar to its right so
