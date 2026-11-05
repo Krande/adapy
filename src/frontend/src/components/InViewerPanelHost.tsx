@@ -57,14 +57,16 @@ export function viewerPanelExternal(panel: ViewerPanel, adminTab: string | null,
 /**
  * The in-viewer window: centred near the top at 1100×720 (capped to the
  * viewport), above the canvas and the tree but under the toast slot, a
- * full-screen takeover on narrow screens.
+ * full-screen takeover on narrow screens. `offset` steps it down and right, for a
+ * second window beside the first.
  */
 export const ViewerWindow: React.FC<{
     title: string;
     onExternal: (() => void) | null;
     onClose: () => void;
+    offset?: number;
     children: React.ReactNode;
-}> = ({title, onExternal, onClose, children}) => (
+}> = ({title, onExternal, onClose, offset = 0, children}) => (
     <FloatingWindow
         dragHandleClassName={DRAG_HANDLE}
         // z-60 keeps it above the canvas (z-0) and below the toast slot (z-50,
@@ -78,8 +80,8 @@ export const ViewerWindow: React.FC<{
             // the admin tabs + audit-runs grid don't feel
             // claustrophobic; the user can drag-resize as they
             // like.
-            x: Math.max(0, (window.innerWidth - 1100) / 2),
-            y: 60,
+            x: Math.max(0, (window.innerWidth - 1100) / 2) + offset,
+            y: 60 + offset,
             width: Math.min(1100, window.innerWidth - 32),
             height: Math.min(720, window.innerHeight - 80),
         })}

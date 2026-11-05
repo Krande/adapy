@@ -135,14 +135,14 @@ const simulationOffered = () => {
   });
 };
 
-/** The in-viewer window shows one of admin / convert at a time. */
+/** An in-viewer window: admin or convert, one at a time unless the layout lets both float. */
 function viewerWindowBinding(panel: ViewerPanel): PanelBinding {
   return bindStoreFlag(
     useViewerPanelStore,
-    (s) => s.open === panel,
+    (s) => s.shown.includes(panel),
     (open, s) => {
       if (open) s.openPanel(panel);
-      else if (s.open === panel) s.closePanel();
+      else if (s.shown.includes(panel)) s.closePanel(panel);
     },
   );
 }

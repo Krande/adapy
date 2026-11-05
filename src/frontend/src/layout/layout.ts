@@ -141,6 +141,11 @@ export interface LayoutPreset {
    * inside a movable container: the WebGL canvas cannot be re-parented.
    */
   frame?: () => Promise<{ default: React.ComponentType<{ children?: React.ReactNode }> }>;
+  /**
+   * Whether `PanelConstraints.exclusiveGroup` holds under the user's prefs:
+   * revealing a panel closes the rest of its group. Omitted: always.
+   */
+  exclusiveGroups?: (prefs: LayoutPrefs) => boolean;
 }
 
 /** The key of a document in `LayoutPrefs.docs`: `<preset>` or `<preset>:<context>`. */

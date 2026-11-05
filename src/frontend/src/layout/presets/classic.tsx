@@ -279,8 +279,11 @@ const VIEWER_PANEL_OF: Readonly<Record<PanelId, ViewerPanel>> = {
 export const ViewerWindowChrome: WindowChrome = ({panel, close, children}) => {
   const adminTab = useViewerPanelStore((s) => s.adminTab);
   const which = VIEWER_PANEL_OF[panel.id];
+  // A second window opens stepped down from the first, not on top of it.
+  const index = which ? useViewerPanelStore.getState().shown.indexOf(which) : 0;
   return (
     <ViewerWindow
+      offset={Math.max(0, index) * 32}
       title={which ? VIEWER_PANEL_TITLE[which] : panel.title}
       onExternal={which ? viewerPanelExternal(which, adminTab, close) : null}
       onClose={close}
@@ -301,6 +304,8 @@ function ClassicFrame() {
   const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);
   const mount = useMountRule();
   const customisable = useCustomisablePanels();
+  // The in-viewer windows follow the preset's exclusive-group rule.
+  React.useEffect(() => useViewerPanelStore.getState().setExclusive(!customisable), [customisable]);
   return (
     <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
       {/* Tree View Section */}
@@ -354,6 +359,8 @@ export const classicPreset: LayoutPreset = {
   owner: CORE_PANEL_OWNER,
   zones: [...CLASSIC_ZONE_DEFS],
   defaults: classicDefaults,
+  // One in-viewer window at a time, as always, unless the user customises panels.
+  exclusiveGroups: (prefs) => prefs.customisablePanels !== true,
   frame: () => Promise.resolve({default: ClassicFrame}),
 };
 

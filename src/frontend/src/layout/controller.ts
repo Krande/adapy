@@ -21,9 +21,11 @@ export interface LayoutControllerOptions {
   zones: readonly ZoneDef[];
   store: StoreApi<LayoutStoreState>;
   context?: string;
+  /** Whether exclusive groups hold right now. Default: always. */
+  exclusive?: () => boolean;
 }
 
-export function createLayoutController({ preset, zones, store, context }: LayoutControllerOptions): PanelController {
+export function createLayoutController({ preset, zones, store, context, exclusive }: LayoutControllerOptions): PanelController {
   const doc = () => store.getState().doc(preset, zones, context);
   const update = (fn: Parameters<LayoutStoreState["update"]>[2]) => store.getState().update(preset, zones, fn, context);
 
@@ -37,7 +39,7 @@ export function createLayoutController({ preset, zones, store, context }: Layout
   /** The other open panels of `p`'s exclusive group. */
   const rivals = (p: RegisteredPanel): RegisteredPanel[] => {
     const group = p.constraints?.exclusiveGroup;
-    if (!group) return [];
+    if (!group || exclusive?.() === false) return [];
     return listPanels().filter((o) => o.id !== p.id && o.constraints?.exclusiveGroup === group && isOpen(o));
   };
 

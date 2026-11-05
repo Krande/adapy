@@ -32,6 +32,7 @@ import ReloadIcon from "@/components/icons/ReloadIcon";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
 import {navBtnClass} from "@/components/navButton";
 import {useNodeEditorStore} from "@/state/useNodeEditorStore";
+import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_of_nodes";
 import {useIsNarrow} from "@/utils/useIsMobile";
 
@@ -402,6 +403,8 @@ function DockFrame() {
     ? [...recent].reverse().map((id) => all.find((p) => p.id === id)).find((p) => p && !viaPluginRegion(p) && !isUndocked(doc, p.id) && dockedMount(p, states.get(p.id)!))
     : undefined;
   const floatable = all.filter((p) => canFloat(p));
+  // The admin and convert windows may both be open.
+  useEffect(() => useViewerPanelStore.getState().setExclusive(false), []);
 
   return (
     <div className="relative h-full w-full bg-gray-900 grid" style={dockGrid(tracks)} data-layout-preset={DOCKED_PRESET_ID}>
@@ -443,6 +446,8 @@ export const dockedPreset: LayoutPreset = {
   owner: CORE_PANEL_OWNER,
   zones: [...DOCKED_ZONE_DEFS],
   defaults: dockedDefaults,
+  // The admin and convert windows may float side by side.
+  exclusiveGroups: () => false,
   frame: () => Promise.resolve({default: DockFrame}),
 };
 
