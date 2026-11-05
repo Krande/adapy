@@ -246,6 +246,25 @@
 //          `ConversionProgressProps.isClaimed` now adds to core's load claims
 //          instead of replacing them. On `@/viewer-core/app`: `requestScopeChange`,
 //          `applyScopeChange`, `sceneHasModels`.
+//          Docked groups, so a docked UI is a configuration: `GroupNode` /
+//          `SplitNode` `fixed` (`FixedSize`: px with min / max, kept on window
+//          resize; dividers beside it resize it in px), `GroupNode.collapsed` (a
+//          `COLLAPSED_PX` strip of panel icons that restores it) and
+//          `arrangement` (`GroupArrangement`: tabs, stack, or auto by height); the
+//          reducers `setFixedPx`, `clampFixed`, `setGroupCollapsed`,
+//          `setGroupArrangement`; the grid honours `PanelConstraints.minSize`.
+//          `UiShellChrome.groups` (`actions`: add a panel here, collapse, pin;
+//          `tabIcons`), `footer` and `rail`. `PanelCapabilities.fill` (content
+//          edge to edge) and `pinnable`; pinned panels (`LayoutPrefs.pinned`, per
+//          shell) stay placed across modes. `PanelAction.pressed`, `AddGlyph`,
+//          `PinGlyph`. Modes: `UiShellMode.ownsSceneColor` / `showsDeformation` /
+//          `toolbar` (and `PluginModeSpec.showsDeformation`), `?mode=`
+//          (`SHELL_MODE_PARAM`), badges (`setShellModeBadge`, `shellModeBadge`,
+//          `ShellModeBadge`). `themeTokens` may be a function of the user's theme.
+//          `UiShellSpec.panels` (`PanelOverride`: title, icon, hint, shortcut,
+//          modes, capabilities, and `options` for the frameless content, or a
+//          function of the mode) changes panels a shell does not own, core's
+//          included; `PanelProps.options`, `RegisteredPanel.options`.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -318,7 +337,10 @@ export {
   shellModesVersion,
   subscribeShellModes,
 } from "@/layout/shellModes";
-export type { ShellMode } from "@/layout/shellModes";
+export type { ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/shellModes";
+export type { PanelOverride } from "@/layout/registry";
+export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
 export {
   RESERVED_SHORTCUTS,

@@ -7,8 +7,13 @@
 // `./corePanels`; a plugin's `PanelSlot`s are adapted and registered by
 // `registerPlugin` (see `./pluginPanels`).
 
+import type React from "react";
+
+import { activeShellMode } from "./shellModes";
+
 import {
   DEFAULT_PANEL_CAPABILITIES,
+  type PanelCapabilities,
   type PanelEnv,
   type PanelId,
   type PanelOwnerId,
@@ -17,6 +22,58 @@ import {
 } from "./panel";
 
 const _panels = new Map<PanelId, RegisteredPanel>();
+
+/**
+ * What a UI shell changes about a panel it does not own, core's included, without
+ * registering a copy: its title, icon, hint, modes and capabilities, and the
+ * options its frameless content is given (`SceneBodyProps`, `StorageBodyProps`, ...).
+ * The panel keeps its binding, availability and every `reveal()` that names it.
+ */
+export interface PanelOverride {
+  title?: string;
+  icon?: React.FC;
+  hint?: string;
+  shortcut?: string;
+  modes?: readonly string[];
+  capabilities?: Partial<PanelCapabilities>;
+  /**
+   * Props for the panel's frameless content, as `PanelProps.options`; or a
+   * function of a composed shell's active mode (the Scene panel's tabs per mode, say).
+   */
+  options?: Readonly<Record<string, unknown>> | ((mode: string | null) => Readonly<Record<string, unknown>>);
+}
+
+const _overrides = new Map<PanelId, PanelOverride>();
+/** The overridden view of each panel, kept so it is the same object until something changes. */
+const _views = new Map<PanelId, { base: RegisteredPanel; mode: string | null; view: RegisteredPanel }>();
+
+/** Install a shell's overrides (replacing any before); null clears them. */
+export function setPanelOverrides(map: Readonly<Record<PanelId, PanelOverride>> | null): void {
+  _overrides.clear();
+  _views.clear();
+  for (const [id, o] of Object.entries(map ?? {})) _overrides.set(id, o);
+}
+
+function view(p: RegisteredPanel): RegisteredPanel {
+  const o = _overrides.get(p.id);
+  if (!o) return p;
+  const mode = activeShellMode();
+  const hit = _views.get(p.id);
+  if (hit && hit.base === p && hit.mode === mode) return hit.view;
+  const options = typeof o.options === "function" ? o.options(mode) : o.options;
+  const v: RegisteredPanel = {
+    ...p,
+    ...(o.title !== undefined ? { title: o.title } : {}),
+    ...(o.icon !== undefined ? { icon: o.icon } : {}),
+    ...(o.hint !== undefined ? { hint: o.hint } : {}),
+    ...(o.shortcut !== undefined ? { shortcut: o.shortcut } : {}),
+    ...(o.modes !== undefined ? { modes: o.modes } : {}),
+    capabilities: { ...p.capabilities, ...o.capabilities },
+    ...(options !== undefined ? { options: { ...p.options, ...options } } : {}),
+  };
+  _views.set(p.id, { base: p, mode, view: v });
+  return v;
+}
 
 /**
  * Register a panel. `ownerId` is `"core"` for core's own panels and the plugin id
@@ -62,12 +119,13 @@ export function isPanelAvailable(panel: RegisteredPanel, env: PanelEnv): boolean
  * `available(env)` holds; without it, every registered panel.
  */
 export function listPanels(env?: PanelEnv): RegisteredPanel[] {
-  const all = [..._panels.values()];
+  const all = [..._panels.values()].map(view);
   return env ? all.filter((p) => isPanelAvailable(p, env)) : all;
 }
 
 export function getPanel(id: PanelId): RegisteredPanel | undefined {
-  return _panels.get(id);
+  const p = _panels.get(id);
+  return p && view(p);
 }
 
 /** Panels the classic top bar shows a toggle for, in top-bar order. */
@@ -90,4 +148,5 @@ export function removePanelsOwnedBy(ownerId: PanelOwnerId): void {
 /** Clear the registry -- unit tests only. */
 export function resetPanelRegistry(): void {
   _panels.clear();
+  setPanelOverrides(null);
 }

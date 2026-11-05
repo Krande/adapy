@@ -75,11 +75,37 @@ export interface ClassicArrangement {
   docks?: Readonly<Record<string, string>>;
 }
 
+/** Extra actions a composed shell gives each group of the grid. */
+export type GroupActionId = "collapse" | "pin" | "add";
+
 /** A composed shell as the classic frame serves it: its id, its arrangement, and per-mode overrides. */
 export interface ClassicShell extends ClassicArrangement {
   id: string;
   /** By mode id. A mode missing here (a plugin's) uses the shell's arrangement. */
   modes?: Readonly<Record<string, ClassicArrangement>>;
+  /** Group chrome: extra header actions, and panel icons in the tabs. */
+  groups?: {actions?: readonly GroupActionId[]; tabIcons?: boolean};
+}
+
+/** The group chrome the served shell asks for; none for core's own UI. */
+export function classicGroupChrome(): {actions: readonly GroupActionId[]; tabIcons: boolean} {
+  return {actions: shell?.groups?.actions ?? [], tabIcons: !!shell?.groups?.tabIcons};
+}
+
+/** The served shell's pinned panels. */
+export function pinnedPanels(): readonly PanelId[] {
+  return shell ? (layoutStore.getState().prefs.pinned?.[shell.id] ?? []) : [];
+}
+
+/** The served shell's pinned panels, re-rendering on change. */
+export function usePinnedPanels(): readonly PanelId[] {
+  const id = shell?.id;
+  return useStore(layoutStore, (s) => (id ? s.prefs.pinned?.[id] : undefined)) ?? NONE;
+}
+const NONE: readonly PanelId[] = [];
+
+export function togglePin(id: PanelId): void {
+  if (shell) layoutStore.getState().setPinned(shell.id, id, !pinnedPanels().includes(id));
 }
 
 /** The composed shell served; null for core's own UI. Set once at startup, before the frame renders. */
@@ -141,11 +167,34 @@ export function leaveContext(left: string, hide: (id: PanelId) => boolean, isOpe
   const before = layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, left);
   const now = classicDoc();
   const opening = new Set(arrangementOf().open ?? []);
+  const pinned = new Set(pinnedPanels());
   const placedBefore = [...gridPanels(gridOf(before)), ...Object.keys(before.floats)];
   for (const id of placedBefore) {
-    if (opening.has(id) || placeOf(now, id) !== "home" || !isOpen(id)) continue;
+    if (placeOf(now, id) !== "home") continue;
+    if (pinned.has(id)) {
+      carryPinned(before, id);
+      continue;
+    }
+    if (opening.has(id) || !isOpen(id)) continue;
     hide(id);
   }
+}
+
+/**
+ * A pinned panel the mode entered does not place: placed as it was, in a window
+ * at the same rect, or in the group of the same id, else at the view's right edge.
+ */
+function carryPinned(before: LayoutDoc, id: PanelId): void {
+  const f = before.floats[id];
+  if (f) {
+    updateClassic((d) => floatPanel(d, id, {x: f.x, y: f.y, w: f.w, h: f.h}));
+    return;
+  }
+  const from = groupOf(gridOf(before), id);
+  updateClassic((d) => {
+    const into = from && findNode(gridOf(d), from.id);
+    return dockInGridDoc(d, id, into && into.kind === "group" ? {node: from!.id, edge: "center"} : {node: VIEWPORT_NODE, edge: "right"});
+  });
 }
 
 /** Where a dock id goes in the grid when the shell maps it to no group that exists: that edge of the view. */

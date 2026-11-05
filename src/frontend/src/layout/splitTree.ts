@@ -13,21 +13,44 @@ import type { PanelId } from "./panel";
 export type SplitDir = "row" | "col";
 export type DockEdge = "left" | "right" | "top" | "bottom";
 
+/**
+ * A node held at a size in px along its parent split, instead of a fraction: a
+ * dock that keeps its width when the window resizes. `min` / `max` bound what a
+ * divider drag may make of it.
+ */
+export interface FixedSize {
+  px: number;
+  min?: number;
+  max?: number;
+}
+
 export interface SplitNode {
   kind: "split";
   id: string;
   dir: SplitDir;
   children: GridNode[];
-  /** Each child's fraction of the split; they sum to 1. */
+  /** Each child's fraction of the split; they sum to 1. A `fixed` child's entry is kept but not used. */
   sizes: number[];
+  fixed?: FixedSize;
 }
+
+/** How a group shows its panels: one at a time behind tabs, all stacked, or stacked while there is room. */
+export type GroupArrangement = "tabs" | "stack" | "auto";
 
 export interface GroupNode {
   kind: "group";
   id: string;
   panels: PanelId[];
   active: PanelId | null;
+  fixed?: FixedSize;
+  /** Shown as a narrow strip of its panels' icons; one of them restores it. */
+  collapsed?: boolean;
+  /** Default `"tabs"`. */
+  arrangement?: GroupArrangement;
 }
+
+/** The width (or height) of a collapsed group's strip, in px. */
+export const COLLAPSED_PX = 28;
 
 export interface ViewportNode {
   kind: "viewport";
@@ -133,7 +156,8 @@ function tidy(node: GridNode | null): GridNode | null {
     const t = tidy(c);
     if (!t) return;
     const s = node.sizes[i] ?? 0;
-    if (t.kind === "split" && t.dir === node.dir) {
+    // A fixed split stays a node of its own: flattened, its size would be lost.
+    if (t.kind === "split" && t.dir === node.dir && !t.fixed) {
       t.children.forEach((cc, j) => {
         kids.push(cc);
         sizes.push(s * t.sizes[j]);
@@ -195,12 +219,20 @@ function insertBeside(root: GridNode, target: string, node: GridNode, edge: Dock
         sizes: first ? [share, ...sizes] : [...sizes, share],
       };
     }
+    // The wrapping split takes the target's place in its parent, and so its fixed size.
+    const fixed = t.kind !== "viewport" && target !== ROOT_NODE ? t.fixed : undefined;
+    let inner: GridNode = t;
+    if (fixed && t.kind !== "viewport") {
+      const { fixed: _moved, ...rest } = t;
+      inner = rest as GridNode;
+    }
     return {
       kind: "split",
       id: nextId(root, "s"),
       dir,
-      children: first ? [node, t] : [t, node],
+      children: first ? [node, inner] : [inner, node],
       sizes: first ? [share, 1 - share] : [1 - share, share],
+      ...(fixed ? { fixed } : {}),
     };
   };
   if (target === ROOT_NODE || nodeId(root) === target) return settle(wrap(root));
@@ -277,6 +309,38 @@ export function setSplitSizes(root: GridNode, splitId: string, sizes: readonly n
   const ns = normalised(sizes);
   if (ns.every((v, i) => Math.abs(v - s.sizes[i]) < 1e-9)) return root;
   return mapNode(root, splitId, () => ({ ...s, sizes: ns })) ?? root;
+}
+
+/** A fixed node's size in px, within its `min` / `max`. Unchanged for a node that is not fixed. */
+export function setFixedPx(root: GridNode, id: string, px: number): GridNode {
+  const n = findNode(root, id);
+  if (!n || n.kind === "viewport" || !n.fixed) return root;
+  const v = Math.round(clampFixed(n.fixed, px));
+  if (v === n.fixed.px) return root;
+  return mapNode(root, id, () => ({ ...n, fixed: { ...n.fixed!, px: v } })) ?? root;
+}
+
+/** `px` within a fixed size's bounds (and never below the collapsed strip). */
+export function clampFixed(f: FixedSize, px: number): number {
+  return Math.min(f.max ?? Infinity, Math.max(f.min ?? COLLAPSED_PX, px));
+}
+
+/** Collapse a group to its strip, or restore it. */
+export function setGroupCollapsed(root: GridNode, id: string, collapsed: boolean): GridNode {
+  const g = findNode(root, id);
+  if (!g || g.kind !== "group" || !!g.collapsed === collapsed) return root;
+  return mapNode(root, id, () => {
+    const next: GroupNode = { ...g, collapsed };
+    if (!collapsed) delete next.collapsed;
+    return next;
+  }) ?? root;
+}
+
+/** A group's arrangement. */
+export function setGroupArrangement(root: GridNode, id: string, arrangement: GroupArrangement): GridNode {
+  const g = findNode(root, id);
+  if (!g || g.kind !== "group" || (g.arrangement ?? "tabs") === arrangement) return root;
+  return mapNode(root, id, () => ({ ...g, arrangement })) ?? root;
 }
 
 /** A split's children, all the same size. */
@@ -367,6 +431,18 @@ export interface Rect {
 // ---------------------------------------------------------------------------
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const posNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
+
+/** A stored fixed size, or none when it is not one. */
+function readFixed(raw: unknown): FixedSize | undefined {
+  if (!isObj(raw) || !posNum(raw.px)) return undefined;
+  const f: FixedSize = { px: raw.px };
+  if (posNum(raw.min)) f.min = raw.min;
+  if (posNum(raw.max)) f.max = raw.max;
+  if (f.min !== undefined && f.max !== undefined && f.min > f.max) delete f.max;
+  f.px = clampFixed(f, f.px);
+  return f;
+}
 
 /**
  * A stored grid made safe to use: malformed nodes are dropped, a panel listed
@@ -400,6 +476,10 @@ export function normaliseGrid(raw: unknown): GridNode {
       if (unique.length === 0) return null;
       const active = typeof n.active === "string" && unique.includes(n.active) ? n.active : unique[0];
       const g: GroupNode = { kind: "group", id: "", panels: unique, active };
+      const fixed = readFixed(n.fixed);
+      if (fixed) g.fixed = fixed;
+      if (n.collapsed === true) g.collapsed = true;
+      if (n.arrangement === "stack" || n.arrangement === "auto") g.arrangement = n.arrangement;
       claim(g, n.id, "g");
       return g;
     }
@@ -417,6 +497,8 @@ export function normaliseGrid(raw: unknown): GridNode {
       if (kids.length === 0) return null;
       const even = sizes.some((s) => Number.isNaN(s)) || rawSizes.length !== n.children.length;
       const sp: SplitNode = { kind: "split", id: "", dir: n.dir, children: kids, sizes: even ? kids.map(() => 1) : sizes };
+      const fixed = readFixed(n.fixed);
+      if (fixed) sp.fixed = fixed;
       claim(sp, n.id, "s");
       return sp;
     }

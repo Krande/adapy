@@ -79,6 +79,8 @@ export {
 } from "@/components/ui/panelChrome";
 export type { PanelCardVariant } from "@/components/ui/panelChrome";
 export {
+  AddGlyph,
+  PinGlyph,
   CloseGlyph,
   DockGlyph,
   ExternalGlyph,
@@ -200,6 +202,13 @@ export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
 export { LAYOUT_ENGINE_PARAM, LAYOUT_ENGINE_STORAGE_KEY, layoutEngineEnabled } from "@/layout/flag";
+export {
+  COLLAPSED_PX,
+  clampFixed,
+  setFixedPx,
+  setGroupArrangement,
+  setGroupCollapsed,
+} from "@/layout/splitTree";
 export {
   DEFAULT_GRID,
   ROOT_NODE,

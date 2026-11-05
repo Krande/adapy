@@ -36,6 +36,8 @@ export interface LayoutStoreState {
   setStartingDoc(preset: PresetId, context: string | undefined, make: (() => LayoutDoc) | null): void;
   setActivePreset(preset: PresetId | undefined): void;
   setCustomisablePanels(on: boolean): void;
+  /** Pin or unpin a panel in a composed shell (by shell id). */
+  setPinned(shell: string, panel: string, pinned: boolean): void;
   /** Load the saved prefs and keep saving every change to `persistence`. */
   hydrate(persistence: LayoutPersistence): Promise<void>;
 }
@@ -52,6 +54,13 @@ export function migrateLayoutPrefs(raw: unknown): LayoutPrefs {
   const prefs: LayoutPrefs = { v: LAYOUT_PREFS_VERSION, docs: { ...r.docs } };
   if (typeof r.activePreset === "string") prefs.activePreset = r.activePreset;
   if (typeof r.customisablePanels === "boolean") prefs.customisablePanels = r.customisablePanels;
+  if (r.pinned && typeof r.pinned === "object") {
+    const pinned: Record<string, string[]> = {};
+    for (const [shell, ids] of Object.entries(r.pinned)) {
+      if (Array.isArray(ids)) pinned[shell] = [...new Set(ids.filter((x): x is string => typeof x === "string"))];
+    }
+    prefs.pinned = pinned;
+  }
   return prefs;
 }
 
@@ -110,6 +119,13 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
       },
       setCustomisablePanels(on) {
         setPrefs({ ...get().prefs, customisablePanels: on });
+      },
+      setPinned(shell, panel, pinned) {
+        const prefs = get().prefs;
+        const now = prefs.pinned?.[shell] ?? [];
+        if (now.includes(panel) === pinned) return;
+        const next = pinned ? [...now, panel] : now.filter((p) => p !== panel);
+        setPrefs({ ...prefs, pinned: { ...prefs.pinned, [shell]: next } });
       },
       async hydrate(backend) {
         persistence = null; // no saving back what is being loaded

@@ -150,6 +150,8 @@ export interface LayoutPrefs {
   customisablePanels?: boolean;
   /** Documents by `layoutDocKey`. */
   docs: Record<string, LayoutDoc>;
+  /** A composed shell's pinned panels, by shell id: they stay open and placed across its modes. */
+  pinned?: Record<string, PanelId[]>;
 }
 
 /** Are customisable panels on: unless the user turned them off. */

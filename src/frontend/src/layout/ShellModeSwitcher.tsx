@@ -9,7 +9,15 @@ import {makePluginContext} from "@/plugins/context";
 import {useViewerStores} from "@/state/AdaViewerContext";
 import {usePluginTheme} from "@/state/themeStore";
 
-import {activeShellMode, listShellModes, setShellMode, shellModesVersion, subscribeShellModes, type ShellMode} from "./shellModes";
+import {
+  activeShellMode,
+  listShellModes,
+  setShellMode,
+  shellModeBadge,
+  shellModesVersion,
+  subscribeShellModes,
+  type ShellMode,
+} from "./shellModes";
 
 /** The modes, the active one and the switch, re-rendering on change. */
 export function useShellMode(): {modes: readonly ShellMode[]; active: string | null; setMode: (id: string) => boolean} {
@@ -36,10 +44,32 @@ export function ShellModeSwitcher({buttonClass = DEFAULT_BUTTON, className = "fl
       {modes.map((m) => {
         const Icon = m.icon;
         const on = m.id === active;
+        const badge = shellModeBadge(m.id);
+        const note = badge === null ? "" : badge === "dot" ? " (something new here)" : ` (${badge} waiting)`;
         return (
-          <button key={m.id} type="button" className={buttonClass(on)} aria-pressed={on} title={m.hint ?? m.label} onClick={() => setMode(m.id)}>
+          <button
+            key={m.id}
+            type="button"
+            className={`relative ${buttonClass(on)}`}
+            aria-pressed={on}
+            title={(m.hint ?? m.label) + note}
+            aria-label={m.label + note}
+            onClick={() => setMode(m.id)}
+          >
             {Icon && <Icon />}
             <span>{m.label}</span>
+            {badge !== null && (
+              <span
+                aria-hidden="true"
+                className={
+                  badge === "dot"
+                    ? "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--ada-accent,#3b82f6)]"
+                    : "absolute -right-1.5 -top-1.5 min-w-4 rounded-full bg-[var(--ada-accent,#3b82f6)] px-1 text-[10px] leading-4 text-white"
+                }
+              >
+                {badge === "dot" ? null : badge}
+              </span>
+            )}
           </button>
         );
       })}

@@ -55,6 +55,10 @@ export interface PanelCapabilities {
   keepAlive: boolean;
   /** It may share a zone by vertical stacking (false for trees and tables). Default true. */
   stackable: boolean;
+  /** Its content fills its group or window edge to edge and scrolls itself (no padding, no host scroll). Default false. */
+  fill: boolean;
+  /** It may be pinned, so it stays open and placed across a shell's modes. Default true. */
+  pinnable: boolean;
 }
 
 export const DEFAULT_PANEL_CAPABILITIES: Readonly<PanelCapabilities> = Object.freeze({
@@ -65,6 +69,8 @@ export const DEFAULT_PANEL_CAPABILITIES: Readonly<PanelCapabilities> = Object.fr
   resizable: true,
   keepAlive: false,
   stackable: true,
+  fill: false,
+  pinnable: true,
 });
 
 /** Where a panel can live at all. */
@@ -139,6 +145,8 @@ export interface PanelProps {
   close(): void;
   /** True when this panel is the visible tab in its zone. */
   isActive: boolean;
+  /** Options for the panel's content (a shell's `PanelOverride.options`): core's frameless bodies take them as props. */
+  options?: Readonly<Record<string, unknown>>;
 }
 
 /** One action in a panel frame's header (float, dock to..., minimise, close, pop out). */
@@ -148,6 +156,8 @@ export interface PanelAction {
   icon?: React.FC;
   run(): void;
   disabled?: boolean;
+  /** A toggle's state (pinned, say); absent for a plain action. */
+  pressed?: boolean;
   /** A menu the action's button opens instead of running it. */
   menu?: readonly PanelMenuItem[];
 }
@@ -258,6 +268,8 @@ export interface RegisteredPanel extends PanelSpec {
   owner: PanelOwnerId;
   capabilities: PanelCapabilities;
   frame: "own" | "host";
+  /** Options for its frameless content, from a shell's override (`PanelProps.options`). */
+  options?: Readonly<Record<string, unknown>>;
 }
 
 /** A spec's placement for a preset: its own entry, else `default`. */
