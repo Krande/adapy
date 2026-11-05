@@ -25,7 +25,7 @@ import {PANEL_CHROME, PANEL_SURFACE, WINDOW_CARD, WINDOW_HEADER, WINDOW_HEADER_B
 
 // The legacy markup these compare against predates the body marker (`PANEL_BODY_ATTR`),
 // which draws nothing: it is left out of the comparison, and checked on its own below.
-const html = (el: React.ReactElement) => renderToStaticMarkup(el).replaceAll(' data-ada-panel-body=""', "");
+const html = (el: React.ReactElement) => renderToStaticMarkup(el).replaceAll(' data-ada-panel-body=""', "").replace(/ data-ada-panel-id="[^"]*"/g, "");
 const noop = () => {};
 
 test("a card and a window's body carry the body marker a shell's palette is scoped to", () => {

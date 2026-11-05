@@ -22,6 +22,8 @@ const { bodyPaletteCss, panelBodyAttrsFor, panelBodyAttrs } = await import("@/co
 const { PanelBodyPalette } = await import("@/components/ui/PanelBodyPalette");
 const { registerPlugin, resetRegistry } = await import("@/plugins/registry");
 
+const { compactActions, COMPACT_GROUP_PX } = await import("@/layout/presets/groupCompact");
+
 registerCorePanels();
 
 test("a shell opens in ?mode=, else the stored mode, else its default mode, else the first", () => {
@@ -118,6 +120,36 @@ test("PanelBodyPalette marks a body outside a panel without drawing a box", () =
   assert.match(html, /data-ada-panel-body=""/);
   assert.match(html, /data-ada-panel-id="core:storage"/);
   assert.match(html, /class="p-2"/);
+});
+
+test("a narrow group folds its header actions into one more menu; a wide or unmeasured one keeps them", () => {
+  const ran: string[] = [];
+  const act = (id: string, extra = {}) => ({ id, label: `Do ${id}`, run: () => void ran.push(id), ...extra });
+  const actions = [
+    act("float"),
+    act("pin", { pressed: true }),
+    act("add", { label: "Add a panel here", menu: [{ id: "add-x", label: "X", run: () => void ran.push("add-x") }] }),
+    act("collapse", { disabled: true }),
+  ];
+  assert.deepEqual(compactActions(actions, 0), actions, "not measured yet");
+  assert.deepEqual(compactActions(actions, COMPACT_GROUP_PX), actions, "wide enough");
+  assert.deepEqual(compactActions(actions.slice(0, 1), 100), actions.slice(0, 1), "one action stays as it is");
+  const [more, ...rest] = compactActions(actions, 260);
+  assert.equal(rest.length, 0);
+  assert.equal(more.id, "more");
+  assert.equal(more.label, "More actions");
+  assert.deepEqual(
+    more.menu!.map((m) => [m.id, m.label, !!m.current, !!m.disabled]),
+    [
+      ["float", "Do float", false, false],
+      ["pin", "Do pin", true, false],
+      ["add:add-x", "Add a panel here: X", false, false],
+      ["collapse", "Do collapse", false, true],
+    ],
+  );
+  more.menu![0].run();
+  more.menu![2].run();
+  assert.deepEqual(ran, ["float", "add-x"]);
 });
 
 test("a plugin's mode holds the FEA model undeformed unless it opts in", () => {

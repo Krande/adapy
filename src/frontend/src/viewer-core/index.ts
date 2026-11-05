@@ -289,6 +289,25 @@
 //          takes a shell's colours with no class changed; `panelBodyAttrs`,
 //          `bodyPaletteCss` on `@/viewer-core/layout`. `UiShellChrome.toastAnchor`
 //          and `ConversionProgressProps.anchor` (`ToastAnchor`).
+//          Shell configuration gaps: `UiShellLayout.defaultMode` (the mode with no
+//          `?mode=` and nothing stored); `PanelOverride.available` (false, or a
+//          function of the mode, hides a panel from the lists, toggles, commands
+//          and add menus) and `PanelOverride.bodyPalette` (variables scoped to one
+//          panel's body: `PANEL_ID_ATTR`, `panelBodyAttrsFor`, and `bodyPaletteCss`
+//          takes a per-panel map); a composed shell may dock the sections the
+//          classic UI draws inside another panel (the result data table), which
+//          then leave their host; `themeTokens` and `bodyPalette` also apply on
+//          the canvas-less pages (`/convert`, `/admin`); `PanelBodyPalette` on
+//          `@/viewer-core/layout` gives core bodies drawn outside panels (dialogs,
+//          flyouts) the shell's body palette; `MenuItemDef` may hold a submenu
+//          (`{label, items}`, nesting; `offeredMenuItems`); `CommandSpec.chordLabel`
+//          (`commandChord`) shows a chord in the palette and menus without binding
+//          it, for keys core owns; a group narrower than `COMPACT_GROUP_PX` folds
+//          its header actions into a "more" menu (`MoreGlyph`), close stays in
+//          the bar. Behaviour change: `PluginModeSpec.showsDeformation` now
+//          defaults to false for a plugin's mode (opt in with true); a shell's own
+//          modes still default to shown. `reveal(id)` of an unbound panel already
+//          docked or floating brings it forward where it is.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

@@ -96,6 +96,7 @@ export {
   ExternalGlyph,
   FloatGlyph,
   MinimiseGlyph,
+  MoreGlyph,
   MoveGlyph,
   PanelCard,
   PanelFrame,
@@ -139,6 +140,7 @@ export {
   resetArrangement,
   saveWorkspace,
 } from "@/layout/presets/classicPlace";
+export { COMPACT_GROUP_PX } from "@/layout/presets/groupCompact";
 export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
 export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";

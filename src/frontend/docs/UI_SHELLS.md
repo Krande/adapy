@@ -207,7 +207,8 @@ the chrome it draws in the slots.
 | Area | Option | What it does |
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
-| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false`, `toolbar`. `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`. `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
 | Groups (in `grid`) | `fixed: {px, min, max}` | A dock held at a px size, kept on window resize; its divider resizes it in px. On groups and splits. |
 | | `collapsed`, `arrangement` | A strip of panel icons that restores the group; tabs, stacked, or `"auto"` (stacked while there is room). |
@@ -219,10 +220,16 @@ the chrome it draws in the slots.
 | | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
 | Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
 | | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
-| Look | `themeTokens` | `--ada-*` tokens, or a function of the user's panel theme, applied again on every theme change. |
-| | `bodyPalette` | Tailwind palette variables (`--color-gray-800`, `--color-blue-600`, ...) redefined inside core's panel bodies only (elements marked `data-ada-panel-body`), so every core body takes the shell's colours without a copy; or a function of the user's theme. |
+| | `panels[id].available` | `false`, or a function of the active mode: hides the panel from the lists, toggles, commands and add menus (all the time, or in some modes). It can only take a panel away; a panel unavailable in itself stays so. |
+| | `panels[id].bodyPalette` | Palette variables redefined inside that one panel's body (over the shell-wide `bodyPalette`), in windows, grid groups, covers, pop-outs and framed cards. |
+| | docking sections | A composed shell may name a panel the classic UI draws inside another (`core:fea-table`, inside Simulation) in its `grid`, or let the user dock it; it then leaves its host. Core's own UI keeps it inside. |
+| Look | `themeTokens` | `--ada-*` tokens, or a function of the user's panel theme, applied again on every theme change. Also on core's canvas-less pages (`/convert`, `/admin`). |
+| | `bodyPalette` | Tailwind palette variables (`--color-gray-800`, `--color-blue-600`, ...) redefined inside core's panel bodies only (elements marked `data-ada-panel-body`), so every core body takes the shell's colours without a copy; or a function of the user's theme. Also on the canvas-less pages. A core body drawn outside a panel (a dialog, a flyout) is wrapped in `<PanelBodyPalette>` (`@/viewer-core/layout`; `panelId` adds that panel's own palette) to take it. |
+| | group header | In a group narrower than `COMPACT_GROUP_PX` (340 px) the header's actions fold into one "More actions" menu; close stays in the bar. Nothing to configure. |
 | | `chrome.toastAnchor` | The corner core's progress toast sits in. |
 | Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`). |
+| | `registerCommand({chordLabel})` | A chord shown beside the command in the palette and menus, bound to nothing: for a key core already handles (`keys` would refuse it). Ignored when `keys` is given. |
+| Menus | `MenuDef.items` | Command ids, separators, actions of the menu's own, or a submenu `{label, items}` (nesting). Right arrow opens a submenu, Left closes it, Escape closes the menu; a submenu with nothing offered is left out. |
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
 `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.

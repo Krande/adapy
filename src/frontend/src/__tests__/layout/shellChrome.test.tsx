@@ -112,7 +112,7 @@ test("a menu may nest submenus; one with nothing offered is left out", () => {
     ] as import("@/layout/CommandPalette").MenuItemDef[];
     const offered = offeredMenuItems(items, (id) => !!C.getCommand(id));
     assert.equal(offered.length, 2);
-    const more = offered[1] as { items: unknown[] };
+    const more = offered[1] as unknown as { items: unknown[] };
     assert.equal(more.items.length, 2, "the empty nested submenu is dropped");
     const byId = new Map(C.listCommands().map((c) => [c.id, c]));
     const html = renderToStaticMarkup(React.createElement(MenuList, { label: "File", items, byId, close() {}, className: "" }));
