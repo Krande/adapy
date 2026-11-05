@@ -19,13 +19,25 @@ import {defaultRect} from "@/assets/floatingWindow";
 import {MoveGlyph} from "@/components/ui/PanelFrame";
 
 import type {DropTarget} from "../dockDrag";
-import {CLASSIC_PRESET_ID, CLASSIC_ZONES, customisablePanelsOn, layoutDocKey, type LayoutDoc} from "../layout";
+import {CORE_PANEL_OWNER} from "../corePanelIds";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, customisablePanelsOn, layoutDocKey, type LayoutDoc} from "../layout";
 import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "../panel";
-import {dockInGridDoc, dockPanel, emptyLayoutDoc, floatPanel, floatPanelAt, gridOf, isInGrid, migrateLayoutDoc} from "../reducers";
-import {getPanel} from "../registry";
+import {
+  adoptNewPanels,
+  dockInGridDoc,
+  dockPanel,
+  emptyLayoutDoc,
+  floatPanel,
+  floatPanelAt,
+  gridOf,
+  isInGrid,
+  migrateLayoutDoc,
+} from "../reducers";
+import {getPanel, listPanels} from "../registry";
 import {
   VIEWPORT_NODE,
+  findNode,
   gridGroups,
   groupOf,
   type DockEdge,
@@ -59,14 +71,24 @@ export function useCustomisablePanels(): boolean {
  */
 let context = "default";
 let startOpen: readonly PanelId[] = [];
+let composed = false;
+let docks: Readonly<Record<string, string>> = {};
 
 /**
  * Serve a composed shell: its own document, starting from `grid` until the user
- * rearranges, with the panels of `open` opened when the shell loads.
+ * rearranges, with the panels of `open` opened when the shell loads, and plugin
+ * panels that name a dock placed by `dockGroups` (dock id to a group of the grid).
  */
-export function setClassicContext(ctx: string, grid?: GridNode, open?: readonly PanelId[]): void {
+export function setClassicContext(
+  ctx: string,
+  grid?: GridNode,
+  open?: readonly PanelId[],
+  dockGroups?: Readonly<Record<string, string>>,
+): void {
   context = ctx || "default";
+  composed = context !== "default";
   startOpen = open ?? [];
+  docks = dockGroups ?? {};
   layoutStore
     .getState()
     .setStartingDoc(CLASSIC_PRESET_ID, context, grid ? () => ({...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, context), grid}) : null);
@@ -83,6 +105,41 @@ export function classicContext(): string {
  */
 export function openStartingPanels(reveal: (id: PanelId) => boolean): void {
   for (const id of startOpen) reveal(id);
+}
+
+/** Where a dock id goes in the grid when the shell maps it to no group that exists: that edge of the view. */
+const DOCK_EDGE: Readonly<Record<string, DockEdge>> = {left: "left", bottom: "bottom"};
+
+/**
+ * In a composed shell, place each plugin panel that names a dock, once (the
+ * document's `known`): into the group the shell maps that dock to, else at that
+ * edge of the view. After that it is the user's to move. Floating and overlay
+ * docks are left to their region. Core's own UI places nothing this way.
+ */
+export function adoptDockedPanels(): void {
+  if (!composed) return;
+  const candidates = listPanels().filter((p) => p.owner !== CORE_PANEL_OWNER && dockOf(p) !== null && canDock(p));
+  if (!candidates.length) return;
+  updateClassic((d) => {
+    const {doc, adopted} = adoptNewPanels(d, candidates.map((p) => p.id));
+    let out = doc;
+    for (const id of adopted) {
+      const dock = dockOf(getPanel(id)!)!;
+      if (dock === "float" || dock === "overlay") continue;
+      const group = docks[dock];
+      const target: GridTarget =
+        group && findNode(gridOf(out), group) ? {node: group, edge: "center"} : {node: VIEWPORT_NODE, edge: DOCK_EDGE[dock] ?? "right"};
+      out = dockInGridDoc(out, id, target);
+    }
+    return out;
+  });
+}
+
+/** Plugin panels shown in a place of the layout's own (a group, a window) rather than their region. */
+export function placedElsewhere(doc: LayoutDoc, customisable: boolean, narrow: boolean): PanelId[] {
+  return listPanels()
+    .filter((p) => p.owner !== CORE_PANEL_OWNER && shownPlace(doc, p.id, customisable, narrow) !== "home")
+    .map((p) => p.id);
 }
 
 /** Core's top bar of toggles; a composed shell with a menu bar of its own may leave it out. */
@@ -127,19 +184,28 @@ export function homeOf(panel: Pick<RegisteredPanel, "placement">): Home | null {
   return null;
 }
 
-/** May leave its home for the grid: it allows docking and has frameless content. */
+/** The dock a plugin panel asks for (`PanelSlot.dock`), if any. */
+export function dockOf(panel: Pick<RegisteredPanel, "placement">): string | null {
+  return panel.placement?.[DOCKED_PRESET_ID]?.zone ?? null;
+}
+
+/**
+ * May leave its home for the grid: it allows docking, has frameless content, and
+ * has a home of its own or names a dock (a plugin panel otherwise shown inside a
+ * core panel).
+ */
 export function canDock(panel: RegisteredPanel): boolean {
-  return panel.capabilities.dockable && !!panel.content && homeOf(panel) !== null;
+  return panel.capabilities.dockable && !!panel.content && (homeOf(panel) !== null || dockOf(panel) !== null);
 }
 
 /**
  * May float in a window of the layout: it allows floating, has frameless content
- * and is at home in the column or the tree track (a panel at home in a window
- * floats in that one).
+ * and is at home in the column or the tree track, or names a dock (a panel at
+ * home in a window floats in that one).
  */
 export function canFloat(panel: RegisteredPanel): boolean {
   const home = homeOf(panel);
-  return panel.capabilities.floatable && !!panel.content && (home === "column" || home === "tree");
+  return panel.capabilities.floatable && !!panel.content && (home === "column" || home === "tree" || (home === null && dockOf(panel) !== null));
 }
 
 export type Place = "home" | "float" | "grid";

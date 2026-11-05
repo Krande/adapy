@@ -73,6 +73,8 @@ export function register(): void {
       {
         id: "hello",
         region: "top-panel",
+        // Where a shell with docks puts it; core's classic UI mounts by region.
+        dock: "right",
         order: 10,
         render: (ctx) => <DemoTopPanel ctx={ctx} />,
         topBarButton: { icon: DemoIcon, label: "Demo plugin" },

@@ -6,6 +6,7 @@
 import React from "react";
 
 import ErrorBoundary from "@/components/common/ErrorBoundary";
+import { usePlacedElsewhereVersion } from "@/layout/usePlacedElsewhere";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { usePluginTheme } from "@/state/themeStore";
 import { makePluginContext } from "./context";
@@ -81,6 +82,8 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
   // ...and to the theme, so a theme switch repaints plugin panels with core's
   // own chrome rather than a render or two later.
   const theme = usePluginTheme();
+  // ...and to the layout moving one of these panels to a group or window of its own.
+  usePlacedElsewhereVersion();
 
   const baseCtx = makePluginContext("", stores, theme);
   const panels = getPanelsForRegion(region, baseCtx).filter(
@@ -114,7 +117,8 @@ export const PluginTopBarButtons: React.FC<{ navBtnClass: (active: boolean) => s
   const theme = usePluginTheme();
 
   const baseCtx = makePluginContext("", stores, theme);
-  const panels = getPanelsForRegion("top-panel", baseCtx).filter(
+  // Every button, wherever the layout shows its panel: it is what opens and closes it.
+  const panels = getPanelsForRegion("top-panel", baseCtx, { includePlacedElsewhere: true }).filter(
     ({ panel }) => panel.topBarButton,
   );
   if (panels.length === 0) return null;

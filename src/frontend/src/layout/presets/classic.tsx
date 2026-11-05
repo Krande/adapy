@@ -58,7 +58,7 @@ import {viewerLayoutPersistence} from "../viewerPersistence";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
 import type {PanelState} from "../panelStates";
 import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
-import {getPanel, listToolbarPanels} from "../registry";
+import {getPanel, listPanels, listToolbarPanels} from "../registry";
 import {hide, reveal, toggle} from "../reveal";
 import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, toolbarPresence} from "./classicRules";
 import {PANEL_TOGGLE_ATTR, ZONE_ATTR} from "../zoneKeys";
@@ -69,8 +69,12 @@ import {useIsNarrow} from "@/utils/useIsMobile";
 import type {WindowDock} from "@/components/ui/PanelFrame";
 import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
 import {GridView, ViewportDropTarget} from "./classicGrid";
+import {setPlacedElsewhere} from "../placedElsewhere";
 import {
+  adoptDockedPanels,
   canDock,
+  canFloat,
+  placedElsewhere,
   classicContext,
   classicToolbarShown,
   dropPanel,
@@ -391,7 +395,13 @@ function ClassicFrame() {
   // The in-viewer windows follow the preset's exclusive-group rule.
   React.useEffect(() => useViewerPanelStore.getState().setExclusive(!customisable), [customisable]);
   // A composed shell's starting panels; the host's controller is installed by now.
-  React.useEffect(() => openStartingPanels(reveal), []);
+  React.useEffect(() => {
+    adoptDockedPanels();
+    openStartingPanels(reveal);
+  }, []);
+  // Plugin panels in a group or window of their own leave their region hosts.
+  React.useEffect(() => setPlacedElsewhere(placedElsewhere(doc, customisable, narrow)), [doc, customisable, narrow]);
+  React.useEffect(() => () => setPlacedElsewhere([]), []);
 
   // The split grid: the docked panels that are open, around the viewport.
   const frameRef = React.useRef<HTMLDivElement>(null);
@@ -412,9 +422,11 @@ function ClassicFrame() {
   const placed = split ? vp : null;
   const where = (p: RegisteredPanel) => shownPlace(doc, p.id, customisable, narrow);
   // Home in the column or the tree track, for the layout's windows.
-  const floatable = [...zonePanels(preset, CLASSIC_ZONES.menuColumn), ...zonePanels(preset, CLASSIC_ZONES.tree)].filter(
-    (p) => p.owner === CORE_PANEL_OWNER,
-  );
+  // Plugin panels float through the same layer when they can.
+  const floatable = [
+    ...[...zonePanels(preset, CLASSIC_ZONES.menuColumn), ...zonePanels(preset, CLASSIC_ZONES.tree)].filter((p) => p.owner === CORE_PANEL_OWNER),
+    ...listPanels().filter((p) => p.owner !== CORE_PANEL_OWNER && canFloat(p)),
+  ];
   return (
     <div ref={frameRef} className={"relative flex flex-row h-full w-full bg-gray-900"}>
       {/* Tree View Section */}
