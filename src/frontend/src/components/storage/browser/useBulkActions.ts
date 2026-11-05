@@ -6,6 +6,7 @@ import {request_list_of_files_from_server} from "@/utils/server_info/handlers/re
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {clearScene} from "@/utils/scene/handlers/clear_scene";
 import {canOpenInScene} from "@/utils/scene/fileKinds";
+import {confirmDialog} from "@/plugins/dialogs";
 import type {useStorageMutations} from "../useStorageMutations";
 import type {FolderPicker} from "./useUploads";
 
@@ -162,11 +163,12 @@ export function useBulkActions(p: {
             fileKeys.length ? `${fileKeys.length} file${fileKeys.length === 1 ? "" : "s"}` : "",
             models.length ? `${models.length} procedural model${models.length === 1 ? "" : "s"}` : "",
         ].filter(Boolean).join(" and ");
-        if (!window.confirm(
-            `Delete ${what}?\n` +
-            "Converted view caches are removed too.\n\n" +
-            previewKeyList(keys),
-        )) return;
+        if (!await confirmDialog({
+            title: `Delete ${what}?`,
+            body: ["Converted view caches are removed too.", ...previewKeyList(keys).split("\n")],
+            confirmLabel: "Delete",
+            tone: "danger",
+        })) return;
         setBulkBusy("delete");
         try {
             // Sequential: deletes cascade derived blobs server-side and

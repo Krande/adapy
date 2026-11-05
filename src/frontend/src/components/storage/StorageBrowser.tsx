@@ -10,6 +10,7 @@ import {request_list_of_files_from_server} from "@/utils/server_info/handlers/re
 import {buildFileTree, collectFolderPaths, partitionUiHidden} from "@/utils/storage/fileTree";
 import {useBuildSidecars} from "@/hooks/useBuildSidecars";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
+import {alertDialog, confirmDialog, errorText} from "@/plugins/dialogs";
 import {useStorageMutations} from "./useStorageMutations";
 import BrowserHeader from "./browser/BrowserHeader";
 import SelectionToolbar from "./browser/SelectionToolbar";
@@ -161,20 +162,22 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
     const [clearingTemp, setClearingTemp] = useState(false);
     const onClearTemp = async () => {
         if (clearingTemp) return;
-        if (!window.confirm(
-            "Clear temp files in this scope?\n" +
-            "Converted view caches and utility overlays are removed; sources, folders and " +
-            "procedural models stay. Models are reconverted the next time they load.",
-        )) return;
+        if (!await confirmDialog({
+            title: "Clear temp files in this scope?",
+            body: "Converted view caches and utility overlays are removed; sources, folders and " +
+                "procedural models stay. Models are reconverted the next time they load.",
+            confirmLabel: "Clear temp files",
+            tone: "danger",
+        })) return;
         setClearingTemp(true);
         try {
             const {deleted, errors} = await mutations.clearTemp();
-            window.alert(
-                `Cleared ${deleted} temp file${deleted === 1 ? "" : "s"}.` +
-                (errors.length ? `\n${errors.length} could not be removed:\n${errors.slice(0, 10).join("\n")}` : ""),
-            );
+            void alertDialog({
+                title: `Cleared ${deleted} temp file${deleted === 1 ? "" : "s"}.`,
+                body: errors.length ? [`${errors.length} could not be removed:`, ...errors.slice(0, 10)] : undefined,
+            });
         } catch (e) {
-            window.alert(`Clearing temp files failed: ${e instanceof Error ? e.message : String(e)}`);
+            void alertDialog({title: "Clearing temp files failed", body: errorText(e), tone: "danger"});
         } finally {
             setClearingTemp(false);
             void request_list_of_files_from_server();

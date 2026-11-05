@@ -4,6 +4,7 @@ import {viewerApi} from "@/services/viewerApi";
 import {previewKeyList} from "@/utils/storage/fileTree";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
+import {alertDialog, confirmDialog, errorText} from "@/plugins/dialogs";
 import type {useStorageMutations} from "../useStorageMutations";
 import {basenameOf, dirnameOf} from "./helpers";
 import type {FolderPicker} from "./useUploads";
@@ -37,7 +38,7 @@ export function useFileOps(p: {
     };
 
     const alertError = (e: unknown) => {
-        window.alert(e instanceof Error ? e.message : String(e));
+        void alertDialog({title: "Storage error", body: errorText(e), tone: "danger"});
     };
 
     // In-flight move status — a spinner line under the header so a
@@ -75,7 +76,11 @@ export function useFileOps(p: {
                     failed.push(...r.failed);
                 }
                 if (failed.length > 0) {
-                    window.alert(failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                    void alertDialog({
+                        title: "Some files could not be moved",
+                        body: failed.map((f) => `${f.key}: ${f.reason}`),
+                        tone: "danger",
+                    });
                 }
             }
             clearSelection();
@@ -105,7 +110,11 @@ export function useFileOps(p: {
         try {
             const r = await mutations.renameOrMoveFolder(folderPath, newPath, allKeys);
             if (r.failed.length > 0) {
-                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                void alertDialog({
+                    title: "Some files could not be moved",
+                    body: r.failed.map((f) => `${f.key}: ${f.reason}`),
+                    tone: "danger",
+                });
             }
             setExpandedFolders((prev) => {
                 const next = new Set(prev);
@@ -138,7 +147,7 @@ export function useFileOps(p: {
         const name = rawName.trim().replace(/^\/+|\/+$/g, "");
         if (!name || name === basenameOf(folderPath)) return;
         if (name.includes("/")) {
-            window.alert("Rename must be a single name; use Move folder into… for nested moves");
+            void alertDialog({title: "Rename must be a single name", body: "Use Move folder into… for nested moves."});
             return;
         }
         const parent = dirnameOf(folderPath);
@@ -162,7 +171,7 @@ export function useFileOps(p: {
         const name = rawName.trim();
         if (!name || name === basenameOf(f.name)) return;
         if (name.includes("/")) {
-            window.alert("Name must not contain '/' — use Move to folder… instead");
+            void alertDialog({title: "Name must not contain '/'", body: "Use Move to folder… instead."});
             return;
         }
         const dir = dirnameOf(f.name);
@@ -184,7 +193,12 @@ export function useFileOps(p: {
     };
 
     const onDeleteFile = async (f: ServerFileEntry) => {
-        if (!window.confirm(`Delete "${f.name}"?\nConverted view caches are removed too.`)) return;
+        if (!await confirmDialog({
+            title: `Delete "${f.name}"?`,
+            body: "Converted view caches are removed too.",
+            confirmLabel: "Delete",
+            tone: "danger",
+        })) return;
         try {
             await unloadIfLoaded(f.name);
             await mutations.deleteKey(f.name);
@@ -201,11 +215,12 @@ export function useFileOps(p: {
         }
         const prefix = path + "/";
         const targets = files.filter((x) => x.name.replace(/^\/+/, "").startsWith(prefix));
-        if (!window.confirm(
-            `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"}?\n` +
-            "Converted view caches are removed too.\n\n" +
-            previewKeyList(targets.map((t) => t.name)),
-        )) return;
+        if (!await confirmDialog({
+            title: `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"}?`,
+            body: ["Converted view caches are removed too.", ...previewKeyList(targets.map((t) => t.name)).split("\n")],
+            confirmLabel: "Delete folder",
+            tone: "danger",
+        })) return;
         try {
             // Sequential: each delete cascades derived blobs server-side
             // and parallel calls would race on the storage listing.
@@ -230,12 +245,12 @@ export function useFileOps(p: {
         const name = rawName.trim().replace(/^\/+|\/+$/g, "");
         if (!name) return;
         if (name.includes("/")) {
-            window.alert("Folder name must not contain '/'");
+            void alertDialog({title: "Folder name must not contain '/'"});
             return;
         }
         const path = parent ? `${parent}/${name}` : name;
         if (!parent && (name === "versions" || name === "_derived")) {
-            window.alert(`"${name}" is a reserved name`);
+            void alertDialog({title: `"${name}" is a reserved name`});
             return;
         }
         setPendingFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));

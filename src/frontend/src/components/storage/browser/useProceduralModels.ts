@@ -17,6 +17,7 @@ import {
     setSourceOffset,
 } from "@/utils/scene/handlers/model_translate";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
+import {alertDialog, confirmDialog, errorText, promptDialog} from "@/plugins/dialogs";
 import {buildProceduralMenuItems} from "../storageMenuItems";
 import type {FolderPicker} from "./useUploads";
 
@@ -92,7 +93,7 @@ export function useProceduralModels(p: {
                 hide(CORE_PANEL_IDS.storage);
             }
         } catch (e) {
-            window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
+            void alertDialog({title: "Failed to open procedural model", body: errorText(e), tone: "danger"});
         }
     };
 
@@ -234,7 +235,7 @@ export function useProceduralModels(p: {
             }
             await addCompanion(m);
         } catch (e) {
-            window.alert(`Failed: ${e instanceof Error ? e.message : e}`);
+            void alertDialog({title: "Failed", body: errorText(e), tone: "danger"});
         }
     };
 
@@ -245,12 +246,16 @@ export function useProceduralModels(p: {
                 .getState()
                 .viewResult(m.latest_glb_key, "sim", proceduralSourceName(m));
         } catch (e) {
-            window.alert(`Failed to load compiled result: ${e instanceof Error ? e.message : e}`);
+            void alertDialog({title: "Failed to load compiled result", body: errorText(e), tone: "danger"});
         }
     };
 
     const createProceduralModel = async () => {
-        const name = window.prompt("Name for the new procedural model:", "");
+        const name = await promptDialog({
+            title: "New procedural model",
+            label: "Name for the new procedural model",
+            confirmLabel: "Create",
+        });
         if (!name || !name.trim()) return;
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
@@ -258,7 +263,7 @@ export function useProceduralModels(p: {
             store.open(detail.id, detail.name, detail.revision, detail.doc);
             void refreshProceduralModels();
         } catch (e) {
-            window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
+            void alertDialog({title: "Failed to create procedural model", body: errorText(e), tone: "danger"});
         }
     };
 
@@ -270,7 +275,12 @@ export function useProceduralModels(p: {
     const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
         setTemplatesOpen(false);
         setPlusOpen(false);
-        const name = window.prompt("Name for the new procedural model:", tpl.name);
+        const name = await promptDialog({
+            title: "New model from template",
+            label: "Name for the new procedural model",
+            initial: tpl.name,
+            confirmLabel: "Create",
+        });
         if (!name || !name.trim()) return;
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
@@ -288,7 +298,7 @@ export function useProceduralModels(p: {
                 .open(fresh.id, fresh.name, revision, fresh.doc);
             void refreshProceduralModels();
         } catch (e) {
-            window.alert(`Failed to create from template: ${e instanceof Error ? e.message : e}`);
+            void alertDialog({title: "Failed to create from template", body: errorText(e), tone: "danger"});
         }
     };
 
@@ -304,14 +314,14 @@ export function useProceduralModels(p: {
         } catch (e) {
             // A 409 here is the scope-unique index reporting the same collision
             // a filesystem would for two entries at one path.
-            window.alert(`Failed: ${e instanceof Error ? e.message : e}`);
+            void alertDialog({title: "Failed", body: errorText(e), tone: "danger"});
         }
     };
 
     const renameProceduralModel = async (m: ProceduralModelSummary) => {
         const folder = m.name.includes("/") ? m.name.slice(0, m.name.lastIndexOf("/")) : "";
         const leaf = m.name.slice(m.name.lastIndexOf("/") + 1);
-        const next = window.prompt("Rename procedural model:", leaf);
+        const next = await promptDialog({title: "Rename procedural model", initial: leaf, confirmLabel: "Rename"});
         if (next === null) return;
         const trimmed = next.trim();
         if (!trimmed) return;
@@ -337,18 +347,20 @@ export function useProceduralModels(p: {
             isOffset,
             onPlaceNextTo: () => {
                 const x = placeNextToExisting(sourceName);
-                if (x === null) window.alert(`"${label}" is not in the scene.`);
+                if (x === null) void alertDialog({title: `"${label}" is not in the scene.`});
             },
-            onTranslate: () => {
+            onTranslate: async () => {
                 const cur = getSourceOffset(sourceName);
-                const raw = window.prompt(
-                    `Offset for "${label}" from the shared origin, as "x, y, z" in metres:`,
-                    `${cur.x}, ${cur.y}, ${cur.z}`,
-                );
+                const raw = await promptDialog({
+                    title: `Translate "${label}"`,
+                    label: "Offset from the shared origin, as \"x, y, z\" in metres",
+                    initial: `${cur.x}, ${cur.y}, ${cur.z}`,
+                    confirmLabel: "Apply",
+                });
                 if (raw === null) return;
                 const parts = raw.split(",").map((v) => Number(v.trim()));
                 if (parts.length !== 3 || parts.some((v) => !Number.isFinite(v))) {
-                    window.alert('Expected three numbers, e.g. "25, 0, 0".');
+                    void alertDialog({title: 'Expected three numbers, e.g. "25, 0, 0".'});
                     return;
                 }
                 setSourceOffset(sourceName, {x: parts[0], y: parts[1], z: parts[2]});
@@ -376,14 +388,18 @@ export function useProceduralModels(p: {
         });
 
     const deleteProceduralModel = async (m: ProceduralModelSummary) => {
-        if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
+        if (!await confirmDialog({
+            title: `Delete procedural model "${m.name}"?`,
+            confirmLabel: "Delete",
+            tone: "danger",
+        })) return;
         try {
             await viewerApi.deleteProceduralModel(scopeKey, m.id);
             const st = useCellBuilderStore.getState();
             if (st.active?.modelId === m.id) st.close();
             void refreshProceduralModels();
         } catch (e) {
-            window.alert(`Failed to delete: ${e instanceof Error ? e.message : e}`);
+            void alertDialog({title: "Failed to delete", body: errorText(e), tone: "danger"});
         }
     };
 

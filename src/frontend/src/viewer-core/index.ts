@@ -163,7 +163,11 @@
 //          `@/viewer-core/layout`: its rules (`DOCKED_ZONE_DEFS`, `dockGrid`,
 //          `dockZonePanels`, `dockedPlacement`, `dockedDefaults`, `adoptDocked`,
 //          `activateInZone`, `shownTab`, `trackSize`) and the shared
-//          `CollapsibleSection` (its `"section"` and `"caret"` looks). Additive.
+//          `CollapsibleSection` (its `"section"` and `"caret"` looks).
+//          In-app dialogs on the root: `confirmDialog` / `alertDialog` /
+//          `promptDialog` (promise-based; core's storage panel asks through them
+//          instead of `window.confirm` / `alert` / `prompt`) and `setDialogHost`,
+//          which installs a host's own. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -276,6 +280,20 @@ export {
   registerPropertyProvider,
 } from "@/plugins/propertyProviders";
 export type { PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
+export {
+  alertDialog,
+  confirmDialog,
+  promptDialog,
+  setDialogHost,
+} from "@/plugins/dialogs";
+export type {
+  AlertOptions,
+  ConfirmOptions,
+  DialogHost,
+  DialogText,
+  DialogTone,
+  PromptOptions,
+} from "@/plugins/dialogs";
 export { bindStoreFlag, watchStores } from "@/layout/bindings";
 export type { FlagStore } from "@/layout/bindings";
 export {
