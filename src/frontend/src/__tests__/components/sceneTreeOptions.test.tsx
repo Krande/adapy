@@ -67,6 +67,13 @@ test("a root filter that hides roots offers them back, and one that hides none s
     assert.equal(none, render());
 });
 
+test("the root filter's toggle takes its own labels", () => {
+    const rootFilter: Props["rootFilter"] = (roots) => ({ shown: roots.slice(0, 1), hidden: roots.length - 1 });
+    const html = render({ rootFilter, rootFilterLabels: { showAll: (n) => `+${n} hidden`, filter: "only mine" } });
+    assert.match(html, />\+1 hidden</);
+    assert.doesNotMatch(html, /more loaded/);
+});
+
 test("a row's meta renders at its right edge, and a row without one is unchanged", () => {
     const plain = renderRow(row("a", "Alpha"));
     assert.equal(renderRow(row("a", "Alpha", { meta: undefined })), plain);

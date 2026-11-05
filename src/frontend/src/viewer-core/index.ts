@@ -133,7 +133,7 @@
 //          `onRectChange`. Additive.
 //   1.13.0 Options on core's panel contents, so a shell uses them instead of a
 //          copy. On `@/viewer-core/layout`: `SceneTreeBody` (the Scene tree) with
-//          `SceneTreeProps` (`rootFilter`, `extraRoots`, `onSelectOverride`,
+//          `SceneTreeProps` (`rootFilter`, `rootFilterLabels`, `extraRoots`, `onSelectOverride`,
 //          `header`) and `TreeNodeData.meta`; `TreeBody`'s `sceneTree`;
 //          `SceneBodyProps` (`tabs`, `hiddenTabs`, `femTab`, `arrangement`,
 //          `loadedTitle`, `loadedEmpty`); `ObjectInfoBodyProps` (`onShowInData`)
@@ -143,9 +143,11 @@
 //          the sections a plugin adds to the Selected Object panel.
 //          Simulation: `SimulationBodyProps` (`layout: "panel" | "inline"`,
 //          `showWarpToggle`, `showBeamSolids`, `showColorToggle`,
-//          `excludeDockedTabs`) and `AnimationControls`. `ConvertBodyProps`
-//          (`inViewer`), and the progress toast `ConversionProgress` with
-//          `isClaimed` (loads a host reports elsewhere). Additive.
+//          `excludeDockedTabs`: a dock named in `dock` or as `region`) and
+//          `AnimationControls`. `ConvertBodyProps` (`inViewer`), and the progress
+//          toast `ConversionProgress` with `isClaimed` (loads a host reports
+//          elsewhere). The node editor's toolbar actions `request_list_of_nodes`
+//          and `start_new_node_editor`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

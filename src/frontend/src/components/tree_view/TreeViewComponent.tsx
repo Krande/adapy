@@ -16,11 +16,24 @@ export interface SceneTreeRootFilter {
     hidden: number;
 }
 
+/** The text of the root filter's toggle. */
+export interface SceneTreeRootFilterLabels {
+    showAll(hidden: number): string;
+    filter: string;
+}
+
+const ROOT_FILTER_LABELS: SceneTreeRootFilterLabels = {
+    showAll: (hidden) => `${hidden} more loaded — show all`,
+    filter: "Showing all — filter",
+};
+
 /** Options of the Scene tree. Absent, each leaves the tree as it is. */
 export interface SceneTreeProps {
     /** Narrows the model roots. Called with `showAll` true after the user asks for every root;
      *  while it hides some, a toggle under the search offers them back. */
     rootFilter?: (roots: TreeNodeData[], showAll: boolean) => SceneTreeRootFilter;
+    /** That toggle's text. Default "N more loaded — show all" / "Showing all — filter". */
+    rootFilterLabels?: SceneTreeRootFilterLabels;
     /** Rows appended after the model roots (and before any a plugin contributes). */
     extraRoots?: TreeNodeData[];
     /** Runs before the tree's own selection handler, with the selected row ids; true = handled. */
@@ -29,7 +42,7 @@ export interface SceneTreeProps {
     header?: React.ReactNode;
 }
 
-const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, extraRoots, onSelectOverride, header}) => {
+const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabels = ROOT_FILTER_LABELS, extraRoots, onSelectOverride, header}) => {
     const {useTreeViewStore} = useViewerStores();
     const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope, rootLabelMode, setRootLabelMode} = useTreeViewStore();
     const {useModelState} = useViewerStores();
@@ -211,7 +224,7 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, extraRoots, on
                         title={showAllRoots ? "List only the filtered models" : `${hiddenRoots} other loaded model(s) are not listed; they are still in the 3D view`}
                         onClick={() => setShowAllRoots(!showAllRoots)}
                     >
-                        {showAllRoots ? "Showing all — filter" : `${hiddenRoots} more loaded — show all`}
+                        {showAllRoots ? rootFilterLabels.filter : rootFilterLabels.showAll(hiddenRoots)}
                     </button>
                 )}
                 {scopeNodeId && (

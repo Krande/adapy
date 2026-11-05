@@ -71,10 +71,18 @@ export function resolveSimTab(
     return defaultSimTab(content);
 }
 
+// `PluginDockId` at runtime; kept in step with the type by hand.
+const DOCK_IDS: readonly string[] = ["left", "right", "right-aux", "right-aux2", "bottom", "float", "overlay"];
+
+/** Whether a panel names a dock: in `dock`, or as its `region`. */
+export function panelNamesDock(panel: {dock?: unknown; region?: unknown}): boolean {
+    return !!panel.dock || (typeof panel.region === "string" && DOCK_IDS.includes(panel.region));
+}
+
 /** Plugin tabs minus those whose panel names a dock: a shell that mounts those in its
  *  docks would otherwise show them twice. */
-export function withoutDockedTabs<T extends {panel: {dock?: unknown}}>(tabs: readonly T[]): T[] {
-    return tabs.filter((t) => !t.panel.dock);
+export function withoutDockedTabs<T extends {panel: {dock?: unknown; region?: unknown}}>(tabs: readonly T[]): T[] {
+    return tabs.filter((t) => !panelNamesDock(t.panel));
 }
 
 /** The toolbar's Simulation button: shown for results, and for an FE model without any. */

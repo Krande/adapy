@@ -90,6 +90,10 @@ test("a partial bake says so: in full in the panel, its first clause inline", ()
 });
 
 test("docked plugin tabs can be left out", () => {
-    const tabs = [{ panel: { id: "a" } }, { panel: { id: "b", dock: "right" } }];
+    const tabs = [
+        { panel: { id: "a", region: "fem-sidebar" } },
+        { panel: { id: "b", dock: "right" } },
+        { panel: { id: "c", region: "bottom" } },
+    ];
     assert.deepEqual(withoutDockedTabs(tabs).map((t) => t.panel.id), ["a"]);
 });
