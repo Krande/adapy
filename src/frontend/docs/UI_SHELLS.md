@@ -170,6 +170,17 @@ window, its region host (the panel column, the Simulation or Admin tab strip, a
 core panel's section) leaves it out; its top-bar button stays and still opens and
 closes it.
 
+A shell with **modes** lists them in `layout.modes`. Each mode may give its own
+`grid`, `open` and `docks` (else the shell's) and keeps its own saved
+arrangement. Plugins' modes (`PluginSpec.modes`) follow the shell's and start
+from the shell's arrangement. A panel that names `modes` shows only in those.
+Leaving a mode closes the panels it placed in its grid or windows, unless the
+mode entered places or opens them too. The active mode is remembered per shell,
+and core reports each change to the scene colouring (a mode with
+`ownsSceneColor`). `ShellModeSwitcher` and `ShellModeToolbar` (the active plugin
+mode's `toolbar`) from `@/viewer-core/layout` go in the header; `setShellMode`
+and `useShellMode` switch from anywhere else.
+
 ### A root of its own
 
 ```tsx

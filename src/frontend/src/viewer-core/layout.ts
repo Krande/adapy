@@ -115,6 +115,8 @@ export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/componen
 // ---------------------------------------------------------------------------
 export { LayoutHost, PanelMount, lazyPanelBody, useLayout, usePanelStates, zonePanels } from "@/layout/LayoutHost";
 export { PanelToggles } from "@/layout/PanelToggles";
+export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
+export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";
 export type { LayoutContextValue, LayoutHostProps } from "@/layout/LayoutHost";
 export { DefaultWindowChrome, FloatLayer } from "@/layout/FloatLayer";

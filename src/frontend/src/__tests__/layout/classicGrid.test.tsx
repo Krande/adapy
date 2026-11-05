@@ -16,6 +16,7 @@ const { shownGrid, groupOf, VIEWPORT_NODE } = await import("@/layout/splitTree")
 const { GridView, previewArea } = await import("@/layout/presets/classicGrid");
 const P = await import("@/layout/presets/classicPlace");
 const await_layoutStore = await import("@/layout/layoutStore");
+const shellModesMod = await import("@/layout/shellModes");
 const { WindowDockProvider, WindowFrame, WindowDockActions } = await import("@/components/ui/PanelFrame");
 const { FloatingWindow } = await import("@/components/ui/FloatingWindow");
 
@@ -150,8 +151,9 @@ test("a composed shell places dock-naming plugin panels once: into the mapped gr
   registerPanel({ id: "pl:left", title: "L", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 }, docked: { zone: "left" } } }, "pl");
   registerPanel({ id: "pl:right", title: "R", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 }, docked: { zone: "right" } } }, "pl");
   const grid = { kind: "split", id: "s1", dir: "row", sizes: [0.7, 0.3], children: [{ kind: "viewport" }, { kind: "group", id: "gR", panels: [CORE_PANEL_IDS.scene], active: CORE_PANEL_IDS.scene }] } as const;
-  P.setClassicContext("shell-t", grid as never, [], { right: "gR" });
+  P.setClassicShell({ id: "shell-t", grid: grid as never, docks: { right: "gR" } });
   try {
+    assert.equal(P.classicContext(), "shell-t");
     P.adoptDockedPanels();
     let g = gridOf(P.classicDoc());
     assert.deepEqual(groupOf(g, "pl:right")?.panels, [CORE_PANEL_IDS.scene, "pl:right"], "stacked into the mapped group");
@@ -167,9 +169,49 @@ test("a composed shell places dock-naming plugin panels once: into the mapped gr
     assert.deepEqual(P.placedElsewhere(P.classicDoc(), true, false).sort(), ["pl:left", "pl:right", "pl:sec"]);
     assert.deepEqual(P.placedElsewhere(P.classicDoc(), false, false), [], "with the setting off, everything is at home");
   } finally {
-    P.setClassicContext("default");
+    P.setClassicShell(null);
     layoutStore.setState({ prefs: { v: 1, docs: {} } });
   }
+});
+
+test("a shell's modes: a document and a starting grid each, and panels offered only in their modes", () => {
+  const { layoutStore } = await_layoutStore;
+  const M = shellModesMod;
+  const viewOnly = { kind: "viewport" } as const;
+  const withScene = { kind: "split", id: "s1", dir: "row", sizes: [0.7, 0.3], children: [{ kind: "viewport" }, { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.scene], active: CORE_PANEL_IDS.scene }] } as const;
+  M.setShellModes([
+    { id: "inspect", label: "Inspect", order: 0 },
+    { id: "results", label: "Results", order: 1 },
+  ], "results");
+  P.setClassicShell({ id: "sh", grid: viewOnly as never, modes: { results: { grid: withScene as never } } }, ["inspect", "results"]);
+  try {
+    assert.equal(M.activeShellMode(), "results", "the remembered mode");
+    assert.equal(P.classicContext(), "sh/results");
+    assert.ok(groupOf(gridOf(P.classicDoc()), CORE_PANEL_IDS.scene), "results starts from its own grid");
+    M.setShellMode("inspect");
+    assert.equal(P.classicContext(), "sh/inspect");
+    assert.equal(gridOf(P.classicDoc()).kind, "viewport", "inspect starts from the shell's grid");
+    // A move in one mode leaves the other mode's document alone.
+    P.dockAt("t:a", { node: VIEWPORT_NODE, edge: "left" });
+    assert.ok(groupOf(gridOf(P.classicDoc()), "t:a"));
+    M.setShellMode("results");
+    assert.equal(groupOf(gridOf(P.classicDoc()), "t:a"), null);
+    // Leaving inspect: what it placed and results does not (t:a) closes; scene, placed by both, stays.
+    P.dockAt(CORE_PANEL_IDS.scene, { node: VIEWPORT_NODE, edge: "right" }); // results' own grid already has it
+    const hidden: string[] = [];
+    P.leaveContext("sh/inspect", (id) => (hidden.push(id), true), () => true);
+    assert.deepEqual(hidden, ["t:a"]);
+    assert.equal(M.setShellMode("nope"), false, "an unknown mode is ignored");
+    assert.equal(M.offeredInMode({ modes: ["inspect"] }), false);
+    assert.equal(M.offeredInMode({ modes: ["results", "inspect"] }), true);
+    assert.equal(M.offeredInMode({}), true, "a panel naming no modes shows in every one");
+  } finally {
+    M.setShellModes([]);
+    P.setClassicShell(null);
+    layoutStore.setState({ prefs: { v: 1, docs: {} } });
+  }
+  assert.equal(P.classicContext(), "default");
+  assert.equal(M.offeredInMode({ modes: ["inspect"] }), true, "core's own UI has no modes: everything is offered");
 });
 
 test("a panel's own window: the host's actions in its title bar, the zone marks on its card, nothing in its body", () => {

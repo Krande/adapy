@@ -32,6 +32,8 @@ A shell is one of two kinds:
   * `layout.open`: the panels opened when the shell loads;
   * `layout.docks`: which group of the grid a feature plugin's panel joins when
     its slot names that `dock` (this package maps `left` and `right`);
+  * `layout.modes`: whole activities, each with its own arrangement (this package
+    has Inspect and Results; `ShellModeSwitcher` in its header switches them);
   * `chrome.header`: a lazy menu bar drawn above the layout (`PanelToggles` from
     `@/viewer-core/layout` draws core's panel toggles in it), and
     `chrome.toolbar: false` to leave out core's top bar over the viewport;
