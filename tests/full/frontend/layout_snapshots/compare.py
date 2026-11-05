@@ -1,4 +1,4 @@
-"""Compare two capture labels: pixels (tolerance 0) and the DOM snapshot (exact, after normalising build ids).
+﻿"""Compare two capture labels: pixels (tolerance 0) and the DOM snapshot (exact, after normalising build ids).
 
 Usage: python compare.py <shotdir> <a> <b>
 
@@ -16,6 +16,7 @@ from PIL import Image, ImageChops
 NORMALISE = [
     (re.compile(r"window\.UNIQUE_VERSION_ID = \d+; window\.FRONTEND_SHA = \\\"[^\\]*\\\""), "<build-id>"),
     (re.compile(r"\(([0-9a-f]{9})(-dirty)?\)"), "(<sha>)"),
+    (re.compile(r'"text": "[0-9a-f]{9}(-dirty)?"'), '"text": "<sha>"'),
     (re.compile(r"attr-search-values-[0-9a-z]+"), "attr-search-values-<id>"),
 ]
 
