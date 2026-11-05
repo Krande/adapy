@@ -153,6 +153,8 @@ test("the layout entry publishes every split core panel's content", () => {
     "NodeEditorBody",
     "TreeBody",
     "SceneTreeBody",
+    "request_list_of_nodes",
+    "start_new_node_editor",
     "AttributeSearchBody",
     "ConvertBody",
     "ServerInfoBody",
