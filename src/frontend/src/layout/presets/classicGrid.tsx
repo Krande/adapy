@@ -30,6 +30,7 @@ import {
   PinGlyph,
   WindowHeaderButton,
   WindowHeaderMenuButton,
+  MoreGlyph,
 } from "@/components/ui/PanelFrame";
 import {GROUP_DIVIDER, GROUP_HEADER, groupTabClass, panelBodyAttrsFor} from "@/components/ui/panelChrome";
 
@@ -70,6 +71,7 @@ import {
   type ShownSplit,
 } from "../splitTree";
 import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "../zoneKeys";
+import {compactActions} from "./groupCompact";
 import {
   GRID_GROUP_ATTR,
   GRID_ROOT_ATTR,
@@ -686,22 +688,25 @@ function GroupStrip({group, panels, along}: {group: GroupNode; panels: Registere
 /** Below this height per panel, an `"auto"` group shows tabs rather than stacking. */
 const STACK_MIN_PX = 160;
 
-/** An element's height, measured while it is mounted: a callback ref, so a remounted element is measured too. */
-function useHeight(): [number, (el: HTMLElement | null) => void] {
-  const [h, setH] = useState(0);
+/** An element's size, measured while it is mounted: a callback ref, so a remounted element is measured too. */
+function useSize(): [{width: number; height: number}, (el: HTMLElement | null) => void] {
+  const [size, setSize] = useState({width: 0, height: 0});
   const ro = useRef<ResizeObserver | null>(null);
   const attach = React.useCallback((el: HTMLElement | null) => {
     ro.current?.disconnect();
     ro.current = null;
     if (!el) return;
-    const read = () => setH(el.getBoundingClientRect().height);
+    const read = () => {
+      const r = el.getBoundingClientRect();
+      setSize((s) => (s.width === r.width && s.height === r.height ? s : {width: r.width, height: r.height}));
+    };
     read();
     if (typeof ResizeObserver !== "undefined") {
       ro.current = new ResizeObserver(read);
       ro.current.observe(el);
     }
   }, []);
-  return [h, attach];
+  return [size, attach];
 }
 
 /** A panel's tab label: its icon (when the shell asks) and title. */
@@ -739,7 +744,7 @@ function GridGroup({
   const hover = useStore(dockDragStore, (s) => (s.over === zone && s.index !== null ? s.index : null));
   const pinned = usePinnedPanels();
   const chrome = classicGroupChrome();
-  const [height, measure] = useHeight();
+  const [{width, height}, measure] = useSize();
   const markAt = (i: number, n: number): "before" | "after" | null =>
     hover === null ? null : hover === i ? "before" : hover >= n && i === n - 1 ? "after" : null;
   if (!active) return null;
@@ -750,10 +755,11 @@ function GridGroup({
     panels.every((p) => p.capabilities.stackable) &&
     (arrangement === "stack" || (arrangement === "auto" && height >= panels.length * STACK_MIN_PX));
   if (stacked) {
-    return <StackedGroup group={group} panels={panels} doc={doc} contents={contents} pinned={pinned} chrome={chrome} dragging={dragging} sectionRef={measure} />;
+    return <StackedGroup group={group} panels={panels} doc={doc} contents={contents} pinned={pinned} chrome={chrome} dragging={dragging} sectionRef={measure} width={width} />;
   }
   const close = () => void hide(active.id);
-  const actions: PanelAction[] = [...panelActions(active, doc, pinned, chrome), ...groupActions(group, chrome)];
+  // Close stays in the bar; in a narrow dock the rest fold into a "more" menu.
+  const actions = compactActions([...panelActions(active, doc, pinned, chrome), ...groupActions(group, chrome)], width, MoreGlyph);
   return (
     <section
       ref={measure}
@@ -825,6 +831,7 @@ function StackedGroup({
   chrome,
   dragging,
   sectionRef,
+  width,
 }: {
   group: GroupNode;
   panels: RegisteredPanel[];
@@ -834,6 +841,7 @@ function StackedGroup({
   chrome: ReturnType<typeof classicGroupChrome>;
   dragging: boolean;
   sectionRef: (el: HTMLElement | null) => void;
+  width: number;
 }) {
   const zone = gridZone(group.id);
   const own = groupActions(group, chrome);
@@ -852,7 +860,7 @@ function StackedGroup({
               {tabLabel(p, chrome.tabIcons)}
             </div>
             <div className="flex items-center gap-1" {...{[PANEL_ACTIONS_ATTR]: p.id}}>
-              {[...panelActions(p, doc, pinned, chrome), ...(i === 0 ? own : [])].map(actionButton)}
+              {compactActions([...panelActions(p, doc, pinned, chrome), ...(i === 0 ? own : [])], width, MoreGlyph).map(actionButton)}
               {p.capabilities.closable && (
                 <WindowHeaderButton onClick={() => void hide(p.id)} title="Close" ariaLabel={`Close ${p.title}`}>
                   <CloseGlyph />

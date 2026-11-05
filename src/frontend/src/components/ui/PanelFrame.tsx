@@ -269,6 +269,15 @@ export const AddGlyph: React.FC = () => (
   </svg>
 );
 
+/** The glyph of "more actions": three dots. */
+export const MoreGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <circle cx="3.5" cy="8" r="1.4" fill="currentColor" />
+    <circle cx="8" cy="8" r="1.4" fill="currentColor" />
+    <circle cx="12.5" cy="8" r="1.4" fill="currentColor" />
+  </svg>
+);
+
 export interface WindowHeaderButtonProps {
   onClick: () => void;
   title: string;
