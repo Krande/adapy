@@ -17,6 +17,7 @@ import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
 import {layoutEngineEnabled} from "@/layout/flag";
 import type {UiShellSpec} from "@/plugins/uiShells";
+import {popoutPanelId} from "@/layout/popout";
 
 // The core panel catalogue loads each panel's classic component and content
 // through this module (`import("@/app")`), so they come out of this shell's own
@@ -39,6 +40,9 @@ const AttributeSearchWindow = React.lazy(() => import("./components/asset_browse
 const SimFollowerPage = React.lazy(() => import("./components/simulation/SimFollowerPage"));
 const isRestMode = runtime.isRestMode();
 const isSimFollower = !!simFollowerParams();
+// A panel alone in a browser window of its own (`?popout=<panelId>`), canvas-less.
+const popoutId = popoutPanelId();
+const PopoutPage = React.lazy(() => import("./layout/PopoutPage"));
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
@@ -51,7 +55,7 @@ const LayoutRoot = React.lazy(() => import("./layout/LayoutRoot"));
 
 /**
  * What every shell core mounts shares: the canvas-less pages (`/auth/callback`,
- * `/convert`, `/admin`, a Simulation follower window), and around `children`
+ * `/convert`, `/admin`, a Simulation follower window, a popped-out panel), and around `children`
  * the viewer provider and, in hosted mode, the sign-in gate.
  */
 export function AppRoot({children}: {children: React.ReactNode}) {
@@ -99,6 +103,27 @@ export function AppRoot({children}: {children: React.ReactNode}) {
                     </div>
                 </AuthGate>
             </Suspense>
+        );
+    }
+
+    if (popoutId) {
+        // One panel, full-window: under the provider so its stores resolve, behind
+        // AuthGate in REST mode, without the canvas or the deep-link loading.
+        const page = (
+            <Suspense fallback={null}>
+                <PopoutPage panelId={popoutId}/>
+            </Suspense>
+        );
+        return (
+            <AdaViewerProvider>
+                {isRestMode ? (
+                    <Suspense fallback={null}>
+                        <AuthGate>{page}</AuthGate>
+                    </Suspense>
+                ) : (
+                    page
+                )}
+            </AdaViewerProvider>
         );
     }
 

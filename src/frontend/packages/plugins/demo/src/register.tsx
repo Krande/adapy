@@ -75,6 +75,8 @@ export function register(): void {
         region: "top-panel",
         // Where a shell with docks puts it; core's classic UI mounts by region.
         dock: "right",
+        // Needs no 3D scene, so it may open in a window of its own.
+        popout: true,
         order: 10,
         render: (ctx) => <DemoTopPanel ctx={ctx} />,
         topBarButton: { icon: DemoIcon, label: "Demo plugin" },

@@ -23,6 +23,9 @@ export {
   useViewerStores,
 } from "@/state/AdaViewerContext";
 export type { AdaViewerCtx, AdaViewerRefs, AdaViewerStores } from "@/state/AdaViewerContext";
+// Or, instead of mounting the provider by hand: core's own root, with the
+// canvas-less routes, sign-in and deep links that every shell core mounts gets.
+export { AppRoot } from "@/layout/SharedAppRoot";
 
 // ---------------------------------------------------------------------------
 // Deployment mode + build info (REST vs websocket, Jupyter, embed flags).

@@ -235,6 +235,12 @@
 //          chords); core's own keys are `RESERVED_SHORTCUTS` and refused. A
 //          non-core panel's `PanelSpec.shortcut` toggles it. The layout dispatches
 //          them and the shortcuts dialog lists them.
+//          Pop-out windows: a panel with `capabilities.popout` that needs no
+//          canvas offers "Open in a new window": `?popout=<id>` boots canvas-less
+//          with that panel alone. On the root: `POPOUT_PARAM`, `popoutPanelId`,
+//          `popoutUrl`, `canPopOut`, `openPopout`; `PanelSlot.popout` for a plugin.
+//          On `@/viewer-core/app`: `AppRoot`, core's root (routes, sign-in, deep
+//          links) for a shell that keeps `load`.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -317,6 +323,8 @@ export {
   unregisterShortcut,
 } from "@/layout/shortcuts";
 export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
+// A panel in a browser window of its own (dependency-free).
+export { POPOUT_PARAM, canPopOut, openPopout, popoutPanelId, popoutUrl } from "@/layout/popout";
 export { isComposedShell } from "@/plugins/uiShells";
 // Core's panel ids, for a composed shell's `layout` (dependency-free: the ids alone).
 export { CORE_PANEL_IDS, CORE_PANEL_OWNER } from "@/layout/corePanelIds";
