@@ -279,11 +279,17 @@ const VIEWER_PANEL_OF: Readonly<Record<PanelId, ViewerPanel>> = {
 export const ViewerWindowChrome: WindowChrome = ({panel, close, children}) => {
   const adminTab = useViewerPanelStore((s) => s.adminTab);
   const which = VIEWER_PANEL_OF[panel.id];
-  // A second window opens stepped down from the first, not on top of it.
-  const index = which ? useViewerPanelStore.getState().shown.indexOf(which) : 0;
+  const shown = useViewerPanelStore((s) => s.shown);
+  const raise = useViewerPanelStore((s) => s.raisePanel);
+  // Front last: a window's place in `shown` is its layer, and a press brings it to the front.
+  const index = which ? Math.max(0, shown.indexOf(which)) : 0;
+  const first = React.useRef(index);
   return (
     <ViewerWindow
-      offset={Math.max(0, index) * 32}
+      // A second window opens stepped down from the first, not on top of it.
+      offset={first.current * 32}
+      layer={index}
+      onActivate={which ? () => raise(which) : undefined}
       title={which ? VIEWER_PANEL_TITLE[which] : panel.title}
       onExternal={which ? viewerPanelExternal(which, adminTab, close) : null}
       onClose={close}

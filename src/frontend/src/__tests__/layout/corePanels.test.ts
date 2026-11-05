@@ -336,6 +336,24 @@ test("where the layout lets them, admin and convert are open side by side and cl
   assert.deepEqual([s().open, s().shown, s().adminTab], [null, [], null]);
 });
 
+test("a press brings the window behind to the front; one window alone stays as it is", () => {
+  const s = () => useViewerPanelStore.getState();
+  s().openPanel("admin");
+  const alone = s();
+  s().raisePanel("admin");
+  assert.equal(s(), alone, "one window: no change");
+  s().setExclusive(false);
+  s().openPanel("convert");
+  assert.deepEqual(s().shown, ["admin", "convert"]);
+  s().raisePanel("admin");
+  assert.deepEqual([s().open, s().shown], ["admin", ["convert", "admin"]]);
+  const front = s();
+  s().raisePanel("admin");
+  assert.equal(s(), front, "already in front: no change");
+  s().raisePanel("convert");
+  assert.deepEqual(s().shown, ["admin", "convert"]);
+});
+
 test("closePanel used as a click handler closes every window", () => {
   const s = () => useViewerPanelStore.getState();
   s().openPanel("admin");

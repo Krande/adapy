@@ -26,6 +26,8 @@ type ViewerPanelState = {
     openPanel: (p: ViewerPanel, adminTab?: AdminTabDeepLink) => void;
     /** Close `p`, or every window without an argument. */
     closePanel: (p?: ViewerPanel) => void;
+    /** Bring `p` to the front of the open windows. */
+    raisePanel: (p: ViewerPanel) => void;
     setExclusive: (on: boolean) => void;
 };
 
@@ -49,13 +51,19 @@ export const useViewerPanelStore = create<ViewerPanelState>((set) => ({
         set((s) => {
             // Not a panel (e.g. a click event, from `onClick={closePanel}`): close every window.
             if (typeof p !== "string" || (s.shown.length <= 1 && s.shown.includes(p))) return {open: null, shown: [], adminTab: null};
-            if (!s.shown.includes(p)) return {};
+            if (!s.shown.includes(p)) return s;
             const shown = s.shown.filter((x) => x !== p);
             return {open: shown[shown.length - 1] ?? null, shown, adminTab: p === "admin" ? null : s.adminTab};
         }),
+    raisePanel: (p) =>
+        set((s) =>
+            s.shown.includes(p) && s.shown[s.shown.length - 1] !== p
+                ? {open: p, shown: [...s.shown.filter((x) => x !== p), p]}
+                : s,
+        ),
     setExclusive: (on) =>
         set((s) => {
-            if (s.exclusive === on) return {};
+            if (s.exclusive === on) return s;
             // Back to one at a time: the one in front stays.
             return on && s.shown.length > 1 ? {exclusive: on, shown: s.open ? [s.open] : []} : {exclusive: on};
         }),
