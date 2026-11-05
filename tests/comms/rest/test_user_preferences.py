@@ -105,6 +105,55 @@ def test_without_a_database_the_routes_answer_503(tmp_path, stored):
         assert c.delete("/api/me/preferences/layout").status_code == 503
 
 
+class _RecordingConn:
+    def __init__(self, log: list):
+        self.log = log
+
+    def transaction(self):
+        log = self.log
+
+        class _Tx:
+            async def __aenter__(self):
+                log.append("BEGIN")
+
+            async def __aexit__(self, *exc):
+                log.append("COMMIT")
+
+        return _Tx()
+
+    async def execute(self, sql, *args):
+        self.log.append((" ".join(sql.split()), args))
+
+
+class _RecordingPool:
+    def __init__(self):
+        self.log: list = []
+
+    def acquire(self):
+        conn = _RecordingConn(self.log)
+
+        class _Acquire:
+            async def __aenter__(self):
+                return conn
+
+            async def __aexit__(self, *exc):
+                return None
+
+        return _Acquire()
+
+
+@pytest.mark.asyncio
+async def test_saving_a_preference_first_makes_sure_the_user_row_exists():
+    """The foreign key to ``users`` (deleted with the user) needs the row before the preference,
+    in the same transaction: the placeholder insert ``add_project_member`` also makes."""
+    pool = _RecordingPool()
+    await dbm.set_user_preference(pool, "u1", "layout", {"v": 1})
+    log = pool.log
+    assert log[0] == "BEGIN" and log[-1] == "COMMIT"
+    assert log[1] == ("INSERT INTO users (sub) VALUES ($1) ON CONFLICT (sub) DO NOTHING", ("u1",))
+    assert log[2][0].startswith("INSERT INTO user_preferences") and log[2][1] == ("u1", "layout", '{"v": 1}')
+
+
 @needs_postgres
 @pytest.mark.asyncio
 async def test_preferences_against_postgres():
@@ -124,6 +173,12 @@ async def test_preferences_against_postgres():
         assert await dbm.delete_user_preference(pool, sub, "layout") is True
         assert await dbm.delete_user_preference(pool, sub, "layout") is False
         assert await dbm.get_user_preference(pool, other, "layout") == {"v": 1, "docs": {"x": {}}}
+
+        # Saving created a placeholder user; deleting the user deletes its preferences.
+        assert await pool.fetchval("SELECT count(*) FROM users WHERE sub = $1", other) == 1
+        await pool.execute("DELETE FROM users WHERE sub = $1", other)
+        assert await dbm.get_user_preference(pool, other, "layout") is None
+        assert await dbm.get_user_preference(pool, sub, "scalar") == "text"
     finally:
-        await pool.execute("DELETE FROM user_preferences WHERE user_sub = ANY($1::text[])", [sub, other])
+        await pool.execute("DELETE FROM users WHERE sub = ANY($1::text[])", [sub, other])
         await dbm.close_pool(pool)

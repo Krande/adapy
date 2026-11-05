@@ -5,8 +5,7 @@
 -- shape, and the server stores the JSON as given. Rows are read and written only by their user
 -- (``/api/me/preferences/{key}``); no admin view lists them.
 --
--- No foreign key to ``users``: that row is upserted lazily by ``/api/me``, and a preference
--- written before it must not fail.
+-- The foreign key to ``users`` (deleted with the user) is added by 054.
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     user_sub    TEXT NOT NULL,
