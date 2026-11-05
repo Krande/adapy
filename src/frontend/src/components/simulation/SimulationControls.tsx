@@ -60,6 +60,8 @@ import DeformScaleIcon from "../icons/DeformScaleIcon";
 import {formatStepTime} from "@/utils/scene/fea/timeHistory";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {useViewerRefs, useViewerStores} from "@/state/AdaViewerContext";
+import {CORE_PANEL_IDS} from "@/layout/corePanelIds";
+import {isPlacedElsewhere} from "@/layout/placedElsewhere";
 import {usePlacedElsewhereVersion} from "@/layout/usePlacedElsewhere";
 import {
     PluginPanelRegion,
@@ -296,7 +298,11 @@ const AnimationTab: React.FC<{
     showSimData: boolean;
     onToggleData: () => void;
     display?: ResultControlsOptions;
-}> = ({sessionActive, hasResults, showSimData, onToggleData, display}) => (
+}> = ({sessionActive, hasResults, showSimData, onToggleData, display}) => {
+    // A shell that docks the data table in a group of its own takes it out of this tab.
+    usePlacedElsewhereVersion();
+    const dataElsewhere = isPlacedElsewhere(CORE_PANEL_IDS.feaTable);
+    return (
     <div className="flex flex-col gap-2">
         {sessionActive ? (
             <FeaModeControls showSimData={showSimData} onToggleData={onToggleData} display={display} />
@@ -307,7 +313,7 @@ const AnimationTab: React.FC<{
                 No results loaded.
             </p>
         )}
-        {showSimData && (
+        {showSimData && !dataElsewhere && (
             <div className="flex-1 overflow-hidden">
                 <SimulationDataInfoPanel />
             </div>
@@ -317,7 +323,8 @@ const AnimationTab: React.FC<{
             active. `excludeTabs` keeps asTab panels out (the tab host owns them). */}
         <PluginPanelRegion region="fem-sidebar" excludeTabs />
     </div>
-);
+    );
+};
 
 const SimTabStrip: React.FC<{
     tabs: SimulationTabEntry[];

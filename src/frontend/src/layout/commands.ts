@@ -21,6 +21,12 @@ export interface CommandSpec {
   icon?: React.FC;
   /** Also a shortcut (core's own keys are refused, see `RESERVED_SHORTCUTS`). */
   keys?: ShortcutKeys;
+  /**
+   * A chord shown beside the command in the palette and the menus, bound to
+   * nothing: for a key core already handles itself (`RESERVED_SHORTCUTS`), which
+   * `keys` would refuse. Ignored when `keys` is given.
+   */
+  chordLabel?: string;
   run(): void;
   /** Offered at all right now; default always. */
   when?(): boolean;
@@ -65,6 +71,11 @@ export function unregisterCommand(id: string): void {
   if (had.keys) unregisterShortcut(`cmd:${id}`);
   _commands.delete(id);
   changed();
+}
+
+/** The chord to show beside a command: its `keys`, else its display-only `chordLabel`. */
+export function commandChord(c: Pick<CommandSpec, "keys" | "chordLabel">): string | undefined {
+  return c.keys || c.chordLabel || undefined;
 }
 
 /** Core's commands: one per panel with a title (show or hide it) and one per mode of the active shell. */

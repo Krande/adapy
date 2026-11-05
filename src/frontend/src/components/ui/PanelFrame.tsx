@@ -30,6 +30,7 @@ import {
   WINDOW_CARD,
   WINDOW_HEADER_BUTTON,
   panelBodyAttrs,
+  panelBodyAttrsFor,
   panelClass,
   windowHeaderClass,
   type PanelCardVariant,
@@ -415,7 +416,7 @@ export function PanelFrame({panelId, title, host, actions, onClose, dragHandleCl
     );
   }
   return (
-    <PanelCard data-panel-id={panelId}>
+    <PanelCard data-panel-id={panelId} {...panelBodyAttrsFor(panelId)}>
       <div className={dragHandleClassName ? `flex items-center gap-2 ${dragHandleClassName}` : "flex items-center gap-2"}>
         <h2 className="font-bold">{title}</h2>
         {(buttons.length > 0 || close) && (

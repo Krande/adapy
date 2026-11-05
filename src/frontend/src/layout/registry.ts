@@ -41,6 +41,30 @@ export interface PanelOverride {
    * function of a composed shell's active mode (the Scene panel's tabs per mode, say).
    */
   options?: Readonly<Record<string, unknown>> | ((mode: string | null) => Readonly<Record<string, unknown>>);
+  /**
+   * False hides the panel in this shell: it is left out of `listPanels`, the
+   * toggles, the commands and the add menus. A function of the active mode hides
+   * it in some modes only. It can only take a panel away: a panel that is
+   * unavailable in itself (`PanelSpec.available`) stays so.
+   */
+  available?: boolean | ((mode: string | null) => boolean);
+  /**
+   * Tailwind palette variables redefined inside this panel's body only, on top of
+   * the shell's `bodyPalette` (`{"--color-gray-800": "..."}`).
+   */
+  bodyPalette?: Readonly<Record<string, string>>;
+}
+
+/** Does the shell's override keep `id` on offer in the active mode. */
+function shellOffers(id: PanelId): boolean {
+  const a = _overrides.get(id)?.available;
+  if (a === undefined || typeof a === "boolean") return a !== false;
+  try {
+    return !!a(activeShellMode());
+  } catch (err) {
+    console.warn(`[layout] panel "${id}" override available() threw; treated as hidden`, err);
+    return false;
+  }
 }
 
 const _overrides = new Map<PanelId, PanelOverride>();
@@ -70,6 +94,9 @@ function view(p: RegisteredPanel): RegisteredPanel {
     ...(o.modes !== undefined ? { modes: o.modes } : {}),
     capabilities: { ...p.capabilities, ...o.capabilities },
     ...(options !== undefined ? { options: { ...p.options, ...options } } : {}),
+    ...(o.available !== undefined
+      ? { available: (env: PanelEnv) => shellOffers(p.id) && (!p.available || p.available(env)) }
+      : {}),
   };
   _views.set(p.id, { base: p, mode, view: v });
   return v;
@@ -119,7 +146,7 @@ export function isPanelAvailable(panel: RegisteredPanel, env: PanelEnv): boolean
  * `available(env)` holds; without it, every registered panel.
  */
 export function listPanels(env?: PanelEnv): RegisteredPanel[] {
-  const all = [..._panels.values()].map(view);
+  const all = [..._panels.values()].filter((p) => shellOffers(p.id)).map(view);
   return env ? all.filter((p) => isPanelAvailable(p, env)) : all;
 }
 

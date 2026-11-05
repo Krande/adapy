@@ -65,6 +65,11 @@ export interface UiShellLayout {
    */
   modes?: UiShellMode[];
   /**
+   * The id of the mode used when there is no `?mode=` and none stored from an
+   * earlier visit. Absent, or not one of the modes: the first by order.
+   */
+  defaultMode?: string;
+  /**
    * The version of these arrangements. Raise it when the shell ships a new one: a
    * user's saved arrangement made under another version is passed to `migrate`,
    * or without it, starts over from the new grid.

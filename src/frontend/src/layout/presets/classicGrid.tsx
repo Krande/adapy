@@ -31,7 +31,7 @@ import {
   WindowHeaderButton,
   WindowHeaderMenuButton,
 } from "@/components/ui/PanelFrame";
-import {GROUP_DIVIDER, GROUP_HEADER, groupTabClass, panelBodyAttrs} from "@/components/ui/panelChrome";
+import {GROUP_DIVIDER, GROUP_HEADER, groupTabClass, panelBodyAttrsFor} from "@/components/ui/panelChrome";
 
 /** A collapsed group's strip: the tab strip's surface. */
 const GROUP_HEADER_SURFACE = "bg-[var(--ada-window-header-bg,#1f2937)]";
@@ -801,7 +801,7 @@ function GridGroup({
             hidden={p.id !== active.id}
             {...{[ZONE_PANEL_ATTR]: p.id}}
             className={`absolute inset-0 ${bodyClass(p)}`}
-            {...panelBodyAttrs}
+            {...panelBodyAttrsFor(p.id)}
           >
             <GroupPanel panel={p} contents={contents} active={p.id === active.id} />
           </div>
@@ -860,7 +860,7 @@ function StackedGroup({
               )}
             </div>
           </div>
-          <div className={`relative min-h-0 flex-1 ${bodyClass(p)}`} {...panelBodyAttrs}>
+          <div className={`relative min-h-0 flex-1 ${bodyClass(p)}`} {...panelBodyAttrsFor(p.id)}>
             <GroupPanel panel={p} contents={contents} active />
           </div>
         </div>

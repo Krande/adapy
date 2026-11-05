@@ -19,7 +19,7 @@ const { registerPanel } = await import("@/layout/registry");
 const { CLASSIC_ZONES, layoutDocKey } = await import("@/layout/layout");
 const { gridOf } = await import("@/layout/reducers");
 const { groupOf, VIEWPORT_NODE } = await import("@/layout/splitTree");
-const { MenuBar } = await import("@/layout/CommandPalette");
+const { MenuBar, MenuList, offeredMenuItems } = await import("@/layout/CommandPalette");
 
 const body = () => Promise.resolve({ default: () => null });
 registerPanel({ id: "c:p", title: "Probe", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 } } }, "test");
@@ -81,6 +81,45 @@ test("the menu bar draws a shell's menus over the commands, a missing one left o
     assert.match(html, /role="menubar"/);
     assert.match(html, />File</);
     assert.doesNotMatch(html, /Open…/, "closed menus draw no items");
+  } finally {
+    C.resetCommands();
+  }
+});
+
+test("a display-only chord shows beside a command and binds nothing", () => {
+  C.registerCommand({ id: "t.label", label: "Fit", chordLabel: "Shift+F", run() {} }, "t");
+  C.registerCommand({ id: "t.both", label: "Both", keys: "Shift+J", chordLabel: "ignored", run() {} }, "t");
+  try {
+    assert.equal(C.commandChord(C.getCommand("t.label")!), "Shift+F");
+    assert.equal(C.commandChord(C.getCommand("t.both")!), "Shift+J", "a bound key wins");
+    assert.equal(C.commandChord({}), undefined);
+    assert.equal(S.listShortcuts().some((s) => s.id === "cmd:t.label"), false, "no shortcut is registered for it");
+    const byId = new Map(C.listCommands().map((c) => [c.id, c]));
+    const html = renderToStaticMarkup(React.createElement(MenuList, { label: "View", items: ["t.label"], byId, close() {}, className: "" }));
+    assert.match(html, /<kbd[^>]*>Shift\+F<\/kbd>/);
+  } finally {
+    C.resetCommands();
+  }
+});
+
+test("a menu may nest submenus; one with nothing offered is left out", () => {
+  C.registerCommand({ id: "t.a", label: "Alpha", run() {} }, "t");
+  try {
+    const items = [
+      "t.a",
+      { label: "More", items: ["t.a", { label: "Deeper", items: ["missing"] }, { label: "Own", run() {} }] },
+      { label: "Empty", items: ["missing", { separator: true }] },
+    ] as import("@/layout/CommandPalette").MenuItemDef[];
+    const offered = offeredMenuItems(items, (id) => !!C.getCommand(id));
+    assert.equal(offered.length, 2);
+    const more = offered[1] as { items: unknown[] };
+    assert.equal(more.items.length, 2, "the empty nested submenu is dropped");
+    const byId = new Map(C.listCommands().map((c) => [c.id, c]));
+    const html = renderToStaticMarkup(React.createElement(MenuList, { label: "File", items, byId, close() {}, className: "" }));
+    assert.match(html, /role="menu"/);
+    assert.match(html, /aria-haspopup="menu"[^>]*aria-expanded="false"/, "a submenu's trigger, closed");
+    assert.doesNotMatch(html, /Deeper|Empty/);
+    assert.equal((html.match(/role="menu"/g) ?? []).length, 1, "a closed submenu draws no list");
   } finally {
     C.resetCommands();
   }

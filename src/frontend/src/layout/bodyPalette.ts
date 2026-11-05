@@ -16,9 +16,12 @@ import { usePluginTheme } from "@/state/themeStore";
 const STYLE_ID = "ada-body-palette";
 
 /** Apply the shell's body palette while mounted (again on a theme change). */
-export function useBodyPalette(spec: UiShellSpec["bodyPalette"]): void {
+export function useBodyPalette(spec: UiShellSpec["bodyPalette"], panels?: UiShellSpec["panels"]): void {
   const theme = usePluginTheme();
-  const css = useMemo(() => bodyPaletteCss(typeof spec === "function" ? spec(theme) : spec), [spec, theme]);
+  const css = useMemo(() => {
+    const perPanel = Object.fromEntries(Object.entries(panels ?? {}).map(([id, o]) => [id, o.bodyPalette]));
+    return bodyPaletteCss(typeof spec === "function" ? spec(theme) : spec, perPanel);
+  }, [spec, panels, theme]);
   useEffect(() => {
     if (!css) return;
     let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;

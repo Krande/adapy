@@ -24,7 +24,7 @@ import {useStore} from "zustand";
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
 import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {DockGlyph, FloatGlyph, MinimiseGlyph, PanelFrame} from "@/components/ui/PanelFrame";
-import {panelBodyAttrs} from "@/components/ui/panelChrome";
+import {panelBodyAttrsFor} from "@/components/ui/panelChrome";
 import {navBtnClass} from "@/components/navButton";
 
 import {DROP_ATTR, dockDragStore, endDockDragAt, moveDockDrag} from "../dockDrag";
@@ -140,7 +140,7 @@ function UndockedWindow({
             dragHandleClassName={fullScreen ? undefined : DRAG_HANDLE}
           >
             {/* The column card gave the content its text colour and padding; the window body does not. */}
-            <div className={`h-full text-sm text-[var(--ada-panel-text)] ${panel.capabilities.fill ? "overflow-hidden" : "overflow-y-auto p-2"}`} {...panelBodyAttrs}>
+            <div className={`h-full text-sm text-[var(--ada-panel-text)] ${panel.capabilities.fill ? "overflow-hidden" : "overflow-y-auto p-2"}`} {...panelBodyAttrsFor(panel.id)}>
               {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
               <TransformedHost>
                 <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />

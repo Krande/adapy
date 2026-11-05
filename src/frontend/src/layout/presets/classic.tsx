@@ -47,7 +47,7 @@ import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_o
 import {useIsWide} from "@/utils/useIsMobile";
 
 import {PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
-import {panelBodyAttrs} from "@/components/ui/panelChrome";
+import {panelBodyAttrsFor} from "@/components/ui/panelChrome";
 
 import {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS} from "../classicBodies";
 import {CORE_PANEL_IDS, CORE_PANEL_OWNER, corePanelEnv, registerCorePanels} from "../corePanels";
@@ -405,7 +405,7 @@ function ViewportCover({panelId}: {panelId: PanelId}) {
     <div
       className="absolute inset-0 z-[5] overflow-auto bg-[var(--ada-window-bg,#111827)] text-[var(--ada-panel-text)]"
       data-viewport-cover={panelId}
-      {...panelBodyAttrs}
+      {...panelBodyAttrsFor(panelId)}
     >
       <ErrorBoundary label={panel.title}>
         <Suspense fallback={null}>

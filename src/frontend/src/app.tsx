@@ -18,6 +18,8 @@ import {followerParams as simFollowerParams} from "@/utils/simChannel";
 import {layoutEngineEnabled} from "@/layout/flag";
 import {activeUiShellId, getUiShell, type UiShellSpec} from "@/plugins/uiShells";
 import {popoutPanelId} from "@/layout/popout";
+import {useComposedShellLook} from "@/layout/shellTheme";
+import {panelBodyAttrs} from "@/components/ui/panelChrome";
 
 // The core panel catalogue loads each panel's classic component and content
 // through this module (`import("@/app")`), so they come out of this shell's own
@@ -65,8 +67,10 @@ function shellPageHeader() {
 
 /** A canvas-less page, the whole window: under the active shell's page header when it has one. */
 function CanvasLessPage({title, children}: {title: string; children: React.ReactNode}) {
+    // A composed shell's tokens and body palette dress these pages as they do its layout.
+    useComposedShellLook(getUiShell(activeUiShellId()));
     const Header = shellPageHeader();
-    if (!Header) return <div className="h-[100dvh] w-full overflow-hidden">{children}</div>;
+    if (!Header) return <div className="h-[100dvh] w-full overflow-hidden" {...panelBodyAttrs}>{children}</div>;
     const back = new URL(window.location.href);
     back.pathname = "/";
     back.hash = "";
@@ -75,7 +79,7 @@ function CanvasLessPage({title, children}: {title: string; children: React.React
             <Suspense fallback={null}>
                 <Header title={title} backHref={back.toString()}/>
             </Suspense>
-            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+            <div className="min-h-0 flex-1 overflow-hidden" {...panelBodyAttrs}>{children}</div>
         </div>
     );
 }

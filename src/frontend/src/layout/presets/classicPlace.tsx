@@ -337,7 +337,10 @@ export function adoptDockedPanels(): void {
 /** Plugin panels shown in a place of the layout's own (a group, a window) rather than their region. */
 export function placedElsewhere(doc: LayoutDoc, customisable: boolean, narrow: boolean): PanelId[] {
   return listPanels()
-    .filter((p) => p.owner !== CORE_PANEL_OWNER && (shownPlace(doc, p.id, customisable, narrow) !== "home" || isOverlayPanel(p)))
+    .filter(
+      (p) =>
+        (p.owner !== CORE_PANEL_OWNER || isHostedSection(p)) && (shownPlace(doc, p.id, customisable, narrow) !== "home" || isOverlayPanel(p)),
+    )
     .map((p) => p.id);
 }
 
@@ -395,7 +398,16 @@ export function dockOf(panel: Pick<RegisteredPanel, "placement">): string | null
  * core panel).
  */
 export function canDock(panel: RegisteredPanel): boolean {
-  return panel.capabilities.dockable && !!panel.content && (homeOf(panel) !== null || dockOf(panel) !== null);
+  return panel.capabilities.dockable && !!panel.content && (homeOf(panel) !== null || dockOf(panel) !== null || isHostedSection(panel));
+}
+
+/**
+ * A panel the classic UI draws inside another (`placement.parent`: the result
+ * data table in the Simulation panel). Core's own UI keeps it there; a composed
+ * shell may dock it, and where its grid places it, it is shown (and it leaves its host).
+ */
+export function isHostedSection(panel: Pick<RegisteredPanel, "placement">): boolean {
+  return !!shell && !!panel.placement?.[CLASSIC_PRESET_ID]?.parent;
 }
 
 /**

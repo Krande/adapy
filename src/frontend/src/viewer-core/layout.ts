@@ -73,9 +73,11 @@ export {
   GROUP_DIVIDER,
   GROUP_HEADER,
   PANEL_BODY_ATTR,
+  PANEL_ID_ATTR,
   bodyPaletteCss,
   groupTabClass,
   panelBodyAttrs,
+  panelBodyAttrsFor,
   WINDOW_CARD,
   WINDOW_HEADER,
   WINDOW_HEADER_BUTTON,
@@ -83,6 +85,9 @@ export {
   windowHeaderClass,
 } from "@/components/ui/panelChrome";
 export type { PanelCardVariant } from "@/components/ui/panelChrome";
+// Core bodies drawn outside a panel (a dialog, a flyout) take the shell's body palette under this.
+export { PanelBodyPalette } from "@/components/ui/PanelBodyPalette";
+export type { PanelBodyPaletteProps } from "@/components/ui/PanelBodyPalette";
 export {
   AddGlyph,
   PinGlyph,
@@ -125,7 +130,7 @@ export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/componen
 // ---------------------------------------------------------------------------
 export { LayoutHost, PanelMount, lazyPanelBody, useLayout, usePanelStates, zonePanels } from "@/layout/LayoutHost";
 export { PanelToggles } from "@/layout/PanelToggles";
-export { CommandPaletteHost, MenuBar, closeCommandPalette, openCommandPalette } from "@/layout/CommandPalette";
+export { CommandPaletteHost, MenuBar, closeCommandPalette, offeredMenuItems, openCommandPalette } from "@/layout/CommandPalette";
 export type { MenuBarProps, MenuDef, MenuItemDef } from "@/layout/CommandPalette";
 export {
   deleteWorkspace,

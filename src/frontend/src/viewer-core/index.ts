@@ -366,7 +366,7 @@ export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/sh
 export type { PanelOverride } from "@/layout/registry";
 export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
 // Commands (menus, palette, keys share them) and HUDs over the view (dependency-free).
-export { getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
+export { commandChord, getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
 export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
 export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";

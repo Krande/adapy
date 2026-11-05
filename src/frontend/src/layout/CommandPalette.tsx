@@ -7,7 +7,7 @@ import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 
 
 import {OverlayPortal} from "@/components/ui/OverlayPortal";
 
-import {commandsVersion, getCommand, listCommands, matchCommand, runCommand, subscribeCommands, type RegisteredCommand} from "./commands";
+import {commandChord, commandsVersion, getCommand, listCommands, matchCommand, runCommand, subscribeCommands, type RegisteredCommand} from "./commands";
 import {isPanelOpen, toggle} from "./reveal";
 import {shellModesVersion, subscribeShellModes} from "./shellModes";
 
@@ -130,7 +130,7 @@ function CommandPalette({onClose}: {onClose(): void}) {
                 >
                   <span className="w-20 shrink-0 truncate text-xs text-gray-400">{c.group ?? "Commands"}</span>
                   <span className="flex-1 truncate">{c.label}</span>
-                  {c.keys && <kbd className="text-xs text-gray-400">{c.keys}</kbd>}
+                  {commandChord(c) && <kbd className="text-xs text-gray-400">{commandChord(c)}</kbd>}
                 </li>
               );
             })}
@@ -145,8 +145,30 @@ function CommandPalette({onClose}: {onClose(): void}) {
 // The menu bar.
 // ---------------------------------------------------------------------------
 
-/** An item of a menu: a command by id, a line between items, or an action of the menu's own. */
-export type MenuItemDef = string | {separator: true} | {label: string; run(): void; disabled?: boolean};
+/**
+ * An item of a menu: a command by id, a line between items, an action of the
+ * menu's own, or a submenu of further items (which may nest).
+ */
+export type MenuItemDef = string | {separator: true} | {label: string; run(): void; disabled?: boolean} | {label: string; items: readonly MenuItemDef[]};
+
+const isSubmenu = (it: MenuItemDef): it is {label: string; items: readonly MenuItemDef[]} => typeof it === "object" && "items" in it;
+
+/**
+ * The items of a menu that are offered: a command id nothing offers is dropped,
+ * and so is a submenu left with nothing to run (a separator alone is nothing).
+ */
+export function offeredMenuItems(items: readonly MenuItemDef[], offers: (commandId: string) => boolean): MenuItemDef[] {
+  const out: MenuItemDef[] = [];
+  for (const it of items) {
+    if (typeof it === "string") {
+      if (offers(it)) out.push(it);
+    } else if (isSubmenu(it)) {
+      const sub = offeredMenuItems(it.items, offers);
+      if (sub.some((s) => typeof s === "string" || !("separator" in s))) out.push({...it, items: sub});
+    } else out.push(it);
+  }
+  return out;
+}
 
 export interface MenuDef {
   label: string;
@@ -193,47 +215,103 @@ export function MenuBar({menus, className = "flex items-center gap-0.5 text-[var
             {m.label}
           </button>
           {open === i && (
-            <ul
-              role="menu"
-              aria-label={m.label}
-              className="absolute left-0 top-full z-[80] mt-0.5 min-w-48 rounded-sm border border-[var(--ada-window-border,#374151)] bg-[var(--ada-window-bg,#111827)] py-1 text-xs text-[var(--ada-window-header-text,#f3f4f6)] shadow-xl"
-            >
-              {m.items.map((it, j) => {
-                if (typeof it === "object" && "separator" in it) {
-                  return <li key={`sep${j}`} role="separator" className="my-1 border-t border-[var(--ada-window-border,#374151)]" />;
-                }
-                const c = typeof it === "string" ? byId.get(it) : null;
-                if (typeof it === "string" && !c) return null;
-                const label = c ? c.label : (it as {label: string}).label;
-                const why = c ? (c.disabledReason?.() ?? null) : (it as {disabled?: boolean}).disabled ? "" : null;
-                const checked = c?.checked?.();
-                return (
-                  <li key={c ? c.id : `own${j}`} role="none">
-                    <button
-                      type="button"
-                      role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
-                      aria-checked={checked}
-                      aria-disabled={why !== null}
-                      title={why || undefined}
-                      className={`flex w-full items-center gap-2 px-3 py-1 text-left ${why !== null ? "opacity-50" : "hover:bg-white/10"}`}
-                      onClick={() => {
-                        if (why !== null) return;
-                        setOpenMenu(null);
-                        if (c) run(c);
-                        else (it as {run(): void}).run();
-                      }}
-                    >
-                      <span className="w-3 shrink-0">{checked ? "✓" : ""}</span>
-                      <span className="flex-1">{label}</span>
-                      {c?.keys && <kbd className="text-gray-400">{c.keys}</kbd>}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <MenuList
+              label={m.label}
+              items={m.items}
+              byId={byId}
+              close={() => setOpenMenu(null)}
+              className="absolute left-0 top-full z-[80] mt-0.5"
+            />
           )}
         </div>
       ))}
     </div>
+  );
+}
+
+const MENU_LIST =
+  "min-w-48 rounded-sm border border-[var(--ada-window-border,#374151)] bg-[var(--ada-window-bg,#111827)] py-1 text-xs text-[var(--ada-window-header-text,#f3f4f6)] shadow-xl";
+
+/** One level of a menu: its items, and the submenus they open (to the side, one open at a time). */
+export function MenuList({
+  label,
+  items,
+  byId,
+  close,
+  className,
+}: {
+  label: string;
+  items: readonly MenuItemDef[];
+  byId: ReadonlyMap<string, RegisteredCommand>;
+  close(): void;
+  className: string;
+}) {
+  const shown = useMemo(() => offeredMenuItems(items, (id) => byId.has(id)), [items, byId]);
+  const [sub, setSub] = useState<number | null>(null);
+  return (
+    <ul role="menu" aria-label={label} className={`${className} ${MENU_LIST}`}>
+      {shown.map((it, j) => {
+        if (typeof it === "object" && "separator" in it) {
+          return <li key={`sep${j}`} role="separator" className="my-1 border-t border-[var(--ada-window-border,#374151)]" />;
+        }
+        if (typeof it === "object" && isSubmenu(it)) {
+          const isOpen = sub === j;
+          return (
+            <li key={`sub${j}`} role="none" className="relative" onPointerEnter={() => setSub(j)}>
+              <button
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
+                className={`flex w-full items-center gap-2 px-3 py-1 text-left ${isOpen ? "bg-white/10" : "hover:bg-white/10"}`}
+                onClick={() => setSub(isOpen ? null : j)}
+                onKeyDown={(e) => {
+                  // Right opens the submenu, Left closes it again (Escape closes the whole menu, as for any item).
+                  if (e.key === "ArrowRight") setSub(j);
+                  else if (e.key === "ArrowLeft" && isOpen) setSub(null);
+                  else return;
+                  e.preventDefault();
+                }}
+              >
+                <span className="w-3 shrink-0" />
+                <span className="flex-1">{it.label}</span>
+                <span aria-hidden="true" className="text-gray-400">
+                  ›
+                </span>
+              </button>
+              {isOpen && <MenuList label={it.label} items={it.items} byId={byId} close={close} className="absolute left-full top-0 z-[81]" />}
+            </li>
+          );
+        }
+        const c = typeof it === "string" ? byId.get(it) : null;
+        const own = typeof it === "string" ? null : (it as {label: string; run(): void; disabled?: boolean});
+        const text = c ? c.label : own!.label;
+        const why = c ? (c.disabledReason?.() ?? null) : own!.disabled ? "" : null;
+        const checked = c?.checked?.();
+        const chord = c ? commandChord(c) : undefined;
+        return (
+          <li key={c ? c.id : `own${j}`} role="none" onPointerEnter={() => setSub(null)}>
+            <button
+              type="button"
+              role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
+              aria-checked={checked}
+              aria-disabled={why !== null}
+              title={why || undefined}
+              className={`flex w-full items-center gap-2 px-3 py-1 text-left ${why !== null ? "opacity-50" : "hover:bg-white/10"}`}
+              onClick={() => {
+                if (why !== null) return;
+                close();
+                if (c) run(c);
+                else own!.run();
+              }}
+            >
+              <span className="w-3 shrink-0">{checked ? "✓" : ""}</span>
+              <span className="flex-1">{text}</span>
+              {chord && <kbd className="text-gray-400">{chord}</kbd>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

@@ -8,11 +8,10 @@ import React, {Suspense, useEffect, useState} from "react";
 
 import {getPluginModes} from "@/plugins/registry";
 import type {RegisteredUiShell, UiShellSpec} from "@/plugins/uiShells";
-import {usePluginTheme} from "@/state/themeStore";
 import {setFeaDeformationShown} from "@/utils/scene/fea/deformationGate";
 import {notifyActiveModeSceneColor} from "@/utils/scene/fea/modeSceneColor";
 
-import {useBodyPalette} from "./bodyPalette";
+import {useShellLook} from "./shellTheme";
 import {CommandPaletteHost, openCommandPalette} from "./CommandPalette";
 import {registerCommand} from "./commands";
 import LayoutRoot from "./LayoutRoot";
@@ -22,24 +21,6 @@ import {SHELL_MODE_PARAM, activeShellMode, listShellModes, setShellModes, subscr
 
 /** Who holds the FEA model undeformed for a mode that shows no deformation. */
 const MODE_DEFORMATION_OWNER = "shell-mode";
-
-/** Set the shell's tokens on the document root while mounted (again on a theme change). Portalled overlays read them too. */
-function useThemeTokens(spec: UiShellSpec["themeTokens"]): void {
-  const theme = usePluginTheme();
-  const tokens = React.useMemo(() => (typeof spec === "function" ? spec(theme) : spec), [spec, theme]);
-  useEffect(() => {
-    if (!tokens) return;
-    const root = document.documentElement.style;
-    const before = Object.keys(tokens).map((k) => [k, root.getPropertyValue(k)] as const);
-    for (const [k, v] of Object.entries(tokens)) root.setProperty(k, v);
-    return () => {
-      for (const [k, v] of before) {
-        if (v) root.setProperty(k, v);
-        else root.removeProperty(k);
-      }
-    };
-  }, [tokens]);
-}
 
 /** Where the active mode is remembered, per shell. */
 const modeKey = (shellId: string) => `ada:shell-mode:${shellId}`;
@@ -53,7 +34,7 @@ function readMode(shellId: string): string | null {
 }
 
 /** The shell's modes, then the plugins' (only when the shell has modes at all). */
-function shellModes(spec: UiShellSpec): ShellMode[] {
+export function shellModes(spec: UiShellSpec): ShellMode[] {
   const own = spec.layout?.modes ?? [];
   if (!own.length) return [];
   // The shell's own modes' toolbars run in the shell plugin's context.
@@ -79,18 +60,32 @@ function shellModes(spec: UiShellSpec): ShellMode[] {
       order: mode.order ?? 100,
       pluginId,
       ownsSceneColor: mode.ownsSceneColor,
-      showsDeformation: mode.showsDeformation,
+      // A plugin's mode opts in to the deformed model; the shell's own modes keep the default (shown).
+      showsDeformation: mode.showsDeformation ?? false,
       toolbar: mode.toolbar,
     }));
   return [...mine, ...theirs];
 }
 
+/**
+ * The mode a shell opens in: `?mode=`, else the one used last, else the shell's
+ * `layout.defaultMode`, else the first. An id that is not one of `modes` is passed over.
+ */
+export function initialShellMode(
+  modes: readonly Pick<ShellMode, "id">[],
+  asked: string | null,
+  stored: string | null,
+  fallback?: string,
+): string | null {
+  const has = (id: string | null | undefined): id is string => !!id && modes.some((m) => m.id === id);
+  return [asked, stored, fallback].find(has) ?? null;
+}
+
 /** Install the shell before the frame's first render, which reads it. */
 function installShell(spec: UiShellSpec): void {
   const modes = shellModes(spec);
-  // `?mode=` opens in that mode; else the one used last.
   const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get(SHELL_MODE_PARAM) : null;
-  setShellModes(modes, modes.some((m) => m.id === asked) ? asked : readMode(spec.id));
+  setShellModes(modes, initialShellMode(modes, asked, readMode(spec.id), spec.layout?.defaultMode));
   const byMode: Record<string, ClassicArrangement> = {};
   for (const m of spec.layout?.modes ?? []) byMode[m.id] = {grid: m.grid, open: m.open, docks: m.docks, cover: m.viewportCover};
   setClassicShell(
@@ -150,8 +145,7 @@ export default function ComposedLayout({spec}: {spec: UiShellSpec}) {
     installShell(spec);
     return null;
   });
-  useThemeTokens(spec.themeTokens);
-  useBodyPalette(spec.bodyPalette);
+  useShellLook(spec);
   useModeEffects(spec.id);
   const lazyOf = (load?: () => Promise<{default: React.ComponentType}>) => (load ? React.lazy(load) : null);
   const Header = React.useMemo(() => lazyOf(spec.chrome?.header), [spec]);

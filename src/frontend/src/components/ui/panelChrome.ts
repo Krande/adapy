@@ -86,16 +86,41 @@ export const PANEL_BODY_ATTR = "data-ada-panel-body";
 /** `PANEL_BODY_ATTR` as props to spread on an element. */
 export const panelBodyAttrs: Readonly<Record<string, string>> = Object.freeze({[PANEL_BODY_ATTR]: ""});
 
+/** Names the panel a body belongs to, so a shell can give that one panel a palette of its own (`PanelOverride.bodyPalette`). */
+export const PANEL_ID_ATTR = "data-ada-panel-id";
+
+/** `PANEL_BODY_ATTR` plus the panel's id, as props to spread on an element. */
+export function panelBodyAttrsFor(panelId: string | undefined): Readonly<Record<string, string>> {
+  return panelId ? {[PANEL_BODY_ATTR]: "", [PANEL_ID_ATTR]: panelId} : panelBodyAttrs;
+}
+
 /** Only values that cannot close the rule they are written in. */
 const SAFE_VALUE = /^[^;{}<>]*$/;
 
-/** The stylesheet that scopes a body palette (custom properties) to panel bodies; empty for none. */
-export function bodyPaletteCss(palette: Readonly<Record<string, string>> | null | undefined): string {
-  const decls = Object.entries(palette ?? {})
+function declarations(palette: Readonly<Record<string, string>> | null | undefined): string {
+  return Object.entries(palette ?? {})
     .filter(([k, v]) => /^--[\w-]+$/.test(k) && SAFE_VALUE.test(v))
     .map(([k, v]) => `${k}:${v};`)
     .join("");
-  return decls ? `[${PANEL_BODY_ATTR}]{${decls}}` : "";
+}
+
+/**
+ * The stylesheet that scopes a body palette (custom properties) to panel bodies;
+ * empty for none. `perPanel` adds a palette for the bodies of single panels (by
+ * id), which wins over the shell-wide one for that panel.
+ */
+export function bodyPaletteCss(
+  palette: Readonly<Record<string, string>> | null | undefined,
+  perPanel?: Readonly<Record<string, Readonly<Record<string, string>> | undefined>> | null,
+): string {
+  const rules: string[] = [];
+  const all = declarations(palette);
+  if (all) rules.push(`[${PANEL_BODY_ATTR}]{${all}}`);
+  for (const [id, p] of Object.entries(perPanel ?? {})) {
+    const decls = declarations(p);
+    if (decls) rules.push(`[${PANEL_BODY_ATTR}][${PANEL_ID_ATTR}="${id.replace(/["\\\n]/g, "")}"]{${decls}}`);
+  }
+  return rules.join("");
 }
 
 /** The title bar's class: the drag handle (when draggable) first, then the bar. */
