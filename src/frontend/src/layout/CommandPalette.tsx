@@ -159,7 +159,7 @@ export interface MenuBarProps {
 }
 
 /** A shell's menus over the commands: an item that is not offered is left out; one that cannot run is greyed with its reason. */
-export function MenuBar({menus, className = "flex items-center gap-0.5"}: MenuBarProps) {
+export function MenuBar({menus, className = "flex items-center gap-0.5 text-[var(--ada-window-header-text,#f3f4f6)]"}: MenuBarProps) {
   const all = useCommands();
   const byId = useMemo(() => new Map(all.map((c) => [c.id, c])), [all]);
   const [open, setOpenMenu] = useState<number | null>(null);
@@ -196,7 +196,7 @@ export function MenuBar({menus, className = "flex items-center gap-0.5"}: MenuBa
             <ul
               role="menu"
               aria-label={m.label}
-              className="absolute left-0 top-full z-[80] mt-0.5 min-w-48 rounded-sm border border-[var(--ada-window-border,#374151)] bg-[var(--ada-window-bg,#111827)] py-1 text-xs shadow-xl"
+              className="absolute left-0 top-full z-[80] mt-0.5 min-w-48 rounded-sm border border-[var(--ada-window-border,#374151)] bg-[var(--ada-window-bg,#111827)] py-1 text-xs text-[var(--ada-window-header-text,#f3f4f6)] shadow-xl"
             >
               {m.items.map((it, j) => {
                 if (typeof it === "object" && "separator" in it) {

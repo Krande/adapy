@@ -45,6 +45,8 @@ function draw(g: import("@/layout/splitTree").GridNode): string {
 test("a fixed group keeps its px size, bounded, through the reducers and a stored round trip", () => {
   let g = grid({ fixed: { px: 280, min: 200, max: 400 } });
   assert.match(draw(g), /flex:0 0 280px/);
+  // The rest share all that is left: their fractions scaled to 1 (below 1, flex hands out only part of the room).
+  assert.match(draw(g), /flex:1 1 0px/);
   g = T.setFixedPx(g, "gL", 900);
   assert.equal((T.findNode(g, "gL") as import("@/layout/splitTree").GroupNode).fixed!.px, 400, "clamped to max");
   g = T.setFixedPx(g, "gL", 10);

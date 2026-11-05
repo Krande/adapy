@@ -363,6 +363,9 @@ function GridSplit(props: NodeProps & {split: ShownSplit}) {
     commit(split.children.map(() => 1 / split.children.length));
   };
 
+  // The children not held at a px size share what is left, by their fractions scaled to 1:
+  // flex-grow values summing below 1 would hand out only that part of the room.
+  const fracSum = split.children.reduce((a, c, i) => a + (pxOf(c) === null ? sizes[i] : 0), 0) || 1;
   const kids: React.ReactNode[] = [];
   split.children.forEach((c, i) => {
     if (i > 0) {
@@ -408,7 +411,7 @@ function GridSplit(props: NodeProps & {split: ShownSplit}) {
       <div
         key={nodeKey(c)}
         className={`relative flex min-w-0 min-h-0 ${row ? "h-full" : "w-full"}`}
-        style={px !== null ? {flex: `0 0 ${px}px`} : flexOf(sizes[i])}
+        style={px !== null ? {flex: `0 0 ${px}px`} : flexOf(sizes[i] / fracSum)}
       >
         <GridNodeView {...props} node={c} along={split.dir} />
       </div>,
@@ -671,7 +674,9 @@ function GroupStrip({group, panels, along}: {group: GroupNode; panels: Registere
           aria-label={`Expand ${p.title}`}
           onClick={() => restore(p.id)}
         >
-          {p.icon ? <p.icon /> : p.title.slice(0, 1)}
+          <span aria-hidden="true" className="inline-flex [&_svg]:h-4 [&_svg]:w-4">
+            {p.icon ? <p.icon /> : p.title.slice(0, 1)}
+          </span>
         </button>
       ))}
     </section>
@@ -705,7 +710,7 @@ function tabLabel(p: RegisteredPanel, icons: boolean): React.ReactNode {
   const Icon = p.icon;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center [&_svg]:h-4 [&_svg]:w-4">
+      <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center [&_svg]:h-4 [&_svg]:w-4">
         <Icon />
       </span>
       <span className="truncate">{p.title}</span>

@@ -34,13 +34,18 @@ A shell is one of two kinds:
     its slot names that `dock` (this package maps `left` and `right`);
   * `layout.modes`: whole activities, each with its own arrangement (this package
     has Inspect and Results; `ShellModeSwitcher` in its header switches them);
-  * `chrome.header`: a lazy menu bar drawn above the layout (`PanelToggles` from
-    `@/viewer-core/layout` draws core's panel toggles in it), and
-    `chrome.toolbar: false` to leave out core's top bar over the viewport;
+  * `chrome.header` / `footer` / `rail`: lazy slots around the layout (this
+    package draws a `MenuBar` over core's commands, the mode switcher and a
+    status bar), and `chrome.toolbar: false` to leave out core's top bar;
+  * `chrome.groups`, `commandPalette`, `overlays`: group actions (add, pin,
+    collapse) and tab icons, the command palette and its key, HUD anchors;
+  * fixed-px docks in the grid (`fixed: {px, min, max}`) that collapse to icon strips;
+  * `panels`: core panels renamed or re-optioned for this UI, without copies;
   * `themeTokens`: `--ada-*` custom properties set while the shell is active.
 
   Users can rearrange everything; each shell keeps its own arrangement. Extra
   panels are registered with `registerPanel` and placed in the grid like core's.
+  `src/frontend/docs/UI_SHELLS.md` lists every option.
 * **Own root**: `load` returns the whole React root, and the shell owns routing,
   providers and layout itself.
 
