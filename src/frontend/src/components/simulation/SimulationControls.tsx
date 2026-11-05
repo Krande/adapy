@@ -17,7 +17,7 @@
 // cycle anyway (per the FEA workflow); the GLTF-clip path stays
 // as a fallback for non-FEA models.
 
-import React, {useEffect, useMemo, useState, useSyncExternalStore} from "react";
+import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -26,6 +26,7 @@ import {requestRender, usePerfStore} from "@/state/perfStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import ResultScaleSettings from "./ResultScaleSettings";
+import AnchoredPopover from "../common/AnchoredPopover";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaPropertyFields, buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {unbakedStepsNote} from "@/utils/scene/fea/bakedSteps";
@@ -40,6 +41,7 @@ import {
 import {
     load_fea_streaming,
     setBeamSolidsVisible as setBeamSolidsVisibleScene,
+    setFeaResultColorsVisible,
     setFeaResultPointMarkersVisible,
     syncFeaOverlayVisibility,
 } from "@/utils/scene/handlers/load_fea_streaming";
@@ -80,6 +82,7 @@ import {
     hasFemConcepts,
     resolveSimTab,
     simTabKey,
+    withoutDockedTabs,
 } from "./simPanelTabs";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useSimPanelStore} from "@/state/simPanelStore";
@@ -95,13 +98,31 @@ export interface SimulationControlsProps {
     forcedTabId?: string;
 }
 
+/** How the result controls are drawn. Every field absent is the classic panel. */
+export interface ResultControlsOptions {
+    /** `"inline"`: one toolbar row, the visualisation options always shown. Default `"panel"`. */
+    layout?: "panel" | "inline";
+    /** The "Warp by displacement" toggle. Default true. */
+    showWarpToggle?: boolean;
+    /** The "Beams as solid" and "Solid edges" toggles. Default true. */
+    showBeamSolids?: boolean;
+    /** A result-colouring on/off toggle beside the colormap. Default false. */
+    showColorToggle?: boolean;
+}
+
+export interface SimulationBodyProps extends ResultControlsOptions {
+    forcedTabId?: string;
+    /** Leave out plugin tabs whose panel names a `dock`, for a shell that docks them itself. */
+    excludeDockedTabs?: boolean;
+}
+
 /**
  * The Simulation panel's tab state: which tabs exist (results, the FE model, the
  * phone legend, plugin tabs), which one is active, and how to open the active one
  * in a follower window. The frame needs the last for its header, the content the
  * rest, so both take it from here.
  */
-export function useSimulationTabs(forcedTabId?: string) {
+export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs?: boolean} = {}) {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     // Panel-visibility now lives in tableNavStore so external
     // triggers (ObjectInfoBoxComponent's "Show in data" button) can
@@ -116,7 +137,8 @@ export function useSimulationTabs(forcedTabId?: string) {
     // Plugin-contributed Simulation tabs (fem-sidebar panels carrying `asTab`).
     // Rebuilt each render so activation + badges track live store state.
     const baseCtx = makePluginContext("", stores);
-    const tabs = getSimulationTabs(baseCtx);
+    const allTabs = getSimulationTabs(baseCtx);
+    const tabs = opts.excludeDockedTabs ? withoutDockedTabs(allTabs) : allTabs;
     // Phones: the colour legend is a tab here rather than floating over the canvas.
     const isMobile = useIsMobile();
     const legendShown = useColorStore((s) => s.showLegend);
@@ -172,7 +194,7 @@ export function useSimulationTabs(forcedTabId?: string) {
 export type SimulationTabs = ReturnType<typeof useSimulationTabs>;
 
 /** The Simulation panel's content -- its tab strip and the active tab -- over tab state its host keeps. */
-export const SimulationContent: React.FC<{sim: SimulationTabs}> = ({sim}) => {
+export const SimulationContent: React.FC<{sim: SimulationTabs} & ResultControlsOptions> = ({sim, ...display}) => {
     const {
         forcedTabId, stores, tabs, legendTab, modelTab, activeTab, selectTab, activePluginTab,
         sessionActive, hasResults, showSimData, togglePanel,
@@ -205,6 +227,7 @@ export const SimulationContent: React.FC<{sim: SimulationTabs}> = ({sim}) => {
                     hasResults={hasResults}
                     showSimData={showSimData}
                     onToggleData={togglePanel}
+                    display={display}
                 />
             )}
         </div>
@@ -212,9 +235,23 @@ export const SimulationContent: React.FC<{sim: SimulationTabs}> = ({sim}) => {
 };
 
 /** The Simulation panel's content, with its own tab state. */
-export const SimulationBody: React.FC<{forcedTabId?: string}> = ({forcedTabId}) => (
-    <SimulationContent sim={useSimulationTabs(forcedTabId)}/>
+export const SimulationBody: React.FC<SimulationBodyProps> = ({forcedTabId, excludeDockedTabs, ...display}) => (
+    <SimulationContent sim={useSimulationTabs(forcedTabId, {excludeDockedTabs})} {...display}/>
 );
+
+/** The result controls on their own -- the FEA transport and pickers, or the GLTF clip
+ *  controls -- without the tab strip, the data table or the plugin panels. Nothing when
+ *  no results are loaded. */
+export const AnimationControls: React.FC<ResultControlsOptions> = (display) => {
+    const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
+    const hasAnimation = useAnimationStore((s) => s.hasAnimation);
+    const showSimData = useTableNavStore((s) => s.isPanelOpen);
+    const togglePanel = useTableNavStore((s) => s.togglePanel);
+    if (sessionActive) {
+        return <FeaModeControls showSimData={showSimData} onToggleData={togglePanel} display={display} />;
+    }
+    return hasAnimation ? <GltfClipControls showSimData={showSimData} onToggleData={togglePanel} /> : null;
+};
 
 /** The classic frame: `SimWindowFrame`, docked in the menu column, floating, or a whole window. */
 const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "docked", forcedTabId}) => {
@@ -241,10 +278,11 @@ const AnimationTab: React.FC<{
     hasResults: boolean;
     showSimData: boolean;
     onToggleData: () => void;
-}> = ({sessionActive, hasResults, showSimData, onToggleData}) => (
+    display?: ResultControlsOptions;
+}> = ({sessionActive, hasResults, showSimData, onToggleData, display}) => (
     <div className="flex flex-col gap-2">
         {sessionActive ? (
-            <FeaModeControls showSimData={showSimData} onToggleData={onToggleData} />
+            <FeaModeControls showSimData={showSimData} onToggleData={onToggleData} display={display} />
         ) : hasResults ? (
             <GltfClipControls showSimData={showSimData} onToggleData={onToggleData} />
         ) : (
@@ -385,7 +423,9 @@ interface ControlPanelProps {
     onToggleData: () => void;
 }
 
-const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
+const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOptions}> = ({onToggleData, display = {}}) => {
+    const {layout = "panel", showWarpToggle = true, showBeamSolids = true, showColorToggle = false} = display;
+    const inline = layout === "inline";
     const {
         mesh,
         range,
@@ -425,7 +465,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setEnvelopeMode,
         startFramePreload,
         framePreload,
+        resultColorsVisible,
+        setResultColorsVisible,
     } = useFeaAnimationStore();
+    const onResultColorsToggle = (next: boolean) => {
+        setResultColorsVisible(next);
+        setFeaResultColorsVisible(next);
+    };
 
     const edgeFade = usePerfStore((s) => s.edgeFade);
     const edgeFadeFullPx = usePerfStore((s) => s.edgeFadeFullPx);
@@ -455,6 +501,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // nothing else, and the range is the half of the decision that makes two load
     // cases comparable.
     const [showScale, setShowScale] = useState(false);
+    // Inline there is no room to reveal into: the options are always shown, and the
+    // scale settings hang off their button in a popover.
+    const optionsOpen = inline || showOptions;
+    const scaleAnchorRef = useRef<HTMLButtonElement>(null);
 
     const [lo, hi] = range;
     // Step granularity for the factor slider — 200 stops over the
@@ -709,8 +759,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // while the panel sits in a 3D figure a few hundred pixels across. Not a
     // size container either: that zeroes the content's intrinsic width, and the
     // docked frame sizes itself to it.
+    // Inline: one row that never wraps -- a toolbar that grows a line moves every control
+    // below it; the host scrolls it instead.
     return (
-        <div className="flex flex-col gap-2 min-w-0">
+        <div className={inline ? "flex flex-row flex-nowrap items-center gap-x-3 min-w-0 text-xs text-white" : "flex flex-col gap-2 min-w-0"}>
             {/* Row 1 — what you are looking at: Field / Comp / Step, packed from the left at
                 one spacing. Field and Step share the spare width (``flex-1``) -- their names
                 are the long ones -- and Comp keeps its natural width; ``min-w-0 truncate``
@@ -718,11 +770,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 and the row wraps when even that is not enough. (It used to spread the three
                 with ``justify-between``, which on a wide panel left wide gaps between them.) */}
             {manifest && (
-                <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1 w-full min-w-0 text-xs text-white">
-                    <label className="flex items-center gap-1 min-w-0 flex-1">
+                <div className={inline ? "flex flex-row flex-nowrap items-center gap-x-3 min-w-0 shrink-0" : "flex flex-row flex-wrap items-center gap-x-3 gap-y-1 w-full min-w-0 text-xs text-white"}>
+                    <label className={inline ? "flex items-center gap-1 shrink-0" : "flex items-center gap-1 min-w-0 flex-1"}>
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
-                            className={`${FIELD_CONTROL} min-w-0 w-full truncate`}
+                            className={inline ? `${FIELD_CONTROL} truncate` : `${FIELD_CONTROL} min-w-0 w-full truncate`}
+                            style={inline ? {width: 128} : undefined}
                             value={fieldPickerValue}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -779,10 +832,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </label>
                     )}
                     {activeField && nSteps > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1">
+                        <label className={inline ? "flex items-center gap-1 shrink-0" : "flex items-center gap-1 min-w-0 flex-1"}>
                             <span className="text-gray-300 shrink-0">Step</span>
                             <select
-                                className={`${FIELD_CONTROL} min-w-0 w-full truncate`}
+                                className={inline ? `${FIELD_CONTROL} truncate` : `${FIELD_CONTROL} min-w-0 w-full truncate`}
+                                style={inline ? {width: 144} : undefined}
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -809,19 +863,32 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     )}
                 </div>
             )}
-            {activeSlot?.kind === "combination" && (
+            {activeSlot?.kind === "combination" && (inline ? (
+                <span
+                    className="shrink-0 max-w-56 truncate text-gray-300"
+                    data-testid="fea-case-makeup"
+                    title={activeSlot.makeup ? `${activeSlot.name ?? activeSlot.label} = ${activeSlot.makeup}` : undefined}
+                >
+                    {slotStatus.get(activeSlot.slot) ?? "computed on request"}
+                </span>
+            ) : (
                 <div className="text-xs text-gray-300 min-w-0 break-words" data-testid="fea-case-makeup">
                     Load combination {activeSlot.name ?? activeSlot.label}
                     {activeSlot.makeup ? ` = ${activeSlot.makeup}` : ""}
                     {" · "}
                     {slotStatus.get(activeSlot.slot) ?? "computed on request"}
                 </div>
-            )}
-            {unbakedNote && (
+            ))}
+            {/* Inline there is no room for the sentence: its first clause, the whole as the tooltip. */}
+            {unbakedNote && (inline ? (
+                <span className="shrink-0 max-w-56 truncate text-amber-300" data-testid="fea-unbaked-note" title={unbakedNote}>
+                    {unbakedNote.split(/[.;:]/)[0]}
+                </span>
+            ) : (
                 <div className="text-xs text-amber-300 min-w-0 break-words" data-testid="fea-unbaked-note">
                     {unbakedNote}
                 </div>
-            )}
+            ))}
 
             {/* Row 2 — Scrub slider + period + scale-factor knobs.
                 Visually grouped because they all shape the
@@ -831,11 +898,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 fills the same total width as row 1 — the slider
                 absorbs whatever space is left after the fixed-width
                 period + scale inputs. */}
-            <div className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 w-full min-w-0">
+            <div className={inline ? "flex flex-row items-center gap-x-2 shrink-0" : "flex flex-row flex-wrap items-center gap-x-2 gap-y-1 w-full min-w-0"}>
                 {timeHistory ? (
                     // A time history: the slider IS the timeline. Scrub it to any frame;
                     // play moves it. Deformation stays at true scale (x below exaggerates).
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className={inline ? "flex items-center gap-2 w-56 shrink-0" : "flex items-center gap-2 flex-1 min-w-0"}>
                         <input
                             type="range"
                             min={0}
@@ -872,7 +939,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         )}
                     </div>
                 ) : (
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className={inline ? "flex items-center gap-2 w-40 shrink-0" : "flex items-center gap-2 flex-1 min-w-0"}>
                         <input
                             type="range"
                             min={lo}
@@ -893,7 +960,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 one compact size, packed; on the right how playing is drawn (deformation
                 scale, period, beams as solid). The right group wraps under the buttons on a
                 narrow panel. */}
-            <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+            <div className={inline ? "flex flex-row flex-nowrap items-center gap-x-3 shrink-0" : "flex flex-row flex-wrap items-center gap-x-3 gap-y-2 min-w-0"}>
                 <span className="flex items-center gap-1.5">
                 <button
                     className={TRANSPORT_BUTTON}
@@ -921,6 +988,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     <FEMDataPanelIcon/>
                 </button>
                 <AnimationExportButton/>
+                {!inline && (
                 <button
                     className={`${TRANSPORT_BUTTON} ${showOptions ? TRANSPORT_BUTTON_ON : ""}`}
                     onClick={() => setShowOptions((v) => !v)}
@@ -929,6 +997,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 >
                     <GearIcon/>
                 </button>
+                )}
                 </span>
                 {/* How playing is drawn: the deformation scale and the period (the two
                     numbers that shape the animation), and beams as solid. Drawn as the same
@@ -938,7 +1007,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     store flag + scene helper, so the two can never disagree: in the paradoc
                     embed this panel is the only one there is, and a beam drawn as a line cannot
                     show a torsion mode at all. Only offered when the bundle has beam solids. */}
-                <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white">
+                <span className={inline ? "flex flex-nowrap items-center gap-x-3 whitespace-nowrap" : "ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white"}>
                     <label
                         className="flex items-center gap-1"
                         title="Deformation scale: multiplies the displacement drawn (1 = true scale)"
@@ -986,7 +1055,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             <span className="text-gray-300">All combinations</span>
                         </label>
                     )}
-                    {beamSolidsToggle.offered && (
+                    {showBeamSolids && beamSolidsToggle.offered && (
                         <label
                             className={`flex items-center gap-1${beamSolidsToggle.enabled ? "" : " opacity-50"}`}
                             title={beamSolidsToggle.title}
@@ -1000,7 +1069,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             <span className="text-gray-300">Beams as solid</span>
                         </label>
                     )}
-                    {beamSolidsToggle.offered && beamSolidsToggle.enabled && beamSolidsVisible && (
+                    {showBeamSolids && beamSolidsToggle.offered && beamSolidsToggle.enabled && beamSolidsVisible && (
                         <label className="flex items-center gap-1" title="Element edges on the beam solids">
                             <input
                                 type="checkbox"
@@ -1023,8 +1092,21 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </span>
             </div>
 
-            {showOptions && (
-                <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
+            {optionsOpen && (
+                <div className={inline ? "flex shrink-0 flex-row flex-nowrap items-center gap-x-3 whitespace-nowrap" : "flex flex-row flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white"}>
+                    {showColorToggle && (
+                        <label
+                            className="flex items-center gap-1"
+                            title="Paint the model with the result field, or draw it in its base material"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={resultColorsVisible}
+                                onChange={(e) => onResultColorsToggle(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Result colours</span>
+                        </label>
+                    )}
                     <label className="flex items-center gap-1">
                         <span className="text-gray-300">Colormap</span>
                         <select
@@ -1040,6 +1122,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </select>
                     </label>
                     <button
+                        ref={scaleAnchorRef}
                         type="button"
                         className={
                             "rounded-sm px-1.5 py-0.5 text-white " +
@@ -1110,7 +1193,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         toggle controls whether the active field
                         (displacement) or the manifest's displacement
                         field (everything else) drives the morph. */}
-                    {(() => {
+                    {showWarpToggle && (() => {
                         const isReaction = activeField?.category === "reaction";
                         return (
                             <label
@@ -1170,9 +1253,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </div>
             )}
 
-            {showOptions && showScale && (
+            {optionsOpen && showScale && (inline ? (
+                <AnchoredPopover anchorRef={scaleAnchorRef} onClose={() => setShowScale(false)} ariaLabel="Colour scale">
+                    <ResultScaleSettings onClose={() => setShowScale(false)} />
+                </AnchoredPopover>
+            ) : (
                 <ResultScaleSettings onClose={() => setShowScale(false)} />
-            )}
+            ))}
         </div>
     );
 };

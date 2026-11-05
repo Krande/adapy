@@ -26,11 +26,16 @@ export { StorageBody } from "@/components/storage/StorageBrowser";
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
 export {
+  AnimationControls,
   SimulationBody,
   SimulationContent,
   useSimulationTabs,
 } from "@/components/simulation/SimulationControls";
-export type { SimulationTabs } from "@/components/simulation/SimulationControls";
+export type {
+  ResultControlsOptions,
+  SimulationBodyProps,
+  SimulationTabs,
+} from "@/components/simulation/SimulationControls";
 export { default as FeaTableBody } from "@/components/simulation/SimulationDataInfoPanel";
 export {
   CellBuilderBody,

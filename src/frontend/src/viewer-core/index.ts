@@ -140,7 +140,10 @@
 //          and `CORE_PROPERTY_PROVIDERS`. On the root: `registerSceneTreeRoots` /
 //          `listSceneTreeRoots`, the rows a plugin adds to the Scene tree, and
 //          `registerPropertyProvider` / `listPropertyProviders` / `providersFor`,
-//          the sections a plugin adds to the Selected Object panel. Additive.
+//          the sections a plugin adds to the Selected Object panel.
+//          Simulation: `SimulationBodyProps` (`layout: "panel" | "inline"`,
+//          `showWarpToggle`, `showBeamSolids`, `showColorToggle`,
+//          `excludeDockedTabs`) and `AnimationControls`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

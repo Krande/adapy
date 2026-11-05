@@ -71,6 +71,12 @@ export function resolveSimTab(
     return defaultSimTab(content);
 }
 
+/** Plugin tabs minus those whose panel names a dock: a shell that mounts those in its
+ *  docks would otherwise show them twice. */
+export function withoutDockedTabs<T extends {panel: {dock?: unknown}}>(tabs: readonly T[]): T[] {
+    return tabs.filter((t) => !t.panel.dock);
+}
+
 /** The toolbar's Simulation button: shown for results, and for an FE model without any. */
 export function simulationButtonShown(s: {hasAnimation: boolean; sessionActive: boolean; feModel: boolean}): boolean {
     return s.hasAnimation || s.sessionActive || s.feModel;
