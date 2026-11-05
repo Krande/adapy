@@ -163,7 +163,7 @@
 //          `@/viewer-core/layout`: its rules (`DOCKED_ZONE_DEFS`, `dockGrid`,
 //          `dockZonePanels`, `dockedPlacement`, `dockedDefaults`, `adoptDocked`,
 //          `activateInZone`, `shownTab`, `trackSize`) and the shared
-//          `CollapsibleSection` (its `"section"` and `"caret"` looks). Additive.
+//          `CollapsibleSection` (its `"section"` and `"caret"` looks).
 //          Rearranging docks. On the root: `PanelAction.menu` (`PanelMenuItem`),
 //          a header action that opens a menu. On `@/viewer-core/layout`:
 //          `WindowHeaderMenuButton` and `MoveGlyph`; indexed drop targets
@@ -173,6 +173,20 @@
 //          (Ctrl+Alt+arrow moves a window or a docked panel by direction); the
 //          docked rules `dockInZone` and `adjacentZone`; `dragHandleClassName`
 //          on a docked `PanelFrame` marks the header a host drags the panel by.
+//          In-app dialogs on the root: `confirmDialog` / `alertDialog` /
+//          `promptDialog` (promise-based; core's storage panel asks through them
+//          instead of `window.confirm` / `alert` / `prompt`) and `setDialogHost`,
+//          which installs a host's own.
+//          Storage: `StorageBodyProps` (`rowLoadProgress`, `selectionActions:
+//          "toolbar" | "rowMenu"`, `onConvert`, `onClose`, `scopePicker`,
+//          `showModified: boolean | "auto"`) and `STORAGE_MODIFIED_MIN_PX`; its
+//          `maximized` / `setMaximized` are kept, ignored and deprecated (the panel no
+//          longer maximizes). On the root, the load claims the progress toast
+//          consults by default: `claimLoad` / `releaseLoad` / `isLoadClaimed`,
+//          `subscribeLoadClaims`, `loadClaimsVersion`.
+//          Cellbuilder: `CellBuilderBodyProps` (`tabs`, `tabLabels`, `showUndoRedo`,
+//          `showAddButtons`, `showComponentList`, `emptyState`), also taken by
+//          `CellBuilderContent`, and `CellBuilderTab`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -286,6 +300,27 @@ export {
   registerPropertyProvider,
 } from "@/plugins/propertyProviders";
 export type { PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
+export {
+  alertDialog,
+  confirmDialog,
+  promptDialog,
+  setDialogHost,
+} from "@/plugins/dialogs";
+export type {
+  AlertOptions,
+  ConfirmOptions,
+  DialogHost,
+  DialogText,
+  DialogTone,
+  PromptOptions,
+} from "@/plugins/dialogs";
+export {
+  claimLoad,
+  isLoadClaimed,
+  loadClaimsVersion,
+  releaseLoad,
+  subscribeLoadClaims,
+} from "@/plugins/loadClaims";
 export { bindStoreFlag, watchStores } from "@/layout/bindings";
 export type { FlagStore } from "@/layout/bindings";
 export {
