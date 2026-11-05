@@ -259,9 +259,10 @@ export function useProceduralModels(p: {
         if (!name || !name.trim()) return;
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
+            // Listed before it opens, so the panel never shows it as unsaved.
+            await refreshProceduralModels();
             const store = useCellBuilderStore.getState();
             store.open(detail.id, detail.name, detail.revision, detail.doc);
-            void refreshProceduralModels();
         } catch (e) {
             void alertDialog({title: "Failed to create procedural model", body: errorText(e), tone: "danger"});
         }
@@ -293,10 +294,10 @@ export function useProceduralModels(p: {
                 /* compile is best-effort on create */
             }
             const fresh = await viewerApi.getProceduralModel(scopeKey, detail.id);
+            await refreshProceduralModels();
             useCellBuilderStore
                 .getState()
                 .open(fresh.id, fresh.name, revision, fresh.doc);
-            void refreshProceduralModels();
         } catch (e) {
             void alertDialog({title: "Failed to create from template", body: errorText(e), tone: "danger"});
         }

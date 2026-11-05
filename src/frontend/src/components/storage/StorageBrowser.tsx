@@ -6,6 +6,7 @@ import {useConversionStore} from "@/state/conversionStore";
 import {useModelState} from "@/state/modelState";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {buildFileTree, collectFolderPaths, partitionUiHidden} from "@/utils/storage/fileTree";
 import {useBuildSidecars} from "@/hooks/useBuildSidecars";
@@ -15,6 +16,7 @@ import {useStorageMutations} from "./useStorageMutations";
 import BrowserHeader from "./browser/BrowserHeader";
 import SelectionToolbar from "./browser/SelectionToolbar";
 import UploadProgress from "./browser/UploadProgress";
+import UnsavedModelRow, {unsavedModelName} from "./browser/UnsavedModelRow";
 import FileTreeList from "./browser/FileTreeList";
 import BrowserDialogs, {CtxMenuState} from "./browser/BrowserDialogs";
 import {classifyFiles} from "./browser/helpers";
@@ -136,6 +138,8 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
         proceduralModels, proceduralByName, activeProcedural, refreshProceduralModels,
         isProceduralLoaded, toggleProceduralLoaded, applyProceduralName, placementItems,
     } = procedural;
+    const activeModel = useCellBuilderStore((s) => s.active);
+    const unsavedName = unsavedModelName(activeModel, proceduralModels);
 
     // Sticky 600ms spin window for the Refresh button so a tap is
     // visually acknowledged even though the underlying list-files
@@ -330,6 +334,7 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
                 uploadLoaded={uploads.uploadLoaded}
                 uploadTotal={uploads.uploadTotal}
             />
+            {unsavedName !== null && <UnsavedModelRow name={unsavedName}/>}
             <FileTreeList
                 files={files}
                 regularFiles={regularFiles}
