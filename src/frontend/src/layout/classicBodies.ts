@@ -105,7 +105,9 @@ const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
 };
 
 const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
-  [CORE_PANEL_IDS.storage]: () => import("@/components/storage/StorageBrowser").then((m) => asBody(m.StorageBody)),
+  // In a group or window the layout sizes the panel: the file list takes that height.
+  [CORE_PANEL_IDS.storage]: () =>
+    import("@/components/storage/StorageBrowser").then((m) => asBody(() => React.createElement(m.StorageBody, { fillHeight: true }))),
   [CORE_PANEL_IDS.attributeSearch]: () =>
     import("@/components/asset_browser/AttributeSearchPanel").then((m) => asBody(m.default)),
   [CORE_PANEL_IDS.equipmentAdmin]: () => import("@/components/admin/EquipmentAdminPanel").then((m) => embedded(m.default)),

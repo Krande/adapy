@@ -253,10 +253,12 @@ test("the progress toast leaves a claimed load out by default", async () => {
         const release = claimLoad("claimed.glb");
         try {
             assert.doesNotMatch(toast(), /claimed\.glb/);
-            assert.match(toast({ isClaimed: () => false }), /claimed\.glb/, "a host's predicate replaces the claims");
+            assert.doesNotMatch(toast({ isClaimed: () => false }), /claimed\.glb/, "a host's predicate adds to the claims");
         } finally {
             release();
         }
+        assert.match(toast(), /claimed\.glb/);
+        assert.doesNotMatch(toast({ isClaimed: (n: string) => n === "claimed.glb" }), /claimed\.glb/, "or claims on its own");
     } finally {
         setServerState(useLoadQueueStore, { current: null });
     }

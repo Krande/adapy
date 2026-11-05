@@ -6,6 +6,12 @@
  *  `jobKey` is its store key (`${source}::${target}`) and `name` the part before `::`. */
 export type IsClaimed = (name: string, jobKey?: string) => boolean;
 
+/** Claimed by either predicate: a host's own claims added to core's (a load claimed
+ *  with `claimLoad` stays out of the toast whatever the host passes). */
+export function eitherClaimed(a: IsClaimed, b?: IsClaimed): IsClaimed {
+    return b ? (name, jobKey) => a(name, jobKey) || b(name, jobKey) : a;
+}
+
 /** The source part of a conversion-store key. */
 export function jobSource(key: string): string {
     const i = key.indexOf("::");

@@ -26,6 +26,8 @@ export interface FileTreeListProps {
     sidecars: ReadonlyMap<string, BuildSidecar | null>;
     /** Show the Modified column. */
     showModified: boolean;
+    /** No height cap: the list takes what its host gives the panel. */
+    fillHeight?: boolean;
     /** A row's load, told on the row; absent, rows show a spinner. */
     loadProgressFor?: (name: string) => RowLoadProgress | undefined;
     listScrollRef: React.RefObject<HTMLDivElement | null>;
@@ -75,7 +77,7 @@ export interface FileTreeListProps {
 
 const FileTreeList: React.FC<FileTreeListProps> = (props) => {
     const {
-        files, regularFiles, versionBranches, visibleTree, pendingFolders, sidecars, showModified, loadProgressFor,
+        files, regularFiles, versionBranches, visibleTree, pendingFolders, sidecars, showModified, fillHeight, loadProgressFor,
         listScrollRef, onListKeyDown, handleDropOnFolder, showRootDropStrip, newFolderAt,
         setNewFolderAt, onCreateFolder, proceduralByName, activeProcedural, openProceduralModel,
         isProceduralLoaded, toggleProceduralLoaded, proceduralMenuItems, fileMenuItems,
@@ -111,10 +113,11 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                             className={
                                 "flex flex-col overflow-auto focus:outline-hidden " +
                                 "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
-                                // Desktop keeps the fixed 20rem cap. On mobile the
-                                // whole panel scrolls (root overflow-y-auto), so the
-                                // list itself is uncapped there (no double scroll).
-                                "md:max-h-80"
+                                // Desktop keeps the fixed 20rem cap in the column. On
+                                // mobile the whole panel scrolls (root overflow-y-auto),
+                                // so the list itself is uncapped there (no double scroll);
+                                // so is it in a dock or window that sizes the panel.
+                                (fillHeight ? "" : "md:max-h-80")
                             }
                             // Background (non-row) drops land at root:
                             // internal drags move to root, OS files

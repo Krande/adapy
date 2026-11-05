@@ -241,6 +241,11 @@
 //          `popoutUrl`, `canPopOut`, `openPopout`; `PanelSlot.popout` for a plugin.
 //          On `@/viewer-core/app`: `AppRoot`, core's root (routes, sign-in, deep
 //          links) for a shell that keeps `load`.
+//          Storage: `StorageBodyProps.fillHeight` (the file list takes its host's
+//          height; core sets it where the layout sizes the panel);
+//          `ConversionProgressProps.isClaimed` now adds to core's load claims
+//          instead of replacing them. On `@/viewer-core/app`: `requestScopeChange`,
+//          `applyScopeChange`, `sceneHasModels`.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
