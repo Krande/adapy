@@ -9,6 +9,7 @@ import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
 import ExtendJobButton from "./ExtendJobButton";
+import {isClaimedJob, withoutClaimed, type IsClaimed} from "./claimedLoads";
 import {
     hasRunView,
     parentRunOf,
@@ -937,17 +938,25 @@ const AuditActivityBadge: React.FC = () => {
     );
 };
 
-const ConversionProgress = () => {
+export interface ConversionProgressProps {
+    /** Loads whose progress the host tells elsewhere, left out of the toast. Default: none. */
+    isClaimed?: IsClaimed;
+}
+
+const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed}) => {
     const jobs = useConversionStore((s) => s.jobs);
     const clearJob = useConversionStore((s) => s.clearJob);
     const sweeps = useCompressionStore((s) => s.sweeps);
     const clearSweep = useCompressionStore((s) => s.clearSweep);
     const loadCurrent = useLoadQueueStore((s) => s.current);
-    const loadQueued = useLoadQueueStore((s) => s.queued);
-    const loadErrors = useLoadQueueStore((s) => s.errors);
+    const queued = useLoadQueueStore((s) => s.queued);
+    const errors = useLoadQueueStore((s) => s.errors);
     const removeQueued = useLoadQueueStore((s) => s.removeQueued);
     const clearError = useLoadQueueStore((s) => s.clearError);
     const loadCurrentName = loadCurrent?.name ?? null;
+    const shownLoad = withoutClaimed({currentName: loadCurrentName, queued, errors}, isClaimed);
+    const loadQueued = shownLoad.queued;
+    const loadErrors = shownLoad.errors;
     // On mobile the gallery HUD is a bottom bar; lift the toast stack above it so the audit toast
     // stacks on top of the gallery menu instead of overlapping. 0 (desktop/gallery-off) => default.
     const galleryBarHeight = useGalleryStore((s) => s.mobileBarHeight);
@@ -963,7 +972,9 @@ const ConversionProgress = () => {
     const modelLoadActive =
         !!modelLoadJob && (modelLoadJob.status === "queued" || modelLoadJob.status === "running");
 
-    const loadName = loadCurrentName ?? (modelLoadActive ? modelLoadJob.derivedKey || "model" : null);
+    const loadName = shownLoad.currentClaimed
+        ? null
+        : loadCurrentName ?? (modelLoadActive ? modelLoadJob.derivedKey || "model" : null);
     const loadQueueActive =
         loadName !== null || loadQueued.length > 0 || loadErrors.length > 0;
 
@@ -985,7 +996,8 @@ const ConversionProgress = () => {
             (active(j) || (!!j.parent && active(jobs[j.parent]) && j.status !== "error")) &&
             !(j.parent && jobs[j.parent]?.collapsed && active(jobs[j.parent])) &&
             k !== MODEL_LOAD_KEY &&
-            !(loadCurrentName && k.startsWith(loadCurrentName + "::")))
+            !(loadCurrentName && k.startsWith(loadCurrentName + "::")) &&
+            !isClaimedJob(k, isClaimed))
         .map(([k, j]) => ({...j, storeKey: k}));
     // While an operation runs, the model download is one of its steps: its stage line says so
     // (`operationTracking`), and the load row does not come and go beside it per model.
@@ -997,7 +1009,7 @@ const ConversionProgress = () => {
             ? Object.entries(jobs).find(([k]) => k.startsWith(loadCurrentName + "::"))?.[1]
             : undefined) ?? (modelLoadActive ? modelLoadJob : undefined);
     const errored = Object.entries(jobs)
-        .filter(([, j]) => j.status === "error" && j.sourceKey !== MODEL_LOAD_KEY)
+        .filter(([k, j]) => j.status === "error" && j.sourceKey !== MODEL_LOAD_KEY && !isClaimedJob(k, isClaimed))
         .map(([k, j]) => ({...j, storeKey: k}));
     const allVisible = [...inProgress, ...errored];
     const visibleSweeps = Object.entries(sweeps);

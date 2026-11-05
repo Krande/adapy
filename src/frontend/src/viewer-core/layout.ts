@@ -52,6 +52,10 @@ export type { SceneTreeProps, SceneTreeRootFilter } from "@/components/tree_view
 export type { TreeNodeData } from "@/components/tree_view/CustomNode";
 export { default as AttributeSearchBody } from "@/components/asset_browser/AttributeSearchPanel";
 export { default as ConvertBody } from "@/components/convert/ConvertPage";
+export type { ConvertBodyProps } from "@/components/convert/ConvertPage";
+export { default as ConversionProgress } from "@/components/conversion/ConversionProgress";
+export type { ConversionProgressProps } from "@/components/conversion/ConversionProgress";
+export type { IsClaimed } from "@/components/conversion/claimedLoads";
 export { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
 export { WebsocketStatusBody } from "@/components/WebsocketStatusMenu";
 

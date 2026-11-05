@@ -143,7 +143,9 @@
 //          the sections a plugin adds to the Selected Object panel.
 //          Simulation: `SimulationBodyProps` (`layout: "panel" | "inline"`,
 //          `showWarpToggle`, `showBeamSolids`, `showColorToggle`,
-//          `excludeDockedTabs`) and `AnimationControls`. Additive.
+//          `excludeDockedTabs`) and `AnimationControls`. `ConvertBodyProps`
+//          (`inViewer`), and the progress toast `ConversionProgress` with
+//          `isClaimed` (loads a host reports elsewhere). Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
