@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useStore } from "zustand";
 
 import { OverlayPortal } from "@/components/ui/OverlayPortal";
-import { DOCKED_PRESET_ID, customisablePanelsOn } from "@/layout/layout";
+import { customisablePanelsOn } from "@/layout/layout";
 import { layoutStore } from "@/layout/layoutStore";
 
 // Single source of truth for the keyboard-shortcut help map. Grouped by
@@ -139,24 +139,16 @@ const PANEL_SHORTCUTS: ShortcutGroup = {
   context: "Panels",
   when: "Active with Options → Theme → Customisable panels on",
   shortcuts: [
-    { keys: ["F6"], description: "Move focus to the next area: top bar, panel column, each floating panel, the 3D view" },
-    { keys: ["Shift", "F6"], description: "Move focus to the previous area" },
-    { keys: ["Esc"], description: "While a floating panel has focus (not a text field): close it; focus returns to where it was" },
-    { keys: ["Ctrl", "Alt", "Arrow"], description: "While a floating panel has focus: dock it back into the panel column" },
-  ],
-};
-
-// The docked layout's keys: always live there (layout/presets/dock.tsx).
-const DOCKED_PANEL_SHORTCUTS: ShortcutGroup = {
-  context: "Panels",
-  when: "In the Docked layout",
-  shortcuts: [
-    { keys: ["F6"], description: "Move focus to the next area: top bar, each dock, each floating panel, the 3D view" },
+    {
+      keys: ["F6"],
+      description: "Move focus to the next area: top bar, panel column, each docked group, each floating panel, the 3D view",
+    },
     { keys: ["Shift", "F6"], description: "Move focus to the previous area" },
     { keys: ["Esc"], description: "While a floating panel has focus (not a text field): close it; focus returns to where it was" },
     {
       keys: ["Ctrl", "Alt", "Arrow"],
-      description: "While a docked or floating panel has focus: move it to the next dock that way (Up docks a floating panel back)",
+      description:
+        "While a panel has focus: stack it with the docked group that way, or dock it at that edge of the view when there is none",
     },
   ],
 };
@@ -181,8 +173,7 @@ const KeyCombo: React.FC<{ keys: string[] }> = ({ keys }) => (
 const ShortcutsModal: React.FC = () => {
   const [open, setOpen] = useState(false);
   const customisable = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
-  const docked = useStore(layoutStore, (s) => s.prefs.activePreset === DOCKED_PRESET_ID);
-  const panelKeys = docked ? DOCKED_PANEL_SHORTCUTS : customisable ? PANEL_SHORTCUTS : null;
+  const panelKeys = customisable ? PANEL_SHORTCUTS : null;
   const groups = panelKeys ? [SHORTCUT_GROUPS[0], panelKeys, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS;
 
   // Escape closes the modal (mirrors the other centered dialogs, e.g.

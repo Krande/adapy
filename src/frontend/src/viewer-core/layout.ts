@@ -87,12 +87,16 @@ export {
   PanelHeaderActions,
   PanelHeaderActionsProvider,
   usePanelHeaderActions,
+  WindowDockActions,
+  WindowDockProvider,
   WindowFrame,
   WindowHeaderActions,
   WindowHeaderButton,
   WindowHeaderMenuButton,
+  useWindowDock,
+  windowDockAttrs,
 } from "@/components/ui/PanelFrame";
-export type { PanelCardProps, WindowFrameProps, WindowHeaderButtonProps } from "@/components/ui/PanelFrame";
+export type { PanelCardProps, WindowDock, WindowFrameProps, WindowHeaderButtonProps } from "@/components/ui/PanelFrame";
 export { FloatingWindow, usePointerDrag } from "@/components/ui/FloatingWindow";
 export type { FloatingWindowProps, RememberedRect } from "@/components/ui/FloatingWindow";
 export { SheetHandle } from "@/components/ui/SheetHandle";
@@ -137,9 +141,13 @@ export {
   LAYOUT_DOC_VERSION,
   adoptNewPanels,
   closePanel,
+  dockInGridDoc,
   dockPanel,
   emptyLayoutDoc,
   floatPanel,
+  floatPanelAt,
+  gridOf,
+  isInGrid,
   isOpenIn,
   migrateLayoutDoc,
   minimisePanel,
@@ -150,6 +158,7 @@ export {
   setFloatRect,
   setZoneCollapsed,
   setZoneSize,
+  updateGrid,
   whereOpen,
 } from "@/layout/reducers";
 export type { OpenTarget } from "@/layout/reducers";
@@ -169,32 +178,51 @@ export { ZoneKeys, focusZone, requestFloatFocus, restoreFocus, useFloatFocus } f
 export {
   DROP_ATTR,
   DROP_AXIS_ATTR,
+  DROP_EDGES_ATTR,
   DROP_INDEX_ATTR,
+  cancelDockDrag,
   dockDragStore,
   dropTargetAt,
   dropZoneAt,
+  edgeAt,
   endDockDrag,
   endDockDragAt,
   moveDockDrag,
 } from "@/layout/dockDrag";
-export type { DockDragState, DropCandidate, DropTarget } from "@/layout/dockDrag";
+export type { DockDragState, DropCandidate, DropEdge, DropTarget } from "@/layout/dockDrag";
 export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
 export { LAYOUT_ENGINE_PARAM, LAYOUT_ENGINE_STORAGE_KEY, layoutEngineEnabled } from "@/layout/flag";
 export {
-  COLLAPSED_STRIP,
-  DOCK_ZONE_DEFS,
-  DOCKED_ZONE_DEFS,
-  activateInZone,
-  adjacentZone,
-  adoptDocked,
-  dockGrid,
-  dockInZone,
-  dockZonePanels,
-  dockedDefaults,
-  dockedPlacement,
-  dockedZoneOf,
-  shownTab,
-  trackSize,
-} from "@/layout/presets/dockRules";
+  DEFAULT_GRID,
+  ROOT_NODE,
+  VIEWPORT_NODE,
+  dockInGrid,
+  equaliseSplit,
+  findNode,
+  gridGroups,
+  gridPanels,
+  groupOf,
+  neighbourRect,
+  normaliseGrid,
+  removeFromGrid,
+  resizePair,
+  setActiveTab,
+  setSplitSizes,
+  shownGrid,
+  splitShare,
+} from "@/layout/splitTree";
+export type {
+  Direction,
+  DockEdge,
+  GridNode,
+  GridTarget,
+  GroupNode,
+  Rect,
+  ShownNode,
+  ShownSplit,
+  SplitDir,
+  SplitNode,
+  ViewportNode,
+} from "@/layout/splitTree";

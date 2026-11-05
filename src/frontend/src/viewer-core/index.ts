@@ -159,20 +159,34 @@
 //          toast `ConversionProgress` with `isClaimed` (loads a host reports
 //          elsewhere). The node editor's toolbar actions `request_list_of_nodes`
 //          and `start_new_node_editor`.
-//          The core docked preset's zone ids, `DOCKED_ZONES`. On
-//          `@/viewer-core/layout`: its rules (`DOCKED_ZONE_DEFS`, `dockGrid`,
-//          `dockZonePanels`, `dockedPlacement`, `dockedDefaults`, `adoptDocked`,
-//          `activateInZone`, `shownTab`, `trackSize`) and the shared
-//          `CollapsibleSection` (its `"section"` and `"caret"` looks). Additive.
-//          Rearranging docks. On the root: `PanelAction.menu` (`PanelMenuItem`),
+//          The shared `CollapsibleSection` (its `"section"` and `"caret"`
+//          looks), on `@/viewer-core/layout`. Additive.
+//          Rearranging panels. On the root: `PanelAction.menu` (`PanelMenuItem`),
 //          a header action that opens a menu. On `@/viewer-core/layout`:
 //          `WindowHeaderMenuButton` and `MoveGlyph`; indexed drop targets
 //          (`DROP_INDEX_ATTR`, `DROP_AXIS_ATTR`, `dropTargetAt`, `endDockDragAt`,
 //          `DropTarget`, `DockDragState.index`); the zone kind `"dock"`, the
 //          intent `"move-docked"`, `arrowDirection` and `ZoneKeysProps.movePanel`
-//          (Ctrl+Alt+arrow moves a window or a docked panel by direction); the
-//          docked rules `dockInZone` and `adjacentZone`; `dragHandleClassName`
-//          on a docked `PanelFrame` marks the header a host drags the panel by.
+//          (Ctrl+Alt+arrow moves a window or a docked panel by direction);
+//          `dragHandleClassName` on a docked `PanelFrame` marks the header a
+//          host drags the panel by.
+//          The split grid of the classic preset, in place of a separate docked
+//          preset: `LayoutDoc.grid` (`LAYOUT_DOC_VERSION` 2; an older document
+//          starts over). On `@/viewer-core/layout`: the pure tree (`GridNode`:
+//          `SplitNode`, `GroupNode`, `ViewportNode`; `dockInGrid`,
+//          `removeFromGrid`, `setActiveTab`, `setSplitSizes`, `equaliseSplit`,
+//          `resizePair`, `shownGrid`, `normaliseGrid`, `neighbourRect`,
+//          `gridGroups`, `gridPanels`, `groupOf`, `findNode`, `splitShare`,
+//          `DEFAULT_GRID`, `VIEWPORT_NODE`, `ROOT_NODE`); the document reducers
+//          `dockInGridDoc`, `updateGrid`, `gridOf`, `isInGrid`, `floatPanelAt`
+//          (`floatPanel`, `dockPanel` and `closePanel` also take a panel out of
+//          the grid); edge drop targets (`DROP_EDGES_ATTR`, `edgeAt`,
+//          `DropTarget.edge`, `DockDragState.edge`, `cancelDockDrag`); a
+//          panel's own window given actions and drag-to-dock by its host
+//          (`WindowDockProvider`, `useWindowDock`, `WindowDockActions`,
+//          `windowDockAttrs`; `FloatingWindow` and `WindowFrame` pick it up);
+//          `FloatLayerProps.skip` and `windowDock`. `DOCKED_PRESET_ID` stays
+//          a placement key only.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -292,7 +306,6 @@ export {
   CLASSIC_PRESET_ID,
   CLASSIC_ZONES,
   DOCKED_PRESET_ID,
-  DOCKED_ZONES,
   layoutDocKey,
 } from "@/layout/layout";
 export type {
