@@ -87,6 +87,17 @@ export function withChoices(deps: CollectionRequestDeps, picked: Record<string, 
     };
 }
 
+/** One staging's row. Its files are drawn only while it is open, so thousands of staged files cost nothing folded. */
+const StagedFiles: React.FC<{ children: [React.ReactNode, () => React.ReactNode] }> = ({ children: [summary, files] }) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <details onToggle={(e) => setOpen(e.currentTarget.open)}>
+            {summary}
+            {open && files()}
+        </details>
+    );
+};
+
 const RequestCollection: React.FC<{
     scope: string;
     /** Called with the collection a request published, so the tab can show it. */
@@ -160,6 +171,36 @@ const RequestCollection: React.FC<{
             }
         },
         [load, onPublished],
+    );
+
+    /** Delete staged groups: one by its id, several by clearing their scopes' staging in one call each. */
+    const removeStaged = useCallback(
+        async (groups: Staged[], what: string) => {
+            const files = groups.reduce((n, g) => n + g.files.length, 0);
+            const size = formatSize(groups.reduce((n, g) => n + g.size, 0));
+            const note =
+                groups.length > 1 ? "\nA request still running loses what it has staged so far." : "";
+            if (!window.confirm(`Delete ${what}: ${files} file${files === 1 ? "" : "s"}, ${size}?\n\nIt is staged, not published: nothing references it.${note}`)) return;
+            setBusy(true);
+            setError(null);
+            try {
+                const failed: string[] = [];
+                if (groups.length === 1) {
+                    failed.push(...(await assetsApi.clearStaging(groups[0].scope as ScopeUrl, groups[0].staging_id)).failed);
+                } else {
+                    for (const s of new Set(groups.map((g) => g.scope))) {
+                        failed.push(...(await assetsApi.clearStaging(s as ScopeUrl)).failed);
+                    }
+                }
+                if (failed.length) setError(`${failed.length} staged file${failed.length === 1 ? "" : "s"} could not be deleted.`);
+            } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+            } finally {
+                setBusy(false);
+                await load();
+            }
+        },
+        [load],
     );
 
     if (providers === null) {
@@ -275,21 +316,33 @@ const RequestCollection: React.FC<{
                     <summary className="cursor-pointer text-gray-400">
                         Staged, not published ({staged.length} · {formatSize(staged.reduce((n, s) => n + s.size, 0))})
                     </summary>
-                    <ul className="mt-1 space-y-1">
+                    <div className="mt-1 flex items-center">
+                        <button
+                            type="button"
+                            className="ml-auto h-6 px-2 rounded-md border border-red-900 bg-gray-800 text-red-200 hover:bg-red-950 disabled:opacity-50"
+                            disabled={busy}
+                            title="Delete every staged file listed here"
+                            onClick={() => void removeStaged(staged, "everything staged")}
+                        >
+                            Clear all
+                        </button>
+                    </div>
+                    <ul className="mt-1 space-y-1 max-h-72 overflow-y-auto pr-1">
                         {staged.map((s) => (
                             <li key={`${s.scope}/${s.staging_id}`}>
-                            <details>
+                            <StagedFiles>
                             <summary className="flex items-center gap-2 cursor-pointer rounded px-1 hover:bg-white/5">
-                                <code className="truncate text-gray-300" title={s.files.map((f) => f.key).join("\n")}>
+                                <code className="truncate text-gray-300" title={s.staging_id}>
                                     {s.staging_id}
                                 </code>
                                 <span className="text-gray-500 truncate">
                                     {s.files.length} file{s.files.length === 1 ? "" : "s"} · {formatSize(s.size)}
                                 </span>
+                                <span className="ml-auto" />
                                 {providers.length > 0 && isAdmin && (
                                     <button
                                         type="button"
-                                        className="ml-auto h-6 px-2 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50"
+                                        className="h-6 px-2 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50"
                                         disabled={busy}
                                         title={`Publish as ${pn(providerId)}\n${providerIdTitle(providerId)}`}
                                         onClick={() =>
@@ -325,7 +378,16 @@ const RequestCollection: React.FC<{
                                         Publish
                                     </button>
                                 )}
+                                {/* A click in the summary would also fold or unfold the row. */}
+                                <span className="flex" onClick={(e) => e.preventDefault()}>
+                                    <DeleteButton
+                                        title="Delete this staging and every file in it"
+                                        disabled={busy}
+                                        onClick={() => void removeStaged([s], s.staging_id)}
+                                    />
+                                </span>
                             </summary>
+                            {() => (
                             <ul className="pl-3">
                                 {s.files.map((f) => (
                                     <li key={f.key} className="flex items-center gap-2 px-1 rounded hover:bg-white/5">
@@ -351,7 +413,8 @@ const RequestCollection: React.FC<{
                                     </li>
                                 ))}
                             </ul>
-                            </details>
+                            )}
+                            </StagedFiles>
                             </li>
                         ))}
                     </ul>

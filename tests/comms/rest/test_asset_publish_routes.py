@@ -329,6 +329,32 @@ def test_get_staging_groups_by_id_and_survives_a_reload(tmp_path):
     assert staged["up2"]["size"] == len(b"a different upload's bytes, longer")
 
 
+def test_delete_staging_clears_one_id_or_all_and_leaves_published_files(tmp_path):
+    for sid in ("up1", "up2", "up3"):
+        _write(tmp_path, f"{staging_prefix(sid)}source.jsonl", b"bytes")
+    _write(tmp_path, f"{staging_prefix('up1')}extra.json", b"{}")
+    published = asset_key(COLLECTION, COLLECTION, "20260921T000000Z", "source.jsonl")
+    _write(tmp_path, published, b"published bytes")
+
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as c:
+        url = "/api/scopes/user:me/assets/staging"
+        r = c.delete(url, params={"staging_id": "up1"})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"ok": True, "deleted": 2, "failed": []}
+        assert {g["staging_id"] for g in c.get(url).json()["staged"]} == {"up2", "up3"}
+
+        assert c.delete(url, params={"staging_id": "../x"}).status_code == 400
+
+        r = c.delete(url)
+        assert r.status_code == 200, r.text
+        assert r.json()["deleted"] == 2
+        assert c.get(url).json()["staged"] == []
+        assert c.delete(url).json() == {"ok": True, "deleted": 0, "failed": []}
+
+    assert _read(tmp_path, published) == b"published bytes"
+
+
 # --------------------------------------------------------------------------------------------
 # DELETE /assets/{collection}/{subject}/{revision} -- the refcount-checked unpublish.
 # --------------------------------------------------------------------------------------------
