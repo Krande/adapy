@@ -25,7 +25,16 @@
 // `/app`, `/scene`, `/plugins` and `/layout` entry points). The fence is
 // enforced by src/__tests__/plugins/viewerCoreFacade.test.ts.
 
-import { CORE_PANEL_IDS, registerPlugin, type GridNode } from "@/viewer-core";
+import {
+  CORE_PANEL_IDS,
+  activeShellMode,
+  activeUiShellId,
+  listShellModes,
+  registerPlugin,
+  registerShortcut,
+  setShellMode,
+  type GridNode,
+} from "@/viewer-core";
 
 // The tree on the left; the selected object over the scene on the right.
 const GRID: GridNode = {
@@ -110,6 +119,22 @@ export function register(): void {
       },
     ],
   });
+  // A shell's own key, listed in the shortcuts dialog; core's keys are refused.
+  registerShortcut(
+    {
+      id: "ui-alt:next-mode",
+      keys: "Shift+M",
+      label: "Switch to the next mode",
+      group: "Alt UI",
+      when: () => activeUiShellId() === "alt",
+      run: () => {
+        const modes = listShellModes();
+        const i = modes.findIndex((m) => m.id === activeShellMode());
+        if (modes.length) setShellMode(modes[(i + 1) % modes.length].id);
+      },
+    },
+    "ui-alt",
+  );
 }
 
 export default register;

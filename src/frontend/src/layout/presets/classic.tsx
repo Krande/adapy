@@ -70,6 +70,7 @@ import type {WindowDock} from "@/components/ui/PanelFrame";
 import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
 import {GridView, ViewportDropTarget} from "./classicGrid";
 import {setPlacedElsewhere} from "../placedElsewhere";
+import {ShortcutKeys} from "../ShortcutKeys";
 import {offeredInMode} from "../shellModes";
 import {
   adoptDockedPanels,
@@ -475,6 +476,9 @@ function ClassicFrame() {
 
       {/* Panels the user floated ("Customisable panels"), the drop targets, and the keys between zones. */}
       {customisable && <ClassicZoneKeys />}
+      {/* Shells' and plugins' own shortcuts, and their panels'. */}
+      <ShortcutKeys />
+
       {customisable && <ColumnDropTarget />}
       {gridOn && <ViewportDropTarget viewport={viewportRef} />}
       {customisable && <UndockedLayer panels={floatable} mounts={mount} contents={CLASSIC_PANEL_CONTENTS} />}
