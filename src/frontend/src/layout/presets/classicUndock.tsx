@@ -14,7 +14,7 @@
 // WHERE a panel shows (`floats`, `minimised`), and the flag still says WHETHER.
 // So a floated panel closed from the top bar reopens in its window.
 
-import React, {useMemo} from "react";
+import React, {useMemo, useRef} from "react";
 import {useStore} from "zustand";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
@@ -30,6 +30,8 @@ import type {PanelState} from "../panelStates";
 import {dockPanel, floatPanel, migrateLayoutDoc, minimisePanel, raiseFloat, restorePanel, setFloatRect} from "../reducers";
 import {getPanel} from "../registry";
 import {hide} from "../reveal";
+import {ZoneKeys, requestFloatFocus, useFloatFocus} from "../zoneFocus";
+import {ZONE_ATTR, ZONE_PANEL_ATTR} from "../zoneKeys";
 import {CLASSIC_ZONE_DEFS} from "./classicRules";
 
 const DRAG_HANDLE = "classic-undock-drag-handle";
@@ -77,13 +79,29 @@ export function floatColumnPanel(id: PanelId): void {
 /** The actions a column panel's header offers. */
 export function columnActions(panel: RegisteredPanel): PanelAction[] {
   if (!canFloat(panel)) return [];
-  return [{id: "float", label: "Float in a window", icon: FloatGlyph, run: () => floatColumnPanel(panel.id)}];
+  const run = () => {
+    requestFloatFocus(panel.id);
+    floatColumnPanel(panel.id);
+  };
+  return [{id: "float", label: "Float in a window", icon: FloatGlyph, run}];
+}
+
+/** Put a floated panel back in the panel column. */
+export function dockColumnPanel(id: PanelId): void {
+  update((d) => dockPanel(d, id));
+}
+
+const closeFloat = (id: PanelId) => void hide(id);
+
+/** F6 between the classic zones, Esc and Ctrl+Alt+arrow on a floated panel. */
+export function ClassicZoneKeys() {
+  return <ZoneKeys closeFloat={closeFloat} dockFloat={dockColumnPanel} />;
 }
 
 /** The actions a floated panel's window offers, before its close button. */
 export function floatActions(panel: RegisteredPanel): PanelAction[] {
   return [
-    {id: "dock", label: "Dock back into the panel column", icon: DockGlyph, run: () => update((d) => dockPanel(d, panel.id))},
+    {id: "dock", label: "Dock back into the panel column", icon: DockGlyph, run: () => dockColumnPanel(panel.id)},
     {id: "minimise", label: "Minimise", icon: MinimiseGlyph, run: () => update((d) => minimisePanel(d, panel.id))},
   ];
 }
@@ -95,6 +113,8 @@ export function isUndocked(doc: LayoutDoc, id: PanelId): boolean {
 
 function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: LayoutDoc; contents?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>}) {
   const f = doc.floats[panel.id]!;
+  const ref = useRef<HTMLDivElement>(null);
+  useFloatFocus(panel.id, ref);
   const close = () => void hide(panel.id);
   const props: PanelProps = {panelId: panel.id, host: {kind: "float", zone: "classic.float"}, close, isActive: true};
   return (
@@ -110,7 +130,15 @@ function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: La
       onRectChange={(r) => update((d) => setFloatRect(d, panel.id, {x: r.x, y: r.y, w: r.width, h: r.height}))}
     >
       {({fullScreen}) => (
-        <div className="h-full w-full" onPointerDownCapture={() => update((d) => raiseFloat(d, panel.id))}>
+        <div
+          ref={ref}
+          className="h-full w-full"
+          role="dialog"
+          aria-modal="false"
+          aria-label={panel.title}
+          {...{[ZONE_ATTR]: "float", [ZONE_PANEL_ATTR]: panel.id}}
+          onPointerDownCapture={() => update((d) => raiseFloat(d, panel.id))}
+        >
           <PanelFrame
             panelId={panel.id}
             title={panel.title}
@@ -174,7 +202,10 @@ export function MinimisedTray() {
           key={p.id}
           type="button"
           className={navBtnClass(false)}
-          onClick={() => update((d) => restorePanel(d, p.id))}
+          onClick={() => {
+            requestFloatFocus(p.id);
+            update((d) => restorePanel(d, p.id));
+          }}
           title={`Restore ${p.title}`}
           aria-label={`Restore ${p.title}`}
         >

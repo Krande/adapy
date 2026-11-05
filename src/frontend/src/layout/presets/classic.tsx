@@ -61,7 +61,16 @@ import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
 import {listToolbarPanels} from "../registry";
 import {hide, toggle} from "../reveal";
 import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, toolbarPresence} from "./classicRules";
-import {MinimisedTray, UndockedLayer, columnActions, isUndocked, useClassicDoc, useCustomisablePanels} from "./classicUndock";
+import {PANEL_TOGGLE_ATTR, ZONE_ATTR} from "../zoneKeys";
+import {
+  ClassicZoneKeys,
+  MinimisedTray,
+  UndockedLayer,
+  columnActions,
+  isUndocked,
+  useClassicDoc,
+  useCustomisablePanels,
+} from "./classicUndock";
 
 const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
 
@@ -75,7 +84,17 @@ const mounts = classicMounts;
 // The top bar.
 // ---------------------------------------------------------------------------
 
-function ToolbarButton({panel, state, env}: {panel: RegisteredPanel; state: PanelState; env: PanelEnv}) {
+function ToolbarButton({
+  panel,
+  state,
+  env,
+  customisable,
+}: {
+  panel: RegisteredPanel;
+  state: PanelState;
+  env: PanelEnv;
+  customisable: boolean;
+}) {
   const recipe = CLASSIC_TOOLBAR[panel.id];
   if (toolbarPresence(panel, state, env) === "omit") return null;
   if (recipe.statusMenu) {
@@ -93,6 +112,7 @@ function ToolbarButton({panel, state, env}: {panel: RegisteredPanel; state: Pane
       title={recipe.title(state.open)}
       aria-label={recipe.ariaLabel?.(state.open)}
       aria-pressed={state.open}
+      {...(customisable ? {[PANEL_TOGGLE_ATTR]: panel.id} : {})}
     >
       {recipe.content}
     </button>
@@ -108,9 +128,12 @@ function ClassicToolbar({nodeEditorOnly}: {nodeEditorOnly: boolean}) {
   const states = usePanelStates(panels, env);
   const before = panels.filter((p) => p.toolbar!.order < PLUGIN_TOOLBAR_ORDER);
   const after = panels.filter((p) => p.toolbar!.order >= PLUGIN_TOOLBAR_ORDER);
-  const button = (p: RegisteredPanel) => <ToolbarButton key={p.id} panel={p} state={states.get(p.id)!} env={env} />;
+  const button = (p: RegisteredPanel) => <ToolbarButton key={p.id} panel={p} state={states.get(p.id)!} env={env} customisable={customisable} />;
   return (
-    <div className={"flex flex-row items-center gap-2 px-2 max-w-full overflow-x-auto pointer-events-auto"}>
+    <div
+      className={"flex flex-row items-center gap-2 px-2 max-w-full overflow-x-auto pointer-events-auto"}
+      {...(customisable ? {[ZONE_ATTR]: "toolbar"} : {})}
+    >
       {nodeEditorOnly && (
         <button
           className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded-sm transition-colors"}
@@ -189,7 +212,14 @@ function ColumnPanel({
   const Wrap = COLUMN_WRAP[panel.id];
   const wrapped = Wrap ? <Wrap>{mount}</Wrap> : mount;
   // Always provided (it draws no DOM), so turning the setting on or off never remounts a panel.
-  return <PanelHeaderActionsProvider actions={customisable ? columnActions(panel) : NO_ACTIONS}>{wrapped}</PanelHeaderActionsProvider>;
+  return (
+    <PanelHeaderActionsProvider
+      actions={customisable ? columnActions(panel) : NO_ACTIONS}
+      panelId={customisable ? panel.id : undefined}
+    >
+      {wrapped}
+    </PanelHeaderActionsProvider>
+  );
 }
 
 function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
@@ -215,7 +245,10 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   );
   const order = (p: RegisteredPanel) => p.placement?.[CLASSIC_PRESET_ID]?.order ?? 0;
   return (
-    <div className={"px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"}>
+    <div
+      className={"px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"}
+      {...(customisable ? {[ZONE_ATTR]: "column"} : {})}
+    >
       {panels.filter((p) => order(p) < PLUGIN_MENU_COLUMN_ORDER).map(render)}
       <PluginPanelRegion region="top-panel" />
       {panels.filter((p) => order(p) >= PLUGIN_MENU_COLUMN_ORDER).map(render)}
@@ -315,12 +348,15 @@ function ClassicFrame() {
       </div>
 
       {/* The viewport: rendered once, never inside a movable container. */}
-      <div className={"w-full h-full"}>{nodeEditorOnly ? <NodeEditorComponent /> : <CanvasWrapper />}</div>
+      <div className={"w-full h-full"} {...(customisable ? {[ZONE_ATTR]: "viewport", tabIndex: -1} : {})}>
+        {nodeEditorOnly ? <NodeEditorComponent /> : <CanvasWrapper />}
+      </div>
 
       {/* Windows: the node editor in the tree, the attribute search in its own portal. */}
       <FloatLayer zone={CLASSIC_ZONES.float} mount={mount} provided={CLASSIC_PANEL_COMPONENTS} />
 
-      {/* Column panels the user floated ("Customisable panels"). */}
+      {/* Column panels the user floated ("Customisable panels"), and the keys between zones. */}
+      {customisable && <ClassicZoneKeys />}
       {customisable && (
         <UndockedLayer
           panels={zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER)}

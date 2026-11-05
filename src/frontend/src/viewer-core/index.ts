@@ -133,8 +133,11 @@
 //          `onRectChange`. Additive.
 //   1.13.0 Undocking, continued, on `@/viewer-core/layout`: the per-user server
 //          backend `serverLayoutPersistence` (debounced, with a browser-local
-//          fallback) and its `PreferenceStore`. On `viewerApi`: `getPreference` /
-//          `setPreference`. Additive.
+//          fallback) and its `PreferenceStore`; the zone keys (`ZoneKeys`:
+//          F6 / Shift+F6 between zones marked `ZONE_ATTR`, Esc and Ctrl+Alt+arrow
+//          on a floating window, `useFloatFocus` / `restoreFocus`); an optional
+//          `panelId` on `PanelHeaderActionsProvider` and `WindowHeaderActions`.
+//          On `viewerApi`: `getPreference` / `setPreference`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

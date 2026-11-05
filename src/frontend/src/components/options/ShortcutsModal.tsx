@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { useStore } from "zustand";
+
+import { layoutStore } from "@/layout/layoutStore";
 
 // Single source of truth for the keyboard-shortcut help map. Grouped by
 // the CONTEXT in which the keys are live so the user knows WHERE/WHEN each
@@ -129,6 +132,18 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
 ];
 
+// Listed only while the keys are live: layout/zoneFocus.tsx, with "Customisable panels" on.
+const PANEL_SHORTCUTS: ShortcutGroup = {
+  context: "Panels",
+  when: "Active with Options → Theme → Customisable panels on",
+  shortcuts: [
+    { keys: ["F6"], description: "Move focus to the next area: top bar, panel column, each floating panel, the 3D view" },
+    { keys: ["Shift", "F6"], description: "Move focus to the previous area" },
+    { keys: ["Esc"], description: "While a floating panel has focus (not a text field): close it; focus returns to where it was" },
+    { keys: ["Ctrl", "Alt", "Arrow"], description: "While a floating panel has focus: dock it back into the panel column" },
+  ],
+};
+
 const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <kbd className="inline-block rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-xs font-mono text-gray-100 shadow-sm">
     {children}
@@ -148,6 +163,8 @@ const KeyCombo: React.FC<{ keys: string[] }> = ({ keys }) => (
 
 const ShortcutsModal: React.FC = () => {
   const [open, setOpen] = useState(false);
+  const customisable = useStore(layoutStore, (s) => s.prefs.customisablePanels === true);
+  const groups = customisable ? [SHORTCUT_GROUPS[0], PANEL_SHORTCUTS, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS;
 
   // Escape closes the modal (mirrors the other centered dialogs, e.g.
   // WorkerInfoModal). Only wired while open so it doesn't shadow the
@@ -195,7 +212,7 @@ const ShortcutsModal: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              {SHORTCUT_GROUPS.map((group) => (
+              {groups.map((group) => (
                 <section key={group.context}>
                   <h3 className="text-sm font-semibold text-blue-300">
                     {group.context}

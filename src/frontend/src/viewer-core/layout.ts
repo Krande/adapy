@@ -129,6 +129,19 @@ export {
   whereOpen,
 } from "@/layout/reducers";
 export type { OpenTarget } from "@/layout/reducers";
+export {
+  PANEL_ACTIONS_ATTR,
+  PANEL_TOGGLE_ATTR,
+  ZONE_ATTR,
+  ZONE_ORDER,
+  ZONE_PANEL_ATTR,
+  cycleZone,
+  orderZones,
+  zoneKeyIntent,
+} from "@/layout/zoneKeys";
+export type { ZoneKeyContext, ZoneKeyEvent, ZoneKeyIntent } from "@/layout/zoneKeys";
+export { ZoneKeys, focusZone, requestFloatFocus, restoreFocus, useFloatFocus } from "@/layout/zoneFocus";
+export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
 export { LAYOUT_ENGINE_PARAM, LAYOUT_ENGINE_STORAGE_KEY, layoutEngineEnabled } from "@/layout/flag";
