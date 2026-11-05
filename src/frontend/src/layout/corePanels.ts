@@ -64,31 +64,9 @@ import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
 import { getPanel, registerPanel } from "./registry";
 
-/** The owner id core registers its panels under. */
-export const CORE_PANEL_OWNER = "core";
+import { CORE_PANEL_IDS, CORE_PANEL_OWNER, type CorePanelId } from "./corePanelIds";
 
-/** Stable ids of core's panels. */
-export const CORE_PANEL_IDS = {
-  options: "core:options",
-  tree: "core:tree",
-  nodeEditor: "core:node-editor",
-  storage: "core:storage",
-  serverInfo: "core:server-info",
-  attributeSearch: "core:attribute-search",
-  objectInfo: "core:object-info",
-  scene: "core:scene",
-  wsStatus: "core:ws-status",
-  simulation: "core:simulation",
-  feaTable: "core:fea-table",
-  componentControls: "core:component-controls",
-  cellbuilder: "core:cellbuilder",
-  equipmentAdmin: "core:equipment-admin",
-  systemAdmin: "core:system-admin",
-  admin: "core:admin",
-  convert: "core:convert",
-} as const;
-
-export type CorePanelId = (typeof CORE_PANEL_IDS)[keyof typeof CORE_PANEL_IDS];
+export { CORE_PANEL_IDS, CORE_PANEL_OWNER, type CorePanelId };
 
 /**
  * A panel's classic component (its content in its classic frame), or its

@@ -20,6 +20,26 @@ must be swappable rather than a fork. So:
 * the build **registers it and picks the default UI**;
 * adapy's committed source never names it.
 
+## Composed, or a root of its own
+
+A shell is one of two kinds:
+
+* **Composed** (this package): no `load`. Core mounts its own root (the
+  `/convert`, `/admin` and `/auth/callback` routes, sign-in, the viewer provider)
+  and its layout of floating, dockable panels for the shell. The shell gives:
+  * `layout.grid`: the split grid a user starts from (`GridNode`, with core's
+    panels named by `CORE_PANEL_IDS`);
+  * `layout.open`: the panels opened when the shell loads;
+  * `chrome.header`: a lazy menu bar drawn above the layout (`PanelToggles` from
+    `@/viewer-core/layout` draws core's panel toggles in it), and
+    `chrome.toolbar: false` to leave out core's top bar over the viewport;
+  * `themeTokens`: `--ada-*` custom properties set while the shell is active.
+
+  Users can rearrange everything; each shell keeps its own arrangement. Extra
+  panels are registered with `registerPanel` and placed in the grid like core's.
+* **Own root**: `load` returns the whole React root, and the shell owns routing,
+  providers and layout itself.
+
 ## Building an image whose default UI is the alternative one
 
 ```bash
@@ -76,8 +96,8 @@ second copy of preflight and of every utility.
 ## What a shell may and may not do
 
 * **May** replace everything above the scene: layout, routing, panels, theming.
-* **Must** import core through `@/viewer-core` (+ `/app`, `/scene`, `/plugins`)
-  and nothing else. That facade is the contract; deep imports into core internals
+* **Must** import core through `@/viewer-core` (+ `/app`, `/scene`, `/plugins`,
+  `/layout`) and nothing else. That facade is the contract; deep imports into core internals
   fail `src/__tests__/plugins/viewerCoreFacade.test.ts`. Missing something? Add
   it to the facade in a PR — that is the contract changing, deliberately.
 * **Should** reuse core's stores, services and `CanvasWrapper` rather than

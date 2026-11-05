@@ -16,6 +16,7 @@ import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
 import {layoutEngineEnabled} from "@/layout/flag";
+import type {UiShellSpec} from "@/plugins/uiShells";
 
 // The core panel catalogue loads each panel's classic component and content
 // through this module (`import("@/app")`), so they come out of this shell's own
@@ -48,7 +49,12 @@ const useLayoutEngine = layoutEngineEnabled();
 const LayoutRoot = React.lazy(() => import("./layout/LayoutRoot"));
 
 
-function App() {
+/**
+ * What every shell core mounts shares: the canvas-less pages (`/auth/callback`,
+ * `/convert`, `/admin`, a Simulation follower window), and around `children`
+ * the viewer provider and, in hosted mode, the sign-in gate.
+ */
+export function AppRoot({children}: {children: React.ReactNode}) {
     if (isAuthCallback) {
         // Dedicated landing for OIDC redirect_uri. Doesn't render the
         // viewer at all — it just exchanges the code and bounces back.
@@ -121,18 +127,50 @@ function App() {
 
     // Everything that touches viewer state lives under the provider: it is
     // what owns this viewer's scene, camera, controls and renderer, and
-    // `useViewerRefs()` throws without it.
+    // `useViewerRefs()` throws without it. AuthGate is a pass-through when
+    // AUTH_ENABLED is false; the real sign-in UI only fires when the deployment
+    // turns auth on.
     return (
         <AdaViewerProvider>
-            <AppBody/>
+            <ViewerBootstrap/>
+            {isRestMode ? (
+                <Suspense fallback={null}>
+                    <AuthGate>{children}</AuthGate>
+                </Suspense>
+            ) : (
+                children
+            )}
         </AdaViewerProvider>
     );
 }
 
-function AppBody() {
-    const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
+/** Deep links (`?file=…`) and the restored scene, for every shell; outside the sign-in gate, as before. */
+function ViewerBootstrap() {
     useUrlParamLoad();
     useSceneRestore();
+    return null;
+}
+
+function App() {
+    return (
+        <AppRoot>
+            <AppBody/>
+        </AppRoot>
+    );
+}
+
+/** A shell composed from core's layout (`UiShellSpec` without `load`). */
+export function composedShell(spec: UiShellSpec): React.ComponentType {
+    const Composed = () => (
+        <AppRoot>
+            <ComposedShellBody spec={spec}/>
+        </AppRoot>
+    );
+    return Composed;
+}
+
+function AppBody() {
+    const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
 
     const tree = useLayoutEngine ? (
         <Suspense fallback={null}>
@@ -184,13 +222,15 @@ function AppBody() {
 
         </div>
     );
+    return tree;
+}
 
-    if (!isRestMode) return tree;
-    // AuthGate is a pass-through when AUTH_ENABLED is false; the real
-    // sign-in UI only fires when the deployment turns auth on.
+const ComposedLayout = React.lazy(() => import("./layout/ComposedLayout"));
+
+function ComposedShellBody({spec}: {spec: UiShellSpec}) {
     return (
         <Suspense fallback={null}>
-            <AuthGate>{tree}</AuthGate>
+            <ComposedLayout spec={spec}/>
         </Suspense>
     );
 }

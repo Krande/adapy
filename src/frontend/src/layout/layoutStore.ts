@@ -28,6 +28,12 @@ export interface LayoutStoreState {
   doc(preset: PresetId, zones: readonly ZoneDef[], context?: string): LayoutDoc;
   /** Replace a document by applying a reducer to it. */
   update(preset: PresetId, zones: readonly ZoneDef[], fn: (doc: LayoutDoc) => LayoutDoc, context?: string): void;
+  /**
+   * The document a user starts from in `preset` (and `context`) while nothing is
+   * saved for it; `null` restores the empty one. Not persisted: a host sets it at
+   * startup (a composed shell's default grid).
+   */
+  setStartingDoc(preset: PresetId, context: string | undefined, make: (() => LayoutDoc) | null): void;
   setActivePreset(preset: PresetId | undefined): void;
   setCustomisablePanels(on: boolean): void;
   /** Load the saved prefs and keep saving every change to `persistence`. */
@@ -63,6 +69,7 @@ export function memoryLayoutPersistence(initial: LayoutPrefs | null = null): Lay
 
 export function createLayoutStore(): StoreApi<LayoutStoreState> {
   let persistence: LayoutPersistence | null = null;
+  const starting = new Map<string, () => LayoutDoc>();
   const store = createStore<LayoutStoreState>()((set, get) => {
     const save = () => {
       if (persistence) void persistence.save(get().prefs).catch((err) => console.warn("[layout] save failed", err));
@@ -79,7 +86,14 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
         const stored = get().prefs.docs[key];
         // Stored documents pass through the migration, so a document saved by
         // another version, or for zones the preset no longer has, is usable.
-        return stored ? migrateLayoutDoc(stored, preset, zones, context) : emptyLayoutDoc(preset, zones, context);
+        if (stored) return migrateLayoutDoc(stored, preset, zones, context);
+        const make = starting.get(key);
+        return make ? migrateLayoutDoc(make(), preset, zones, context) : emptyLayoutDoc(preset, zones, context);
+      },
+      setStartingDoc(preset, context, make) {
+        const key = layoutDocKey(preset, context);
+        if (make) starting.set(key, make);
+        else starting.delete(key);
       },
       update(preset, zones, fn, context) {
         const key = layoutDocKey(preset, context);

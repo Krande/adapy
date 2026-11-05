@@ -9,6 +9,7 @@ import {
   CORE_UI_SHELL_ID,
   buildDefaultUiShellId,
   getUiShell,
+  isComposedShell,
   listUiShells,
   registerUiShell,
   resetUiShells,
@@ -63,10 +64,17 @@ test("duplicate shell ids are ignored (first writer wins)", () => {
   assert.equal(getUiShell("alt")?.label, "first");
 });
 
-test("a shell without an id or load() is rejected, not registered", () => {
+test("a shell without an id, or with a load that is not a function, is rejected", () => {
   registerUiShell({ id: "", label: "x", load: async () => ({ default: null as never }) }, "p1");
-  registerUiShell({ id: "broken", label: "x" } as unknown as UiShellSpec, "p1");
+  registerUiShell({ id: "broken", label: "x", load: "nope" } as unknown as UiShellSpec, "p1");
   assert.deepEqual(listUiShells(), []);
+});
+
+test("a shell without load() is composed from core's layout", () => {
+  registerUiShell({ id: "composed", label: "C", layout: { open: ["core:scene"] } }, "p1");
+  const s = getUiShell("composed")!;
+  assert.equal(isComposedShell(s), true);
+  assert.equal(isComposedShell(shell("own")), false);
 });
 
 test("resolution precedence: url > storage > build default > core (no runtime value)", () => {
@@ -132,7 +140,10 @@ test("the ui-alt reference package registers a working shell descriptor", () => 
   const alt = getUiShell("alt");
   assert.ok(alt, "ui-alt should contribute a shell with id 'alt'");
   assert.equal(alt.pluginId, "ui-alt");
-  assert.equal(typeof alt.load, "function");
+  // Composed from core's layout: a starting grid and a header, no root of its own.
+  assert.equal(isComposedShell(alt), true);
+  assert.equal(alt.layout?.grid?.kind, "split");
+  assert.equal(typeof alt.chrome?.header, "function");
   // Both UIs offered => the switcher becomes visible in the menu bar.
   assert.equal(listUiShells().length, 2);
 });

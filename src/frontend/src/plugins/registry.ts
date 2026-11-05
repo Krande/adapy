@@ -104,7 +104,11 @@ import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 //          there as a panel, under the same namespaced id, so a host lists plugin panels
 //          beside core's. Slots themselves are unchanged and still mounted by region.
 //          Additive, so a minor bump.
-export const PLUGIN_API_VERSION = "1.12.0";
+// 1.13.0 — kept in step with viewer-core 1.13.0: a UI shell without `load` is composed from
+//          core's layout (`UiShellSpec.layout` / `chrome` / `themeTokens`). An older core
+//          rejects such a shell, so a shell built on it names this version in `coreApiRange`.
+//          Additive, so a minor bump.
+export const PLUGIN_API_VERSION = "1.13.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

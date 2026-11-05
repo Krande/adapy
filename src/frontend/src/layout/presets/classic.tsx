@@ -59,7 +59,7 @@ import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "
 import type {PanelState} from "../panelStates";
 import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
 import {getPanel, listToolbarPanels} from "../registry";
-import {hide, toggle} from "../reveal";
+import {hide, reveal, toggle} from "../reveal";
 import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, toolbarPresence} from "./classicRules";
 import {PANEL_TOGGLE_ATTR, ZONE_ATTR} from "../zoneKeys";
 import {endDockDragAt, moveDockDrag} from "../dockDrag";
@@ -71,7 +71,10 @@ import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnA
 import {GridView, ViewportDropTarget} from "./classicGrid";
 import {
   canDock,
+  classicContext,
+  classicToolbarShown,
   dropPanel,
+  openStartingPanels,
   homeOf,
   moveAction,
   shownPlace,
@@ -288,7 +291,7 @@ function ClassicMenu({viewport}: {viewport: Rect | null}) {
         className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
         style={top > 0 ? {paddingLeft: `${menuShiftPx}px`, paddingTop: `${top + 8}px`} : {paddingLeft: `${menuShiftPx}px`}}
       >
-        <ClassicToolbar nodeEditorOnly={!!nodeEditorOnly} />
+        {classicToolbarShown() && <ClassicToolbar nodeEditorOnly={!!nodeEditorOnly} />}
         <ClassicColumn proceduralActive={proceduralActive} />
       </div>
     </div>
@@ -387,6 +390,8 @@ function ClassicFrame() {
   const windowDock = useWindowDock();
   // The in-viewer windows follow the preset's exclusive-group rule.
   React.useEffect(() => useViewerPanelStore.getState().setExclusive(!customisable), [customisable]);
+  // A composed shell's starting panels; the host's controller is installed by now.
+  React.useEffect(() => openStartingPanels(reveal), []);
 
   // The split grid: the docked panels that are open, around the viewport.
   const frameRef = React.useRef<HTMLDivElement>(null);
@@ -490,5 +495,5 @@ export default function ClassicLayout() {
   React.useEffect(() => {
     if (!layoutStore.getState().hydrated) void layoutStore.getState().hydrate(viewerLayoutPersistence());
   }, []);
-  return <LayoutHost preset={classicPreset} env={env} />;
+  return <LayoutHost preset={classicPreset} env={env} context={classicContext()} />;
 }
