@@ -170,6 +170,20 @@
 //          (Ctrl+Alt+arrow moves a window or a docked panel by direction);
 //          `dragHandleClassName` on a docked `PanelFrame` marks the header a
 //          host drags the panel by.
+//          In-app dialogs on the root: `confirmDialog` / `alertDialog` /
+//          `promptDialog` (promise-based; core's storage panel asks through them
+//          instead of `window.confirm` / `alert` / `prompt`) and `setDialogHost`,
+//          which installs a host's own.
+//          Storage: `StorageBodyProps` (`rowLoadProgress`, `selectionActions:
+//          "toolbar" | "rowMenu"`, `onConvert`, `onClose`, `scopePicker`,
+//          `showModified: boolean | "auto"`) and `STORAGE_MODIFIED_MIN_PX`; its
+//          `maximized` / `setMaximized` are kept, ignored and deprecated (the panel no
+//          longer maximizes). On the root, the load claims the progress toast
+//          consults by default: `claimLoad` / `releaseLoad` / `isLoadClaimed`,
+//          `subscribeLoadClaims`, `loadClaimsVersion`.
+//          Cellbuilder: `CellBuilderBodyProps` (`tabs`, `tabLabels`, `showUndoRedo`,
+//          `showAddButtons`, `showComponentList`, `emptyState`), also taken by
+//          `CellBuilderContent`, and `CellBuilderTab`. Additive.
 //          The split grid of the classic preset, in place of a separate docked
 //          preset: `LayoutDoc.grid` (`LAYOUT_DOC_VERSION` 2; an older document
 //          starts over). On `@/viewer-core/layout`: the pure tree (`GridNode`:
@@ -300,6 +314,27 @@ export {
   registerPropertyProvider,
 } from "@/plugins/propertyProviders";
 export type { PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
+export {
+  alertDialog,
+  confirmDialog,
+  promptDialog,
+  setDialogHost,
+} from "@/plugins/dialogs";
+export type {
+  AlertOptions,
+  ConfirmOptions,
+  DialogHost,
+  DialogText,
+  DialogTone,
+  PromptOptions,
+} from "@/plugins/dialogs";
+export {
+  claimLoad,
+  isLoadClaimed,
+  loadClaimsVersion,
+  releaseLoad,
+  subscribeLoadClaims,
+} from "@/plugins/loadClaims";
 export { bindStoreFlag, watchStores } from "@/layout/bindings";
 export type { FlagStore } from "@/layout/bindings";
 export {

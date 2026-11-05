@@ -2,11 +2,9 @@ import React, {useState} from "react";
 import {runtime} from "@/runtime/config";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
-import {useServerInfoStore} from "@/state/serverInfoStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {getUser, isAuthEnabled, signIn, signOut} from "@/services/auth/oidc";
-import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
-import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
+import {applyScopeChange} from "@/utils/scope/scopeChange";
 
 // REST-mode controls inside the options drawer. Replaces the cluster
 // of menu-bar buttons (scope picker / admin / user pill) — those don't
@@ -111,27 +109,13 @@ const SignedInRow: React.FC = () => {
 };
 
 const ScopeSelector: React.FC = () => {
-    const {current, available, setCurrent} = useScopeStore();
+    const {current, available} = useScopeStore();
     if (available.length <= 1) return null;
     const value = current ? scopeUrlPart(current) : "";
     const onChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const picked = available.find((s) => scopeUrlPart(s) === e.target.value);
         if (!picked) return;
-        // Project switch tears down anything that belongs to the
-        // outgoing scope: the file list (server-derived; the new
-        // request below re-populates it), every loaded model in
-        // the scene, and the selection state. Without these, the
-        // user sees the old project's files lingering in the
-        // panel and a stale 3D scene from a project they're no
-        // longer in.
-        useServerInfoStore.getState().setServerFileObjects([]);
-        useServerInfoStore.getState().setServerFiles([]);
-        void clear_loaded_model();
-        setCurrent(picked as ScopeOption);
-        // Background refresh — the response lands via the same
-        // LIST_FILE_OBJECTS handler the Refresh button uses. UI
-        // shows "no files yet" until it returns (~hundreds of ms).
-        void request_list_of_files_from_server();
+        applyScopeChange(picked as ScopeOption);
     };
     return (
         <label className="block text-xs">

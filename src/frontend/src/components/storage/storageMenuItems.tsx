@@ -24,11 +24,75 @@ export interface FileMenuContext extends PlacementMenuContext {
     onLoadStreamer?: () => void;
     /** REST mode only. */
     onDownload?: () => void;
+    /** Offered only when the host converts files. */
+    onConvert?: () => void;
     /** Copy the file's storage path (the key shown in the menu header). */
     onCopyPath?: () => void;
     onRename?: () => void;
     onMoveToFolder?: () => void;
     onDelete?: () => void;
+    /** Stop this row's load; while set and busy, it takes the load toggle's place. */
+    onCancelLoad?: () => void;
+    /** Clear this row's load error or cancellation. */
+    onDismissLoadStatus?: () => void;
+    /** The selection's actions, on a row that is part of it. */
+    selection?: SelectionMenuContext;
+}
+
+/** The actions on a selection of several rows, offered in a selected row's menu. */
+export interface SelectionMenuContext {
+    count: number;
+    /** It includes CI version files, which cannot be moved or deleted. */
+    hasVersions: boolean;
+    /** A bulk action is running. */
+    busy?: boolean;
+    /** False when nothing selected can be shown. */
+    canLoad?: boolean;
+    onLoad: () => void;
+    onUnload: () => void;
+    /** Absent without mutate rights. */
+    onMove?: () => void;
+    /** Absent without mutate rights. */
+    onDelete?: () => void;
+    onClear: () => void;
+}
+
+/** The "N selected" group, for a selection of two or more; none otherwise. */
+export function selectionMenuItems(sel: SelectionMenuContext | undefined): KebabMenuItem[] {
+    if (!sel || sel.count < 2) return [];
+    const n = sel.count;
+    const versionsNote = sel.hasVersions ? "The selection includes CI version files, which are read-only." : undefined;
+    const items: KebabMenuItem[] = [
+        {
+            key: "selection-load",
+            label: `Load ${n} selected`,
+            separatorBefore: true,
+            disabled: sel.busy || sel.canLoad === false,
+            onClick: sel.onLoad,
+        },
+        {key: "selection-unload", label: `Unload ${n} selected`, disabled: sel.busy, onClick: sel.onUnload},
+    ];
+    if (sel.onMove) {
+        items.push({
+            key: "selection-move",
+            label: `Move ${n} selected to folder…`,
+            disabled: sel.busy || sel.hasVersions,
+            title: versionsNote,
+            onClick: sel.onMove,
+        });
+    }
+    items.push({key: "selection-clear", label: "Clear selection", disabled: sel.busy, onClick: sel.onClear});
+    if (sel.onDelete) {
+        items.push({
+            key: "selection-delete",
+            label: `Delete ${n} selected`,
+            destructive: true,
+            disabled: sel.busy || sel.hasVersions,
+            title: versionsNote ?? "Deletes the selected items, and the files' converted view caches.",
+            onClick: sel.onDelete,
+        });
+    }
+    return items;
 }
 
 /** Placement entries shared by file rows and procedural-model rows.
@@ -82,15 +146,32 @@ export function buildFileMenuItems(
     ctx: FileMenuContext,
 ): KebabMenuItem[] {
     const items: KebabMenuItem[] = [];
-    items.push({
-        key: "toggle-load",
-        label: ctx.isLoaded ? "Unload from scene" : "Load into scene",
-        disabled: ctx.busy || (!ctx.isLoaded && ctx.loadDisabled),
-        title: !ctx.isLoaded && ctx.loadDisabled
-            ? "No viewable target for this format"
-            : undefined,
-        onClick: () => ctx.onToggle(!ctx.isLoaded),
-    });
+    if (ctx.busy && ctx.onCancelLoad) {
+        items.push({
+            key: "cancel-load",
+            label: "Cancel loading…",
+            title: "Stop this load, and the conversion running for it.",
+            onClick: ctx.onCancelLoad,
+        });
+    } else {
+        items.push({
+            key: "toggle-load",
+            label: ctx.isLoaded ? "Unload from scene" : "Load into scene",
+            disabled: ctx.busy || (!ctx.isLoaded && ctx.loadDisabled),
+            title: !ctx.isLoaded && ctx.loadDisabled
+                ? "No viewable target for this format"
+                : undefined,
+            onClick: () => ctx.onToggle(!ctx.isLoaded),
+        });
+    }
+    if (ctx.onDismissLoadStatus) {
+        items.push({
+            key: "dismiss-load-status",
+            label: "Dismiss load status",
+            title: "Clear this file's load error or cancellation.",
+            onClick: ctx.onDismissLoadStatus,
+        });
+    }
     if (ctx.onLoadStreamer && /\.(step|stp)$/i.test(file.name)) {
         items.push({
             key: "load-streamer",
@@ -98,6 +179,14 @@ export function buildFileMenuItems(
             title: "Memory-bounded streaming STEP→GLB — for large assemblies that fail the normal load.",
             disabled: ctx.busy,
             onClick: ctx.onLoadStreamer,
+        });
+    }
+    if (ctx.onConvert) {
+        items.push({
+            key: "convert",
+            label: "Convert…",
+            title: "Convert this file to another format.",
+            onClick: ctx.onConvert,
         });
     }
     if (ctx.onDownload) {
@@ -140,6 +229,7 @@ export function buildFileMenuItems(
             onClick: ctx.onDelete,
         });
     }
+    items.push(...selectionMenuItems(ctx.selection));
     return items;
 }
 
@@ -182,6 +272,8 @@ export interface ProceduralMenuContext extends PlacementMenuContext {
     onRename?: () => void;
     onMoveToFolder?: () => void;
     onDelete?: () => void;
+    /** The selection's actions, on a row that is part of it. */
+    selection?: SelectionMenuContext;
 }
 
 /** Menu for a procedural model rendered as a leaf of the storage tree.
@@ -289,6 +381,7 @@ export function buildProceduralMenuItems(
             onClick: ctx.onDelete,
         });
     }
+    items.push(...selectionMenuItems(ctx.selection));
     return items;
 }
 

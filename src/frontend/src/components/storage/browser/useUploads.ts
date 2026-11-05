@@ -1,5 +1,6 @@
 import React, {useRef, useState} from "react";
 import {uploadFile} from "@/utils/scene/handlers/upload_source_file";
+import {alertDialog} from "@/plugins/dialogs";
 
 // The picker modal drives the move flows and the upload-destination prompt;
 // ``onPick`` is the closure that knows what to do once a destination is chosen.
@@ -66,7 +67,13 @@ export function useUploads(p: {setPicker: (picker: FolderPicker | null) => void}
         setUploadName(null);
         setUploadLoaded(0);
         setUploadTotal(0);
-        if (failures.length) window.alert(`Upload failed for: ${failures.join(", ")}`);
+        if (failures.length) {
+            void alertDialog({
+                title: failures.length === 1 ? "Upload failed" : `${failures.length} uploads failed`,
+                body: failures,
+                tone: "danger",
+            });
+        }
     };
 
     const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
