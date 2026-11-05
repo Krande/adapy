@@ -26,6 +26,9 @@ export type { AdaViewerCtx, AdaViewerRefs, AdaViewerStores } from "@/state/AdaVi
 // Or, instead of mounting the provider by hand: core's own root, with the
 // canvas-less routes, sign-in and deep links that every shell core mounts gets.
 export { AppRoot } from "@/layout/SharedAppRoot";
+// Switching scope, as core's scope pickers do: `requestScopeChange` asks first when it
+// would unload models; `applyScopeChange` switches at once; `sceneHasModels`.
+export { applyScopeChange, requestScopeChange, sceneHasModels } from "@/utils/scope/scopeChange";
 
 // ---------------------------------------------------------------------------
 // Deployment mode + build info (REST vs websocket, Jupyter, embed flags).

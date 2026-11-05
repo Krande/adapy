@@ -253,6 +253,20 @@ export const MinimiseGlyph: React.FC = () => (
   </svg>
 );
 
+/** The glyph of "pin across modes". */
+export const PinGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M6 2 H10 L9.5 6 L12 8.5 H4 L6.5 6 Z M8 8.5 V14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
+/** The glyph of "add a panel here". */
+export const AddGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M8 3 V13 M3 8 H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+  </svg>
+);
+
 export interface WindowHeaderButtonProps {
   onClick: () => void;
   title: string;
@@ -260,6 +274,8 @@ export interface WindowHeaderButtonProps {
   /** Classes before the button's own, e.g. `ml-auto` to push it to the end of the bar. */
   className?: string;
   disabled?: boolean;
+  /** A toggle's state, as `aria-pressed`. */
+  pressed?: boolean;
   children: React.ReactNode;
 }
 
@@ -267,7 +283,7 @@ export interface WindowHeaderButtonProps {
  * A title-bar button. It stops the press from reaching the bar, which is the
  * window's drag handle, so a click is never taken for the start of a drag.
  */
-export function WindowHeaderButton({onClick, title, ariaLabel, className, disabled, children}: WindowHeaderButtonProps) {
+export function WindowHeaderButton({onClick, title, ariaLabel, className, disabled, pressed, children}: WindowHeaderButtonProps) {
   return (
     <button
       type="button"
@@ -275,6 +291,7 @@ export function WindowHeaderButton({onClick, title, ariaLabel, className, disabl
       title={title}
       aria-label={ariaLabel}
       disabled={disabled}
+      aria-pressed={pressed}
       className={className ? `${className} ${WINDOW_HEADER_BUTTON}` : WINDOW_HEADER_BUTTON}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}

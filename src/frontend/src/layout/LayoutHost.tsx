@@ -103,6 +103,8 @@ export function PanelMount({
   outerSuspense?: boolean;
   which?: "body" | "content";
 }) {
+  // A shell's options for the panel's content reach it as `PanelProps.options`.
+  if (panel.options && !props.options) props = {...props, options: panel.options};
   if (provided) {
     const C = provided;
     return <C {...props} />;

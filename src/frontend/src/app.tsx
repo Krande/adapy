@@ -16,7 +16,7 @@ import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
 import {layoutEngineEnabled} from "@/layout/flag";
-import type {UiShellSpec} from "@/plugins/uiShells";
+import {activeUiShellId, getUiShell, type UiShellSpec} from "@/plugins/uiShells";
 import {popoutPanelId} from "@/layout/popout";
 
 // The core panel catalogue loads each panel's classic component and content
@@ -53,6 +53,33 @@ const useLayoutEngine = layoutEngineEnabled();
 const LayoutRoot = React.lazy(() => import("./layout/LayoutRoot"));
 
 
+/** The active shell's header for canvas-less pages (`UiShellChrome.pageHeader`), loaded once. */
+let pageHeader: React.LazyExoticComponent<React.ComponentType<{title: string; backHref: string}>> | null | undefined;
+function shellPageHeader() {
+    if (pageHeader === undefined) {
+        const load = getUiShell(activeUiShellId())?.chrome?.pageHeader;
+        pageHeader = load ? React.lazy(load) : null;
+    }
+    return pageHeader;
+}
+
+/** A canvas-less page, the whole window: under the active shell's page header when it has one. */
+function CanvasLessPage({title, children}: {title: string; children: React.ReactNode}) {
+    const Header = shellPageHeader();
+    if (!Header) return <div className="h-[100dvh] w-full overflow-hidden">{children}</div>;
+    const back = new URL(window.location.href);
+    back.pathname = "/";
+    back.hash = "";
+    return (
+        <div className="flex h-[100dvh] w-full flex-col overflow-hidden">
+            <Suspense fallback={null}>
+                <Header title={title} backHref={back.toString()}/>
+            </Suspense>
+            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+        </div>
+    );
+}
+
 /**
  * What every shell core mounts shares: the canvas-less pages (`/auth/callback`,
  * `/convert`, `/admin`, a Simulation follower window, a popped-out panel), and around `children`
@@ -80,9 +107,9 @@ export function AppRoot({children}: {children: React.ReactNode}) {
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <div className="h-[100dvh] w-full overflow-hidden">
+                    <CanvasLessPage title="Convert">
                         <ConvertPage/>
-                    </div>
+                    </CanvasLessPage>
                 </AuthGate>
             </Suspense>
         );
@@ -98,9 +125,9 @@ export function AppRoot({children}: {children: React.ReactNode}) {
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <div className="h-[100dvh] w-full overflow-hidden">
+                    <CanvasLessPage title="Admin">
                         <AdminPanel/>
-                    </div>
+                    </CanvasLessPage>
                 </AuthGate>
             </Suspense>
         );

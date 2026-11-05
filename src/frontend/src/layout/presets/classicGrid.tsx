@@ -23,12 +23,18 @@ import {createStore} from "zustand/vanilla";
 
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {
+  AddGlyph,
   CloseGlyph,
   FloatGlyph,
+  MinimiseGlyph,
+  PinGlyph,
   WindowHeaderButton,
   WindowHeaderMenuButton,
 } from "@/components/ui/PanelFrame";
 import {GROUP_DIVIDER, GROUP_HEADER, groupTabClass} from "@/components/ui/panelChrome";
+
+/** A collapsed group's strip: the tab strip's surface. */
+const GROUP_HEADER_SURFACE = "bg-[var(--ada-window-header-bg,#1f2937)]";
 
 import {
   DROP_ATTR,
@@ -45,12 +51,17 @@ import type {LayoutDoc} from "../layout";
 import {PanelMount} from "../LayoutHost";
 import type {PanelAction, PanelId, PanelProps, RegisteredPanel} from "../panel";
 import {updateGrid} from "../reducers";
-import {getPanel} from "../registry";
-import {hide} from "../reveal";
+import {getPanel, isPanelAvailable, listPanels} from "../registry";
+import {hide, reveal} from "../reveal";
+import {offeredInMode} from "../shellModes";
 import {
+  COLLAPSED_PX,
   VIEWPORT_NODE,
+  clampFixed,
   resizePair,
   setActiveTab,
+  setFixedPx,
+  setGroupCollapsed,
   setSplitSizes,
   splitShare,
   type GroupNode,
@@ -65,6 +76,8 @@ import {
   GRID_TAB_ATTR,
   canDock,
   canFloat,
+  classicGroupChrome,
+  dockAt,
   dropPanel,
   floatOut,
   gridZone,
@@ -72,7 +85,9 @@ import {
   homeOf,
   moveAction,
   popoutActions,
+  togglePin,
   updateClassic,
+  usePinnedPanels,
 } from "./classicPlace";
 
 /** The least size of a group and of the viewport, in px. */
@@ -263,22 +278,36 @@ export function GridView({grid, doc, contents, frame, onViewportRect, leftInset 
   );
 }
 
-type NodeProps = Omit<GridViewProps, "grid"> & {node: ShownNode};
+/** `along`: the direction of the split the node sits in (a collapsed group's strip runs across it). */
+type NodeProps = Omit<GridViewProps, "grid"> & {node: ShownNode; along?: "row" | "col"};
 
 function GridNodeView(props: NodeProps) {
   const {node} = props;
   if (node.kind === "viewport") return <ViewportSlot frame={props.frame} onViewportRect={props.onViewportRect} />;
-  if (node.kind === "group") return <GridGroup group={node} doc={props.doc} contents={props.contents} />;
+  if (node.kind === "group") return <GridGroup group={node} doc={props.doc} contents={props.contents} along={props.along ?? "row"} />;
   return <GridSplit {...props} split={node} />;
 }
 
 const flexOf = (size: number): React.CSSProperties => ({flex: `${size} 1 0px`});
 
-/** The least size of a drawn node along `dir`, in px. */
+/** A node's size in px when it is held at one (collapsed or fixed), else null. */
+function pxOf(node: ShownNode, livePx?: number): number | null {
+  if (node.kind === "group" && node.collapsed) return COLLAPSED_PX;
+  if (node.kind !== "viewport" && node.fixed) return livePx ?? node.fixed.px;
+  return null;
+}
+
+/** The least size of a drawn node along `dir`, in px: its fixed size, else the least of its parts and panels. */
 function minAlong(node: ShownNode, dir: "row" | "col"): number {
   const w = dir === "row";
+  const px = pxOf(node);
+  if (px !== null) return px;
   if (node.kind === "viewport") return w ? MIN_VIEWPORT.w : MIN_VIEWPORT.h;
-  if (node.kind === "group") return w ? MIN_GROUP.w : MIN_GROUP.h;
+  if (node.kind === "group") {
+    // A panel's own least size (`PanelConstraints.minSize`) counts too.
+    const own = node.panels.map((id) => getPanel(id)?.constraints?.minSize?.[w ? "w" : "h"] ?? 0);
+    return Math.max(w ? MIN_GROUP.w : MIN_GROUP.h, ...own);
+  }
   if (node.dir === dir) return node.children.reduce((a, c) => a + minAlong(c, dir), 0) + DIVIDER * (node.children.length - 1);
   return Math.max(...node.children.map((c) => minAlong(c, dir)));
 }
@@ -288,8 +317,26 @@ function GridSplit(props: NodeProps & {split: ShownSplit}) {
   const ref = useRef<HTMLDivElement>(null);
   // While a divider is dragged, the shown sizes; stored on release.
   const [live, setLive] = useState<number[] | null>(null);
+  // ...and, while it resizes a fixed child, that child's px.
+  const [livePx, setLivePx] = useState<{id: string; px: number} | null>(null);
   const sizes = live ?? split.sizes;
   const row = split.dir === "row";
+  const fixedChild = (c: ShownNode) => (c.kind !== "viewport" && c.fixed && !(c.kind === "group" && c.collapsed) ? c : null);
+  const collapsed = (c: ShownNode) => c.kind === "group" && !!c.collapsed;
+  /** The divider after child `i` resizes a fixed neighbour in px (`sign` +1: the one before it). */
+  const fixedAt = (i: number): {node: NonNullable<ReturnType<typeof fixedChild>>; sign: 1 | -1} | null => {
+    const a = fixedChild(split.children[i]);
+    if (a) return {node: a, sign: 1};
+    const b = fixedChild(split.children[i + 1]);
+    return b ? {node: b, sign: -1} : null;
+  };
+  const resizeFixed = (i: number, px: number, done: boolean) => {
+    const f = fixedAt(i)!;
+    const next = clampFixed(f.node.fixed!, f.node.fixed!.px + f.sign * px);
+    if (!done) return setLivePx({id: f.node.id, px: next});
+    setLivePx(null);
+    updateClassic((d) => updateGrid(d, (g) => setFixedPx(g, f.node.id, next)));
+  };
 
   /** The stored sizes with the shown ones written back into their slots. */
   const stored = (shown: readonly number[]): number[] => {
@@ -303,7 +350,9 @@ function GridSplit(props: NodeProps & {split: ShownSplit}) {
   const moved = (from: readonly number[], i: number, px: number): number[] => {
     const box = ref.current?.getBoundingClientRect();
     const room = (row ? box?.width : box?.height) ?? 0;
-    const free = room - DIVIDER * (split.children.length - 1);
+    // Children held at a px size take that out of the room the fractions share.
+    const held = split.children.reduce((a, c) => a + (pxOf(c) ?? 0), 0);
+    const free = room - held - DIVIDER * (split.children.length - 1);
     if (free <= 0) return [...from];
     const mins = split.children.map((c) => minAlong(c, split.dir) / free);
     return resizePair(from, i, i + 1, px / free, mins);
@@ -314,29 +363,57 @@ function GridSplit(props: NodeProps & {split: ShownSplit}) {
     commit(split.children.map(() => 1 / split.children.length));
   };
 
+  // The children not held at a px size share what is left, by their fractions scaled to 1:
+  // flex-grow values summing below 1 would hand out only that part of the room.
+  const fracSum = split.children.reduce((a, c, i) => a + (pxOf(c) === null ? sizes[i] : 0), 0) || 1;
   const kids: React.ReactNode[] = [];
   split.children.forEach((c, i) => {
     if (i > 0) {
-      kids.push(
-        <Divider
-          key={`d${i}`}
-          dir={split.dir}
-          label={`Resize between ${nodeName(split.children[i - 1])} and ${nodeName(c)}`}
-          value={Math.round(sizes.slice(0, i).reduce((a, b) => a + b, 0) * 100)}
-          onDrag={(px) => setLive(moved(split.sizes, i - 1, px))}
-          onDragEnd={(px) => {
-            const next = moved(split.sizes, i - 1, px);
-            setLive(null);
-            commit(next);
-          }}
-          onStep={(px) => commit(moved(split.sizes, i - 1, px))}
-          onEqualise={equalise}
-        />,
-      );
+      const prev = split.children[i - 1];
+      const fixed = fixedAt(i - 1);
+      // Beside a collapsed strip there is nothing to resize: a plain rule.
+      if (collapsed(prev) || collapsed(c)) {
+        kids.push(<div key={`d${i}`} aria-hidden="true" className={`shrink-0 ${GROUP_DIVIDER} ${row ? "w-1" : "h-1"}`} />);
+      } else if (fixed) {
+        kids.push(
+          <Divider
+            key={`d${i}`}
+            dir={split.dir}
+            label={`Resize ${nodeName(fixed.node)}`}
+            value={Math.round(livePx?.id === fixed.node.id ? livePx.px : fixed.node.fixed!.px)}
+            onDrag={(px) => resizeFixed(i - 1, px, false)}
+            onDragEnd={(px) => resizeFixed(i - 1, px, true)}
+            onStep={(px) => resizeFixed(i - 1, px, true)}
+            onEqualise={() => {}}
+          />,
+        );
+      } else {
+        kids.push(
+          <Divider
+            key={`d${i}`}
+            dir={split.dir}
+            label={`Resize between ${nodeName(prev)} and ${nodeName(c)}`}
+            value={Math.round(sizes.slice(0, i).reduce((a, b) => a + b, 0) * 100)}
+            onDrag={(px) => setLive(moved(split.sizes, i - 1, px))}
+            onDragEnd={(px) => {
+              const next = moved(split.sizes, i - 1, px);
+              setLive(null);
+              commit(next);
+            }}
+            onStep={(px) => commit(moved(split.sizes, i - 1, px))}
+            onEqualise={equalise}
+          />,
+        );
+      }
     }
+    const px = pxOf(c, c.kind !== "viewport" && livePx?.id === c.id ? livePx.px : undefined);
     kids.push(
-      <div key={nodeKey(c)} className={`relative flex min-w-0 min-h-0 ${row ? "h-full" : "w-full"}`} style={flexOf(sizes[i])}>
-        <GridNodeView {...props} node={c} />
+      <div
+        key={nodeKey(c)}
+        className={`relative flex min-w-0 min-h-0 ${row ? "h-full" : "w-full"}`}
+        style={px !== null ? {flex: `0 0 ${px}px`} : flexOf(sizes[i] / fracSum)}
+      >
+        <GridNodeView {...props} node={c} along={split.dir} />
       </div>,
     );
   });
@@ -475,7 +552,7 @@ function ViewportSlot({frame, onViewportRect}: Pick<GridViewProps, "frame" | "on
 function actionButton(a: PanelAction) {
   if (a.menu) return <WindowHeaderMenuButton key={a.id} action={a} />;
   return (
-    <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
+    <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled} pressed={a.pressed}>
       {a.icon ? <a.icon /> : a.label}
     </WindowHeaderButton>
   );
@@ -493,6 +570,7 @@ function GroupTab({
   selected,
   dragging,
   mark,
+  icons = false,
 }: {
   panel: RegisteredPanel;
   group: GroupNode;
@@ -500,6 +578,7 @@ function GroupTab({
   selected: boolean;
   dragging: boolean;
   mark: "before" | "after" | null;
+  icons?: boolean;
 }) {
   const drag = useTabDrag(panel);
   return (
@@ -528,43 +607,160 @@ function GroupTab({
       }}
       {...drag}
     >
-      {panel.title}
+      {tabLabel(panel, icons)}
       {mark && <InsertMark after={mark === "after"} />}
     </button>
   );
 }
 
+/** A panel's own actions in a group: float, move, pop out, pin (when the shell asks). */
+function panelActions(p: RegisteredPanel, doc: LayoutDoc, pinned: readonly PanelId[], chrome: ReturnType<typeof classicGroupChrome>): PanelAction[] {
+  const on = pinned.includes(p.id);
+  return [
+    ...(canFloat(p) || homeOf(p) === "window" ? [{id: "float", label: "Float in a window", icon: FloatGlyph, run: () => floatOut(p.id)}] : []),
+    moveAction(p, doc),
+    ...popoutActions(p),
+    ...(chrome.actions.includes("pin") && p.capabilities.pinnable
+      ? [{id: "pin", label: on ? "Unpin: leave with the mode" : "Pin: keep across modes", icon: PinGlyph, pressed: on, run: () => togglePin(p.id)}]
+      : []),
+  ];
+}
+
+/** The group's own actions (when the shell asks): add a panel, collapse to a strip. */
+function groupActions(group: GroupNode, chrome: ReturnType<typeof classicGroupChrome>): PanelAction[] {
+  const out: PanelAction[] = [];
+  if (chrome.actions.includes("add")) {
+    const addable = listPanels()
+      .filter((p) => !group.panels.includes(p.id) && canDock(p) && offeredInMode(p) && isPanelAvailable(p, {}))
+      .sort((a, b) => a.title.localeCompare(b.title));
+    out.push({
+      id: "add",
+      label: "Add a panel here",
+      icon: AddGlyph,
+      disabled: addable.length === 0,
+      run: () => {},
+      menu: addable.map((p) => ({
+        id: `add-${p.id}`,
+        label: p.title,
+        run: () => {
+          dockAt(p.id, {node: group.id, edge: "center"});
+          void reveal(p.id);
+        },
+      })),
+    });
+  }
+  if (chrome.actions.includes("collapse")) {
+    out.push({id: "collapse", label: "Collapse to a strip", icon: MinimiseGlyph, run: () => updateClassic((d) => updateGrid(d, (g) => setGroupCollapsed(g, group.id, true)))});
+  }
+  return out;
+}
+
+/** A collapsed group: a strip of its panels' icons across its split; one restores the group on that panel. */
+function GroupStrip({group, panels, along}: {group: GroupNode; panels: RegisteredPanel[]; along: "row" | "col"}) {
+  const restore = (id: PanelId) =>
+    updateClassic((d) => updateGrid(d, (g) => setActiveTab(setGroupCollapsed(g, group.id, false), id)));
+  return (
+    <section
+      aria-label={`${groupLabel(group.panels)} (collapsed)`}
+      {...{[GRID_GROUP_ATTR]: group.id}}
+      className={`flex ${along === "row" ? "flex-col" : "flex-row"} items-center gap-1 w-full h-full p-0.5 overflow-hidden ${GROUP_HEADER_SURFACE}`}
+    >
+      {panels.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-xs ${groupTabClass(p.id === group.active)}`}
+          title={`${p.title}: expand`}
+          aria-label={`Expand ${p.title}`}
+          onClick={() => restore(p.id)}
+        >
+          <span aria-hidden="true" className="inline-flex [&_svg]:h-4 [&_svg]:w-4">
+            {p.icon ? <p.icon /> : p.title.slice(0, 1)}
+          </span>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+/** Below this height per panel, an `"auto"` group shows tabs rather than stacking. */
+const STACK_MIN_PX = 160;
+
+/** An element's height, measured while it is mounted: a callback ref, so a remounted element is measured too. */
+function useHeight(): [number, (el: HTMLElement | null) => void] {
+  const [h, setH] = useState(0);
+  const ro = useRef<ResizeObserver | null>(null);
+  const attach = React.useCallback((el: HTMLElement | null) => {
+    ro.current?.disconnect();
+    ro.current = null;
+    if (!el) return;
+    const read = () => setH(el.getBoundingClientRect().height);
+    read();
+    if (typeof ResizeObserver !== "undefined") {
+      ro.current = new ResizeObserver(read);
+      ro.current.observe(el);
+    }
+  }, []);
+  return [h, attach];
+}
+
+/** A panel's tab label: its icon (when the shell asks) and title. */
+function tabLabel(p: RegisteredPanel, icons: boolean): React.ReactNode {
+  if (!icons || !p.icon) return p.title;
+  const Icon = p.icon;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center [&_svg]:h-4 [&_svg]:w-4">
+        <Icon />
+      </span>
+      <span className="truncate">{p.title}</span>
+    </span>
+  );
+}
+
+/** A panel's body in its group: padded and scrolled by the host, or edge to edge (`capabilities.fill`). */
+const bodyClass = (p: RegisteredPanel) => (p.capabilities.fill ? "overflow-hidden" : "overflow-auto p-2");
+
 function GridGroup({
   group,
   doc,
   contents,
+  along,
 }: {
   group: GroupNode;
   doc: LayoutDoc;
   contents?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>;
+  along: "row" | "col";
 }) {
   const panels = group.panels.map((id) => getPanel(id)).filter((p): p is RegisteredPanel => !!p);
   const active = panels.find((p) => p.id === group.active) ?? panels[0];
   const dragging = useDraggingDockable();
   const zone = gridZone(group.id);
   const hover = useStore(dockDragStore, (s) => (s.over === zone && s.index !== null ? s.index : null));
+  const pinned = usePinnedPanels();
+  const chrome = classicGroupChrome();
+  const [height, measure] = useHeight();
   const markAt = (i: number, n: number): "before" | "after" | null =>
     hover === null ? null : hover === i ? "before" : hover >= n && i === n - 1 ? "after" : null;
   if (!active) return null;
+  if (group.collapsed) return <GroupStrip group={group} panels={panels} along={along} />;
+  const arrangement = group.arrangement ?? "tabs";
+  const stacked =
+    panels.length > 1 &&
+    panels.every((p) => p.capabilities.stackable) &&
+    (arrangement === "stack" || (arrangement === "auto" && height >= panels.length * STACK_MIN_PX));
+  if (stacked) {
+    return <StackedGroup group={group} panels={panels} doc={doc} contents={contents} pinned={pinned} chrome={chrome} dragging={dragging} sectionRef={measure} />;
+  }
   const close = () => void hide(active.id);
-  const actions: PanelAction[] = [
-    ...(canFloat(active) || homeOf(active) === "window"
-      ? [{id: "float", label: "Float in a window", icon: FloatGlyph, run: () => floatOut(active.id)}]
-      : []),
-    moveAction(active, doc),
-    ...popoutActions(active),
-  ];
+  const actions: PanelAction[] = [...panelActions(active, doc, pinned, chrome), ...groupActions(group, chrome)];
   return (
     <section
+      ref={measure}
       aria-label={groupLabel(group.panels)}
       {...{[ZONE_ATTR]: "dock", [GRID_GROUP_ATTR]: group.id}}
       {...(dragging ? dropAttrs(zone, {[DROP_EDGES_ATTR]: "all"}) : {})}
-      className="relative flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden bg-[var(--ada-panel-bg)] text-[var(--ada-panel-text)] text-sm"
+      className={GROUP_SECTION}
     >
       <div className={GROUP_HEADER}>
         <div
@@ -582,6 +778,7 @@ function GridGroup({
               selected={p.id === active.id}
               dragging={dragging}
               mark={markAt(i, panels.length)}
+              icons={chrome.tabIcons}
             />
           ))}
         </div>
@@ -603,12 +800,70 @@ function GridGroup({
             aria-labelledby={`grid-tab-${p.id}`}
             hidden={p.id !== active.id}
             {...{[ZONE_PANEL_ATTR]: p.id}}
-            className="absolute inset-0 overflow-auto p-2"
+            className={`absolute inset-0 ${bodyClass(p)}`}
           >
             <GroupPanel panel={p} contents={contents} active={p.id === active.id} />
           </div>
         ))}
       </div>
+      {dragging && <DropPreview zone={zone} share={splitShare(group.id)} />}
+    </section>
+  );
+}
+
+const GROUP_SECTION =
+  "relative flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden bg-[var(--ada-panel-bg)] text-[var(--ada-panel-text)] text-sm";
+
+/** A group showing every panel at once, each under a header of its own (title, its actions, close). */
+function StackedGroup({
+  group,
+  panels,
+  doc,
+  contents,
+  pinned,
+  chrome,
+  dragging,
+  sectionRef,
+}: {
+  group: GroupNode;
+  panels: RegisteredPanel[];
+  doc: LayoutDoc;
+  contents?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>;
+  pinned: readonly PanelId[];
+  chrome: ReturnType<typeof classicGroupChrome>;
+  dragging: boolean;
+  sectionRef: (el: HTMLElement | null) => void;
+}) {
+  const zone = gridZone(group.id);
+  const own = groupActions(group, chrome);
+  return (
+    <section
+      ref={sectionRef}
+      aria-label={groupLabel(group.panels)}
+      {...{[ZONE_ATTR]: "dock", [GRID_GROUP_ATTR]: group.id}}
+      {...(dragging ? dropAttrs(zone, {[DROP_EDGES_ATTR]: "all"}) : {})}
+      className={GROUP_SECTION}
+    >
+      {panels.map((p, i) => (
+        <div key={p.id} className="flex min-h-0 flex-1 flex-col" {...{[ZONE_PANEL_ATTR]: p.id}}>
+          <div className={GROUP_HEADER}>
+            <div className="flex min-w-0 flex-1 items-center px-1 text-xs font-medium" {...{[GRID_TAB_ATTR]: p.id}} tabIndex={-1}>
+              {tabLabel(p, chrome.tabIcons)}
+            </div>
+            <div className="flex items-center gap-1" {...{[PANEL_ACTIONS_ATTR]: p.id}}>
+              {[...panelActions(p, doc, pinned, chrome), ...(i === 0 ? own : [])].map(actionButton)}
+              {p.capabilities.closable && (
+                <WindowHeaderButton onClick={() => void hide(p.id)} title="Close" ariaLabel={`Close ${p.title}`}>
+                  <CloseGlyph />
+                </WindowHeaderButton>
+              )}
+            </div>
+          </div>
+          <div className={`relative min-h-0 flex-1 ${bodyClass(p)}`}>
+            <GroupPanel panel={p} contents={contents} active />
+          </div>
+        </div>
+      ))}
       {dragging && <DropPreview zone={zone} share={splitShare(group.id)} />}
     </section>
   );

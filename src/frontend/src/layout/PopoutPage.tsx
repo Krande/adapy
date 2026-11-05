@@ -12,13 +12,15 @@ import {registerCorePanels} from "./corePanels";
 import {PanelMount} from "./LayoutHost";
 import type {PanelId, PanelProps} from "./panel";
 import {canPopOut} from "./popout";
-import {getPanel} from "./registry";
+import {getPanel, setPanelOverrides} from "./registry";
 
 /** Where a pop-out window's panel says it is hosted. */
 export const POPOUT_ZONE = "popout";
 
 export default function PopoutPage({panelId}: {panelId: PanelId}) {
   registerCorePanels();
+  // The active shell's changes to the panel (title, options), as in the window it came from.
+  React.useState(() => setPanelOverrides(getUiShell(activeUiShellId())?.panels ?? null));
   const panel = getPanel(panelId);
   const ok = !!panel && canPopOut(panel);
   useEffect(() => {

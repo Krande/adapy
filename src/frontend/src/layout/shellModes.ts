@@ -20,12 +20,18 @@ export interface ShellMode {
   pluginId?: string;
   /** Core suspends the FEA field colouring while it is active (`PluginModeSpec.ownsSceneColor`). */
   ownsSceneColor?: boolean;
+  /** False: core holds the FEA model undeformed while it is active. Default true. */
+  showsDeformation?: boolean;
   /** The mode's own controls (`PluginModeSpec.toolbar`). */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
 }
 
+/** A mode's badge in the switcher: a count, a dot, or none. */
+export type ShellModeBadge = number | "dot";
+
 let modes: readonly ShellMode[] = [];
 let active: string | null = null;
+let badges: Readonly<Record<string, ShellModeBadge>> = {};
 let version = 0;
 const listeners = new Set<() => void>();
 
@@ -59,6 +65,26 @@ export function setShellMode(id: string): boolean {
   }
   return true;
 }
+
+/**
+ * Mark a mode in the switcher: a count of things waiting there, a dot, or (null)
+ * nothing. For a mode that is not the active one, so the user sees work elsewhere.
+ */
+export function setShellModeBadge(id: string, badge: ShellModeBadge | null): void {
+  if ((badges[id] ?? null) === badge) return;
+  const next = { ...badges };
+  if (badge === null || badge === 0) delete next[id];
+  else next[id] = badge;
+  badges = next;
+  changed();
+}
+
+export function shellModeBadge(id: string): ShellModeBadge | null {
+  return badges[id] ?? null;
+}
+
+/** The URL parameter that opens a shell in a mode (`?mode=results`). */
+export const SHELL_MODE_PARAM = "mode";
 
 export function subscribeShellModes(cb: () => void): () => void {
   listeners.add(cb);

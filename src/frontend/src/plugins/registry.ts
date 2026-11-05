@@ -207,6 +207,8 @@ export interface PluginModeSpec {
    * reports the transition via `notifyActiveModeSceneColor`.
    */
   ownsSceneColor?: boolean;
+  /** False: core holds the FEA model undeformed while this mode is active (1.13.0). Default true. */
+  showsDeformation?: boolean;
 }
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";

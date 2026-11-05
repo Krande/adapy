@@ -139,7 +139,7 @@ function UndockedWindow({
             dragHandleClassName={fullScreen ? undefined : DRAG_HANDLE}
           >
             {/* The column card gave the content its text colour and padding; the window body does not. */}
-            <div className="h-full overflow-y-auto p-2 text-sm text-[var(--ada-panel-text)]">
+            <div className={`h-full text-sm text-[var(--ada-panel-text)] ${panel.capabilities.fill ? "overflow-hidden" : "overflow-y-auto p-2"}`}>
               {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
               <TransformedHost>
                 <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />

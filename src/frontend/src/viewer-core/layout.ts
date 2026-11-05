@@ -25,6 +25,8 @@ export type { ObjectInfoBodyProps } from "@/components/info_box_selected_object/
 export { STORAGE_MODIFIED_MIN_PX, StorageBody } from "@/components/storage/StorageBrowser";
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
+export type { OptionsBodyProps, OptionsSectionId } from "@/components/OptionsComponent";
+export type { SceneTreeRowOptions } from "@/components/tree_view/CustomNode";
 export {
   AnimationControls,
   SimulationBody,
@@ -79,6 +81,8 @@ export {
 } from "@/components/ui/panelChrome";
 export type { PanelCardVariant } from "@/components/ui/panelChrome";
 export {
+  AddGlyph,
+  PinGlyph,
   CloseGlyph,
   DockGlyph,
   ExternalGlyph,
@@ -118,6 +122,15 @@ export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/componen
 // ---------------------------------------------------------------------------
 export { LayoutHost, PanelMount, lazyPanelBody, useLayout, usePanelStates, zonePanels } from "@/layout/LayoutHost";
 export { PanelToggles } from "@/layout/PanelToggles";
+export { CommandPaletteHost, MenuBar, closeCommandPalette, openCommandPalette } from "@/layout/CommandPalette";
+export type { MenuBarProps, MenuDef, MenuItemDef } from "@/layout/CommandPalette";
+export {
+  deleteWorkspace,
+  listWorkspaces,
+  loadWorkspace,
+  resetArrangement,
+  saveWorkspace,
+} from "@/layout/presets/classicPlace";
 export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
 export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";
@@ -200,6 +213,13 @@ export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
 export { LAYOUT_ENGINE_PARAM, LAYOUT_ENGINE_STORAGE_KEY, layoutEngineEnabled } from "@/layout/flag";
+export {
+  COLLAPSED_PX,
+  clampFixed,
+  setFixedPx,
+  setGroupArrangement,
+  setGroupCollapsed,
+} from "@/layout/splitTree";
 export {
   DEFAULT_GRID,
   ROOT_NODE,

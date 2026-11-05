@@ -59,6 +59,9 @@ export interface StorageBodyProps {
     /** The Modified column: shown (default), hidden, or "auto": hidden while the panel is
      *  narrower than `STORAGE_MODIFIED_MIN_PX`. */
     showModified?: boolean | "auto";
+    /** The file list takes the height its host gives the panel (a dock or a window)
+     *  instead of the column's fixed cap. Default off. */
+    fillHeight?: boolean;
 }
 
 /** The storage browser's content: header, selection toolbar, upload progress, the file tree and its dialogs. */
@@ -69,6 +72,7 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
     onClose,
     scopePicker = false,
     showModified = true,
+    fillHeight = false,
 }) => {
     const allFiles = useServerInfoStore((s) => s.serverFileObjects);
     // Published-asset blobs are storage, not "my files": a publishing scope
@@ -419,6 +423,7 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
                 pendingFolders={pendingFolders}
                 sidecars={sidecars}
                 showModified={modifiedShown}
+                fillHeight={fillHeight}
                 loadProgressFor={rowLoadProgress ? rowLoads.progressFor : undefined}
                 listScrollRef={nav.listScrollRef}
                 onListKeyDown={nav.onListKeyDown}

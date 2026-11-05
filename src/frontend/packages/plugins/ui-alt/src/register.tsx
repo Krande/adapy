@@ -17,9 +17,12 @@
 //
 // The shell is COMPOSED: it gives no `load`, so core mounts its own root
 // (routes, sign-in, the viewer provider) and its layout of floating, dockable
-// panels, starting from `layout.grid`, under the shell's `chrome.header`. The
-// user can still rearrange everything, and their arrangement is kept for this
-// shell. A shell that needs a root of its own gives `load` instead.
+// panels. Everything below is configuration of core: a docked arrangement per
+// mode (fixed-width side docks that collapse to icon strips), a menu bar and a
+// command palette over core's commands, a status bar, the colour legend over the
+// view, and core panels renamed for this UI. The user can still rearrange
+// everything, and their arrangement is kept per mode. A shell that needs a root
+// of its own gives `load` instead.
 //
 // The UI imports core through ONE named surface — `@/viewer-core` (+ its
 // `/app`, `/scene`, `/plugins` and `/layout` entry points). The fence is
@@ -30,26 +33,30 @@ import {
   activeShellMode,
   activeUiShellId,
   listShellModes,
+  registerCommand,
   registerPlugin,
-  registerShortcut,
   setShellMode,
   type GridNode,
 } from "@/viewer-core";
 
-// The tree on the left; the selected object over the scene on the right.
+/** A side dock: a px width the window's resize leaves alone, which its divider changes within bounds. */
+const SIDE = { px: 300, min: 200, max: 520 };
+
+// The tree in a left dock; the selected object over the scene in a right dock.
 const GRID: GridNode = {
   kind: "split",
   id: "s1",
   dir: "row",
   sizes: [0.2, 0.55, 0.25],
   children: [
-    { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.tree], active: CORE_PANEL_IDS.tree },
+    { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.tree], active: CORE_PANEL_IDS.tree, fixed: SIDE },
     { kind: "viewport" },
     {
       kind: "split",
       id: "s2",
       dir: "col",
       sizes: [0.5, 0.5],
+      fixed: SIDE,
       children: [
         { kind: "group", id: "g2", panels: [CORE_PANEL_IDS.objectInfo], active: CORE_PANEL_IDS.objectInfo },
         { kind: "group", id: "g3", panels: [CORE_PANEL_IDS.scene, CORE_PANEL_IDS.storage], active: CORE_PANEL_IDS.scene },
@@ -65,7 +72,7 @@ const RESULTS_GRID: GridNode = {
   dir: "row",
   sizes: [0.2, 0.8],
   children: [
-    { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.tree], active: CORE_PANEL_IDS.tree },
+    { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.tree], active: CORE_PANEL_IDS.tree, fixed: SIDE },
     {
       kind: "split",
       id: "s2",
@@ -79,10 +86,12 @@ const RESULTS_GRID: GridNode = {
   ],
 };
 
+const isActive = () => activeUiShellId() === "alt";
+
 export function register(): void {
   registerPlugin({
     id: "ui-alt",
-    version: "0.2.0",
+    version: "0.3.0",
     coreApiRange: ">=1.13 <2.0",
     schemaVersion: 1,
     uiShells: [
@@ -108,30 +117,51 @@ export function register(): void {
               docks: { left: "g1", right: "g2" },
             },
           ],
+          // Raise when the arrangements above change, so saved ones start over.
+          version: 1,
+        },
+        // Core panels as this UI names them.
+        panels: {
+          [CORE_PANEL_IDS.objectInfo]: { title: "Properties" },
+          [CORE_PANEL_IDS.tree]: { title: "Outliner" },
         },
         // Restyles core's chrome while this shell is active (docs/UI_SHELLS.md lists the tokens).
         themeTokens: { "--ada-tab-active-bg": "#065f46" },
         chrome: {
-          // Lazily loaded: the header only downloads when this shell is the active one.
+          // Lazily loaded: the chrome only downloads when this shell is the active one.
           header: () => import("./AltHeader"),
+          footer: () => import("./AltFooter"),
           toolbar: false,
+          groups: { actions: ["add", "pin", "collapse"], tabIcons: true },
+          commandPalette: { keys: "Shift+K" },
+          overlays: { legend: "right-center" },
         },
       },
     ],
   });
-  // A shell's own key, listed in the shortcuts dialog; core's keys are refused.
-  registerShortcut(
+  // The shell's own commands: in its menu bar and the palette, with keys (core's own keys are refused).
+  registerCommand(
     {
       id: "ui-alt:next-mode",
+      label: "Next mode",
+      group: "View",
       keys: "Shift+M",
-      label: "Switch to the next mode",
-      group: "Alt UI",
-      when: () => activeUiShellId() === "alt",
+      when: isActive,
       run: () => {
         const modes = listShellModes();
         const i = modes.findIndex((m) => m.id === activeShellMode());
         if (modes.length) setShellMode(modes[(i + 1) % modes.length].id);
       },
+    },
+    "ui-alt",
+  );
+  registerCommand(
+    {
+      id: "ui-alt:reset-layout",
+      label: "Reset this mode's layout",
+      group: "View",
+      when: isActive,
+      run: () => void import("@/viewer-core/layout").then((m) => m.resetArrangement()),
     },
     "ui-alt",
   );

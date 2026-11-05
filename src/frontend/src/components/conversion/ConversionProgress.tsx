@@ -9,7 +9,7 @@ import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
 import ExtendJobButton from "./ExtendJobButton";
-import {isClaimedJob, withoutClaimed, type IsClaimed} from "./claimedLoads";
+import {eitherClaimed, isClaimedJob, withoutClaimed, type IsClaimed} from "./claimedLoads";
 import {stageText} from "./stageText";
 import {isLoadClaimed, loadClaimsVersion, subscribeLoadClaims} from "@/plugins/loadClaims";
 import {
@@ -899,14 +899,14 @@ const AuditActivityBadge: React.FC = () => {
 };
 
 export interface ConversionProgressProps {
-    /** Loads whose progress the host tells elsewhere, left out of the toast. Default: the ones
-     *  claimed with `claimLoad` (none unless a surface claims them). */
+    /** Loads whose progress the host tells elsewhere, left out of the toast, in addition to
+     *  the ones claimed with `claimLoad` (core's storage rows claim theirs). */
     isClaimed?: IsClaimed;
 }
 
 const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostClaimed}) => {
     useSyncExternalStore(subscribeLoadClaims, loadClaimsVersion, loadClaimsVersion);
-    const isClaimed = hostClaimed ?? isLoadClaimed;
+    const isClaimed = eitherClaimed(isLoadClaimed, hostClaimed);
     const jobs = useConversionStore((s) => s.jobs);
     const clearJob = useConversionStore((s) => s.clearJob);
     const sweeps = useCompressionStore((s) => s.sweeps);

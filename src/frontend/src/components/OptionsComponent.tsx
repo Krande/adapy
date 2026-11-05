@@ -36,8 +36,39 @@ const Section: React.FC<{title: string; children: React.ReactNode}> = ({title, c
 //   like ObjectInfoBox / SceneInfoBox / StorageBrowser — same
 //   semi-transparent gray, same rounded corners. The ☰ button toggles
 //   it; nothing else needs to.
-/** The Options panel's content: the build line and every settings section. */
-export function OptionsBody() {
+/** The Options panel's sections, by id. `build` is the build line at the top; `account` is the hosted sign-in / scope / convert / admin block. */
+export type OptionsSectionId =
+    | "build"
+    | "account"
+    | "scene"
+    | "session"
+    | "theme"
+    | "performance"
+    | "spacemouse"
+    | "conversion"
+    | "shortcuts";
+
+export interface OptionsBodyProps {
+    /** The sections, in this order; others are left out. Default: all, in the classic order. */
+    sections?: readonly OptionsSectionId[];
+    /** Sections left out (after `sections`). */
+    hiddenSections?: readonly OptionsSectionId[];
+}
+
+const DEFAULT_SECTIONS: readonly OptionsSectionId[] = [
+    "build",
+    "account",
+    "scene",
+    "session",
+    "theme",
+    "performance",
+    "spacemouse",
+    "conversion",
+    "shortcuts",
+];
+
+/** The Options panel's content: the build line and every settings section (or those a shell picks). */
+export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps) {
     const unique_version_id = runtime.uniqueVersionId();
     const adapy_version = runtime.adapyVersion();
     const frontend_sha = runtime.frontendSha();
@@ -57,34 +88,32 @@ export function OptionsBody() {
         </div>
     );
 
-    const sections = (
-        <>
-            {runtime.isRestMode() && (
-                <>
-                    <Suspense fallback={null}>
-                        <RestSection/>
-                    </Suspense>
-                    <hr className="border-gray-600"/>
-                </>
-            )}
-            {/* Same idea for the scene-config knobs. The defaults are
-                tuned for the common case; tucking the controls behind a
-                disclosure keeps the drawer from feeling overwhelming. */}
+    const rest = runtime.isRestMode();
+    // Each section's content; null where it does not apply here. All but the last
+    // two (build line, shortcuts button) are followed by a rule.
+    const content: Readonly<Record<OptionsSectionId, React.ReactNode>> = {
+        build: versionInfo,
+        account: rest ? (
+            <Suspense fallback={null}>
+                <RestSection/>
+            </Suspense>
+        ) : null,
+        // The defaults are tuned for the common case; tucking the controls behind
+        // a disclosure keeps the drawer from feeling overwhelming.
+        scene: (
             <Section title="Scene config">
                 <div className="space-y-4">
                     <PointSizeOptions/>
                     <DisplayOptions/>
                 </div>
             </Section>
-            <hr className="border-gray-600"/>
-            {runtime.isRestMode() && (
-                <>
-                    <Section title="Session restore">
-                        <SceneRestoreOptions/>
-                    </Section>
-                    <hr className="border-gray-600"/>
-                </>
-            )}
+        ),
+        session: rest ? (
+            <Section title="Session restore">
+                <SceneRestoreOptions/>
+            </Section>
+        ) : null,
+        theme: (
             <Section title="Theme">
                 <ThemeOptions/>
                 {/* Renders nothing unless a build actually carries more than one
@@ -94,34 +123,36 @@ export function OptionsBody() {
                 <UiShellSwitcher className="mt-3"/>
                 <LayoutOptions className="mt-3"/>
             </Section>
-            <hr className="border-gray-600"/>
+        ),
+        performance: (
             <Section title="Performance">
                 <PerformanceOptions/>
             </Section>
-            <hr className="border-gray-600"/>
+        ),
+        spacemouse: (
             <Section title="3D mouse">
                 <SpaceMouseOptions/>
             </Section>
-            <hr className="border-gray-600"/>
-            {/* The in-browser (WASM) conversion engine only makes sense for the
-                hosted REST viewer; the websocket/desktop and embed bundles
-                don't expose it. */}
-            {runtime.isRestMode() && (
-                <>
-                    <Section title="Conversion engine">
-                        <ExperimentalOptions/>
-                    </Section>
-                    <hr className="border-gray-600"/>
-                </>
-            )}
-            <ShortcutsModal/>
-        </>
-    );
-
+        ),
+        // The in-browser (WASM) conversion engine only makes sense for the hosted
+        // REST viewer; the websocket/desktop and embed bundles don't expose it.
+        conversion: rest ? (
+            <Section title="Conversion engine">
+                <ExperimentalOptions/>
+            </Section>
+        ) : null,
+        shortcuts: <ShortcutsModal/>,
+    };
+    const hidden = new Set(hiddenSections ?? []);
+    const order = (picked ?? DEFAULT_SECTIONS).filter((id) => !hidden.has(id) && content[id] !== null);
     return (
         <>
-            {versionInfo}
-            {sections}
+            {order.map((id) => (
+                <React.Fragment key={id}>
+                    {content[id]}
+                    {id !== "build" && id !== "shortcuts" && <hr className="border-gray-600"/>}
+                </React.Fragment>
+            ))}
         </>
     );
 }

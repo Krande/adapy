@@ -23,7 +23,11 @@
 
 import type React from "react";
 
+import type { LayoutDoc } from "@/layout/layout";
+import type { PanelOverride } from "@/layout/registry";
 import type { GridNode } from "@/layout/splitTree";
+import type { ViewportAnchor } from "@/layout/viewportOverlays";
+import type { AdaPluginContext, PluginTheme } from "./registry";
 
 /** The built-in shell id — the stock Ada Studio UI. Always registered. */
 export const CORE_UI_SHELL_ID = "core";
@@ -60,6 +64,14 @@ export interface UiShellLayout {
    * arrangement, no modes.
    */
   modes?: UiShellMode[];
+  /**
+   * The version of these arrangements. Raise it when the shell ships a new one: a
+   * user's saved arrangement made under another version is passed to `migrate`,
+   * or without it, starts over from the new grid.
+   */
+  version?: number;
+  /** A saved arrangement made under `from` (undefined: before versions), brought up to date; null starts it over. */
+  migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
 }
 
 /** One of a composed shell's modes. */
@@ -74,14 +86,52 @@ export interface UiShellMode {
   grid?: GridNode;
   open?: string[];
   docks?: Record<string, string>;
+  /**
+   * A panel drawn over the 3D view while this mode is active (a page that needs
+   * the whole view, a converter say); the canvas stays mounted underneath.
+   */
+  viewportCover?: string;
+  /** Core suspends the FEA field colouring while it is active (it paints its own). */
+  ownsSceneColor?: boolean;
+  /** False: core holds the FEA model undeformed while it is active. Default true. */
+  showsDeformation?: boolean;
+  /** The mode's own controls, drawn by `ShellModeToolbar` while it is active (in the shell's plugin context). */
+  toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
 }
 
 /** The chrome core draws around a composed shell's layout. */
 export interface UiShellChrome {
   /** Drawn full width above the layout: the shell's own menu bar. Lazy. */
   header?: () => Promise<{ default: React.ComponentType }>;
+  /** Drawn full width below the layout: a status bar. Lazy. */
+  footer?: () => Promise<{ default: React.ComponentType }>;
+  /** Drawn down the left of the layout, between header and footer: a tool rail. Lazy; it sizes itself. */
+  rail?: () => Promise<{ default: React.ComponentType }>;
+  /**
+   * The command palette over every registered command, core's panels and modes
+   * included (`openCommandPalette()` opens it from the shell's own button), and
+   * the key that opens it. Absent: no palette.
+   */
+  commandPalette?: { keys?: string };
+  /**
+   * HUDs over the 3D view: where core's colour legend goes (the canvas then draws
+   * none of its own), and where plugin panels that name the `overlay` dock stack.
+   * A shell's own HUDs are added with `registerViewportOverlay`.
+   */
+  overlays?: { legend?: ViewportAnchor; pluginPanels?: ViewportAnchor };
+  /**
+   * Drawn above core's canvas-less pages (`/convert`, `/admin`) in place of
+   * nothing: the shell's title bar there, given the page's title and the way back
+   * to the viewer. Lazy.
+   */
+  pageHeader?: () => Promise<{ default: React.ComponentType<{ title: string; backHref: string }> }>;
   /** Core's top bar of panel toggles over the viewport. Default true. */
   toolbar?: boolean;
+  /**
+   * The grid's groups: extra header actions (`"add"` a panel here, `"collapse"`
+   * to a strip of icons, `"pin"` a panel across modes) and panel icons in the tabs.
+   */
+  groups?: { actions?: ("add" | "collapse" | "pin")[]; tabIcons?: boolean };
 }
 
 /** A whole-UI implementation a plugin can contribute. */
@@ -110,8 +160,18 @@ export interface UiShellSpec {
   layout?: UiShellLayout;
   /** A composed shell's chrome. */
   chrome?: UiShellChrome;
-  /** CSS custom properties set on the document root while the shell is active (`--ada-*`). */
-  themeTokens?: Record<string, string>;
+  /**
+   * Changes to panels the shell does not own, core's included, by panel id: title,
+   * icon, modes, capabilities, and options for their frameless content (`PanelOverride`).
+   * The panels keep their bindings and every `reveal()` that names them.
+   */
+  panels?: Record<string, PanelOverride>;
+  /**
+   * CSS custom properties set on the document root while the shell is active
+   * (`--ada-*`, or the shell's own). A function of the user's panel theme is
+   * applied again whenever the theme changes.
+   */
+  themeTokens?: Record<string, string> | ((theme: PluginTheme) => Record<string, string>);
 }
 
 /** Is `spec` composed from core's layout (no root component of its own). */
