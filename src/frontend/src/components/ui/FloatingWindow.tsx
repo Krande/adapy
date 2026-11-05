@@ -26,6 +26,7 @@ import {createPortal} from "react-dom";
 import {Rnd} from "react-rnd";
 
 import {clampRect, defaultRect, parseStoredRect, type Extent, type WindowRect} from "@/assets/floatingWindow";
+import {pointerOf} from "@/layout/dockDrag";
 import {useIsNarrow} from "@/utils/useIsMobile";
 
 export interface RememberedRect {
@@ -53,6 +54,10 @@ export interface FloatingWindowProps {
   /** Or the caller keeps the rect: shown clamped to the viewport, every move and resize reported. */
   rect?: WindowRect;
   onRectChange?: (rect: WindowRect) => void;
+  /** The pointer while the window is dragged by its title bar (a caller-kept `rect` only). */
+  onDragMove?: (pointer: {x: number; y: number}) => void;
+  /** Where the drag ended. Return true when the caller took the drop: the rect is then not reported. */
+  onDragEnd?: (pointer: {x: number; y: number}) => boolean;
   /** Draw in a portal over the page, in a click-through layer the size of the viewport. */
   overlay?: boolean;
   /** Below the `wide` breakpoint, take the whole screen. */
@@ -101,6 +106,8 @@ export function FloatingWindow({
   remember,
   rect: controlledRect,
   onRectChange,
+  onDragMove,
+  onDragEnd,
   overlay = false,
   fullScreenWhenNarrow = false,
   style,
@@ -153,7 +160,19 @@ export function FloatingWindow({
         bounds={overlay ? "parent" : "window"}
         style={overlay ? style : {zIndex, ...style}}
         dragHandleClassName={dragHandleClassName}
-        onDragStop={(_e, d) => commit({...shown, x: d.x, y: d.y})}
+        {...(controlledRect && onDragMove
+          ? {
+              onDrag: (e: unknown) => {
+                const p = pointerOf(e);
+                if (p) onDragMove(p);
+              },
+            }
+          : {})}
+        onDragStop={(e, d) => {
+          const p = controlledRect && onDragEnd ? pointerOf(e) : null;
+          if (p && onDragEnd!(p)) return;
+          commit({...shown, x: d.x, y: d.y});
+        }}
         onResizeStop={(_e, _dir, ref, _delta, pos) =>
           commit({x: pos.x, y: pos.y, width: ref.offsetWidth, height: ref.offsetHeight})
         }

@@ -64,6 +64,7 @@ import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, tool
 import {PANEL_TOGGLE_ATTR, ZONE_ATTR} from "../zoneKeys";
 import {
   ClassicZoneKeys,
+  ColumnDropTarget,
   MinimisedTray,
   UndockedLayer,
   columnActions,
@@ -357,6 +358,7 @@ function ClassicFrame() {
 
       {/* Column panels the user floated ("Customisable panels"), and the keys between zones. */}
       {customisable && <ClassicZoneKeys />}
+      {customisable && <ColumnDropTarget />}
       {customisable && (
         <UndockedLayer
           panels={zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER)}

@@ -141,6 +141,8 @@ export {
 } from "@/layout/zoneKeys";
 export type { ZoneKeyContext, ZoneKeyEvent, ZoneKeyIntent } from "@/layout/zoneKeys";
 export { ZoneKeys, focusZone, requestFloatFocus, restoreFocus, useFloatFocus } from "@/layout/zoneFocus";
+export { DROP_ATTR, dockDragStore, dropZoneAt, endDockDrag, moveDockDrag } from "@/layout/dockDrag";
+export type { DockDragState, DropCandidate } from "@/layout/dockDrag";
 export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";

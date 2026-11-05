@@ -136,8 +136,10 @@
 //          fallback) and its `PreferenceStore`; the zone keys (`ZoneKeys`:
 //          F6 / Shift+F6 between zones marked `ZONE_ATTR`, Esc and Ctrl+Alt+arrow
 //          on a floating window, `useFloatFocus` / `restoreFocus`); an optional
-//          `panelId` on `PanelHeaderActionsProvider` and `WindowHeaderActions`.
-//          On `viewerApi`: `getPreference` / `setPreference`. Additive.
+//          `panelId` on `PanelHeaderActionsProvider` and `WindowHeaderActions`;
+//          drag-to-dock (`moveDockDrag` / `endDockDrag` hit-testing drop targets
+//          marked `DROP_ATTR`, `dockDragStore`) and `FloatingWindow`'s
+//          `onDragMove` / `onDragEnd`. On `viewerApi`: `getPreference` / `setPreference`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

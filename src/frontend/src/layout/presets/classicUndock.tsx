@@ -8,13 +8,16 @@
 //     "Float" action in its own header (`PanelHeaderActions`);
 //   * a floated panel leaves the column and shows in a window of its own, its
 //     content in the shared `PanelFrame` with Dock / Minimise / Close;
-//   * a minimised one waits in the tray at the end of the top bar.
+//   * a minimised one waits in the tray at the end of the top bar;
+//   * a window dragged by its title bar onto the panel column docks there
+//     (`../dockDrag`), the column outlined as the drop target meanwhile.
 //
 // Core's panels keep their visibility flags: the classic document records only
 // WHERE a panel shows (`floats`, `minimised`), and the flag still says WHETHER.
 // So a floated panel closed from the top bar reopens in its window.
 
 import React, {useMemo, useRef} from "react";
+import {createPortal} from "react-dom";
 import {useStore} from "zustand";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
@@ -22,7 +25,8 @@ import {DockGlyph, FloatGlyph, MinimiseGlyph, PanelFrame} from "@/components/ui/
 import {navBtnClass} from "@/components/navButton";
 import {defaultRect} from "@/assets/floatingWindow";
 
-import {CLASSIC_PRESET_ID, layoutDocKey, type LayoutDoc} from "../layout";
+import {DROP_ATTR, dockDragStore, endDockDrag, moveDockDrag} from "../dockDrag";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, layoutDocKey, type LayoutDoc} from "../layout";
 import {PanelMount, usePanelStates, useLayout} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
@@ -128,6 +132,12 @@ function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: La
       style={{zIndex: f.z}}
       rect={{x: f.x, y: f.y, width: f.w, height: f.h}}
       onRectChange={(r) => update((d) => setFloatRect(d, panel.id, {x: r.x, y: r.y, w: r.width, h: r.height}))}
+      onDragMove={(p) => moveDockDrag(panel.id, p.x, p.y)}
+      onDragEnd={(p) => {
+        if (endDockDrag(p.x, p.y) !== CLASSIC_ZONES.menuColumn) return false;
+        dockColumnPanel(panel.id);
+        return true;
+      }}
     >
       {({fullScreen}) => (
         <div
@@ -213,5 +223,39 @@ export function MinimisedTray() {
         </button>
       ))}
     </div>
+  );
+}
+
+/** The least width of the drop target, so an emptied column is still easy to hit. */
+const DROP_MIN_WIDTH = 320;
+
+/**
+ * While a floated panel's window is dragged: the panel column's drop target,
+ * from the column's top to the bottom of the viewport, highlighted while the
+ * pointer is over it.
+ */
+export function ColumnDropTarget() {
+  const dragging = useStore(dockDragStore, (s) => s.panel);
+  const over = useStore(dockDragStore, (s) => s.over === CLASSIC_ZONES.menuColumn);
+  const [rect, setRect] = React.useState<{left: number; top: number; width: number} | null>(null);
+  React.useLayoutEffect(() => {
+    if (!dragging) return setRect(null);
+    const column = document.querySelector(`[${ZONE_ATTR}="column"]`);
+    const r = column?.getBoundingClientRect();
+    setRect(r ? {left: r.left, top: r.top, width: Math.max(r.width, DROP_MIN_WIDTH)} : null);
+  }, [dragging]);
+  if (!dragging || !rect) return null;
+  return createPortal(
+    <div
+      {...{[DROP_ATTR]: CLASSIC_ZONES.menuColumn}}
+      className={`fixed z-[44] rounded-md border-2 border-dashed flex items-start justify-center pt-6 text-sm transition-colors ${
+        over ? "border-blue-400 bg-blue-500/25 text-blue-100" : "border-gray-400/70 bg-gray-900/30 text-gray-300"
+      }`}
+      style={{left: rect.left, top: rect.top, width: rect.width, bottom: 8}}
+      aria-hidden="true"
+    >
+      Drop to dock in the panel column
+    </div>,
+    document.body,
   );
 }
