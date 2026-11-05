@@ -134,9 +134,10 @@
 //   1.13.0 Options on core's panel contents, so a shell uses them instead of a
 //          copy. On `@/viewer-core/layout`: `SceneTreeBody` (the Scene tree) with
 //          `SceneTreeProps` (`rootFilter`, `extraRoots`, `onSelectOverride`,
-//          `header`) and `TreeNodeData.meta`; `TreeBody`'s `sceneTree`. On the
-//          root: `registerSceneTreeRoots` / `listSceneTreeRoots`, the rows a
-//          plugin adds to the Scene tree. Additive.
+//          `header`) and `TreeNodeData.meta`; `TreeBody`'s `sceneTree`;
+//          `SceneBodyProps` (`tabs`, `hiddenTabs`, `femTab`, `arrangement`,
+//          `loadedTitle`, `loadedEmpty`). On the root: `registerSceneTreeRoots` /
+//          `listSceneTreeRoots`, the rows a plugin adds to the Scene tree. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------

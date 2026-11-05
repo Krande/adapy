@@ -20,7 +20,8 @@ import ViewOffIcon from "../icons/ViewOffIcon";
 /** `busyName` while Remove all runs: no source is named this. */
 const REMOVING_ALL = "\u0000all";
 
-const LoadedModelsSection: React.FC = () => {
+/** `empty`: shown instead of the default line while no model is loaded. */
+const LoadedModelsSection: React.FC<{empty?: React.ReactNode}> = ({empty}) => {
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
     // Each model as the Scene tree calls it: its root row's label, so the two lists agree and both
     // follow the Names / IDs toggle. A model with no root row there falls back to its source name.
@@ -31,7 +32,7 @@ const LoadedModelsSection: React.FC = () => {
     const [busyName, setBusyName] = useState<string | null>(null);
 
     if (loadedSourceNames.size === 0) {
-        return <div className="text-xs italic text-gray-400">No models loaded.</div>;
+        return empty !== undefined ? <>{empty}</> : <div className="text-xs italic text-gray-400">No models loaded.</div>;
     }
 
     const toggleVisibility = (name: string) => {
