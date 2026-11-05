@@ -198,6 +198,33 @@ and core reports each change to the scene colouring (a mode with
 mode's `toolbar`) from `@/viewer-core/layout` go in the header; `setShellMode`
 and `useShellMode` switch from anywhere else.
 
+### Everything a composed shell can configure
+
+A docked UI with a menu bar, modes, a tool rail and a status bar is a
+configuration of these; none of them needs a component of the shell's own beyond
+the chrome it draws in the slots.
+
+| Area | Option | What it does |
+|---|---|---|
+| Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false`, `toolbar`. `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
+| Groups (in `grid`) | `fixed: {px, min, max}` | A dock held at a px size, kept on window resize; its divider resizes it in px. On groups and splits. |
+| | `collapsed`, `arrangement` | A strip of panel icons that restores the group; tabs, stacked, or `"auto"` (stacked while there is room). |
+| Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). |
+| | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
+| | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
+| | `chrome.commandPalette: {keys}` | The palette over every command (`registerCommand`; core adds panels and modes). `MenuBar` draws menus of command ids. |
+| | `chrome.overlays: {legend, pluginPanels}` | HUD anchors over the view for core's colour legend and `overlay`-dock plugin panels; `registerViewportOverlay` adds the shell's own. |
+| | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
+| Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
+| | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
+| Look | `themeTokens` | `--ada-*` tokens, or a function of the user's panel theme, applied again on every theme change. |
+| Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`). |
+
+Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
+`loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
+
 ### A root of its own
 
 A shell that keeps `load` can still take core's root around its UI:

@@ -265,6 +265,20 @@
 //          modes, capabilities, and `options` for the frameless content, or a
 //          function of the mode) changes panels a shell does not own, core's
 //          included; `PanelProps.options`, `RegisteredPanel.options`.
+//          Commands on the root: `registerCommand` (`CommandSpec`: label, group,
+//          keys, `when`, `disabledReason`, `checked`), `unregisterCommand`,
+//          `runCommand`, `getCommand`, `listCommands` (core adds one per panel and
+//          per mode), `matchCommand`; on `@/viewer-core/layout`: `MenuBar`
+//          (`MenuDef` of command ids), `CommandPaletteHost`, `openCommandPalette`,
+//          `closeCommandPalette`; `UiShellChrome.commandPalette`. HUDs:
+//          `registerViewportOverlay` at a `ViewportAnchor`,
+//          `UiShellChrome.overlays` (core's legend, `overlay`-dock plugin panels).
+//          `UiShellMode.viewportCover`, `UiShellChrome.pageHeader`,
+//          `UiShellLayout.version` / `migrate` (`LayoutDoc.shellVersion`), and on
+//          `@/viewer-core/layout` `resetArrangement`, `saveWorkspace`,
+//          `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`
+//          (`LayoutPrefs.workspaces`). Core's convert and admin panels take content
+//          options.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -341,6 +355,11 @@ export type { ShellMode, ShellModeBadge } from "@/layout/shellModes";
 export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/shellModes";
 export type { PanelOverride } from "@/layout/registry";
 export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
+// Commands (menus, palette, keys share them) and HUDs over the view (dependency-free).
+export { getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
+export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
+export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
+export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
 export {
   RESERVED_SHORTCUTS,

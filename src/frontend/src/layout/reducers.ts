@@ -306,5 +306,6 @@ export function migrateLayoutDoc(raw: unknown, preset: PresetId, zones: readonly
     floats,
     minimised: [...new Set(strings(raw.minimised))],
     known: [...new Set(strings(raw.known))],
+    ...(num(raw.shellVersion) ? { shellVersion: raw.shellVersion } : {}),
   };
 }

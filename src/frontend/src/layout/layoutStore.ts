@@ -38,6 +38,12 @@ export interface LayoutStoreState {
   setCustomisablePanels(on: boolean): void;
   /** Pin or unpin a panel in a composed shell (by shell id). */
   setPinned(shell: string, panel: string, pinned: boolean): void;
+  /** Forget a saved document: the next read starts from the preset's (or shell's) starting one. */
+  removeDoc(preset: PresetId, context?: string): void;
+  /** Save (`docs`) or delete (null) a named workspace of a composed shell. */
+  setWorkspace(shell: string, name: string, docs: Record<string, LayoutDoc> | null): void;
+  /** Replace saved documents at once (loading a workspace). */
+  putDocs(docs: Record<string, LayoutDoc>): void;
   /** Load the saved prefs and keep saving every change to `persistence`. */
   hydrate(persistence: LayoutPersistence): Promise<void>;
 }
@@ -61,6 +67,8 @@ export function migrateLayoutPrefs(raw: unknown): LayoutPrefs {
     }
     prefs.pinned = pinned;
   }
+  // Workspaces are kept as stored; each document is made safe when it is loaded.
+  if (r.workspaces && typeof r.workspaces === "object") prefs.workspaces = r.workspaces;
   return prefs;
 }
 
@@ -119,6 +127,24 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
       },
       setCustomisablePanels(on) {
         setPrefs({ ...get().prefs, customisablePanels: on });
+      },
+      removeDoc(preset, context) {
+        const key = layoutDocKey(preset, context);
+        if (!get().prefs.docs[key]) return;
+        const docs = { ...get().prefs.docs };
+        delete docs[key];
+        setPrefs({ ...get().prefs, docs });
+      },
+      setWorkspace(shell, name, docs) {
+        const prefs = get().prefs;
+        const mine = { ...prefs.workspaces?.[shell] };
+        if (docs) mine[name] = docs;
+        else if (name in mine) delete mine[name];
+        else return;
+        setPrefs({ ...prefs, workspaces: { ...prefs.workspaces, [shell]: mine } });
+      },
+      putDocs(docs) {
+        setPrefs({ ...get().prefs, docs: { ...get().prefs.docs, ...docs } });
       },
       setPinned(shell, panel, pinned) {
         const prefs = get().prefs;

@@ -12,6 +12,8 @@ import {usePluginTheme} from "@/state/themeStore";
 import {setFeaDeformationShown} from "@/utils/scene/fea/deformationGate";
 import {notifyActiveModeSceneColor} from "@/utils/scene/fea/modeSceneColor";
 
+import {CommandPaletteHost, openCommandPalette} from "./CommandPalette";
+import {registerCommand} from "./commands";
 import LayoutRoot from "./LayoutRoot";
 import {setPanelOverrides} from "./registry";
 import {setClassicShell, setClassicToolbar, type ClassicArrangement} from "./presets/classicPlace";
@@ -89,13 +91,30 @@ function installShell(spec: UiShellSpec): void {
   const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get(SHELL_MODE_PARAM) : null;
   setShellModes(modes, modes.some((m) => m.id === asked) ? asked : readMode(spec.id));
   const byMode: Record<string, ClassicArrangement> = {};
-  for (const m of spec.layout?.modes ?? []) byMode[m.id] = {grid: m.grid, open: m.open, docks: m.docks};
+  for (const m of spec.layout?.modes ?? []) byMode[m.id] = {grid: m.grid, open: m.open, docks: m.docks, cover: m.viewportCover};
   setClassicShell(
-    {id: spec.id, grid: spec.layout?.grid, open: spec.layout?.open, docks: spec.layout?.docks, modes: byMode, groups: spec.chrome?.groups},
+    {
+      id: spec.id,
+      grid: spec.layout?.grid,
+      open: spec.layout?.open,
+      docks: spec.layout?.docks,
+      modes: byMode,
+      groups: spec.chrome?.groups,
+      overlays: spec.chrome?.overlays,
+      version: spec.layout?.version,
+      migrate: spec.layout?.migrate,
+    },
     listShellModes().map((m) => m.id),
   );
   setClassicToolbar(spec.chrome?.toolbar !== false);
   setPanelOverrides(spec.panels ?? null);
+  const palette = spec.chrome?.commandPalette;
+  if (palette) {
+    registerCommand(
+      {id: "core:command-palette", label: "Command palette", group: "View", keys: palette.keys, run: openCommandPalette},
+      "core",
+    );
+  }
 }
 
 /** Remember the active mode, and let core suspend or restore the FEA colouring for it. */
@@ -151,6 +170,7 @@ export default function ComposedLayout({spec}: {spec: UiShellSpec}) {
         </div>
       </div>
       {slot(Footer)}
+      {spec.chrome?.commandPalette && <CommandPaletteHost />}
     </div>
   );
 }

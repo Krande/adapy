@@ -119,6 +119,9 @@ const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
     import("@/components/asset_browser/AttributeSearchPanel").then((m) => withOptions(m.default)),
   [CORE_PANEL_IDS.equipmentAdmin]: () => import("@/components/admin/EquipmentAdminPanel").then((m) => embedded(m.default)),
   [CORE_PANEL_IDS.systemAdmin]: () => import("@/components/admin/SystemAdminPanel").then((m) => embedded(m.default)),
+  // The same components as their bodies, given a shell's options (`ConvertBodyProps.inViewer`, ...).
+  [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => withOptions(m.AdminWindowBody)),
+  [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => withOptions(m.default)),
 };
 
 /**

@@ -48,6 +48,7 @@ import {
   type GridTarget,
 } from "../splitTree";
 import {activeShellMode, offeredInMode, shellModesVersion, subscribeShellModes} from "../shellModes";
+import type {ViewportAnchor} from "../viewportOverlays";
 import {requestFloatFocus, restoreFocus} from "../zoneFocus";
 import {PANEL_ACTIONS_ATTR} from "../zoneKeys";
 import {CLASSIC_ZONE_DEFS} from "./classicRules";
@@ -73,6 +74,8 @@ export interface ClassicArrangement {
   grid?: GridNode;
   open?: readonly PanelId[];
   docks?: Readonly<Record<string, string>>;
+  /** A panel drawn over the 3D view (the canvas stays mounted under it). */
+  cover?: PanelId;
 }
 
 /** Extra actions a composed shell gives each group of the grid. */
@@ -85,11 +88,26 @@ export interface ClassicShell extends ClassicArrangement {
   modes?: Readonly<Record<string, ClassicArrangement>>;
   /** Group chrome: extra header actions, and panel icons in the tabs. */
   groups?: {actions?: readonly GroupActionId[]; tabIcons?: boolean};
+  /** HUDs over the view: core's legend and the `overlay`-dock plugin panels, by anchor. */
+  overlays?: {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor};
+  /** The arrangements' version, and how a saved one of another version is brought up to date. */
+  version?: number;
+  migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
 }
 
 /** The group chrome the served shell asks for; none for core's own UI. */
 export function classicGroupChrome(): {actions: readonly GroupActionId[]; tabIcons: boolean} {
   return {actions: shell?.groups?.actions ?? [], tabIcons: !!shell?.groups?.tabIcons};
+}
+
+/** Where the served shell puts HUDs over the view; none for core's own UI. */
+export function classicOverlays(): {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor} | null {
+  return shell?.overlays ?? null;
+}
+
+/** A plugin panel the served shell shows over the view (it names the `overlay` dock). */
+export function isOverlayPanel(p: RegisteredPanel): boolean {
+  return !!shell?.overlays?.pluginPanels && p.owner !== CORE_PANEL_OWNER && dockOf(p) === "overlay";
 }
 
 /** The served shell's pinned panels. */
@@ -119,23 +137,102 @@ let shell: ClassicShell | null = null;
  */
 export function setClassicShell(next: ClassicShell | null, modeIds: readonly string[] = []): void {
   shell = next;
+  shellContexts = ["default"];
   if (!next) return;
   const contexts = modeIds.length ? modeIds.map((m) => [contextOf(next.id, m), m] as const) : [[next.id, null] as const];
+  shellContexts = contexts.map(([ctx]) => ctx);
   for (const [ctx, mode] of contexts) {
     const grid = arrangementOf(mode).grid;
+    const version = next.version !== undefined ? {shellVersion: next.version} : {};
     layoutStore
       .getState()
-      .setStartingDoc(CLASSIC_PRESET_ID, ctx, grid ? () => ({...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), grid}) : null);
+      .setStartingDoc(CLASSIC_PRESET_ID, ctx, grid || next.version !== undefined ? () => ({...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), ...(grid ? {grid} : {}), ...version}) : null);
   }
 }
 
 const contextOf = (shellId: string, mode: string | null) => (mode ? `${shellId}/${mode}` : shellId);
 
+/** Every document context of the served UI: one per mode of a composed shell, else core's one. */
+let shellContexts: string[] = ["default"];
+const owner = () => shell?.id ?? CORE_PANEL_OWNER;
+const docKey = (ctx: string) => layoutDocKey(CLASSIC_PRESET_ID, ctx);
+
+/**
+ * Back to the starting arrangement (the shell's grid for the mode): of the
+ * active mode, or with `all`, of every mode. Panels stay open; where they show
+ * starts over.
+ */
+export function resetArrangement(all = false): void {
+  for (const ctx of all ? shellContexts : [classicContext()]) layoutStore.getState().removeDoc(CLASSIC_PRESET_ID, ctx);
+}
+
+/**
+ * Bring the saved arrangements up to the shell's `version`: one made under
+ * another goes through the shell's `migrate`, or starts over without it. Call
+ * once the saved prefs are loaded.
+ */
+export function upgradeShellDocs(): void {
+  const version = shell?.version;
+  if (!shell || version === undefined) return;
+  const store = layoutStore.getState();
+  const docs: Record<string, LayoutDoc> = {};
+  for (const ctx of shellContexts) {
+    const raw = store.prefs.docs[docKey(ctx)];
+    if (!raw || raw.shellVersion === version) continue;
+    let next: LayoutDoc | null = null;
+    try {
+      next = shell.migrate ? shell.migrate(migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), raw.shellVersion) : null;
+    } catch (err) {
+      console.warn(`[layout] the shell's migrate threw for "${ctx}"; starting it over`, err);
+    }
+    if (next) docs[docKey(ctx)] = {...migrateLayoutDoc(next, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), shellVersion: version};
+    else store.removeDoc(CLASSIC_PRESET_ID, ctx);
+  }
+  if (Object.keys(docs).length) store.putDocs(docs);
+}
+
+/** Save every mode's arrangement under `name` (replacing one of that name). */
+export function saveWorkspace(name: string): void {
+  const docs = layoutStore.getState().prefs.docs;
+  const saved: Record<string, LayoutDoc> = {};
+  for (const ctx of shellContexts) {
+    const d = docs[docKey(ctx)];
+    if (d) saved[docKey(ctx)] = d;
+  }
+  layoutStore.getState().setWorkspace(owner(), name.trim(), saved);
+}
+
+/** Put a saved workspace's arrangements in place. False when there is none of that name. */
+export function loadWorkspace(name: string): boolean {
+  const ws = layoutStore.getState().prefs.workspaces?.[owner()]?.[name];
+  if (!ws) return false;
+  const docs: Record<string, LayoutDoc> = {};
+  for (const ctx of shellContexts) {
+    const d = ws[docKey(ctx)];
+    if (d) docs[docKey(ctx)] = migrateLayoutDoc(d, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx);
+  }
+  layoutStore.getState().putDocs(docs);
+  return true;
+}
+
+export function deleteWorkspace(name: string): void {
+  layoutStore.getState().setWorkspace(owner(), name, null);
+}
+
+export function listWorkspaces(): string[] {
+  return Object.keys(layoutStore.getState().prefs.workspaces?.[owner()] ?? {}).sort((a, b) => a.localeCompare(b));
+}
+
 /** The arrangement of `mode` (the active one by default): the mode's own over the shell's. */
 function arrangementOf(mode: string | null = activeShellMode()): ClassicArrangement {
   if (!shell) return {};
   const own = (mode && shell.modes?.[mode]) || {};
-  return {grid: own.grid ?? shell.grid, open: own.open ?? shell.open, docks: own.docks ?? shell.docks};
+  return {grid: own.grid ?? shell.grid, open: own.open ?? shell.open, docks: own.docks ?? shell.docks, cover: own.cover};
+}
+
+/** The panel the active mode draws over the 3D view, if any. */
+export function classicCover(): PanelId | null {
+  return arrangementOf().cover ?? null;
 }
 
 /** The document context the classic frame reads and writes: `"default"` for core's own UI. */
@@ -233,7 +330,7 @@ export function adoptDockedPanels(): void {
 /** Plugin panels shown in a place of the layout's own (a group, a window) rather than their region. */
 export function placedElsewhere(doc: LayoutDoc, customisable: boolean, narrow: boolean): PanelId[] {
   return listPanels()
-    .filter((p) => p.owner !== CORE_PANEL_OWNER && shownPlace(doc, p.id, customisable, narrow) !== "home")
+    .filter((p) => p.owner !== CORE_PANEL_OWNER && (shownPlace(doc, p.id, customisable, narrow) !== "home" || isOverlayPanel(p)))
     .map((p) => p.id);
 }
 

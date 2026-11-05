@@ -71,12 +71,17 @@ import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnA
 import {GridView, ViewportDropTarget} from "./classicGrid";
 import {setPlacedElsewhere} from "../placedElsewhere";
 import {ShortcutKeys} from "../ShortcutKeys";
+import {ViewportOverlays} from "../ViewportOverlayLayer";
 import {offeredInMode} from "../shellModes";
 import {
   adoptDockedPanels,
   canDock,
   canFloat,
+  classicCover,
+  classicOverlays,
+  isOverlayPanel,
   leaveContext,
+  upgradeShellDocs,
   placedElsewhere,
   useClassicContext,
   classicToolbarShown,
@@ -389,6 +394,22 @@ function useWindowDock(): (panel: RegisteredPanel) => WindowDock | null {
       : null;
 }
 
+/** A mode's panel drawn over the 3D view: its content, edge to edge, above the canvas. */
+function ViewportCover({panelId}: {panelId: PanelId}) {
+  const panel = getPanel(panelId);
+  if (!panel) return null;
+  const props: PanelProps = {panelId, host: {kind: "overlay", zone: CLASSIC_ZONES.overlay}, close: () => {}, isActive: true};
+  return (
+    <div className="absolute inset-0 z-[5] overflow-auto bg-[var(--ada-window-bg,#111827)] text-[var(--ada-panel-text)]" data-viewport-cover={panelId}>
+      <ErrorBoundary label={panel.title}>
+        <Suspense fallback={null}>
+          <PanelMount panel={panel} provided={CLASSIC_PANEL_CONTENTS[panelId]} props={props} which="content" outerSuspense />
+        </Suspense>
+      </ErrorBoundary>
+    </div>
+  );
+}
+
 /** The classic frame: `AppBody`'s tree, its zones filled from the registry. */
 function ClassicFrame() {
   const {preset, env} = useLayout();
@@ -404,6 +425,8 @@ function ClassicFrame() {
   // On load and on entering a mode of a composed shell: its plugin panels placed, its starting panels opened.
   const ctx = useClassicContext();
   const lastCtx = React.useRef(ctx);
+  // The prefs are loaded by now (the root waits for them): saved arrangements of an older shell version first.
+  React.useEffect(() => upgradeShellDocs(), []);
   React.useEffect(() => {
     // Leaving a mode takes its placed panels with it.
     if (lastCtx.current !== ctx) leaveContext(lastCtx.current, hide, isPanelOpen);
@@ -432,6 +455,11 @@ function ClassicFrame() {
   const [vp, setVp] = React.useState<Rect | null>(null);
   const onViewportRect = React.useCallback((r: Rect) => setVp((v) => (sameRect(v, r) ? v : r)), []);
   const placed = split ? vp : null;
+  const cover = classicCover();
+  // HUDs over the view: the plugin panels of the `overlay` dock, while open (a buttonless one always is).
+  const overlays = classicOverlays();
+  const overlayPanels = listPanels({}).filter((p) => isOverlayPanel(p) && offeredInMode(p));
+  const overlayStates = usePanelStates(overlayPanels, env);
   // The tree drawer at home overlays the frame's left edge (a push track for the
   // top bar): the grid starts right of it, as the top bar does.
   const isTreeCollapsed = useTreeViewStore((s) => s.isTreeCollapsed);
@@ -468,9 +496,21 @@ function ClassicFrame() {
         ref={viewportRef}
         className={"w-full h-full"}
         {...(customisable ? {[ZONE_ATTR]: "viewport", tabIndex: -1} : {})}
-        style={placed ? {position: "absolute", left: placed.left, top: placed.top, width: placed.width, height: placed.height} : undefined}
+        style={
+          placed
+            ? {position: "absolute", left: placed.left, top: placed.top, width: placed.width, height: placed.height}
+            : cover || overlays
+              ? {position: "relative"}
+              : undefined
+        }
       >
-        {nodeEditorOnly ? <NodeEditorComponent /> : <CanvasWrapper />}
+        {nodeEditorOnly ? <NodeEditorComponent /> : <CanvasWrapper legend={!overlays?.legend} />}
+        {/* A composed shell's HUDs over the view, at their anchors. */}
+        {overlays && !nodeEditorOnly && (
+          <ViewportOverlays placement={overlays} pluginPanels={overlayPanels.filter((p) => overlayStates.get(p.id)?.open)} />
+        )}
+        {/* A mode's page over the view; the canvas stays mounted under it. */}
+        {cover && <ViewportCover panelId={cover} />}
       </div>
 
       {/* Windows: the node editor in the tree, the attribute search in its own portal. */}

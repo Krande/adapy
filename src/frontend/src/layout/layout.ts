@@ -106,6 +106,8 @@ export interface LayoutDoc {
   minimised: PanelId[];
   /** Panels already offered once, so a panel registered after the document was saved is adopted once. */
   known: PanelId[];
+  /** The composed shell's `layout.version` the document was made under. */
+  shellVersion?: number;
 }
 
 /** A whole arrangement of zones around the viewport. */
@@ -152,6 +154,8 @@ export interface LayoutPrefs {
   docs: Record<string, LayoutDoc>;
   /** A composed shell's pinned panels, by shell id: they stay open and placed across its modes. */
   pinned?: Record<string, PanelId[]>;
+  /** A composed shell's named workspaces, by shell id then name: its documents (by `layoutDocKey`) as saved. */
+  workspaces?: Record<string, Record<string, Record<string, LayoutDoc>>>;
 }
 
 /** Are customisable panels on: unless the user turned them off. */
