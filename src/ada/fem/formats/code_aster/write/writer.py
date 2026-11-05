@@ -49,6 +49,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         metadata["info"] = dict(description="")
 
     p = get_fem_model_from_assembly(assembly)
+    if p.fem.options.CODE_ASTER.write_sin:
+        # The input deck of the SIN the results are converted to (``options.CODE_ASTER.write_sin``), written before
+        # the set names are shortened for Code_Aster below: the deck keeps the model's own names.
+        from ada.fem.formats.sesam.write.writer import to_fem as to_sesam_deck
+
+        to_sesam_deck(assembly, name, analysis_dir, metadata={}, model_data_only=True)
     # Prepare model for
     shorten_material_names(assembly)
 

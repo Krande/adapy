@@ -50,9 +50,18 @@ def test_h5py_reader_matches_meshio(fem_files, rmed_rel):
         # back-fill with NaN (matches meshio's behaviour).
         np.testing.assert_array_equal(v, ref.point_data[k])
 
+    # Cell fields: the same values as meshio's, but not dealt out the way meshio deals them. MED stores a field
+    # component by component (MED_NO_INTERLACE); meshio reads a field of several points per cell as
+    # ``reshape((n_cells, n_points, -1), order="F")``, which spreads one cell's values over several cells
+    # (``med_cell_values``). Its array is undone back to the file's values and read the MED way.
+    from ada.fem.formats.code_aster.common import med_cell_values
+
     assert sorted(got.cell_data) == sorted(ref.cell_data)
     for k, blocks in got.cell_data.items():
         ref_blocks = ref.cell_data[k]
         assert len(blocks) == len(ref_blocks)
         for g_block, r_block in zip(blocks, ref_blocks):
+            r_block = np.asarray(r_block)
+            if r_block.ndim == 3 and r_block.shape[1] > 1:
+                r_block = med_cell_values(r_block.flatten(order="F"), r_block.shape[0], r_block.shape[1])
             np.testing.assert_array_equal(g_block, r_block)

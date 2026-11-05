@@ -181,15 +181,14 @@ def _read_element_values(supp_group, profiles) -> np.ndarray:
     data_profile = supp_group[profile]
     n_cells = int(data_profile.attrs["NBR"])
     n_gauss = int(data_profile.attrs["NGA"])
+    from ada.fem.formats.code_aster.common import med_cell_values
+
     if profile.decode() == "MED_NO_PROFILE_INTERNAL":
-        values = np.asarray(data_profile["CO"][()]).reshape((n_cells, n_gauss, -1), order="F")
+        values = med_cell_values(data_profile["CO"][()], n_cells, n_gauss)
     else:
         n_data = int(profiles[profile].attrs["NBR"])
         index_profile = np.asarray(profiles[profile]["PFL"][()]) - 1
-        values_profile = np.asarray(data_profile["CO"][()]).reshape(
-            (n_data, n_gauss, -1),
-            order="F",
-        )
+        values_profile = med_cell_values(data_profile["CO"][()], n_data, n_gauss)
         values = np.full(
             (n_cells, values_profile.shape[1], values_profile.shape[2]),
             np.nan,

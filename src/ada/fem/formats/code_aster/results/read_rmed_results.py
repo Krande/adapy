@@ -228,15 +228,17 @@ class MedReader:
         data_profile = med_data[profile]
         n_cells = data_profile.attrs["NBR"]
         n_gauss_points = data_profile.attrs["NGA"]
+        from ada.fem.formats.code_aster.common import med_cell_values
+
         if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
-            values = data_profile["CO"][()].reshape(n_cells, n_gauss_points, -1, order="F")
+            values = med_cell_values(data_profile["CO"][()], int(n_cells), int(n_gauss_points))
         else:
             # Partial profile: the field is on a subset of this cell type's cells -- a field computed over some element
             # groups only (CALC_CHAMP / IMPR_RESU with GROUP_MA, as for the membranes, trusses and cables beside
             # shells). PROFILS/<profile>/PFL holds the 1-based cell numbers of the subset and CO one row per subset
             # cell; scattered back to every cell of the type, NaN where the field is not defined, as for nodal data.
             prof_cells = self.f["PROFILS"][profile.decode()]["PFL"][()].astype(int)
-            sub = data_profile["CO"][()].reshape(len(prof_cells), n_gauss_points, -1, order="F")
+            sub = med_cell_values(data_profile["CO"][()], len(prof_cells), int(n_gauss_points))
             n_total = max(int(n_cells), int(prof_cells.max()))
             values = np.full((n_total, n_gauss_points, sub.shape[-1]), np.nan, dtype=float)
             values[prof_cells - 1] = sub

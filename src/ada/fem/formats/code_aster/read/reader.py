@@ -242,12 +242,14 @@ def _read_cell_data(med_data, profiles):
     data_profile = med_data[profile]
     n_cells = data_profile.attrs["NBR"]
     n_gauss_points = data_profile.attrs["NGA"]
+    from ada.fem.formats.code_aster.common import med_cell_values
+
     if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
-        values = data_profile["CO"][()].reshape(n_cells, n_gauss_points, -1, order="F")
+        values = med_cell_values(data_profile["CO"][()], int(n_cells), int(n_gauss_points))
     else:
         n_data = profiles[profile].attrs["NBR"]
         index_profile = profiles[profile]["PFL"][()] - 1
-        values_profile = data_profile["CO"][()].reshape(n_data, n_gauss_points, -1, order="F")
+        values_profile = med_cell_values(data_profile["CO"][()], int(n_data), int(n_gauss_points))
         values = np.full((n_cells, values_profile.shape[1], values_profile.shape[2]), np.nan)
         values[index_profile] = values_profile
 
