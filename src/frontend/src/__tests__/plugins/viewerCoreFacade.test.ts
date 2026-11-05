@@ -115,6 +115,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/plugins/sceneTreeRoots",
     "@/plugins/propertyProviders",
     "@/plugins/dialogs",
+    "@/plugins/loadClaims",
     "@/layout/panel",
     "@/layout/registry",
     "@/layout/reveal",

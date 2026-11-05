@@ -22,7 +22,7 @@ export type { SceneArrangement, SceneBodyProps } from "@/components/info_box_sce
 export type { SceneTab } from "@/components/info_box_scene/sceneTabs";
 export { CORE_PROPERTY_PROVIDERS, ObjectInfoBody } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
 export type { ObjectInfoBodyProps } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
-export { StorageBody } from "@/components/storage/StorageBrowser";
+export { STORAGE_MODIFIED_MIN_PX, StorageBody } from "@/components/storage/StorageBrowser";
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
 export {

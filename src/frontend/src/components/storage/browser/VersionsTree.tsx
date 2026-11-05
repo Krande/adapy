@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from "react";
 import type {ServerFileEntry} from "@/state/serverInfoStore";
 import type {BuildSidecar} from "@/hooks/useBuildSidecars";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
-import FileRow from "./FileRow";
+import FileRow, {type RowLoadProgress} from "./FileRow";
 import {BranchGroup, formatRelative, shortSha} from "./helpers";
 
 // ──────────────────────────────────────────────────────────────────
@@ -46,6 +46,7 @@ export interface VersionsTreeProps {
         items: KebabMenuItem[],
     ) => void;
     showModified?: boolean;
+    loadProgressFor?: (name: string) => RowLoadProgress | undefined;
 }
 
 const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
@@ -201,6 +202,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                     menuItems={items}
                                                                     onOpenContextMenu={(e) => props.onOpenContextMenu(e, items)}
                                                                     showModified={props.showModified}
+                                                                    loadProgress={props.loadProgressFor?.(leaf.file.name)}
                                                                 />
                                                             );
                                                         })}

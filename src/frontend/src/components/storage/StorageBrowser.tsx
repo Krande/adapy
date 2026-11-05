@@ -1,6 +1,5 @@
 import {PanelCard} from "@/components/ui/PanelFrame";
 import React, {useEffect, useMemo, useRef, useState} from "react";
-import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useModelState} from "@/state/modelState";
@@ -27,24 +26,50 @@ import {useFileOps} from "./browser/useFileOps";
 import {BulkBusy, useBulkActions} from "./browser/useBulkActions";
 import {useDragAndMenus} from "./browser/useDragAndMenus";
 import {useListKeyboardNav} from "./browser/useListKeyboardNav";
+import {useRowLoads} from "./browser/useRowLoads";
+import {selectionMenuItems, type SelectionMenuContext} from "./storageMenuItems";
+import type {ProceduralModelSummary} from "@/services/viewerApi";
 
 // The storage panel: composition of the hooks and pieces under ./browser.
 // State that several pieces share (selection, load queue, menus) lives in
 // `StorageBody`; everything else is owned by the hook that acts on it.
-// Maximize is presentation, so it is the frame's (`StorageBrowser`, below),
-// which hands it to the body.
+
+/** Below this width of the panel, `showModified: "auto"` hides the Modified column. */
+export const STORAGE_MODIFIED_MIN_PX = 420;
 
 export interface StorageBodyProps {
-    /** The frame shows the browser maximized: the list grows to fill it. */
+    /** @deprecated Ignored: the panel no longer maximizes. */
     maximized?: boolean;
-    /** Offered by a frame that can maximize; without it the header has no maximize toggle to act on. */
+    /** @deprecated Ignored: the panel no longer maximizes. */
     setMaximized?: React.Dispatch<React.SetStateAction<boolean>>;
+    /** Tell each row's scene load on the row (percent, stage, error, Cancel and Dismiss,
+     *  also in its menu) instead of a spinner; the rows claim those loads, so the progress
+     *  toast leaves them out. Default off. */
+    rowLoadProgress?: boolean;
+    /** Where a selection's bulk actions are: the toolbar under the header (default), or
+     *  an "N selected" group in each selected row's menu. */
+    selectionActions?: "toolbar" | "rowMenu";
+    /** Offer "Convert…" in a file row's menu, which calls this with the file's key. */
+    onConvert?: (key: string) => void;
+    /** Show a Close button in the header, which calls this. */
+    onClose?: () => void;
+    /** The header's scope line becomes a scope picker; switching asks first when it
+     *  would unload models. Default off. */
+    scopePicker?: boolean;
+    /** The Modified column: shown (default), hidden, or "auto": hidden while the panel is
+     *  narrower than `STORAGE_MODIFIED_MIN_PX`. */
+    showModified?: boolean | "auto";
 }
 
-const noMaximize = () => {};
-
 /** The storage browser's content: header, selection toolbar, upload progress, the file tree and its dialogs. */
-export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setMaximized = noMaximize}) => {
+export const StorageBody: React.FC<StorageBodyProps> = ({
+    rowLoadProgress = false,
+    selectionActions = "toolbar",
+    onConvert,
+    onClose,
+    scopePicker = false,
+    showModified = true,
+}) => {
     const allFiles = useServerInfoStore((s) => s.serverFileObjects);
     // Published-asset blobs are storage, not "my files": a publishing scope
     // holds thousands under assets/<collection>/<subject>/<revision>/, and none
@@ -89,14 +114,21 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
     // spinner tracks whichever model the queue is currently loading.
     const loadCurrent = useLoadQueueStore((s) => s.current);
     const loadQueued = useLoadQueueStore((s) => s.queued);
-    const enqueueLoad = useLoadQueueStore((s) => s.enqueue);
+    const queueEnqueue = useLoadQueueStore((s) => s.enqueue);
     const removeQueuedLoad = useLoadQueueStore((s) => s.removeQueued);
     const viewingName = loadCurrent?.name ?? null;
     const queuedLoadNames = new Set(loadQueued.map((t) => t.name));
+    const scopeKey = scopeUrlPart(currentScope);
+    const rowLoads = useRowLoads({enabled: rowLoadProgress, scopeKey, viewingName, queuedLoadNames});
+    const enqueueLoad: typeof queueEnqueue = rowLoadProgress
+        ? (task) => {
+            rowLoads.beforeEnqueue(task.name);
+            queueEnqueue(task);
+        }
+        : queueEnqueue;
     // Source name of the FEA picker modal, or null if closed. Only one
     // picker open at a time matches the file-list interaction model.
     const [pickerName, setPickerName] = useState<string | null>(null);
-    const scopeKey = scopeUrlPart(currentScope);
     const folderTree = useFolderTree(scopeKey, files);
     const {expandedFolders, setExpandedFolders, toggleFolder, pendingFolders, setPendingFolders,
         removePendingFoldersUnder, newFolderAt, setNewFolderAt} = folderTree;
@@ -239,11 +271,35 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
     });
     const {onToggle, onLoadStreamer, onLoadSelected, onUnloadSelected, onDeleteSelected, onMoveSelected, onHideAll} = bulk;
 
+    const selectionFor = (name: string): SelectionMenuContext | undefined => {
+        if (selectionActions !== "rowMenu" || !selection.has(name)) return undefined;
+        const keys = Array.from(selection);
+        const models = keys.map((k) => proceduralByName.get(k)).filter((m): m is ProceduralModelSummary => !!m);
+        return {
+            count: selection.size,
+            hasVersions: keys.some((k) => k.replace(/^\/+/, "").startsWith("versions/")),
+            busy: bulkBusy !== null,
+            canLoad: selection.size - models.length + models.filter((m) => !!m.latest_glb_key).length > 0,
+            onLoad: onLoadSelected,
+            onUnload: onUnloadSelected,
+            onMove: canMutate ? onMoveSelected : undefined,
+            onDelete: canMutate ? () => void onDeleteSelected() : undefined,
+            onClear: clearSelection,
+        };
+    };
+    const proceduralMenuItems = (m: ProceduralModelSummary, displayName: string): KebabMenuItem[] => {
+        const items = procedural.proceduralMenuItems(m, displayName);
+        return selectionActions === "rowMenu" ? [...items, ...selectionMenuItems(selectionFor(m.name))] : items;
+    };
+
     const dnd = useDragAndMenus({
         selection, canMutate, loadedSourceNames, viewingName, placementItems, runFolderMove,
         moveKeysWithProgress, uploadFilesTo, onToggle, onLoadStreamer, onDownloadFile, setRenaming,
         onMoveSingleToFolder, onDeleteFile, uploadTargetRef, fileInputRef, setNewFolderAt,
-        setExpandedFolders, onMoveFolderInto, onDeleteFolder,
+        setExpandedFolders, onMoveFolderInto, onDeleteFolder, onConvert,
+        cancelLoadFor: rowLoadProgress ? rowLoads.cancelFor : undefined,
+        dismissLoadFor: rowLoadProgress ? rowLoads.dismissFor : undefined,
+        selectionFor: selectionActions === "rowMenu" ? selectionFor : undefined,
     });
 
     const nav = useListKeyboardNav({
@@ -252,6 +308,26 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
         onDeleteFile, onDeleteFolder,
     });
     const {focusedKey, setFocusedKey, flatRows} = nav;
+
+    // "auto": the Modified column needs the room; measured on the list's container.
+    // The list mounts and unmounts with the files, so the observed element is checked after every render.
+    const [narrow, setNarrow] = useState(false);
+    const observed = useRef<{el: Element | null; ro: ResizeObserver | null}>({el: null, ro: null});
+    useEffect(() => {
+        const o = observed.current;
+        const el = showModified === "auto"
+            ? nav.listScrollRef.current?.parentElement ?? nav.listScrollRef.current
+            : null;
+        if (el === o.el) return;
+        o.ro?.disconnect();
+        o.el = el;
+        o.ro = null;
+        if (!el || typeof ResizeObserver === "undefined") return;
+        o.ro = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < STORAGE_MODIFIED_MIN_PX));
+        o.ro.observe(el);
+    });
+    useEffect(() => () => observed.current.ro?.disconnect(), []);
+    const modifiedShown = showModified === "auto" ? !narrow : showModified;
 
     // Row selection, shared by file rows and procedural-model rows. Both are
     // leaves of the same tree, so shift-range has to run over the same visible
@@ -312,10 +388,10 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
                 anyLoaded={anyLoaded}
                 bulkBusy={bulkBusy}
                 onHideAll={onHideAll}
-                maximized={maximized}
-                setMaximized={setMaximized}
+                onClose={onClose}
+                scopePicker={scopePicker}
             />
-            {inSelectionMode && (
+            {inSelectionMode && selectionActions === "toolbar" && (
                 <SelectionToolbar
                     selection={selection}
                     proceduralByName={proceduralByName}
@@ -342,7 +418,8 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
                 visibleTree={visibleTree}
                 pendingFolders={pendingFolders}
                 sidecars={sidecars}
-                maximized={maximized}
+                showModified={modifiedShown}
+                loadProgressFor={rowLoadProgress ? rowLoads.progressFor : undefined}
                 listScrollRef={nav.listScrollRef}
                 onListKeyDown={nav.onListKeyDown}
                 handleDropOnFolder={dnd.handleDropOnFolder}
@@ -355,7 +432,7 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
                 openProceduralModel={procedural.openProceduralModel}
                 isProceduralLoaded={isProceduralLoaded}
                 toggleProceduralLoaded={toggleProceduralLoaded}
-                proceduralMenuItems={procedural.proceduralMenuItems}
+                proceduralMenuItems={proceduralMenuItems}
                 fileMenuItems={dnd.fileMenuItems}
                 versionFileMenuItems={dnd.versionFileMenuItems}
                 folderMenuItems={dnd.folderMenuItems}
@@ -406,65 +483,20 @@ export const StorageBody: React.FC<StorageBodyProps> = ({maximized = false, setM
     );
 };
 
-/** The classic frame: a menu-column card that maximizes to a centred overlay. */
-const StorageBrowser: React.FC = () => {
-    // Maximize: same component, restyled as a centered fixed overlay
-    // with a backdrop. Styling-only so every bit of panel state
-    // (selection, expansion, menus) survives the toggle.
-    const [maximized, setMaximized] = useState(false);
-    useEffect(() => {
-        if (!maximized) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setMaximized(false);
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [maximized]);
-
-    return (
-        <PanelCard
-            data-no-upload-menu
-            // Compact: match ObjectInfoBox footprint (viewport-clamped
-            // max-width so the panel self-contains on mobile).
-            // Maximized: same element restyled as a centered fixed
-            // overlay — styling-only so panel state survives the
-            // toggle. The host column has no transform ancestors, so
-            // position:fixed escapes it cleanly.
-            className={
-                maximized
-                    ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
-                      // Same footprint as the floating admin panel
-                      // (InViewerPanelHost: 1100×720 capped to the
-                      // viewport). dvh not vh: on mobile 100vh includes
-                      // the area behind the browser chrome, so a
-                      // vh-sized panel ran past the visible bottom.
-                      "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
-                    : // Mobile: bound the panel to the viewport and SCROLL its
-                      // content (overflow-y-auto), so a long file list can't run
-                      // the panel past the bottom of the screen. Desktop keeps the
-                      // natural unbounded block layout (md:max-h-none md:overflow-visible).
-                      "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
-                      "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible"
-            }
-        >
-            {maximized && createPortal(
-                // Light scrim — just enough to signal modality without
-                // blacking out the 3D scene. z-[5]: the panel lives in
-                // the menu overlay's `z-10` stacking context, so its
-                // own z-index can never exceed 10 at the root level —
-                // a body-portaled scrim above 10 paints OVER the panel
-                // and darkens it too (visibly so on mobile). Below 10
-                // it dims only the canvas underneath.
-                <div
-                    className="fixed inset-0 z-[5] bg-black/25"
-                    onClick={() => setMaximized(false)}
-                    aria-hidden="true"
-                />,
-                document.body,
-            )}
-            <StorageBody maximized={maximized} setMaximized={setMaximized}/>
-        </PanelCard>
-    );
-};
-
+/** The classic frame: a menu-column card. */
+const StorageBrowser: React.FC = () => (
+    <PanelCard
+        data-no-upload-menu
+        // Match the ObjectInfoBox footprint (viewport-clamped max-width so the
+        // panel self-contains on mobile). Mobile: bound the panel to the viewport
+        // and SCROLL its content, so a long file list can't run the panel past the
+        // bottom of the screen. Desktop keeps the natural unbounded block layout.
+        className={
+            "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
+            "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible"
+        }
+    >
+        <StorageBody/>
+    </PanelCard>
+);
 export default StorageBrowser;

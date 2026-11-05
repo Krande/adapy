@@ -6,7 +6,7 @@ import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {canOpenInScene} from "@/utils/scene/fileKinds";
 import {openFolderInGallery} from "@/services/galleryFolder";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {buildFileMenuItems, buildFolderMenuItems} from "../storageMenuItems";
+import {buildFileMenuItems, buildFolderMenuItems, type SelectionMenuContext} from "../storageMenuItems";
 import {FOLDER_MIME, KEYS_MIME, basenameOf, dirnameOf} from "./helpers";
 import type {useProceduralModels} from "./useProceduralModels";
 
@@ -33,12 +33,19 @@ export function useDragAndMenus(p: {
     setExpandedFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
     onMoveFolderInto: (folderPath: string) => void;
     onDeleteFolder: (path: string, fileCount: number, isPending: boolean) => Promise<void>;
+    /** The host's Convert, offered on file rows when set. */
+    onConvert?: (key: string) => void;
+    /** A row's load Cancel / Dismiss, when it has one. */
+    cancelLoadFor?: (name: string) => (() => void) | undefined;
+    dismissLoadFor?: (name: string) => (() => void) | undefined;
+    /** The selection's actions, on a row that is part of it. */
+    selectionFor?: (name: string) => SelectionMenuContext | undefined;
 }) {
     const {
         selection, canMutate, loadedSourceNames, viewingName, placementItems, runFolderMove,
         moveKeysWithProgress, uploadFilesTo, onToggle, onLoadStreamer, onDownloadFile, setRenaming,
         onMoveSingleToFolder, onDeleteFile, uploadTargetRef, fileInputRef, setNewFolderAt,
-        setExpandedFolders, onMoveFolderInto, onDeleteFolder,
+        setExpandedFolders, onMoveFolderInto, onDeleteFolder, onConvert, cancelLoadFor, dismissLoadFor, selectionFor,
     } = p;
     // In-panel drag state: keys being dragged (for row dimming + the
     // move-to-root strip). Cleared on dragend/drop.
@@ -105,6 +112,10 @@ export function useDragAndMenus(p: {
                     ? () => onLoadStreamer(f.name)
                     : undefined,
             onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
+            onConvert: onConvert ? () => onConvert(f.name) : undefined,
+            onCancelLoad: cancelLoadFor?.(f.name),
+            onDismissLoadStatus: dismissLoadFor?.(f.name),
+            selection: selectionFor?.(f.name),
             onCopyPath: () => void writeToClipboard(f.name),
             onRename: () => setRenaming({kind: "file", path: f.name}),
             onMoveToFolder: () => onMoveSingleToFolder(f.name),
@@ -125,6 +136,10 @@ export function useDragAndMenus(p: {
                     ? () => onLoadStreamer(f.name)
                     : undefined,
             onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
+            onConvert: onConvert ? () => onConvert(f.name) : undefined,
+            onCancelLoad: cancelLoadFor?.(f.name),
+            onDismissLoadStatus: dismissLoadFor?.(f.name),
+            selection: selectionFor?.(f.name),
             onCopyPath: () => void writeToClipboard(f.name),
         });
     };

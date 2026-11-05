@@ -167,7 +167,14 @@
 //          In-app dialogs on the root: `confirmDialog` / `alertDialog` /
 //          `promptDialog` (promise-based; core's storage panel asks through them
 //          instead of `window.confirm` / `alert` / `prompt`) and `setDialogHost`,
-//          which installs a host's own. Additive.
+//          which installs a host's own.
+//          Storage: `StorageBodyProps` (`rowLoadProgress`, `selectionActions:
+//          "toolbar" | "rowMenu"`, `onConvert`, `onClose`, `scopePicker`,
+//          `showModified: boolean | "auto"`) and `STORAGE_MODIFIED_MIN_PX`; its
+//          `maximized` / `setMaximized` are kept, ignored and deprecated (the panel no
+//          longer maximizes). On the root, the load claims the progress toast
+//          consults by default: `claimLoad` / `releaseLoad` / `isLoadClaimed`,
+//          `subscribeLoadClaims`, `loadClaimsVersion`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -294,6 +301,13 @@ export type {
   DialogTone,
   PromptOptions,
 } from "@/plugins/dialogs";
+export {
+  claimLoad,
+  isLoadClaimed,
+  loadClaimsVersion,
+  releaseLoad,
+  subscribeLoadClaims,
+} from "@/plugins/loadClaims";
 export { bindStoreFlag, watchStores } from "@/layout/bindings";
 export type { FlagStore } from "@/layout/bindings";
 export {
