@@ -13,7 +13,7 @@
 import React from "react";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
-import {PanelFrame} from "@/components/ui/PanelFrame";
+import {PanelFrame, WindowDockProvider, type WindowDock} from "@/components/ui/PanelFrame";
 
 import {PanelMount, usePanelStates, useLayout, zonePanels} from "./LayoutHost";
 import type {PanelEnv, PanelId, PanelProps, RegisteredPanel, ZoneId} from "./panel";
@@ -70,9 +70,13 @@ export interface FloatLayerProps {
   chromeFor?: (panel: RegisteredPanel) => WindowChrome | undefined;
   /** Components the preset provides synchronously, by panel id. */
   provided?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>;
+  /** A panel the preset shows elsewhere right now (e.g. docked): not mounted here. */
+  skip?: (panel: RegisteredPanel) => boolean;
+  /** What the preset lets a panel's window do (`WindowDockProvider`); null: nothing more. */
+  windowDock?: (panel: RegisteredPanel) => WindowDock | null;
 }
 
-export function FloatLayer({zone, mount, chromeFor, provided}: FloatLayerProps) {
+export function FloatLayer({zone, mount, chromeFor, provided, skip, windowDock}: FloatLayerProps) {
   const {preset, env} = useLayout();
   const panels = zonePanels(preset, zone);
   const states = usePanelStates(panels, env);
@@ -81,17 +85,25 @@ export function FloatLayer({zone, mount, chromeFor, provided}: FloatLayerProps) 
       {panels.map((panel) => {
         const state = states.get(panel.id)!;
         if (!(mount ? mount(panel, state, env) : mountWhenOpen(state, env))) return null;
+        if (skip?.(panel)) return null;
         const close = () => void hide(panel.id);
         const props: PanelProps = {panelId: panel.id, host: {kind: "float", zone}, close, isActive: true};
+        let win: React.ReactNode;
         if (panel.frame === "own") {
-          return <PanelMount key={panel.id} panel={panel} provided={provided?.[panel.id]} props={props} />;
+          win = <PanelMount panel={panel} provided={provided?.[panel.id]} props={props} />;
+        } else {
+          const Chrome = chromeFor?.(panel) ?? DefaultWindowChrome;
+          // The chrome's frame has the Suspense boundary (and its "Loading…" line) a lazy body needs.
+          win = (
+            <Chrome panel={panel} close={close}>
+              <PanelMount panel={panel} provided={provided?.[panel.id]} props={props} outerSuspense />
+            </Chrome>
+          );
         }
-        const Chrome = chromeFor?.(panel) ?? DefaultWindowChrome;
-        // The chrome's frame has the Suspense boundary (and its "Loading…" line) a lazy body needs.
         return (
-          <Chrome key={panel.id} panel={panel} close={close}>
-            <PanelMount panel={panel} provided={provided?.[panel.id]} props={props} outerSuspense />
-          </Chrome>
+          <WindowDockProvider key={panel.id} value={windowDock?.(panel) ?? null}>
+            {win}
+          </WindowDockProvider>
         );
       })}
     </>

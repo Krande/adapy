@@ -117,10 +117,14 @@ export interface ZoneKeysProps {
   movePanel?(panelId: PanelId, dir: ArrowDirection): void;
 }
 
-/** The docked panel focus is on: in a `"dock"` zone, the nearest element naming a panel. */
+/**
+ * The docked panel focus is on: in a `"dock"` zone, the nearest element naming
+ * a panel; elsewhere, the panel whose header actions have focus.
+ */
 function dockedPanelOf(el: Element | null): PanelId | null {
-  if (!el?.closest?.(`[${ZONE_ATTR}="dock"]`)) return null;
-  return el.closest(`[${ZONE_PANEL_ATTR}]`)?.getAttribute(ZONE_PANEL_ATTR) ?? null;
+  if (!el?.closest) return null;
+  if (el.closest(`[${ZONE_ATTR}="dock"]`)) return el.closest(`[${ZONE_PANEL_ATTR}]`)?.getAttribute(ZONE_PANEL_ATTR) ?? null;
+  return el.closest(`[${PANEL_ACTIONS_ATTR}]`)?.getAttribute(PANEL_ACTIONS_ATTR) ?? null;
 }
 
 /** Listens for the zone keys while mounted. Draws nothing. */

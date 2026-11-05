@@ -58,20 +58,26 @@ import {viewerLayoutPersistence} from "../viewerPersistence";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
 import type {PanelState} from "../panelStates";
 import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
-import {listToolbarPanels} from "../registry";
+import {getPanel, listToolbarPanels} from "../registry";
 import {hide, toggle} from "../reveal";
 import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, toolbarPresence} from "./classicRules";
 import {PANEL_TOGGLE_ATTR, ZONE_ATTR} from "../zoneKeys";
+import {endDockDragAt, moveDockDrag} from "../dockDrag";
+import {gridOf} from "../reducers";
+import {gridPanels, shownGrid, type Rect} from "../splitTree";
+import {useIsNarrow} from "@/utils/useIsMobile";
+import type {WindowDock} from "@/components/ui/PanelFrame";
+import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
+import {GridView, ViewportDropTarget} from "./classicGrid";
 import {
-  ClassicZoneKeys,
-  ColumnDropTarget,
-  MinimisedTray,
-  UndockedLayer,
-  columnActions,
-  isUndocked,
+  canDock,
+  dropPanel,
+  homeOf,
+  moveAction,
+  shownPlace,
   useClassicDoc,
   useCustomisablePanels,
-} from "./classicUndock";
+} from "./classicPlace";
 
 const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
 
@@ -227,12 +233,13 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const {preset, env} = useLayout();
   const customisable = useCustomisablePanels();
   const doc = useClassicDoc();
+  const narrow = useIsNarrow();
   // Core's panels; the plugin `top-panel` region host draws the plugins' at their slot.
   const panels = zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER);
   const states = usePanelStates(panels, env);
   const render = (p: RegisteredPanel) => (
     <React.Fragment key={p.id}>
-      {!(customisable && isUndocked(doc, p.id)) && (
+      {shownPlace(doc, p.id, customisable, narrow) === "home" && (
         <ColumnPanel
           panel={p}
           state={states.get(p.id)!}
@@ -257,21 +264,29 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   );
 }
 
-/** The top bar over the panel column, pushed right by the open tree on wide screens. */
-function ClassicMenu() {
+/**
+ * The top bar over the panel column, pushed right by the open tree on wide
+ * screens, and over the viewport where the split grid has groups left of or
+ * above it.
+ */
+function ClassicMenu({viewport}: {viewport: Rect | null}) {
   const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);
   const isTreeCollapsed = useTreeViewStore((s) => s.isTreeCollapsed);
   const treeViewWidth = useTreeViewStore((s) => s.treeViewWidth);
   const isWide = useIsWide();
   const proceduralActive = useProceduralActive();
+  const doc = useClassicDoc();
+  const customisable = useCustomisablePanels();
+  const treeHome = shownPlace(doc, CORE_PANEL_IDS.tree, customisable, !isWide) === "home";
   // The tree is a push track on desktop; on phones it overlays, as there is no
   // horizontal room to give up.
-  const menuShiftPx = !isTreeCollapsed && isWide ? treeViewWidth : 0;
+  const menuShiftPx = Math.max(!isTreeCollapsed && isWide && treeHome ? treeViewWidth : 0, Math.round(viewport?.left ?? 0));
+  const top = Math.round(viewport?.top ?? 0);
   return (
     <div className="relative w-full h-full">
       <div
         className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
-        style={{paddingLeft: `${menuShiftPx}px`}}
+        style={top > 0 ? {paddingLeft: `${menuShiftPx}px`, paddingTop: `${top + 8}px`} : {paddingLeft: `${menuShiftPx}px`}}
       >
         <ClassicToolbar nodeEditorOnly={!!nodeEditorOnly} />
         <ClassicColumn proceduralActive={proceduralActive} />
@@ -286,18 +301,22 @@ function ClassicMenu() {
 
 function TreeZone() {
   const {preset, env} = useLayout();
+  const customisable = useCustomisablePanels();
+  const doc = useClassicDoc();
+  const narrow = useIsNarrow();
   const panels = zonePanels(preset, CLASSIC_ZONES.tree);
   const states = usePanelStates(panels, env);
   return (
     <>
       {panels.map((p) =>
-        mounts(p.id, {state: states.get(p.id)!, env, proceduralActive: false}) ? (
-          <PanelMount
-            key={p.id}
-            panel={p}
-            provided={CLASSIC_PANEL_COMPONENTS[p.id]}
-            props={{panelId: p.id, host: {kind: "dock", zone: CLASSIC_ZONES.tree}, close: () => void hide(p.id), isActive: true}}
-          />
+        mounts(p.id, {state: states.get(p.id)!, env, proceduralActive: false}) && shownPlace(doc, p.id, customisable, narrow) === "home" ? (
+          <PanelHeaderActionsProvider key={p.id} actions={customisable ? columnActions(p) : NO_ACTIONS} panelId={customisable ? p.id : undefined}>
+            <PanelMount
+              panel={p}
+              provided={CLASSIC_PANEL_COMPONENTS[p.id]}
+              props={{panelId: p.id, host: {kind: "dock", zone: CLASSIC_ZONES.tree}, close: () => void hide(p.id), isActive: true}}
+            />
+          </PanelHeaderActionsProvider>
         ) : null,
       )}
     </>
@@ -338,16 +357,61 @@ function useMountRule(): (panel: RegisteredPanel, state: PanelState, env: PanelE
   return (panel, state, env) => mounts(panel.id, {state, env, proceduralActive});
 }
 
+const sameRect = (a: Rect | null, b: Rect | null) =>
+  a === b || (!!a && !!b && a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height);
+
+/** What a panel's own window may do with "Customisable panels" on: move to the grid by its menu or a drag. */
+function useWindowDock(): (panel: RegisteredPanel) => WindowDock | null {
+  const customisable = useCustomisablePanels();
+  const narrow = useIsNarrow();
+  const doc = useClassicDoc();
+  return (panel) =>
+    customisable && !narrow && canDock(panel)
+      ? {
+          panelId: panel.id,
+          actions: [moveAction(panel, doc)],
+          onDragMove: (p) => moveDockDrag(panel.id, p.x, p.y),
+          onDragEnd: (p) => dropPanel(panel.id, endDockDragAt(p.x, p.y)),
+        }
+      : null;
+}
+
 /** The classic frame: `AppBody`'s tree, its zones filled from the registry. */
 function ClassicFrame() {
   const {preset, env} = useLayout();
   const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);
   const mount = useMountRule();
   const customisable = useCustomisablePanels();
+  const narrow = useIsNarrow();
+  const doc = useClassicDoc();
+  const windowDock = useWindowDock();
   // The in-viewer windows follow the preset's exclusive-group rule.
   React.useEffect(() => useViewerPanelStore.getState().setExclusive(!customisable), [customisable]);
+
+  // The split grid: the docked panels that are open, around the viewport.
+  const frameRef = React.useRef<HTMLDivElement>(null);
+  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const gridOn = customisable && !narrow && !nodeEditorOnly;
+  const docked = gridOn ? gridPanels(gridOf(doc)).map((id) => getPanel(id)).filter((p): p is RegisteredPanel => !!p && canDock(p)) : [];
+  const states = usePanelStates(docked, env);
+  const proceduralActive = useProceduralActive();
+  const shows = (id: PanelId) => {
+    const p = docked.find((x) => x.id === id);
+    const s = p && states.get(id);
+    return !!p && !!s && s.open && s.available && mounts(id, {state: s, env, proceduralActive});
+  };
+  const grid = gridOn ? shownGrid(gridOf(doc), shows) : null;
+  const split = !!grid && grid.kind !== "viewport";
+  const [vp, setVp] = React.useState<Rect | null>(null);
+  const onViewportRect = React.useCallback((r: Rect) => setVp((v) => (sameRect(v, r) ? v : r)), []);
+  const placed = split ? vp : null;
+  const where = (p: RegisteredPanel) => shownPlace(doc, p.id, customisable, narrow);
+  // Home in the column or the tree track, for the layout's windows.
+  const floatable = [...zonePanels(preset, CLASSIC_ZONES.menuColumn), ...zonePanels(preset, CLASSIC_ZONES.tree)].filter(
+    (p) => p.owner === CORE_PANEL_OWNER,
+  );
   return (
-    <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
+    <div ref={frameRef} className={"relative flex flex-row h-full w-full bg-gray-900"}>
       {/* Tree View Section */}
       <div className={"relative h-full"}>
         <TreeZone />
@@ -356,27 +420,36 @@ function ClassicFrame() {
       <SceneMenuHost />
 
       <div className={"relative top-0 left-0"}>
-        <ClassicMenu />
+        <ClassicMenu viewport={placed} />
       </div>
 
-      {/* The viewport: rendered once, never inside a movable container. */}
-      <div className={"w-full h-full"} {...(customisable ? {[ZONE_ATTR]: "viewport", tabIndex: -1} : {})}>
+      {split && <GridView grid={grid!} doc={doc} contents={CLASSIC_PANEL_CONTENTS} frame={frameRef} onViewportRect={onViewportRect} />}
+
+      {/* The viewport: rendered once, never inside a movable container. With the
+          grid split, it is placed over the grid's viewport slot, never moved. */}
+      <div
+        ref={viewportRef}
+        className={"w-full h-full"}
+        {...(customisable ? {[ZONE_ATTR]: "viewport", tabIndex: -1} : {})}
+        style={placed ? {position: "absolute", left: placed.left, top: placed.top, width: placed.width, height: placed.height} : undefined}
+      >
         {nodeEditorOnly ? <NodeEditorComponent /> : <CanvasWrapper />}
       </div>
 
       {/* Windows: the node editor in the tree, the attribute search in its own portal. */}
-      <FloatLayer zone={CLASSIC_ZONES.float} mount={mount} provided={CLASSIC_PANEL_COMPONENTS} />
+      <FloatLayer
+        zone={CLASSIC_ZONES.float}
+        mount={mount}
+        provided={CLASSIC_PANEL_COMPONENTS}
+        skip={(p) => where(p) === "grid"}
+        windowDock={windowDock}
+      />
 
-      {/* Column panels the user floated ("Customisable panels"), and the keys between zones. */}
+      {/* Panels the user floated ("Customisable panels"), the drop targets, and the keys between zones. */}
       {customisable && <ClassicZoneKeys />}
       {customisable && <ColumnDropTarget />}
-      {customisable && (
-        <UndockedLayer
-          panels={zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER)}
-          mounts={mount}
-          contents={CLASSIC_PANEL_CONTENTS}
-        />
-      )}
+      {gridOn && <ViewportDropTarget viewport={viewportRef} />}
+      {customisable && <UndockedLayer panels={floatable} mounts={mount} contents={CLASSIC_PANEL_CONTENTS} />}
 
       {env.restMode === true && (
         <Suspense fallback={null}>
@@ -391,6 +464,8 @@ function ClassicFrame() {
         mount={mount}
         chromeFor={() => ViewerWindowChrome}
         provided={CLASSIC_PANEL_COMPONENTS}
+        skip={(p) => where(p) === "grid"}
+        windowDock={windowDock}
       />
     </div>
   );

@@ -13,7 +13,10 @@
 //     where a layout host's actions (float, dock, minimise) go. It renders
 //     nothing until a host provides actions (`PanelHeaderActionsProvider`).
 //     `PanelCard` carries it beside its heading.
-//   * `WindowHeaderMenuButton` -- an action with a `menu` (move to a dock...).
+//   * `WindowHeaderMenuButton` -- an action with a `menu` (move to the grid...).
+//   * `WindowDockProvider` -- what a host lets a panel's own window do: its
+//     title-bar actions (`WindowFrame`, `WindowDockActions`) and drag-to-dock
+//     (`FloatingWindow`).
 //
 // Markup is exactly what the panels drew before, so adopting a frame changes no
 // pixel and no DOM node.
@@ -22,7 +25,7 @@ import React, {Suspense, createContext, useContext, useEffect, useLayoutEffect, 
 import {createPortal} from "react-dom";
 
 import type {PanelAction, PanelFrameProps} from "@/layout/panel";
-import {PANEL_ACTIONS_ATTR} from "@/layout/zoneKeys";
+import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "@/layout/zoneKeys";
 import {
   WINDOW_CARD,
   WINDOW_HEADER_BUTTON,
@@ -299,17 +302,65 @@ export interface WindowFrameProps {
   children?: React.ReactNode;
 }
 
+/**
+ * What a layout host lets a panel's OWN window do: its title-bar actions (move
+ * to the grid...), and what dragging it by its title bar does. A
+ * `FloatingWindow` and a `WindowFrame` inside `WindowDockProvider` pick it up;
+ * the window's content does not.
+ */
+export interface WindowDock {
+  panelId: string;
+  actions: readonly PanelAction[];
+  onDragMove(pointer: {x: number; y: number}): void;
+  /** True when the drop was taken (the window is docked). */
+  onDragEnd(pointer: {x: number; y: number}): boolean;
+}
+
+const WindowDockContext = createContext<WindowDock | null>(null);
+
+export const WindowDockProvider: React.FC<{value: WindowDock | null; children: React.ReactNode}> = ({value, children}) => (
+  <WindowDockContext.Provider value={value}>{children}</WindowDockContext.Provider>
+);
+
+/** The host's offer to the window this is in; null outside one. */
+export function useWindowDock(): WindowDock | null {
+  return useContext(WindowDockContext);
+}
+
+/** Marks a window's root as a floating zone holding its panel, for the zone keys. */
+export function windowDockAttrs(dock: WindowDock | null): Record<string, string> {
+  return dock ? {[ZONE_ATTR]: "float", [ZONE_PANEL_ATTR]: dock.panelId} : {};
+}
+
+/** The host's actions in a window's own title bar; nothing outside `WindowDockProvider`. */
+export function WindowDockActions() {
+  const dock = useWindowDock();
+  if (!dock || dock.actions.length === 0) return null;
+  return <WindowHeaderActions panelId={dock.panelId}>{dock.actions.map(actionButton)}</WindowHeaderActions>;
+}
+
 /** A floating window's card: title bar over a body that may load lazily. */
 export function WindowFrame({title, subtitle, dragHandleClassName, actions, children}: WindowFrameProps) {
+  const dock = useWindowDock();
+  const offered = dock && dock.actions.length > 0;
   return (
-    <div className={WINDOW_CARD}>
+    <div className={WINDOW_CARD} {...windowDockAttrs(dock)}>
       <div className={windowHeaderClass(dragHandleClassName)}>
         <span className="font-medium text-sm truncate">{title}</span>
         {subtitle != null && <span className="hidden sm:inline text-xs text-gray-400 truncate">{subtitle}</span>}
-        {actions}
+        {offered ? (
+          <div className="ml-auto flex items-center gap-1" {...{[PANEL_ACTIONS_ATTR]: dock.panelId}}>
+            {dock.actions.map(actionButton)}
+            {actions}
+          </div>
+        ) : (
+          actions
+        )}
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
-        <Suspense fallback={<div className="p-4 text-sm text-gray-400">Loading…</div>}>{children}</Suspense>
+        <WindowDockContext.Provider value={null}>
+          <Suspense fallback={<div className="p-4 text-sm text-gray-400">Loading…</div>}>{children}</Suspense>
+        </WindowDockContext.Provider>
       </div>
     </div>
   );
