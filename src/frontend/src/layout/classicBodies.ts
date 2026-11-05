@@ -18,11 +18,11 @@
 // search, admin, convert, the catalog editors) are not here: the catalogue loads
 // those chunks directly, as the classic UI always has.
 
-import type React from "react";
+import React from "react";
 
 import OptionsComponent, { OptionsBody } from "@/components/OptionsComponent";
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView";
-import AssetBrowser from "@/components/asset_browser/AssetBrowser";
+import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from "@/components/asset_browser/AssetBrowser";
 import NodeEditorComponent from "@/components/node_editor/NodeEditorComponent";
 import NodeEditorBody from "@/components/node_editor/NodeEditorBody";
 import ServerInfoBox, { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
@@ -40,6 +40,21 @@ import type { PanelId, PanelProps } from "./panel";
 
 /** A component that ignores the host's `PanelProps`, as a panel body. */
 const asBody = (c: React.ComponentType<never>) => c as unknown as React.ComponentType<PanelProps>;
+
+/** The selection tree without its drawer: the Scene | Sources tabs (with a server) over the tree. */
+const SelectionTreeContent: React.FC = () =>
+  React.createElement(
+    "div",
+    { className: "flex flex-col h-full min-h-0 text-white" },
+    assetsTabAvailable()
+      ? React.createElement("div", { className: "flex items-center h-9 shrink-0 border-b border-gray-700/80" }, React.createElement(AssetBrowserTabs))
+      : null,
+    React.createElement(AssetBrowser),
+  );
+
+/** A catalog editor as the admin panel embeds it: no floating card of its own. */
+const embedded = (c: React.ComponentType<{ embedded?: boolean }>) =>
+  asBody(() => React.createElement(c, { embedded: true }));
 
 /** Each core panel's classic component: its content in its classic frame. */
 export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentType<PanelProps>>> = {
@@ -59,7 +74,7 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
 /** Each core panel's content without its classic frame. */
 export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentType<PanelProps>>> = {
   [CORE_PANEL_IDS.options]: asBody(OptionsBody),
-  [CORE_PANEL_IDS.tree]: asBody(AssetBrowser),
+  [CORE_PANEL_IDS.tree]: asBody(SelectionTreeContent),
   [CORE_PANEL_IDS.nodeEditor]: asBody(NodeEditorBody),
   [CORE_PANEL_IDS.serverInfo]: asBody(ServerInfoBody),
   [CORE_PANEL_IDS.objectInfo]: asBody(ObjectInfoBody),
@@ -93,6 +108,8 @@ const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
   [CORE_PANEL_IDS.storage]: () => import("@/components/storage/StorageBrowser").then((m) => asBody(m.StorageBody)),
   [CORE_PANEL_IDS.attributeSearch]: () =>
     import("@/components/asset_browser/AttributeSearchPanel").then((m) => asBody(m.default)),
+  [CORE_PANEL_IDS.equipmentAdmin]: () => import("@/components/admin/EquipmentAdminPanel").then((m) => embedded(m.default)),
+  [CORE_PANEL_IDS.systemAdmin]: () => import("@/components/admin/SystemAdminPanel").then((m) => embedded(m.default)),
 };
 
 /**

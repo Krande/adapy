@@ -28,6 +28,7 @@ import {useComponentSpecsStore} from "@/state/componentSpecsStore";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {useModelState} from "@/state/modelState";
+import {PanelHeaderActions, usePanelHeaderActions} from "@/components/ui/PanelFrame";
 
 // Specs are fetched centrally by componentSpecsStore (re-fetches on
 // scope change, drives Menu button visibility). Builds always run in
@@ -234,9 +235,17 @@ export const ComponentControlsBody: React.FC = () => {
 /** The classic frame: a dark card in the menu column, shown while the panel is toggled on. */
 const ComponentControls: React.FC = () => {
     const isVisible = useComponentControlsStore((s) => s.isVisible);
+    // A layout host's actions (float, dock) need a header to sit in; the card has none of its own.
+    const hosted = usePanelHeaderActions().length > 0;
     if (!isVisible) return null;
     return (
         <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[280px]">
+            {hosted && (
+                <div className="flex items-center gap-2">
+                    <span className="font-bold">Connection components</span>
+                    <PanelHeaderActions />
+                </div>
+            )}
             <ComponentControlsBody />
         </div>
     );

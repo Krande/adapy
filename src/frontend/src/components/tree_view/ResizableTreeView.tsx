@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from '@/components/asset_browser/AssetBrowser';
 import { useViewerStores } from "@/state/AdaViewerContext";
+import { PanelHeaderActions } from "@/components/ui/PanelFrame";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 560;
@@ -100,6 +101,7 @@ const ResizableTreeView: React.FC = () => {
                 {/* With a server the title slot carries the Scene | Sources tabs;
                     without one (notebook, websocket) the drawer is unchanged. */}
                 {assetsTabAvailable() ? <AssetBrowserTabs /> : <span className="font-semibold px-1">Selection</span>}
+                <PanelHeaderActions />
                 <button
                     type="button"
                     onClick={() => setIsTreeCollapsed(true)}

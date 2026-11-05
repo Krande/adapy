@@ -6,12 +6,14 @@ import {FloatingWindow} from "@/components/ui/FloatingWindow";
 import ReloadIcon from "../icons/ReloadIcon";
 import PopOutIcon from "../icons/PopOutIcon";
 import NodeEditorBody from "./NodeEditorBody";
+import {WindowDockActions, useWindowDock, windowDockAttrs} from "@/components/ui/PanelFrame";
 
 // The node editor's two frames around one body (`NodeEditorBody`): the whole page
 // in node-editor-only mode, else a floating window over the viewer, dragged by
 // its header.
 const NodeEditorComponent: React.FC = () => {
     const use_node_editor_only = useNodeEditorStore((s) => s.use_node_editor_only);
+    const dock = useWindowDock();
 
     return use_node_editor_only ? (
         <div style={{width: '100%', height: '100%', background: 'white', border: '1px solid #ccc'}}>
@@ -25,7 +27,7 @@ const NodeEditorComponent: React.FC = () => {
             style={{background: 'white', border: '1px solid #ccc'}}
         >
             {/* Header Area */}
-            <div className="node-editor-header node-editor-drag-handle bg-gray-800 text-white px-4 py-2 cursor-move">
+            <div className="node-editor-header node-editor-drag-handle bg-gray-800 text-white px-4 py-2 cursor-move" {...windowDockAttrs(dock)}>
                 <div className={"flex flex-row"}>
                     <div className={"flex p-1"}>Node Editor</div>
                     <button
@@ -40,6 +42,8 @@ const NodeEditorComponent: React.FC = () => {
                     >
                         <PopOutIcon />
                     </button>
+                    {/* A layout host's actions (move to the grid), when it offers some. */}
+                    <WindowDockActions/>
                 </div>
             </div>
             {/* Content Area */}

@@ -21,7 +21,7 @@ import React from "react";
 
 import {centredRect, moveRect, resizeRect, type WindowRect} from "@/assets/floatingWindow";
 import {usePointerDrag} from "@/components/ui/FloatingWindow";
-import {PanelCard} from "@/components/ui/PanelFrame";
+import {PanelCard, PanelHeaderActions, usePanelHeaderActions} from "@/components/ui/PanelFrame";
 import {SheetHandle} from "@/components/ui/SheetHandle";
 import {useBottomSheet} from "@/utils/useBottomSheet";
 
@@ -133,6 +133,7 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
         if (rect) resize.begin(e, rect);
     };
 
+    const hosted = usePanelHeaderActions().length > 0;
     const header = (
         <div
             className={
@@ -148,7 +149,9 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
                 floating mode the header captures the pointer on pointerdown, which
                 otherwise swallows the button clicks (Restore / new-window). */}
             <div className="flex items-center gap-0.5" onPointerDown={(e) => e.stopPropagation()}>
-                {mode === "docked" && (
+                {/* With a layout host's actions (float, dock), those move the panel instead of its own floating mode. */}
+                {mode === "docked" && hosted && <PanelHeaderActions />}
+                {mode === "docked" && !hosted && (
                     <HeaderBtn onClick={() => setMode("floating")} title="Floating window">
                         <MaximizeIcon />
                     </HeaderBtn>
