@@ -131,7 +131,18 @@
 //          `PanelHeaderActionsProvider`, `usePanelHeaderActions`) and its glyphs;
 //          `localLayoutPersistence`; `FloatingWindow`'s caller-kept `rect` /
 //          `onRectChange`. Additive.
-export const VIEWER_CORE_API_VERSION = "1.12.0";
+//   1.13.0 Undocking, continued, on `@/viewer-core/layout`: the per-user server
+//          backend `serverLayoutPersistence` (debounced, with a browser-local
+//          fallback) and its `PreferenceStore`; the zone keys (`ZoneKeys`:
+//          F6 / Shift+F6 between zones marked `ZONE_ATTR`, Esc and Ctrl+Alt+arrow
+//          on a floating window, `useFloatFocus` / `restoreFocus`); an optional
+//          `panelId` on `PanelHeaderActionsProvider` and `WindowHeaderActions`;
+//          drag-to-dock (`moveDockDrag` / `endDockDrag` hit-testing drop targets
+//          marked `DROP_ATTR`, `dockDragStore`) and `FloatingWindow`'s
+//          `onDragMove` / `onDragEnd`; `OverlayPortal` / `TransformedHost`
+//          (a fixed overlay of content in a floating window portals to the
+//          body). On `viewerApi`: `getPreference` / `setPreference`. Additive.
+export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

@@ -8,21 +8,26 @@
 //     "Float" action in its own header (`PanelHeaderActions`);
 //   * a floated panel leaves the column and shows in a window of its own, its
 //     content in the shared `PanelFrame` with Dock / Minimise / Close;
-//   * a minimised one waits in the tray at the end of the top bar.
+//   * a minimised one waits in the tray at the end of the top bar;
+//   * a window dragged by its title bar onto the panel column docks there
+//     (`../dockDrag`), the column outlined as the drop target meanwhile.
 //
 // Core's panels keep their visibility flags: the classic document records only
 // WHERE a panel shows (`floats`, `minimised`), and the flag still says WHETHER.
 // So a floated panel closed from the top bar reopens in its window.
 
-import React, {useMemo} from "react";
+import React, {useMemo, useRef} from "react";
+import {createPortal} from "react-dom";
 import {useStore} from "zustand";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {DockGlyph, FloatGlyph, MinimiseGlyph, PanelFrame} from "@/components/ui/PanelFrame";
 import {navBtnClass} from "@/components/navButton";
 import {defaultRect} from "@/assets/floatingWindow";
 
-import {CLASSIC_PRESET_ID, layoutDocKey, type LayoutDoc} from "../layout";
+import {DROP_ATTR, dockDragStore, endDockDrag, moveDockDrag} from "../dockDrag";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, layoutDocKey, type LayoutDoc} from "../layout";
 import {PanelMount, usePanelStates, useLayout} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
@@ -30,6 +35,8 @@ import type {PanelState} from "../panelStates";
 import {dockPanel, floatPanel, migrateLayoutDoc, minimisePanel, raiseFloat, restorePanel, setFloatRect} from "../reducers";
 import {getPanel} from "../registry";
 import {hide} from "../reveal";
+import {ZoneKeys, requestFloatFocus, useFloatFocus} from "../zoneFocus";
+import {ZONE_ATTR, ZONE_PANEL_ATTR} from "../zoneKeys";
 import {CLASSIC_ZONE_DEFS} from "./classicRules";
 
 const DRAG_HANDLE = "classic-undock-drag-handle";
@@ -77,13 +84,29 @@ export function floatColumnPanel(id: PanelId): void {
 /** The actions a column panel's header offers. */
 export function columnActions(panel: RegisteredPanel): PanelAction[] {
   if (!canFloat(panel)) return [];
-  return [{id: "float", label: "Float in a window", icon: FloatGlyph, run: () => floatColumnPanel(panel.id)}];
+  const run = () => {
+    requestFloatFocus(panel.id);
+    floatColumnPanel(panel.id);
+  };
+  return [{id: "float", label: "Float in a window", icon: FloatGlyph, run}];
+}
+
+/** Put a floated panel back in the panel column. */
+export function dockColumnPanel(id: PanelId): void {
+  update((d) => dockPanel(d, id));
+}
+
+const closeFloat = (id: PanelId) => void hide(id);
+
+/** F6 between the classic zones, Esc and Ctrl+Alt+arrow on a floated panel. */
+export function ClassicZoneKeys() {
+  return <ZoneKeys closeFloat={closeFloat} dockFloat={dockColumnPanel} />;
 }
 
 /** The actions a floated panel's window offers, before its close button. */
 export function floatActions(panel: RegisteredPanel): PanelAction[] {
   return [
-    {id: "dock", label: "Dock back into the panel column", icon: DockGlyph, run: () => update((d) => dockPanel(d, panel.id))},
+    {id: "dock", label: "Dock back into the panel column", icon: DockGlyph, run: () => dockColumnPanel(panel.id)},
     {id: "minimise", label: "Minimise", icon: MinimiseGlyph, run: () => update((d) => minimisePanel(d, panel.id))},
   ];
 }
@@ -95,6 +118,8 @@ export function isUndocked(doc: LayoutDoc, id: PanelId): boolean {
 
 function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: LayoutDoc; contents?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>}) {
   const f = doc.floats[panel.id]!;
+  const ref = useRef<HTMLDivElement>(null);
+  useFloatFocus(panel.id, ref);
   const close = () => void hide(panel.id);
   const props: PanelProps = {panelId: panel.id, host: {kind: "float", zone: "classic.float"}, close, isActive: true};
   return (
@@ -108,9 +133,23 @@ function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: La
       style={{zIndex: f.z}}
       rect={{x: f.x, y: f.y, width: f.w, height: f.h}}
       onRectChange={(r) => update((d) => setFloatRect(d, panel.id, {x: r.x, y: r.y, w: r.width, h: r.height}))}
+      onDragMove={(p) => moveDockDrag(panel.id, p.x, p.y)}
+      onDragEnd={(p) => {
+        if (endDockDrag(p.x, p.y) !== CLASSIC_ZONES.menuColumn) return false;
+        dockColumnPanel(panel.id);
+        return true;
+      }}
     >
       {({fullScreen}) => (
-        <div className="h-full w-full" onPointerDownCapture={() => update((d) => raiseFloat(d, panel.id))}>
+        <div
+          ref={ref}
+          className="h-full w-full"
+          role="dialog"
+          aria-modal="false"
+          aria-label={panel.title}
+          {...{[ZONE_ATTR]: "float", [ZONE_PANEL_ATTR]: panel.id}}
+          onPointerDownCapture={() => update((d) => raiseFloat(d, panel.id))}
+        >
           <PanelFrame
             panelId={panel.id}
             title={panel.title}
@@ -121,7 +160,10 @@ function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: La
           >
             {/* The column card gave the content its text colour and padding; the window body does not. */}
             <div className="h-full overflow-y-auto p-2 text-sm text-[var(--ada-panel-text)]">
-              <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />
+              {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
+              <TransformedHost>
+                <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />
+              </TransformedHost>
             </div>
           </PanelFrame>
         </div>
@@ -174,7 +216,10 @@ export function MinimisedTray() {
           key={p.id}
           type="button"
           className={navBtnClass(false)}
-          onClick={() => update((d) => restorePanel(d, p.id))}
+          onClick={() => {
+            requestFloatFocus(p.id);
+            update((d) => restorePanel(d, p.id));
+          }}
           title={`Restore ${p.title}`}
           aria-label={`Restore ${p.title}`}
         >
@@ -182,5 +227,39 @@ export function MinimisedTray() {
         </button>
       ))}
     </div>
+  );
+}
+
+/** The least width of the drop target, so an emptied column is still easy to hit. */
+const DROP_MIN_WIDTH = 320;
+
+/**
+ * While a floated panel's window is dragged: the panel column's drop target,
+ * from the column's top to the bottom of the viewport, highlighted while the
+ * pointer is over it.
+ */
+export function ColumnDropTarget() {
+  const dragging = useStore(dockDragStore, (s) => s.panel);
+  const over = useStore(dockDragStore, (s) => s.over === CLASSIC_ZONES.menuColumn);
+  const [rect, setRect] = React.useState<{left: number; top: number; width: number} | null>(null);
+  React.useLayoutEffect(() => {
+    if (!dragging) return setRect(null);
+    const column = document.querySelector(`[${ZONE_ATTR}="column"]`);
+    const r = column?.getBoundingClientRect();
+    setRect(r ? {left: r.left, top: r.top, width: Math.max(r.width, DROP_MIN_WIDTH)} : null);
+  }, [dragging]);
+  if (!dragging || !rect) return null;
+  return createPortal(
+    <div
+      {...{[DROP_ATTR]: CLASSIC_ZONES.menuColumn}}
+      className={`fixed z-[44] rounded-md border-2 border-dashed flex items-start justify-center pt-6 text-sm transition-colors ${
+        over ? "border-blue-400 bg-blue-500/25 text-blue-100" : "border-gray-400/70 bg-gray-900/30 text-gray-300"
+      }`}
+      style={{left: rect.left, top: rect.top, width: rect.width, bottom: 8}}
+      aria-hidden="true"
+    >
+      Drop to dock in the panel column
+    </div>,
+    document.body,
   );
 }

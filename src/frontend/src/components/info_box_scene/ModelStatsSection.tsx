@@ -10,6 +10,7 @@ import {
   massShare,
   type ModelStats,
 } from "@/utils/stats/modelStats";
+import { OverlayPortal } from "@/components/ui/OverlayPortal";
 import ModelStatsPanel from "./ModelStatsPanel";
 
 // The compact "Stats" card in the scene menu: total mass, object count, inline
@@ -121,7 +122,9 @@ const ModelStatsSection = () => {
   return (
     <>
       <CompactCard stats={stats} />
-      <ModelStatsPanel />
+      <OverlayPortal>
+        <ModelStatsPanel />
+      </OverlayPortal>
     </>
   );
 };

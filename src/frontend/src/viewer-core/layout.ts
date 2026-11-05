@@ -81,6 +81,7 @@ export { useIsMobile, useIsNarrow, useIsWide, useMediaQuery } from "@/utils/useI
 export { BREAKPOINTS, COMPACT_QUERY, NARROW_QUERY, WIDE_QUERY } from "@/layout/breakpoints";
 export { clampRect, defaultRect } from "@/assets/floatingWindow";
 export type { Extent, WindowRect } from "@/assets/floatingWindow";
+export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/components/ui/OverlayPortal";
 
 // ---------------------------------------------------------------------------
 // The layout host, its store and its pure reducers.
@@ -99,6 +100,16 @@ export {
 export type { LayoutStoreState } from "@/layout/layoutStore";
 export { LAYOUT_PREFS_STORAGE_KEY, localLayoutPersistence } from "@/layout/localPersistence";
 export type { PrefsStorage } from "@/layout/localPersistence";
+export {
+  LAYOUT_PREFERENCE_KEY,
+  LAYOUT_SAVE_DEBOUNCE_MS,
+  serverLayoutPersistence,
+} from "@/layout/serverPersistence";
+export type {
+  PreferenceStore,
+  ServerLayoutPersistence,
+  ServerLayoutPersistenceOptions,
+} from "@/layout/serverPersistence";
 export {
   LAYOUT_DOC_VERSION,
   adoptNewPanels,
@@ -119,6 +130,21 @@ export {
   whereOpen,
 } from "@/layout/reducers";
 export type { OpenTarget } from "@/layout/reducers";
+export {
+  PANEL_ACTIONS_ATTR,
+  PANEL_TOGGLE_ATTR,
+  ZONE_ATTR,
+  ZONE_ORDER,
+  ZONE_PANEL_ATTR,
+  cycleZone,
+  orderZones,
+  zoneKeyIntent,
+} from "@/layout/zoneKeys";
+export type { ZoneKeyContext, ZoneKeyEvent, ZoneKeyIntent } from "@/layout/zoneKeys";
+export { ZoneKeys, focusZone, requestFloatFocus, restoreFocus, useFloatFocus } from "@/layout/zoneFocus";
+export { DROP_ATTR, dockDragStore, dropZoneAt, endDockDrag, moveDockDrag } from "@/layout/dockDrag";
+export type { DockDragState, DropCandidate } from "@/layout/dockDrag";
+export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
 export { LAYOUT_ENGINE_PARAM, LAYOUT_ENGINE_STORAGE_KEY, layoutEngineEnabled } from "@/layout/flag";

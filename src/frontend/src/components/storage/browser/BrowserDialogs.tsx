@@ -4,6 +4,7 @@ import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu"
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import FieldPickerModal from "../FieldPickerModal";
 import GitHistoryPanel from "../GitHistoryPanel";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
 import type {FolderPicker} from "./useUploads";
 
 export interface CtxMenuState {
@@ -54,22 +55,26 @@ const BrowserDialogs: React.FC<{
                 />
             )}
             {pickerName && (
-                <FieldPickerModal
-                    sourceName={pickerName}
-                    onClose={() => setPickerName(null)}
-                />
+                <OverlayPortal>
+                    <FieldPickerModal
+                        sourceName={pickerName}
+                        onClose={() => setPickerName(null)}
+                    />
+                </OverlayPortal>
             )}
             {/* FeaStreamingPickerModal retired — streaming sessions
                 load with defaults via the toggle and refine via
                 SimulationControls. */}
             {gitHistoryOpen && (
-                <GitHistoryPanel
-                    files={files}
-                    loadedSourceNames={loadedSourceNames}
-                    busyName={viewingName}
-                    onToggle={onToggle}
-                    onClose={() => setGitHistoryOpen(false)}
-                />
+                <OverlayPortal>
+                    <GitHistoryPanel
+                        files={files}
+                        loadedSourceNames={loadedSourceNames}
+                        busyName={viewingName}
+                        onToggle={onToggle}
+                        onClose={() => setGitHistoryOpen(false)}
+                    />
+                </OverlayPortal>
             )}
             <FolderPickerModal
                 open={picker !== null}

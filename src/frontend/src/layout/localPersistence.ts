@@ -1,6 +1,6 @@
 // `LayoutPersistence` in the browser's localStorage: the backend where there is
 // no per-user server store (desktop / websocket viewer, embeds), and the
-// fallback until one exists. Dependency-free: the storage is passed in (or read
+// fallback of the server backend (`./serverPersistence`). Dependency-free: the storage is passed in (or read
 // from the browser), and blocked storage keeps the prefs for the page only.
 
 import type { LayoutPersistence, LayoutPrefs } from "./layout";

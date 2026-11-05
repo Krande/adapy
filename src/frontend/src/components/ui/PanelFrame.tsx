@@ -17,9 +17,10 @@
 // Markup is exactly what the panels drew before, so adopting a frame changes no
 // pixel and no DOM node.
 
-import React, {Suspense, createContext, useContext} from "react";
+import React, {Suspense, createContext, useContext, useMemo} from "react";
 
 import type {PanelAction, PanelFrameProps} from "@/layout/panel";
+import {PANEL_ACTIONS_ATTR} from "@/layout/zoneKeys";
 import {
   WINDOW_CARD,
   WINDOW_HEADER_BUTTON,
@@ -55,25 +56,34 @@ export function PanelCard({variant = "card", heading, className, children, ref, 
   );
 }
 
-const PanelHeaderActionsContext = createContext<readonly PanelAction[] | null>(null);
+const PanelHeaderActionsContext = createContext<{actions: readonly PanelAction[]; panelId?: string} | null>(null);
 
-/** Offer `actions` to the `PanelHeaderActions` slot of the panel below. */
-export const PanelHeaderActionsProvider: React.FC<{actions: readonly PanelAction[]; children: React.ReactNode}> = ({
+/**
+ * Offer `actions` to the `PanelHeaderActions` slot of the panel below. With
+ * `panelId` the slot names its panel (`PANEL_ACTIONS_ATTR`), so focus can be
+ * moved to it.
+ */
+export const PanelHeaderActionsProvider: React.FC<{actions: readonly PanelAction[]; panelId?: string; children: React.ReactNode}> = ({
   actions,
+  panelId,
   children,
-}) => <PanelHeaderActionsContext.Provider value={actions}>{children}</PanelHeaderActionsContext.Provider>;
+}) => {
+  const value = useMemo(() => ({actions, panelId}), [actions, panelId]);
+  return <PanelHeaderActionsContext.Provider value={value}>{children}</PanelHeaderActionsContext.Provider>;
+};
 
 /** The host's actions for the panel this header belongs to; none outside a provider. */
 export function usePanelHeaderActions(): readonly PanelAction[] {
-  return useContext(PanelHeaderActionsContext) ?? [];
+  return useContext(PanelHeaderActionsContext)?.actions ?? [];
 }
 
 /** The layout host's actions in a panel's own header; nothing when it offers none. */
 export function PanelHeaderActions() {
+  const panelId = useContext(PanelHeaderActionsContext)?.panelId;
   const actions = usePanelHeaderActions();
   if (actions.length === 0) return null;
   return (
-    <WindowHeaderActions>
+    <WindowHeaderActions panelId={panelId}>
       {actions.map((a) => (
         <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
           {a.icon ? <a.icon /> : a.label}
@@ -156,9 +166,11 @@ export function WindowHeaderButton({onClick, title, ariaLabel, className, disabl
   );
 }
 
-/** A group of title-bar buttons at the end of the bar. */
-export const WindowHeaderActions: React.FC<{children: React.ReactNode}> = ({children}) => (
-  <div className="ml-auto flex items-center gap-1">{children}</div>
+/** A group of title-bar buttons at the end of the bar; `panelId` names the panel they act on. */
+export const WindowHeaderActions: React.FC<{panelId?: string; children: React.ReactNode}> = ({panelId, children}) => (
+  <div className="ml-auto flex items-center gap-1" {...(panelId ? {[PANEL_ACTIONS_ATTR]: panelId} : {})}>
+    {children}
+  </div>
 );
 
 export interface WindowFrameProps {
