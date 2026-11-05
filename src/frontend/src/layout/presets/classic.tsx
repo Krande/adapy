@@ -432,6 +432,12 @@ function ClassicFrame() {
   const [vp, setVp] = React.useState<Rect | null>(null);
   const onViewportRect = React.useCallback((r: Rect) => setVp((v) => (sameRect(v, r) ? v : r)), []);
   const placed = split ? vp : null;
+  // The tree drawer at home overlays the frame's left edge (a push track for the
+  // top bar): the grid starts right of it, as the top bar does.
+  const isTreeCollapsed = useTreeViewStore((s) => s.isTreeCollapsed);
+  const treeViewWidth = useTreeViewStore((s) => s.treeViewWidth);
+  const wide = useIsWide();
+  const treeInset = !isTreeCollapsed && wide && shownPlace(doc, CORE_PANEL_IDS.tree, customisable, !wide) === "home" ? treeViewWidth : 0;
   const where = (p: RegisteredPanel) => shownPlace(doc, p.id, customisable, narrow);
   // Home in the column or the tree track, for the layout's windows.
   // Plugin panels float through the same layer when they can.
@@ -452,7 +458,9 @@ function ClassicFrame() {
         <ClassicMenu viewport={placed} />
       </div>
 
-      {split && <GridView grid={grid!} doc={doc} contents={CLASSIC_PANEL_CONTENTS} frame={frameRef} onViewportRect={onViewportRect} />}
+      {split && (
+        <GridView grid={grid!} doc={doc} contents={CLASSIC_PANEL_CONTENTS} frame={frameRef} onViewportRect={onViewportRect} leftInset={treeInset} />
+      )}
 
       {/* The viewport: rendered once, never inside a movable container. With the
           grid split, it is placed over the grid's viewport slot, never moved. */}

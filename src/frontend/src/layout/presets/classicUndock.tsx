@@ -46,6 +46,7 @@ import {
   floatOut,
   homeOf,
   moveAction,
+  popoutActions,
   updateClassic,
   useClassicDoc,
 } from "./classicPlace";
@@ -63,6 +64,7 @@ export function columnActions(panel: RegisteredPanel, doc?: LayoutDoc): PanelAct
     out.push({id: "float", label: "Float in a window", icon: FloatGlyph, run});
   }
   if (doc && canDock(panel)) out.push(moveAction(panel, doc));
+  out.push(...popoutActions(panel));
   return out;
 }
 
@@ -80,6 +82,7 @@ export function floatActions(panel: RegisteredPanel, doc: LayoutDoc): PanelActio
     ...(home === "column" || home === "tree" ? [{id: "dock", label: HOME_LABEL[home], icon: DockGlyph, run: () => backHome(panel.id)}] : []),
     {id: "minimise", label: "Minimise", icon: MinimiseGlyph, run: () => updateClassic((d) => minimisePanel(d, panel.id))},
     moveAction(panel, doc),
+    ...popoutActions(panel),
   ];
 }
 

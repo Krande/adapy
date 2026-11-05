@@ -180,6 +180,13 @@ split grid's groups read `--ada-window-bg`, `--ada-window-border`,
 `--ada-tab-active-text`, `--ada-tab-text` and `--ada-group-divider`; unset, each
 falls back to the classic look (`components/ui/panelChrome.ts`).
 
+A panel that works without the 3D scene may also open in a **browser window of
+its own**: it opts in with `capabilities.popout` (a plugin slot with `popout:
+true`), and its header then offers "Open in a new window". The window boots
+canvas-less on `?popout=<panelId>` with the panel alone (core's `AppRoot` routes
+it) and the active shell's tokens; the panel leaves the window it came from. The
+new window has stores of its own, which is why a scene-dependent panel may not.
+
 A shell with **modes** lists them in `layout.modes`. Each mode may give its own
 `grid`, `open` and `docks` (else the shell's) and keeps its own saved
 arrangement. Plugins' modes (`PluginSpec.modes`) follow the shell's and start
@@ -192,6 +199,10 @@ mode's `toolbar`) from `@/viewer-core/layout` go in the header; `setShellMode`
 and `useShellMode` switch from anywhere else.
 
 ### A root of its own
+
+A shell that keeps `load` can still take core's root around its UI:
+`AppRoot` from `@/viewer-core/app` gives it the canvas-less routes, sign-in, the
+viewer provider and deep links, loaded lazily.
 
 ```tsx
 // my-adapy-ui/src/register.tsx

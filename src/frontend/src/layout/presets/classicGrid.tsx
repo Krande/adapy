@@ -71,6 +71,7 @@ import {
   groupLabel,
   homeOf,
   moveAction,
+  popoutActions,
   updateClassic,
 } from "./classicPlace";
 
@@ -244,12 +245,18 @@ export interface GridViewProps {
   frame: React.RefObject<HTMLElement | null>;
   /** The viewport leaf's rect within `frame`, whenever it may have moved. */
   onViewportRect(rect: Rect): void;
+  /** Room left free on the left, in px: the tree drawer at home, which overlays the frame. */
+  leftInset?: number;
 }
 
 /** The split grid, the size of the viewport's place in the frame. */
-export function GridView({grid, doc, contents, frame, onViewportRect}: GridViewProps) {
+export function GridView({grid, doc, contents, frame, onViewportRect, leftInset = 0}: GridViewProps) {
   return (
-    <div className="relative flex w-full h-full min-w-0 min-h-0" {...{[GRID_ROOT_ATTR]: ""}}>
+    <div
+      className="relative flex w-full h-full min-w-0 min-h-0"
+      style={leftInset > 0 ? {paddingLeft: leftInset} : undefined}
+      {...{[GRID_ROOT_ATTR]: ""}}
+    >
       <GridNodeView node={grid} doc={doc} contents={contents} frame={frame} onViewportRect={onViewportRect} />
       <DragGhost />
     </div>
@@ -550,6 +557,7 @@ function GridGroup({
       ? [{id: "float", label: "Float in a window", icon: FloatGlyph, run: () => floatOut(active.id)}]
       : []),
     moveAction(active, doc),
+    ...popoutActions(active),
   ];
   return (
     <section

@@ -16,7 +16,7 @@ import {useMemo, useSyncExternalStore} from "react";
 import {useStore} from "zustand";
 
 import {defaultRect} from "@/assets/floatingWindow";
-import {MoveGlyph} from "@/components/ui/PanelFrame";
+import {ExternalGlyph, MoveGlyph} from "@/components/ui/PanelFrame";
 
 import type {DropTarget} from "../dockDrag";
 import {CORE_PANEL_OWNER} from "../corePanelIds";
@@ -34,7 +34,9 @@ import {
   isInGrid,
   migrateLayoutDoc,
 } from "../reducers";
+import {canPopOut, openPopout} from "../popout";
 import {getPanel, isPanelAvailable, listPanels} from "../registry";
+import {hide} from "../reveal";
 import {
   VIEWPORT_NODE,
   findNode,
@@ -363,6 +365,21 @@ const EDGE_LABEL: readonly [DockEdge, string][] = [
   ["top", "Dock top of the view"],
   ["bottom", "Dock bottom of the view"],
 ];
+
+/** "Open in a new window", for a panel that may pop out (`../popout`); none otherwise. */
+export function popoutActions(panel: RegisteredPanel): PanelAction[] {
+  if (!canPopOut(panel)) return [];
+  return [
+    {
+      id: "popout",
+      label: "Open in a new window",
+      icon: ExternalGlyph,
+      run: () => {
+        if (!openPopout(panel.id, hide)) console.warn(`[layout] the browser blocked the window for "${panel.id}"`);
+      },
+    },
+  ];
+}
 
 /** A group's name in a menu: its panels' titles. */
 export function groupLabel(panels: readonly PanelId[]): string {

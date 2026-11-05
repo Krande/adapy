@@ -529,6 +529,12 @@ export interface PanelSlot {
   activationPredicate?: ActivationPredicate;
   render: (ctx: AdaPluginContext) => React.ReactNode;
   topBarButton?: TopBarButtonSpec;
+  /**
+   * May open in a browser window of its own (1.13.0). Only for a panel that works
+   * without the 3D scene: the new window boots canvas-less, with stores of its own.
+   * Applies to a panel that stands on its own (`top-panel`, or one naming a `dock`).
+   */
+  popout?: boolean;
   // When set on a `fem-sidebar` panel, core promotes the panel to a tab in the
   // Simulation panel (alongside the built-in "animation" tab) rather than
   // stacking it inline. Buttonless / non-`asTab` fem-sidebar panels keep
