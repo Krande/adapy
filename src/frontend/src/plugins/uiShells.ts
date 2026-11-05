@@ -52,6 +52,28 @@ export interface UiShellLayout {
    * in their region.
    */
   docks?: Record<string, string>;
+  /**
+   * The shell's modes, each with its own arrangement of panels (its own saved
+   * document). A mode's `grid`, `open` and `docks` default to the ones above;
+   * plugins' modes (`PluginSpec.modes`) are added after these and start from the
+   * ones above. A panel that names `modes` shows only in those. Absent: one
+   * arrangement, no modes.
+   */
+  modes?: UiShellMode[];
+}
+
+/** One of a composed shell's modes. */
+export interface UiShellMode {
+  /** Kebab-case; what a panel's `modes` names. */
+  id: string;
+  label: string;
+  hint?: string;
+  icon?: React.FC;
+  /** Sort key; plugins' modes sort among these by theirs. Default: the position in the list. */
+  order?: number;
+  grid?: GridNode;
+  open?: string[];
+  docks?: Record<string, string>;
 }
 
 /** The chrome core draws around a composed shell's layout. */

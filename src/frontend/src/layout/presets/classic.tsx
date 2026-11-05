@@ -59,7 +59,7 @@ import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "
 import type {PanelState} from "../panelStates";
 import {PLUGIN_MENU_COLUMN_ORDER, PLUGIN_TOOLBAR_ORDER} from "../pluginPanels";
 import {getPanel, listPanels, listToolbarPanels} from "../registry";
-import {hide, reveal, toggle} from "../reveal";
+import {hide, isPanelOpen, reveal, toggle} from "../reveal";
 import {CLASSIC_TOOLBAR, CLASSIC_ZONE_DEFS, classicDefaults, classicMounts, toolbarPresence} from "./classicRules";
 import {PANEL_TOGGLE_ATTR, ZONE_ATTR} from "../zoneKeys";
 import {endDockDragAt, moveDockDrag} from "../dockDrag";
@@ -70,12 +70,14 @@ import type {WindowDock} from "@/components/ui/PanelFrame";
 import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
 import {GridView, ViewportDropTarget} from "./classicGrid";
 import {setPlacedElsewhere} from "../placedElsewhere";
+import {offeredInMode} from "../shellModes";
 import {
   adoptDockedPanels,
   canDock,
   canFloat,
+  leaveContext,
   placedElsewhere,
-  classicContext,
+  useClassicContext,
   classicToolbarShown,
   dropPanel,
   openStartingPanels,
@@ -395,10 +397,16 @@ function ClassicFrame() {
   // The in-viewer windows follow the preset's exclusive-group rule.
   React.useEffect(() => useViewerPanelStore.getState().setExclusive(!customisable), [customisable]);
   // A composed shell's starting panels; the host's controller is installed by now.
+  // On load and on entering a mode of a composed shell: its plugin panels placed, its starting panels opened.
+  const ctx = useClassicContext();
+  const lastCtx = React.useRef(ctx);
   React.useEffect(() => {
+    // Leaving a mode takes its placed panels with it.
+    if (lastCtx.current !== ctx) leaveContext(lastCtx.current, hide, isPanelOpen);
+    lastCtx.current = ctx;
     adoptDockedPanels();
     openStartingPanels(reveal);
-  }, []);
+  }, [ctx]);
   // Plugin panels in a group or window of their own leave their region hosts.
   React.useEffect(() => setPlacedElsewhere(placedElsewhere(doc, customisable, narrow)), [doc, customisable, narrow]);
   React.useEffect(() => () => setPlacedElsewhere([]), []);
@@ -413,7 +421,7 @@ function ClassicFrame() {
   const shows = (id: PanelId) => {
     const p = docked.find((x) => x.id === id);
     const s = p && states.get(id);
-    return !!p && !!s && s.open && s.available && mounts(id, {state: s, env, proceduralActive});
+    return !!p && !!s && s.open && s.available && offeredInMode(p) && mounts(id, {state: s, env, proceduralActive});
   };
   const grid = gridOn ? shownGrid(gridOf(doc), shows) : null;
   const split = !!grid && grid.kind !== "viewport";
@@ -426,7 +434,7 @@ function ClassicFrame() {
   const floatable = [
     ...[...zonePanels(preset, CLASSIC_ZONES.menuColumn), ...zonePanels(preset, CLASSIC_ZONES.tree)].filter((p) => p.owner === CORE_PANEL_OWNER),
     ...listPanels().filter((p) => p.owner !== CORE_PANEL_OWNER && canFloat(p)),
-  ];
+  ].filter(offeredInMode);
   return (
     <div ref={frameRef} className={"relative flex flex-row h-full w-full bg-gray-900"}>
       {/* Tree View Section */}
@@ -504,8 +512,9 @@ export const classicPreset: LayoutPreset = {
 export default function ClassicLayout() {
   registerCorePanels();
   const env = React.useMemo(() => corePanelEnv(), []);
+  const context = useClassicContext();
   React.useEffect(() => {
     if (!layoutStore.getState().hydrated) void layoutStore.getState().hydrate(viewerLayoutPersistence());
   }, []);
-  return <LayoutHost preset={classicPreset} env={env} context={classicContext()} />;
+  return <LayoutHost preset={classicPreset} env={env} context={context} />;
 }

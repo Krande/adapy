@@ -12,7 +12,7 @@
 // a group, stacking with a group, going home. A header's menu and a drop both
 // end here.
 
-import {useMemo} from "react";
+import {useMemo, useSyncExternalStore} from "react";
 import {useStore} from "zustand";
 
 import {defaultRect} from "@/assets/floatingWindow";
@@ -39,11 +39,13 @@ import {
   VIEWPORT_NODE,
   findNode,
   gridGroups,
+  gridPanels,
   groupOf,
   type DockEdge,
   type GridNode,
   type GridTarget,
 } from "../splitTree";
+import {activeShellMode, offeredInMode, shellModesVersion, subscribeShellModes} from "../shellModes";
 import {requestFloatFocus, restoreFocus} from "../zoneFocus";
 import {PANEL_ACTIONS_ATTR} from "../zoneKeys";
 import {CLASSIC_ZONE_DEFS} from "./classicRules";
@@ -64,47 +66,84 @@ export function useCustomisablePanels(): boolean {
   return useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
 }
 
-/**
- * The document context the classic frame reads and writes: core's own UI uses
- * the default one; a composed shell its id, so each shell keeps its own
- * arrangement. Set once at startup, before the frame renders.
- */
-let context = "default";
-let startOpen: readonly PanelId[] = [];
-let composed = false;
-let docks: Readonly<Record<string, string>> = {};
-
-/**
- * Serve a composed shell: its own document, starting from `grid` until the user
- * rearranges, with the panels of `open` opened when the shell loads, and plugin
- * panels that name a dock placed by `dockGroups` (dock id to a group of the grid).
- */
-export function setClassicContext(
-  ctx: string,
-  grid?: GridNode,
-  open?: readonly PanelId[],
-  dockGroups?: Readonly<Record<string, string>>,
-): void {
-  context = ctx || "default";
-  composed = context !== "default";
-  startOpen = open ?? [];
-  docks = dockGroups ?? {};
-  layoutStore
-    .getState()
-    .setStartingDoc(CLASSIC_PRESET_ID, context, grid ? () => ({...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, context), grid}) : null);
+/** One arrangement of a composed shell: its starting grid, panels to open, dock groups. */
+export interface ClassicArrangement {
+  grid?: GridNode;
+  open?: readonly PanelId[];
+  docks?: Readonly<Record<string, string>>;
 }
 
+/** A composed shell as the classic frame serves it: its id, its arrangement, and per-mode overrides. */
+export interface ClassicShell extends ClassicArrangement {
+  id: string;
+  /** By mode id. A mode missing here (a plugin's) uses the shell's arrangement. */
+  modes?: Readonly<Record<string, ClassicArrangement>>;
+}
+
+/** The composed shell served; null for core's own UI. Set once at startup, before the frame renders. */
+let shell: ClassicShell | null = null;
+
+/**
+ * Serve a composed shell: a document of its own per mode (context `<shell>` or
+ * `<shell>/<mode>`), each starting from its arrangement's grid until the user
+ * rearranges. `modeIds` are every mode the shell will switch to, plugins'
+ * included. `null` serves core's own UI again.
+ */
+export function setClassicShell(next: ClassicShell | null, modeIds: readonly string[] = []): void {
+  shell = next;
+  if (!next) return;
+  const contexts = modeIds.length ? modeIds.map((m) => [contextOf(next.id, m), m] as const) : [[next.id, null] as const];
+  for (const [ctx, mode] of contexts) {
+    const grid = arrangementOf(mode).grid;
+    layoutStore
+      .getState()
+      .setStartingDoc(CLASSIC_PRESET_ID, ctx, grid ? () => ({...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), grid}) : null);
+  }
+}
+
+const contextOf = (shellId: string, mode: string | null) => (mode ? `${shellId}/${mode}` : shellId);
+
+/** The arrangement of `mode` (the active one by default): the mode's own over the shell's. */
+function arrangementOf(mode: string | null = activeShellMode()): ClassicArrangement {
+  if (!shell) return {};
+  const own = (mode && shell.modes?.[mode]) || {};
+  return {grid: own.grid ?? shell.grid, open: own.open ?? shell.open, docks: own.docks ?? shell.docks};
+}
+
+/** The document context the classic frame reads and writes: `"default"` for core's own UI. */
 export function classicContext(): string {
-  return context;
+  return shell ? contextOf(shell.id, activeShellMode()) : "default";
+}
+
+/** The context, re-rendering when the shell's mode changes. */
+export function useClassicContext(): string {
+  useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
+  return classicContext();
 }
 
 /**
- * Open the shell's starting panels. On every load: whether a panel is open is its
- * own flag, which a reload resets, while where it shows is the saved document.
- * Call after the layout's panel controller is installed.
+ * Open the arrangement's starting panels: on every load, and on entering a mode.
+ * Whether a panel is open is its own flag, which a reload resets, while where it
+ * shows is the saved document. Call after the layout's panel controller is installed.
  */
 export function openStartingPanels(reveal: (id: PanelId) => boolean): void {
-  for (const id of startOpen) reveal(id);
+  for (const id of arrangementOf().open ?? []) reveal(id);
+}
+
+/**
+ * Leaving a mode: the panels its arrangement placed (in the grid or a window)
+ * go with it, unless the mode entered places or opens them too. A panel open in
+ * its home stays open. Call with the context left, after the switch.
+ */
+export function leaveContext(left: string, hide: (id: PanelId) => boolean, isOpen: (id: PanelId) => boolean): void {
+  const before = layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, left);
+  const now = classicDoc();
+  const opening = new Set(arrangementOf().open ?? []);
+  const placedBefore = [...gridPanels(gridOf(before)), ...Object.keys(before.floats)];
+  for (const id of placedBefore) {
+    if (opening.has(id) || placeOf(now, id) !== "home" || !isOpen(id)) continue;
+    hide(id);
+  }
 }
 
 /** Where a dock id goes in the grid when the shell maps it to no group that exists: that edge of the view. */
@@ -117,8 +156,10 @@ const DOCK_EDGE: Readonly<Record<string, DockEdge>> = {left: "left", bottom: "bo
  * docks are left to their region. Core's own UI places nothing this way.
  */
 export function adoptDockedPanels(): void {
-  if (!composed) return;
-  const candidates = listPanels().filter((p) => p.owner !== CORE_PANEL_OWNER && dockOf(p) !== null && canDock(p));
+  if (!shell) return;
+  const docks = arrangementOf().docks ?? {};
+  // Per mode: a panel offered only in other modes is adopted when one of those is entered.
+  const candidates = listPanels().filter((p) => p.owner !== CORE_PANEL_OWNER && dockOf(p) !== null && canDock(p) && offeredInMode(p));
   if (!candidates.length) return;
   updateClassic((d) => {
     const {doc, adopted} = adoptNewPanels(d, candidates.map((p) => p.id));
@@ -153,19 +194,20 @@ export function classicToolbarShown(): boolean {
   return toolbarShown;
 }
 
-/** The user's classic document, re-rendering when it changes. */
+/** The user's classic document (of the active mode), re-rendering when it or the mode changes. */
 export function useClassicDoc(): LayoutDoc {
-  const raw = useStore(layoutStore, (s) => s.prefs.docs[layoutDocKey(CLASSIC_PRESET_ID, context)]);
+  const ctx = useClassicContext();
+  const raw = useStore(layoutStore, (s) => s.prefs.docs[layoutDocKey(CLASSIC_PRESET_ID, ctx)]);
   // Read through the store, so an unsaved document starts from the shell's grid.
-  return useMemo(() => (raw ? migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, context) : classicDoc()), [raw]);
+  return useMemo(() => (raw ? migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx) : classicDoc()), [raw, ctx]);
 }
 
 export function classicDoc(): LayoutDoc {
-  return layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, context);
+  return layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, classicContext());
 }
 
 export function updateClassic(fn: (doc: LayoutDoc) => LayoutDoc): void {
-  layoutStore.getState().update(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, fn, context);
+  layoutStore.getState().update(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, fn, classicContext());
 }
 
 // ---------------------------------------------------------------------------

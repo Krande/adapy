@@ -216,6 +216,15 @@
 //          layout shows it there, its region host leaves it out (its top-bar
 //          button stays). `UiShellLayout.docks` maps a dock id to a group of the
 //          shell's grid; a dock-naming plugin panel is placed there once.
+//          Modes: `UiShellLayout.modes` (`UiShellMode`), each with its own
+//          arrangement and saved document (context `<shell>/<mode>`); plugins'
+//          modes (`PluginSpec.modes`) follow the shell's. A panel naming `modes`
+//          shows only in those. On the root: `listShellModes`, `activeShellMode`,
+//          `setShellMode`, `subscribeShellModes`, `shellModesVersion`,
+//          `offeredInMode`, `ShellMode`. On `@/viewer-core/layout`:
+//          `ShellModeSwitcher`, `ShellModeToolbar` (a plugin mode's `toolbar`),
+//          `useShellMode`. A mode change is reported to the scene colouring
+//          (`notifyActiveModeSceneColor`) by core.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -278,7 +287,17 @@ export {
   UI_SHELL_STORAGE_KEY,
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
-export type { RegisteredUiShell, UiShellChrome, UiShellLayout, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+export type { RegisteredUiShell, UiShellChrome, UiShellLayout, UiShellMode, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+// A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
+export {
+  activeShellMode,
+  listShellModes,
+  offeredInMode,
+  setShellMode,
+  shellModesVersion,
+  subscribeShellModes,
+} from "@/layout/shellModes";
+export type { ShellMode } from "@/layout/shellModes";
 export { isComposedShell } from "@/plugins/uiShells";
 // Core's panel ids, for a composed shell's `layout` (dependency-free: the ids alone).
 export { CORE_PANEL_IDS, CORE_PANEL_OWNER } from "@/layout/corePanelIds";

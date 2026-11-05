@@ -49,6 +49,27 @@ const GRID: GridNode = {
   ],
 };
 
+// The Results mode: the tree, and the simulation controls under the view.
+const RESULTS_GRID: GridNode = {
+  kind: "split",
+  id: "s1",
+  dir: "row",
+  sizes: [0.2, 0.8],
+  children: [
+    { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.tree], active: CORE_PANEL_IDS.tree },
+    {
+      kind: "split",
+      id: "s2",
+      dir: "col",
+      sizes: [0.7, 0.3],
+      children: [
+        { kind: "viewport" },
+        { kind: "group", id: "g2", panels: [CORE_PANEL_IDS.simulation], active: CORE_PANEL_IDS.simulation },
+      ],
+    },
+  ],
+};
+
 export function register(): void {
   registerPlugin({
     id: "ui-alt",
@@ -66,6 +87,18 @@ export function register(): void {
           open: [CORE_PANEL_IDS.tree, CORE_PANEL_IDS.objectInfo, CORE_PANEL_IDS.scene],
           // Plugin panels that name a dock join these groups as tabs, the first time they are seen.
           docks: { left: "g1", right: "g3" },
+          // Each mode keeps its own arrangement; one without a grid starts from the one above.
+          modes: [
+            { id: "inspect", label: "Inspect", hint: "Browse the model and its properties" },
+            {
+              id: "results",
+              label: "Results",
+              hint: "Step through simulation results",
+              grid: RESULTS_GRID,
+              open: [CORE_PANEL_IDS.tree, CORE_PANEL_IDS.simulation],
+              docks: { left: "g1", right: "g2" },
+            },
+          ],
         },
         chrome: {
           // Lazily loaded: the header only downloads when this shell is the active one.
