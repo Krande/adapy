@@ -42,7 +42,7 @@ test("without options the panel renders as with an empty options object, and as 
 
 test("tabs picks and orders the tabs, and tabLabels renames them", () => {
     assert.deepEqual(tabLabels(render({ tabs: ["tools", "build"] })), ["Tools", "Build"]);
-    assert.deepEqual(tabLabels(render({ tabs: ["build", "tools"], tabLabels: { tools: "Output" } })), ["Build", "Output"]);
+    assert.deepEqual(tabLabels(render({ tabs: ["build", "tools"], tabLabels: { tools: "More" } })), ["Build", "More"]);
     const html = render({ tabs: ["tools", "view"] });
     assert.match(html, /aria-selected="true"[^>]*>Tools/, "without Build the first offered tab is shown");
 });
