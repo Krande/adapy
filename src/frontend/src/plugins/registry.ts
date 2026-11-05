@@ -16,6 +16,7 @@ import type { AdaViewerStores } from "@/state/AdaViewerContext";
 import { registerUiShell, type UiShellSpec } from "./uiShells";
 import { panelSpecFromSlot } from "@/layout/pluginPanels";
 import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
+import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -884,6 +885,7 @@ export function getPluginModes(): Array<{ pluginId: string; mode: PluginModeSpec
 export function getPanelsForRegion(
   region: PluginRegion,
   ctx: AdaPluginContext,
+  opts: { includePlacedElsewhere?: boolean } = {},
 ): Array<{ pluginId: string; panel: PanelSlot }> {
   const out: Array<{ pluginId: string; panel: PanelSlot; order: number }> = [];
   for (const p of _registry.values()) {
@@ -891,6 +893,9 @@ export function getPanelsForRegion(
     if (!isActive(p, pctx)) continue;
     for (const panel of p.panels) {
       if (panel.region !== region) continue;
+      // Shown by the layout in a group or window of its own, not in its region
+      // (its top-bar button stays: `includePlacedElsewhere`).
+      if (!opts.includePlacedElsewhere && isPlacedElsewhere(panel.id)) continue;
       if (panel.activationPredicate) {
         try {
           if (!panel.activationPredicate(pctx)) continue;

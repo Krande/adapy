@@ -64,6 +64,8 @@ export function register(): void {
         layout: {
           grid: GRID,
           open: [CORE_PANEL_IDS.tree, CORE_PANEL_IDS.objectInfo, CORE_PANEL_IDS.scene],
+          // Plugin panels that name a dock join these groups as tabs, the first time they are seen.
+          docks: { left: "g1", right: "g3" },
         },
         chrome: {
           // Lazily loaded: the header only downloads when this shell is the active one.

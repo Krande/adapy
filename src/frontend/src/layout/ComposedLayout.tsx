@@ -30,7 +30,7 @@ function useThemeTokens(tokens: Record<string, string> | undefined): void {
 export default function ComposedLayout({spec}: {spec: UiShellSpec}) {
   // Before the first render of the frame, which reads them.
   useState(() => {
-    setClassicContext(spec.id, spec.layout?.grid, spec.layout?.open);
+    setClassicContext(spec.id, spec.layout?.grid, spec.layout?.open, spec.layout?.docks);
     setClassicToolbar(spec.chrome?.toolbar !== false);
     return null;
   });

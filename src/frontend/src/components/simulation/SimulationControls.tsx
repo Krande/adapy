@@ -60,6 +60,7 @@ import DeformScaleIcon from "../icons/DeformScaleIcon";
 import {formatStepTime} from "@/utils/scene/fea/timeHistory";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {useViewerRefs, useViewerStores} from "@/state/AdaViewerContext";
+import {usePlacedElsewhereVersion} from "@/layout/usePlacedElsewhere";
 import {
     PluginPanelRegion,
     makePluginContext,
@@ -136,6 +137,8 @@ export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs
 
     // Plugin-contributed Simulation tabs (fem-sidebar panels carrying `asTab`).
     // Rebuilt each render so activation + badges track live store state.
+    // A tab the layout shows in a group or window of its own leaves the strip.
+    usePlacedElsewhereVersion();
     const baseCtx = makePluginContext("", stores);
     const allTabs = getSimulationTabs(baseCtx);
     const tabs = opts.excludeDockedTabs ? withoutDockedTabs(allTabs) : allTabs;

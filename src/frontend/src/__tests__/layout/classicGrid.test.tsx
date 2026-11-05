@@ -15,6 +15,7 @@ const { emptyLayoutDoc, dockInGridDoc, floatPanel, gridOf } = await import("@/la
 const { shownGrid, groupOf, VIEWPORT_NODE } = await import("@/layout/splitTree");
 const { GridView, previewArea } = await import("@/layout/presets/classicGrid");
 const P = await import("@/layout/presets/classicPlace");
+const await_layoutStore = await import("@/layout/layoutStore");
 const { WindowDockProvider, WindowFrame, WindowDockActions } = await import("@/components/ui/PanelFrame");
 const { FloatingWindow } = await import("@/components/ui/FloatingWindow");
 
@@ -129,6 +130,46 @@ test("a drop on the panel column takes only a column panel; a grid drop needs an
   assert.equal(P.dropPanel("t:a", null), false);
   assert.equal(P.gridNodeOfZone(P.gridZone("g7")), "g7");
   assert.equal(P.gridNodeOfZone("classic.menu-column"), null);
+});
+
+test("a plugin panel that names a dock may dock and float, though its home is inside a core panel", () => {
+  registerPanel(
+    { id: "pl:sec", title: "Sec", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, parent: "core:scene", as: "section" }, docked: { zone: "bottom" } } },
+    "pl",
+  );
+  registerPanel({ id: "pl:bare", title: "Bare", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, parent: "core:scene", as: "section" } } }, "pl");
+  assert.equal(P.homeOf(getPanel("pl:sec")!), null);
+  assert.ok(P.canDock(getPanel("pl:sec")!));
+  assert.ok(P.canFloat(getPanel("pl:sec")!));
+  assert.ok(!P.canDock(getPanel("pl:bare")!), "a section with no dock stays in its host");
+  assert.equal(P.dockOf(getPanel("pl:sec")!), "bottom");
+});
+
+test("a composed shell places dock-naming plugin panels once: into the mapped group, else at that edge", () => {
+  const { layoutStore } = await_layoutStore;
+  registerPanel({ id: "pl:left", title: "L", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 }, docked: { zone: "left" } } }, "pl");
+  registerPanel({ id: "pl:right", title: "R", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 }, docked: { zone: "right" } } }, "pl");
+  const grid = { kind: "split", id: "s1", dir: "row", sizes: [0.7, 0.3], children: [{ kind: "viewport" }, { kind: "group", id: "gR", panels: [CORE_PANEL_IDS.scene], active: CORE_PANEL_IDS.scene }] } as const;
+  P.setClassicContext("shell-t", grid as never, [], { right: "gR" });
+  try {
+    P.adoptDockedPanels();
+    let g = gridOf(P.classicDoc());
+    assert.deepEqual(groupOf(g, "pl:right")?.panels, [CORE_PANEL_IDS.scene, "pl:right"], "stacked into the mapped group");
+    assert.ok(groupOf(g, "pl:left"), "no group for `left`: docked at the view's left edge");
+    assert.notEqual(groupOf(g, "pl:left")?.id, "gR");
+    // Once only: the user's move stands.
+    P.updateClassic((d) => floatPanel(d, "pl:right", { x: 0, y: 0, w: 10, h: 10 }));
+    P.adoptDockedPanels();
+    g = gridOf(P.classicDoc());
+    assert.equal(groupOf(g, "pl:right"), null);
+    // `pl:sec` (above) names `bottom`, which has no group: the view's bottom edge.
+    assert.equal(groupOf(g, "pl:sec")?.panels.includes("pl:sec"), true);
+    assert.deepEqual(P.placedElsewhere(P.classicDoc(), true, false).sort(), ["pl:left", "pl:right", "pl:sec"]);
+    assert.deepEqual(P.placedElsewhere(P.classicDoc(), false, false), [], "with the setting off, everything is at home");
+  } finally {
+    P.setClassicContext("default");
+    layoutStore.setState({ prefs: { v: 1, docs: {} } });
+  }
 });
 
 test("a panel's own window: the host's actions in its title bar, the zone marks on its card, nothing in its body", () => {

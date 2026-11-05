@@ -146,6 +146,7 @@ registerPlugin({
           { kind: "viewport" },
         ] },
         open: [CORE_PANEL_IDS.tree], // opened when the shell loads
+        docks: { left: "g1" }, // plugin panels with `dock: "left"` join group g1
       },
       chrome: { header: () => import("./MyHeader"), toolbar: false },
       themeTokens: { "--ada-panel-bg": "rgb(17 24 39 / 0.95)" },
@@ -159,6 +160,15 @@ draws core's panel toggles in it and `PluginTopBarButtons`
 (`@/viewer-core/plugins`) the plugins' buttons. The shell's own panels are
 registered with `registerPanel` and named in the grid like core's. Each shell
 keeps its own saved arrangement (`LayoutDoc.context` is the shell id).
+
+Feature plugins' panels take part too. A slot in the `top-panel` region, or any
+slot that names a `dock`, can be docked and floated like a core panel. A slot that
+names a dock is placed once, the first time the shell sees it: into the group
+`layout.docks` maps that dock to, else at that edge of the view (`left`,
+`bottom`, otherwise `right`). While the layout shows a plugin panel in a group or
+window, its region host (the panel column, the Simulation or Admin tab strip, a
+core panel's section) leaves it out; its top-bar button stays and still opens and
+closes it.
 
 ### A root of its own
 

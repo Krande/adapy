@@ -5,6 +5,7 @@ import {useMeStore} from "@/state/meStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {disablePlugin, getAdminTabs, makePluginContextStandalone} from "@/plugins";
+import {usePlacedElsewhereVersion} from "@/layout/usePlacedElsewhere";
 import AuditTab from "./AuditTab";
 import PerformanceTab from "./PerformanceTab";
 import ProceduralTab from "./ProceduralTab";
@@ -68,6 +69,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
     const isAdmin = useMeStore((s) => s.isAdmin);
     // Plugin-contributed tabs. Recomputed each render (like PluginPanelRegion)
     // so a plugin whose activation predicate flips shows/hides its tab live.
+    // A tab the layout shows in a group or window of its own leaves the strip.
+    usePlacedElsewhereVersion();
     const pluginTabs = getAdminTabs(makePluginContextStandalone(""));
     const pluginTabIds = new Set(pluginTabs.map((t) => t.panel.id));
     // One parser for both entry points, so a retired id like "audit_runs"

@@ -30,6 +30,8 @@ A shell is one of two kinds:
   * `layout.grid`: the split grid a user starts from (`GridNode`, with core's
     panels named by `CORE_PANEL_IDS`);
   * `layout.open`: the panels opened when the shell loads;
+  * `layout.docks`: which group of the grid a feature plugin's panel joins when
+    its slot names that `dock` (this package maps `left` and `right`);
   * `chrome.header`: a lazy menu bar drawn above the layout (`PanelToggles` from
     `@/viewer-core/layout` draws core's panel toggles in it), and
     `chrome.toolbar: false` to leave out core's top bar over the viewport;

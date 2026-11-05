@@ -130,6 +130,13 @@ export function panelSpecFromSlot(
     hint: slot.topBarButton?.label,
     body: () =>
       import("./PluginPanelBody").then((m) => ({ default: m.makePluginPanelBody(pluginId, slot) })),
+    // A panel that stands on its own (a column panel, or one that names a dock) can
+    // also be placed by the layout: in a group of the split grid, or a window.
+    // Sections and tabs of a core panel without a dock stay where their host puts them.
+    content:
+      slot.region === "top-panel" || slot.dock
+        ? () => import("./PluginPanelBody").then((m) => ({ default: m.makePluginPanelContent(pluginId, slot) }))
+        : undefined,
     // A slot with a top-bar button is opened and closed by that button. One
     // without is shown whenever its activation predicate holds, so it has no
     // visibility of its own to bind.

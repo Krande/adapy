@@ -44,6 +44,14 @@ export interface UiShellLayout {
   grid?: GridNode;
   /** Panels opened when the shell loads. Where they show is the user's arrangement. */
   open?: string[];
+  /**
+   * Where a plugin panel that names a dock (`PanelSlot.dock`) goes the first
+   * time it is seen: dock id to the id of a group in `grid`. A dock with no
+   * group here (or a group the user has since removed) goes to that edge of the
+   * view (`left`, `bottom`, otherwise `right`). `float` and `overlay` docks stay
+   * in their region.
+   */
+  docks?: Record<string, string>;
 }
 
 /** The chrome core draws around a composed shell's layout. */

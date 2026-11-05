@@ -210,6 +210,12 @@
 //          on the root. On `@/viewer-core/layout`: `PanelToggles` (the top bar's
 //          toggles, for a shell's header), `LayoutHostProps.context`, and
 //          `LayoutStoreState.setStartingDoc`.
+//          Plugin panels in the layout: a slot that stands on its own (region
+//          `top-panel`, or any slot that names a `dock`) has frameless content, so
+//          it docks in the split grid and floats like a core panel; while the
+//          layout shows it there, its region host leaves it out (its top-bar
+//          button stays). `UiShellLayout.docks` maps a dock id to a group of the
+//          shell's grid; a dock-naming plugin panel is placed there once.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
