@@ -141,7 +141,22 @@
 //          marked `DROP_ATTR`, `dockDragStore`) and `FloatingWindow`'s
 //          `onDragMove` / `onDragEnd`; `OverlayPortal` / `TransformedHost`
 //          (a fixed overlay of content in a floating window portals to the
-//          body). On `viewerApi`: `getPreference` / `setPreference`. Additive.
+//          body). On `viewerApi`: `getPreference` / `setPreference`.
+//          Options on core's panel contents, so a shell uses them instead of a
+//          copy. On `@/viewer-core/layout`: `SceneTreeBody` (the Scene tree) with
+//          `SceneTreeProps` (`rootFilter`, `extraRoots`, `onSelectOverride`,
+//          `header`) and `TreeNodeData.meta`; `TreeBody`'s `sceneTree`;
+//          `SceneBodyProps` (`tabs`, `hiddenTabs`, `femTab`, `arrangement`,
+//          `loadedTitle`, `loadedEmpty`); `ObjectInfoBodyProps` (`onShowInData`)
+//          and `CORE_PROPERTY_PROVIDERS`. On the root: `registerSceneTreeRoots` /
+//          `listSceneTreeRoots`, the rows a plugin adds to the Scene tree, and
+//          `registerPropertyProvider` / `listPropertyProviders` / `providersFor`,
+//          the sections a plugin adds to the Selected Object panel.
+//          Simulation: `SimulationBodyProps` (`layout: "panel" | "inline"`,
+//          `showWarpToggle`, `showBeamSolids`, `showColorToggle`,
+//          `excludeDockedTabs`) and `AnimationControls`. `ConvertBodyProps`
+//          (`inViewer`), and the progress toast `ConversionProgress` with
+//          `isClaimed` (loads a host reports elsewhere). Additive.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -243,6 +258,17 @@ export {
 } from "@/layout/registry";
 export { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
 export type { PanelController } from "@/layout/reveal";
+export {
+  listSceneTreeRoots,
+  registerSceneTreeRoots,
+} from "@/plugins/sceneTreeRoots";
+export type { SceneTreeRootProvider } from "@/plugins/sceneTreeRoots";
+export {
+  listPropertyProviders,
+  providersFor,
+  registerPropertyProvider,
+} from "@/plugins/propertyProviders";
+export type { PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
 export { bindStoreFlag, watchStores } from "@/layout/bindings";
 export type { FlagStore } from "@/layout/bindings";
 export {

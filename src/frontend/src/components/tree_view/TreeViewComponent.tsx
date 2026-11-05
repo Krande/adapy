@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode, TreeNodeData} from './CustomNode';
@@ -8,13 +8,35 @@ import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 import {syncSceneTreeToSelection} from "@/utils/tree_view/revealPick";
 import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
 import {clearScene} from "@/utils/scene/handlers/clear_scene";
+import {claimSceneTreeSelection, sceneTreeContributedRoots, subscribeSceneTreeRoots} from "@/plugins/sceneTreeRoots";
 
-const TreeViewComponent: React.FC = () => {
+/** What a `rootFilter` lists of the model roots, and how many it left out. */
+export interface SceneTreeRootFilter {
+    shown: TreeNodeData[];
+    hidden: number;
+}
+
+/** Options of the Scene tree. Absent, each leaves the tree as it is. */
+export interface SceneTreeProps {
+    /** Narrows the model roots. Called with `showAll` true after the user asks for every root;
+     *  while it hides some, a toggle under the search offers them back. */
+    rootFilter?: (roots: TreeNodeData[], showAll: boolean) => SceneTreeRootFilter;
+    /** Rows appended after the model roots (and before any a plugin contributes). */
+    extraRoots?: TreeNodeData[];
+    /** Runs before the tree's own selection handler, with the selected row ids; true = handled. */
+    onSelectOverride?: (ids: string[]) => boolean;
+    /** Rendered under the search row. */
+    header?: React.ReactNode;
+}
+
+const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, extraRoots, onSelectOverride, header}) => {
     const {useTreeViewStore} = useViewerStores();
     const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope, rootLabelMode, setRootLabelMode} = useTreeViewStore();
     const {useModelState} = useViewerStores();
     const loadedCount = useModelState((s) => s.loadedSourceNames.size);
     const [clearing, setClearing] = useState(false);
+    const [showAllRoots, setShowAllRoots] = useState(false);
+    const contributedRoots = useSyncExternalStore(subscribeSceneTreeRoots, sceneTreeContributedRoots, sceneTreeContributedRoots);
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -36,7 +58,17 @@ const TreeViewComponent: React.FC = () => {
 
     // Top level = one root per loaded model (labelled by GLB filename). The
     // store keeps them under a synthetic container; render its children.
-    const treeNodes = treeData?.children ?? [];
+    const modelRoots = treeData?.children ?? [];
+    const filtered = rootFilter ? rootFilter(modelRoots, showAllRoots) : null;
+    const shownRoots = filtered?.shown ?? modelRoots;
+    const hiddenRoots = filtered?.hidden ?? 0;
+    const treeNodes = useMemo(
+        () =>
+            !extraRoots?.length && !contributedRoots.length
+                ? shownRoots
+                : [...shownRoots, ...(extraRoots ?? []), ...contributedRoots],
+        [shownRoots, extraRoots, contributedRoots],
+    );
 
     // Update the tree height based on the container size using ResizeObserver
     useEffect(() => {
@@ -52,6 +84,10 @@ const TreeViewComponent: React.FC = () => {
         const resizeObserver = new ResizeObserver(() => updateTreeHeight());
         if (containerRef.current) {
             resizeObserver.observe(containerRef.current);
+        }
+        // The header too: the scope chip, a `header` or the root-filter toggle change its height.
+        if (headerRef.current) {
+            resizeObserver.observe(headerRef.current);
         }
 
         // Set the initial height
@@ -96,6 +132,8 @@ const TreeViewComponent: React.FC = () => {
         // what was picked in 3D.
         if (ids.length === 0 && !containerRef.current?.contains(document.activeElement)) return;
         if (!treeRef.current?.isProgrammaticChange) {
+            const rowIds = ids.map((n) => String(n.id));
+            if (onSelectOverride?.(rowIds) || claimSceneTreeSelection(rowIds)) return;
             (async () => {
                 await handleTreeSelectionChange(ids);
             })();
@@ -146,7 +184,7 @@ const TreeViewComponent: React.FC = () => {
                         {rootLabelMode === "name" ? "Names" : "IDs"}
                     </button>
                     {/* The storage browser's Clear, from here: every model out of the scene. */}
-                    {(treeNodes.length > 0 || loadedCount > 0) && (
+                    {(modelRoots.length > 0 || loadedCount > 0) && (
                         <button
                             type="button"
                             className="h-7 shrink-0 rounded-md border border-gray-700 bg-gray-800 px-2 text-xs text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-60"
@@ -164,6 +202,18 @@ const TreeViewComponent: React.FC = () => {
                         </button>
                     )}
                 </div>
+                {header}
+                {/* A list that drops roots says so, and offers them back. */}
+                {(hiddenRoots > 0 || (!!rootFilter && showAllRoots)) && (
+                    <button
+                        type="button"
+                        className="mt-1.5 w-full rounded px-1 py-0.5 text-left text-xs text-gray-400 hover:bg-white/5 hover:text-gray-100"
+                        title={showAllRoots ? "List only the filtered models" : `${hiddenRoots} other loaded model(s) are not listed; they are still in the 3D view`}
+                        onClick={() => setShowAllRoots(!showAllRoots)}
+                    >
+                        {showAllRoots ? "Showing all — filter" : `${hiddenRoots} more loaded — show all`}
+                    </button>
+                )}
                 {scopeNodeId && (
                     <div className="mt-1.5 flex items-center">
                         <span

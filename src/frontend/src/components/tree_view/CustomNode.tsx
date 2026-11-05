@@ -21,6 +21,8 @@ export interface TreeNodeData {
      *  names the Scene tree can show for it (`@/utils/tree_view/rootLabels`). */
     top_name?: string;
     source_label?: string;
+    /** Muted text at the row's right edge: a count or a kind that qualifies the name. */
+    meta?: string;
 }
 
 const VISIBILITY_TITLE: Record<RowVisibility, string> = {
@@ -63,6 +65,11 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                 {node.level === 0 ? <ModelGlyph/> : <NodeGlyph branch={!geometry}/>}
             </span>
             <span className={`whitespace-nowrap flex-1 min-w-0 ${hidden ? 'opacity-50 italic' : ''}`}>{data.name}</span>
+            {data.meta && (
+                <span className={`shrink-0 pl-2 text-[10px] tabular-nums ${isSelected ? 'text-gray-200' : 'text-gray-400'}`}>
+                    {data.meta}
+                </span>
+            )}
             {visibility !== "none" && (
                 <button
                     type="button"

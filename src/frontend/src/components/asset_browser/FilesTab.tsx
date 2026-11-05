@@ -3,8 +3,8 @@
 
 import React from "react";
 
-import TreeViewComponent from "@/components/tree_view/TreeViewComponent";
+import TreeViewComponent, { type SceneTreeProps } from "@/components/tree_view/TreeViewComponent";
 
-const FilesTab: React.FC = () => <TreeViewComponent />;
+const FilesTab: React.FC<SceneTreeProps> = (props) => <TreeViewComponent {...props} />;
 
 export default FilesTab;

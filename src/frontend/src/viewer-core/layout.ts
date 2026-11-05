@@ -18,16 +18,24 @@
 // as a panel body as it is.
 // ---------------------------------------------------------------------------
 export { default as SceneBody } from "@/components/info_box_scene/SceneBody";
-export { ObjectInfoBody } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
+export type { SceneArrangement, SceneBodyProps } from "@/components/info_box_scene/SceneBody";
+export type { SceneTab } from "@/components/info_box_scene/sceneTabs";
+export { CORE_PROPERTY_PROVIDERS, ObjectInfoBody } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
+export type { ObjectInfoBodyProps } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
 export { StorageBody } from "@/components/storage/StorageBrowser";
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
 export {
+  AnimationControls,
   SimulationBody,
   SimulationContent,
   useSimulationTabs,
 } from "@/components/simulation/SimulationControls";
-export type { SimulationTabs } from "@/components/simulation/SimulationControls";
+export type {
+  ResultControlsOptions,
+  SimulationBodyProps,
+  SimulationTabs,
+} from "@/components/simulation/SimulationControls";
 export { default as FeaTableBody } from "@/components/simulation/SimulationDataInfoPanel";
 export {
   CellBuilderBody,
@@ -38,8 +46,16 @@ export type { CellBuilderPanelState } from "@/components/viewer/CellBuilderPanel
 export { ComponentControlsBody } from "@/components/component_view/ComponentControls";
 export { default as NodeEditorBody } from "@/components/node_editor/NodeEditorBody";
 export { default as TreeBody } from "@/components/asset_browser/AssetBrowser";
+export type { TreeBodyProps } from "@/components/asset_browser/AssetBrowser";
+export { default as SceneTreeBody } from "@/components/tree_view/TreeViewComponent";
+export type { SceneTreeProps, SceneTreeRootFilter } from "@/components/tree_view/TreeViewComponent";
+export type { TreeNodeData } from "@/components/tree_view/CustomNode";
 export { default as AttributeSearchBody } from "@/components/asset_browser/AttributeSearchPanel";
 export { default as ConvertBody } from "@/components/convert/ConvertPage";
+export type { ConvertBodyProps } from "@/components/convert/ConvertPage";
+export { default as ConversionProgress } from "@/components/conversion/ConversionProgress";
+export type { ConversionProgressProps } from "@/components/conversion/ConversionProgress";
+export type { IsClaimed } from "@/components/conversion/claimedLoads";
 export { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
 export { WebsocketStatusBody } from "@/components/WebsocketStatusMenu";
 

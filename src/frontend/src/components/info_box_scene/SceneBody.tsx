@@ -1,4 +1,4 @@
-import React from "react";
+import React, {useLayoutEffect, useRef, useState} from "react";
 
 import CollapsibleSection from "@/components/common/CollapsibleSection";
 import LoadedModelsSection from "./LoadedModelsSection";
@@ -17,10 +17,26 @@ import ClashesPanel from "./ClashesPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
 import OverlaysPanel from "./OverlaysPanel";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
-import {MODE_TO_TAB, TAB_META, TAB_TO_MODE} from "./sceneTabs";
+import FemConceptsPanel from "@/components/simulation/FemConceptsPanel";
+import {activeSceneTab, sceneTabs, shouldStackTabs, TAB_TO_MODE, type SceneTab, type SceneTabOptions} from "./sceneTabs";
+import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
 import {useClashCheckStore} from "@/state/clashCheckStore";
 import {useIsMobile} from "@/utils/useIsMobile";
+
+export type SceneArrangement = "tabs" | "stacked" | "auto";
+
+/** Options of the Scene panel's content. Absent, each leaves the panel as it is. */
+export interface SceneBodyProps extends SceneTabOptions {
+    /** A tab strip (the default), a column of collapsible sections, or whichever the body's
+     *  height suits (`shouldStackTabs`). */
+    arrangement?: SceneArrangement;
+    /** Heading of the pinned list of loaded models. Default "Loaded models". */
+    loadedTitle?: string;
+    /** Shown in that list while no model is loaded. */
+    loadedEmpty?: React.ReactNode;
+}
 
 // The Scene panel's content: everything that talks about the loaded scene
 // (rather than a single selected object). Its frame -- the menu-column card that
@@ -31,7 +47,7 @@ import {useIsMobile} from "@/utils/useIsMobile";
 // Model / Tools / Clip / Mesh always apply — only Joints is contextual. "Loaded
 // models" stays pinned above the tabs, visible in every one. The FE model's
 // concepts (masses / BCs / load scenarios) live in the Simulation panel's Model
-// tab.
+// tab, and in an FEM tab here only where a host asks for one (`femTab`).
 //
 // The legacy modes map onto the tabs: Info + Source merge into "Model" (both
 // describe what's loaded), Utilities → Tools, Section → Clip, and Mesh keeps its
@@ -42,7 +58,7 @@ import {useIsMobile} from "@/utils/useIsMobile";
 // Three regions: the pinned model list, the tab strip, and a body that scrolls on
 // its own. A frame lays them out in a flex column (the card has no padding of its
 // own, so the strip can span edge to edge).
-const SceneBody: React.FC = () => {
+const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab = false, arrangement = "tabs", loadedTitle = "Loaded models", loadedEmpty}) => {
     const mode = useSceneInfoStore((s) => s.mode);
     const setMode = useSceneInfoStore((s) => s.setMode);
 
@@ -59,15 +75,33 @@ const SceneBody: React.FC = () => {
     const hasIdentifiedJoints = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
     const hasJoints = hasProducedJoints || hasGeneratedJoints || hasIdentifiedJoints;
 
+    // FEM, where offered: the FE model's concepts, or any FEA result session.
+    const hasFemConcepts = useFemConceptsStore((s) => s.masses.length > 0 || s.bcs.length > 0 || s.scenarios.length > 0);
+    const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
+
     const isMobile = useIsMobile();
 
-    const ctxAvailable: Record<string, boolean> = {joints: hasJoints};
-    const tabs = TAB_META.filter((t) => !t.ctx || ctxAvailable[t.id]);
+    const ctxAvailable: Partial<Record<SceneTab, boolean>> = {joints: hasJoints, fem: hasFemConcepts || feaSessionActive};
+    const tabs = sceneTabs({tabs: tabIds, hiddenTabs, femTab}, ctxAvailable);
     // Derive the active tab from the store mode, falling back to Model if the
     // stored mode points at a tab that isn't currently available (e.g. Joints
     // after the model carrying them was unloaded).
-    let tab = MODE_TO_TAB[mode];
-    if (!tabs.some((t) => t.id === tab)) tab = "model";
+    const tab = activeSceneTab(mode, tabs, femTab);
+
+    const bodyRef = useRef<HTMLDivElement | null>(null);
+    const [autoStacked, setAutoStacked] = useState(false);
+    // Measured before paint, then on every resize; only in "auto".
+    useLayoutEffect(() => {
+        const el = bodyRef.current;
+        if (arrangement !== "auto" || !el) return;
+        const measure = () => setAutoStacked((was) => shouldStackTabs(tabs.length, el.clientHeight, was));
+        measure();
+        if (typeof ResizeObserver === "undefined") return;
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [arrangement, tabs.length]);
+    const stacked = arrangement === "stacked" || (arrangement === "auto" && autoStacked);
 
     return (
         <>
@@ -75,11 +109,12 @@ const SceneBody: React.FC = () => {
                 toggling / unloading never means digging through prefix trees.
                 Capped so a long list can't swallow the whole sheet. */}
             <div className="shrink-0 px-2.5 max-h-40 overflow-y-auto">
-                <CollapsibleSection title="Loaded models" defaultOpen>
-                    <LoadedModelsSection />
+                <CollapsibleSection title={loadedTitle} defaultOpen>
+                    <LoadedModelsSection empty={loadedEmpty} />
                 </CollapsibleSection>
             </div>
 
+            {!stacked && (<>
             {/* ── adaptive tab strip ──
                 `overflow-y-hidden` is not decoration: CSS computes the OTHER axis to `auto` as
                 soon as one is set, so `overflow-x-auto` alone gave the strip a vertical
@@ -114,10 +149,30 @@ const SceneBody: React.FC = () => {
                     </button>
                 ))}
             </div>
+            </>)}
 
             {/* ── scrollable tab body ── */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
-                {tab === "model" ? (
+            <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
+                {stacked ? (
+                    <div className="flex flex-col">
+                        {tabs.map((t) => (
+                            // The tab the store points at opens, so an opener lands on it here too.
+                            <CollapsibleSection key={t.id} title={t.label} defaultOpen={t.id === tab}>
+                                <TabContent tab={t.id} isMobile={isMobile} />
+                            </CollapsibleSection>
+                        ))}
+                    </div>
+                ) : (
+                    <TabContent tab={tab} isMobile={isMobile} />
+                )}
+            </div>
+        </>
+    );
+};
+
+/** One tab's content, the same in either arrangement. */
+const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile}) =>
+                tab === "model" ? (
                     <>
                         <FacePickingToggle />
                         <FaceSearchSection />
@@ -157,14 +212,12 @@ const SceneBody: React.FC = () => {
                     <SectionPlanesPanel />
                 ) : tab === "mesh" ? (
                     <MeshDistortionSection />
+                ) : tab === "fem" ? (
+                    <FemConceptsPanel />
                 ) : tab === "clashes" ? (
                     <ClashesPanel />
                 ) : (
                     <JointsOverviewPanel />
-                )}
-            </div>
-        </>
-    );
-};
+                );
 
 export default SceneBody;
