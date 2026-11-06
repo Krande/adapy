@@ -59,6 +59,7 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
     ownsSceneColor: m.ownsSceneColor,
     showsDeformation: m.showsDeformation,
     toolbar: m.toolbar,
+    toolbars: m.toolbars,
   }));
   const theirs: ShellMode[] = getPluginModes()
     .filter(({mode}) => !own.some((m) => m.id === mode.id))

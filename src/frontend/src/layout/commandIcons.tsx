@@ -197,6 +197,34 @@ export const MarkingMenuIcon = glyph(
 );
 export const CustomiseIcon = glyph(<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4" />, "Customise");
 
+export const PlayIcon = glyph(<path d="M7 4.5v15l12-7.5Z" />, "Play");
+export const PauseIcon = glyph(<path d="M8 5v14M16 5v14" />, "Pause");
+export const StopResultsIcon = glyph(<rect x="6" y="6" width="12" height="12" rx="1" />, "StopResults");
+export const StepBackIcon = glyph(<path d="M7 5v14M19 5.5v13L10 12Z" />, "StepBack");
+export const StepForwardIcon = glyph(<path d="M17 5v14M5 5.5v13L14 12Z" />, "StepForward");
+export const SectionIcon = glyph(
+  <>
+    <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z" />
+    <path d="M3 13.5 12 9l9 4.5-9 4.5Z" strokeWidth="1.4" />
+  </>,
+  "Section",
+);
+export const FlipIcon = glyph(<path d="M4 8h14l-3-3M20 16H6l3 3" />, "Flip");
+export const UndeformedIcon = glyph(
+  <>
+    <path d="M4 17c3-9 13-9 16 0" />
+    <path d="M4 17h16" strokeDasharray="2 2" />
+  </>,
+  "Undeformed",
+);
+export const ElementEdgesIcon = glyph(<path d="M4 4h16v16H4ZM4 12h16M12 4v16" />, "ElementEdges");
+export const ResultColorsIcon = glyph(
+  <>
+    <rect x="4" y="4" width="16" height="16" rx="1.5" />
+    <path d="M4 9.5h16M4 14.5h16" />
+  </>,
+  "ResultColors",
+);
 /** Core's commands' icons, by command id. */
 export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.openFile]: OpenIcon,
@@ -240,6 +268,19 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.markingMenu]: MarkingMenuIcon,
   [C.toggleMarkingMenu]: MarkingMenuIcon,
   [C.customiseRail]: CustomiseIcon,
+  [C.playPause]: PlayIcon,
+  [C.stopResults]: StopResultsIcon,
+  [C.stepBack]: StepBackIcon,
+  [C.stepForward]: StepForwardIcon,
+  [C.sectionX]: SectionIcon,
+  [C.sectionY]: SectionIcon,
+  [C.sectionZ]: SectionIcon,
+  [C.sectionToggle]: SectionIcon,
+  [C.sectionFlip]: FlipIcon,
+  [C.sectionClear]: ClearSelectionIcon,
+  [C.feaToggleUndeformed]: UndeformedIcon,
+  [C.feaToggleElementEdges]: ElementEdgesIcon,
+  [C.feaToggleResultColors]: ResultColorsIcon,
 };
 
 /** A command's initials, for one without an icon ("Fit selection" -> "FS"). */

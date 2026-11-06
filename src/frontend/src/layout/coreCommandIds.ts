@@ -68,6 +68,22 @@ export const CORE_COMMAND_IDS = {
   toggleMarkingMenu: "core:toggle-marking-menu",
   /** The tool rail's customise dialog; offered in a shell with core's tool rail. */
   customiseRail: "core:customise-rail",
+  /** Result playback (a streaming FEA result): play / pause, stop, a step back and forward. */
+  playPause: "core:results-play-pause",
+  stopResults: "core:results-stop",
+  stepBack: "core:results-step-back",
+  stepForward: "core:results-step-forward",
+  /** Section planes: add one on an axis (it becomes the one the toolbar edits), switch it on or off, flip it, remove all. */
+  sectionX: "core:section.x",
+  sectionY: "core:section.y",
+  sectionZ: "core:section.z",
+  sectionToggle: "core:section-toggle",
+  sectionFlip: "core:section-flip",
+  sectionClear: "core:section-clear",
+  /** Representation of a loaded FEA result: the undeformed outline, the element edges, the result colours. */
+  feaToggleUndeformed: "core:fea-toggle-undeformed",
+  feaToggleElementEdges: "core:fea-toggle-element-edges",
+  feaToggleResultColors: "core:fea-toggle-result-colors",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];

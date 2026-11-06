@@ -138,13 +138,19 @@ export function desktopUiShellSpec(): UiShellSpec {
       open: [tree, objectInfo, scene],
       docks: DOCKS,
       modes: [
-        { id: "model", label: "Model", hint: "The model, its tree and properties" },
+        {
+          id: "model",
+          label: "Model",
+          hint: "The model, its tree and properties",
+          toolbars: ["section", "representation"],
+        },
         {
           id: "results",
           label: "Results",
           hint: "Simulation results under the view",
           grid: DESKTOP_RESULTS_GRID,
           open: [tree, objectInfo, simulation],
+          toolbars: ["playback", "representation"],
         },
       ],
       defaultMode: "model",

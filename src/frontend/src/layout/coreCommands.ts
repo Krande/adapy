@@ -17,7 +17,9 @@ import {runtime} from "@/runtime/config";
 import {listUiShells, activeUiShellId, setActiveUiShell} from "@/plugins/uiShells";
 import {promptDialog} from "@/plugins/dialogs";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useGalleryStore} from "@/state/galleryStore";
+import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
 import {requestRender} from "@/state/perfStore";
@@ -27,6 +29,7 @@ import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useModelState} from "@/state/modelState";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
+import {playbackAvailable} from "@/utils/scene/fea/playbackActions";
 import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
 import {feaContextReason, feaIsolationNow, feaIsolationReason, feaTreeView} from "@/utils/scene/fea/feaTree";
 
@@ -62,6 +65,36 @@ function feaSetCount(): number {
 
 const OWNER = "core";
 
+const noResults = () => (playbackAvailable() ? null : "No result is loaded");
+
+/** The section plane the toolbar edits: the active one, else the last. */
+export function workingPlane(): SectionPlane | undefined {
+  const {planes, activeId} = useSectionStore.getState();
+  return planes.find((p) => p.id === activeId) ?? planes[planes.length - 1];
+}
+
+type FeaState = ReturnType<typeof useFeaAnimationStore.getState>;
+
+/** A switch of how a loaded FEA result is drawn: ticked while on, offered once a result is loaded. */
+function feaViewToggle(
+  id: string,
+  label: string,
+  read: (s: FeaState) => boolean,
+  setter: (s: FeaState) => (v: boolean) => void,
+): CommandSpec {
+  return {
+    id,
+    label,
+    group: "View",
+    checked: () => read(useFeaAnimationStore.getState()),
+    disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+    run: () => {
+      const s = useFeaAnimationStore.getState();
+      setter(s)(!read(s));
+      requestRender();
+    },
+  };
+}
 /** How many draw ranges are selected. */
 export function selectionCount(selected: ReadonlyMap<unknown, ReadonlySet<string>> = useSelectedObjectStore.getState().selectedObjects): number {
   let n = 0;
@@ -107,6 +140,7 @@ export function coreCommandSpecs(): CommandSpec[] {
   const camera = () => import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
   const visibility = () => import("@/utils/scene/visibility");
   const selection = () => import("@/utils/scene/selectionCommands");
+  const playback = () => import("@/utils/scene/fea/playbackActions");
   const specs: CommandSpec[] = [
     // File
     {
@@ -438,6 +472,79 @@ export function coreCommandSpecs(): CommandSpec[] {
       when: () => activeRail()?.config.customisable === true,
       run: () => openRailCustomise(),
     },
+    // Results playback (the transport's actions, shared with the Simulation panel).
+    {
+      id: ID.playPause,
+      label: "Play / pause results",
+      group: "Results",
+      disabledReason: noResults,
+      checked: () => useFeaAnimationStore.getState().isPlaying,
+      run: () => void playback().then((m) => m.togglePlayResults()),
+    },
+    {
+      id: ID.stopResults,
+      label: "Stop results",
+      group: "Results",
+      disabledReason: noResults,
+      run: () => void playback().then((m) => m.stopResults()),
+    },
+    {
+      id: ID.stepBack,
+      label: "Previous result step",
+      group: "Results",
+      disabledReason: noResults,
+      run: () => void playback().then((m) => m.stepResults(-1)),
+    },
+    {
+      id: ID.stepForward,
+      label: "Next result step",
+      group: "Results",
+      disabledReason: noResults,
+      run: () => void playback().then((m) => m.stepResults(1)),
+    },
+    // Section planes
+    ...(["x", "y", "z"] as const).map(
+      (axis): CommandSpec => ({
+        id: ID[`section${axis.toUpperCase() as "X" | "Y" | "Z"}`],
+        label: `Section plane ${axis.toUpperCase()}`,
+        group: "Section",
+        run: () => useSectionStore.getState().addPlane(axis),
+      }),
+    ),
+    {
+      id: ID.sectionToggle,
+      label: "Section plane on / off",
+      group: "Section",
+      checked: () => workingPlane()?.enabled === true,
+      // With no plane yet, the first press cuts through the model on Z.
+      run: () => {
+        const s = useSectionStore.getState();
+        const p = workingPlane();
+        if (p) s.toggle(p.id);
+        else s.addPlane("z");
+      },
+    },
+    {
+      id: ID.sectionFlip,
+      label: "Flip section plane",
+      group: "Section",
+      disabledReason: () => (workingPlane() ? null : "No section plane"),
+      run: () => {
+        const p = workingPlane();
+        if (p) useSectionStore.getState().flip(p.id);
+      },
+    },
+    {
+      id: ID.sectionClear,
+      label: "Remove section planes",
+      group: "Section",
+      disabledReason: () => (useSectionStore.getState().planes.length ? null : "No section plane"),
+      run: () => useSectionStore.getState().clearAll(),
+    },
+    // Representation of a loaded FEA result
+    feaViewToggle(ID.feaToggleUndeformed, "Undeformed outline", (s) => s.showUndeformed, (s) => s.setShowUndeformed),
+    feaViewToggle(ID.feaToggleElementEdges, "Element edges", (s) => s.elementEdgesVisible, (s) => s.setElementEdgesVisible),
+    feaViewToggle(ID.feaToggleResultColors, "Result colours", (s) => s.resultColorsVisible, (s) => s.setResultColorsVisible),
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({

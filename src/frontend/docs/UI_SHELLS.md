@@ -263,7 +263,7 @@ the chrome it draws in the slots.
 | Area | Option | What it does |
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
-| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`. `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, see "Core's mode toolbars"). `?mode=` opens one; `setShellModeBadge` marks one. |
 | | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
 | | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
@@ -569,6 +569,37 @@ without the panels changing.
 | This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
 | Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
 
+### Core's mode toolbars
+
+A mode's toolbar slot (`ShellModeToolbar`, in the header) comes filled with core's
+own toolbars. A mode names them in `toolbars`, left to right; they are drawn
+before the mode's own `toolbar` (a function in the shell plugin's context), so a
+shell needs no code for them:
+
+```ts
+modes: [
+  { id: "model", label: "Model", toolbars: ["section", "representation"] },
+  { id: "results", label: "Results", toolbars: ["playback", "representation"] },
+]
+```
+
+| Id | Controls | Backed by |
+|---|---|---|
+| `playback` | Step back, play / pause, stop, step forward; the step slider and "n / N"; the oscillation period (mode shapes and static steps; a time history plays its own time axis) and the deformation scale. | `core:results-play-pause`, `core:results-stop`, `core:results-step-back`, `core:results-step-forward`; the scale and the slider call the same actions as the Simulation panel (`utils/scene/fea/playbackActions`). |
+| `section` | A plane per axis (X / Y / Z), on / off, flip, the offset slider along the plane's axis (over the model's extent), remove all. | `core:section.x` / `.y` / `.z`, `core:section-toggle`, `core:section-flip`, `core:section-clear`: the section store, so undo / redo covers them. The toolbar edits the active plane, else the last. |
+| `representation` | Geometry edges, the rest of an isolated FEA model as wireframe, and for a loaded result: result colours, element edges, the undeformed outline. | `core:edges`, `core:fea-toggle-context-wireframe`, `core:fea-toggle-result-colors`, `core:fea-toggle-element-edges`, `core:fea-toggle-undeformed`. |
+
+All of those are commands, so the palette, the menu bar (the Desktop UI's View menu
+has Section and Results submenus and the result switches under Display), the tool
+rail and the marking menu reach them too (add the ids to `rail.tools` or the marking
+menu's `items`); each has an icon in `CORE_COMMAND_ICONS`. A shell that wants the
+controls in its own chrome mounts the components from `@/viewer-core/layout`:
+`PlaybackToolbar`, `SectionToolbar`, `RepresentationToolbar`, `CoreModeToolbars`
+(`ids`), and `CommandButton` (`id`) for a button of its own over any command. The
+ids are `CORE_MODE_TOOLBAR_IDS` / `CoreModeToolbarId` on the root.
+
+Core has no scene-wide wireframe or transparency switch and no annotation tools
+(measure, labels, markups), so there is no toolbar group for them.
 ### The built-in Desktop UI
 
 Core ships one composed shell of its own next to the classic UI: **Desktop**
@@ -585,7 +616,7 @@ worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`)
 |---|---|
 | Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher and toolbar, the plugins' top-bar buttons, a Commands button. |
 | Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
-| Modes | Model (default) and Results (the results dock open); plugins' modes follow. |
+| Modes | Model (default; toolbars: section, representation) and Results (the results dock open; toolbars: playback, representation); plugins' modes follow. |
 | Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
 | Rail | Core's tool rail (`DESKTOP_RAIL_TOOLS`) on the left edge: Open; Fit all, Fit selection, Reset camera, Isometric view; Hide selected, Hide others, Show all; Select all, Clear selection; Geometry edges, Clear FEA isolation; Undo, Redo. The user's own is kept per shell. |
 | Marking menu | Core's (`chrome.markingMenu: {}`), on: hold the right button over the view, or Shift+E. |

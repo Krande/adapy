@@ -9,6 +9,8 @@ import {makePluginContext} from "@/plugins/context";
 import {useViewerStores} from "@/state/AdaViewerContext";
 import {usePluginTheme} from "@/state/themeStore";
 
+import {CoreModeToolbars} from "./ModeToolbars";
+
 import {
   activeShellMode,
   listShellModes,
@@ -77,17 +79,27 @@ export function ShellModeSwitcher({buttonClass = DEFAULT_BUTTON, className = "fl
   );
 }
 
-/** The active mode's own controls, when a plugin's mode has them; a throw disables that plugin. */
+/** The active mode's own controls: the core toolbars it names (`toolbars`), then its `toolbar`; a throw disables that plugin. */
 export function ShellModeToolbar() {
   const {modes, active} = useShellMode();
   const stores = useViewerStores();
   const theme = usePluginTheme();
   const mode = modes.find((m) => m.id === active);
-  if (!mode?.toolbar || !mode.pluginId) return null;
-  try {
-    return <>{mode.toolbar(makePluginContext(mode.pluginId, stores, theme))}</>;
-  } catch (err) {
-    disablePlugin(mode.pluginId, `mode "${mode.id}" toolbar threw: ${String(err)}`);
-    return null;
+  if (!mode) return null;
+  let own: React.ReactNode = null;
+  if (mode.toolbar && mode.pluginId) {
+    try {
+      own = mode.toolbar(makePluginContext(mode.pluginId, stores, theme));
+    } catch (err) {
+      disablePlugin(mode.pluginId, `mode "${mode.id}" toolbar threw: ${String(err)}`);
+    }
   }
+  const core = mode.toolbars?.length ? <CoreModeToolbars ids={mode.toolbars} /> : null;
+  if (!core && !own) return null;
+  return (
+    <>
+      {core}
+      {own}
+    </>
+  );
 }

@@ -500,7 +500,22 @@
 //          kept per shell in `LayoutPrefs.rail` (`RailPrefs`, with the tools a
 //          later shell list adds put in: `railTools`). The Desktop UI has both
 //          (`DESKTOP_RAIL_TOOLS`). Additive, apart from the reserved Shift+E.
-export const VIEWER_CORE_API_VERSION = "1.14.0";
+//   1.15.0 Core mode toolbars: `UiShellMode.toolbars` names core's ready-made
+//          toolbars for a mode's toolbar slot (`"playback"`, `"section"`,
+//          `"representation"`; `CoreModeToolbarId`, `CORE_MODE_TOOLBAR_IDS` on the
+//          root), drawn by `ShellModeToolbar` before the mode's own `toolbar`.
+//          On `@/viewer-core/layout` the components (`PlaybackToolbar`,
+//          `SectionToolbar`, `RepresentationToolbar`, `CoreModeToolbars`,
+//          `CORE_MODE_TOOLBARS`) and `CommandButton` (a button over a command), for a
+//          shell that mounts them in its own chrome. New core commands on
+//          `CORE_COMMAND_IDS`: `playPause`, `stopResults`, `stepBack`, `stepForward`
+//          (result playback), `sectionX` / `sectionY` / `sectionZ`,
+//          `sectionToggle`, `sectionFlip`, `sectionClear`, and
+//          `feaToggleUndeformed` / `feaToggleElementEdges` /
+//          `feaToggleResultColors`, with icons; the Desktop UI's modes use the
+//          toolbars and its View menu lists the commands. Additive. Ships with
+//          PLUGIN_API_VERSION 1.15.0.
+export const VIEWER_CORE_API_VERSION = "1.15.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -588,7 +603,8 @@ export {
   shellModesVersion,
   subscribeShellModes,
 } from "@/layout/shellModes";
-export type { ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export type { CoreModeToolbarId, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export { CORE_MODE_TOOLBAR_IDS } from "@/layout/shellModes";
 export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/shellModes";
 export type { PanelOverride } from "@/layout/registry";
 export type { FixedSize, GroupArrangement } from "@/layout/splitTree";

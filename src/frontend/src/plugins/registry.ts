@@ -115,7 +115,10 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          a plugin; the new core commands are named by id like the others. Also reserved:
 //          Shift+E (core's marking menu, `core:marking-menu`). A shell's `chrome.rail` may be
 //          core's rail as data (`{tools}`) and `chrome.markingMenu` turns core's marking menu on.
-export const PLUGIN_API_VERSION = "1.14.0";
+// 1.15.0 — kept in step with viewer-core 1.15.0: a composed shell's mode may name core's
+//          toolbars (`UiShellMode.toolbars`: playback, section, representation) for its toolbar slot.
+//          Additive.
+export const PLUGIN_API_VERSION = "1.15.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

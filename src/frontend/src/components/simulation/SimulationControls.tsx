@@ -31,7 +31,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import ResultScaleSettings from "./ResultScaleSettings";
 import AnchoredPopover from "../common/AnchoredPopover";
-import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
+import {pauseResults, playResults, setResultFactor, setResultScale, stopResults} from "@/utils/scene/fea/playbackActions";
 import {buildFeaPropertyFields, buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {unbakedStepsNote} from "@/utils/scene/fea/bakedSteps";
 import {caseStatusText, hasLazyCases, mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
@@ -633,58 +633,17 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
         });
     };
 
-    const onPlay = () => {
-        setIsPlaying(true);
-        // A time history: load every frame into memory in the background (as many
-        // as the budget holds) so play stops waiting on the network after the first
-        // few frames instead of after the first loop.
-        if (timeHistory) startFramePreload?.();
-    };
-    const onPause = () => {
-        setIsPlaying(false);
-        // Playing may be showing a recorded frame (fea/playbackFrames): repaint it the
-        // ordinary way, so picking, the probe and the legend describe exactly it.
-        if (timeHistory) void applyStep?.(stepIndex);
-    };
-    const onStop = () => {
-        setIsPlaying(false);
-        if (timeHistory) {
-            // A player's stop: back to the first frame, deformation scale untouched.
-            resetFeaAnimationPhase();
-            onStepChange(0);
-            return;
-        }
-        setFactor(lo === 0 ? 0 : 0); // both ranges include 0
-        if (mesh && mesh.morphTargetInfluences) {
-            mesh.morphTargetInfluences[0] = 0;
-        }
-        resetFeaAnimationPhase();
-    };
+    // The transport's actions live with the store (core's playback toolbar calls the same ones).
+    const onPlay = playResults;
+    const onPause = pauseResults;
+    const onStop = stopResults;
 
-    // Manual factor drag: write through to the morph influence
-    // immediately. The RAF driver only runs while playing, so a
-    // direct write here is the right hook for paused scrubs. Morph
-    // value carries both the slider's factor and the scaleFactor
-    // amplifier; the RAF driver multiplies the same way on each
-    // tick.
-    const onFactorChange = (newFactor: number) => {
-        setFactor(newFactor);
-        if (mesh && mesh.morphTargetInfluences) {
-            mesh.morphTargetInfluences[0] = newFactor * scaleFactor;
-        }
-    };
+    // Manual factor drag: written through to the morph influence at once. The RAF driver
+    // only runs while playing, so a direct write is the hook for paused scrubs.
+    const onFactorChange = setResultFactor;
 
-    const onScaleFactorChange = (raw: number) => {
-        // Guard NaN from an in-progress edit (user clearing the
-        // input field). The store keeps the last valid value until
-        // they finish typing.
-        if (!isFinite(raw)) return;
-        setScaleFactor(raw);
-        if (mesh && mesh.morphTargetInfluences) {
-            mesh.morphTargetInfluences[0] = factor * raw;
-        }
-    };
-
+    // A NaN from an in-progress edit (the user clearing the field) is ignored.
+    const onScaleFactorChange = setResultScale;
     const onStepChange = (newStep: number) => {
         setStepIndex(newStep);
         if (applyStep) {

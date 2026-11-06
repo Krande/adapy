@@ -255,6 +255,16 @@ export type { GridOps, GridViewProps } from "@/layout/presets/classicGrid";
 export { default as PopoutPage, POPOUT_ZONE } from "@/layout/PopoutPage";
 export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
 export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
+// Core's mode toolbars: a mode names them (`UiShellMode.toolbars`) or a shell mounts them itself.
+export {
+  CommandButton,
+  CORE_MODE_TOOLBARS,
+  CoreModeToolbars,
+  PlaybackToolbar,
+  RepresentationToolbar,
+  SectionToolbar,
+} from "@/layout/ModeToolbars";
+export type { CommandButtonProps } from "@/layout/ModeToolbars";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";
 export type { LayoutContextValue, LayoutHostProps } from "@/layout/LayoutHost";
 export { DefaultWindowChrome, FloatLayer } from "@/layout/FloatLayer";

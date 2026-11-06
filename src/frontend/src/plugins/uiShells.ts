@@ -27,6 +27,7 @@ import type { LayoutDoc } from "@/layout/layout";
 import type { MarkingMenuConfig } from "@/layout/markingMenuModel";
 import type { ToolRailConfig } from "@/layout/toolRailModel";
 import type { PanelOverride } from "@/layout/registry";
+import type { CoreModeToolbarId } from "@/layout/shellModes";
 import type { GridNode } from "@/layout/splitTree";
 import type { ViewportAnchor } from "@/layout/viewportOverlays";
 import type { AdaPluginContext, PluginTheme } from "./registry";
@@ -111,6 +112,14 @@ export interface UiShellMode {
   showsDeformation?: boolean;
   /** The mode's own controls, drawn by `ShellModeToolbar` while it is active (in the shell's plugin context). */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /**
+   * Core's own toolbars to draw for the mode, left to right, before `toolbar`: `"playback"`
+   * (play / pause, step, the step slider, period, deformation scale), `"section"` (section
+   * planes) and `"representation"` (edges, an FEA result's outline, element edges and colours).
+   * Configuration only: needs no plugin code, and the same components are exported for a shell's
+   * own chrome (`PlaybackToolbar`, ...).
+   */
+  toolbars?: CoreModeToolbarId[];
 }
 
 /** The chrome core draws around a composed shell's layout. */
