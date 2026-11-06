@@ -547,7 +547,15 @@ def test_backend_url_must_be_https_unless_loopback(monkeypatch):
         _dispatch(monkeypatch, _full(backend="http://lab.example.com"))
 
 
-def test_run_dev_backend_prints_the_redirect_uri_and_never_starts_a_viewer(monkeypatch, capsys):
+def _fake_checkout(monkeypatch, tmp_path):
+    """Dev mode reads the frontend sources; the installed package (the conda test) has none."""
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / d.DEV_VITE_CONFIG).write_text("")
+    monkeypatch.setattr(d, "checkout_src", lambda: tmp_path)
+
+
+def test_run_dev_backend_prints_the_redirect_uri_and_never_starts_a_viewer(monkeypatch, capsys, tmp_path):
+    _fake_checkout(monkeypatch, tmp_path)
     monkeypatch.setattr(d, "probe_port", lambda p, host=d.LOCAL_HOST: "free")
     monkeypatch.setattr(d, "discover_auth_origins", lambda url: ["https://idp.example.org/"])
     started = []
@@ -563,7 +571,8 @@ def test_run_dev_backend_prints_the_redirect_uri_and_never_starts_a_viewer(monke
     assert len(started) == 1 and started[0][0] == ["node", "vite"]  # Vite only: no uvicorn viewer
 
 
-def test_run_dev_backend_refuses_a_busy_fixed_port(monkeypatch):
+def test_run_dev_backend_refuses_a_busy_fixed_port(monkeypatch, tmp_path):
+    _fake_checkout(monkeypatch, tmp_path)
     monkeypatch.setattr(d, "probe_port", lambda p, host=d.LOCAL_HOST: "taken")
     monkeypatch.setattr(d, "discover_auth_origins", lambda url: [])
     with pytest.raises(d.DesktopError, match="39198 is in use"):
