@@ -158,7 +158,7 @@ const ExportDialog: React.FC<{scope: ExportScope; onClose: () => void}> = ({scop
         <ModalFrame title="Export" onClose={onClose} testId="export-dialog">
             <ExportScopeTabs scope={scope} onScope={setScope} />
             <p className="text-xs text-gray-400 mb-3">
-                Written by the server from the model&apos;s source file, as STEP or IFC, and downloaded.
+                {"Written by the server from the model's source file, as STEP or IFC, and downloaded."}
             </p>
             {scope === "selection" ? <SelectionExport /> : <ModelExport />}
         </ModalFrame>
