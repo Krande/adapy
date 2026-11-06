@@ -127,6 +127,11 @@ export function getCommand(id: string): RegisteredCommand | undefined {
   return _commands.get(id);
 }
 
+/** The registered commands of `owner` (every one, offered now or not). */
+export function commandsOwnedBy(owner: string): RegisteredCommand[] {
+  return [..._commands.values()].filter((c) => c.owner === owner);
+}
+
 /** Run a registered command when it is offered and runnable. False otherwise (or when it threw). */
 export function runCommand(id: string): boolean {
   const c = _commands.get(id);

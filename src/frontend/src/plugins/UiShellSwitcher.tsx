@@ -2,10 +2,9 @@
 // registered. Core registers two itself (the classic UI and the Desktop one,
 // `@/layout/desktop`), so a stock build offers both.
 //
-// Switching persists the choice and reloads: a shell owns the whole component
-// tree (canvas, websocket, stores), so hot-swapping one for another mid-session
-// would mean tearing all of that down. A reload is both simpler and honest about
-// what is happening.
+// Switching persists the choice. Between core's own UI and composed shells it
+// happens in place (the model, the selection and the camera stay); a shell with a
+// root of its own is switched by a reload (`setActiveUiShell`).
 //
 // LIVES IN THE OPTIONS PANEL, not the menu bar. Which UI you are running is a
 // preference set once and rarely revisited — the same kind of thing as the
@@ -14,7 +13,22 @@
 
 import React from "react";
 
-import { activeUiShellId, listUiShells, setActiveUiShell } from "./uiShells";
+import {
+  activeUiShellId,
+  activeUiShellVersion,
+  canSwitchInPlace,
+  listUiShells,
+  setActiveUiShell,
+  subscribeActiveUiShell,
+} from "./uiShells";
+
+/** What switching from `active` does, for the switcher's help text. */
+function switchNote(active: string, shells: readonly { id: string }[]): string {
+  const others = shells.filter((s) => s.id !== active);
+  return others.every((s) => canSwitchInPlace(active, s.id))
+    ? "Switching keeps the model, the selection and the view."
+    : "Switching to a shell with a root of its own reloads the viewer.";
+}
 
 interface Props {
   /** Legacy: core's top-bar button class factory. Kept so an existing caller
@@ -34,6 +48,8 @@ interface Props {
 }
 
 export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compact }) => {
+  // An in-place switch changes the active shell without a reload.
+  React.useSyncExternalStore(subscribeActiveUiShell, activeUiShellVersion, activeUiShellVersion);
   const shells = listUiShells();
   const active = activeUiShellId();
   if (shells.length < 2) return null;
@@ -87,8 +103,7 @@ export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compa
       <div
         className={wrapper}
         title={
-          (current?.description ? current.description + "\n\n" : "") +
-          "Switching reloads the viewer — a shell owns the whole component tree."
+          (current?.description ? current.description + "\n\n" : "") + switchNote(active, shells)
         }
       >
         {control}
@@ -107,7 +122,7 @@ export const UiShellSwitcher: React.FC<Props> = ({ navBtnClass, className, compa
           </span>
         )}
         <span className="text-[10px] text-[var(--ada-panel-text)] opacity-60">
-          Switching reloads the viewer — a shell owns the whole component tree.
+          {switchNote(active, shells)}
         </span>
       </label>
     </div>

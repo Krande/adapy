@@ -114,9 +114,58 @@ preset of the layout engine. `?layout=classic` (and the
 `ada:layout-engine` key), which once fell back to a hand-written tree, are
 ignored.
 
-Switching from the switcher persists the choice and reloads — a shell owns the
-whole tree (canvas, websocket, stores), so hot-swapping would mean tearing all of
-that down for no benefit.
+Switching (the Options switcher, View → User interface, `setActiveUiShell`)
+persists the choice and then either happens in place or reloads the page.
+
+### What a switch keeps
+
+**In place: between core's own UI and composed shells.** Classic ↔ Desktop, and
+to or from any plugin shell without `load`. `UiShellHost` keeps one root of core's
+mounted (`CoreShellRoot`: the viewer provider, the sign-in gate, the 3D canvas,
+the layout) and only tells it which shell to show; the elements around the layout
+keep their places, so React remounts nothing below it. Kept: the websocket, the
+loaded models (from storage, a deep link, File → Open or a drop, the websocket),
+the camera, the selection, hidden objects, the FEA result on screen, open
+panels (shown at their place in the shell switched to), the undo history, every
+store. Swapped: the shell's header, footer and rail, its modes, its arrangements
+(each shell keeps its own saved documents), the top bar, panel overrides, theme
+tokens and body palette. The shell left behind is cleaned up: its palette command
+and key go, a mode that owned the scene colouring hands it back, and for a
+plugin's shell everything its plugin registered while the shell was up (commands,
+shortcuts, HUDs over the view: its chrome's) is taken down and given back when
+the shell returns. What the plugin registered before its shell came up (its
+feature plugin's) stays. `?ui=` is dropped from the address bar, so a manual
+reload opens the shell chosen. A multi-window dashboard stays the shell the page
+booted in (`bootUiShellId`): its pop-out windows keep talking to this one, and a
+new one opens in that shell; a reload rebinds it.
+
+**By a reload: a shell with `load`** (it brings a root of its own) **or one that
+sets `reloadOnSwitch`** (a composed shell that sets up something at load time it
+cannot take down), in either direction, and every switch after a shell crashed
+into the core fallback. The reload carries what it can:
+
+- *A deep-linked model.* `useUrlParamLoad` strips `?scope&file&derived` (and
+  every other param that came with them) once it has started the load, so the
+  address bar no longer says what is on screen; it registers the stripped params
+  with `carryOnShellSwitch`, and the reload goes to `shellSwitchUrl(...)`, which
+  puts them back. They are carried while the load is running and, after it, only
+  while the file is still loaded (a model the user closed does not come back);
+  `ui` is never carried, a param already in the URL wins, a throwing carry is
+  skipped. Nothing is written to the address bar for good, so a bookmark or a
+  manual reload behaves as before, and a deep-linked load is still not added to
+  the scope's scene record.
+- *Models from storage or the asset browser* (REST): the scene restore brings
+  them back from the scope's scene record, with the camera, hidden objects and
+  selection, as after any reload. The switch marks its reload
+  (`loadedByShellSwitch`), so they come back even with "restore after reload" off.
+- *Not carried:* a file opened from disk (File → Open, a drop) has no server copy,
+  and a websocket viewer's scene is the server's; they survive in-place switches
+  only. Stashing local files' bytes for a reload was left out: a model can be
+  hundreds of megabytes, and the switches users make (Classic ↔ Desktop) are in place.
+
+**Modes** of a composed shell (`setShellMode`) never reload or remount: the
+canvas, the models and the selection stay; panels the mode left placed go with it
+(unless pinned), and a mode that owns the scene colouring suspends and restores it.
 
 ## Failure isolation
 

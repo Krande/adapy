@@ -186,11 +186,29 @@ export interface UiShellSpec {
    * theme is applied again whenever it changes. The shell's own chrome is untouched.
    */
   bodyPalette?: Record<string, string> | ((theme: PluginTheme) => Record<string, string>);
+  /**
+   * True: switching to or from this shell reloads the page, even when both
+   * sides are composed. For a composed shell that sets up something at load
+   * time it cannot take down again. Absent: a composed shell (and core's own
+   * UI) is switched in place (`setActiveUiShell`); a shell with `load` is
+   * always switched by a reload.
+   */
+  reloadOnSwitch?: boolean;
 }
 
 /** Is `spec` composed from core's layout (no root component of its own). */
 export function isComposedShell(spec: Pick<UiShellSpec, "load">): boolean {
   return typeof spec.load !== "function";
+}
+
+/**
+ * Does `spec` run under core's root, so that a switch between two such shells
+ * can happen in place: core's own UI and every composed shell, unless it asks
+ * for a reload (`reloadOnSwitch`). A shell with `load` brings a root of its own.
+ */
+export function switchesInPlace(spec: Pick<UiShellSpec, "id" | "load" | "reloadOnSwitch">): boolean {
+  if (spec.reloadOnSwitch) return false;
+  return spec.id === CORE_UI_SHELL_ID || isComposedShell(spec);
 }
 
 export interface RegisteredUiShell extends UiShellSpec {
@@ -259,6 +277,11 @@ export function resetUiShells(): void {
   _shells.clear();
   _buildDefault = null;
   _activeCache = null;
+  _bootId = null;
+  _loadedBySwitch = null;
+  _switchCarries.clear();
+  _switchHost = null;
+  _activeListeners.clear();
 }
 
 /**
@@ -270,6 +293,7 @@ export function resetUiShells(): void {
 export function setBuildDefaultUiShellId(id: string | null | undefined): void {
   _buildDefault = id?.trim() || null;
   _activeCache = null;
+  _bootId = null;
 }
 
 export function buildDefaultUiShellId(): string | null {
@@ -381,10 +405,13 @@ export function resolveUiShell(opts: ResolveUiShellOptions = {}): UiShellResolut
   return { id: first?.id ?? CORE_UI_SHELL_ID, source: "builtin", rejected };
 }
 
-// The active shell is resolved once per page load and cached: swapping shells
-// mid-session would mean tearing down the scene, the websocket and every store,
-// so a switch is a persist-then-reload (see `setActiveUiShell`).
+// The active shell is resolved once per page load and cached. It changes during
+// the page's life only through an in-place switch (`setActiveUiShell`), which
+// tells the subscribers below.
 let _activeCache: UiShellResolution | null = null;
+// The shell the page booted in: what the multi-window dashboard is keyed by
+// (`layout/windows`), which an in-place switch does not move.
+let _bootId: string | null = null;
 
 export function activeUiShell(): UiShellResolution {
   if (!_activeCache) {
@@ -396,6 +423,11 @@ export function activeUiShell(): UiShellResolution {
       );
     }
   }
+  if (_bootId === null) {
+    _bootId = _activeCache.id;
+    // Read the switch marker at boot, so it never outlives this page.
+    loadedByShellSwitch();
+  }
   return _activeCache;
 }
 
@@ -403,9 +435,155 @@ export function activeUiShellId(): string {
   return activeUiShell().id;
 }
 
+/** The shell this page booted in. Differs from `activeUiShellId()` after an in-place switch. */
+export function bootUiShellId(): string {
+  return _bootId ?? activeUiShellId();
+}
+
+const _activeListeners = new Set<() => void>();
+let _activeVersion = 0;
+
+/** Called after an in-place switch has changed the active shell. Returns the unsubscribe. */
+export function subscribeActiveUiShell(cb: () => void): () => void {
+  _activeListeners.add(cb);
+  return () => {
+    _activeListeners.delete(cb);
+  };
+}
+
+/** Changes on every in-place switch (for `useSyncExternalStore`). */
+export function activeUiShellVersion(): number {
+  return _activeVersion;
+}
+
 /**
- * Persist a shell choice and (by default) reload so it takes effect. Clearing
- * back to the build default is `setActiveUiShell(null)`.
+ * Can a switch from shell `from` to shell `to` happen in place: both registered
+ * and both run under core's root (`switchesInPlace`).
+ */
+export function canSwitchInPlace(from: string, to: string): boolean {
+  const a = _shells.get(from);
+  const b = _shells.get(to);
+  return !!a && !!b && switchesInPlace(a) && switchesInPlace(b);
+}
+
+/**
+ * Who takes a switch in place: `UiShellHost`, while it mounts core's root. Asked
+ * with the shell switched to; true means it will show that shell once the
+ * active one changes, false that the page must reload.
+ */
+export type UiShellSwitchHost = (to: string) => boolean;
+
+let _switchHost: UiShellSwitchHost | null = null;
+
+/** Install the in-place switch host (null: none, every switch reloads). Returns the undo. */
+export function setUiShellSwitchHost(host: UiShellSwitchHost | null): () => void {
+  _switchHost = host;
+  return () => {
+    if (_switchHost === host) _switchHost = null;
+  };
+}
+
+/**
+ * Query params a shell switch should carry into its reload, or null for none.
+ *
+ * A switch that cannot happen in place reloads the page, and the page it
+ * reloads is whatever the address bar shows. Loads that arrive through the URL
+ * consume their params and strip them (`useUrlParamLoad`: `?scope&file&derived`
+ * and any plugin params with them), so after a deep-linked load the address
+ * bar no longer says what is on screen and a switch would boot the other shell
+ * with an empty scene. The code that strips params registers a carry here so
+ * the switch can put them back.
+ */
+export type ShellSwitchCarry = () => Record<string, string> | null | undefined;
+
+const _switchCarries = new Set<ShellSwitchCarry>();
+
+/**
+ * Register a provider of params for the next reloading shell switch's URL.
+ * Asked at the moment of the switch, so it can answer from what is loaded
+ * then. Returns a function that removes it.
+ */
+export function carryOnShellSwitch(carry: ShellSwitchCarry): () => void {
+  _switchCarries.add(carry);
+  return () => {
+    _switchCarries.delete(carry);
+  };
+}
+
+/**
+ * The URL a reloading shell switch goes to: `href` without `?ui=` (a stale one
+ * would outrank the new sticky choice), plus every carried param the URL does
+ * not already hold. A param in the URL wins over a carried one, and `ui` is
+ * never carried. A throwing provider is skipped, never the switch.
+ */
+export function shellSwitchUrl(href: string): string {
+  const url = new URL(href);
+  url.searchParams.delete(UI_SHELL_URL_PARAM);
+  for (const carry of _switchCarries) {
+    let params: Record<string, string> | null | undefined;
+    try {
+      params = carry();
+    } catch (err) {
+      console.warn("[plugins] a shell-switch carry threw; its params are not carried", err);
+      continue;
+    }
+    if (!params) continue;
+    for (const [key, value] of Object.entries(params)) {
+      if (key === UI_SHELL_URL_PARAM || url.searchParams.has(key)) continue;
+      url.searchParams.set(key, value);
+    }
+  }
+  return url.toString();
+}
+
+/** sessionStorage key set just before a switch reloads: the next page is that switch's. */
+export const UI_SHELL_SWITCH_RELOAD_KEY = "ada:ui-switch-reload";
+
+let _loadedBySwitch: boolean | null = null;
+
+/**
+ * Was this page loaded by a reloading shell switch? Read once a page (the
+ * marker is removed as it is read, so a manual reload after it is a plain
+ * reload again). The scene restore asks, to bring the previous page's models
+ * back even with "restore after reload" off.
+ */
+export function loadedByShellSwitch(): boolean {
+  if (_loadedBySwitch !== null) return _loadedBySwitch;
+  _loadedBySwitch = false;
+  try {
+    if (typeof sessionStorage === "undefined") return false;
+    _loadedBySwitch = sessionStorage.getItem(UI_SHELL_SWITCH_RELOAD_KEY) === "1";
+    if (_loadedBySwitch) sessionStorage.removeItem(UI_SHELL_SWITCH_RELOAD_KEY);
+  } catch {
+    // No session storage: not a switch's page as far as anyone can tell.
+  }
+  return _loadedBySwitch;
+}
+
+/** Drop `?ui=` from the address bar without navigating: it would outrank the choice on a manual reload. */
+function stripUiParamInPlace(): void {
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has(UI_SHELL_URL_PARAM)) return;
+    url.searchParams.delete(UI_SHELL_URL_PARAM);
+    window.history.replaceState(window.history.state, "", url.toString());
+  } catch {
+    // No history API (a test runtime): nothing in an address bar to fix.
+  }
+}
+
+/**
+ * Persist a shell choice and make it take effect. Clearing back to the
+ * deployment's default is `setActiveUiShell(null)`.
+ *
+ * Between two shells that run under core's root (core's own UI and composed
+ * shells, `switchesInPlace`) the switch happens IN PLACE when `UiShellHost` is
+ * mounted: the viewer, its 3D canvas, the scene and every store stay, and only
+ * the shell's layout, chrome, modes, panel overrides and look change. Otherwise
+ * (a shell with a root of its own, one that sets `reloadOnSwitch`) the page
+ * reloads into the new shell, carrying what it can: see `shellSwitchUrl` and
+ * `loadedByShellSwitch`. `reload: false` only persists the choice; the
+ * next page load picks it up.
  */
 export function setActiveUiShell(id: string | null, opts: { reload?: boolean } = {}): void {
   try {
@@ -414,16 +592,42 @@ export function setActiveUiShell(id: string | null, opts: { reload?: boolean } =
       else localStorage.removeItem(UI_SHELL_STORAGE_KEY);
     }
   } catch {
-    // Storage unavailable — fall through to the URL-param path below, which
-    // still gets the user into the shell they picked for this tab.
+    // Storage unavailable: an in-place switch still happens; a reload carries
+    // nothing that would choose the shell, and boots the default.
   }
   _activeCache = null;
   if (opts.reload === false) return;
+
+  // The shell switched to, as the next page would resolve it without `?ui=`.
+  const next: UiShellResolution =
+    id && _shells.has(id) ? { id, source: "storage" } : resolveUiShell({ search: "", stored: id });
+  let inPlace = false;
   try {
-    const url = new URL(window.location.href);
-    // A stale `?ui=` would outrank the new sticky choice on the next load.
-    url.searchParams.delete(UI_SHELL_URL_PARAM);
-    window.location.replace(url.toString());
+    inPlace = !!_switchHost && _switchHost(next.id);
+  } catch (err) {
+    console.warn("[plugins] the in-place shell switch failed; reloading instead", err);
+  }
+  if (inPlace) {
+    _activeCache = { id: next.id, source: next.source };
+    stripUiParamInPlace();
+    _activeVersion++;
+    for (const l of [..._activeListeners]) {
+      try {
+        l();
+      } catch (err) {
+        console.warn("[plugins] a UI-shell listener threw", err);
+      }
+    }
+    return;
+  }
+
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(UI_SHELL_SWITCH_RELOAD_KEY, "1");
+  } catch {
+    // No session storage: the scene restore follows its own setting.
+  }
+  try {
+    window.location.replace(shellSwitchUrl(window.location.href));
   } catch {
     if (typeof window !== "undefined") window.location.reload();
   }

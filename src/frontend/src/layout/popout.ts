@@ -13,6 +13,8 @@
 //
 // Dependency-free, so the facade root can export it.
 
+import { UI_SHELL_URL_PARAM, activeUiShellId, bootUiShellId } from "@/plugins/uiShells";
+
 import type { PanelId, RegisteredPanel } from "./panel";
 import { isSessionId, isWindowId, type WindowId } from "./windowBus";
 
@@ -65,6 +67,11 @@ function baseUrl(href: string): URL {
   for (const keep of ["ui", "plugins", "scope"]) {
     const v = from.get(keep);
     if (v) url.searchParams.set(keep, v);
+  }
+  // After an in-place shell switch the page's windows are still the shell it
+  // booted in (their bus and dashboard are that shell's): a new one boots into it too.
+  if (!url.searchParams.has(UI_SHELL_URL_PARAM) && bootUiShellId() !== activeUiShellId()) {
+    url.searchParams.set(UI_SHELL_URL_PARAM, bootUiShellId());
   }
   url.hash = "";
   return url;

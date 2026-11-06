@@ -157,6 +157,11 @@ export function unregisterShortcut(id: string): void {
   _shortcuts.delete(id);
 }
 
+/** The registered shortcuts of `owner` (not core's own table, not panels'). */
+export function shortcutsOwnedBy(owner: string): RegisteredShortcut[] {
+  return [..._shortcuts.values()].filter((s) => s.owner === owner);
+}
+
 /** Core's shortcuts, then registered ones, then non-core panels' `shortcut`s (as "Show or hide <title>"). */
 export function listShortcuts(toggle?: (id: PanelId) => void): RegisteredShortcut[] {
   const out = [..._core.values(), ..._shortcuts.values()];

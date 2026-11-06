@@ -81,6 +81,7 @@ import {
   canFloat,
   classicCover,
   classicOverlays,
+  classicShellId,
   classicToastAnchor,
   isOverlayPanel,
   leaveContext,
@@ -430,16 +431,22 @@ function ClassicFrame() {
   // A composed shell's starting panels; the host's controller is installed by now.
   // On load and on entering a mode of a composed shell: its plugin panels placed, its starting panels opened.
   const ctx = useClassicContext();
+  const shellId = classicShellId();
   const lastCtx = React.useRef(ctx);
-  // The prefs are loaded by now (the root waits for them): saved arrangements of an older shell version first.
-  React.useEffect(() => upgradeShellDocs(), []);
+  const lastShell = React.useRef(shellId);
+  // The prefs are loaded by now (the root waits for them): saved arrangements of an older shell version first,
+  // and again for the shell an in-place switch brings in.
+  React.useEffect(() => upgradeShellDocs(), [shellId]);
   React.useEffect(() => {
-    // Leaving a mode takes its placed panels with it.
-    if (lastCtx.current !== ctx) leaveContext(lastCtx.current, hide, isPanelOpen);
+    // Leaving a mode takes its placed panels with it. Not leaving a whole
+    // shell (an in-place switch): what is open stays open, at its place in
+    // the shell switched to.
+    if (lastCtx.current !== ctx && lastShell.current === shellId) leaveContext(lastCtx.current, hide, isPanelOpen);
     lastCtx.current = ctx;
+    lastShell.current = shellId;
     adoptDockedPanels();
     openStartingPanels(reveal);
-  }, [ctx]);
+  }, [ctx, shellId]);
   // Plugin panels in a group or window of their own leave their region hosts.
   React.useEffect(() => setPlacedElsewhere(placedElsewhere(doc, customisable, narrow)), [doc, customisable, narrow]);
   React.useEffect(() => () => setPlacedElsewhere([]), []);

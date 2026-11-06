@@ -2,9 +2,11 @@
 // floating and dockable panels, in documents of the shell's own (one per mode),
 // starting from the shell's grids, under the shell's header and theme tokens.
 // `AppRoot` (in `@/app`) wraps it in the routes, the sign-in gate and the viewer
-// provider that every shell shares.
+// provider that every shell shares. Core's own UI is this layout with no shell
+// (`spec` null), so a switch between it and a composed shell, or between two
+// composed shells, only hands in another `spec` (see `UiShellHost`).
 
-import React, {Suspense, useEffect, useState} from "react";
+import React, {Suspense, useEffect, useRef} from "react";
 
 import {getPluginModes} from "@/plugins/registry";
 import type {RegisteredUiShell, UiShellSpec} from "@/plugins/uiShells";
@@ -13,7 +15,10 @@ import {notifyActiveModeSceneColor} from "@/utils/scene/fea/modeSceneColor";
 
 import {useShellLook} from "./shellTheme";
 import {CommandPaletteHost, openCommandPalette} from "./CommandPalette";
-import {registerCommand} from "./commands";
+import {commandsOwnedBy, registerCommand, unregisterCommand, type RegisteredCommand} from "./commands";
+import {CORE_PANEL_OWNER} from "./corePanelIds";
+import {registerShortcut, shortcutsOwnedBy, unregisterShortcut, type RegisteredShortcut} from "./shortcuts";
+import {registerViewportOverlay, unregisterViewportOverlay, viewportOverlaysOwnedBy, type ViewportOverlaySpec} from "./viewportOverlays";
 import {registerCoreCommands} from "./coreCommands";
 import {ShortcutsDialogHost} from "@/components/options/ShortcutsModal";
 import {CoreDialogsHost} from "./CoreDialogsHost";
@@ -84,8 +89,44 @@ export function initialShellMode(
   return [asked, stored, fallback].find(has) ?? null;
 }
 
-/** Install the shell before the frame's first render, which reads it. */
-function installShell(spec: UiShellSpec): void {
+/** The palette's command, registered by a shell that asks for the palette. */
+export const COMMAND_PALETTE_COMMAND = "core:command-palette";
+
+/** What a plugin shell had registered under its plugin's id when it was taken down, put back when it is installed again. */
+interface ShellRegistrations {
+  commands: RegisteredCommand[];
+  shortcuts: RegisteredShortcut[];
+  overlays: (ViewportOverlaySpec & {owner: string})[];
+}
+const parked = new Map<string, ShellRegistrations>();
+
+function registrationsOf(owner: string): ShellRegistrations {
+  return {
+    commands: commandsOwnedBy(owner),
+    // A command's own key is the command's: it comes back with it.
+    shortcuts: shortcutsOwnedBy(owner).filter((s) => !s.id.startsWith("cmd:")),
+    overlays: viewportOverlaysOwnedBy(owner),
+  };
+}
+
+/**
+ * Install shell `spec` (null: core's own UI) before the frame renders, which
+ * reads it: its modes, its arrangements, the top bar, its panel overrides, core's
+ * commands and the palette's. Returns the undo, which an in-place switch runs
+ * before installing the next shell: the palette's command goes, and so does
+ * everything a plugin's shell registered under its plugin's id while it was up
+ * (commands, shortcuts, HUDs over the view), parked to come back if the shell
+ * is installed again. What every install sets (modes, arrangements, the top bar,
+ * overrides) the next install sets again.
+ */
+export function installShell(spec: UiShellSpec | null): () => void {
+  if (!spec) {
+    setShellModes([]);
+    setClassicShell(null);
+    setClassicToolbar(true);
+    setPanelOverrides(null);
+    return () => {};
+  }
   const modes = shellModes(spec);
   const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get(SHELL_MODE_PARAM) : null;
   setShellModes(modes, initialShellMode(modes, asked, readMode(spec.id), spec.layout?.defaultMode));
@@ -113,15 +154,66 @@ function installShell(spec: UiShellSpec): void {
   const palette = spec.chrome?.commandPalette;
   if (palette) {
     registerCommand(
-      {id: "core:command-palette", label: "Command palette", group: "View", keys: palette.keys, run: openCommandPalette},
+      {id: COMMAND_PALETTE_COMMAND, label: "Command palette", group: "View", keys: palette.keys, run: openCommandPalette},
       "core",
     );
   }
+  // A plugin's shell: what it registered when it was last up comes back (a
+  // module-level registration in its chrome runs only once a page).
+  const owner = (spec as Partial<RegisteredUiShell>).pluginId;
+  const scoped = !!owner && owner !== CORE_PANEL_OWNER;
+  const back = scoped ? parked.get(spec.id) : undefined;
+  if (back) {
+    parked.delete(spec.id);
+    for (const {owner: o, ...c} of back.commands) registerCommand(c, o);
+    for (const {owner: o, ...s} of back.shortcuts) registerShortcut(s, o);
+    for (const {owner: o, ...v} of back.overlays) registerViewportOverlay(v, o);
+  }
+  const before = scoped ? registrationsOf(owner!) : null;
+  return () => {
+    if (palette) unregisterCommand(COMMAND_PALETTE_COMMAND);
+    if (!before) return;
+    // What the plugin registered while its shell was up is the shell's (its
+    // chrome's); what it had before (its feature plugin's) stays.
+    const had = (ids: {id: string}[]) => new Set(ids.map((x) => x.id));
+    const now = registrationsOf(owner!);
+    const prev = {c: had(before.commands), s: had(before.shortcuts), o: had(before.overlays)};
+    const taken: ShellRegistrations = {
+      commands: now.commands.filter((c) => !prev.c.has(c.id)),
+      shortcuts: now.shortcuts.filter((s) => !prev.s.has(s.id)),
+      overlays: now.overlays.filter((v) => !prev.o.has(v.id)),
+    };
+    for (const c of taken.commands) unregisterCommand(c.id);
+    for (const s of taken.shortcuts) unregisterShortcut(s.id);
+    for (const v of taken.overlays) unregisterViewportOverlay(v.id);
+    if (taken.commands.length || taken.shortcuts.length || taken.overlays.length) parked.set(spec.id, taken);
+  };
+}
+
+/**
+ * Keep shell `spec` installed: before the first render, and again, after the
+ * previous one's undo, whenever an in-place switch hands in another one. The
+ * frame below keeps its state, the 3D canvas included.
+ */
+function useInstalledShell(spec: UiShellSpec | null): void {
+  const installed = useRef<{spec: UiShellSpec | null; undo: () => void} | null>(null);
+  if (!installed.current || installed.current.spec !== spec) {
+    installed.current?.undo();
+    installed.current = {spec, undo: installShell(spec)};
+  }
+  useEffect(
+    () => () => {
+      installed.current?.undo();
+      installed.current = null;
+    },
+    [],
+  );
 }
 
 /** Remember the active mode, and let core suspend or restore the FEA colouring for it. */
-function useModeEffects(shellId: string): void {
+function useModeEffects(shellId: string | null): void {
   useEffect(() => {
+    if (shellId === null) return;
     const report = () => {
       // A shell without modes has nothing to report, as core's own UI does not.
       if (!listShellModes().length) return;
@@ -141,42 +233,49 @@ function useModeEffects(shellId: string): void {
     return () => {
       unsubscribe();
       setFeaDeformationShown(MODE_DEFORMATION_OWNER, true);
+      // Leaving the shell (an in-place switch): a mode that owned the scene
+      // colouring gives it back, as leaving that mode would.
+      notifyActiveModeSceneColor(null);
     };
   }, [shellId]);
 }
 
-export default function ComposedLayout({spec}: {spec: UiShellSpec}) {
-  useState(() => {
-    installShell(spec);
-    return null;
-  });
-  useShellLook(spec);
-  useModeEffects(spec.id);
+/**
+ * Core's layout dressed as shell `spec`, or as core's own UI for null. An
+ * in-place switch hands in another `spec` (`UiShellHost`, `CoreShellRoot`):
+ * the elements around the layout keep their places, so the layout (and the 3D
+ * canvas in it) is never remounted; only the chrome, the modes and the look change.
+ * `children` replaces the layout (tests).
+ */
+export default function ComposedLayout({spec, children}: {spec: UiShellSpec | null; children?: React.ReactNode}) {
+  useInstalledShell(spec);
+  useShellLook(spec ?? undefined);
+  useModeEffects(spec?.id ?? null);
   const lazyOf = (load?: () => Promise<{default: React.ComponentType}>) => (load ? React.lazy(load) : null);
-  const Header = React.useMemo(() => lazyOf(spec.chrome?.header), [spec]);
-  const Footer = React.useMemo(() => lazyOf(spec.chrome?.footer), [spec]);
-  const Rail = React.useMemo(() => lazyOf(spec.chrome?.rail), [spec]);
+  const Header = React.useMemo(() => lazyOf(spec?.chrome?.header), [spec]);
+  const Footer = React.useMemo(() => lazyOf(spec?.chrome?.footer), [spec]);
+  const Rail = React.useMemo(() => lazyOf(spec?.chrome?.rail), [spec]);
   const slot = (C: React.ComponentType | null) =>
     C && (
       <Suspense fallback={null}>
         <C />
       </Suspense>
     );
+  // Every child keeps its position whatever the shell draws (a missing slot is
+  // a hole, not a shift), so React keeps the layout's element across a switch.
   return (
     <div className="flex h-full w-full flex-col">
       {slot(Header)}
       <div className="flex min-h-0 w-full flex-1 flex-row">
         {Rail && <div className="relative h-full shrink-0">{slot(Rail)}</div>}
-        <div className="relative h-full min-w-0 flex-1">
-          <LayoutRoot />
-        </div>
+        <div className="relative h-full min-w-0 flex-1">{children ?? <LayoutRoot />}</div>
       </div>
       {slot(Footer)}
-      {spec.chrome?.commandPalette && <CommandPaletteHost />}
+      {spec?.chrome?.commandPalette && <CommandPaletteHost />}
       {/* The shortcuts dialog, for a menu's "Keyboard shortcuts" (`core:shortcuts`). */}
-      <ShortcutsDialogHost />
+      {spec && <ShortcutsDialogHost />}
       {/* Help -> About and File -> Export (`core:about`, `core:export-*`). */}
-      <CoreDialogsHost />
+      {spec && <CoreDialogsHost />}
     </div>
   );
 }

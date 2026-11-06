@@ -15,7 +15,7 @@
 
 import {useSyncExternalStore} from "react";
 
-import {activeUiShellId} from "@/plugins/uiShells";
+import {bootUiShellId} from "@/plugins/uiShells";
 
 import {registerCommand, unregisterCommand} from "./commands";
 import type {PanelId, PanelMenuItem, RegisteredPanel} from "./panel";
@@ -56,7 +56,9 @@ import {
 // Storage keys, per UI shell.
 // ---------------------------------------------------------------------------
 
-const shell = () => activeUiShellId();
+// The shell the page booted in: its bus and its dashboard stay that shell's
+// through an in-place switch, and a pop-out it opens boots into it (`popout.ts`).
+const shell = () => bootUiShellId();
 /** A pop-out window's arrangement (its own `LayoutPrefs`, apart from the main window's), in dashboard session `session`. */
 export const windowLayoutKey = (id: WindowId, session: string = dashboardSession(), shellId: string = shell()) =>
   `ada:layout-window:${shellId}:${session}:${id}`;

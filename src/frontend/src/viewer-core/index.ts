@@ -412,6 +412,24 @@
 //          `openCoreDialog` / `closeCoreDialog` (`CoreDialogRequest`,
 //          `ExportScope`), drawn by a composed layout. Additive, apart from the two
 //          reserved chords.
+//          UI-shell switches keep the scene. Between core's own UI and composed
+//          shells `setActiveUiShell` switches IN PLACE (no reload): the viewer,
+//          its canvas, the loaded models, the selection, the camera and every
+//          store stay, and the shell's layout, chrome, modes, panel overrides,
+//          theme tokens and body palette are swapped; the shell switched away
+//          from loses its palette command and, for a plugin's shell, what its
+//          plugin registered while it was up (commands, shortcuts, HUDs), given
+//          back when it returns. A shell with `load`, or one that sets the new
+//          `UiShellSpec.reloadOnSwitch`, is still switched by a reload, which
+//          carries a deep link (`carryOnShellSwitch`, `shellSwitchUrl`,
+//          `ShellSwitchCarry`) and restores the stored models, camera, hidden
+//          objects and selection through the scene restore, even with that
+//          setting off (`loadedByShellSwitch`). On the root: `switchesInPlace`,
+//          `canSwitchInPlace`, `subscribeActiveUiShell`, `activeUiShellVersion`,
+//          `bootUiShellId` (the shell the page booted in; a multi-window
+//          dashboard stays that shell's through an in-place switch, and a
+//          pop-out it opens boots into it). Behaviour change: a switch between
+//          core's UI and the Desktop UI no longer reloads the page.
 export const VIEWER_CORE_API_VERSION = "1.14.0";
 
 // ---------------------------------------------------------------------------
@@ -466,15 +484,31 @@ export type {
 export {
   activeUiShell,
   activeUiShellId,
+  activeUiShellVersion,
+  bootUiShellId,
   buildDefaultUiShellId,
+  canSwitchInPlace,
+  carryOnShellSwitch,
   CORE_UI_SHELL_ID,
   getUiShell,
   listUiShells,
+  loadedByShellSwitch,
   setActiveUiShell,
+  shellSwitchUrl,
+  subscribeActiveUiShell,
+  switchesInPlace,
   UI_SHELL_STORAGE_KEY,
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
-export type { RegisteredUiShell, UiShellChrome, UiShellLayout, UiShellMode, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+export type {
+  RegisteredUiShell,
+  ShellSwitchCarry,
+  UiShellChrome,
+  UiShellLayout,
+  UiShellMode,
+  UiShellResolution,
+  UiShellSpec,
+} from "@/plugins/uiShells";
 // A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
 export {
   activeShellMode,

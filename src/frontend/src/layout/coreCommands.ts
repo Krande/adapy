@@ -367,7 +367,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: shell.label,
       group: "User interface",
       checked: () => activeUiShellId() === shell.id,
-      // Persisted, then a reload: a shell owns the whole tree.
+      // Persisted, then in place (core's own UI, composed shells) or by a reload (`setActiveUiShell`).
       run: () => {
         if (activeUiShellId() !== shell.id) setActiveUiShell(shell.id);
       },

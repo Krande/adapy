@@ -134,8 +134,13 @@ export function togglePin(id: PanelId): void {
   if (shell) layoutStore.getState().setPinned(shell.id, id, !pinnedPanels().includes(id));
 }
 
-/** The composed shell served; null for core's own UI. Set once at startup, before the frame renders. */
+/** The composed shell served; null for core's own UI. Set before the frame renders, again by an in-place shell switch. */
 let shell: ClassicShell | null = null;
+
+/** The id of the composed shell served; null for core's own UI. */
+export function classicShellId(): string | null {
+  return shell?.id ?? null;
+}
 
 /**
  * Serve a composed shell: a document of its own per mode (context `<shell>` or
