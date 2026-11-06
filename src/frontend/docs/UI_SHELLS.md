@@ -313,15 +313,30 @@ piece of state, on every change and on request (`registerMirrorTopic`: a
 the panel's actions go back as commands the main window runs on its own state
 (`registerMirrorCommand`, `sendMirrorCommand`), which it then republishes.
 Three.js objects never cross. Core mirrors the selection (`core:selection`: the
-object info store) and whether an FEA session is active, and has a
-`core:select-node` command; the object info panel is `mirrored`. While no main
-window is open, a mirrored panel shows a "Main window closed" state.
+object info store, plus the selected range count and the parent level its up
+arrow selects) and whether an FEA session is active; the object info panel is
+`mirrored`. While no main window is open, a mirrored panel shows a "Main window
+closed" state.
+
+**Acting from a pop-out (`useSceneActions`).** A scene panel acts through one
+seam, `useSceneActions()` (`@/viewer-core/layout`), so its code is one path in
+every window: in the main window each action runs on its scene; in a pop-out
+(`isMirroredWindow()`) it is sent to the main window as a mirror command. Actions
+that are core commands -- hide selected, hide others, show all, fit all, fit
+selection, clear selection, undo, redo -- go as `core:run-command` `{id}`, which
+runs only the ids in `MIRRORED_CORE_COMMANDS`, through the core command's own
+action. The rest have commands of their own (`SCENE_ACTION_COMMANDS`):
+`core:select-node` `{id}`, `core:select-parent`, and the tree's row commands
+below. Arguments are ids and plain values; the main window resolves ids to its
+own tree rows and drops unknown ones. The object info panel's Hide, Hide others,
+Unhide all, Fit all, Go to object and up-a-level buttons work from a pop-out
+this way.
 
 What stays in the main window, and why:
 
 | Panel | Why not mirrored (yet) |
 |---|---|
-| Object info | Mirrored for reading. Its Hide / Hide others / Unhide all and navigation buttons act on the pop-out's own (empty) scene state and do nothing there; they need commands to become remote actions. |
+| Object info (parts) | Mirrored, buttons included. Still local to the pop-out: the mobile-only "Copy all (n)" (it copies the 3D selection's names, which the pop-out does not hold) and "+ Add mode" (the main window's additive picking); the procedural-cell context (cell names, cell hide, cell add mode: the builder store is not mirrored); "Show in data" (it resolves the picked element on the main window's FEA mesh, so it does not show); the selection download (it reads the 3D selection). |
 | Selection tree | The stock tree reads visibility from the 3D batches and its rows act on the scene through `NodeApi`s; mirroring needs a tree of its own fed by a tree snapshot, a visibility map and select / hide / isolate commands. |
 | Scene info | Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly. |
 | Simulation, result data | Step and field changes run closures held in the main window's FEA store (`applyStep`, streaming reloads); they need commands per control and a snapshot of about 30 store fields plus the manifest. |
@@ -336,6 +351,7 @@ without the panels changing.
 | URLs (root) | `WINDOW_PARAM`, `POPOUT_PARAM`, `popoutWindowId`, `popoutPanelId`, `isPopoutPage`, `windowUrl`, `popoutUrl`, `openWindow`, `canPopOut` |
 | Mirroring (root) | `registerMirrorTopic`, `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored` |
 | This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
+| Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
 
 ### The built-in Desktop UI
 

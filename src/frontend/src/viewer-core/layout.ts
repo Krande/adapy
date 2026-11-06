@@ -188,6 +188,16 @@ export {
   selectionSnapshot,
 } from "@/layout/windowMirrorCore";
 export type { SelectionSnapshot as MirroredSelection } from "@/layout/windowMirrorCore";
+// What a scene panel does, run here in the main window and sent there from a pop-out.
+export {
+  MIRRORED_CORE_COMMANDS,
+  SCENE_ACTION_COMMANDS,
+  isMirroredWindow,
+  remoteSceneActions,
+  sceneActions,
+  useSceneActions,
+} from "@/layout/sceneActions";
+export type { RowSelectMode, SceneActions } from "@/layout/sceneActions";
 export { CLASSIC_GRID_OPS, GridOpsProvider, GridView } from "@/layout/presets/classicGrid";
 export type { GridOps, GridViewProps } from "@/layout/presets/classicGrid";
 export { default as PopoutPage, POPOUT_ZONE } from "@/layout/PopoutPage";

@@ -15,63 +15,12 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
-import {buildTreeIndices, lowestCommonAncestor, selectableParent, TreeIndices} from "./treeGraph";
+import {selectableParent} from "./treeGraph";
+import {currentSelectionNode, noteTreeSelection, treeIndices as indices} from "./treeSelection";
 
-// --- indices cache (rebuilt only when treeData identity changes) ---------- //
+// --- selection <-> tree bridging (`./treeSelection`, read from the stores) - //
 
-let cachedRoot: TreeNodeData | null = null;
-let cachedIndices: TreeIndices | null = null;
-
-function indices(): TreeIndices | null {
-    const root = useTreeViewStore.getState().treeData;
-    if (!root) {
-        cachedRoot = null;
-        cachedIndices = null;
-        return null;
-    }
-    if (root !== cachedRoot || !cachedIndices) {
-        cachedIndices = buildTreeIndices(root);
-        cachedRoot = root;
-    }
-    return cachedIndices;
-}
-
-// --- selection <-> tree bridging ------------------------------------------ //
-
-/** Tree nodes backing the currently-selected draw ranges (resolved by the
- *  globally-unique ``model_key|rangeId`` — never by repeating display name). */
-export function selectedLeafNodes(): TreeNodeData[] {
-    const store = useTreeViewStore.getState();
-    const out: TreeNodeData[] = [];
-    for (const [mesh, ranges] of useSelectedObjectStore.getState().selectedObjects) {
-        const key: string | undefined =
-            (mesh as any).unique_key ?? (mesh.userData ? mesh.userData["unique_hash"] : undefined);
-        if (!key) continue;
-        for (const rid of ranges) {
-            const node = store.findNodeByRangeId(key, rid);
-            if (node) out.push(node);
-        }
-    }
-    return out;
-}
-
-/** The tree node representing the current selection level (LCA of the selected
- *  leaves), or null when nothing resolvable is selected. */
-export function currentSelectionNode(): TreeNodeData | null {
-    const idx = indices();
-    if (!idx) return null;
-    return lowestCommonAncestor(selectedLeafNodes(), idx);
-}
-
-/** Name of the parent level the "up" action would select, or null when there is
- *  none (nothing selected, or already at a file root). For the button tooltip +
- *  disabled state. */
-export function parentLevelName(): string | null {
-    const idx = indices();
-    const cur = currentSelectionNode();
-    if (!idx || !cur) return null;
-    return selectableParent(cur, idx)?.name ?? null;
-}
+export {currentSelectionNode, parentLevelName, selectedLeafNodes} from "./treeSelection";
 
 function collectSubtree(node: TreeNodeData, out: TreeNodeData[]): void {
     out.push(node);
@@ -108,6 +57,7 @@ export async function selectTreeNode(node: TreeNodeData): Promise<void> {
         useObjectInfoStore.getState().setName(node.name);
         useObjectInfoStore.getState().setSelectedNodeId(node.id);
     });
+    noteTreeSelection([node.id]);
     const tv = useTreeViewStore.getState();
     tv.setScope(node.id, node.name);
 

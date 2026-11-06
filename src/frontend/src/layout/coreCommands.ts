@@ -291,6 +291,19 @@ export function coreCommandSpecs(): CommandSpec[] {
   return specs;
 }
 
+/**
+ * Run core command `id`'s action here, registered or not and without its
+ * `when` / `disabledReason` (the caller decided): what a pop-out window's
+ * mirrored panel asks the main window for (`./sceneActions`). False for an id
+ * core has no command for.
+ */
+export function runCoreCommandAction(id: string): boolean {
+  const spec = coreCommandSpecs().find((s) => s.id === id);
+  if (!spec) return false;
+  spec.run();
+  return true;
+}
+
 let workspaceIds: string[] = [];
 
 /** One "load" command per saved workspace, kept in step with the saved ones. */

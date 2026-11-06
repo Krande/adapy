@@ -117,7 +117,10 @@ test("an older snapshot than the one applied is skipped; a new main window start
 
 test("core's selection topic carries the object info store's data, not its panel flag", async () => {
   resetMirror();
-  const { registerCoreMirror, selectionSnapshot, findTreeNode, SELECTION_TOPIC } = await import("@/layout/windowMirrorCore");
+  const { registerCoreMirror, resetCoreMirror, selectionSnapshot, findTreeNode, SELECTION_TOPIC } = await import("@/layout/windowMirrorCore");
+  const { resetSceneActionCommands } = await import("@/layout/sceneActions");
+  resetCoreMirror();
+  resetSceneActionCommands();
   const { listMirrorTopics } = await import("@/layout/windowMirror");
   const { useObjectInfoStore } = await import("@/state/objectInfoStore");
   registerCoreMirror();
@@ -125,7 +128,17 @@ test("core's selection topic carries the object info store's data, not its panel
   assert.ok(topic);
   useObjectInfoStore.setState({ name: "Beam 1", selectedNodeId: "n7", jsonData: { a: 1 }, show_info_box: true });
   const snap = selectionSnapshot();
-  assert.deepEqual(snap, { name: "Beam 1", selectedNodeId: "n7", faceIndex: null, clickCoordinate: null, clickedFace: null, jsonData: { a: 1 }, fileName: null });
+  assert.deepEqual(snap, {
+    name: "Beam 1",
+    selectedNodeId: "n7",
+    faceIndex: null,
+    clickCoordinate: null,
+    clickedFace: null,
+    jsonData: { a: 1 },
+    fileName: null,
+    rangeCount: 0,
+    parentName: null,
+  });
   assert.equal("show_info_box" in snap, false);
   let n = 0;
   const off = topic.subscribe(() => n++);
@@ -136,9 +149,14 @@ test("core's selection topic carries the object info store's data, not its panel
   off();
   // Applied in a pop-out: the data, and the flag left alone.
   useObjectInfoStore.setState({ show_info_box: false });
-  topic.apply({ ...snap, name: "Plate" });
+  topic.apply({ ...snap, name: "Plate", rangeCount: 3, parentName: "Deck" });
   assert.equal(useObjectInfoStore.getState().name, "Plate");
   assert.equal(useObjectInfoStore.getState().show_info_box, false);
+  // What the panel derives from the 3D selection goes to the mirror store, not the object info store.
+  const { useSceneMirrorStore } = await import("@/state/sceneMirrorStore");
+  assert.equal(useSceneMirrorStore.getState().rangeCount, 3);
+  assert.equal(useSceneMirrorStore.getState().parentName, "Deck");
+  assert.equal("rangeCount" in useObjectInfoStore.getState(), false);
   const tree = { id: "r", name: "root", children: [{ id: "a", name: "A", children: [{ id: "n7", name: "Beam", children: [] }] }] };
   assert.equal(findTreeNode(tree as never, "n7")?.name, "Beam");
   assert.equal(findTreeNode(tree as never, "zz"), null);

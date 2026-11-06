@@ -3,13 +3,16 @@
 //
 //   * `core:selection` -- the selected object as the object info panel shows it
 //     (`objectInfoStore`: its name, tree node, picked face and point, attribute
-//     JSON, source file). The three.js selection itself (meshes and draw ranges)
-//     stays in the main window.
+//     JSON, source file), plus what the panel derives from the three.js
+//     selection: how many ranges are selected and the parent level its up arrow
+//     selects (`sceneMirrorStore`). The three.js selection itself (meshes and
+//     draw ranges) stays in the main window.
 //   * `core:fea-session` -- whether an FEA result session is active (the panel
 //     words a few things differently then).
-//   * `core:select-node` -- select a tree node by id in the main window, as a
-//     tree row click or the object info's navigation does; the new selection
-//     comes back as `core:selection`.
+//   * the scene actions' commands (`./sceneActions`): `core:run-command` (core's
+//     hide / hide others / show all, clear selection, fits, undo / redo),
+//     `core:select-node`, `core:select-parent`, and the scene tree's row
+//     commands. A changed selection comes back as `core:selection`.
 //
 // The scene code a command runs is loaded only when it runs, so a pop-out
 // window that merely follows these does not load it.
@@ -17,15 +20,19 @@
 import type {TreeNodeData} from "@/components/tree_view/CustomNode";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
+import {parentLevelName, rowsById, selectedRangeCount} from "@/utils/tree_view/treeSelection";
 
-import {registerMirrorCommand, registerMirrorTopic} from "./windowMirror";
+import {registerSceneActionCommands, SCENE_ACTION_COMMANDS} from "./sceneActions";
+import {registerMirrorTopic} from "./windowMirror";
 
 export const SELECTION_TOPIC = "core:selection";
 export const FEA_SESSION_TOPIC = "core:fea-session";
-export const SELECT_NODE_COMMAND = "core:select-node";
+export const SELECT_NODE_COMMAND = SCENE_ACTION_COMMANDS.selectNode;
 
-/** The object info store's data, without its panel flag and actions. */
+/** The object info store's data, without its panel flag and actions, and what the panel derives from the 3D selection. */
 export interface SelectionSnapshot {
   name: string | null;
   selectedNodeId: string | null;
@@ -34,6 +41,10 @@ export interface SelectionSnapshot {
   clickedFace: {faceId: number; seq: number} | null;
   jsonData: unknown;
   fileName: string | null;
+  /** How many draw ranges are selected. */
+  rangeCount: number;
+  /** The parent level "up" would select; null when there is none. */
+  parentName: string | null;
 }
 
 export function selectionSnapshot(): SelectionSnapshot {
@@ -47,6 +58,8 @@ export function selectionSnapshot(): SelectionSnapshot {
     // Plain JSON from the server; anything else would not cross a window.
     jsonData: s.jsonData == null ? null : JSON.parse(JSON.stringify(s.jsonData)),
     fileName: s.fileName,
+    rangeCount: selectedRangeCount(),
+    parentName: parentLevelName(),
   };
 }
 
@@ -71,13 +84,25 @@ export function registerCoreMirror(): void {
   registerMirrorTopic<SelectionSnapshot>({
     id: SELECTION_TOPIC,
     snapshot: selectionSnapshot,
-    subscribe: (cb) =>
-      useObjectInfoStore.subscribe((s, prev) => {
+    subscribe: (cb) => {
+      const offInfo = useObjectInfoStore.subscribe((s, prev) => {
         // The panel flag is each window's own.
         if (s.show_info_box !== prev.show_info_box && s.name === prev.name && s.jsonData === prev.jsonData) return;
         cb();
-      }),
-    apply: (data) => useObjectInfoStore.setState({...data}),
+      });
+      // The count and the parent level follow the 3D selection and the tree.
+      const offSel = useSelectedObjectStore.subscribe((s, prev) => void (s.selectedObjects !== prev.selectedObjects && cb()));
+      const offTree = useTreeViewStore.subscribe((s, prev) => void (s.treeData !== prev.treeData && cb()));
+      return () => {
+        offInfo();
+        offSel();
+        offTree();
+      };
+    },
+    apply: ({rangeCount, parentName, ...info}) => {
+      useObjectInfoStore.setState({...info});
+      useSceneMirrorStore.setState({rangeCount: rangeCount ?? 0, parentName: parentName ?? null});
+    },
   });
   registerMirrorTopic<{sessionActive: boolean}>({
     id: FEA_SESSION_TOPIC,
@@ -85,12 +110,10 @@ export function registerCoreMirror(): void {
     subscribe: (cb) => useFeaAnimationStore.subscribe((s, prev) => void (s.sessionActive !== prev.sessionActive && cb())),
     apply: (data) => useFeaAnimationStore.setState({sessionActive: data.sessionActive}),
   });
-  registerMirrorCommand<{id: string}>({
-    id: SELECT_NODE_COMMAND,
-    run: (args) => {
-      const node = typeof args?.id === "string" ? findTreeNode(useTreeViewStore.getState().treeData, args.id) : null;
-      if (!node) return;
-      void import("@/utils/tree_view/treeNavigation").then((m) => m.selectTreeNode(node));
-    },
-  });
+  registerSceneActionCommands(rowsById);
+}
+
+/** Forget the registration -- tests only (with `resetMirror`). */
+export function resetCoreMirror(): void {
+  registered = false;
 }
