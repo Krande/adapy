@@ -1,0 +1,11 @@
+{
+  "productName": "ada-desktop",
+  "identifier": "org.adapy.desktop",
+  "build": {},
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "icon": ["icons/icon.ico"] }
+}

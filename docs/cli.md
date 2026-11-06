@@ -489,6 +489,68 @@ environment; `api` also takes `--viewer`.
 `ada serve worker`
 :   Run the conversion worker (a NATS JetStream consumer).
 
+## `ada desktop`
+
+Run the local viewer and open it in a native window instead of a browser tab.
+It starts `python -m ada.comms.rest` with local storage, no login and no job
+queue, bound to 127.0.0.1, opens the `ada-desktop` window on it, and stops it
+when the last window closes. Pop-outs and dashboard windows open as native
+windows. The window shell (`ada-desktop`) comes in a separate conda package,
+`ada-py-desktop` (Windows only for now);
+see `src/desktop/README.md` in the repository for how it is built and what it
+allows the page to do.
+
+```bash
+ada desktop                      # the viewer, empty
+ada desktop model.ifc            # upload model.ifc into the personal scope and open it
+ada desktop --no-window          # the viewer only; open the printed URL in a browser
+```
+
+`FILE`
+:   Optional. Uploaded into the local viewer's personal scope under its file
+    name and opened with `?file=`, as if uploaded from the page. A type the
+    viewer cannot read is reported and the window opens without it.
+
+`--port N`
+:   The viewer port. Default: `$ADA_DESKTOP_PORT`, else a fixed port for the
+    current user in 38500-38999 (`ada desktop --help` shows yours). It is
+    fixed on purpose: the viewer keeps layouts and settings in browser storage,
+    which belongs to the page's origin and so to the port. If another program
+    holds the port, this launch uses a free one and warns that it starts
+    without those settings. If a viewer started by another `ada desktop`
+    already runs there, the command opens one more window on it instead, and
+    that viewer stops only when every window is closed.
+
+`--data DIR`
+:   Local storage (uploaded files, derived results). Default: a per-user
+    directory, `%LOCALAPPDATA%\ada\desktop\data` on Windows.
+
+`--viewer NAME`
+:   Serve an installed viewer bundle (see `ada viewers`) instead of the
+    built-in viewer.
+
+`--static DIR` / `--zip FILE`
+:   Serve a built viewer directory, or a single-file viewer zip. The default
+    is the zip shipped in ada-py, unpacked once per content hash into the user
+    cache directory.
+
+`--binary PATH`
+:   The `ada-desktop` shell. Default: `$ADA_DESKTOP_BINARY`, else
+    `ada-desktop` on `PATH` or in the active environment (`Library\bin` on
+    Windows). Without one the command says how to install it.
+
+`--title T`
+:   Main window title (default: Ada Studio).
+
+`--no-window`
+:   Start the viewer only, print its URL and wait for Ctrl+C.
+
+`--shell-arg ARG`
+:   Pass `ARG` to the shell, e.g. `--shell-arg=--no-spacemouse`. Repeatable.
+
+`--timing`
+:   Print how long the viewer took to start and stop.
+
 ## `ada viewers`
 
 List the installed viewer bundles. adapy's own viewer carries no plugins; they

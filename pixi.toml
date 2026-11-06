@@ -270,6 +270,9 @@ viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "adacpp-run
 viewer-api-tests-adacpp = { features = ["viewer-api", "tests-core", "prod", "adacpp-runtime"], solve-group = "viewer", no-default-feature = true }
 meshio-bridge = { features = ["meshio-bridge", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
+# Builds the `ada desktop` window shell (src/desktop). Not the `desktop` feature above, which is the
+# notebook stack. Run with: pixi run -e desktop-shell build-desktop
+desktop-shell = { features = ["desktop-shell"], no-default-feature = true }
 
 # Official buildingSMART-aligned IFC validation, kept in a dedicated feature so
 # its closure stays out of the main envs. Covers the OFFLINE, installable parts
@@ -706,6 +709,18 @@ flatbuffers = "==25.2.10"
 
 [feature.test-pyodide.dependencies]
 nodejs = "*"
+
+# The native window shell `ada desktop` opens (src/desktop, a Rust/Tauri crate; Windows first, see
+# src/desktop/README.md). Rust from conda-forge; the MSVC linker comes from the Visual Studio Build
+# Tools on the machine, as for any Rust build on Windows. Its own environment, so no other solve moves.
+[feature.desktop-shell]
+platforms = ["win-64"]
+
+[feature.desktop-shell.dependencies]
+rust = ">=1.85"
+
+[feature.desktop-shell.tasks]
+build-desktop = { cmd = "cargo build --release --locked --manifest-path src/desktop/Cargo.toml", description = "Build src/desktop into src/desktop/target/release/ada-desktop.exe" }
 
 [feature.test-pyodide.tasks]
 install-pyodide = { cmd = "npm install", cwd = "scripts/testing/pyodide-test", outputs = ["scripts/testing/pyodide-test/node_modules"] }
